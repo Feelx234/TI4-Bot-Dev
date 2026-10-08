@@ -2107,11 +2107,23 @@ pub struct Table {
     pub log: DecisionLog,
     observed_offer: Option<Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>>,
     auto_resolved_observer: Option<Box<dyn FnMut(&AutoResolved) + Send>>,
+    window_observer: Option<WindowObserver>,
     /// Decisions settled without asking, since the last drain. Never part of the decision log.
     auto_resolved: Vec<AutoResolved>,
     choice_failures: u64,
     last_choice_error: Option<IllegalChoice>,
 }
+
+/// Callback told that a reaction window opened for a seat that is not asked anything in it.
+///
+/// Arguments: the seat, the window's event type, whether it is a "when" or "after" window, the
+/// current state, and a function that publishes the decisions settled so far. The callback is
+/// presentation only: it gets no way to change the game, answer a choice, or draw from any random
+/// stream, and nothing it does is journaled.
+pub type WindowObserver = Box<
+    dyn FnMut(&PlayerId, &str, crate::timing::Relation, &ti4_model::state::GameState, &mut dyn FnMut())
+        + Send,
+>;
 
 /// A decision the engine settled itself because exactly one option was legal.
 ///
@@ -2136,6 +2148,7 @@ impl Default for Table {
             log: DecisionLog::default(),
             observed_offer: None,
             auto_resolved_observer: None,
+            window_observer: None,
             auto_resolved: Vec::new(),
             choice_failures: 0,
             last_choice_error: None,
@@ -2168,6 +2181,34 @@ impl Table {
         callback: impl FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send + 'static,
     ) {
         self.observed_offer = Some(Box::new(callback));
+    }
+
+    /// Be told when a reaction window opens for a seat that has nothing to decide in it.
+    pub fn on_window_skipped(&mut self, observer: WindowObserver) {
+        self.window_observer = Some(observer);
+    }
+
+    /// Tell the observer (if any) that `player` is not asked in this window.
+    ///
+    /// Purely informational: the answer sequence, the log and the game state are untouched.
+    pub fn window_skipped(
+        &mut self,
+        player: &PlayerId,
+        event_type: &str,
+        relation: crate::timing::Relation,
+        state: &ti4_model::state::GameState,
+    ) {
+        let Some(mut observer) = self.window_observer.take() else {
+            return;
+        };
+        let records = &self.log.records;
+        let offered = &mut self.observed_offer;
+        observer(player, event_type, relation, state, &mut || {
+            if let Some(callback) = offered {
+                callback(records, state);
+            }
+        });
+        self.window_observer = Some(observer);
     }
 
     /// Be told, as it happens, about each decision the engine settles without asking.

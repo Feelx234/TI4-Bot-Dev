@@ -890,6 +890,22 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             }
             lock.note_auto_resolved(&note.player, &note.prompt, &note.label, &note.reason);
         });
+        // A reaction window of a kind this seat declared opened without asking it anything: the
+        // live game waits a moment (see `session::bluff`). Never during a replay.
+        let hold_shared = worker_shared.clone();
+        let hold_prior = prior_queue.clone();
+        table.on_window_skipped(Box::new(move |seat, event_type, relation, state, publish| {
+            let replaying = !hold_prior.lock().expect("prior queue lock").is_empty();
+            crate::session::bluff_hold::maybe_hold(
+                &hold_shared,
+                replaying,
+                seat,
+                event_type,
+                relation,
+                state,
+                publish,
+            );
+        }));
         table.on_observed_offer(move |records, state| {
             let mut lock = offer_shared.lock().expect("shared lock");
             let mut published = offer_published.lock().expect("published count lock");

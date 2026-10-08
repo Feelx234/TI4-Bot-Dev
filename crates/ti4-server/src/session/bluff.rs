@@ -237,7 +237,6 @@ impl BluffBook {
         self.budget_left(seat, round) < self.policy.min_hold
     }
 
-    #[allow(dead_code)] // used by the live hold (next commit)
     pub(crate) fn account(&mut self, seat: &PlayerId, round: u32, spent: Duration) {
         let state = self.seats.entry(seat.clone()).or_default();
         if state.round != round {

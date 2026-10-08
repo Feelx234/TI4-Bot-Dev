@@ -1,5 +1,6 @@
 pub mod batch;
 pub mod bluff;
+pub mod bluff_hold;
 pub mod decider;
 pub mod registry;
 pub mod replay;
@@ -565,6 +566,17 @@ impl GameSession {
         self.shared.lock().expect("shared lock").reaction_intent_state(seat)
     }
 
+    /// Replace the bluff limits (tests use short durations; a running hold keeps its own).
+    pub fn set_bluff_policy(&self, policy: bluff::BluffPolicy) {
+        self.shared.lock().expect("shared lock").bluff.policy = policy;
+    }
+
+    /// The seat whose bluff hold is running right now, if any.
+    #[must_use]
+    pub fn bluff_holding(&self) -> Option<PlayerId> {
+        self.shared.lock().expect("shared lock").bluff.holding().cloned()
+    }
+
     pub fn game_version(&self) -> u64 {
         self.shared.lock().expect("shared lock").game_version
     }
@@ -686,6 +698,8 @@ impl GameSession {
         {
             let mut lock = self.shared.lock().expect("shared lock");
             lock.stopped = true;
+            // A running bluff hold ends at once instead of at its next poll.
+            lock.bluff.wake();
             // Dropping inboxes unblocks any waiting RemoteHumanDecider
             lock.seat_inboxes.clear();
         }
