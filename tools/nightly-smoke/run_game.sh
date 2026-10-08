@@ -50,7 +50,7 @@ start)
   # run still in progress (another slot, possibly still building) has picked.
   port=""
   for _ in $(seq 1 50); do
-    candidate=$(shuf -i 20000-49000 -n 1)
+    candidate=$(shuf -i "$PORT_MIN-$PORT_MAX" -n 1)
     if python3 - "$candidate" "$(dirname "$run_dir")" <<'PY'
 import glob, json, os, socket, sys
 port, runs = int(sys.argv[1]), sys.argv[2]
@@ -74,7 +74,7 @@ for number in (port, port + 1):
 PY
     then port=$candidate; break; fi
   done
-  [ -n "$port" ] || port=$(shuf -i 20000-49000 -n 1)
+  [ -n "$port" ] || port=$(shuf -i "$PORT_MIN-$PORT_MAX" -n 1)
   deadline="${DEADLINE:-$(( $(now_epoch) + 6 * 3600 ))}"
   # The code under test: nothing keeps interactive commits off the night branch while a game plays,
   # so each run records the commit and how many files differ from it.

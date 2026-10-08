@@ -65,6 +65,9 @@ REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-5}"
 # NIGHTLY_PREP_PROBABILITY=0 switches the exercise off (it passes TI4_SMOKE_PREP=0).
 PREP_PROBABILITY="${NIGHTLY_PREP_PROBABILITY:-0.5}"
 PREP_AUTO_PROBABILITY="${NIGHTLY_PREP_AUTO_PROBABILITY:-0.9}"
+# Backend port range of the games (the frontend takes port + 1).
+PORT_MIN="${NIGHTLY_PORT_MIN:-20000}"
+PORT_MAX="${NIGHTLY_PORT_MAX:-49000}"
 # Cap on screenshots a run saves to trace/shots (TI4_SMOKE_SHOT_CAP; a number or "all" = 20).
 SHOT_CAP="${NIGHTLY_SHOT_CAP:-20}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop

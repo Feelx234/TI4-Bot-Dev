@@ -134,7 +134,9 @@ highest_run_number() { # highest_run_number <runs-dir> [<prefix>]
 }
 
 # sleep that a signal can interrupt at once (a foreground sleep would delay the traps).
-nap() { sleep "$1" & wait $! 2>/dev/null; }
+# The sleeper does not inherit the sweep lock (fd 9) or the admission lock (fd 6): a killed sweep
+# must not stay "running" for as long as its last nap.
+nap() { sleep "$1" 9>&- 6>&- & wait $! 2>/dev/null; }
 # A process that exists and is not a zombie (a child that ended but was not waited for yet).
 alive() { local st; st=$(ps -o stat= -p "$1" 2>/dev/null); [ -n "$st" ] && [[ "$st" != Z* ]]; }
 
@@ -186,7 +188,7 @@ slot_init() { # slot_init <k>: sets the per-slot globals (no side effects)
 # Make web/node_modules of the live checkout visible in a worktree (and keep git from seeing it).
 link_node_modules() { # link_node_modules <worktree>
   local wt="$1" exclude
-  if [ -d "$REPO/web/node_modules" ] && [ ! -e "$wt/web/node_modules" ]; then
+  if [ -d "$REPO/web/node_modules" ] && [ -d "$wt/web" ] && [ ! -e "$wt/web/node_modules" ]; then
     ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
     exclude=$(git -C "$wt" rev-parse --git-path info/exclude)
     grep -qxF '/web/node_modules' "$exclude" 2>/dev/null || echo '/web/node_modules' >> "$exclude"
@@ -856,6 +858,7 @@ case "${1:-}" in
   tick-decide) decide_all ;;
   loop) cmd_loop "${2:-}" ;;
   highest-run-number) highest_run_number "${2:?usage: nightly.sh highest-run-number <runs-dir>}" ;; # test hook
+  mem-needed) mem_needed_mb ;; # test hook
   fix) cmd_fix "${2:-}" "${3:-}" ;;
   summary) cmd_summary "${2:-}" ;;
   *) echo "usage: $0 tick|tick-decide|loop [night]|fix <round> [night]|summary [night]" >&2; exit 2 ;;
