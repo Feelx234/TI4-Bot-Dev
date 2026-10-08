@@ -48,6 +48,8 @@ export interface MockGameOptions {
   spectator?: boolean;
   /** The lobby host (default: the viewing seat, who then sees the host-only controls). */
   host?: string;
+  /** Sees every client message the mocked server does not answer itself; `reply` pushes one back. */
+  onClientMessage?: (message: ClientMessage, reply: (message: unknown) => void) => void;
 }
 
 export interface MockedGame {
@@ -168,6 +170,8 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
         socket.send(
           JSON.stringify({ ...update, type: "state_update", reaction_modes: { ...reactionModes } }),
         );
+      } else {
+        options.onClientMessage?.(message, (reply) => socket.send(JSON.stringify(reply)));
       }
     });
   });

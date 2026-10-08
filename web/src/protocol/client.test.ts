@@ -949,6 +949,67 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("sends the declared bluff triggers, keeps them per seat, and takes the server's answer", async () => {
+    localStorage.clear();
+    const { client, socket, send } = await connectedPlayer();
+    client.setReactionIntent(["agenda"]);
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
+      type: "set_reaction_intent",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      triggers: ["agenda"],
+    });
+    expect(localStorage.getItem("bluff_triggers:game_12345:player_a")).toBe('["agenda"]');
+    // The answer carries no game version, so it is never dropped as stale.
+    send({
+      type: "reaction_intent_state",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      triggers: ["agenda"],
+      max_triggers: 3,
+      eligible: true,
+      budget_used_up: false,
+      holding: true,
+      locked_until_round: 2,
+    });
+    expect(client.getState().reactionIntent?.holding).toBe(true);
+    // A refusal that comes back with the old declaration puts the stored copy right.
+    send({
+      type: "reaction_intent_state",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      triggers: [],
+      max_triggers: 3,
+      eligible: false,
+      budget_used_up: false,
+      holding: false,
+    });
+    expect(localStorage.getItem("bluff_triggers:game_12345:player_a")).toBeNull();
+    client.passReactionHold();
+    expect(JSON.parse(socket.sent.at(-1)!)).toEqual({
+      type: "pass_reaction_hold",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+    });
+    client.stop();
+  });
+
+  it("sends a stored declaration again on connect, and nothing when none is stored", async () => {
+    localStorage.clear();
+    const mine = { ...snapshot, type: "initial_snapshot", viewer: { role: "player", seat: "player_a" } };
+    const { client: plain, socket: plainSocket, send: sendPlain } = await connectedPlayer();
+    sendPlain(mine);
+    expect(plainSocket.sent.some((text) => text.includes("set_reaction_intent"))).toBe(false);
+    plain.stop();
+    localStorage.setItem("bluff_triggers:game_12345:player_a", '["movement"]');
+    const { client, socket, send } = await connectedPlayer();
+    send(mine);
+    const resent = socket.sent.map((text) => JSON.parse(text)).find((m) => m.type === "set_reaction_intent");
+    expect(resent?.triggers).toEqual(["movement"]);
+    client.stop();
+    localStorage.clear();
+  });
+
   it("does not send a mode change for a spectator or without a connection", () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     const spectator = new GameSessionClient({ gameId: "game_12345", viewer: { role: "spectator" } });

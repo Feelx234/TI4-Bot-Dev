@@ -30,6 +30,7 @@ import {
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
 import { useSecondaryPrepare } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
+import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
@@ -245,6 +246,23 @@ const GameRoute: React.FC<{
   );
 };
 
+/** Gives a seated player the bluff selector on the player mat; a spectator gets none. */
+const BluffScope: React.FC<{
+  gameId: string;
+  seat: string | undefined;
+  intent: import("./protocol/types.ts").ReactionIntentStateMsg | null;
+  round: number;
+  onChange: (triggers: string[]) => void;
+  children: React.ReactNode;
+}> = ({ gameId, seat, intent, round, onChange, children }) =>
+  seat ? (
+    <BluffProvider gameId={gameId} seat={seat} intent={intent} round={round} onChange={onChange}>
+      {children}
+    </BluffProvider>
+  ) : (
+    <>{children}</>
+  );
+
 const GameViewContainer: React.FC<{
   gameId: string;
   lobby: import("./protocol/types.ts").LobbyDto;
@@ -262,6 +280,9 @@ const GameViewContainer: React.FC<{
     history: gameHistory,
     submitChoice,
     setReactionMode,
+    reactionIntent,
+    setReactionIntent,
+    passReactionHold,
     changeHistory,
     fetchReplay,
     fetchTurnRedoStatus,
@@ -430,6 +451,13 @@ const GameViewContainer: React.FC<{
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
+    <BluffScope
+      gameId={gameId}
+      seat={userSeat}
+      intent={reactionIntent}
+      round={snapshot?.view.round ?? 0}
+      onChange={setReactionIntent}
+    >
     <PreparedHintProvider
       value={
         prep.resolution.kind === "option" && !prep.preparing && prep.realChoice
@@ -476,6 +504,7 @@ const GameViewContainer: React.FC<{
               connectionStatus={status}
               userSeat={userSeat}
             />
+            <BluffHoldBar holding={Boolean(reactionIntent?.holding)} onPass={passReactionHold} />
             <div className="game-header__actions">
               <button
                 type="button"
@@ -659,6 +688,7 @@ const GameViewContainer: React.FC<{
       </CommandTokenDraftProvider>
       </PaymentDraftProvider>
     </PreparedHintProvider>
+    </BluffScope>
     </DecisionTableProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>

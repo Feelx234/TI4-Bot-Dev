@@ -574,6 +574,28 @@ export interface PongMsg {
   sequence: number;
 }
 
+/**
+ * The seat's own bluff settings. The server sends this only to the declaring seat (never to other
+ * seats or spectators) and it carries no game version, so it is never dropped as stale.
+ */
+export interface ReactionIntentStateMsg {
+  type?: "reaction_intent_state";
+  protocol_version: number;
+  game_id: string;
+  /** Declared trigger ids (see `bluffTriggers.ts`). */
+  triggers: string[];
+  max_triggers: number;
+  /** Whether this seat may bluff now: it holds action cards and set no card to Never offer. */
+  eligible: boolean;
+  ineligible_reason?: string;
+  /** The declaration cannot change before this round starts. */
+  locked_until_round?: number;
+  /** A stall budget is used up: no more holds. Private to this seat. */
+  budget_used_up: boolean;
+  /** A hold for this seat is running now. */
+  holding: boolean;
+}
+
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & InitialSnapshotMsg)
   | ({ type: "state_update" } & StateUpdateMsg)
@@ -584,7 +606,8 @@ export type ServerMessage =
   | ({ type: "error" } & ProtocolErrorMsg)
   | ({ type: "game_over" } & GameOverMsg)
   | ({ type: "pong" } & PongMsg)
-  | ({ type: "event" } & GameEventMsg);
+  | ({ type: "event" } & GameEventMsg)
+  | ({ type: "reaction_intent_state" } & ReactionIntentStateMsg);
 
 export type ClientMessage =
   | {
@@ -608,6 +631,18 @@ export type ClientMessage =
       /** The printed card name; every copy of it is covered. */
       card: string;
       mode: ReactionModeSetting;
+    }
+  | {
+      type: "set_reaction_intent";
+      protocol_version: number;
+      game_id: string;
+      /** Trigger ids this seat bluffs about; the whole declaration, empty clears it. */
+      triggers: string[];
+    }
+  | {
+      type: "pass_reaction_hold";
+      protocol_version: number;
+      game_id: string;
     }
   | {
       type: "ping";

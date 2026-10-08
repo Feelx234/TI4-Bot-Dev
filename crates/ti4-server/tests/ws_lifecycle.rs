@@ -918,3 +918,106 @@ async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
     let (_spectator_again, snapshot) = connect(&ws_url, &game_id, None).await;
     assert!(snapshot.reaction_modes.is_empty());
 }
+
+#[tokio::test]
+async fn reaction_intent_is_seated_players_only_validated_and_rate_limited() {
+    let (addr, _registry) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let (game_id, p1_token) =
+        create_game(&client, &addr, &["p1", "p2", "p3"], &["p2", "p3"], 322).await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token]).await;
+    let ws_url = format!("ws://{addr}/ws/games/{game_id}");
+
+    async fn connect(
+        ws_url: &str,
+        game_id: &str,
+        token: Option<&str>,
+    ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
+    {
+        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url).await.expect("connect");
+        let subscribe = ClientMessage::Subscribe {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: game_id.to_owned(),
+            player_session: token.map(str::to_owned),
+        };
+        stream
+            .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+            .await
+            .expect("subscribe");
+        let reply = stream.next().await.expect("snapshot").expect("ws ok");
+        assert!(matches!(
+            serde_json::from_str::<ServerMessage>(reply.to_text().unwrap()).unwrap(),
+            ServerMessage::InitialSnapshot(_)
+        ));
+        stream
+    }
+    let intent = |triggers: &[&str]| {
+        Message::Text(
+            serde_json::to_string(&ClientMessage::SetReactionIntent {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game_id.clone(),
+                triggers: triggers.iter().map(|t| (*t).to_owned()).collect(),
+            })
+            .unwrap()
+            .into(),
+        )
+    };
+    async fn next_error<S>(stream: &mut S) -> (ti4_server::protocol::error::ErrorKind, String)
+    where
+        S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        while let Some(Ok(msg)) = stream.next().await {
+            if let Ok(text) = msg.to_text()
+                && let Ok(ServerMessage::Error(error)) = serde_json::from_str::<ServerMessage>(text)
+            {
+                return (error.kind, error.message);
+            }
+        }
+        panic!("no error");
+    }
+
+    // A spectator cannot declare, and its Pass is silently ignored.
+    let mut spectator = connect(&ws_url, &game_id, None).await;
+    spectator.send(intent(&["agenda"])).await.unwrap();
+    assert_eq!(
+        next_error(&mut spectator).await.0,
+        ti4_server::protocol::error::ErrorKind::Unauthorized
+    );
+    spectator
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::PassReactionHold {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game_id.clone(),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    // A seated player with an empty hand is refused with a reason and told its own state.
+    let mut owner = connect(&ws_url, &game_id, Some(&p1_token)).await;
+    owner.send(intent(&["agenda"])).await.unwrap();
+    let (kind, message) = next_error(&mut owner).await;
+    assert_eq!(kind, ti4_server::protocol::error::ErrorKind::MalformedMessage);
+    assert!(message.contains("no action cards"), "{message}");
+    let state = loop {
+        let reply = owner.next().await.expect("reply").expect("ws ok");
+        if let Ok(ServerMessage::ReactionIntentState(state)) =
+            serde_json::from_str::<ServerMessage>(reply.to_text().unwrap())
+        {
+            break state;
+        }
+    };
+    assert!(!state.eligible && state.triggers.is_empty());
+
+    // An immediate second declaration is rate limited, not evaluated.
+    owner.send(intent(&["agenda"])).await.unwrap();
+    let (_, message) = next_error(&mut owner).await;
+    assert!(message.contains("too many"), "{message}");
+    // An unknown trigger is refused after the interval.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    owner.send(intent(&["nonsense"])).await.unwrap();
+    let (_, message) = next_error(&mut owner).await;
+    assert!(message.contains("unknown reaction trigger"), "{message}");
+}

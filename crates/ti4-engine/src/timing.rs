@@ -819,6 +819,8 @@ impl Resolver {
         let mut resolved_here = BTreeSet::<String>::new();
         let result = (|| {
             let mut passed = BTreeSet::<PlayerId>::new();
+            // Seats already looked at once in this window (see `Table::window_skipped`).
+            let mut announced = BTreeSet::<PlayerId>::new();
             loop {
                 let mut resolved_this_pass = false;
                 for player in self.player_order() {
@@ -833,8 +835,17 @@ impl Resolver {
                         context,
                     );
                     if eligible.is_empty() {
+                        if announced.insert(player.clone()) {
+                            context.table.window_skipped(
+                                &player,
+                                &event.event_type,
+                                relation,
+                                context.state,
+                            );
+                        }
                         continue;
                     }
+                    announced.insert(player.clone());
                     let Some(ability) =
                         self.pick_with_context(eligible, event, &player, relation, context)?
                     else {

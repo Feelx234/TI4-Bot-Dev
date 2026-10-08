@@ -38,6 +38,8 @@ pub async fn ws_handler(
 const OUTBOUND_QUEUE_CAPACITY: usize = 128;
 /// Maximum complete client WebSocket message, including JSON framing.
 pub const MAX_CLIENT_MESSAGE_BYTES: usize = 4 * 1024;
+/// Least time between two reaction declarations on one connection.
+const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);
 
 #[allow(clippy::too_many_lines)]
 async fn handle_socket(
@@ -96,6 +98,7 @@ async fn handle_socket(
     let mut current_role: Option<ViewerRole> = None;
     let mut current_token: Option<String> = None;
     let mut connection_id: Option<u64> = None;
+    let mut last_intent: Option<std::time::Instant> = None;
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
 
     // Inbound processing loop
@@ -322,6 +325,64 @@ async fn handle_socket(
                             message,
                         }))
                         .await;
+                }
+            }
+            ClientMessage::SetReactionIntent {
+                game_id: message_game_id,
+                triggers,
+                ..
+            } => {
+                let refusal = if message_game_id != game_id {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "set_reaction_intent game_id does not match the WebSocket path".to_owned(),
+                    ))
+                } else if last_intent.is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL) {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "too many reaction declarations; wait a moment".to_owned(),
+                    ))
+                } else {
+                    last_intent = Some(std::time::Instant::now());
+                    match &current_role {
+                        // The seat is the connection's own, never taken from the message.
+                        Some(ViewerRole::Player(seat)) => session
+                            .set_reaction_intent(seat, &triggers)
+                            .err()
+                            .map(|message| (ErrorKind::MalformedMessage, message)),
+                        Some(ViewerRole::Spectator) | None => Some((
+                            ErrorKind::Unauthorized,
+                            "only a seated player can declare reactions".to_owned(),
+                        )),
+                    }
+                };
+                if let Some((kind, message)) = refusal {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind,
+                            message,
+                        }))
+                        .await;
+                    // Re-sync the seat's own view of its settings after a refusal.
+                    if let Some(ViewerRole::Player(seat)) = &current_role {
+                        let _ = outbound_tx
+                            .send(ServerMessage::ReactionIntentState(
+                                session.reaction_intent_state(seat),
+                            ))
+                            .await;
+                    }
+                }
+            }
+            ClientMessage::PassReactionHold {
+                game_id: message_game_id,
+                ..
+            } => {
+                // Silent: a Pass from anyone but the held seat, or with nothing held, does nothing.
+                if message_game_id == game_id {
+                    if let Some(ViewerRole::Player(seat)) = &current_role {
+                        session.pass_reaction_hold(seat);
+                    }
                 }
             }
             ClientMessage::SubmitChoice {
