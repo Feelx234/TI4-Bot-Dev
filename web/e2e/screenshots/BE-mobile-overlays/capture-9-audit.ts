@@ -14,7 +14,9 @@ test.setTimeout(20 * 60_000);
 const sizes = Object.keys(SIZES) as SizeName[];
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-function verdict(rows: AuditRow[]): { text: string; tone: "ok" | "warn" | "bad" } {
+function verdict(all: AuditRow[]): { text: string; tone: "ok" | "warn" | "bad" } {
+  const rows = all.filter((r) => r.open.samples > 0);
+  if (!rows.length) return { text: "n/a: the page leaves no free map", tone: "warn" };
   const worst = rows.reduce((a, r) => (r.open.covered > a.open.covered ? r : a));
   if (worst.open.covered <= 0.15) return { text: "does not cover the map", tone: "ok" };
   const control = rows.find((r) => r.open.minimizeControl);
@@ -45,6 +47,7 @@ test("audit table", async ({ browser, page }, testInfo) => {
         .map((s) => {
           const r = rows.find((x) => x.size === s);
           if (!r) return "<td>-</td>";
+          if (r.open.samples === 0) return "<td>map hidden by the page<small>no free map to measure</small></td>";
           const min = r.minimized ? ` &rarr; ${pct(r.minimized.covered)}` : "";
           return `<td>${pct(r.open.covered)}${min}<small>${r.open.small.length} &lt;44px</small></td>`;
         })

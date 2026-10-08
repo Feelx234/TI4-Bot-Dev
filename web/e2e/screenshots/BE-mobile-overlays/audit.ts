@@ -49,7 +49,7 @@ export const AUDIT: AuditScene[] = [
   { overlay: "System tooltip", trigger: "touch on a system", extra: "tile-tooltip" },
   { overlay: "Secondary prep chip", trigger: "another seat resolves a strategy card", extra: "prep-chip" },
   { overlay: "Secondary prepare banner", trigger: "chip, then the question", extra: "prep-banner", thenFold: "prep-fold" },
-  { overlay: "Undo confirmation", trigger: "event log: Undo", extra: "undo-confirm", closeWith: "undo-confirm-cancel" },
+  { overlay: "Undo confirmation", trigger: "event log: Undo", extra: "undo-confirm", closeWith: "undo-confirm-cancel", thenFold: "event-log-mobile-toggle" },
   { overlay: "Error toast", trigger: "a refused history change", extra: "history-error" },
   { overlay: "Corner toast", trigger: "another seat acts", extra: "corner-toast" },
   { overlay: "Waiting banner / game over", trigger: "no decision; the game ends", extra: "game-over" },
@@ -65,6 +65,7 @@ export interface AuditRow extends AuditScene {
 export async function runAudit(browser: Browser, size: SizeName, only?: (scene: AuditScene) => boolean): Promise<AuditRow[]> {
   const rows: AuditRow[] = [];
   let exclude: number[] = [];
+  let excludeChrome: number[] = [];
   // The always-present action pane is minimized in every scene except its own row, so that a row shows
   // what its overlay covers and not the pane (the pane's own minimize control is not part of this change).
   const fresh = async (paneOpen = false) => {
@@ -78,6 +79,7 @@ export async function runAudit(browser: Browser, size: SizeName, only?: (scene: 
     const { context, page } = await fresh();
     await openExtra(page, "waiting-other", size);
     const base = await measureMap(page);
+    excludeChrome = base.chrome;
     exclude = [...new Set([...base.chrome, ...base.coveredIdx])];
     await context.close();
   }
@@ -87,7 +89,8 @@ export async function runAudit(browser: Browser, size: SizeName, only?: (scene: 
     try {
       if (scene.gallery) await openCase(page, scene.gallery, size);
       else await openExtra(page, scene.extra!, size);
-      const open = await measureMap(page, exclude);
+      const ex = scene.paneOpen ? excludeChrome : exclude;
+      const open = await measureMap(page, ex);
       const row: AuditRow = { ...scene, size, open };
       if (scene.closeWith) row.open.minimizeControl = scene.closeWith;
       if (open.covered > 0.15 && (await minimize(page, row.open.minimizeControl))) {
@@ -96,7 +99,7 @@ export async function runAudit(browser: Browser, size: SizeName, only?: (scene: 
           if (await fold.count()) await fold.evaluate((el) => (el as HTMLElement).click());
           await page.waitForTimeout(250);
         }
-        row.minimized = await measureMap(page, exclude);
+        row.minimized = await measureMap(page, ex);
       }
       rows.push(row);
     } catch (error) {

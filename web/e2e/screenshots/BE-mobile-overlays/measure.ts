@@ -18,6 +18,8 @@ export interface OverlayMetrics {
   chrome: number[];
   /** Sample points whose topmost element is not the map (and not map chrome). */
   coveredIdx: number[];
+  /** Sample points that counted (the grid minus the excluded ones); 0 when the page itself hides the whole map. */
+  samples: number;
 }
 
 const GRID = 12;
@@ -106,6 +108,7 @@ export async function measureMap(page: Page, exclude: number[] = []): Promise<Ov
       offscreen: offscreen.slice(0, 8),
       chrome,
       coveredIdx,
+      samples: total,
     };
   }, [GRID, exclude] as [number, number[]]);
 }
