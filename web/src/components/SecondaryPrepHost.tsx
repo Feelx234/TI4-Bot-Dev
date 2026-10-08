@@ -1,16 +1,20 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
-import { describePlan } from "../presentation/secondaryPlan.ts";
+import { describePlan, TRADE_WARNING } from "../presentation/secondaryPlan.ts";
+import { describeBlocker, describePayment } from "../presentation/secondaryPreview.ts";
 import type { SecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
 import { ValueText } from "./PlanetValueIcons.tsx";
 import "./SecondaryPrep.css";
 
 export interface SecondaryPrepHostProps {
   prep: SecondaryPrepare;
-  /** Sends the prepared answer for the viewer's real pending decision (the click-equivalent path). */
-  onConfirm: (resolution: SecondaryPrepare["resolution"]) => Promise<void>;
+  /**
+   * Sends the prepared answer for the viewer's real pending decision (the click-equivalent path).
+   * Defaults to the preparation hook's own play.
+   */
+  onConfirm?: (resolution: SecondaryPrepare["resolution"]) => Promise<void>;
   busy?: boolean;
 }
 
@@ -34,7 +38,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     setSending(true);
     setError(null);
     try {
-      await onConfirm(resolution);
+      await (onConfirm ?? prep.play)(resolution);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
@@ -43,7 +47,11 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   };
 
   const showChip = prep.canPrepare && !prep.preparing && action !== null;
-  const actionable = resolution.kind === "option" || resolution.kind === "tokens";
+  const actionable =
+    resolution.kind === "option" ||
+    resolution.kind === "tokens" ||
+    resolution.kind === "production" ||
+    resolution.kind === "payment";
   const showBar =
     nonce !== null &&
     dismissed !== nonce &&
@@ -51,6 +59,30 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     !holding &&
     (actionable || resolution.kind === "review");
   const showBanner = prep.preparing && action !== null;
+  // The dialog of the stand-in question starts below the banner (see SecondaryPrep.css).
+  useLayoutEffect(() => {
+    if (!showBanner) return;
+    const root = document.documentElement;
+    const measure = () => {
+      const banner = document.querySelector<HTMLElement>('[data-testid="prepare-banner"]');
+      const docked = banner?.closest(".secondary-prep") as HTMLElement | null;
+      const bottom =
+        banner && docked && getComputedStyle(docked).position !== "fixed"
+          ? Math.ceil(banner.getBoundingClientRect().bottom) + 8
+          : 0;
+      root.style.setProperty("--prep-banner-bottom", `${bottom}px`);
+    };
+    measure();
+    const banner = document.querySelector('[data-testid="prepare-banner"]');
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (banner) observer?.observe(banner);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      root.style.removeProperty("--prep-banner-bottom");
+    };
+  }, [showBanner]);
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;
 
   // The chip sits in the board's toolbar strip (a flow item there); the rest floats below that strip.
@@ -136,6 +168,23 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
               {prep.dry.approximate}
             </details>
           )}
+          {prep.dry?.exact && (
+            <p className="secondary-prep__note" data-testid="prepare-as-of-now" role="note">
+              Exact options from the game as of now; re-checked when your turn comes.
+              {action.family === "trade" && ` ${TRADE_WARNING}`}
+            </p>
+          )}
+          {prep.dry?.exact && prep.dry.payment && (
+            <p className="secondary-prep__note" data-testid="prepare-payment-preview" role="note">
+              Paying the {prep.dry.payment.cost} resources of a research: the game would use{" "}
+              <strong>{describePayment(prep.dry.payment) || "nothing"}</strong>.
+            </p>
+          )}
+          {prep.exactInfo.notAsked && (
+            <p className="secondary-prep__note secondary-prep__note--attention" data-testid="prepare-not-asked" role="note">
+              {describeBlocker(prep.exactInfo.notAsked)}
+            </p>
+          )}
         </section>
       )}
       {pending && (
@@ -162,7 +211,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
           <span className="secondary-prep__bar-text">
             <span className="secondary-prep__badge" style={{ marginRight: 8 }}>Prepared</span>
             <strong>
-              <ValueText text={resolution.kind === "option" || resolution.kind === "tokens" ? resolution.text : ""} />
+              <ValueText text={actionable ? resolution.text : ""} />
             </strong>
             {error && <span role="alert"> {error}</span>}
           </span>

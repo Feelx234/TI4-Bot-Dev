@@ -4,6 +4,8 @@ import React, { createContext, useContext } from "react";
 export interface PreparedHint {
   optionId: string;
   text: string;
+  /** Warfare: the planned build batches (unit ids), staged in the real production builder. */
+  builds?: string[];
 }
 
 const PreparedHintContext = createContext<PreparedHint | null>(null);

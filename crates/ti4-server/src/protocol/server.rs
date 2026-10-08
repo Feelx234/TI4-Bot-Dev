@@ -1541,6 +1541,61 @@ pub struct ReactionIntentStateMsg {
     pub holding: bool,
 }
 
+/// Why a secondary preview was refused (see [`SecondaryPreviewMsg`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewRefusal {
+    /// Only a seated player can ask.
+    NotSeated,
+    /// The game is not in a strategic action (or it is not the card the client named).
+    NoStrategicAction,
+    /// The seat played the card itself.
+    IsPrimary,
+    /// The seat has already been asked (or is being asked right now).
+    AlreadyAsked,
+    /// The session is replaying, rewinding, finished or failed.
+    Busy,
+    /// Too many requests on this connection; retry after the interval in the detail.
+    RateLimited,
+}
+
+/// What a preview request resolved to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one short-lived value per request; the engine value is carried as it is"
+)]
+pub enum PreviewResult {
+    /// The engine's answer: the question, "would not be asked", "complete" or "unavailable".
+    Preview {
+        preview: ti4_engine::secondary_preview::SecondaryPreview,
+    },
+    Refused {
+        reason: PreviewRefusal,
+        detail: String,
+    },
+}
+
+/// The answer to a `PreviewSecondary` request: what the asking seat would be asked for the
+/// secondary in progress if its window opened now. Sent only to the connection that asked;
+/// ephemeral (never persisted, logged or broadcast) and carries no game version in the envelope
+/// sense, so a stale-version filter never drops it: `as_of_version` says which position it was
+/// computed at, and the client re-checks the plan against the real question when it opens.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecondaryPreviewMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    pub request_id: u64,
+    /// The game version of the position the preview was computed from.
+    pub as_of_version: u64,
+    /// How many decisions the game had recorded then.
+    pub as_of_decisions: usize,
+    pub card: String,
+    pub outcome: PreviewResult,
+}
+
 /// Public turn status update.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1615,6 +1670,9 @@ pub enum ServerMessage {
     Event(GameEventMsg),
     /// The seat's own bluff settings. Sent only to the declaring seat, never broadcast.
     ReactionIntentState(ReactionIntentStateMsg),
+    /// What a seat would be asked for the secondary in progress, as of now. Sent only to the
+    /// connection that asked; ephemeral.
+    SecondaryPreview(SecondaryPreviewMsg),
 }
 
 impl ServerMessage {
@@ -1633,6 +1691,7 @@ impl ServerMessage {
             Self::Pong(m) => m.protocol_version,
             Self::Event(m) => m.protocol_version,
             Self::ReactionIntentState(m) => m.protocol_version,
+            Self::SecondaryPreview(m) => m.protocol_version,
         }
     }
 
@@ -1649,6 +1708,7 @@ impl ServerMessage {
             Self::GameOver(m) => Some(&m.game_id),
             Self::Event(m) => Some(&m.game_id),
             Self::ReactionIntentState(m) => Some(&m.game_id),
+            Self::SecondaryPreview(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1665,7 +1725,12 @@ impl ServerMessage {
             Self::ActionRejected(m) => Some(m.game_version),
             Self::GameOver(m) => Some(m.game_version),
             Self::Event(m) => m.entry.version,
-            Self::Error(_) | Self::Pong(_) | Self::ReactionIntentState(_) => None,
+            // Not versioned on purpose: a stale-version filter must never drop these (the
+            // preview names its own `as_of_version`).
+            Self::Error(_)
+            | Self::Pong(_)
+            | Self::ReactionIntentState(_)
+            | Self::SecondaryPreview(_) => None,
         }
     }
 }

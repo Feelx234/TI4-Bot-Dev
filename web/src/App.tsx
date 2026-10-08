@@ -289,6 +289,7 @@ const GameViewContainer: React.FC<{
     turnRedoCommand,
     submitMovementBatch,
     submitBatch,
+    previewSecondary,
     batchResume,
     resumeBatch,
     dismissBatchResume,
@@ -356,6 +357,10 @@ const GameViewContainer: React.FC<{
   // an answer with the usual UI. `pendingChoice` is then a client-made stand-in for the question
   // (answered into the local plan, never submitted), or nothing while an auto-played answer is
   // being sent. The engine's own decision is `realPendingChoice`.
+  const productionSubmitRef = useRef<
+    | ((units: string[], destination: string, real: import("./protocol/types.ts").PendingChoiceDto) => Promise<void>)
+    | null
+  >(null);
   const prep = useSecondaryPrepare({
     gameId,
     viewerSeat: userSeat,
@@ -368,6 +373,12 @@ const GameViewContainer: React.FC<{
     busy: historyBusy,
     submitChoice,
     submitBatch,
+    previewSecondary: userSeat ? previewSecondary : undefined,
+    refreshKey: `${events.length}:${events[events.length - 1]?.id ?? ""}:${gameHistory.generation ?? 0}`,
+    submitProduction: (units, destination, real) =>
+      productionSubmitRef.current
+        ? productionSubmitRef.current(units, destination, real)
+        : Promise.reject(new Error("The production builder is not available")),
   });
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
@@ -460,8 +471,12 @@ const GameViewContainer: React.FC<{
     >
     <PreparedHintProvider
       value={
-        prep.resolution.kind === "option" && !prep.preparing && prep.realChoice
-          ? { optionId: prep.resolution.optionId, text: prep.resolution.text }
+        !prep.preparing && prep.realChoice
+          ? prep.resolution.kind === "option"
+            ? { optionId: prep.resolution.optionId, text: prep.resolution.text }
+            : prep.resolution.kind === "production"
+              ? { optionId: "", text: prep.resolution.text, builds: prep.resolution.units }
+              : null
           : null
       }
     >
@@ -638,20 +653,13 @@ const GameViewContainer: React.FC<{
         objectiveProgress={snapshot?.view.table.objective_progress}
         onSubmitChoice={prep.preparing ? prep.prepareSubmit : submitChoice}
         prepOverlay={
-          <SecondaryPrepHost
-            prep={prep}
-            busy={historyBusy}
-            onConfirm={async (resolution) => {
-              if (resolution.kind === "option") await submitChoice(resolution.optionId);
-              else if (resolution.kind === "tokens")
-                await submitBatch({ kind: "tokens", steps: resolution.steps });
-            }}
-          />
+          <SecondaryPrepHost prep={prep} busy={historyBusy} />
         }
         reactionModes={snapshot?.reaction_modes}
         onSetReactionMode={userSeat ? setReactionMode : undefined}
         onSubmitMovementBatch={submitMovementBatch}
         onSubmitBasketBatch={prep.preparing ? prep.prepareBatch : submitBatch}
+        productionSubmitRef={productionSubmitRef}
         batchResume={batchResume}
         onResumeBatch={resumeBatch}
         onDismissBatchResume={dismissBatchResume}

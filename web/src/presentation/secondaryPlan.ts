@@ -26,6 +26,14 @@ import {
   techMatches,
 } from "./technologyData.ts";
 import { cardFamily, cardName, type CardFamily } from "./strategicAction.ts";
+import {
+  buildPaymentSteps,
+  derivePaymentOffer,
+  paymentPlanetKey,
+  summarizePayment,
+  type PaymentStep,
+} from "./paymentDraft.ts";
+import { planBuilds } from "./productionDraft.ts";
 
 /**
  * A prepared strategy-card secondary: the follower's private, revocable suggestion.
@@ -48,6 +56,13 @@ export interface SecondaryPlan {
   structure?: { unit: StructureUnit; planet: string };
   /** Leadership: the tokens to buy with influence and the pool each one goes to. */
   leadership?: { pools: Pools };
+  /**
+   * Warfare: what to build at home, as unit ids in the order the production builder stages them
+   * (one entry per build batch, e.g. `["infantry", "infantry", "carrier"]`), and how to pay for the
+   * FIRST build when the engine asks (planets to exhaust by planet id, trade goods to spend). Later
+   * builds are paid by hand: their payment questions depend on what the first one left.
+   */
+  production?: { builds: string[]; payment?: { planets: string[]; tradeGoods: number } };
 }
 
 export type StructureUnit = "pds" | "spacedock";
@@ -109,8 +124,26 @@ export function parseStoredPlan(raw: string | null | undefined): StoredPlan | nu
       };
     }
   }
+  const production = plan.production as Record<string, unknown> | undefined;
+  if (production && Array.isArray(production.builds)) {
+    const builds = production.builds.filter(isString).slice(0, MAX_BUILDS);
+    if (builds.length) {
+      clean.production = { builds };
+      const payment = production.payment as Record<string, unknown> | undefined;
+      if (payment && Array.isArray(payment.planets)) {
+        const planets = payment.planets.filter(isString).slice(0, 12);
+        const tradeGoods = payment.tradeGoods;
+        if (typeof tradeGoods === "number" && Number.isInteger(tradeGoods) && tradeGoods >= 0 && tradeGoods <= 30) {
+          if (planets.length || tradeGoods) clean.production.payment = { planets, tradeGoods };
+        }
+      }
+    }
+  }
   return { v: 1, actionKey: record.actionKey, generation: record.generation, plan: clean };
 }
+
+/** Most build batches a prepared Warfare plan may hold (the engine's production limit is far lower). */
+const MAX_BUILDS = 24;
 
 /** Tokens a Leadership plan buys. */
 export const leadershipTokens = (pools: Pools): number =>
@@ -127,6 +160,7 @@ export function normalizePlan(plan: SecondaryPlan): SecondaryPlan {
   if (family === "diplomacy" && plan.planets?.length) next.planets = plan.planets.slice(0, 2);
   if (family === "construction" && plan.structure) next.structure = plan.structure;
   if (family === "leadership" && plan.leadership) next.leadership = plan.leadership;
+  if (family === "warfare" && plan.production?.builds.length) next.production = plan.production;
   return next;
 }
 
@@ -142,7 +176,8 @@ export function hasDetailStep(family: CardFamily | null): boolean {
     family === "technology" ||
     family === "diplomacy" ||
     family === "construction" ||
-    family === "leadership"
+    family === "leadership" ||
+    family === "warfare"
   );
 }
 
@@ -207,6 +242,13 @@ export type StepResolution =
   | { kind: "none" }
   | { kind: "option"; optionId: string; text: string }
   | { kind: "tokens"; steps: TokenStep[]; text: string }
+  /**
+   * Warfare: the planned builds, validated against the real production question. Sent through the
+   * production builder's own path (one batch for a single build, the build queue for several).
+   */
+  | { kind: "production"; destination: string; units: string[]; text: string }
+  /** Warfare: the prepared payment for the first build, as the payment batch's steps. */
+  | { kind: "payment"; steps: PaymentStep[]; text: string }
   /** The plan no longer validates: show "Needs review" and answer nothing. */
   | { kind: "review"; reason: string };
 
@@ -227,6 +269,8 @@ export function resolveStep(
   plan: SecondaryPlan | null | undefined,
   choice: PendingChoiceDto | null | undefined,
   viewerSeat: string | null | undefined,
+  /** Steps of this plan already sent (a production's later offers belong to its own build queue). */
+  done: ReadonlySet<string> = NOTHING_DONE,
 ): StepResolution {
   if (!plan || !choice || !viewerSeat || choice.actor !== viewerSeat) return { kind: "none" };
   const family = cardFamily(plan.card);
@@ -279,6 +323,25 @@ export function resolveStep(
       ? { kind: "option", optionId: next, text: `Ready ${planetName(next)}` }
       : { kind: "review", reason: "No prepared planet is offered (readied already, or no longer exhausted); choose by hand." };
   }
+  if (subtype === "produce_unit" && plan.production?.builds.length && !done.has("production")) {
+    const planned = planBuilds(choice, plan.production.builds);
+    return planned.ok
+      ? {
+          kind: "production",
+          destination: planned.destination,
+          units: plan.production.builds,
+          text: `Build ${describeBuilds(plan.production.builds)}`,
+        }
+      : { kind: "review", reason: planned.reason };
+  }
+  if (
+    subtype === "pay_resources" &&
+    plan.production?.payment &&
+    done.has("production") &&
+    !done.has("payment")
+  ) {
+    return resolveProductionPayment(plan.production.payment, choice);
+  }
   if (subtype === "place_structure" && plan.structure) {
     const { unit, planet } = plan.structure;
     const option = choice.options.find((o) => {
@@ -297,6 +360,46 @@ export function resolveStep(
         };
   }
   return { kind: "none" };
+}
+
+const NOTHING_DONE: ReadonlySet<string> = new Set();
+
+/** "2 x infantry, carrier" for planned build batches. */
+export function describeBuilds(builds: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const unit of builds) counts.set(unit, (counts.get(unit) ?? 0) + 1);
+  return [...counts].map(([unit, n]) => (n > 1 ? `${n} x ${unit}` : unit)).join(", ");
+}
+
+/** The prepared payment against the payment question the first build opened. */
+function resolveProductionPayment(
+  wanted: { planets: string[]; tradeGoods: number },
+  choice: PendingChoiceDto,
+): StepResolution {
+  const offer = derivePaymentOffer(choice);
+  const planetIds: string[] = [];
+  for (const planet of wanted.planets) {
+    const offered = offer.planets.find((candidate) => candidate.planetId === planet);
+    if (!offered) {
+      return { kind: "review", reason: `${planetName(planet)} can no longer be exhausted to pay.` };
+    }
+    planetIds.push(offered.id);
+  }
+  if (wanted.tradeGoods > 0 && !offer.hasTradeGoodOption) {
+    return { kind: "review", reason: "Trade goods can no longer be spent on this payment." };
+  }
+  const draft = { planetIds, tradeGoods: wanted.tradeGoods };
+  if (!summarizePayment(offer, draft).settled) {
+    return { kind: "review", reason: "The prepared payment no longer covers what is owed." };
+  }
+  const steps = buildPaymentSteps(choice, offer, draft);
+  const exhausted = steps.filter((step) => step.kind === "exhaust");
+  const goods = steps.filter((step) => step.kind === "trade_good").length;
+  const parts = [
+    ...exhausted.map((step) => planetName(paymentPlanetKey(step.planet))),
+    ...(goods ? [`${goods} trade good${goods === 1 ? "" : "s"}`] : []),
+  ];
+  return { kind: "payment", steps, text: `Pay with ${parts.join(", ") || "what is offered"}` };
 }
 
 function resolveLeadership(
@@ -354,6 +457,9 @@ export function describePlan(plan: SecondaryPlan): string {
   }
   if (family === "construction" && plan.structure) {
     return `Follow ${name}: ${structureName(plan.structure.unit)} on ${planetName(plan.structure.planet)}`;
+  }
+  if (family === "warfare" && plan.production?.builds.length) {
+    return `Follow ${name}: build ${describeBuilds(plan.production.builds)}`;
   }
   if (family === "leadership" && plan.leadership) {
     const count = leadershipTokens(plan.leadership.pools);

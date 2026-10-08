@@ -5,8 +5,9 @@ import type {
   HistoryStatus,
   PendingChoiceDto,
   PlayerView,
+  SecondaryBlocker,
 } from "../protocol/types.ts";
-import type { BasketPlan } from "../protocol/client.ts";
+import type { BasketPlan, SecondaryPreviewReply } from "../protocol/client.ts";
 import { TOKEN_POOLS, type TokenStep } from "../presentation/commandTokens.ts";
 import {
   detectStrategicAction,
@@ -25,8 +26,21 @@ import {
   type DryChoice,
   type DryStep,
 } from "../presentation/dryChoice.ts";
+import { paymentPlanetKey } from "../presentation/paymentDraft.ts";
+import { optionUnit } from "../presentation/productionDraft.ts";
+import { toExactResult, type ExactResult } from "../presentation/secondaryPreview.ts";
 import { usePreparedPlan } from "./useSecondaryPlan.ts";
 import { useSecondaryAutoPlay } from "./useSecondaryAutoPlay.ts";
+
+const NOTHING_SENT: ReadonlySet<string> = new Set();
+
+/** A reply that tells us nothing: the estimate is used. */
+const NO_EXACT: ExactResult = { kind: "none", why: "no preview available" };
+
+/** How long a burst of new events waits before the preview is asked again while preparing. */
+export const PREVIEW_REFRESH_DEBOUNCE_MS = 400;
+/** How long to wait before asking again after the server said "too many previews". */
+export const PREVIEW_RETRY_MS = 250;
 
 export interface UseSecondaryPrepareInput {
   gameId?: string;
@@ -42,16 +56,50 @@ export interface UseSecondaryPrepareInput {
   busy?: boolean;
   submitChoice: (optionId: string) => Promise<void>;
   submitBatch?: (plan: BasketPlan) => Promise<void>;
+  /**
+   * The server's read-only preview of the secondary in progress ("what would my seat be asked if
+   * its window opened now"). Absent, or rejecting/refusing, the panel keeps its client-side
+   * estimates exactly as before.
+   */
+  previewSecondary?: (
+    card: string,
+    primary: string,
+    answers: readonly string[],
+  ) => Promise<SecondaryPreviewReply>;
+  /** Changes whenever the game moved (new events, a new history generation): refreshes the preview. */
+  refreshKey?: string;
+  /**
+   * Sends planned builds the way the production builder's "Confirm builds" does: one batch for a
+   * single build, its build queue for several. Provided by the shell that owns the builder.
+   */
+  submitProduction?: (
+    units: string[],
+    destination: string,
+    real: PendingChoiceDto,
+  ) => Promise<void>;
+}
+
+/** What the panel can say about the engine's exact preview for the step being shown. */
+export interface ExactInfo {
+  /** `exact`: the engine's own question is shown; `loading`: asked, no answer yet; `estimate`: client estimate. */
+  status: "exact" | "loading" | "estimate";
+  /** The engine says the secondary would not be offered to this seat as of now. */
+  notAsked: SecondaryBlocker | null;
 }
 
 /**
  * Preparing a strategy-card secondary with the usual UI.
  *
  * While another seat resolves a card the viewer has not been asked about, the viewer can open
- * "preparation mode": the app then shows a synthesized stand-in (a dry choice) for each question of
- * the card in place of a pending decision, so the real components render it and the map highlights
- * its planets. Answering one calls `submitChoice`/`submitBatch` of THIS hook, which record the
+ * "preparation mode": the app then shows a stand-in (a dry choice) for each question of the card in
+ * place of a pending decision, so the real components render it and the map highlights its
+ * planets. Answering one calls `submitChoice`/`submitBatch` of THIS hook, which record the
  * semantic plan on the device instead of sending anything.
+ *
+ * The stand-in is the engine's own question when the server can preview it (technology list with
+ * skips and the payment plan, structure sites, the home production build list ...); otherwise a
+ * client-side estimate, flagged approximate. The preview is "as of now": it is refreshed while the
+ * panel is open, and the plan is re-validated against the real question when it opens.
  *
  * When the real question opens the plan is validated against its options and either offered for
  * one click (review), played in the background (auto) or flagged "Needs review".
@@ -68,6 +116,9 @@ export function useSecondaryPrepare({
   busy,
   submitChoice,
   submitBatch,
+  previewSecondary,
+  refreshKey,
+  submitProduction,
 }: UseSecondaryPrepareInput) {
   const generation = history?.generation ?? 0;
   const action = useMemo(
@@ -101,12 +152,117 @@ export function useSecondaryPrepare({
   // ---- preparation mode: which dry question is showing -----------------------------------------
   const [step, setStep] = useState<DryStep | null>(null);
   const [firstPlanet, setFirstPlanet] = useState<string | null>(null);
+  /** The answer given to the window question (`yes`, or a waiver's id), which scripts the previews after it. */
+  const [follow, setFollow] = useState("yes");
+  /** The option id of the first planned build, which scripts the payment preview. */
+  const [firstBuild, setFirstBuild] = useState<string | null>(null);
   const preparing = step !== null && canPrepare;
   // The mode ends by itself when its action ends, or the viewer's real question arrives.
   useEffect(() => {
     if (step !== null && !canPrepare) setStep(null);
   }, [step, canPrepare]);
 
+  // ---- the engine's exact preview ---------------------------------------------------------------
+  const [exactByKey, setExactByKey] = useState<Record<string, ExactResult>>({});
+  const [asking, setAsking] = useState(0);
+  const unsupported = useRef(false);
+  const sequence = useRef(0);
+  const applied = useRef(new Map<string, number>());
+  const actionKey = action?.key ?? null;
+  const exactKey = useCallback(
+    (answers: readonly string[]) => `${actionKey ?? ""}|${answers.join(">")}`,
+    [actionKey],
+  );
+
+  /** The answers that script the preview of `target` (the window question needs none). */
+  const answersFor = useCallback(
+    (target: DryStep, overrides: { follow?: string; planet?: string | null; build?: string | null } = {}) => {
+      const followed = overrides.follow ?? follow;
+      switch (target) {
+        case "secondary":
+          return [];
+        case "planet2":
+          return [followed, overrides.planet ?? firstPlanet ?? ""];
+        case "pay":
+          return [followed, overrides.build ?? firstBuild ?? ""];
+        default:
+          return [followed];
+      }
+    },
+    [follow, firstPlanet, firstBuild],
+  );
+
+  /** Whether a preview can be asked at all (it cannot for a spectator or an older server). */
+  const canAsk = useCallback(
+    () => Boolean(action && previewSecondary && !unsupported.current),
+    [action, previewSecondary],
+  );
+
+  /** Asks the server (or answers from the cache); never throws: an unusable reply is `none`. */
+  const fetchExact = useCallback(
+    async (answers: readonly string[], force = false): Promise<ExactResult> => {
+      if (!action || !previewSecondary || unsupported.current) return NO_EXACT;
+      if (answers.some((answer) => answer === "")) return NO_EXACT;
+      const key = exactKey(answers);
+      const cached = exactByKey[key];
+      if (cached && !force) return cached;
+      const mine = ++sequence.current;
+      setAsking((count) => count + 1);
+      try {
+        let reply = await previewSecondary(action.card, action.primary, answers);
+        // The server answers at most one preview at a time per connection and not more often than
+        // every 200 ms (a click right after the panel's own refresh): that is "try again", never "none".
+        for (let attempt = 0; attempt < 3 && reply.kind === "refused" && reply.reason === "rate_limited"; attempt++) {
+          await new Promise((resolve) => window.setTimeout(resolve, PREVIEW_RETRY_MS));
+          reply = await previewSecondary(action.card, action.primary, answers);
+        }
+        const result = toExactResult(reply);
+        // A slower, older answer never overwrites a newer one.
+        if ((applied.current.get(key) ?? 0) < mine) {
+          applied.current.set(key, mine);
+          setExactByKey((all) => ({ ...all, [key]: result }));
+        }
+        return result;
+      } catch (error) {
+        if ((error as Error)?.name === "PreviewUnsupportedError") unsupported.current = true;
+        const none: ExactResult = { kind: "none", why: String((error as Error)?.message ?? error) };
+        if ((applied.current.get(key) ?? 0) < mine) {
+          applied.current.set(key, mine);
+          setExactByKey((all) => ({ ...all, [key]: none }));
+        }
+        return none;
+      } finally {
+        setAsking((count) => count - 1);
+      }
+    },
+    [action, previewSecondary, exactKey, exactByKey],
+  );
+
+  // Nothing is kept across actions or after the mode closes: the next opening asks again.
+  useEffect(() => {
+    if (!preparing) {
+      setExactByKey({});
+      applied.current.clear();
+    }
+  }, [preparing, actionKey]);
+
+  const stepAnswers = step ? answersFor(step) : null;
+  const stepKey = stepAnswers ? exactKey(stepAnswers) : null;
+  // Ask when the panel opens or moves to another question ...
+  useEffect(() => {
+    if (!preparing || !stepAnswers || !stepKey) return;
+    if (exactByKey[stepKey] === undefined) void fetchExact(stepAnswers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preparing, stepKey]);
+  // ... and again, after a short pause, whenever the game moved while it is open.
+  useEffect(() => {
+    if (!preparing || !stepAnswers) return;
+    const timer = window.setTimeout(() => void fetchExact(stepAnswers, true), PREVIEW_REFRESH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  const exact = stepKey ? (exactByKey[stepKey] ?? null) : null;
   const dry: DryChoice | null = useMemo(() => {
     if (!preparing || !action || !viewer || !step) return null;
     return buildDryChoice({
@@ -115,17 +271,26 @@ export function useSecondaryPrepare({
       board,
       step,
       taken: step === "planet2" && firstPlanet ? [firstPlanet] : [],
+      exact,
     });
-  }, [preparing, action, viewer, board, step, firstPlanet]);
+  }, [preparing, action, viewer, board, step, firstPlanet, exact]);
+
+  const exactInfo: ExactInfo = {
+    status: dry?.exact ? "exact" : exact === null && asking > 0 ? "loading" : "estimate",
+    notAsked: exact?.kind === "not_asked" ? exact.blocker : null,
+  };
 
   const open = useCallback(() => {
     setFirstPlanet(null);
+    setFirstBuild(null);
+    setFollow("yes");
     setStep("secondary");
   }, []);
   /** Leaves preparation mode; the plan stays saved. */
   const close = useCallback(() => {
     setStep(null);
     setFirstPlanet(null);
+    setFirstBuild(null);
   }, []);
 
   const base: SecondaryPlan | null = action ? (plan ?? { card: action.card, follow: true }) : null;
@@ -142,9 +307,12 @@ export function useSecondaryPrepare({
           return finish();
         }
         set({ card, follow: true });
+        setFollow(optionId);
         const next = nextDryStep(action.family, "secondary", { planets: 0 });
         if (!next) return finish();
-        const probe = viewer && buildDryChoice({ action, viewer, board, step: next });
+        // The next question may only exist as the engine's own (Warfare's build list): ask first.
+        const nextExact = canAsk() ? await fetchExact(answersFor(next, { follow: optionId })) : null;
+        const probe = viewer && buildDryChoice({ action, viewer, board, step: next, exact: nextExact });
         // A follow-up with nothing to pick (no exhausted planet, nothing researchable) ends the plan.
         if (!probe) return finish();
         return setStep(next);
@@ -161,8 +329,10 @@ export function useSecondaryPrepare({
       if (step === "planet1") {
         set({ ...current, follow: true, planets: [optionId] });
         setFirstPlanet(optionId);
+        const nextExact = canAsk() ? await fetchExact(answersFor("planet2", { planet: optionId })) : null;
         const probe =
-          viewer && buildDryChoice({ action, viewer, board, step: "planet2", taken: [optionId] });
+          viewer &&
+          buildDryChoice({ action, viewer, board, step: "planet2", taken: [optionId], exact: nextExact });
         if (!probe) return finish();
         return setStep("planet2");
       }
@@ -182,33 +352,85 @@ export function useSecondaryPrepare({
         }
         return finish();
       }
+      if (step === "produce") {
+        // "Done producing" without a build: follow, build nothing.
+        set({ ...current, follow: true, production: undefined });
+        return finish();
+      }
     },
-    [action, step, base, set, close, viewer, board],
+    [action, step, base, set, close, viewer, board, fetchExact, answersFor, canAsk],
   );
 
-  /** The preparation-mode replacement for the token batch (Leadership's purchase panel). */
+  /**
+   * The preparation-mode replacement for the staged batches: Leadership's token purchase, Warfare's
+   * production builder ("Confirm builds") and the payment drawer for its first build.
+   */
   const prepareBatch = useCallback(
     async (batch: BasketPlan) => {
-      if (!action || batch.kind !== "tokens") return;
-      const pools = { tactic: 0, fleet: 0, strategic: 0 };
-      for (const tokenStep of batch.steps) {
-        if (tokenStep.kind !== "pool") continue;
-        const pool = TOKEN_POOLS.find((candidate) => tokenStep.pool === `${candidate}_tokens`);
-        if (pool) pools[pool] += 1;
+      if (!action) return;
+      if (batch.kind === "tokens") {
+        const pools = { tactic: 0, fleet: 0, strategic: 0 };
+        for (const tokenStep of batch.steps) {
+          if (tokenStep.kind !== "pool") continue;
+          const pool = TOKEN_POOLS.find((candidate) => tokenStep.pool === `${candidate}_tokens`);
+          if (pool) pools[pool] += 1;
+        }
+        const total = pools.tactic + pools.fleet + pools.strategic;
+        if (total === 0) set({ card: action.card, follow: false });
+        else set({ card: action.card, follow: true, leadership: { pools } });
+        close();
+        return;
       }
-      const total = pools.tactic + pools.fleet + pools.strategic;
-      if (total === 0) set({ card: action.card, follow: false });
-      else set({ card: action.card, follow: true, leadership: { pools } });
-      close();
+      const current = base ?? { card: action.card, follow: true };
+      if (batch.kind === "production" && step === "produce") {
+        const builds = batch.steps.flatMap((entry) => (entry.kind === "produce" ? [entry.unit] : []));
+        if (!builds.length) {
+          set({ ...current, follow: true, production: undefined });
+          close();
+          return;
+        }
+        set({ ...current, follow: true, production: { builds } });
+        // The first build's payment, when the engine would ask for one.
+        const offered = dry?.choice.options.find((option) => optionUnit(option) === builds[0]);
+        if (offered) {
+          setFirstBuild(offered.id);
+          const nextExact = await fetchExact(answersFor("pay", { build: offered.id }));
+          if (
+            nextExact.kind === "question" &&
+            nextExact.choice.context?.subtype === "pay_resources"
+          ) {
+            setStep("pay");
+            return;
+          }
+        }
+        close();
+        return;
+      }
+      if (batch.kind === "payment" && step === "pay") {
+        const planets = batch.steps.flatMap((entry) =>
+          entry.kind === "exhaust" ? [paymentPlanetKey(entry.planet)] : [],
+        );
+        const tradeGoods = batch.steps.filter((entry) => entry.kind === "trade_good").length;
+        if (current.production) {
+          set({ ...current, follow: true, production: { ...current.production, payment: { planets, tradeGoods } } });
+        }
+        close();
+      }
     },
-    [action, set, close],
+    [action, step, base, dry, set, close, fetchExact, answersFor],
   );
 
   // ---- when the real question opens ------------------------------------------------------------
-  // The follow-up prompts (technology, planets, site) belong to the plan only once its own window
-  // opened in this action: a decision seen after a page load, or any other research prompt, is not
-  // answered by it.
+  // The follow-up prompts (technology, planets, site, production) belong to the plan only once its
+  // own window opened in this action: a decision seen after a page load, or any other research
+  // prompt, is not answered by it.
   const [openedFor, setOpenedFor] = useState<string | null>(null);
+  /** Parts of the plan already sent in this action (production, payment): later offers are not theirs. */
+  const [sent, setSent] = useState<{ key: string | null; done: ReadonlySet<string> }>({
+    key: null,
+    done: new Set(),
+  });
+  const done: ReadonlySet<string> = sent.key === actionKey ? sent.done : NOTHING_SENT;
   const secondaryOpen = Boolean(
     mine &&
       realChoice &&
@@ -222,12 +444,47 @@ export function useSecondaryPrepare({
   const applicable = secondaryOpen || (action !== null && openedFor === action.key);
   const resolution: StepResolution = useMemo(
     () =>
-      plan && applicable ? resolveStep(plan, realChoice, viewerSeat) : { kind: "none" as const },
-    [plan, applicable, realChoice, viewerSeat],
+      plan && applicable
+        ? resolveStep(plan, realChoice, viewerSeat, done)
+        : { kind: "none" as const },
+    [plan, applicable, realChoice, viewerSeat, done],
+  );
+
+  const markSent = useCallback(
+    (part: string, on: boolean) =>
+      setSent((before) => {
+        const kept = before.key === actionKey ? new Set(before.done) : new Set<string>();
+        if (on) kept.add(part);
+        else kept.delete(part);
+        return { key: actionKey, done: kept };
+      }),
+    [actionKey],
+  );
+  /** Marks first (the next decision may arrive before the promise settles), undoes on failure. */
+  const sendPart = useCallback(
+    async (part: string, send: () => Promise<void>) => {
+      markSent(part, true);
+      try {
+        await send();
+      } catch (error) {
+        markSent(part, false);
+        throw error;
+      }
+    },
+    [markSent],
   );
 
   const submitTokens = submitBatch
     ? (steps: TokenStep[]) => submitBatch({ kind: "tokens", steps })
+    : undefined;
+  const sendProduction =
+    submitProduction && realChoice
+      ? (units: string[], destination: string) =>
+          sendPart("production", () => submitProduction(units, destination, realChoice))
+      : undefined;
+  const sendPayment = submitBatch
+    ? (steps: Extract<StepResolution, { kind: "payment" }>["steps"]) =>
+        sendPart("payment", () => submitBatch({ kind: "payment", steps }))
     : undefined;
   const { pending, played, cancel, holding } = useSecondaryAutoPlay({
     choice: realChoice,
@@ -238,7 +495,20 @@ export function useSecondaryPrepare({
     resolution,
     submitOption: submitChoice,
     submitTokens,
+    submitProduction: sendProduction,
+    submitPayment: sendPayment,
   });
+
+  /** Sends a prepared answer for the viewer's real decision (the Review bar's Confirm). */
+  const play = useCallback(
+    async (target: StepResolution) => {
+      if (target.kind === "option") await submitChoice(target.optionId);
+      else if (target.kind === "tokens") await submitTokens?.(target.steps);
+      else if (target.kind === "production") await sendProduction?.(target.units, target.destination);
+      else if (target.kind === "payment") await sendPayment?.(target.steps);
+    },
+    [submitChoice, submitTokens, sendProduction, sendPayment],
+  );
 
   /** What the app shows as the pending decision: the dry one while preparing, nothing while held. */
   const shownChoice = dry ? dry.choice : holding ? null : realChoice;
@@ -252,12 +522,14 @@ export function useSecondaryPrepare({
     open,
     close,
     dry,
+    exactInfo,
     shownChoice,
     prepareSubmit,
     prepareBatch,
     realChoice,
     mine,
     resolution,
+    play,
     pending,
     played,
     cancel,

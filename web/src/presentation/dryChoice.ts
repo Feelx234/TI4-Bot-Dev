@@ -7,6 +7,7 @@ import type {
 import { findPlanetMeta, findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import type { StrategicAction } from "./strategicAction.ts";
 import { ownPlanets, researchableEstimate, techName, STRUCTURE_UNITS } from "./secondaryPlan.ts";
+import { pendingFromEngine, type ExactResult } from "./secondaryPreview.ts";
 
 /**
  * A "dry choice": the engine's PendingChoice for a strategy-card secondary, synthesized on the
@@ -18,13 +19,20 @@ import { ownPlanets, researchableEstimate, techName, STRUCTURE_UNITS } from "./s
  */
 
 /** Which question of the card a dry choice stands for. */
-export type DryStep = "secondary" | "tech" | "planet1" | "planet2" | "site";
+export type DryStep = "secondary" | "tech" | "planet1" | "planet2" | "site" | "produce" | "pay";
 
 export interface DryChoice {
   choice: PendingChoiceDto;
   step: DryStep;
   /** `null` when the dry choice is faithful; otherwise what is approximate until the real question opens. */
   approximate: string | null;
+  /**
+   * True when the engine itself built the question (the server's read-only preview): the options,
+   * payloads and context are the real ones, as of the position the preview was taken at.
+   */
+  exact: boolean;
+  /** How the engine would pay the 4 resources of a Technology research (exact previews only). */
+  payment?: import("../protocol/types.ts").PreviewPayment;
 }
 
 export const DRY_NONCE_PREFIX = "prepare:";
@@ -77,6 +85,8 @@ export interface DryInput {
   step: DryStep;
   /** Diplomacy second pick: the planet already prepared first. */
   taken?: string[];
+  /** The engine's own answer for this step, when the server could give one. */
+  exact?: ExactResult | null;
 }
 
 /** The window's first question: follow or skip (Leadership: the influence purchase itself). */
@@ -126,6 +136,7 @@ function secondaryStep({ action, viewer, board }: DryInput): DryChoice {
     return {
       choice,
       step: "secondary",
+      exact: false,
       approximate:
         "Your influence is counted from your planets and trade goods. Faction abilities that change what you can spend, and the exact reinforcement room, are only known when the real question opens; the payment is planned then.",
     };
@@ -146,6 +157,7 @@ function secondaryStep({ action, viewer, board }: DryInput): DryChoice {
   return {
     choice,
     step: "secondary",
+    exact: false,
     approximate:
       action.family === "trade"
         ? "If the Trade player replenishes you, no secondary is offered to you at all and this plan is dropped."
@@ -171,6 +183,7 @@ function techStep({ action, viewer }: DryInput): DryChoice {
   return {
     choice,
     step: "tech",
+    exact: false,
     approximate:
       "This list is worked out from your technologies. Prerequisite skips, faction waivers and discounts are only known when the real question opens, and the engine chooses how the 4 resources are paid.",
   };
@@ -190,6 +203,7 @@ function planetStep(input: DryInput): DryChoice {
   return {
     choice,
     step,
+    exact: false,
     approximate:
       "Planets are read from the board as it is now; the real question offers the planets that are exhausted when it opens.",
   };
@@ -223,13 +237,53 @@ function siteStep({ action, viewer, board }: DryInput): DryChoice {
   return {
     choice: baseChoice(viewer.id, "site", action.key, "place a structure", options, "place_structure"),
     step: "site",
+    exact: false,
     approximate:
       "Every planet you control is listed with a PDS or a space dock unless you already have that structure there. The engine also checks space dock rules, your supply and unit upgrades, so the real question may offer fewer sites.",
   };
 }
 
-/** Builds the dry choice for one step; `null` when the card has no such step. */
+/** The step's question exactly as the engine would ask it, under a client-made nonce. */
+function exactStep(input: DryInput, exact: Extract<ExactResult, { kind: "question" }>): DryChoice {
+  const { action, viewer, step } = input;
+  const choice = pendingFromEngine(exact.choice, `${DRY_NONCE_PREFIX}${action.key}:${step}`);
+  choice.actor = viewer.id;
+  return { choice, step, approximate: null, exact: true, payment: exact.payment };
+}
+
+/** Whether `step` exists for the card at all (the exact question is only used where it does). */
+function stepExists(family: StrategicAction["family"], step: DryStep): boolean {
+  switch (step) {
+    case "secondary":
+      return family !== null;
+    case "tech":
+      return family === "technology";
+    case "planet1":
+    case "planet2":
+      return family === "diplomacy";
+    case "site":
+      return family === "construction";
+    case "produce":
+    case "pay":
+      return family === "warfare";
+  }
+}
+
+/**
+ * Builds the dry choice for one step; `null` when the card has no such step (or, for Warfare's
+ * production, when the engine's exact question is not available: its build list cannot be
+ * estimated). With the engine's exact question the real options are used as they are.
+ */
 export function buildDryChoice(input: DryInput): DryChoice | null {
+  const family = input.action.family;
+  if (input.exact?.kind === "question" && stepExists(family, input.step)) {
+    return exactStep(input, input.exact);
+  }
+  return estimateDryChoice(input);
+}
+
+/** The client-side estimate of one step (the fallback when no exact answer is available). */
+function estimateDryChoice(input: DryInput): DryChoice | null {
   const family = input.action.family;
   switch (input.step) {
     case "secondary":
@@ -244,6 +298,10 @@ export function buildDryChoice(input: DryInput): DryChoice | null {
     }
     case "site":
       return family === "construction" ? siteStep(input) : null;
+    case "produce":
+    case "pay":
+      // Warfare's build list (the home system's PRODUCTION) is only known to the engine.
+      return null;
   }
 }
 
@@ -257,8 +315,10 @@ export function nextDryStep(
     if (family === "technology") return "tech";
     if (family === "diplomacy") return "planet1";
     if (family === "construction") return "site";
+    if (family === "warfare") return "produce";
     return null;
   }
   if (step === "planet1" && picked.planets < 2) return "planet2";
+  if (step === "produce" && family === "warfare") return "pay";
   return null;
 }

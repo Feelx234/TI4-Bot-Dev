@@ -71,7 +71,7 @@ the runs and Prophecy of Kings (`pok`) in the rest (`NIGHTLY_POK_PROBABILITY`). 
   Save plan if the mode is still open, and checks the chip says "Prepared". When the seat's real
   secondary opens: Auto must answer by itself with no decision dialog (toast "Auto-played your
   prepared secondary", 20 s limit, nothing is clicked); Review shows the "Prepared" bar, which is
-  confirmed (75%) or dismissed with "Choose myself". Follow-up steps (technology, planets) are
+  confirmed (75%) or dismissed with "Choose myself". Follow-up steps (technology, planets, a prepared Warfare production and its first payment) are
   checked the same way for 6 s. Any deviation is a finding and the decision is played normally.
   Counters are in `report.json` `prep`. The prepare chrome is clicked only by this exercise (the
   normal heuristics still exclude it). `TI4_SMOKE_PREP=0` disables it for a manual run.

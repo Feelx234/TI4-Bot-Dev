@@ -3,6 +3,7 @@ pub mod bluff;
 pub mod bluff_hold;
 pub mod reaction_modes;
 pub mod decider;
+pub mod preview;
 pub mod registry;
 pub mod replay;
 pub mod rng_force;
@@ -588,6 +589,18 @@ impl GameSession {
             .lock()
             .expect("shared lock")
             .set_reaction_intent(seat, triggers)
+    }
+
+    /// What `seat` would be asked for the strategy-card secondary in progress if its window
+    /// opened now (see `session::preview`). Read only: copies the newest published position
+    /// under the lock and computes on the copy.
+    #[must_use]
+    pub fn preview_secondary(
+        &self,
+        seat: &PlayerId,
+        request: &preview::PreviewRequest,
+    ) -> crate::protocol::server::SecondaryPreviewMsg {
+        preview::answer(&self.shared, &self.game_id, seat, request)
     }
 
     /// Let the seat end its running bluff hold early; the seat's current bluff state is

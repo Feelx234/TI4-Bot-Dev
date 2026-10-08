@@ -9,6 +9,9 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { MechInfoRow, UnitInfoButton } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
 import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
+import { draftResourceCost, optionCapacity, planBuilds } from "../presentation/productionDraft.ts";
+import { usePreparedHint } from "../presentation/PreparedHint.tsx";
+import { isDryNonce } from "../presentation/dryChoice.ts";
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
@@ -21,35 +24,6 @@ export interface ProductionBuilderDrawerProps {
   queuedUnits?: readonly string[];
   onQueueProduction?: (units: string[]) => void;
   onSubmitBatch?: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
-}
-
-function draftResourceCost(options: ChoiceOptionDto[], draft: Record<string, number>): number {
-  let printedTotal = 0;
-  let discountOnce = 0;
-  for (const option of options) {
-    const batches = draft[option.id] ?? 0;
-    if (!batches) continue;
-    if (option.payload?.free_this_use === true) continue;
-    const cost = option.payload?.cost;
-    if (typeof cost !== "number" || !Number.isSafeInteger(cost) || cost < 0) return Infinity;
-    const printed = option.payload?.printed_cost;
-    const discount = option.payload?.discount;
-    if (
-      typeof printed === "number" &&
-      Number.isSafeInteger(printed) &&
-      printed >= cost &&
-      typeof discount === "number" &&
-      Number.isSafeInteger(discount) &&
-      discount >= 0
-    ) {
-      printedTotal += batches * printed;
-      // Every offered option previews the same one-time discount. Count it once, not per batch.
-      discountOnce = Math.max(discountOnce, Math.min(discount, printed));
-    } else {
-      printedTotal += batches * cost;
-    }
-  }
-  return Math.max(0, printedTotal - discountOnce);
 }
 
 type OptionGroupKey = "ships" | "ground" | "structures";
@@ -168,7 +142,17 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   const [draft, setDraft] = useState<Record<string, number>>({});
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
-  useEffect(() => setDraft({}), [choice?.nonce]);
+  // A prepared Warfare secondary opens the real builder with its planned builds already staged;
+  // the confirm stays the player's (or Auto's, which sends the same batch).
+  const prepared = usePreparedHint();
+  useEffect(() => {
+    const planned =
+      choice && prepared?.builds?.length ? planBuilds(choice, prepared.builds) : null;
+    setDraft(planned?.ok ? planned.draft : {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choice?.nonce, prepared?.builds?.join(",")]);
+  // While preparing, the stand-in is answered into the plan: there is no build queue to run.
+  const preparing = isDryNonce(choice?.nonce);
   const subtype = choice?.context?.subtype ?? "";
   const isPlaceUnit = subtype === "place_unit";
   const isProduceUnit = subtype === "produce_unit" || !isPlaceUnit;
@@ -189,14 +173,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   const stagedCapacity = productionOptions.reduce(
     (sum, opt) =>
       sum +
-      (draft[opt.id] ?? 0) *
-        (typeof opt.payload?.production_spent === "number"
-          ? opt.payload.production_spent
-          : typeof opt.payload?.placed === "number"
-            ? opt.payload.placed
-            : typeof opt.payload?.count === "number"
-              ? opt.payload.count
-              : 1),
+      (draft[opt.id] ?? 0) * optionCapacity(opt),
     0,
   );
   const stagedCost = draftResourceCost(productionOptions, draft);
@@ -347,14 +324,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           )}
                           <div className="production-drawer__group">
                             {group.options.map((opt) => {
-                              const capacity =
-                                typeof opt.payload?.production_spent === "number"
-                                  ? opt.payload.production_spent
-                                  : typeof opt.payload?.placed === "number"
-                                    ? opt.payload.placed
-                                    : typeof opt.payload?.count === "number"
-                                      ? opt.payload.count
-                                      : 1;
+                              const capacity = optionCapacity(opt);
                               const count = draft[opt.id] ?? 0;
                               const nextCost = draftResourceCost(productionOptions, {
                                 ...draft,
@@ -403,7 +373,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     </div>
 
                     <div className="production-drawer__footer">
-                      {stagedBatches > 1 && (
+                      {stagedBatches > 1 && !preparing && (
                         <p className="text-muted">
                           Staged builds submit one decision at a time. The queue pauses for payment
                           or placement and stops if a later offer changes.
@@ -425,7 +395,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           // A build can open a payment or placement decision before
                           // another build is offered. The shell's queue waits for that choice
                           // to resolve instead of sending an invalid produce-only batch.
-                          const needsQueue = stagedBatches > 1 && onQueueProduction;
+                          const needsQueue = stagedBatches > 1 && onQueueProduction && !preparing;
                           if (onSubmitBatch && !needsQueue) {
                             setBatchRunning(true);
                             setBatchError(null);
@@ -462,7 +432,11 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           setDraft({});
                         }}
                       >
-                        {queued ? `Building (${queuedUnits.length} remaining)…` : "Confirm builds"}
+                        {queued
+                          ? `Building (${queuedUnits.length} remaining)…`
+                          : preparing
+                            ? "Save these builds"
+                            : "Confirm builds"}
                       </button>
                       {declineOption && (
                         <button

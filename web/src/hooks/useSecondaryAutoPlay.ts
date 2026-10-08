@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import type { TokenStep } from "../presentation/commandTokens.ts";
 import type { StepResolution } from "../presentation/secondaryPlan.ts";
+import type { PaymentStep } from "../presentation/paymentDraft.ts";
 import { readSecondaryPrepMode } from "./useSecondaryPrepMode.ts";
 
 /** How long the toast is visible (and cancellable) before a prepared answer is sent. */
@@ -31,6 +32,10 @@ export interface SecondaryAutoPlayInput {
   submitOption: (optionId: string) => Promise<void>;
   /** Same path the token panel's confirm takes. */
   submitTokens?: (steps: TokenStep[]) => Promise<void>;
+  /** Same path the production builder's "Confirm builds" takes (one batch, or its build queue). */
+  submitProduction?: (units: string[], destination: string) => Promise<void>;
+  /** Same path the payment drawer's confirm takes. */
+  submitPayment?: (steps: PaymentStep[]) => Promise<void>;
 }
 
 export interface AutoPlayNotice {
@@ -75,6 +80,8 @@ export function useSecondaryAutoPlay({
   resolution,
   submitOption,
   submitTokens,
+  submitProduction,
+  submitPayment,
 }: SecondaryAutoPlayInput) {
   const armed = useRef(false);
   const prev = useRef<HistoryStatus | null>(null);
@@ -91,6 +98,10 @@ export function useSecondaryAutoPlay({
   submitRef.current = submitOption;
   const tokensRef = useRef(submitTokens);
   tokensRef.current = submitTokens;
+  const productionRef = useRef(submitProduction);
+  productionRef.current = submitProduction;
+  const paymentRef = useRef(submitPayment);
+  paymentRef.current = submitPayment;
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const resolutionRef = useRef(resolution);
@@ -115,7 +126,11 @@ export function useSecondaryAutoPlay({
   }, [history]);
 
   const nonce = choice && viewerSeat && choice.actor === viewerSeat ? choice.nonce : null;
-  const actionable = resolution.kind === "option" || resolution.kind === "tokens";
+  const actionable =
+    resolution.kind === "option" ||
+    resolution.kind === "tokens" ||
+    resolution.kind === "production" ||
+    resolution.kind === "payment";
   const text = actionable ? resolution.text : null;
 
   useLayoutEffect(() => {
@@ -138,6 +153,9 @@ export function useSecondaryAutoPlay({
       let sent: Promise<void> | undefined;
       if (current.kind === "option") sent = submitRef.current(current.optionId);
       else if (current.kind === "tokens") sent = tokensRef.current?.(current.steps);
+      else if (current.kind === "production")
+        sent = productionRef.current?.(current.units, current.destination);
+      else if (current.kind === "payment") sent = paymentRef.current?.(current.steps);
       if (!sent) {
         setHeld(null);
         return;

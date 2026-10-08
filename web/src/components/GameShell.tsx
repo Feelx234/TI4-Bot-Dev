@@ -117,6 +117,13 @@ export interface GameShellProps {
   /** The game, for keeping a prepared strategy-card secondary apart per game (device storage). */
   /** Secondary preparation chrome (chip, banner, prepared-answer bar, toasts), rendered over the board. */
   prepOverlay?: React.ReactNode;
+  /**
+   * Filled with the production builder's own "Confirm builds" (one batch for a single build, the
+   * build queue for several), so a prepared Warfare secondary is sent exactly the way a click is.
+   */
+  productionSubmitRef?: React.MutableRefObject<
+    ((units: string[], destination: string, real: PendingChoiceDto) => Promise<void>) | null
+  >;
 }
 
 export interface TurnRedoShellProps {
@@ -938,6 +945,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   objectiveProgress,
   turn,
   prepOverlay,
+  productionSubmitRef,
 }) => {
   const [openDrawer, setOpenDrawer] = useState<"events" | "players" | null>(
     null,
@@ -1066,6 +1074,43 @@ export const GameShell: React.FC<GameShellProps> = ({
         submittedNonce.current = null;
       });
   }, [choice, productionQueue, onSubmitChoice, onSubmitBasketBatch]);
+
+  // A prepared production is sent through the same two paths the builder's confirm uses.
+  useEffect(() => {
+    if (!productionSubmitRef) return;
+    // `real` is the engine's own decision: while an auto-played answer is held back the shell is
+    // shown no decision at all.
+    productionSubmitRef.current = async (units, destination, real) => {
+      if (real.context?.subtype !== "produce_unit" || !units.length) {
+        throw new Error("The production decision is no longer open");
+      }
+      const system =
+        real.context.target && "System" in real.context.target
+          ? real.context.target.System
+          : destination;
+      if (units.length === 1 && onSubmitBasketBatch) {
+        const option = real.options.find(
+          (candidate) =>
+            candidate.kind !== "decline" &&
+            (candidate.payload?.unit === units[0] || candidate.id === units[0]),
+        );
+        if (!option) throw new Error(`${units[0]} is no longer offered`);
+        await onSubmitBasketBatch({
+          kind: "production",
+          destination: system,
+          steps: [{ kind: "produce", unit: units[0], count: Number(option.payload?.count ?? 1) }],
+        });
+        return;
+      }
+      if (productionQueue?.units.length) throw new Error("A production queue is already running");
+      setProductionError(null);
+      submittedNonce.current = null;
+      setProductionQueue({ actor: real.actor, system, units });
+    };
+    return () => {
+      productionSubmitRef.current = null;
+    };
+  }, [productionSubmitRef, onSubmitBasketBatch, productionQueue]);
 
   const playersMap = React.useMemo<Record<string, PlayerView>>(() => {
     if (!players) return {};

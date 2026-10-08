@@ -125,6 +125,9 @@
   color: var(--color-text-muted, #94a3b8);
   font-size: 0.75rem;
 }
+.secondary-prep__note--attention {
+  color: #fde68a;
+}
 .secondary-prep__chip {
   align-self: flex-start;
   display: inline-flex;
@@ -204,4 +207,16 @@
   )
   .secondary-prep {
   z-index: calc(var(--layer-dialog, 50) + 1);
+}
+
+/* While the preparing banner is open the dialog of the stand-in question starts below it: the banner
+   floats over the board column and used to cover the top of full-screen dialogs (the production
+   builder's meters, the technology modal's skip toggles). --prep-banner-bottom is measured from the
+   banner by SecondaryPrepHost (0 on a phone, where the banner docks at the bottom). */
+:root:has(.secondary-prep--preparing) .choice-workflow-dialog {
+  box-sizing: border-box;
+  padding-top: var(--prep-banner-bottom, 0px);
+}
+:root:has(.secondary-prep--preparing) .choice-workflow-dialog > * {
+  max-height: calc(100dvh - var(--prep-banner-bottom, 0px) - 16px) !important;
 }

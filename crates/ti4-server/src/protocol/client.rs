@@ -13,6 +13,8 @@ pub const MAX_CARD_NAME_BYTES: usize = 128;
 /// `session::bluff::MAX_DECLARED_TRIGGERS`) and the longest id.
 pub const MAX_INTENT_TRIGGERS: usize = 16;
 pub const MAX_TRIGGER_ID_BYTES: usize = 32;
+/// Most answers one `PreviewSecondary` may carry (a card has at most two follow-up questions).
+pub const MAX_PREVIEW_ANSWERS: usize = ti4_engine::secondary_preview::MAX_ANSWERS;
 
 /// Messages submitted from a client to the authoritative server.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,6 +62,28 @@ pub enum ClientMessage {
     PassReactionHold {
         protocol_version: u16,
         game_id: String,
+    },
+    /// Ask what this connection's own seat would be asked for the strategy-card secondary in
+    /// progress if its window opened right now ("as of now"; read-only and ephemeral: nothing is
+    /// persisted, logged or changed, and only the asking seat gets the answer).
+    ///
+    /// `answers` are the answers to the questions already previewed: the first answers the
+    /// window question (`yes`), the next the follow-up questions in order. The seat is the
+    /// connection's, never named by the message. Older servers answer an unknown message type
+    /// with a malformed message error (the protocol version is not bumped, as for the bluff
+    /// messages), so a client treats that as "no preview available" and falls back to its
+    /// estimate; it sends this message only while it is preparing a secondary.
+    PreviewSecondary {
+        protocol_version: u16,
+        game_id: String,
+        /// Echoed in the answer so a client can match replies to requests.
+        request_id: u64,
+        /// The strategy card in progress (as the client read it from the public log).
+        card: String,
+        /// The seat that played it.
+        primary: String,
+        #[serde(default)]
+        answers: Vec<String>,
     },
     /// Keep-alive ping message.
     Ping {
@@ -128,6 +152,22 @@ impl std::fmt::Debug for ClientMessage {
                 .field("protocol_version", protocol_version)
                 .field("game_id", game_id)
                 .finish(),
+            Self::PreviewSecondary {
+                protocol_version,
+                game_id,
+                request_id,
+                card,
+                primary,
+                answers,
+            } => f
+                .debug_struct("PreviewSecondary")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .field("request_id", request_id)
+                .field("card", card)
+                .field("primary", primary)
+                .field("answers", answers)
+                .finish(),
             Self::Ping {
                 protocol_version,
                 sequence,
@@ -158,6 +198,9 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::PassReactionHold {
+                protocol_version, ..
+            }
+            | Self::PreviewSecondary {
                 protocol_version, ..
             }
             | Self::Ping {
@@ -206,6 +249,23 @@ impl ClientMessage {
             }
             Self::PassReactionHold { game_id, .. } => {
                 bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+            }
+            Self::PreviewSecondary {
+                game_id,
+                card,
+                primary,
+                answers,
+                ..
+            } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                bounded(card, MAX_CARD_NAME_BYTES, "card")?;
+                bounded(primary, MAX_PLAYER_SESSION_BYTES, "primary")?;
+                if answers.len() > MAX_PREVIEW_ANSWERS {
+                    return Err("answers");
+                }
+                for answer in answers {
+                    bounded(answer, MAX_OPTION_ID_BYTES, "answers")?;
+                }
             }
             Self::Ping { .. } => {}
         }
@@ -292,6 +352,53 @@ mod tests {
             triggers: vec!["agenda".to_owned()],
         });
         assert!(!shown.contains("agenda"));
+    }
+
+    #[test]
+    fn preview_secondary_round_trips_and_is_bounded() {
+        let text = r#"{"type":"preview_secondary","protocol_version":3,"game_id":"g","request_id":7,"card":"pok7technology","primary":"p1","answers":["yes"]}"#;
+        let message: ClientMessage = serde_json::from_str(text).expect("decodes");
+        assert_eq!(
+            message,
+            ClientMessage::PreviewSecondary {
+                protocol_version: 3,
+                game_id: "g".to_owned(),
+                request_id: 7,
+                card: "pok7technology".to_owned(),
+                primary: "p1".to_owned(),
+                answers: vec!["yes".to_owned()],
+            }
+        );
+        assert_eq!(serde_json::to_string(&message).expect("encodes"), text);
+        assert_eq!(message.validate_bounds(), Ok(()));
+        // No answers at all is the window question.
+        let bare: ClientMessage = serde_json::from_str(
+            r#"{"type":"preview_secondary","protocol_version":3,"game_id":"g","request_id":1,"card":"c","primary":"p1"}"#,
+        )
+        .expect("answers default to none");
+        assert_eq!(bare.validate_bounds(), Ok(()));
+        // The asking seat is the connection's, never named by the message.
+        assert!(serde_json::from_str::<ClientMessage>(
+            r#"{"type":"preview_secondary","protocol_version":3,"game_id":"g","request_id":1,"card":"c","primary":"p1","seat":"p2"}"#
+        ).is_err());
+        let many = ClientMessage::PreviewSecondary {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            request_id: 1,
+            card: "c".to_owned(),
+            primary: "p1".to_owned(),
+            answers: vec!["yes".to_owned(); MAX_PREVIEW_ANSWERS + 1],
+        };
+        assert_eq!(many.validate_bounds(), Err("answers"));
+        let long = ClientMessage::PreviewSecondary {
+            protocol_version: 3,
+            game_id: "g".to_owned(),
+            request_id: 1,
+            card: "x".repeat(MAX_CARD_NAME_BYTES + 1),
+            primary: "p1".to_owned(),
+            answers: vec![],
+        };
+        assert_eq!(long.validate_bounds(), Err("card"));
     }
 
     #[test]

@@ -600,6 +600,66 @@ export interface ReactionIntentStateMsg {
   holding: boolean;
 }
 
+/** Why the server refused a secondary preview (`ti4_server::protocol::server::PreviewRefusal`). */
+export type PreviewRefusal =
+  | "not_seated"
+  | "no_strategic_action"
+  | "is_primary"
+  | "already_asked"
+  | "busy"
+  | "rate_limited";
+
+/** Why a follower would not be asked a secondary at all (`ti4_engine::strategy::SecondaryBlocker`). */
+export type SecondaryBlocker =
+  | "no_strategy_token"
+  | "cannot_afford_influence"
+  | "cannot_pay_resources"
+  | "nothing_to_research"
+  | "no_exhausted_planet"
+  | "commodities_full"
+  | "no_production"
+  | "other";
+
+/** How the engine would pay a Technology secondary's resources. */
+export interface PreviewPayment {
+  cost: number;
+  planets: string[];
+  trade_goods: number;
+  worth: number;
+}
+
+/** What the engine says the seat would be asked (`ti4_engine::secondary_preview::SecondaryPreview`). */
+export type SecondaryPreviewBody =
+  | {
+      status: "question";
+      choice: EngineChoice;
+      step: number;
+      payment?: PreviewPayment;
+      skipped?: { subtype: string; prompt: string }[];
+    }
+  | { status: "would_not_be_asked"; blocker: SecondaryBlocker }
+  | { status: "complete"; skipped?: { subtype: string; prompt: string }[] }
+  | { status: "unavailable"; detail: string };
+
+/**
+ * The answer to a `preview_secondary` request: what the asking seat would be asked for the
+ * secondary in progress if its window opened now. Private to the asking connection, ephemeral,
+ * and without a game version of its own (so it is never dropped as stale): `as_of_version` says
+ * which position it was computed at.
+ */
+export interface SecondaryPreviewMsg {
+  type?: "secondary_preview";
+  protocol_version: number;
+  game_id: string;
+  request_id: number;
+  as_of_version: number;
+  as_of_decisions: number;
+  card: string;
+  outcome:
+    | { result: "preview"; preview: SecondaryPreviewBody }
+    | { result: "refused"; reason: PreviewRefusal; detail: string };
+}
+
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & InitialSnapshotMsg)
   | ({ type: "state_update" } & StateUpdateMsg)
@@ -611,7 +671,8 @@ export type ServerMessage =
   | ({ type: "game_over" } & GameOverMsg)
   | ({ type: "pong" } & PongMsg)
   | ({ type: "event" } & GameEventMsg)
-  | ({ type: "reaction_intent_state" } & ReactionIntentStateMsg);
+  | ({ type: "reaction_intent_state" } & ReactionIntentStateMsg)
+  | ({ type: "secondary_preview" } & SecondaryPreviewMsg);
 
 export type ClientMessage =
   | {
@@ -647,6 +708,16 @@ export type ClientMessage =
       type: "pass_reaction_hold";
       protocol_version: number;
       game_id: string;
+    }
+  | {
+      /** Read-only: what would my own seat be asked for this secondary if its window opened now? */
+      type: "preview_secondary";
+      protocol_version: number;
+      game_id: string;
+      request_id: number;
+      card: string;
+      primary: string;
+      answers: string[];
     }
   | {
       type: "ping";

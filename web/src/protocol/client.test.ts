@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GameSessionClient,
   GameSessionState,
+  PREVIEW_TIMEOUT_MS,
+  PreviewUnsupportedError,
   reduceServerMessage,
   serverEventLog,
 } from "./client.ts";
@@ -992,6 +994,92 @@ describe("GameSessionClient ingress lifecycle", () => {
       game_id: "game_12345",
     });
     client.stop();
+  });
+
+  it("previews a secondary read-only: the request names the card and answers, the reply resolves the call", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.previewSecondary("pok7technology", "player_b", ["yes"]);
+    const sent = JSON.parse(socket.sent.at(-1)!);
+    expect(sent).toEqual({
+      type: "preview_secondary",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      card: "pok7technology",
+      primary: "player_b",
+      answers: ["yes"],
+    });
+    send({
+      type: "secondary_preview",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      as_of_version: 7,
+      as_of_decisions: 12,
+      card: "pok7technology",
+      outcome: {
+        result: "preview",
+        preview: { status: "would_not_be_asked", blocker: "cannot_pay_resources" },
+      },
+    });
+    await expect(asked).resolves.toEqual({
+      kind: "preview",
+      body: { status: "would_not_be_asked", blocker: "cannot_pay_resources" },
+      asOfVersion: 7,
+      asOfDecisions: 12,
+    });
+    // The reply is not part of the shared projection: no error, no pending choice, no version change.
+    expect(client.getState().lastError).toBeNull();
+    // A refusal resolves too (the caller falls back to its estimate).
+    const refused = client.previewSecondary("pok7technology", "player_b", []);
+    const second = JSON.parse(socket.sent.at(-1)!);
+    send({
+      type: "secondary_preview",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: second.request_id,
+      as_of_version: 7,
+      as_of_decisions: 0,
+      card: "pok7technology",
+      outcome: { result: "refused", reason: "already_asked", detail: "you have already been asked" },
+    });
+    await expect(refused).resolves.toMatchObject({ kind: "refused", reason: "already_asked" });
+    client.stop();
+  });
+
+  it("treats an older server's unknown-message error as 'no preview' and never shows it", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.previewSecondary("pok7technology", "player_b", []);
+    expect(socket.sent.at(-1)).toContain("preview_secondary");
+    send({
+      type: "error",
+      protocol_version: PROTOCOL_VERSION,
+      kind: "malformed_message",
+      message: "unknown variant `preview_secondary`, expected one of `subscribe`, `submit_choice`",
+    });
+    await expect(asked).rejects.toBeInstanceOf(PreviewUnsupportedError);
+    expect(client.getState().lastError).toBeNull();
+    // Remembered: nothing more is sent to that server.
+    const sentBefore = socket.sent.length;
+    await expect(client.previewSecondary("pok7technology", "player_b", [])).rejects.toBeInstanceOf(
+      PreviewUnsupportedError,
+    );
+    expect(socket.sent.length).toBe(sentBefore);
+    client.stop();
+  });
+
+  it("gives up on a preview the server never answers", async () => {
+    vi.useFakeTimers();
+    try {
+      const { client } = await connectedPlayer();
+      const asked = client.previewSecondary("pok7technology", "player_b", []);
+      const failure = expect(asked).rejects.toThrow(/in time/);
+      await vi.advanceTimersByTimeAsync(PREVIEW_TIMEOUT_MS + 10);
+      await failure;
+      client.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sends a stored declaration again on connect, and nothing when none is stored", async () => {
