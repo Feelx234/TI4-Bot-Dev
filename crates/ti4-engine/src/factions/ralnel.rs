@@ -485,6 +485,18 @@ fn miniaturization_window(owner_name: &str, seat: &PlayerId) -> Ability {
     }))
 }
 
+/// Whether Miniaturization could matter now, so the game must announce the end of the tactical
+/// action for it (`TACTICAL_ACTION_ENDED` is otherwise only announced when a card listens).
+/// Mirrors the window's own condition: a Ral Nel seat with a space-area structure in a system
+/// where it controls a planet. Games without Ral Nel never answer true.
+#[must_use]
+pub fn listens_for_tactical_end(state: &GameState, content: &ContentStore, sources: SourceSet) -> bool {
+    state.players.iter().any(|seat| {
+        is_ralnel(state, &seat.id)
+            && !space_structure_systems(state, content, sources, &seat.id).is_empty()
+    })
+}
+
 /// The systems where `owner` has a structure in the space area and controls a planet, in id order.
 fn space_structure_systems(
     state: &GameState,
@@ -1183,6 +1195,61 @@ mod tests {
     }
 
     #[test]
+    fn miniaturization_is_offered_and_places_after_a_real_tactical_action() {
+        let ring = plain(6);
+        let ring_refs: Vec<&str> = ring.iter().map(String::as_str).collect();
+        let galaxy = ring_map("18", &ring_refs);
+        let planet = planet_of("18");
+        let mut state = game();
+        own(&mut state, "18", &planet, &ralnel());
+        put(&mut state, &ring[0], "destroyer", &ralnel());
+        put(&mut state, &ring[0], "pds", &ralnel());
+        assert!(
+            !listens_for_tactical_end(&state, content(), DEFAULT),
+            "no structure in a space area of a controlled system yet"
+        );
+        let mv = format!("move|{}|0", ring[0]);
+        let mut game = tactical_game(
+            state,
+            galaxy,
+            &[
+                crate::game::TACTICAL_ACTION_ID,
+                "18",
+                &mv,
+                "load|0",
+                "done_moving",
+                MINIATURIZATION_WINDOW,
+                &planet,
+            ],
+        );
+        drive_tactical(&mut game, 60);
+        assert!(
+            game.events.iter().any(|e| e == "TACTICAL_ACTION_ENDED"),
+            "{:?}",
+            game.events
+        );
+        assert_eq!(count(&game.state, "18", "pds", &ralnel()), 0);
+        assert_eq!(
+            on_planet(&game.state, "18", &planet, "pds", &ralnel()),
+            1,
+            "Miniaturization placed the carried PDS on the planet"
+        );
+    }
+
+    #[test]
+    fn the_tactical_end_gate_needs_a_ralnel_seat_with_a_settleable_structure() {
+        let planet = planet_of("18");
+        let mut other = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], DEFAULT);
+        own(&mut other, "18", &planet, &PlayerId::new("a"));
+        put(&mut other, "18", "pds", &PlayerId::new("a"));
+        assert!(!listens_for_tactical_end(&other, content(), DEFAULT));
+        let mut state = game();
+        own(&mut state, "18", &planet, &ralnel());
+        put(&mut state, "18", "pds", &ralnel());
+        assert!(listens_for_tactical_end(&state, content(), DEFAULT));
+    }
+
+    #[test]
     fn linkship_i_borrows_each_structure_once() {
         let mut state = game();
         put(&mut state, "18", "cruiser", &sol());
@@ -1743,8 +1810,18 @@ mod tests {
             ],
         );
         drive_tactical(&mut game, 40);
+        // The landing takes the planet, so Miniaturization (now announced) may settle the PDS on
+        // it at the end of the action: count it in space or on a planet.
+        let settled: usize = game
+            .state
+            .system_state(&sid(&centre))
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|unit| unit.type_id.as_str() == "pds")
+            .count();
         assert_eq!(
-            count(&game.state, &centre, "pds", &ralnel()),
+            count(&game.state, &centre, "pds", &ralnel()) + settled,
             1,
             "the PDS arrived"
         );

@@ -100,3 +100,14 @@ Extra files changed this round: `crates/ti4-engine/src/action_cards.rs` (`discar
 * Ledger: ralnel 13/13; implemented lines identical to `out/ralnel_ledger_final.log` (`out/ralnel_fix_ledger.log`).
 * Soak `ralnel 0 25 10` (release): 25 games, 0 failures (`out/ralnel_fix_soak.log`).
 * Workers: `-j1` builds, `--test-threads=12`.
+
+## Miniaturization reachability fix (2026-10-08)
+
+Defect: `game.rs` announced `TACTICAL_ACTION_ENDED` only for T'ro/Mercer or the Obsidian Malevolency note, so Miniaturization never fired in a real game (its tests emitted the event by hand).
+
+* `factions/ralnel.rs`: new `listens_for_tactical_end(state, content, sources)`, true only when a Ral Nel seat has a space-area structure in a system where it controls a planet (the window's own condition). `game.rs`: one line, ORed into `tro_window` after the obsidian gate. Games without Ral Nel never answer true (event logs unchanged).
+* Other `TACTICAL_ACTION_ENDED` listeners audited: T'ro (`sardakkagent`, own, and Ssruu-borrowed) and Mercer (readied) are covered by the existing gate; Obsidian Malevolency by its gate; Ral Nel now. No unreachable listener found. Ssruu cannot copy Mercer's window (no borrowed Mercer ability exists), so no gap there.
+* Tests: `miniaturization_is_offered_and_places_after_a_real_tactical_action` (real `Game::step` tactical action: destroyer carries a PDS into a system with a controlled planet, window offered, PDS placed on the planet); `the_tactical_end_gate_needs_a_ralnel_seat_with_a_settleable_structure` (false without Ral Nel). Existing sardakk test that no event is emitted when nothing listens stays green. `structures_do_not_use_a_carriers_capacity_in_a_real_move` now counts the PDS in space or on the planet (the landing takes the planet, so Miniaturization legitimately settles it).
+* `cargo test -p ti4-engine -j1 -- --test-threads=12`: lib 2774 passed / 1 ignored; 1, 4, 5 passed; 0 failed (`out/ralnel_tacend_engine_full.log`).
+* `cargo test -p ti4-policy -p ti4-sim -j1 -- --test-threads=12`: 273 and 51 passed (1 ignored), 0 failed (`out/ralnel_tacend_policy_sim.log`).
+* Soak `ralnel 0 25 10` (release): 25 games, 0 failures (`out/ralnel_tacend_soak.log`).

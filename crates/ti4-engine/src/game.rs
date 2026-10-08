@@ -3786,7 +3786,8 @@ impl<'a> Game<'a> {
                 )
                 .iter()
                 .any(|(_, agent)| agent.as_str() == "sardakkagent")
-        }) || crate::factions::obsidian::listens_for_tactical_end(&self.state);
+        }) || crate::factions::obsidian::listens_for_tactical_end(&self.state)
+            || crate::factions::ralnel::listens_for_tactical_end(&self.state, self.content, self.sources);
         if tro_window
             && let (Some(player), Some(system)) =
                 (self.state.active.clone(), self.state.active_system.clone())
