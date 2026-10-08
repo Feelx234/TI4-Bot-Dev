@@ -114,6 +114,9 @@ pub struct SessionShared {
     pub resumed_from: Option<usize>,
     /// Declared bluff triggers, cooldown and stall budgets. Ephemeral: never persisted.
     pub bluff: crate::session::bluff::BluffBook,
+    /// The map the preview needs to run a secondary on a scratch copy of the position (static for
+    /// the life of a session; set by the worker once the game exists).
+    pub preview_galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
 }
 
 impl SessionShared {
@@ -290,6 +293,7 @@ impl SessionShared {
             step_snapshot: None,
             resumed_from: None,
             bluff: crate::session::bluff::BluffBook::default(),
+            preview_galaxy: None,
         }
     }
 
@@ -1072,6 +1076,10 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         if let Some(force) = &rng_force {
             force.attach(&mut game);
         }
+        // The secondary preview (`session::preview`) runs on a scratch copy of the position and
+        // needs the map; it never touches this game.
+        worker_shared.lock().expect("shared lock").preview_galaxy =
+            game.galaxy().cloned().map(Arc::new);
 
         if prior_count == 0 && config.prior_events.is_empty() {
             // Emit initial game initialization event
