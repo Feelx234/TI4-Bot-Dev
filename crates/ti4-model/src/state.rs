@@ -1279,6 +1279,11 @@ pub struct GameState {
     /// position -- `Game` owns it, not the state.
     #[serde(default)]
     pub rng_seed: u64,
+    /// Card identity across a redone timeline (turn redo). Only a redo replay sets it; `None`
+    /// in every normal game, where draws are plain front-of-deck removals. Not serialized and
+    /// not compared: it steers *which* card a draw takes, it is not part of the position.
+    #[serde(skip)]
+    pub deck_reserve: Option<crate::deck_reserve::DeckReserve>,
     /// Planets placed onto a tile during play, mapped to the system they were placed in.
     ///
     /// Twelve planets in the corpus have no printed `tileId` (Mirage, Custodia Vigilia, the ocean
@@ -1752,6 +1757,7 @@ impl GameState {
             nexus_unlocked: false,
             styx_holder: None,
             rng_seed: 0,
+            deck_reserve: None,
             placed_planets: BTreeMap::new(),
             influence_pays_for_units: BTreeSet::new(),
             breach_tokens: BTreeSet::new(),
@@ -2227,10 +2233,12 @@ impl GameState {
 
     /// Turn the top facedown public objective faceup (LRR 81.2).
     pub fn reveal_objective(&mut self) -> Option<ObjectiveId> {
-        if self.objective_deck.is_empty() {
-            return None;
-        }
-        let top = self.objective_deck.remove(0);
+        let top = crate::deck_reserve::take_top(
+            &mut self.deck_reserve,
+            "objective",
+            &mut self.objective_deck,
+            None,
+        )?;
         self.revealed_objectives.push(top.clone());
         Some(top)
     }

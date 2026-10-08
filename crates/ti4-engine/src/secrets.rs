@@ -77,10 +77,14 @@ pub fn draw(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<Option<SecretObjectiveId>, IllegalChoice> {
-    if state.secret_deck.is_empty() {
+    let Some(top) = ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        "secret",
+        &mut state.secret_deck,
+        Some(player.as_str()),
+    ) else {
         return Ok(None);
-    }
-    let top = state.secret_deck.remove(0);
+    };
     if let Some(seat) = state.player_mut(player) {
         seat.secret_objectives.push(top.clone());
     }

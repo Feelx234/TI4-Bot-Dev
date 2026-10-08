@@ -643,7 +643,7 @@ export const EventLog: React.FC<EventLogProps> = ({
                 className="button button--secondary button--sm"
                 data-testid="turn-redo-btn"
                 disabled={turnRedo.disabled}
-                title="Rewinds the game for everyone to the start of that turn. The original timeline is kept and can be restored."
+                title="Rewinds the game for everyone to the start of that turn. After the new turn, the recorded decisions that followed replay (same dice, same cards) until that seat's next turn begins. The original timeline is kept and can be restored."
                 onClick={() =>
                   turnRedo.onRequest({
                     turns: redoTurns,

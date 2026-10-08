@@ -1512,7 +1512,14 @@ fn politics_primary(
     }
     crate::action_cards::draw(state, content, table, player, 2)?;
     let looked: Vec<String> = (0..state.agenda_deck.len().min(2))
-        .map(|_| state.agenda_deck.remove(0))
+        .map_while(|_| {
+            ti4_model::deck_reserve::take_top(
+                &mut state.deck_reserve,
+                "agenda",
+                &mut state.agenda_deck,
+                None,
+            )
+        })
         .collect();
     for agenda in looked {
         let choice = Choice::new(

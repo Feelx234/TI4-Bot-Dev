@@ -83,7 +83,14 @@ pub fn draw(
         if state.action_card_deck.is_empty() {
             break;
         }
-        let top = state.action_card_deck.remove(0);
+        let Some(top) = ti4_model::deck_reserve::take_top(
+            &mut state.deck_reserve,
+            "action_card",
+            &mut state.action_card_deck,
+            Some(player.as_str()),
+        ) else {
+            break;
+        };
         if let Some(seat) = state.player_mut(player) {
             seat.action_cards.push(top.clone());
         }
@@ -681,10 +688,14 @@ fn sabotage(_: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {}
 /// An empty agenda deck has nothing to reveal, and the card then does nothing: a corner that
 /// cannot arise in a full game, where the 63-card deck sheds two agendas a phase.
 fn veto(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    let Some(replacement) = context.state.agenda_deck.first().cloned() else {
+    let Some(replacement) = ti4_model::deck_reserve::take_top(
+        &mut context.state.deck_reserve,
+        "agenda",
+        &mut context.state.agenda_deck,
+        None,
+    ) else {
         return;
     };
-    context.state.agenda_deck.remove(0);
     context.state.agenda_veto_replacement = Some(replacement);
 }
 
@@ -2159,10 +2170,14 @@ fn rider_payoff(
                 let _ = draw(state, content, table, player, 3);
             } else {
                 for _ in 0..3 {
-                    if state.action_card_deck.is_empty() {
+                    let Some(top) = ti4_model::deck_reserve::take_top(
+                        &mut state.deck_reserve,
+                        "action_card",
+                        &mut state.action_card_deck,
+                        Some(player.as_str()),
+                    ) else {
                         break;
-                    }
-                    let top = state.action_card_deck.remove(0);
+                    };
                     if let Some(seat) = state.player_mut(player) {
                         seat.action_cards.push(top);
                     }
@@ -2270,8 +2285,12 @@ fn rider_payoff(
         Some(crate::factions::keleres_units::RIDER_ALIAS) => {
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 1);
-            } else if !state.action_card_deck.is_empty() {
-                let top = state.action_card_deck.remove(0);
+            } else if let Some(top) = ti4_model::deck_reserve::take_top(
+                &mut state.deck_reserve,
+                "action_card",
+                &mut state.action_card_deck,
+                Some(player.as_str()),
+            ) {
                 if let Some(seat) = state.player_mut(player) {
                     seat.action_cards.push(top);
                 }

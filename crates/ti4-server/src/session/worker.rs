@@ -706,6 +706,9 @@ impl Decider for ReplayingDecider {
         if self.has_boundary_state {
             self.shared.lock().expect("shared lock").replay_complete = true;
         }
+        if let Some(force) = &self.force {
+            force.go_live();
+        }
         self.inner.choose(choice)
     }
 
@@ -719,6 +722,9 @@ impl Decider for ReplayingDecider {
         }
         if self.has_boundary_state {
             self.shared.lock().expect("shared lock").replay_complete = true;
+        }
+        if let Some(force) = &self.force {
+            force.go_live();
         }
         self.inner.choose_seeing(choice, seen)
     }
@@ -1038,7 +1044,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 lock.redo_decisions.clear();
                 lock.redo_events.clear();
                 lock.batches.retain(|batch| batch.end_cursor <= start);
-                lock.rng_marks.retain(|index, _| *index < start);
+                lock.rng_marks.truncate_to(start);
             }
             if let Err(error) = lock.persist_history() {
                 lock.error = Some(error);
@@ -1323,7 +1329,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         lock.redo_decisions.clear();
                         lock.redo_events.clear();
                         lock.batches.retain(|b| b.end_cursor <= fork_cursor);
-                        lock.rng_marks.retain(|index, _| *index < fork_cursor);
+                        lock.rng_marks.truncate_to(fork_cursor);
                     }
                 }
                 if !lock.history_active

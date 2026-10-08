@@ -33,7 +33,7 @@ use crate::protocol::turn_redo::{TurnRedoOutcome, TurnRedoStage, TurnRedoStatus}
 use crate::session::replay::replay_session_forced;
 use crate::session::turn_redo::{
     AlternateTimeline, TurnRedoError, TurnRedoRecord, autoplay, events_through, find_turns,
-    prepare_tail, redo_window,
+    open_segment, prepare_tail, redact_for_viewer, redo_window,
 };
 
 fn invalid(error: &TurnRedoError) -> HistoryError {
@@ -256,6 +256,7 @@ impl GameRegistry {
             },
             |record| record.alternate.clone(),
         );
+        let open = open_segment(window.start, &source);
         let record = TurnRedoRecord {
             seat: target,
             requested_by: actor.clone(),
@@ -276,7 +277,10 @@ impl GameRegistry {
         let mut batches = snap.batches.clone();
         batches.retain(|batch| batch.end_cursor <= window.start);
         let mut marks = snap.marks.clone();
-        marks.retain(|index, _| *index < window.start);
+        marks.truncate_to(window.start);
+        // The new turn is played live against the cards the recorded tail will draw: its draws
+        // skip them (and recovery from disk skips them the same way).
+        marks.deck_plan.push(open);
         let history = GameHistory {
             decisions: snap.decisions[..window.start].to_vec(),
             redo: Vec::new(),
@@ -392,7 +396,6 @@ impl GameRegistry {
             tail_total: result.tail_total,
             stop: result.stop.clone(),
             asking_seat: result.asking_seat.clone(),
-            deck_offsets: result.deck_offsets.clone(),
         });
         self.write_record(game_id, &snap.config, &next)?;
         let published = self.publish_history(
@@ -544,6 +547,7 @@ impl GameRegistry {
             if asking.is_some() {
                 outcome.asking_seat.clone_from(&asking);
             }
+            redact_for_viewer(&mut outcome, &actor);
             outcome
         });
         Ok(Some(TurnRedoStatus {

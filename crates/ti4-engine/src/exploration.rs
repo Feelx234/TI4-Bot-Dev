@@ -107,10 +107,12 @@ pub fn choose_deck(
 /// Draw the top card of one exploration deck.
 pub fn draw(state: &mut GameState, deck: &str) -> Option<String> {
     let cards = state.exploration_decks.get_mut(deck)?;
-    if cards.is_empty() {
-        return None;
-    }
-    Some(cards.remove(0))
+    ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        &format!("exploration:{deck}"),
+        cards,
+        None,
+    )
 }
 
 /// How a card resolves, from the corpus.
@@ -1109,8 +1111,12 @@ pub fn purge_for_relic(
     let from_matching = matching.min(FRAGMENTS_PER_RELIC);
     let from_frontier = FRAGMENTS_PER_RELIC - from_matching;
 
-    let relic = state.relic_deck.first().cloned()?;
-    state.relic_deck.remove(0);
+    let relic = ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        "relic",
+        &mut state.relic_deck,
+        Some(player.as_str()),
+    )?;
 
     let seat = state.player_mut(player)?;
     *seat.relic_fragments.entry(trait_name).or_insert(0) -= from_matching;
