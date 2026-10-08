@@ -10,8 +10,17 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
+import { InfoPopover } from "./InfoPopover.tsx";
+import {
+  planDefaultLanding,
+  planetInvasionInfo,
+  planetStanding,
+  sameDraft,
+  type Landing,
+  type PlanPlanet,
+} from "../presentation/landingPlan.ts";
 
-export type Landing = { planet: string; unit: string; damaged: boolean };
+export type { Landing };
 const same = (a: Landing, b: Landing) =>
   a.planet === b.planet && a.unit === b.unit && a.damaged === b.damaged;
 const fromOption = (option: PendingChoiceDto["options"][number]): Landing | null =>
@@ -97,23 +106,45 @@ export const InvasionLandingTray: React.FC<{
     };
   };
 
-  // M20: Calculate default target planet (highest value by resources + influence)
-  const getDefaultTargetPlanet = (): string | null => {
-    if (planets.length === 0) return null;
-    let highestValuePlanet = planets[0];
-    let highestValue = -1;
-    for (const planetId of planets) {
-      const values = planetInfo(planetId);
-      const totalValue = values.resources + values.influence;
-      if (totalValue > highestValue) {
-        highestValue = totalValue;
-        highestValuePlanet = planetId;
-      }
-    }
-    return highestValuePlanet;
-  };
+  const stock = (unit: string, damaged: boolean) =>
+    board?.systems[system]?.units.filter(
+      (piece) =>
+        piece.owner === choice.actor &&
+        !piece.planet &&
+        piece.unit_type === unit &&
+        piece.damaged === damaged,
+    ).length ?? 1;
 
-  const defaultTargetPlanet = getDefaultTargetPlanet();
+  // Default plan (see presentation/landingPlan.ts): uninhabited planets share the forces, a
+  // defended planet keeps the main force. Deterministic: depends only on the offers and the board.
+  const computeDefaultPlan = () => {
+    const planPlanets: PlanPlanet[] = planets.map((id) => {
+      const info = planetInfo(id);
+      const meta = board?.map_tiles?.flatMap((tile) => tile.planets ?? []).find((e) => e.id === id);
+      const standing = planetStanding(board, system, id, choice.actor).standing;
+      return {
+        id,
+        value: info.resources + info.influence,
+        extra: (meta?.legendary ? 10 : 0) + info.attachments.length + (info.traits.length ? 0.5 : 0),
+        defended: standing === "defended",
+        held: standing === "held",
+      };
+    });
+    const seen = new Set<string>();
+    const stocks = options.flatMap(({ landing }) => {
+      const key = `${landing.unit}|${landing.damaged}`;
+      if (seen.has(key)) return [];
+      seen.add(key);
+      return [{ unit: landing.unit, damaged: landing.damaged, count: stock(landing.unit, landing.damaged) }];
+    });
+    return planDefaultLanding(planPlanets, stocks, (planet, unit, damaged) =>
+      options.some(
+        ({ landing }) => landing.planet === planet && landing.unit === unit && landing.damaged === damaged,
+      ),
+    );
+  };
+  const defaultPlan = computeDefaultPlan();
+  const defaultTargetPlanet: string | null = defaultPlan.landings[0]?.planet ?? planets[0] ?? null;
   const [planet, setPlanet] = useState<string | null>(defaultTargetPlanet);
   const [hasAutoPopulated, setHasAutoPopulated] = useState(false);
   useEffect(() => {
@@ -246,16 +277,7 @@ export const InvasionLandingTray: React.FC<{
     if (running && draft.length === 0) setRunning(false);
   }, [running, draft.length]);
 
-  const stock = (unit: string, damaged: boolean) =>
-    board?.systems[system]?.units.filter(
-      (piece) =>
-        piece.owner === choice.actor &&
-        !piece.planet &&
-        piece.unit_type === unit &&
-        piece.damaged === damaged,
-    ).length ?? 1;
-
-  // M20: Auto-populate default troop draft on first load
+  // Auto-populate the default plan on first load
   useEffect(() => {
     if (
       !hasAutoPopulated &&
@@ -264,31 +286,22 @@ export const InvasionLandingTray: React.FC<{
       localDraft.length === 0 &&
       !controlledDraft?.length
     ) {
-      const groundForceOptions = options.filter(
-        ({ landing }) => landing.planet === defaultTargetPlanet
-      );
-      const defaultDraft: Landing[] = [];
-      for (const { landing } of groundForceOptions) {
-        const availableCount = stock(landing.unit, landing.damaged);
-        for (let i = 0; i < availableCount; i++) {
-          defaultDraft.push(landing);
-        }
-      }
-      if (defaultDraft.length > 0) {
-        setDraft(defaultDraft);
+      if (defaultPlan.landings.length > 0) {
+        setDraft(defaultPlan.landings);
         setPlanet(defaultTargetPlanet);
       }
       setHasAutoPopulated(true);
     }
   }, [defaultTargetPlanet, hasAutoPopulated, draft.length, localDraft.length, controlledDraft?.length]);
 
-  // M20: Reset to default selections
+  // Reset restores the default plan (including the split)
   const resetToDefaults = () => {
-    setDraft([]);
+    setDraft(defaultPlan.landings);
     setPlanet(defaultTargetPlanet);
     setError(null);
-    setHasAutoPopulated(false);
+    setHasAutoPopulated(true);
   };
+  const showSplitHint = defaultPlan.split && sameDraft(draft, defaultPlan.landings);
 
   const visibleOdds = odds?.key === previewKey ? odds.value : "loading";
   const available = (landing: Landing) =>
@@ -309,6 +322,22 @@ export const InvasionLandingTray: React.FC<{
             <p className="invasion-landing-instruction">
               Stage forces to planets with + and −. Only confirmed landings are public.
             </p>
+
+            {showSplitHint && (
+              <p className="invasion-split-hint" data-testid="invasion-split-hint">
+                Split across uninhabited planets — adjust below
+                <span className="invasion-split-hint__counts">
+                  {" "}
+                  (
+                  {planets
+                    .map((name) => [name, draft.filter((item) => item.planet === name).length] as const)
+                    .filter(([, count]) => count > 0)
+                    .map(([name, count]) => `${name} ${count}`)
+                    .join(", ")}
+                  )
+                </span>
+              </p>
+            )}
 
             <div className="invasion-landing-planets-container">
               {planets.map((name) => {
@@ -336,7 +365,7 @@ export const InvasionLandingTray: React.FC<{
                         >
                           <span aria-hidden="true">🪐 </span>
                           {name}
-                          {name === defaultTargetPlanet && (
+                          {name === defaultTargetPlanet && !defaultPlan.split && (
                             <span
                               className="invasion-default-badge"
                               title="Pre-selected as default target"
@@ -381,6 +410,26 @@ export const InvasionLandingTray: React.FC<{
                           </span>
                         )}
                       </div>
+
+                      <ul className="invasion-planet-effects" data-testid="invasion-planet-effects">
+                        {planetInvasionInfo(
+                          board,
+                          system,
+                          name,
+                          choice.actor,
+                          planetDraftCount,
+                          (id) => players?.[id]?.faction ?? id,
+                        ).effects.map((effect, index) => (
+                          <li key={index} className={`invasion-effect invasion-effect--${effect.kind}`}>
+                            <span>{effect.text}</span>
+                            {effect.detail && (
+                              <InfoPopover label={`About: ${effect.text}`} data-testid="planet-effect-info" position="bottom">
+                                <p style={{ margin: 0, maxWidth: 280 }}>{effect.detail}</p>
+                              </InfoPopover>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
 
                       {isCurrentSelected && board?.invasion?.phase === "landing" && (
                         <div
@@ -507,7 +556,7 @@ export const InvasionLandingTray: React.FC<{
                 className="button button--secondary"
                 disabled={running}
                 onClick={resetToDefaults}
-                title="Reset to default planet and all available troops"
+                title="Reset to the default plan: forces split across uninhabited planets, the rest on the contested planet"
               >
                 Reset to Defaults
               </button>
