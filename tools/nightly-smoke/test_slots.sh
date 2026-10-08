@@ -23,6 +23,10 @@ check_true() { # check_true <name> <command...>
   if "$@"; then echo "ok    $name"; else echo "FAIL  $name"; failures=$((failures + 1)); fi
 }
 epoch() { TZ=Europe/Berlin date -d "$1" +%s; }
+# Ports of the fake games. Games are found and killed by the port in their environment (like the
+# real ones), so a port shared with another test run (test_schedule.sh, a parallel session) would
+# get the fake games killed: pick a random pair.
+export STUB_PORT=$((30000 + (RANDOM % 8000) * 2))
 wait_for() { # wait_for <file> [seconds]
   local i; for i in $(seq 1 $((${2:-30} * 5))); do [ -e "$1" ] && return 0; sleep 0.2; done; return 1
 }
@@ -57,7 +61,7 @@ case "$prompt" in
     printf '%s' "$prompt" > "$STUB_DIR/prompt-$name.txt"
     echo "start $name $(date +%s.%N) cwd=$(pwd) slot=${NIGHTLY_SLOT:-} run=${NIGHTLY_RUN_NAME:-} game_repo=${NIGHTLY_GAME_REPO:-} target=${CARGO_TARGET_DIR:-} fix1=$([ -f fix1.txt ] && echo yes || echo no)" >> "$STUB_LOG"
     if [ -n "${STUB_HANG:-}" ]; then
-      case "$slot" in s2) port=34568 ;; *) port=34567 ;; esac
+      case "$slot" in s2) port=$((STUB_PORT + 1)) ;; *) port=$STUB_PORT ;; esac
       echo "{\"backend_port\": $port, \"preset\": \"stub\", \"players\": 3, \"policy\": \"steer\"}" > "$rd/meta.json"
       echo "{\"decision\": 4${slot#s}, \"round\": 3, \"phase\": \"action\", \"player\": \"p1\", \"subtype\": \"x\"}" > "$rd/trace/trace.jsonl"
       setsid env TI4_E2E_BACKEND_PORT=$port sleep 300 < /dev/null > /dev/null 2>&1 &
@@ -65,6 +69,7 @@ case "$prompt" in
       sleep 300 & echo $! > "$STUB_DIR/proctor-child-$slot.pid"
       echo started > "$STUB_DIR/hang-$slot.ready"
       wait
+      advance 8000 # whatever ended the wait, the fake clock must move on or the sweep would spin
       exit 0
     fi
     echo '{"preset":"stub"}' > "$rd/meta.json"
@@ -166,7 +171,7 @@ check "the build ran in both slot worktrees" "$(sort -u "$E/builds.log" | grep -
 check "slot 1's build uses slot 1's target" "$(grep -c "slot-1/repo target=$NIGHTLY_REPORT_ROOT/target-slot-2" "$E/builds.log")" 0
 check "slot branches exist" "$(repo branch --list "$NB-s1" "$NB-s2" | wc -l)" 2
 check "slot worktree is a real worktree with the snapshot" "$(git -C "$ND/slot-1/repo" show HEAD:wip.txt | head -1)" wip
-check "web/node_modules is linked into the slot worktrees" "$(cat "$ND/slot-2/repo/web/node_modules/pkg.txt")" pkg
+check "web/node_modules is a private copy in the slot worktrees (not a link)" "$(cat "$ND/slot-2/repo/web/node_modules/pkg.txt") $(test -L "$ND/slot-2/repo/web/node_modules" && echo link || echo dir)" "pkg dir"
 check "slot worktree stays clean (node_modules excluded)" "$(git -C "$ND/slot-1/repo" status --porcelain | wc -l)" 0
 check "proctor prompt of slot 2 names its repo and branch" "$(grep -c "game runs from \`$ND/slot-2/repo\`" "$E/prompt-s2-01-2030.txt")" 1
 check_true "prompt explains the parallel slot" grep -q 'slot 2 of 2' "$E/prompt-s2-01-2030.txt"
@@ -297,7 +302,7 @@ check "term: the sweep exits with 143" "$rc" 143
 check_true "term: the cleanup of two runs did not hang (under 40 s)" test $((SECONDS - t0)) -lt 40
 check_true "term: both game processes are gone" bash -c "! kill -0 $g1 2>/dev/null && ! kill -0 $g2 2>/dev/null"
 check_true "term: both proctor children are gone" bash -c "! kill -0 $c1 2>/dev/null && ! kill -0 $c2 2>/dev/null"
-check "term: no process carries either run's port" "$(grep -lsz '^TI4_E2E_BACKEND_PORT=3456[78]$' /proc/[0-9]*/environ 2>/dev/null | wc -l)" 0
+check "term: no process carries either run's port" "$(grep -lsz -e "^TI4_E2E_BACKEND_PORT=$STUB_PORT\$" -e "^TI4_E2E_BACKEND_PORT=$((STUB_PORT + 1))\$" /proc/[0-9]*/environ 2>/dev/null | wc -l)" 0
 check "term: both exit_code files say killed" "$(cat "$ND/runs/s1-03-2030/exit_code" "$ND/runs/s2-06-2030/exit_code" 2>/dev/null | tr '\n' ' ')" "killed killed "
 check_true "term: both digests were written" bash -c "[ -s '$ND/runs/s1-03-2030/digest.md' ] && [ -s '$ND/runs/s2-06-2030/digest.md' ]"
 check "term: exactly two entries, one per slot" "$(grep -c 'sweep terminated mid-run (SIGTERM)' "$ND/report.md")" 2

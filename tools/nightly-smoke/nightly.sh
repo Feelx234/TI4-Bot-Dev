@@ -187,10 +187,18 @@ slot_init() { # slot_init <k>: sets the per-slot globals (no side effects)
 }
 
 # Make web/node_modules of the live checkout visible in a worktree (and keep git from seeing it).
-link_node_modules() { # link_node_modules <worktree>
+link_node_modules() { # link_node_modules <worktree> [copy]
   local wt="$1" exclude
   if [ -d "$REPO/web/node_modules" ] && [ -d "$wt/web" ] && [ ! -e "$wt/web/node_modules" ]; then
-    ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
+    if [ "${2:-}" = copy ]; then
+      # A slot plays games here: a real copy (about 160 MB) keeps vite's root and its dependency
+      # cache (node_modules/.vite) private to the slot instead of shared with the live checkout, the
+      # phone-play instance and the other slots, and keeps the modules inside the vite root.
+      cp -a "$REPO/web/node_modules" "$wt/web/node_modules" 2> /dev/null
+      rm -rf "$wt"/web/node_modules/.vite/deps_temp_* 2> /dev/null
+    else
+      ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
+    fi
     exclude=$(git -C "$wt" rev-parse --git-path info/exclude)
     grep -qxF '/web/node_modules' "$exclude" 2>/dev/null || echo '/web/node_modules' >> "$exclude"
   fi
@@ -200,20 +208,26 @@ link_node_modules() { # link_node_modules <worktree>
 # edits of a killed proctor and takes in anything the night branch gained meanwhile.
 slot_prepare() {
   mkdir -p "$SDIR" || return 1
-  (
-    flock 4
-    git -C "$REPO" worktree prune
-    if [ ! -e "$SREPO/.git" ]; then
-      git -C "$REPO" worktree add -q -B "$SBRANCH" "$SREPO" "$FIX_BRANCH"
-    else
-      git -C "$SREPO" reset -q --hard HEAD || exit 1
-      if ! git -C "$SREPO" merge-base --is-ancestor "$FIX_BRANCH" HEAD; then
-        git -C "$SREPO" merge --no-edit -q "$FIX_BRANCH" || { git -C "$SREPO" merge --abort; exit 1; }
+  local attempt
+  for attempt in 1 2 3; do
+    (
+      flock 4
+      git -C "$REPO" worktree prune || echo "worktree prune failed ($?)"
+      if [ ! -e "$SREPO/.git" ]; then
+        git -C "$REPO" worktree add -q -B "$SBRANCH" "$SREPO" "$FIX_BRANCH" || { echo "worktree add failed ($?)"; exit 1; }
+      else
+        git -C "$SREPO" reset -q --hard HEAD || { echo "reset failed ($?)"; exit 1; }
+        if ! git -C "$SREPO" merge-base --is-ancestor "$FIX_BRANCH" HEAD; then
+          git -C "$SREPO" merge --no-edit -q "$FIX_BRANCH" || { git -C "$SREPO" merge --abort; echo "merge of $FIX_BRANCH failed"; exit 1; }
+        fi
       fi
-    fi
-  ) 4>"$NIGHT_DIR/.repo.lock" >> "$SDIR/prepare.log" 2>&1 || return 1
-  link_node_modules "$SREPO"
-  mkdir -p "$STARGET"
+    ) 4>"$NIGHT_DIR/.repo.lock" >> "$SDIR/prepare.log" 2>&1 && break
+    echo "slot_prepare: attempt $attempt failed" >> "$SDIR/prepare.log"
+    [ "$attempt" -lt 3 ] || return 1
+    sleep 2 # a half-created worktree is taken as it is and refreshed by the next attempt
+  done
+  link_node_modules "$SREPO" copy
+  mkdir -p "$STARGET" || { echo "cannot create $STARGET" >> "$SDIR/prepare.log"; return 1; }
 }
 
 # The state of the run in progress is a file, $NIGHT_DIR/.active-sK (run dir, run name, proctor pid
@@ -414,7 +428,7 @@ branch_note() { # the sentence about the branch in the proctor prompt
 
 # --- one slot's loop ----------------------------------------------------------------------------
 slot_loop() {
-  local n disk_waits=0 run_name run_dir prompt status r proctor_pid
+  local n disk_waits=0 run_name run_dir prompt status r proctor_pid proctor_seconds
   n=$(highest_run_number "$NIGHT_DIR/runs" "$SLOT_TAG")
   BASE_COMMIT=$(git -C "$SREPO" rev-parse HEAD)
   while time_left; do
@@ -478,10 +492,12 @@ slot_loop() {
     # Auto mode with edit tools, working in the slot's repo on its branch. Pushing, switching
     # branches and rewriting history stay denied.
     set_active "$run_dir" "$run_name"
+    proctor_seconds=$(( END_EPOCH - $(now_epoch) + 600 ))
+    [ "$proctor_seconds" -ge 60 ] || proctor_seconds=60 # the window ended while we were waiting for our turn
     # Background job in its own session (setsid) + wait: a signal reaches the traps at once and
     # cleanup_slot can kill claude and everything it started.
     (cd "$SREPO" && { [ "$NSLOTS" -le 1 ] || export NIGHTLY_GAME_REPO="$SREPO" CARGO_TARGET_DIR="$STARGET" NIGHTLY_SLOT="$SLOT" NIGHTLY_RUN_NAME="$run_name"; } \
-      && exec setsid timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
+      && exec setsid timeout --kill-after=30 "$proctor_seconds" \
       "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
       --permission-mode auto --tools Bash Read Grep Glob Edit Write \
       --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" "Bash($NIGHTLY_DIR/request_fix.sh:*)" \

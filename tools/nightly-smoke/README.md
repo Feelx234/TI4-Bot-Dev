@@ -130,7 +130,7 @@ supervises N worker subshells, the slots. Each slot is a complete copy of the on
 | branch proctors commit repairs to | `nightly-fixes-<night>` | `nightly-fixes-<night>-sK`, created from the night branch |
 | cargo target dir (builds and `cargo run` of the game) | the checkout's `target/` | `nightly-reports/target-slot-K` (about 2 GB, a cold build is about 80 s; kept between nights) |
 | run names | `NN-HHMM` | `sK-NN-HHMM`, numbered per slot (a restart continues each slot's own count) |
-| `web/node_modules` | the checkout's | a symlink to the live checkout's |
+| `web/node_modules` | the checkout's | a private copy (about 160 MB, vite cache included) of the live checkout's |
 
 The live checkout is switched to the night branch exactly as before (snapshot commit, `orig_branch`),
 but with several slots nobody plays in it: it is the base the slot worktrees and the fixers branch from.
