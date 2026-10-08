@@ -403,6 +403,20 @@ html,
   pointer-events: none;
 }
 
+/* The overlays container is its own stacking context at --layer-modal, below the header
+   (--layer-header), so a dialog inside it at --layer-dialog still slid under the top bar and its
+   first lines (eyebrow labels) were clipped at 1280x720. While a backdrop dialog is open the
+   whole container rises above the header. Non-modal children (banners, prompts, status bars)
+   keep the lower layer, so the header stays usable for them. */
+.app-shell__overlays:has(
+    .choice-dialog,
+    .choice-workflow-dialog,
+    .decision-modal,
+    .invasion-overlay
+  ) {
+  z-index: var(--layer-dialog);
+}
+
 .paused-plan {
   position: absolute;
   top: 8px;
