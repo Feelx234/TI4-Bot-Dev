@@ -195,3 +195,13 @@
   cursor: pointer;
   font-weight: 600;
 }
+
+/* While a backdrop dialog is open the overlays container rises to --layer-dialog (index.css), which
+   would cover the prepared answer's Confirm bar of the real question that opened that dialog. The
+   floating prep panel rises with it. */
+:root:has(
+    .app-shell__overlays :is(.choice-dialog, .choice-workflow-dialog, .decision-modal, .invasion-overlay)
+  )
+  .secondary-prep {
+  z-index: calc(var(--layer-dialog, 50) + 1);
+}

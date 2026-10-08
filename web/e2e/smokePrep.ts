@@ -302,6 +302,7 @@ export class SecondaryPrepExercise {
     let reviewBar = false;
     let needs = false;
     let confirmed = false;
+    let clickWhy = "";
     while (Date.now() - start < limit) {
       if ((await version()) > before) break;
       if (p.mode === "auto") {
@@ -376,6 +377,19 @@ export class SecondaryPrepExercise {
       confirmed = true;
     } catch {
       confirmed = false;
+      // Say why: a disabled button (a request still running) or something lying over it.
+      const why = await page
+        .evaluate(() => {
+          const el = document.querySelector('[data-testid="secondary-prepared-confirm"]') as HTMLButtonElement | null;
+          if (!el) return "the button is gone";
+          const r = el.getBoundingClientRect();
+          const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+          const over = top && top !== el && !el.contains(top) ? `${top.tagName}[data-testid=${top.getAttribute("data-testid")}].${String(top.className).slice(0, 60)}` : "nothing";
+          return `disabled=${el.disabled} box=${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)}x${Math.round(r.height)} covered-by=${over}`;
+        })
+        .catch((e: unknown) => `evaluate failed: ${String(e).slice(0, 80)}`);
+      clickWhy = why;
+      this.d.log(`  prep: confirm click failed (${why})`);
     }
     const end = Date.now() + 12_000;
     while (confirmed && Date.now() < end && (await version()) <= before) await sleep(150);
@@ -386,7 +400,7 @@ export class SecondaryPrepExercise {
       if (!first) this.plans.delete(seat);
       return "done";
     }
-    this.find(p, confirmed ? "Confirm was clicked but the decision did not advance in 12 s" : "the Confirm button could not be clicked");
+    this.find(p, confirmed ? "Confirm was clicked but the decision did not advance in 12 s" : `the Confirm button could not be clicked (${clickWhy})`);
     this.report.fallbacks++;
     this.setOutcome(p, "CONFIRM FAILED (played normally)");
     this.plans.delete(seat);
