@@ -136,10 +136,14 @@ pub fn resolve_before_token_gain_with(
         let mut drawn_count = 0;
         let mut drawn = Vec::new();
         for _ in 0..requested_draws {
-            let Some(card) = state.action_card_deck.first().cloned() else {
+            let Some(card) = ti4_model::deck_reserve::take_top(
+                &mut state.deck_reserve,
+                "action_card",
+                &mut state.action_card_deck,
+                Some(player_id.as_str()),
+            ) else {
                 break;
             };
-            state.action_card_deck.remove(0);
             if let Some(player) = state.player_mut(&player_id) {
                 player.action_cards.push(card.clone());
                 drawn.push(card);

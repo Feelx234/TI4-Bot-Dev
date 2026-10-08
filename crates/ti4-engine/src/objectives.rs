@@ -1429,11 +1429,13 @@ pub fn reveal_stage(
     content: &ContentStore,
     stage: u8,
 ) -> Option<ObjectiveId> {
-    let index = state
-        .objective_deck
-        .iter()
-        .position(|alias| stage_of(content, alias) == Some(stage))?;
-    let alias = state.objective_deck.remove(index);
+    let alias = ti4_model::deck_reserve::take_where(
+        &mut state.deck_reserve,
+        "objective",
+        &mut state.objective_deck,
+        None,
+        &|alias| stage_of(content, alias) == Some(stage),
+    )?;
     state.revealed_objectives.push(alias.clone());
     Some(alias)
 }

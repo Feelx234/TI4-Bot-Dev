@@ -5050,7 +5050,14 @@ impl<'a> Game<'a> {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
             crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
-            let replacement = self.state.agenda_deck.remove(0);
+            let Some(replacement) = ti4_model::deck_reserve::take_top(
+                &mut self.state.deck_reserve,
+                "agenda",
+                &mut self.state.agenda_deck,
+                None,
+            ) else {
+                return Ok(false);
+            };
             self.state.agenda_veto_replacement = Some(replacement);
             crate::promissory::give_back(&mut self.state, &note);
             return Ok(true);
@@ -5087,7 +5094,14 @@ impl<'a> Game<'a> {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
             crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
-            let replacement = self.state.agenda_deck.remove(0);
+            let Some(replacement) = ti4_model::deck_reserve::take_top(
+                &mut self.state.deck_reserve,
+                "agenda",
+                &mut self.state.agenda_deck,
+                None,
+            ) else {
+                return Ok(false);
+            };
             self.state.agenda_veto_replacement = Some(replacement);
             return Ok(true);
         }
