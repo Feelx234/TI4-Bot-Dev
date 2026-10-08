@@ -323,6 +323,7 @@ const GameViewContainer: React.FC<{
     command: turnRedoCommand,
     gameVersion,
     generation: gameHistory.generation ?? 0,
+    viewerSeat: userSeat,
     onTimelineChanged: () => {
       setSelectedOptionId(undefined);
       setSelectedPlanetId(null);

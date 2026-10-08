@@ -29,6 +29,7 @@ use super::{
     Arc, GameHistory, GameRegistry, GameSession, HistoryError, InitialSnapshotMsg, RegistryState,
     SessionConfig,
 };
+use crate::protocol::status::ViewerRole;
 use crate::protocol::turn_redo::{TurnRedoOutcome, TurnRedoStage, TurnRedoStatus};
 use crate::session::replay::replay_session_forced;
 use crate::session::turn_redo::{
@@ -308,7 +309,8 @@ impl GameRegistry {
     ///
     /// # Errors
     /// [`HistoryError`]: `Forbidden` unless the host or the redoing seat, `InvalidTarget` when no
-    /// redo is waiting for auto-play or the new turn is not finished.
+    /// redo is in progress or the new turn is not finished. A redo that was already auto-played is
+    /// not an error: the current snapshot comes back and nothing is applied twice.
     #[expect(
         clippy::too_many_lines,
         reason = "one serialized authorization, replay and publication boundary"
@@ -323,10 +325,14 @@ impl GameRegistry {
         let _reservation = gate.lock().expect("game gate lock");
         let state = self.state.lock().expect("registry lock");
         let (actor, is_host) = Self::require_actor(&state, game_id, credential)?;
-        let snap = self.snapshot(&state, game_id, Some(expected_version))?;
+        // Several tabs (the host's and the redoing seat's) ask for the same auto-play. The first
+        // one wins; a later one finds the round already replayed and gets the current snapshot
+        // back instead of an error, whatever version it expected. The stage is checked before the
+        // version for exactly that reason.
+        let current = self.snapshot(&state, game_id, None)?;
         drop(state);
         let record = self
-            .read_record(game_id, &snap.config)
+            .read_record(game_id, &current.config)
             .ok_or_else(|| HistoryError::InvalidTarget("no turn redo is in progress".to_owned()))?;
         if actor != record.seat && !is_host {
             return Err(HistoryError::Forbidden(
@@ -334,10 +340,13 @@ impl GameRegistry {
             ));
         }
         if record.stage != TurnRedoStage::NewTurn {
-            return Err(HistoryError::InvalidTarget(
-                "the round was already auto-played".to_owned(),
-            ));
+            return Ok(current
+                .session
+                .get_snapshot(&ViewerRole::Player(actor)));
         }
+        let state = self.state.lock().expect("registry lock");
+        let snap = self.snapshot(&state, game_id, Some(expected_version))?;
+        drop(state);
         let result = autoplay(
             &snap.config.state,
             snap.config.galaxy.as_ref(),

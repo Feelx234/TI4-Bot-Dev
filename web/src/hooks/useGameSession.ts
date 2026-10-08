@@ -69,14 +69,22 @@ export function useGameSession({
     [client],
   );
 
+  // Stable identities: the turn redo hook re-reads its status whenever these change, so a new
+  // function per render made every status response trigger the next request (and a re-render).
+  const fetchTurnRedoStatus = useCallback(() => client.fetchTurnRedoStatus(), [client]);
+  const turnRedoCommand = useCallback(
+    (command: import("../protocol/turnRedo.ts").TurnRedoCommand) => client.turnRedoCommand(command),
+    [client],
+  );
+
   return {
     ...state,
     submitChoice,
     setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
     fetchReplay: () => client.fetchReplay(),
-    fetchTurnRedoStatus: () => client.fetchTurnRedoStatus(),
-    turnRedoCommand: (command) => client.turnRedoCommand(command),
+    fetchTurnRedoStatus,
+    turnRedoCommand,
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
     resumeBatch: () => client.resumeBatch(),

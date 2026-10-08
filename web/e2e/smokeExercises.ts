@@ -246,7 +246,6 @@ export class RedoExercise {
   phase: Phase = "idle";
   readonly report: NonNullable<ExerciseReport["redo"]> = { outcome: "not attempted", versions: [], notes: [] };
   private completed = new Map<string, number>();
-  private lastSeat: string | null = null;
   private order: string[] = [];
   private seatIndex = -1;
   private since = 0;
@@ -292,7 +291,6 @@ export class RedoExercise {
       subtype === "end_turn" || /^end your turn/i.test(prompt ?? "") || (prompt === "action phase" && /\bpass\b/i.test(chosen));
     if (!endsTurn) return;
     this.completed.set(seatId, (this.completed.get(seatId) ?? 0) + 1);
-    this.lastSeat = seatId;
     this.order.push(seatId);
   }
 
