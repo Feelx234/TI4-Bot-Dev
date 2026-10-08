@@ -4,6 +4,8 @@ import { playerWithHand, opponent } from "../_shared/players";
 import { openMockedGame, GAME_ID } from "../_shared/mockGame";
 import { PROTOCOL_VERSION } from "../../../src/protocol/types";
 
+// A reaction wait names no seat: the same status for a real window and a bluff hold.
+const reactionWait = { kind: "waiting_for_reactions" as const, phase: "action", round: 2 };
 const waiting = {
   kind: "waiting_for_decision" as const,
   seat: playerWithHand().id,
@@ -20,7 +22,7 @@ test("another client: real wait next to a bluff hold", async ({ browser }, testI
   const viewport = { width: 1440, height: 900 };
 
   const real = await (await browser.newContext({ viewport, colorScheme: "dark" })).newPage();
-  await openMockedGame(real, { seat: opponent.id, players, turnStatus: waiting });
+  await openMockedGame(real, { seat: opponent.id, players, turnStatus: reactionWait });
   const realBar = real.getByTestId("turn-status-bar");
   await realBar.waitFor();
 
@@ -38,7 +40,7 @@ test("another client: real wait next to a bluff hold", async ({ browser }, testI
     protocol_version: PROTOCOL_VERSION,
     game_id: GAME_ID,
     game_version: 40,
-    status: waiting,
+    status: reactionWait,
   });
   await expect(bluffBar).toContainText("Waiting for");
 

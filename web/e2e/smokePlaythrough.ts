@@ -657,7 +657,10 @@ export async function randomUiPlaythrough(
         status.round >= options.stopAtRound
       )
         break;
-      if (status.kind !== "waiting_for_decision") {
+      if (
+        status.kind !== "waiting_for_decision" &&
+        status.kind !== "waiting_for_reactions"
+      ) {
         // Nothing to click; the server should move on by itself. A batch commit replays the whole
         // game into a replacement session before it is published; until then readers see the
         // stopped session, which has no pending decision and an unchanged version. On a debug
@@ -686,22 +689,37 @@ export async function randomUiPlaythrough(
         continue;
       }
 
-      const actorIndex = players.findIndex((p) => p.id === status.seat);
-      if (actorIndex < 0)
-        await fail(undefined, `decision for unknown seat ${status.seat}`);
-      const page = pages[actorIndex];
-      const actorState = await gameSnapshot(
-        request,
-        gameId,
-        players[actorIndex].session,
-      );
+      // A reaction window names no seat in the public status (who holds a card is private), so
+      // the asked seat is the one whose own snapshot carries the pending choice.
+      let actorIndex = -1;
+      let actorState = state;
+      if (status.kind === "waiting_for_decision") {
+        actorIndex = players.findIndex((p) => p.id === status.seat);
+        if (actorIndex < 0)
+          await fail(undefined, `decision for unknown seat ${status.seat}`);
+        actorState = await gameSnapshot(
+          request,
+          gameId,
+          players[actorIndex].session,
+        );
+      } else {
+        for (let i = 0; i < players.length; i++) {
+          const snapshot = await gameSnapshot(request, gameId, players[i].session);
+          if (snapshot.pending_choice?.choice) {
+            actorIndex = i;
+            actorState = snapshot;
+            break;
+          }
+        }
+      }
+      const page = pages[Math.max(actorIndex, 0)];
       const choice = actorState.pending_choice?.choice;
       // The status was read before the offer moved on (e.g. to the secondary of a strategy card); re-poll.
       if (!choice) {
         if (++noChoicePolls > 40)
           await fail(
             undefined,
-            `seat ${status.seat} is waiting but has no pending choice: ${JSON.stringify(status)}`,
+            `${status.kind === "waiting_for_decision" ? `seat ${status.seat}` : "no seat"} is waiting but has no pending choice: ${JSON.stringify(status)}`,
           );
         await new Promise((resolve) => setTimeout(resolve, 100));
         continue;

@@ -296,7 +296,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
       {!isActor ? (
         <div data-testid="spectator-reaction-notice" className="reaction-status-bar__spectator">
-          Waiting for {display(choice.actor).label}...
+          Waiting for reactions...
         </div>
       ) : (
         <>

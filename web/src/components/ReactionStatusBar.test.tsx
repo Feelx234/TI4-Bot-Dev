@@ -171,7 +171,7 @@ describe("ReactionStatusBar", () => {
     );
 
     expect(screen.getByTestId("spectator-reaction-notice")).toHaveTextContent(
-      "Waiting for Unknown participant...",
+      "Waiting for reactions...",
     );
   });
 

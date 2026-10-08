@@ -46,6 +46,9 @@ export const TurnStatusBar: React.FC<TurnStatusBarProps> = ({
           ? withStage("YOUR TURN: Awaiting your choice", status.stage)
           : withStage(`Waiting for ${display(status.seat).label}`, status.stage);
       }
+      case "waiting_for_reactions":
+        // The same line for a real window and a bluff hold; it never names a seat.
+        return "Waiting for reactions";
       case "phase_transition":
         return `Phase Transition: ${status.phase} (Round ${status.round})`;
       case "game_over":

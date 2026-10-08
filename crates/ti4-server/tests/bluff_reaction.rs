@@ -182,24 +182,56 @@ fn a_declared_bluff_holds_the_live_game_and_leaves_no_trace_in_the_history() {
         assert!(!wire.contains("reaction_intent") && !wire.contains("\"triggers\""));
         assert!(seen.iter().any(|m| matches!(m,
             ServerMessage::TurnStatus(t) if matches!(&t.status,
-                PublicTurnStatus::WaitingForDecision { seat, stage, .. }
-                    if seat == &seats.letnev && stage == "Waiting for player"))));
+                PublicTurnStatus::WaitingForReactions { .. }))));
     }
 }
 
 #[test]
 fn the_banner_is_the_status_a_real_question_sends() {
-    // Same constructor for both: the real wait and the hold build the identical message.
+    use ti4_engine::choice::{Choice, ChoiceOption};
+    use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_server::projection::{
+        project_turn_status, project_turn_status_for, waiting_for_player_status,
+        waiting_for_reactions_status,
+    };
     let state = {
         let registry = Arc::new(GameRegistry::new());
         launch(&registry).0.current_state()
     };
     let seat = state.players[0].id.clone();
-    let real = ti4_server::projection::project_turn_status(
-        &state,
-        Some(&ti4_engine::choice::Choice::new(seat.clone(), "x", vec![])),
+    let other = state.players[1].id.clone();
+    let window = Choice::new(
+        seat.clone(),
+        "when ACTION_CARD_PLAYED",
+        vec![ChoiceOption::decline()],
+    )
+    .contextualized(DecisionContext::new(
+        seat.clone(),
+        DecisionSource::Reaction("ACTION_CARD_PLAYED".to_owned()),
+        "reaction_when_ACTION_CARD_PLAYED",
+        state.phase,
+        state.round,
+    ));
+    // What every other seat and a spectator gets from a real reaction wait is, byte for byte,
+    // what a bluff hold sends.
+    let hold = serde_json::to_string(&waiting_for_reactions_status(&state)).unwrap();
+    for viewer in [ViewerRole::Player(other), ViewerRole::Spectator] {
+        let real = project_turn_status_for(&state, Some(&window), &viewer);
+        assert_eq!(serde_json::to_string(&real).unwrap(), hold);
+        assert!(!hold.contains(seat.as_str()));
+    }
+    assert_eq!(project_turn_status(&state, Some(&window)), waiting_for_reactions_status(&state));
+    // The asked seat keeps its own prompt status.
+    assert_eq!(
+        project_turn_status_for(&state, Some(&window), &ViewerRole::Player(seat.clone())),
+        waiting_for_player_status(&state, &seat)
     );
-    assert_eq!(real, ti4_server::projection::waiting_for_player_status(&state, &seat));
+    // An ordinary question still names its seat for everybody.
+    let ordinary = Choice::new(seat.clone(), "x", vec![]);
+    assert_eq!(
+        project_turn_status(&state, Some(&ordinary)),
+        waiting_for_player_status(&state, &seat)
+    );
 }
 
 #[test]

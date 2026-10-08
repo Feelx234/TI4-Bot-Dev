@@ -57,6 +57,9 @@ pub enum PublicTurnStatus {
         round: u32,
         stage: String,
     },
+    /// A reaction window is open (or looks open). Names no seat: who holds a playable action card
+    /// is private, so everybody but the asked seat sees this, and a bluff hold sends the same.
+    WaitingForReactions { phase: Phase, round: u32 },
     /// Phase or round transition (e.g. status phase cleanup, strategy card dealing).
     PhaseTransition { phase: Phase, round: u32 },
     /// Terminal game state.
