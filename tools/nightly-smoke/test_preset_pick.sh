@@ -103,3 +103,12 @@ done
 [ "$recap" -ge 8 ] && [ "$recap" -le 45 ] || fail "the default 20% picked recap $recap/120 times"
 [ "$redo" -le 16 ] || fail "the default 5% picked redo $redo/120 times"
 echo "ok: exercise knobs (tour $tour, recap $recap, redo $redo of 120)"
+
+# Secondary pre-planning knobs: defaults and overrides reach meta.json and the repro; 0 switches it off.
+NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/prep-default" > /dev/null
+grep -q '"prep_probability": "0.5"' "$tmp/prep-default/meta.json" || fail "default prep probability should be 0.5"
+grep -q 'TI4_SMOKE_PREP_AUTO_PROBABILITY=0.9 ' "$tmp/prep-default/meta.json" || fail "default auto probability should be 0.9 in the repro"
+NIGHTLY_REPO="$tmp" NIGHTLY_PREP_PROBABILITY=1 NIGHTLY_PREP_AUTO_PROBABILITY=0.25 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/prep-set" > /dev/null
+grep -q 'TI4_SMOKE_PREP_PROBABILITY=1 TI4_SMOKE_PREP_AUTO_PROBABILITY=0.25 ' "$tmp/prep-set/meta.json" || fail "overridden prep knobs should appear in the repro"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/prep-set/meta.json" || fail "meta.json must stay valid JSON with prep knobs"
+echo "ok: prep knobs"

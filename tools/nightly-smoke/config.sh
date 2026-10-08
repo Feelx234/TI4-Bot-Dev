@@ -60,6 +60,11 @@ POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"
 UI_TOUR_PROBABILITY="${NIGHTLY_UI_TOUR_PROBABILITY:-17}"
 RECAP_PROBABILITY="${NIGHTLY_RECAP_PROBABILITY:-20}"
 REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-5}"
+# Secondary pre-planning (web/e2e/smokePrep.ts), a fraction 0..1: the chance a waiting follower plans
+# its strategy-card secondary per opportunity, and the chance a plan uses the Auto mode (else Review).
+# NIGHTLY_PREP_PROBABILITY=0 switches the exercise off (it passes TI4_SMOKE_PREP=0).
+PREP_PROBABILITY="${NIGHTLY_PREP_PROBABILITY:-0.5}"
+PREP_AUTO_PROBABILITY="${NIGHTLY_PREP_AUTO_PROBABILITY:-0.9}"
 # Cap on screenshots a run saves to trace/shots (TI4_SMOKE_SHOT_CAP; a number or "all" = 20).
 SHOT_CAP="${NIGHTLY_SHOT_CAP:-20}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop

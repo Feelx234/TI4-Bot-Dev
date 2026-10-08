@@ -77,6 +77,18 @@ a run by themselves; every problem they see is a line in `report.json` `findings
   fresh request, no handoff, restore failing). The run may legitimately end early ("STUCK").
 Report what these did under UI observations.
 
+Secondary pre-planning runs in every run (`report.json` `prep`, knobs in `meta.json`): when a seat
+waits while another seat resolves a strategy card, the harness plans the seat's secondary in about
+half of the cases (opens the "Prepare your secondary" chip, answers the stand-in question with the
+usual UI, saves the plan) and then lets Auto mode play it silently (about 90%: the decision dialog
+must not open and an "Auto-played your prepared secondary" toast appears) or confirms the "Prepared"
+bar in Review mode. `prep` counts opportunities, planned, autoPlayed, reviewConfirmed, chooseMyself,
+needsReview, fallbacks; `cases` has one line per planned case. Every deviation (Auto did not fire,
+no review bar, "Needs review", plan dropped before its window) is a finding with evidence, and the
+decision is then played normally. Known suspicion: in real games a saved plan is often dropped
+before its window opens (the case line says `plan no longer shown at decision #N`); report new
+shapes of that, do not file each occurrence.
+
 New UI elements to watch for. A crash is not the only bug: judge what you can see, and report UI
 problems even when the game ran clean (layout glitches, overlaps, clipped or overflowing text, wrong
 numbers, confusing wording, a button that does nothing, a control that stays enabled or disabled

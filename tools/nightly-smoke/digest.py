@@ -201,6 +201,12 @@ def main():
     exercises = report.get("exercises") or {}
     if exercises:
         p("- **Optional UI exercises** (`report.json` `exercises`): `" + json.dumps(exercises)[:1200] + "`")
+    prep = report.get("prep")
+    if prep:
+        counts = {k: v for k, v in prep.items() if k != "cases"}
+        p("- **Secondary pre-planning** (`report.json` `prep`): `" + json.dumps(counts) + "`")
+        for line in (prep.get("cases") or [])[:12]:
+            p(f"  - {str(line)[:300]}")
     findings = report.get("findings") or []
     if findings:
         p(f"- **Exercise findings** ({len(findings)}):")

@@ -19,6 +19,7 @@ import {
   UiTour,
   exerciseFlagsFromEnv,
   readRecapToasts,
+  readToastKinds,
   recapInitScript,
   shotCapFromEnv,
   type ExerciseReport,
@@ -511,7 +512,7 @@ export async function randomUiPlaythrough(
           // storage unavailable
         }
       });
-    if (index === recapSeat) await context.addInitScript(recapInitScript);
+    if (flags.recap) await context.addInitScript(recapInitScript, index === recapSeat);
     const page = await context.newPage();
     page.on("pageerror", (err) =>
       browserErrors.push(`[seat ${index + 1}] ${err.message}`),
@@ -687,6 +688,7 @@ export async function randomUiPlaythrough(
       toggleOn: on === "true",
       toastsSeen: seen.length,
       samples: seen.slice(0, 5),
+      toastKinds: await readToastKinds(pages[recapSeat]),
     };
   };
   const finishExercises = async () => {
@@ -697,6 +699,8 @@ export async function randomUiPlaythrough(
       if (!tour.unitDone) report.exercises.tour!.notes.push("no unit card on screen in this run (no production builder opened)");
     }
     await recapSamples();
+    if (flags.recap)
+      report.exercises.toastKindsBySeat = await Promise.all(pages.map((pg) => readToastKinds(pg)));
     const rc = report.exercises.recap;
     if (rc) {
       if (!rc.toggleOn) finding(`Recap: the toggle was not on for seat ${rc.seat} although it was enabled`);
@@ -722,6 +726,11 @@ export async function randomUiPlaythrough(
         collect: (page) => collectCandidates(page),
         pickOne: (cands, clicks) =>
           pick(cands as Candidate[], clicks, prepRng, "random", new Map<string, number>()),
+        activeInfo: async (seat) => {
+          const snap = await gameSnapshot(request, gameId, players[seat].session);
+          const active = snap.view.active_player;
+          return `server view.active_player=${active === players[seat].id ? "this seat" : active ? `seat ${players.findIndex((p) => p.id === active) + 1}` : "none"}`;
+        },
         label: `game seed ${options.gameSeed}, click seed ${options.clickSeed}`,
       })
     : undefined;
@@ -900,7 +909,7 @@ export async function randomUiPlaythrough(
       }
       if (prep) {
         // Secondary pre-planning: offer the waiting seats, and let a saved plan answer this decision.
-        await prep.offer(actorIndex, status.round, report.decisions);
+        await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
         const handled = await prep.handle(
           actorIndex,
           choice as unknown as { details?: Record<string, unknown>; prompt?: string },

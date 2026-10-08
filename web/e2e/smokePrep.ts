@@ -88,6 +88,8 @@ export interface PrepDeps {
   pickOne: (cands: Cand[], clicks: number) => Cand;
   /** Label put into findings so they carry their evidence (game seed, click seed). */
   label: string;
+  /** The server's view of the seat: who `view.active_player` is (evidence for findings). */
+  activeInfo?: (seat: number) => Promise<string>;
 }
 
 interface Plan {
@@ -99,6 +101,8 @@ interface Plan {
   /** The secondary question was seen and handled; later decisions are follow-up steps. */
   started: boolean;
   line: number;
+  /** When the client dropped the saved plan before its window opened (evidence). */
+  lost?: string;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -110,8 +114,34 @@ export class SecondaryPrepExercise {
 
   constructor(private readonly d: PrepDeps) {}
 
-  private find(p: Plan, text: string) {
+  private perKind = new Map<string, number>();
+  /** Records a finding; only the first two of each kind carry a line of their own (the counters have the rest). */
+  private find(p: Plan, text: string, kind = text.slice(0, 24)) {
+    const n = (this.perKind.get(kind) ?? 0) + 1;
+    this.perKind.set(kind, n);
+    if (n > 2) return;
     this.d.finding(`Secondary prep (seat ${p.seat + 1}, round ${p.round}, ${p.card}, ${p.mode}; ${this.d.label}): ${text}`);
+  }
+
+  /** What the seat's tab shows around the prepare chrome, as evidence for a finding. */
+  private async evidence(page: Page): Promise<string> {
+    return page
+      .evaluate(() => {
+        const text = (id: string, n: number) =>
+          (document.querySelector(`[data-testid="${id}"]`)?.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, n);
+        const mode = document.querySelector('[data-testid="secondary-prep-mode"]')?.getAttribute("data-mode");
+        let stored = "";
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) ?? "";
+            if (k.startsWith("ti4_secondary_prepared")) stored += `${k.slice(-12)}=${(localStorage.getItem(k) ?? "").slice(0, 120)} `;
+          }
+        } catch {
+          stored = "n/a";
+        }
+        return `mode=${mode} stored=[${stored}] prep="${text("secondary-prep", 160)}" dialog="${text("pending-choice-dialog", 100)}"`;
+      })
+      .catch(() => "evidence unavailable");
   }
 
   private async visible(page: Page, id: string): Promise<boolean> {
@@ -119,8 +149,18 @@ export class SecondaryPrepExercise {
   }
 
   /** At the start of `actor`'s decision: offer every other seat that shows the chip. */
-  async offer(actor: number, round: number, decisions: number): Promise<void> {
+  async offer(actor: number, round: number, decisions: number, prompt = ""): Promise<void> {
     if (!this.d.config.enabled) return;
+    // A saved plan whose chip is gone before its window opened was dropped by the client: note when.
+    for (const [seat, p] of this.plans) {
+      if (p.started || p.lost || seat === actor) continue;
+      const chip = this.d.pages[seat].getByTestId("secondary-prep-chip").first();
+      const text = ((await chip.textContent({ timeout: 300 }).catch(() => "")) ?? "").trim();
+      if (!/^Prepared/.test(text)) {
+        p.lost = `plan no longer shown at decision #${decisions} (seat ${actor + 1} deciding "${prompt.slice(0, 50)}"; chip: "${text.slice(0, 40)}")`;
+        this.report.cases[p.line] += ` [${p.lost}]`;
+      }
+    }
     for (const [seat, page] of this.d.pages.entries()) {
       if (seat === actor) continue;
       let note: string | null = null;
@@ -296,7 +336,10 @@ export class SecondaryPrepExercise {
         if (!first) this.plans.delete(seat);
         return "done";
       }
-      if (first) this.find(p, `Auto did not answer the secondary within ${limit / 1000} s (toast seen: ${sawAutoToast}, dialog opened: ${dialogBeforeAnswer})`);
+      if (first) {
+        this.find(p, `Auto did not answer the secondary within ${limit / 1000} s (toast seen: ${sawAutoToast}, dialog opened: ${dialogBeforeAnswer}; ${await this.evidence(page)}; ${p.lost ?? "plan was never seen dropped"}; ${this.d.activeInfo ? await this.d.activeInfo(seat) : ""})`);
+        await this.d.shot(page, "prep-auto-miss", `prep-auto-did-not-fire-seat${seat + 1}-r${round}`);
+      }
       this.setOutcome(p, first ? "AUTO DID NOT FIRE (played normally)" : "plan ended (follow-up played normally)");
       if (first) this.report.fallbacks++;
       this.plans.delete(seat);

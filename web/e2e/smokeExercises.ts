@@ -41,6 +41,8 @@ export function shotCapFromEnv(value = process.env.TI4_SMOKE_SHOT_CAP): number {
 }
 
 export interface ExerciseReport {
+  /** Recap runs: corner toasts by kind that each seat's tab saw (index = seat - 1). */
+  toastKindsBySeat?: Record<string, number>[];
   tour?: {
     faction: string;
     unit: string;
@@ -51,6 +53,8 @@ export interface ExerciseReport {
     toggleOn: boolean;
     toastsSeen: number;
     samples: string[];
+    /** Corner toasts the seat saw, by kind (recap, action, auto-resolve). */
+    toastKinds: Record<string, number>;
   };
   redo?: {
     outcome: string;
@@ -68,28 +72,40 @@ export interface ExerciseReport {
 // ---------------------------------------------------------------------------------------------
 
 /** Init script for the recap seat: turn the toggle on and count the recap toasts that appear. */
-export function recapInitScript() {
+export function recapInitScript(enable: boolean) {
   try {
-    localStorage.setItem("player_turn_recap", "true");
+    if (enable) localStorage.setItem("player_turn_recap", "true");
   } catch {
     // storage unavailable
   }
-  const w = window as unknown as { __recapSeen?: string[] };
+  const w = window as unknown as { __recapSeen?: string[]; __toastKinds?: Record<string, number> };
   w.__recapSeen = [];
+  w.__toastKinds = {};
   const note = (node: Node) => {
     if (!(node instanceof Element)) return;
-    const hits = node.matches('[data-toast-kind="recap"]')
+    const hits = node.matches("[data-toast-kind]")
       ? [node]
-      : Array.from(node.querySelectorAll('[data-toast-kind="recap"]'));
-    for (const el of hits) (w.__recapSeen as string[]).push((el.textContent ?? "").trim().replace(/\s+/g, " "));
+      : Array.from(node.querySelectorAll("[data-toast-kind]"));
+    for (const el of hits) {
+      const kind = el.getAttribute("data-toast-kind") ?? "?";
+      (w.__toastKinds as Record<string, number>)[kind] = ((w.__toastKinds as Record<string, number>)[kind] ?? 0) + 1;
+      if (kind === "recap") (w.__recapSeen as string[]).push((el.textContent ?? "").trim().replace(/\s+/g, " "));
+    }
   };
   const start = () => {
+    (w.__toastKinds as Record<string, number>)["_observer"] = 1;
     new MutationObserver((records) => {
       for (const r of records) r.addedNodes.forEach(note);
     }).observe(document.documentElement, { childList: true, subtree: true });
   };
   if (document.documentElement) start();
   else document.addEventListener("DOMContentLoaded", start);
+}
+
+export async function readToastKinds(page: Page): Promise<Record<string, number>> {
+  return page
+    .evaluate(() => (window as unknown as { __toastKinds?: Record<string, number> }).__toastKinds ?? {})
+    .catch(() => ({}) as Record<string, number>);
 }
 
 export async function readRecapToasts(page: Page): Promise<string[]> {
@@ -231,6 +247,7 @@ export class RedoExercise {
   readonly report: NonNullable<ExerciseReport["redo"]> = { outcome: "not attempted", versions: [], notes: [] };
   private completed = new Map<string, number>();
   private lastSeat: string | null = null;
+  private order: string[] = [];
   private seatIndex = -1;
   private since = 0;
   private triggerAfter: number;
@@ -242,10 +259,20 @@ export class RedoExercise {
     this.triggerAfter = 2 + Math.floor(d.rng() * 4);
   }
 
+  /**
+   * The seat whose last turn to redo: one that finished a turn which another seat's turn followed
+   * (so the auto-play has a recorded tail to replay), once enough turns were completed.
+   */
+  private pickSeat(): string | null {
+    if (this.order.length < this.triggerAfter) return null;
+    const last = this.order[this.order.length - 1];
+    for (let i = this.order.length - 2; i >= 0; i--) if (this.order[i] !== last) return this.order[i];
+    return null;
+  }
+
   /** Whether the next `step` needs the pending prompt (cheap checks first, so the caller reads it only then). */
   wantsCalm(): boolean {
-    const total = [...this.completed.values()].reduce((a, b) => a + b, 0);
-    return this.phase === "idle" && this.lastSeat !== null && total >= this.triggerAfter;
+    return this.phase === "idle" && this.pickSeat() !== null;
   }
 
   get active() {
@@ -266,6 +293,7 @@ export class RedoExercise {
     if (!endsTurn) return;
     this.completed.set(seatId, (this.completed.get(seatId) ?? 0) + 1);
     this.lastSeat = seatId;
+    this.order.push(seatId);
   }
 
   private async status(seat = Math.max(this.seatIndex, 0)): Promise<RedoStatusJson | null | undefined> {
@@ -286,9 +314,17 @@ export class RedoExercise {
     this.report.notes.push(line);
     this.d.log(`  redo: ${line}`);
     if (this.phase === "requested") this.httpFailure = line;
-    else this.d.finding(`Turn redo: ${line}`);
+    else {
+      // Several tabs (the host and the redoing seat) each fire the auto-play: the losers get a 409/400.
+      const kind = `${status} ${body.replace(/\d+/g, "N").slice(0, 80)}`;
+      if (!this.httpKinds.has(kind)) {
+        this.httpKinds.add(kind);
+        this.d.finding(`Turn redo: ${line} (first of its kind; seen from another tab outside the harness's own request)`);
+      }
+    }
   }
   private httpFailure: string | null = null;
+  private httpKinds = new Set<string>();
 
   private async abort(why: string): Promise<void> {
     this.d.finding(`Turn redo aborted: ${why}`);
@@ -308,15 +344,35 @@ export class RedoExercise {
     this.phase = "done";
   }
 
-  private async click(page: Page, testId: string): Promise<boolean> {
+  /** Clicks a redo bar button once it is visible and enabled (the tab may still be finishing its own request). */
+  private async click(page: Page, testId: string, waitMs = 30_000): Promise<boolean> {
     const el = page.getByTestId(testId).first();
-    try {
-      await el.waitFor({ state: "visible", timeout: 5_000 });
-      await el.click({ timeout: 5_000 });
-      return true;
-    } catch {
-      return false;
+    const end = Date.now() + waitMs;
+    while (Date.now() < end) {
+      if ((await el.isVisible().catch(() => false)) && (await el.isEnabled().catch(() => false))) {
+        try {
+          await el.click({ timeout: 4_000 });
+          return true;
+        } catch (err) {
+          // Keep the reason (usually "intercepts pointer events"), then click through the DOM.
+          this.report.notes.push(`${testId}: normal click failed: ${(err instanceof Error ? err.message : String(err)).split("\n").slice(0, 3).join(" ").slice(0, 300)}`);
+          return el.evaluate((b) => (b as HTMLButtonElement).click()).then(
+            () => true,
+            () => false,
+          );
+        }
+      }
+      await new Promise((r) => setTimeout(r, 300));
     }
+    const evidence = await page
+      .evaluate((id) => {
+        const bar = document.querySelector('[data-testid="turn-redo-bar"]');
+        const btn = document.querySelector(`[data-testid="${id}"]`) as HTMLButtonElement | null;
+        return `bar=${bar ? `"${(bar.textContent ?? "").slice(0, 120)}" state=${bar.getAttribute("data-state")}` : "absent"} button=${btn ? `present disabled=${btn.disabled}` : "absent"}`;
+      }, testId)
+      .catch(() => "evidence unavailable");
+    this.report.notes.push(`${testId} not clickable: ${evidence}`);
+    return false;
   }
 
   private async waitStatusNull(ms: number): Promise<boolean> {
@@ -357,9 +413,8 @@ export class RedoExercise {
     calm: { seat: string; prompt: string | undefined; phase: string } | null,
     decisions: number,
   ): Promise<"go" | "retry"> {
-    const seat = this.lastSeat;
-    const total = [...this.completed.values()].reduce((a, b) => a + b, 0);
-    if (!calm || !seat || total < this.triggerAfter) return "go";
+    const seat = this.pickSeat();
+    if (!calm || !seat) return "go";
     if (calm.phase !== "action" || calm.prompt !== "action phase" || calm.seat === seat) return "go";
     // Not in the first few decisions of a quiet moment; and only once per run (phase leaves idle).
     this.seatIndex = this.d.seatIds.indexOf(seat);

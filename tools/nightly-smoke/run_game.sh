@@ -63,6 +63,8 @@ start)
   "preset": "$preset",
   "card_set": "$card_set",
   "exercises": "$exercises",
+  "prep_probability": "$PREP_PROBABILITY",
+  "prep_auto_probability": "$PREP_AUTO_PROBABILITY",
   "commit": "$commit",
   "dirty_files": $dirty_files,
   "stop_round": $STOP_ROUND,
@@ -70,7 +72,7 @@ start)
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
   "started_at": "$(TZ="$NIGHTLY_TZ" date '+%F %T %Z')",
   "deadline": "$(TZ="$NIGHTLY_TZ" date -d "@$deadline" '+%F %T %Z')",
-  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}${exercise_env}TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
+  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
 }
 EOF
   # A new session makes the run its own process group, so `stop` can kill browsers and the
