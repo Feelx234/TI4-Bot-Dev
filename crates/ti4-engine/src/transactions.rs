@@ -1456,6 +1456,7 @@ enum Stage {
 ///     .expect("there are deals to propose");
 /// assert!(choice.ids().contains(&"cc3"), "swap three commodities each");
 /// ```
+#[derive(Clone)]
 pub struct TradeWindow {
     proposer: PlayerId,
     partner: PlayerId,

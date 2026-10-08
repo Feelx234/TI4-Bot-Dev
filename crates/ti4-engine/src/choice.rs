@@ -2128,6 +2128,15 @@ pub struct AutoResolved {
     pub reason: String,
 }
 
+/// The state-carrying part of a [`Table`] (see [`Table::state`]). `Send`, unlike a table.
+#[derive(Debug, Clone)]
+pub struct TableState {
+    pub log: DecisionLog,
+    auto_resolved: Vec<AutoResolved>,
+    choice_failures: u64,
+    last_choice_error: Option<IllegalChoice>,
+}
+
 impl Default for Table {
     fn default() -> Self {
         Self {
@@ -2149,6 +2158,49 @@ impl Table {
         Self::default()
     }
 
+    /// Everything about this table that is game state rather than input wiring: the decision
+    /// log and the failure counters. Deciders and observation callbacks are NOT part of it.
+    ///
+    /// FORK RULE: destructured without `..`; a new `Table` field must be copied here or listed
+    /// as input wiring.
+    #[must_use]
+    pub fn state(&self) -> TableState {
+        let Self {
+            deciders: _,              // input wiring: whoever answers is chosen by the caller
+            default: _,               // input wiring
+            log,
+            observed_offer: _,        // input wiring: session callbacks
+            auto_resolved_observer: _, // input wiring
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = self;
+        TableState {
+            log: log.clone(),
+            auto_resolved: auto_resolved.clone(),
+            choice_failures: *choice_failures,
+            last_choice_error: last_choice_error.clone(),
+        }
+    }
+
+    /// A table with first-option deciders, no callbacks, and the given state.
+    #[must_use]
+    pub fn from_state(state: TableState) -> Self {
+        let TableState {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = state;
+        Self {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+            ..Self::default()
+        }
+    }
+
     /// A table where everyone unassigned uses this decider.
     #[must_use]
     pub fn with_default(default: Box<dyn Decider>) -> Self {
@@ -2156,6 +2208,11 @@ impl Table {
             default,
             ..Self::default()
         }
+    }
+
+    /// Replace the decider that answers for every unseated player (the log is kept).
+    pub fn set_default(&mut self, decider: Box<dyn Decider>) {
+        self.default = decider;
     }
 
     pub fn seat(&mut self, player: PlayerId, decider: Box<dyn Decider>) {
