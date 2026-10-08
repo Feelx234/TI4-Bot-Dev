@@ -4199,9 +4199,12 @@ select:focus-visible,
   justify-content: flex-end;
   gap: 8px;
   position: sticky;
-  bottom: 0;
-  padding: 10px 0 2px;
+  /* flush with the dialog's bottom edge (its 24px padding), so no desk content shows below the bar */
+  bottom: -24px;
+  margin-bottom: -24px;
+  padding: 10px 0 24px;
   background: var(--color-surface);
+  box-shadow: 0 -1px 0 var(--color-border), 0 -10px 8px -8px rgba(0, 0, 0, 0.5);
   z-index: 1;
 }
 .trade-desk__actions .button {
@@ -4214,8 +4217,10 @@ select:focus-visible,
   /* The primary action takes its own row; the secondary ones share the row under it. */
   .trade-desk__actions {
     justify-content: stretch;
-    /* keeps the buttons clear of the floating Players / Events buttons at the screen corner */
-    padding-bottom: 56px;
+    /* the dialog's padding is 12px here; the padding keeps the buttons clear of the floating Players / Events buttons */
+    bottom: -12px;
+    margin-bottom: -12px;
+    padding-bottom: 64px;
   }
   .trade-desk__actions .button {
     flex: 1 1 40%;
