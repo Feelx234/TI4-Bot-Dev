@@ -1,5 +1,6 @@
 import { ChoiceOptionDto } from "../protocol/types.ts";
 import { getTradePayload } from "./choiceModel.ts";
+import { replaceCardIds } from "./tradeNames.ts";
 
 export type TradeCategory =
   | "commodity_swap"
@@ -11,7 +12,10 @@ export type TradeCategory =
 export interface DecodedTradeOffer {
   id: string;
   category: TradeCategory;
+  /** Shown text: the engine label with card ids replaced by printed names. */
   label: string;
+  /** The label as the engine wrote it (ids included); set by `decodeTradeOption`. */
+  engineLabel?: string;
   net?: number;
   their_net?: number;
   details: {
@@ -90,6 +94,11 @@ function decodeAskShape(
 }
 
 export function decodeTradeOption(opt: ChoiceOptionDto): DecodedTradeOffer {
+  const deal = decodeTradeOptionRaw(opt);
+  return { ...deal, label: dealLabel(deal), engineLabel: deal.label };
+}
+
+function decodeTradeOptionRaw(opt: ChoiceOptionDto): DecodedTradeOffer {
   const id = opt.id;
   const payload = getTradePayload(opt);
   const net = payload.net;
@@ -369,4 +378,21 @@ export function decodeTradeOption(opt: ChoiceOptionDto): DecodedTradeOffer {
     their_net,
     details: {},
   };
+}
+
+/**
+ * A deal's label from its decoded terms: the engine label with every note, action card and secret
+ * objective id the deal carries replaced by its printed name. Ids the label does not contain leave
+ * it as it was, so an option that cannot be decoded keeps the engine's own words.
+ */
+export function dealLabel(deal: DecodedTradeOffer): string {
+  const d = deal.details;
+  return replaceCardIds(deal.label, [
+    { kind: "note", id: d.promissoryNote },
+    { kind: "note", id: d.givenNote },
+    { kind: "note", id: d.receivedNote },
+    { kind: "action", id: d.actionCard },
+    { kind: "action", id: d.givenActionCard },
+    { kind: "secret", id: d.secretObjective },
+  ]);
 }
