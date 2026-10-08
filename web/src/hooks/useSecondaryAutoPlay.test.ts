@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import { resolveStep, type SecondaryPlan, type StepResolution } from "../presentation/secondaryPlan.ts";
-import { AUTO_PLAY_DELAY_MS, useSecondaryAutoPlay } from "./useSecondaryAutoPlay.ts";
+import { AUTO_PLAY_DELAY_MS, AUTO_PLAY_HOLD_LIMIT_MS, useSecondaryAutoPlay } from "./useSecondaryAutoPlay.ts";
 import { SECONDARY_PREP_MODE_KEY } from "./useSecondaryPrepMode.ts";
 import { option, secondaryChoice, stepChoice } from "../test/secondaryPrepFixtures.ts";
 
@@ -226,6 +226,26 @@ describe("useSecondaryAutoPlay", () => {
       first.wait();
       second.wait();
       expect(first.submitOption.mock.calls.length + second.submitOption.mock.calls.length).toBe(1);
+    });
+
+    it("keeps the decision UI held while the answer is still being sent, however long that takes", async () => {
+      const { submitOption, hook, wait } = setup({ choice: null, history: hist(5) });
+      let settle!: () => void;
+      submitOption.mockReturnValue(new Promise<void>((done) => (settle = done)));
+      hook.rerender({ choice: windowChoice("slow"), history: hist(6) });
+      wait();
+      expect(submitOption).toHaveBeenCalledTimes(1);
+      // A slow batch commit outlasts the safety limit: the open decision is still the old version.
+      act(() => {
+        vi.advanceTimersByTime(AUTO_PLAY_HOLD_LIMIT_MS * 3);
+      });
+      expect(hook.result.current.holding).toBe(true);
+      await act(async () => settle());
+      expect(hook.result.current.holding).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(AUTO_PLAY_HOLD_LIMIT_MS + 10);
+      });
+      expect(hook.result.current.holding).toBe(false);
     });
 
     it("does not retry a failed send (the player answers by hand)", () => {
