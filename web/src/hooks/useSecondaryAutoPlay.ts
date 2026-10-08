@@ -142,6 +142,9 @@ export function useSecondaryAutoPlay({
     if (readSecondaryPrepMode() !== "auto") return;
     setPending({ nonce, text });
     setHeld(nonce);
+    // False once this decision's effect is torn down (the answer moved the game on): a late
+    // settle must not arm a hold timer that would release a later decision's hold.
+    let live = true;
     timer.current = window.setTimeout(() => {
       timer.current = null;
       setPending(null);
@@ -160,20 +163,26 @@ export function useSecondaryAutoPlay({
         setHeld(null);
         return;
       }
-      // Safety net: whatever happens, the decision UI opens if nothing moved on.
-      holdTimer.current = window.setTimeout(() => setHeld(null), AUTO_PLAY_HOLD_LIMIT_MS);
       // A rejected or failed answer opens the decision at once; the session client records the error.
+      // The hold stays for as long as the request runs (a slow batch commit takes many seconds): a
+      // decision shown meanwhile is still open at the old version, and a click on it would send a
+      // second answer that the server refuses as stale.
       const sentText = text;
       sent.then(
         () => {
+          // Safety net: the decision UI opens if the answer was accepted but nothing moved on.
+          if (live) holdTimer.current = window.setTimeout(() => setHeld(null), AUTO_PLAY_HOLD_LIMIT_MS);
           setPlayed(sentText);
           if (playedTimer.current !== null) window.clearTimeout(playedTimer.current);
           playedTimer.current = window.setTimeout(() => setPlayed(null), AUTO_PLAY_PLAYED_MS);
         },
-        () => setHeld(null),
+        () => {
+          if (live) setHeld(null);
+        },
       );
     }, AUTO_PLAY_DELAY_MS);
     return () => {
+      live = false;
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = null;
       if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);

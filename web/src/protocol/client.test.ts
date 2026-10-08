@@ -484,6 +484,139 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  describe("one confirmation per decision (stale-batch 409)", () => {
+    const payDecision = (nonce: string, version: number) => ({
+      ...snapshot,
+      type: "initial_snapshot" as const,
+      game_version: version,
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: {
+        nonce,
+        choice: {
+          player: "player_a",
+          prompt: "pay 1 more resources",
+          context: { subtype: "pay_resources" },
+          options: [{ id: "trade_good", kind: "pay", label: "Trade good" }],
+        },
+      },
+    });
+    const pay = { kind: "payment" as const, steps: [{ kind: "trade_good" as const }] };
+    /** A fetch whose answer the test releases by hand (the batch commit is slow). */
+    const slowServer = (answerVersion: number) => {
+      let release!: () => void;
+      const gate = new Promise<void>((done) => {
+        release = done;
+      });
+      const request = vi.fn().mockImplementation(async () => {
+        await gate;
+        return {
+          ok: true,
+          json: async () => ({
+            active: true,
+            snapshot: { ...snapshot, game_version: answerVersion, viewer: { role: "player", seat: "player_a" } },
+          }),
+        };
+      });
+      vi.stubGlobal("fetch", request);
+      return { request, release };
+    };
+
+    it("two confirmations of the same plan while the request runs send one request", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      const { request, release } = slowServer(339);
+      const first = client.submitBatch(pay);
+      const second = client.submitBatch(pay);
+      release();
+      await Promise.all([first, second]);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(request.mock.calls[0][1].body)).toMatchObject({ expected_version: 337, nonce: "nonce-pay" });
+      client.stop();
+    });
+
+    it("a different plan for the same decision is refused while one is running (no stale second request)", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      const { request, release } = slowServer(339);
+      const prepared = client.submitBatch(pay);
+      const manual = client.submitBatch({ kind: "payment", steps: [{ kind: "exhaust", planet: "archonren" }] });
+      await expect(manual).rejects.toThrow(/still being sent/);
+      release();
+      await prepared;
+      expect(request).toHaveBeenCalledTimes(1);
+      client.stop();
+    });
+
+    it("after the answer was applied a late repeat finds no open decision and sends nothing", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      const { request, release } = slowServer(339);
+      const first = client.submitBatch(pay);
+      release();
+      await first;
+      await expect(client.submitBatch(pay)).rejects.toThrow(/no longer pending/);
+      expect(request).toHaveBeenCalledTimes(1);
+      client.stop();
+    });
+
+    it("a failed request frees the decision for a retry", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      const request = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Connection lost"))
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            active: true,
+            snapshot: { ...snapshot, game_version: 339, viewer: { role: "player", seat: "player_a" } },
+          }),
+        });
+      vi.stubGlobal("fetch", request);
+      await expect(client.submitBatch(pay)).rejects.toThrow("Connection lost");
+      await client.submitBatch(pay);
+      expect(request).toHaveBeenCalledTimes(2);
+      client.stop();
+    });
+
+    it("a payment after a production batch is built on the fresh version and nonce", async () => {
+      const { client, send } = await connectedPlayer();
+      send({
+        ...payDecision("nonce-produce", 335),
+        pending_choice: {
+          nonce: "nonce-produce",
+          choice: {
+            player: "player_a",
+            prompt: "produce in 14 (4 left)",
+            context: { subtype: "produce_unit" },
+            options: [{ id: "build|fighter|2", kind: "produce", label: "produce 2x fighter for 1" }],
+          },
+        },
+      });
+      const answer = (version: number, decision: object) => ({
+        ok: true,
+        json: async () => ({
+          active: true,
+          snapshot: { ...payDecision("nonce-pay", version), ...decision },
+        }),
+      });
+      const request = vi.fn().mockResolvedValueOnce(answer(337, {})).mockResolvedValueOnce(answer(339, { pending_choice: null }));
+      vi.stubGlobal("fetch", request);
+      await client.submitBatch({
+        kind: "production",
+        destination: "14",
+        steps: [{ kind: "produce", unit: "fighter", count: 2 }],
+      });
+      expect(client.getState().pendingChoice?.nonce).toBe("nonce-pay");
+      await client.submitBatch(pay);
+      const bodies = request.mock.calls.map((call) => JSON.parse(call[1].body));
+      expect(bodies[0]).toMatchObject({ expected_version: 335, nonce: "nonce-produce" });
+      expect(bodies[1]).toMatchObject({ expected_version: 337, nonce: "nonce-pay" });
+      expect(bodies[1].request_id).not.toBe(bodies[0].request_id);
+      client.stop();
+    });
+  });
+
   it("sends a token plan while a command token gain is pending, and refuses it otherwise", async () => {
     const { client, send } = await connectedPlayer();
     const pending = (subtype: string) => ({
