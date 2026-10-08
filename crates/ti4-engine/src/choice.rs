@@ -2165,6 +2165,17 @@ impl Table {
     /// as input wiring.
     #[must_use]
     pub fn state(&self) -> TableState {
+        self.state_with(true)
+    }
+
+    /// [`Table::state`] without copying the decision log (it is left empty). For a snapshot
+    /// whose holder already has the log and puts it back before stepping.
+    #[must_use]
+    pub fn state_unlogged(&self) -> TableState {
+        self.state_with(false)
+    }
+
+    fn state_with(&self, keep_log: bool) -> TableState {
         let Self {
             deciders: _,              // input wiring: whoever answers is chosen by the caller
             default: _,               // input wiring
@@ -2176,11 +2187,30 @@ impl Table {
             last_choice_error,
         } = self;
         TableState {
-            log: log.clone(),
+            log: if keep_log {
+                log.clone()
+            } else {
+                DecisionLog::default()
+            },
             auto_resolved: auto_resolved.clone(),
             choice_failures: *choice_failures,
             last_choice_error: last_choice_error.clone(),
         }
+    }
+
+    /// Take over `state` (the log and counters) while keeping this table's deciders and
+    /// callbacks.
+    pub fn restore_state(&mut self, state: TableState) {
+        let TableState {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = state;
+        self.log = log;
+        self.auto_resolved = auto_resolved;
+        self.choice_failures = choice_failures;
+        self.last_choice_error = last_choice_error;
     }
 
     /// A table with first-option deciders, no callbacks, and the given state.

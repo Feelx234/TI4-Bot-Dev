@@ -1212,6 +1212,19 @@ impl<'a> Game<'a> {
     /// Destructures `Game` without `..`: a new field is a compile error until decided.
     #[must_use]
     pub fn snapshot(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(true)
+    }
+
+    /// [`Game::snapshot`] without the decision log (the game's own and the resolver's table
+    /// log are left empty), for a holder that already has the log and puts it back with
+    /// `game.table.log.records = ...` before stepping the instantiated game. The log is the
+    /// largest single part of a late-game snapshot and grows with every decision.
+    #[must_use]
+    pub fn snapshot_unlogged(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(false)
+    }
+
+    fn snapshot_with(&self, keep_log: bool) -> GameSnapshot<'a> {
         let Self {
             state,
             table,
@@ -1252,9 +1265,13 @@ impl<'a> Game<'a> {
         rng.set_sync(None);
         GameSnapshot {
             state: state.clone(),
-            table: table.state(),
+            table: if keep_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
             events: events.clone(),
-            timing: timing.snapshot(),
+            timing: timing.snapshot_with(keep_log),
             event_sequence: event_sequence.clone(),
             content: *content,
             sources: *sources,
@@ -1286,6 +1303,14 @@ impl<'a> Game<'a> {
             prepared_turn_seq: *prepared_turn_seq,
             blocked: blocked.clone(),
         }
+    }
+
+    /// Replace the game's table (its deciders and callbacks) with `table`, carrying over the
+    /// current table's decision log and counters, so a forked game can be wired to a session's
+    /// deciders and keep going.
+    pub fn install_table(&mut self, mut table: Table) {
+        table.restore_state(self.table.state());
+        self.table = table;
     }
 
     /// A new game that continues exactly like this one (see [`Game::snapshot`]).

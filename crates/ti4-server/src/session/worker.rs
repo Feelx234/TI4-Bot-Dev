@@ -105,6 +105,13 @@ pub struct SessionShared {
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
     pub reaction_modes: BTreeMap<PlayerId, ti4_engine::reaction_modes::NeverSet>,
+    /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
+    /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
+    /// or finishes, and a new session (every history change but appending) starts without one.
+    pub step_snapshot: Option<Arc<crate::session::step_snapshot::StepSnapshot>>,
+    /// Set when the worker started from a copy of the game at this many decisions instead of
+    /// replaying them (diagnostic; see `SessionConfig::resume`).
+    pub resumed_from: Option<usize>,
 }
 
 impl SessionShared {
@@ -278,6 +285,8 @@ impl SessionShared {
             rng_marks: crate::session::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
+            step_snapshot: None,
+            resumed_from: None,
         }
     }
 
@@ -727,6 +736,17 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_count = config.prior_decisions.len();
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
+    // A copy of this same history at an earlier step boundary replaces replaying that part.
+    let resume = config
+        .resume
+        .clone()
+        .filter(|copy| config.step_snapshots && copy.is_prefix_of(&prior_records));
+    if let Some(copy) = &resume {
+        prior_queue
+            .lock()
+            .expect("prior queue lock")
+            .drain(..copy.log_len);
+    }
     let selected_options = Arc::new(Mutex::new(VecDeque::new()));
     let published_count = Arc::new(Mutex::new(prior_count));
     let boundary_state = config.replay_boundary_state.clone().or_else(|| {
@@ -787,9 +807,17 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             .clone_from(&config.prior_decisions);
     }
 
+    initial_shared.resumed_from = resume.as_ref().map(|copy| copy.log_len);
     let shared = Arc::new(Mutex::new(initial_shared));
 
     let worker_shared = shared.clone();
+    // Step-boundary copies only pay off when somebody can submit a batch: a human seat.
+    let wants_step_snapshots = config.step_snapshots
+        && config
+            .seats
+            .values()
+            .any(|controller| matches!(controller, SeatController::Human));
+    let snapshot_generation = config.history_generation;
     let handle = thread::spawn(move || {
         let mut table = Table::new();
 
@@ -1003,10 +1031,19 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             }
         });
 
-        let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
-        if let Some(galaxy) = config.galaxy {
-            game = game.with_galaxy(galaxy);
-        }
+        let mut game = if let Some(copy) = &resume {
+            // Positioned where the copy was taken, with the log recorded so far; the rest of
+            // the prior decisions are replayed through the seats' deciders below.
+            let mut game = copy.fork(&prior_records);
+            game.install_table(table);
+            game
+        } else {
+            let mut game = Game::with_table(config.state, ContentStore::embedded(), table);
+            if let Some(galaxy) = config.galaxy {
+                game = game.with_galaxy(galaxy);
+            }
+            game
+        };
         if let Some(force) = &rng_force {
             force.attach(&mut game);
         }
@@ -1071,16 +1108,38 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             }
 
             // Sync state to shared cache
-            {
+            let snapshot_wanted = {
                 let mut lock = worker_shared.lock().expect("shared lock");
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
                 lock.replay_complete = true;
+                // One copy at a time. A boundary that recorded nothing since the last copy
+                // adds nothing: a fork of the older copy reaches the same game by stepping.
+                wants_step_snapshots
+                    && !game.state.finished
+                    && lock
+                        .step_snapshot
+                        .as_ref()
+                        .is_none_or(|copy| copy.log_len < game.table.log.records.len())
+            };
+
+            // Between steps (the top of the loop, before `game.step()`) the game can be copied:
+            // the control flow of a step lives on this thread's stack and cannot. A batch
+            // check forks the copy instead of replaying the whole game.
+            if snapshot_wanted
+                && let Some(copy) =
+                    crate::session::step_snapshot::StepSnapshot::capture(&mut game, snapshot_generation)
+            {
+                let mut lock = worker_shared.lock().expect("shared lock");
+                if !lock.stopped {
+                    lock.step_snapshot = Some(Arc::new(copy));
+                }
             }
 
             // Check if finished
             if game.state.finished {
                 let mut lock = worker_shared.lock().expect("shared lock");
+                lock.step_snapshot = None;
                 if lock
                     .event_log
                     .last()

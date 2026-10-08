@@ -268,3 +268,56 @@ fn a_snapshot_can_be_instantiated_repeatedly_and_across_threads() {
     });
     assert_eq!(handle.join().unwrap(), at);
 }
+
+/// Measurement helper (run with `--release -- --ignored --nocapture`): what a snapshot costs
+/// next to the work the session worker already does at every step boundary.
+#[test]
+#[ignore = "measurement"]
+fn measure_snapshot_cost() {
+    let games = saved_games(1);
+    let Some(source) = games.first() else { return };
+    let mut game = start_game(source);
+    let total = source.records.len();
+    let mut next_report = total / 4;
+    let mut step_time = std::time::Duration::ZERO;
+    let mut steps = 0u32;
+    while game.table.log.records.len() < total {
+        let started = std::time::Instant::now();
+        let result = game.step();
+        step_time += started.elapsed();
+        steps += 1;
+        if result.error.is_some() {
+            break;
+        }
+        if game.table.log.records.len() >= next_report {
+            next_report += total / 4;
+            let reps = 20u32;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(game.snapshot());
+            }
+            let snapshot = t.elapsed() / reps;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(game.state.clone());
+            }
+            let state = t.elapsed() / reps;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(game.table.log.records.clone());
+            }
+            let log = t.elapsed() / reps;
+            let t = std::time::Instant::now();
+            for _ in 0..reps {
+                std::hint::black_box(game.events.clone());
+            }
+            let events = t.elapsed() / reps;
+            eprintln!(
+                "at {} decisions: snapshot {snapshot:?} (state clone {state:?}, log clone {log:?}, engine events {events:?} x{}); mean step so far {:?}",
+                game.table.log.records.len(),
+                game.events.len(),
+                step_time / steps
+            );
+        }
+    }
+}

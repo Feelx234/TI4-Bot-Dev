@@ -408,7 +408,7 @@ impl Resolver {
     /// table has first-option deciders, no observation callbacks, but the same decision log
     /// and counters. Registered abilities are shared functions (their captures must not hold
     /// mutable rules state).
-    pub(crate) fn snapshot(&self) -> ResolverSnapshot {
+    pub(crate) fn snapshot_with(&self, keep_table_log: bool) -> ResolverSnapshot {
         let Self {
             registry,
             initiative_order,
@@ -433,7 +433,11 @@ impl Resolver {
             active_player: active_player.clone(),
             speaker: speaker.clone(),
             phase: *phase,
-            table: table.state(),
+            table: if keep_table_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
             log: log.clone(),
             applied_events: applied_events.clone(),
             relation_being_resolved: *relation_being_resolved,

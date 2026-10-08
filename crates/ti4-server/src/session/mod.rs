@@ -4,6 +4,7 @@ pub mod registry;
 pub mod replay;
 pub mod rng_force;
 pub mod splice;
+pub mod step_snapshot;
 pub mod turn_redo;
 pub mod transport;
 pub mod worker;
@@ -105,6 +106,14 @@ pub struct SessionConfig {
     pub replay_boundary_state: Option<GameState>,
     /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
+    /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
+    /// `step_snapshot`). Off only in tests that compare against the full-replay path.
+    pub step_snapshots: bool,
+    /// A copy of the game at an earlier step boundary of this same history: the worker forks it
+    /// and replays only the decisions after it, instead of replaying the whole game. Used when a
+    /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
+    /// and ignored when it does not fit.
+    pub resume: Option<Arc<step_snapshot::StepSnapshot>>,
 }
 
 impl SessionConfig {
@@ -138,6 +147,8 @@ impl SessionConfig {
             rng_marks: RngMarks::new(),
             replay_boundary_state: None,
             reaction_modes: BTreeMap::new(),
+            step_snapshots: true,
+            resume: None,
         }
     }
 
@@ -500,6 +511,33 @@ impl GameSession {
             .clone()
     }
 
+    /// The decision log together with the worker's newest step-boundary copy of the game, read
+    /// under one lock so the two belong to the same moment. The copy is only a hint: a batch
+    /// check uses it when `StepSnapshot::is_valid_for` accepts it and replays in full otherwise.
+    #[must_use]
+    pub fn batch_basis(&self) -> (Vec<DecisionRecord>, Option<Arc<step_snapshot::StepSnapshot>>) {
+        let lock = self.shared.lock().expect("shared lock");
+        (lock.decision_log.clone(), lock.step_snapshot.clone())
+    }
+
+    /// Diagnostic: the number of decisions this session did not have to replay because it
+    /// started from a copy of the game (`None`: it replayed from the opening state).
+    #[must_use]
+    pub fn resumed_from(&self) -> Option<usize> {
+        self.shared.lock().expect("shared lock").resumed_from
+    }
+
+    /// Diagnostic: the decision count of the worker's newest step-boundary copy of the game.
+    #[must_use]
+    pub fn step_snapshot_len(&self) -> Option<usize> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .step_snapshot
+            .as_ref()
+            .map(|copy| copy.log_len)
+    }
+
     /// Returns the canonical hashes of all recorded decisions.
     #[must_use]
     pub fn decision_hashes(&self) -> Vec<CanonicalHash> {
@@ -569,6 +607,8 @@ impl GameSession {
         // Callers can replace the decision prefix (batch commit, undo, redo).
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
+        // A copy of the game belongs to one history; whatever replaces this one gets its own.
+        config.resume = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
         {
             let lock = self.shared.lock().expect("shared lock");
@@ -670,6 +710,7 @@ impl GameSession {
         let mut lock = self.shared.lock().expect("shared lock");
         lock.pending_decision = None;
         lock.in_flight_submissions.clear();
+        lock.step_snapshot = None;
     }
 }
 

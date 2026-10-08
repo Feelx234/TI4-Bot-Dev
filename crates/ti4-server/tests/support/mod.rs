@@ -181,6 +181,11 @@ pub fn saved_games(limit: usize) -> Vec<Source> {
             "/root/TI4-Bot-Dev/nightly-reports/2026-10-07/runs/02-2338/server-data",
             "/root/TI4-Bot-Dev/nightly-reports/manual-2026-10-07/run-3/server-data",
             "/root/TI4-Bot-Dev/nightly-reports/2026-10-06/runs/01-2030/server-data",
+            "/root/TI4-Bot-Dev/nightly-reports/2026-10-07/runs/04-0526/server-data",
+            "/root/TI4-Bot-Dev/nightly-reports/2026-10-07/runs/07-0206/server-data",
+            "/root/TI4-Bot-Dev/nightly-reports/2026-10-06/runs/04-2123/server-data",
+            "/root/TI4-Bot-Dev/nightly-reports/manual-2026-10-07/run-2/server-data",
+            "/root/TI4-Bot-Dev/nightly-reports/2026-10-06/runs/06-2156/server-data",
         ] {
             if let Ok(entries) = std::fs::read_dir(root) {
                 dirs.extend(entries.flatten().map(|entry| entry.path()));
@@ -195,6 +200,34 @@ pub fn saved_games(limit: usize) -> Vec<Source> {
         match load_saved(&dir) {
             Ok(source) => out.push(source),
             Err(error) => eprintln!("skipping saved game {}: {error}", dir.display()),
+        }
+    }
+    out
+}
+
+/// Whether the batch simulator's strict prefix check (offered ids and context, not only the
+/// chosen option) accepts the whole recorded game on this engine. Saves recorded before a
+/// rules fix can pass a lenient replay and still fail this one.
+#[must_use]
+pub fn strictly_replayable(source: &Source) -> bool {
+    let mut config = ti4_server::session::SessionConfig::new("strict", source.state.clone())
+        .with_galaxy(source.galaxy.clone(), Vec::new());
+    config.rng_marks = source.marks.clone();
+    ti4_server::session::batch::replay_boundary_state(&config, &source.records).is_ok()
+}
+
+/// [`saved_games`] restricted to the ones [`strictly_replayable`] accepts.
+#[must_use]
+pub fn strict_saved_games(limit: usize) -> Vec<Source> {
+    let mut out = Vec::new();
+    for source in saved_games(usize::MAX) {
+        if out.len() >= limit {
+            break;
+        }
+        if strictly_replayable(&source) {
+            out.push(source);
+        } else {
+            eprintln!("skipping {}: not strictly replayable on this engine", source.name);
         }
     }
     out
