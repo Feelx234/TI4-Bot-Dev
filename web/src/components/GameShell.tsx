@@ -50,6 +50,18 @@ import {
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
+import { readSinglePayment } from "../hooks/useSinglePaymentSetting.ts";
+import {
+  ProductionPaymentProvider,
+  useProductionPayment,
+  type ProductionPaymentApi,
+} from "../presentation/ProductionPaymentContext.tsx";
+import {
+  autoPaymentFor,
+  isProductionPayQuestion,
+  newProductionPay,
+  type ProductionPay,
+} from "../presentation/productionPayment.ts";
 import {
   PipelineRunnerContext,
   useOwnedPipelineRunner,
@@ -653,6 +665,7 @@ export const ChoiceRendererDispatcher: React.FC<
       : null;
   }, [choice, viewerSeat]);
 
+  const productionPay = useProductionPayment()?.plan ?? null;
   const model = propModel ?? derivedModel;
   const workflow = model?.workflow ?? "generic_selection";
   const combatSubtype = choice?.context?.subtype;
@@ -752,6 +765,22 @@ export const ChoiceRendererDispatcher: React.FC<
       !isCombatWorkflow)
   )
     return readOnlyBar;
+
+  // A production's later payments are answered from the plan the player confirmed: no prompt.
+  if (
+    productionPay?.mode === "auto" &&
+    choice.nonce !== productionPay.panelNonce &&
+    isProductionPayQuestion(choice, productionPay)
+  )
+    return (
+      <div
+        className="choice-banner panel system-activation-bar"
+        role="status"
+        data-testid="production-pay-auto"
+      >
+        Paying for the remaining builds from your plan…
+      </div>
+    );
 
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = {
@@ -951,12 +980,19 @@ export const GameShell: React.FC<GameShellProps> = ({
     null,
   );
   const [isChoiceMinimized, setIsChoiceMinimized] = useState(false);
-  const [productionQueue, setProductionQueue] = useState<{
+  // One payment for a whole production; null when the builds are paid one question at a time.
+  const [productionPay, setProductionPay] = useState<ProductionPay | null>(null);
+  const [productionQueue, setProductionQueueState] = useState<{
     actor: string;
     system: string;
     units: string[];
   } | null>(null);
   const [productionError, setProductionError] = useState<string | null>(null);
+  // Ending the queue ends its payment plan too.
+  const setProductionQueue = React.useCallback<typeof setProductionQueueState>((value) => {
+    setProductionQueueState(value);
+    if (value === null) setProductionPay(null);
+  }, []);
   const [landingDraftState, setLandingDraftState] = useState<{
     key: string;
     entries: Landing[];
@@ -1000,6 +1036,13 @@ export const GameShell: React.FC<GameShellProps> = ({
     )
       return;
     if (choice.context?.subtype !== "produce_unit") {
+      // A reaction window (or another seat's decision) comes in the middle of a production and
+      // hands it back: wait for it instead of dropping the remaining builds and their payment.
+      if (
+        choice.context?.subtype?.startsWith("reaction_") ||
+        choice.actor !== productionQueue.actor
+      )
+        return;
       if (
         choice.context?.subtype !== "pay_resources" &&
         choice.context?.subtype !== "place_unit"
@@ -1041,6 +1084,7 @@ export const GameShell: React.FC<GameShellProps> = ({
     const option = matching[0];
     submittedNonce.current = choice.nonce;
     productionSubmitting.current = true;
+    setProductionPay((plan) => (plan ? { ...plan, submitted: plan.submitted + 1 } : plan));
     // Submit a single authoritative build at a time. Its response includes the
     // next decision, so payment can safely interrupt before we resume the queue.
     const submit = onSubmitBasketBatch
@@ -1105,7 +1149,8 @@ export const GameShell: React.FC<GameShellProps> = ({
       if (productionQueue?.units.length) throw new Error("A production queue is already running");
       setProductionError(null);
       submittedNonce.current = null;
-      setProductionQueue({ actor: real.actor, system, units });
+      setProductionPay(readSinglePayment() ? newProductionPay(real, units) : null);
+      setProductionQueueState({ actor: real.actor, system, units });
     };
     return () => {
       productionSubmitRef.current = null;
@@ -1119,6 +1164,104 @@ export const GameShell: React.FC<GameShellProps> = ({
     }
     return players;
   }, [players]);
+
+  // The production's one payment: the first payment question is the player's panel; the later
+  // ones are answered from what is left of that plan. Anything the plan does not predict stops it
+  // and the normal payment is asked (suggestion prefilled); reaction windows and other seats'
+  // decisions only pause it, so it resumes at the next payment question of this production.
+  useEffect(() => {
+    const plan = productionPay;
+    if (!plan || !choice) return;
+    // The last build is placed and the engine offers production again: the production is over.
+    if (
+      choice.actor === plan.actor &&
+      choice.context?.subtype === "produce_unit" &&
+      !productionQueue?.units.length &&
+      !productionSubmitting.current &&
+      choice.nonce !== submittedNonce.current &&
+      plan.submitted >= plan.costs.length
+    ) {
+      setProductionPay(null);
+      return;
+    }
+    if (plan.mode !== "auto" || choice.nonce === plan.handledNonce) return;
+    if (viewerSeat !== undefined && viewerSeat !== null && choice.actor !== viewerSeat) return;
+    if (choice.actor !== plan.actor || choice.context?.subtype !== "pay_resources") return;
+    const stop = (note: string) =>
+      setProductionPay((current) =>
+        current ? { ...current, mode: "manual", handledNonce: choice.nonce, note } : current,
+      );
+    if (!isProductionPayQuestion(choice, plan)) {
+      stop("This payment is not part of the plan you confirmed, so it is asked on its own.");
+      return;
+    }
+    const owner = playersMap[choice.actor];
+    const auto = autoPaymentFor(
+      choice,
+      plan.remaining,
+      owner?.trade_goods ?? plan.remaining.tradeGoods,
+    );
+    if (!auto) {
+      stop(
+        plan.remaining.planetIds.length || plan.remaining.tradeGoods
+          ? "The planets and trade goods you planned no longer fit what this build asks. Choose how to pay for it."
+          : "The planned payment is used up. Choose how to pay for this build.",
+      );
+      return;
+    }
+    const payload = { kind: "payment" as const, steps: auto.steps };
+    if (!onSubmitBasketBatch && auto.steps.length !== 1) {
+      stop("This payment needs several steps; choose how to pay for it.");
+      return;
+    }
+    // Spent from the plan before the answer lands, so the next question sees what is left.
+    setProductionPay({ ...plan, remaining: auto.rest, handledNonce: choice.nonce, note: undefined });
+    const answer = onSubmitBasketBatch
+      ? onSubmitBasketBatch(payload)
+      : onSubmitChoice(
+          auto.steps[0].kind === "trade_good" ? "trade_good" : `exhaust|${auto.steps[0].planet}`,
+        );
+    void answer
+      .then(() =>
+        onAutoSubmitNotice?.({
+          id: `production-pay-${choice.nonce}`,
+          text: `Paid automatically from your plan: ${auto.summary}`,
+        }),
+      )
+      .catch((error: unknown) =>
+        setProductionPay((current) =>
+          current
+            ? {
+                ...current,
+                mode: "manual",
+                handledNonce: choice.nonce,
+                note: `Automatic payment stopped: ${error instanceof Error ? error.message : String(error)}`,
+              }
+            : current,
+        ),
+      );
+  }, [choice, productionPay, productionQueue, playersMap, viewerSeat, onSubmitBasketBatch, onSubmitChoice, onAutoSubmitNotice]);
+
+  const productionPayApi = useMemo<ProductionPaymentApi>(
+    () => ({
+      plan: productionPay,
+      confirm: (rest, nonce) =>
+        setProductionPay((current) =>
+          current
+            ? { ...current, mode: "auto", remaining: rest, panelNonce: nonce, handledNonce: nonce, note: undefined }
+            : current,
+        ),
+      revert: () =>
+        setProductionPay((current) =>
+          current ? { ...current, mode: "ask", remaining: { planetIds: [], tradeGoods: 0 }, panelNonce: undefined, handledNonce: undefined } : current,
+        ),
+      askEach: (note) =>
+        setProductionPay((current) =>
+          current ? { ...current, mode: "manual", handledNonce: undefined, note } : current,
+        ),
+    }),
+    [productionPay],
+  );
 
   useEffect(() => {
     // Only automatically un-minimize if it's the viewer's turn to make a decision
@@ -1248,6 +1391,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             onDismiss={onDismissBatchResume}
           />
         )}
+        <ProductionPaymentProvider value={productionPayApi}>
         <PipelineRunnerContext.Provider value={pipelineRunner}>
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
@@ -1297,10 +1441,12 @@ export const GameShell: React.FC<GameShellProps> = ({
                   : "";
               setProductionError(null);
               submittedNonce.current = null;
-              setProductionQueue({ actor: choice.actor, system, units });
+              setProductionPay(readSinglePayment() ? newProductionPay(choice, units) : null);
+              setProductionQueueState({ actor: choice.actor, system, units });
             }}
           />
         </PipelineRunnerContext.Provider>
+        </ProductionPaymentProvider>
       </div>
     </div>
     </BoardPrepSlotContext.Provider>
