@@ -312,6 +312,34 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       )
         fail("invalid reaction intent state");
       return value as unknown as ServerMessage;
+    case "secondary_preview": {
+      const outcome = value.outcome;
+      if (
+        !isNonNegativeInteger(value.request_id) ||
+        !isNonNegativeInteger(value.as_of_version) ||
+        !isRecord(outcome) ||
+        (outcome.result !== "preview" && outcome.result !== "refused")
+      )
+        fail("invalid secondary preview");
+      if (outcome.result === "refused") {
+        if (typeof outcome.reason !== "string") fail("invalid secondary preview refusal");
+      } else {
+        const preview = outcome.preview;
+        if (!isRecord(preview) || typeof preview.status !== "string")
+          fail("invalid secondary preview body");
+        if (preview.status === "question") {
+          const choice = preview.choice;
+          if (
+            !isRecord(choice) ||
+            typeof choice.player !== "string" ||
+            typeof choice.prompt !== "string" ||
+            !Array.isArray(choice.options)
+          )
+            fail("invalid previewed choice");
+        }
+      }
+      return value as unknown as ServerMessage;
+    }
     default:
       return fail("unknown message type");
   }

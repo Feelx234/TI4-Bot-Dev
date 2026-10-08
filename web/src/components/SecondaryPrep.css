@@ -125,6 +125,9 @@
   color: var(--color-text-muted, #94a3b8);
   font-size: 0.75rem;
 }
+.secondary-prep__note--attention {
+  color: #fde68a;
+}
 .secondary-prep__chip {
   align-self: flex-start;
   display: inline-flex;

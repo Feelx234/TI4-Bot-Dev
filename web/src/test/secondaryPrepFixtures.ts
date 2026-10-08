@@ -91,6 +91,126 @@ export const stepChoice = (
   context: { subtype } as PendingChoiceDto["context"],
 });
 
+/** The server's answer to a preview request, as the client hands it to the preparation hook. */
+export const previewReply = (
+  body: import("../protocol/types.ts").SecondaryPreviewBody,
+): import("../protocol/client.ts").SecondaryPreviewReply => ({
+  kind: "preview",
+  body,
+  asOfVersion: 9,
+  asOfDecisions: 40,
+});
+
+/** The engine's own window question for `card`, exactly as `strategy.rs::secondary_choice` builds it. */
+export function engineWindow(
+  card: string,
+  prompt: string,
+  extra: Record<string, unknown> = {},
+): import("../protocol/types.ts").EngineChoice {
+  return {
+    player: "b",
+    prompt,
+    options: [option("no", "strategy", "decline"), option("yes", "strategy", "go")],
+    details: {
+      kind: "strategy_secondary",
+      card,
+      played_by: "a",
+      tokens_left: 2,
+      costs_token: true,
+      ...extra,
+    },
+  };
+}
+
+/** The engine's "research a technology" question for the Technology secondary (cost 4, decline offered). */
+export function engineResearch(ids: string[]): import("../protocol/types.ts").EngineChoice {
+  return {
+    player: "b",
+    prompt: "research a technology",
+    options: [
+      ...ids.map((id) => ({
+        id,
+        kind: "research",
+        label: id,
+        payload: { cost: 4, cost_tokens: 0 },
+      })),
+      option("decline", "decline", "decline"),
+    ],
+    context: {
+      subtype: "research_technology",
+      source: { StrategyCard: { card: "Technology", secondary: true } },
+    } as import("../protocol/types.ts").EngineChoice["context"],
+  };
+}
+
+/** The home production's build list as `production.rs` offers it: capacity 3, 5 resources to spend. */
+export function engineProduction(
+  builds: { unit: string; cost: number; count: number }[],
+  over: { capacity?: number; resources?: number } = {},
+): import("../protocol/types.ts").EngineChoice {
+  return {
+    player: "b",
+    prompt: "produce in 18 (3 left)",
+    options: [
+      ...builds.map(({ unit, cost, count }) => ({
+        id: `build|${unit}|${count}`,
+        kind: "produce",
+        label: `produce ${count}x ${unit} for ${cost}`,
+        payload: {
+          unit,
+          cost,
+          printed_cost: cost,
+          discount: 0,
+          count,
+          placed: count,
+          yield: count,
+          credit: 0,
+          available_resources: over.resources ?? 5,
+          free_this_use: false,
+          credit_used: 0,
+          owed: cost,
+          production_spent: count,
+          system: "18",
+        },
+      })),
+      option("done_producing", "decline", "produce nothing further"),
+    ],
+    context: {
+      subtype: "produce_unit",
+      target: { System: "18" },
+      outstanding: [{ kind: "ProductionCapacity", amount: over.capacity ?? 3, paid: 0 }],
+    } as import("../protocol/types.ts").EngineChoice["context"],
+    details: { fleet_supply: { used: 1, limit: 4 } },
+  };
+}
+
+/** The payment question the first build opens: two planets and trade goods. */
+export function enginePayment(owed: number): import("../protocol/types.ts").EngineChoice {
+  return {
+    player: "b",
+    prompt: `pay ${owed} more resources`,
+    options: [
+      {
+        id: "exhaust|jord",
+        kind: "pay",
+        label: "exhaust jord",
+        payload: { worth: 4, owed, kind: "resources", source: "planet", planet_name: "Jord" },
+      },
+      {
+        id: "exhaust|arinam",
+        kind: "pay",
+        label: "exhaust arinam",
+        payload: { worth: 1, owed, kind: "resources", source: "planet", planet_name: "Arinam" },
+      },
+      { id: "trade_good", kind: "pay", label: "spend a trade good", payload: { worth: 1, owed, kind: "resources" } },
+    ],
+    context: {
+      subtype: "pay_resources",
+      outstanding: [{ kind: "resources", amount: owed, paid: 0 }],
+    } as import("../protocol/types.ts").EngineChoice["context"],
+  };
+}
+
 export const boardWith = (
   planets: { system: string; planet: string; owner: string; exhausted?: boolean }[],
 ): BoardView => {

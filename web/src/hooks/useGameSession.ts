@@ -48,6 +48,12 @@ export interface UseGameSessionReturn {
     steps: import("../protocol/client.ts").MovementStep[],
   ) => Promise<void>;
   submitBatch: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
+  /** Read-only: what this seat would be asked for the secondary in progress, as of now. */
+  previewSecondary: (
+    card: string,
+    primary: string,
+    answers: readonly string[],
+  ) => Promise<import("../protocol/client.ts").SecondaryPreviewReply>;
   resumeBatch: () => Promise<void>;
   dismissBatchResume: () => void;
 }
@@ -96,6 +102,7 @@ export function useGameSession({
     turnRedoCommand,
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
+    previewSecondary: (card, primary, answers) => client.previewSecondary(card, primary, answers),
     resumeBatch: () => client.resumeBatch(),
     dismissBatchResume: () => client.dismissBatchResume(),
   };

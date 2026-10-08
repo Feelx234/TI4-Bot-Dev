@@ -10,6 +10,8 @@ import {
   HistoryStatus,
   ReactionModeSetting,
   ReactionIntentStateMsg,
+  PreviewRefusal,
+  SecondaryPreviewBody,
 } from "./types.ts";
 import { readDeclaredTriggers, writeDeclaredTriggers } from "./bluffTriggers.ts";
 import {
@@ -24,6 +26,28 @@ import {
   type TurnRedoCommand,
   type TurnRedoStatus,
 } from "./turnRedo.ts";
+
+/** What the server answered to a `preview_secondary` request. */
+export type SecondaryPreviewReply =
+  | {
+      kind: "preview";
+      body: SecondaryPreviewBody;
+      /** The game version and decision count the answer was computed at. */
+      asOfVersion: number;
+      asOfDecisions: number;
+    }
+  | { kind: "refused"; reason: PreviewRefusal; detail: string };
+
+/** The server does not know the preview message (an older build): callers fall back to estimates. */
+export class PreviewUnsupportedError extends Error {
+  constructor(message = "This server cannot preview a secondary") {
+    super(message);
+    this.name = "PreviewUnsupportedError";
+  }
+}
+
+/** How long a preview request may take before the caller falls back to its estimate. */
+export const PREVIEW_TIMEOUT_MS = 4_000;
 
 export type ConnectionStatus =
   "connecting" | "connected" | "disconnected" | "error";
@@ -308,6 +332,9 @@ export function reduceServerMessage(
       return state;
     case "reaction_intent_state":
       return { ...state, reactionIntent: message };
+    case "secondary_preview":
+      // Answered to the asking call, never part of the shared projection.
+      return state;
   }
 }
 
@@ -338,8 +365,70 @@ export class GameSessionClient {
     plan: string;
     requestId: string;
   } | null = null;
+  private previewSeq = 0;
+  /** Set once an older server answered the preview message with "unknown message type". */
+  private previewUnsupported = false;
+  private readonly previews = new Map<
+    number,
+    {
+      resolve: (reply: SecondaryPreviewReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   constructor(private readonly options: GameSessionClientOptions) {}
+
+  /**
+   * Read-only: what this seat would be asked for the secondary in progress (the strategy card
+   * `card`, played by `primary`) if its window opened right now, after the `answers` already given
+   * (the first answers the window question, the rest the follow-up questions in order). The server
+   * changes nothing and answers this connection only. Rejects with {@link PreviewUnsupportedError}
+   * for an older server (remembered for the life of this client) and with an Error on a timeout or
+   * a lost connection; callers then use their own estimate.
+   */
+  previewSecondary(
+    card: string,
+    primary: string,
+    answers: readonly string[],
+  ): Promise<SecondaryPreviewReply> {
+    if (this.options.viewer.role !== "player") return Promise.reject(new PreviewUnsupportedError());
+    if (this.previewUnsupported) return Promise.reject(new PreviewUnsupportedError());
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(new Error("Not connected to the server"));
+    const requestId = ++this.previewSeq;
+    const message: ClientMessage = {
+      type: "preview_secondary",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: this.options.gameId,
+      request_id: requestId,
+      card,
+      primary,
+      answers: [...answers],
+    };
+    return new Promise<SecondaryPreviewReply>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.previews.delete(requestId);
+        reject(new Error("The server did not answer the preview in time"));
+      }, PREVIEW_TIMEOUT_MS);
+      this.previews.set(requestId, { resolve, reject, timer });
+      try {
+        this.socket?.send(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        this.previews.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private settlePreviews(error: Error): void {
+    for (const pending of this.previews.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.previews.clear();
+  }
 
   getState(): GameSessionState {
     return this.state;
@@ -362,6 +451,7 @@ export class GameSessionClient {
     this.clearTimers();
     this.detachSocket();
     this.rejectSubmission("Submission stopped");
+    this.settlePreviews(new Error("Session stopped"));
   }
 
   async submitChoice(optionId: string): Promise<void> {
@@ -893,6 +983,7 @@ export class GameSessionClient {
         this.clearTimers();
         this.socket = null;
         this.rejectSubmission("Submission disconnected before confirmation");
+        this.settlePreviews(new Error("Disconnected"));
         this.setState({
           ...this.state,
           status: "disconnected",
@@ -924,10 +1015,39 @@ export class GameSessionClient {
 
   private ingestWebSocket(value: unknown): void {
     try {
-      const message = decodeServerMessage(
-        typeof value === "string" ? JSON.parse(value) : value,
-        this.options.gameId,
-      );
+      const raw: unknown = typeof value === "string" ? JSON.parse(value) : value;
+      // An older server does not know the preview message and answers it with a protocol error
+      // that names it. That is "no preview available", never an error to show the player.
+      if (
+        this.previews.size > 0 &&
+        typeof raw === "object" &&
+        raw !== null &&
+        (raw as { type?: unknown }).type === "error" &&
+        String((raw as { message?: unknown }).message ?? "").includes("preview_secondary")
+      ) {
+        this.previewUnsupported = true;
+        this.settlePreviews(new PreviewUnsupportedError());
+        return;
+      }
+      const message = decodeServerMessage(raw, this.options.gameId);
+      if (message.type === "secondary_preview") {
+        const pending = this.previews.get(message.request_id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.previews.delete(message.request_id);
+          pending.resolve(
+            message.outcome.result === "preview"
+              ? {
+                  kind: "preview",
+                  body: message.outcome.preview,
+                  asOfVersion: message.as_of_version,
+                  asOfDecisions: message.as_of_decisions,
+                }
+              : { kind: "refused", reason: message.outcome.reason, detail: message.outcome.detail },
+          );
+        }
+        return;
+      }
       this.apply(message);
       if (message.type === "reaction_intent_state") {
         // The server's answer is the truth (it may have refused, or forgotten in a restart).
