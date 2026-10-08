@@ -229,6 +229,8 @@ describe("Accessible Primitives Suite", () => {
         const top = parseFloat(card.style.top);
         expect(top).toBeGreaterThanOrEqual(8);
         expect(top + 576).toBeLessThanOrEqual(720 - 8);
+        // Beside the trigger (right edge 528), not over it.
+        expect(parseFloat(card.style.left)).toBeGreaterThanOrEqual(528);
       } finally {
         spy.mockRestore();
         Object.defineProperty(window, "innerHeight", { configurable: true, value: innerHeight });
