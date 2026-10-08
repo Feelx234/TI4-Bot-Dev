@@ -12,8 +12,11 @@
 //! (a plain replay). It prints one JSON object per game plus a total. Nothing is written; the
 //! store is only read.
 //!
-//! "Round survival" is measured against the decisions that follow the redone turn up to the same
-//! seat's next decision, which is where the auto-play hands control back.
+//! "Round survival" is measured against the decisions that follow the redone turn up to where
+//! the auto-play hands control back: the same seat's next turn start (before the stop-rule change
+//! it was the seat's next decision of any kind; `survives_old_span` counts a run that got at
+//! least that far). Three variants of the same redo are run: the feature (dice forced and cards
+//! keep their identity), `no_identity` (dice forced, cards drawn positionally) and `plain`.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -26,10 +29,11 @@ use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_server::protocol::turn_redo::TurnRedoStop;
-use ti4_server::session::RngMarks;
 use ti4_server::session::turn_redo::{
-    AutoplayResult, RedoWindow, TailBaseline, TailSource, autoplay, find_turns,
+    AutoplayResult, RedoWindow, TailBaseline, TailSource, autoplay, find_turns, next_turn_start,
+    open_segment,
 };
+use ti4_server::session::{RngForce, RngMarks};
 use ti4_server::storage::FileGameStore;
 
 struct Lcg(u64);
@@ -49,11 +53,15 @@ struct PrefixThen {
     prefix: Vec<String>,
     at: usize,
     then: Lcg,
+    force: Option<RngForce>,
 }
 
 impl Decider for PrefixThen {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         if let Some(wanted) = self.prefix.get(self.at) {
+            if let Some(force) = &self.force {
+                force.before_answer(self.at);
+            }
             self.at += 1;
             return choice.option(wanted).cloned().ok_or_else(|| {
                 IllegalChoice::ScriptDiverged {
@@ -62,6 +70,9 @@ impl Decider for PrefixThen {
                     offered: choice.ids().into_iter().map(str::to_owned).collect(),
                 }
             });
+        }
+        if let Some(force) = &self.force {
+            force.go_live();
         }
         self.then.choose(choice)
     }
@@ -74,16 +85,22 @@ fn new_turn(
     galaxy: &Galaxy,
     prefix: &[DecisionRecord],
     seat: &PlayerId,
+    marks: &RngMarks,
     variant: u64,
 ) -> Option<Vec<DecisionRecord>> {
     let start = prefix.len();
+    let force = RngForce::new(marks);
     let table = Table::with_default(Box::new(PrefixThen {
         prefix: prefix.iter().map(|r| r.chosen.clone()).collect(),
         at: 0,
         then: Lcg(variant.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0x1234_5678),
+        force: force.clone(),
     }));
     let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table)
         .with_galaxy(galaxy.clone());
+    if let Some(force) = &force {
+        force.attach(&mut game);
+    }
     loop {
         let log = &game.table.log.records;
         if log.len() > start
@@ -109,12 +126,14 @@ struct Tally {
     reached_handoff: usize,
     kept_fraction_sum: f64,
     some_kept: usize,
-    deck_offsets: usize,
+    old_span_ok: usize,
+    kept_sum: usize,
+    span_sum: usize,
     kinds: BTreeMap<String, usize>,
 }
 
 impl Tally {
-    fn add(&mut self, r: &AutoplayResult, to_handoff: usize) {
+    fn add(&mut self, r: &AutoplayResult, to_handoff: usize, to_old: usize) {
         self.trials += 1;
         let handed = matches!(r.stop, TurnRedoStop::Handoff { .. } | TurnRedoStop::TailExhausted);
         if handed {
@@ -128,9 +147,9 @@ impl Tally {
         if r.kept > 0 {
             self.some_kept += 1;
         }
-        if !r.deck_offsets.is_empty() {
-            self.deck_offsets += 1;
-        }
+        self.old_span_ok += usize::from(r.kept >= to_old);
+        self.kept_sum += r.kept.min(to_handoff);
+        self.span_sum += to_handoff;
         let kind = match &r.stop {
             TurnRedoStop::Handoff { .. } => "handoff".to_owned(),
             TurnRedoStop::TailExhausted => "tail_exhausted".to_owned(),
@@ -144,7 +163,9 @@ impl Tally {
         self.reached_handoff += o.reached_handoff;
         self.kept_fraction_sum += o.kept_fraction_sum;
         self.some_kept += o.some_kept;
-        self.deck_offsets += o.deck_offsets;
+        self.old_span_ok += o.old_span_ok;
+        self.kept_sum += o.kept_sum;
+        self.span_sum += o.span_sum;
         for (k, v) in &o.kinds {
             *self.kinds.entry(k.clone()).or_default() += v;
         }
@@ -158,7 +179,10 @@ impl Tally {
             "round_survives_pct": 100.0 * self.reached_handoff as f64 / n,
             "mean_kept_fraction": self.kept_fraction_sum / n,
             "some_kept": self.some_kept,
-            "with_deck_offset": self.deck_offsets,
+            "survives_old_span": self.old_span_ok,
+            "survives_old_span_pct": 100.0 * self.old_span_ok as f64 / n,
+            "kept_decisions": self.kept_sum,
+            "span_decisions": self.span_sum,
             "stops": self.kinds,
         })
     }
@@ -168,6 +192,8 @@ impl Tally {
 struct Game3 {
     /// The feature: random positions forced.
     forced: Tally,
+    /// Dice forced, cards drawn positionally (identity off).
+    no_identity: Tally,
     /// A plain replay of the same decisions.
     plain: Tally,
     /// The subset where the new turn consumed different random numbers than the old one.
@@ -233,12 +259,19 @@ fn main() {
             }
             let spans = find_turns(&decisions);
             for span in spans.iter().filter(|s| s.complete).step_by(stride) {
-                let window = RedoWindow { start: span.start, end: span.end, turns: 1 };
+                let window = RedoWindow {
+                    seat: span.seat.clone(),
+                    start: span.start,
+                    end: span.end,
+                    turns: 1,
+                };
                 let Ok(source) = base.tail(&window) else {
                     g.no_baseline += 1;
                     continue;
                 };
-                let to_handoff = source
+                let to_handoff = next_turn_start(&source.decisions, &span.seat)
+                    .unwrap_or(source.decisions.len());
+                let to_old = source
                     .decisions
                     .iter()
                     .position(|r| r.player == span.seat)
@@ -246,12 +279,22 @@ fn main() {
                 let mut unforced: TailSource = source.clone();
                 unforced.marks.clear();
                 unforced.prev_mark = None;
+                unforced.reserved.clear();
+                let mut no_identity: TailSource = source.clone();
+                no_identity.reserved.clear();
                 let mut prefix_marks = marks.clone();
-                prefix_marks.retain(|i, _| *i < window.start);
+                prefix_marks.truncate_to(window.start);
+                let mut live_marks = prefix_marks.clone();
+                live_marks.deck_plan.push(open_segment(window.start, &source));
                 for variant in 1..=variants {
-                    let Some(current) =
-                        new_turn(&initial, &galaxy, &decisions[..window.start], &span.seat, variant)
-                    else {
+                    let Some(current) = new_turn(
+                        &initial,
+                        &galaxy,
+                        &decisions[..window.start],
+                        &span.seat,
+                        &live_marks,
+                        variant,
+                    ) else {
                         continue;
                     };
                     let run = |src: &TailSource| {
@@ -265,17 +308,19 @@ fn main() {
                             src,
                         )
                     };
-                    let (Ok(f), Ok(p)) = (run(&source), run(&unforced)) else {
+                    let (Ok(f), Ok(p), Ok(n)) = (run(&source), run(&unforced), run(&no_identity))
+                    else {
                         continue;
                     };
-                    g.forced.add(&f, to_handoff);
-                    g.plain.add(&p, to_handoff);
+                    g.forced.add(&f, to_handoff, to_old);
+                    g.no_identity.add(&n, to_handoff, to_old);
+                    g.plain.add(&p, to_handoff, to_old);
                     // The new turn shifted the random streams when its natural position at the
                     // join differs from the original's.
                     if p.join_positions != source.prev_mark {
                         g.shifted += 1;
-                        g.forced_shifted.add(&f, to_handoff);
-                        g.plain_shifted.add(&p, to_handoff);
+                        g.forced_shifted.add(&f, to_handoff, to_old);
+                        g.plain_shifted.add(&p, to_handoff, to_old);
                     }
                 }
             }
@@ -289,6 +334,7 @@ fn main() {
                     "baseline_replayed": base.replayed(),
                     "seconds": g.nanos as f64 / 1e9,
                     "forced": g.forced.json(),
+                    "no_identity": g.no_identity.json(),
                     "plain": g.plain.json(),
                     "rng_shifted_trials": g.shifted,
                     "forced_when_shifted": g.forced_shifted.json(),
@@ -296,6 +342,7 @@ fn main() {
                 })
             );
             total.forced.merge(&g.forced);
+            total.no_identity.merge(&g.no_identity);
             total.plain.merge(&g.plain);
             total.forced_shifted.merge(&g.forced_shifted);
             total.plain_shifted.merge(&g.plain_shifted);
@@ -306,6 +353,7 @@ fn main() {
         "{}",
         serde_json::json!({ "TOTAL": {
             "forced": total.forced.json(),
+            "no_identity": total.no_identity.json(),
             "plain": total.plain.json(),
             "rng_shifted_trials": total.shifted,
             "forced_when_shifted": total.forced_shifted.json(),

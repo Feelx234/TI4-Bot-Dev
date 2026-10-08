@@ -12,10 +12,11 @@ use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_server::protocol::splice::ConflictKind;
-use ti4_server::protocol::turn_redo::{DeckDelta, TurnRedoStop};
+use ti4_server::protocol::turn_redo::TurnRedoStop;
+use ti4_model::deck_reserve::ReservedDraw;
 use ti4_server::session::turn_redo::{
     AutoplayResult, RedoWindow, TailBaseline, TailSource, TurnRedoError, autoplay, find_turns,
-    redo_window,
+    next_turn_start, open_segment, redo_window,
 };
 use ti4_server::session::{
     GameSession, RngForce, RngMarks, SeatController, SessionConfig, replay_session_forced,
@@ -55,11 +56,15 @@ struct PrefixThen {
     prefix: Vec<String>,
     at: usize,
     then: Box<dyn Decider>,
+    force: Option<RngForce>,
 }
 
 impl Decider for PrefixThen {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         if let Some(wanted) = self.prefix.get(self.at) {
+            if let Some(force) = &self.force {
+                force.before_answer(self.at);
+            }
             self.at += 1;
             return choice
                 .option(wanted)
@@ -69,6 +74,9 @@ impl Decider for PrefixThen {
                     wanted: wanted.clone(),
                     offered: choice.ids().into_iter().map(str::to_owned).collect(),
                 });
+        }
+        if let Some(force) = &self.force {
+            force.go_live();
         }
         self.then.choose(choice)
     }
@@ -119,17 +127,23 @@ pub fn play_new_turn(
     galaxy: &Galaxy,
     prefix: &[DecisionRecord],
     seat: &PlayerId,
+    marks: &RngMarks,
     then: Box<dyn Decider>,
 ) -> Option<Vec<DecisionRecord>> {
     let window_start = prefix.len();
     let ids = prefix.iter().map(|r| r.chosen.clone()).collect();
+    let force = RngForce::new(marks);
     let table = Table::with_default(Box::new(PrefixThen {
         prefix: ids,
         at: 0,
         then,
+        force: force.clone(),
     }));
     let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table)
         .with_galaxy(galaxy.clone());
+    if let Some(force) = &force {
+        force.attach(&mut game);
+    }
     loop {
         let log = &game.table.log.records;
         if log.len() > window_start
@@ -233,9 +247,17 @@ pub fn redo(
 ) -> Option<Redo> {
     let window = redo_window(orig, seat, turns).ok()?;
     let source = base.tail(&window).ok()?;
-    let current = play_new_turn(state, galaxy, &orig[..window.start], seat, then)?;
     let mut current_marks = orig_marks.clone();
-    current_marks.retain(|i, _| *i < window.start);
+    current_marks.truncate_to(window.start);
+    current_marks.deck_plan.push(open_segment(window.start, &source));
+    let current = play_new_turn(
+        state,
+        galaxy,
+        &orig[..window.start],
+        seat,
+        &current_marks,
+        then,
+    )?;
     let result = autoplay(
         state,
         Some(galaxy),
@@ -498,7 +520,6 @@ fn an_unchanged_turn_reproduces_the_original_history_and_stops_at_the_seats_next
             "{seat}: {:?}",
             r.result.stop
         );
-        assert!(r.result.deck_offsets.is_empty());
         // Same history, same dice: the state equals the original's at that length.
         if r.result.decisions.len() <= h.len() {
             let again = final_state_json(&state, &galaxy, &r.result.decisions, &r.result.marks);
@@ -646,91 +667,7 @@ fn a_new_turn_that_is_not_finished_is_refused() {
     assert_eq!(err, TurnRedoError::NewTurnMissing);
 }
 
-// ---- decks ---------------------------------------------------------------------------------
-
-/// A scenario whose auto-play ran to a hand-off with kept decisions and no deck offset.
-fn clean_scenario() -> &'static Scenario {
-    let (_, _, all) = scenarios();
-    all.iter()
-        .find(|s| {
-            s.redo.result.kept >= 3
-                && s.redo.result.deck_offsets.is_empty()
-                && matches!(s.redo.result.stop, TurnRedoStop::Handoff { .. })
-        })
-        .expect("a clean redo with a hand-off exists")
-}
-
-#[test]
-fn a_draw_count_that_differs_from_the_original_is_reported_as_a_deck_cursor_conflict() {
-    let (state, galaxy, _) = scenarios();
-    let s = clean_scenario();
-    let r = &s.redo;
-    // Pretend the original timeline drew one more action card by the time of its third kept
-    // decision, as the redone turn did not: the deck is then drawn from at different positions.
-    let mut source = r.source.clone();
-    for (rel, decks) in &mut source.decks {
-        if *rel >= 3 {
-            *decks.entry("action_card".to_owned()).or_insert(0) += 1;
-        }
-    }
-    let result = autoplay(
-        state,
-        Some(galaxy),
-        &r.current,
-        &RngMarks::new(),
-        r.window.start,
-        &s.seat,
-        &source,
-    )
-    .unwrap();
-    let TurnRedoStop::Conflict { conflict } = &result.stop else {
-        panic!("expected a deck conflict, got {:?}", result.stop);
-    };
-    assert_eq!(conflict.kind, ConflictKind::DeckCursor);
-    assert!(conflict.deck_deltas.iter().any(|d| d.deck == "action_card"));
-    assert!(
-        result.kept < r.result.kept,
-        "the auto-play stops before the shifted draw"
-    );
-    assert_eq!(result.decisions.len(), result.prefix_len + result.kept);
-    // The seat that is asked live is the seat of the decision at the cut.
-    let asked = next_asker(state, galaxy, &result.decisions, &result.marks)
-        .unwrap()
-        .0;
-    assert_eq!(asked.to_string(), conflict.seat);
-}
-
-#[test]
-fn a_constant_deck_offset_is_reported_but_does_not_stop_the_auto_play() {
-    let (state, galaxy, _) = scenarios();
-    let s = clean_scenario();
-    let r = &s.redo;
-    let mut source = r.source.clone();
-    for (_, decks) in &mut source.decks {
-        *decks.entry("action_card".to_owned()).or_insert(0) += 1;
-    }
-    let result = autoplay(
-        state,
-        Some(galaxy),
-        &r.current,
-        &RngMarks::new(),
-        r.window.start,
-        &s.seat,
-        &source,
-    )
-    .unwrap();
-    assert_eq!(
-        result.kept, r.result.kept,
-        "nothing drew from the shifted deck"
-    );
-    assert_eq!(
-        result.deck_offsets,
-        vec![DeckDelta {
-            deck: "action_card".to_owned(),
-            delta: -1
-        }]
-    );
-}
+// ---- decks: see the end of the file ----
 
 // ---- dice ----------------------------------------------------------------------------------
 
@@ -884,4 +821,578 @@ fn forced_dice_reproduce_the_others_rolls_when_the_new_turn_rolls_fewer_dice_and
         orig_tail[..forced2.len()],
         "and the very first ones"
     );
+}
+
+// ---- decks: card identity --------------------------------------------------------------------
+
+/// Every card drawn while replaying `decisions` with `marks` forced, tagged with the index of the
+/// decision it belongs to (the reserve's own log).
+pub fn replay_draws(
+    state: &GameState,
+    galaxy: &Galaxy,
+    decisions: &[DecisionRecord],
+    marks: &RngMarks,
+) -> Vec<ReservedDraw> {
+    struct Forced {
+        script: Vec<String>,
+        at: usize,
+        force: RngForce,
+    }
+    impl Decider for Forced {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let index = self.at;
+            let Some(wanted) = self.script.get(index) else {
+                return Err(IllegalChoice::DeciderFailed {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                    reason: "done".to_owned(),
+                });
+            };
+            self.at += 1;
+            self.force.before_answer(index);
+            choice
+                .option(wanted)
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: wanted.clone(),
+                    offered: Vec::new(),
+                })
+        }
+    }
+    let force = RngForce::always(marks);
+    let table = Table::with_default(Box::new(Forced {
+        script: decisions.iter().map(|r| r.chosen.clone()).collect(),
+        at: 0,
+        force: force.clone(),
+    }));
+    let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table)
+        .with_galaxy(galaxy.clone());
+    force.attach(&mut game);
+    while game.table.log.records.len() < decisions.len() {
+        let result = game.step();
+        if result.error.is_some() || result.finished {
+            break;
+        }
+    }
+    game.state
+        .deck_reserve
+        .as_ref()
+        .map(|r| r.draws().to_vec())
+        .unwrap_or_default()
+}
+
+/// The draws belonging to decisions `from..to`, with tags made relative to `from`.
+fn draws_between(draws: &[ReservedDraw], from: usize, to: usize) -> Vec<ReservedDraw> {
+    draws
+        .iter()
+        .filter(|d| d.tag >= from && d.tag < to)
+        .map(|d| ReservedDraw {
+            tag: d.tag - from,
+            ..d.clone()
+        })
+        .collect()
+}
+
+/// Redos of known turns of seeded games where the new turn draws more or fewer cards than the old
+/// one and the recorded tail draws cards itself (found by searching real games; see `redo`).
+pub struct Fixture {
+    pub label: &'static str,
+    /// The new turn draws more (true) or fewer (false) cards than the original did.
+    pub more: bool,
+    pub state: GameState,
+    pub galaxy: Galaxy,
+    pub s: Scenario,
+}
+
+pub fn fixtures() -> &'static Vec<Fixture> {
+    use std::sync::OnceLock;
+    static CELL: OnceLock<Vec<Fixture>> = OnceLock::new();
+    CELL.get_or_init(|| {
+        let mut out = Vec::new();
+        for (label, more, game_seed, start, variant) in [
+            ("game 6 turn at 102: explores twice more than before", true, 6u64, 102usize, 1u64),
+            ("game 6 turn at 258: draws one more", true, 6, 258, 1),
+            ("game 4 turn at 99: no longer draws a secret objective", false, 4, 99, 1),
+            ("game 6 turn at 317: eight draws fewer", false, 6, 317, 3),
+        ] {
+            let (state, galaxy) = setup(game_seed);
+            let full = play(&state, &galaxy, Box::new(Lcg(game_seed, true)), 700);
+            let spans = find_turns(&full);
+            let n = spans.iter().position(|t| t.start == start).expect("the fixture turn");
+            let seat = spans[n].seat.clone();
+            // Cut where the seat's next turn begins: the redone turn is its last, the tail is
+            // everything the others did before that.
+            let next = spans[n + 1..]
+                .iter()
+                .find(|t| t.seat == seat)
+                .map_or(full.len(), |t| t.start);
+            let hh = full[..next].to_vec();
+            let base = baseline(&state, &galaxy, &hh);
+            let redo = redo(
+                &state,
+                &galaxy,
+                &base,
+                &hh,
+                &RngMarks::new(),
+                &seat,
+                1,
+                Box::new(Lcg(variant, true)),
+            )
+            .expect("the fixture redo plays out");
+            assert_eq!(redo.window.start, start, "{label}");
+            out.push(Fixture {
+                label,
+                more,
+                state,
+                galaxy,
+                s: Scenario {
+                    seat,
+                    cut: next,
+                    turns: 1,
+                    seed: variant,
+                    hh,
+                    redo,
+                },
+            });
+        }
+        out
+    })
+}
+
+/// Checks the card identity of one redo and reports `(new turn drew more, fewer, the kept tail
+/// drew cards, a positional replay would have handed the tail other cards)`.
+fn check_identity(
+    state: &GameState,
+    galaxy: &Galaxy,
+    s: &Scenario,
+) -> (bool, bool, bool, bool) {
+    let r = &s.redo;
+    let orig = replay_draws(state, galaxy, &s.hh, &RngMarks::new());
+    let new = replay_draws(state, galaxy, &r.result.decisions, &r.result.marks);
+    let old_turn = draws_between(&orig, r.window.start, r.window.end);
+    let new_turn = draws_between(&new, r.window.start, r.result.prefix_len);
+
+    // Every recorded draw of the kept tail hands out the card it handed out originally.
+    let (end, kept) = (r.window.end, r.result.kept);
+    let tail_orig = draws_between(&orig, end, end + kept);
+    let tail_new = draws_between(&new, r.result.prefix_len, r.result.prefix_len + kept);
+    assert_eq!(
+        tail_orig, tail_new,
+        "{} cut {} turns {} seed {}",
+        s.seat, s.cut, s.turns, s.seed
+    );
+    let more = new_turn.len() > old_turn.len();
+    let fewer = new_turn.len() < old_turn.len();
+    if tail_orig.is_empty() {
+        return (more, fewer, false, false);
+    }
+    // The new turn never takes a card reserved for the tail: it draws further down.
+    for d in &new_turn {
+        assert!(
+            !tail_orig
+                .iter()
+                .any(|t| t.deck == d.deck && t.card == d.card),
+            "the new turn took the reserved {} {}",
+            d.deck,
+            d.card
+        );
+    }
+    // Without the reservations the same decisions would meet other cards.
+    let mut bare = r.result.marks.clone();
+    bare.deck_plan.clear();
+    let plain = replay_draws(state, galaxy, &r.result.decisions, &bare);
+    let plain_tail = draws_between(&plain, r.result.prefix_len, r.result.prefix_len + kept);
+    (more, fewer, true, plain_tail != tail_orig)
+}
+
+#[test]
+fn the_tail_gets_exactly_its_original_cards_whether_the_new_turn_draws_more_or_fewer() {
+    // The grid: whatever the redo does, the tail's cards are the original ones.
+    let (state, galaxy, all) = scenarios();
+    let with_tail = all
+        .iter()
+        .filter(|s| check_identity(state, galaxy, s).2)
+        .count();
+    assert!(with_tail >= 5, "redos whose kept tail draws: {with_tail}");
+
+    // Fixtures that draw more and fewer cards than the original turn, with a tail that draws.
+    let (mut more, mut fewer, mut positional_differs) = (0, 0, 0);
+    for f in fixtures() {
+        let (m, fw, tail, differs) = check_identity(&f.state, &f.galaxy, &f.s);
+        assert_eq!(m, f.more, "{}", f.label);
+        assert_eq!(fw, !f.more, "{}", f.label);
+        assert!(tail, "{}: the kept tail draws cards", f.label);
+        more += usize::from(m);
+        fewer += usize::from(fw);
+        positional_differs += usize::from(differs);
+    }
+    assert_eq!((more, fewer), (2, 2));
+    // (These turns draw from other decks than the tail does, so a positional replay would also
+    // have matched here: `a_deck_shifted_by_the_new_turn_...` below forces the same-deck case.)
+    let _ = positional_differs;
+}
+
+#[test]
+fn a_reserved_card_that_is_gone_is_a_conflict_that_hands_the_decision_to_the_asked_seat() {
+    let f = &fixtures()[2];
+    let (state, galaxy, s) = (&f.state, &f.galaxy, &f.s);
+    let r = &s.redo;
+    let k = r
+        .source
+        .reserved
+        .iter()
+        .position(|d| d.tag < r.result.kept && d.tag > 0)
+        .expect("a later kept decision draws");
+    let mut source = r.source.clone();
+    let wanted = source.reserved[k].clone();
+    source.reserved[k].card = "not_in_this_deck".to_owned();
+    let result = autoplay(
+        state,
+        Some(galaxy),
+        &r.current,
+        &RngMarks::new(),
+        r.window.start,
+        &s.seat,
+        &source,
+    )
+    .unwrap();
+    let TurnRedoStop::Conflict { conflict } = &result.stop else {
+        panic!("expected a reserved-card conflict, got {:?}", result.stop);
+    };
+    assert_eq!(conflict.kind, ConflictKind::ReservedCard);
+    assert_eq!(conflict.card.as_deref(), Some("not_in_this_deck"));
+    assert_eq!(conflict.deck.as_deref(), Some(wanted.deck.as_str()));
+    assert!(
+        conflict.detail.contains("not_in_this_deck")
+            && conflict.detail.contains("is no longer in the deck"),
+        "{}",
+        conflict.detail
+    );
+    // The decisions before it are kept; the one the card belonged to is not replayed and its
+    // seat decides live.
+    assert_eq!(result.kept, wanted.tag);
+    assert_eq!(result.decisions.len(), result.prefix_len + wanted.tag);
+    let recorded = &source.decisions[wanted.tag];
+    assert_eq!(conflict.seat, recorded.player.to_string());
+    assert_eq!(conflict.original_cursor, source.start_cursor + wanted.tag);
+    assert_eq!(result.asking_seat.as_deref(), Some(conflict.seat.as_str()));
+    let (asked, prompt) = next_asker(state, galaxy, &result.decisions, &result.marks)
+        .expect("the engine asks someone");
+    assert_eq!(asked.to_string(), conflict.seat);
+    assert_eq!(prompt, recorded.prompt);
+    // The stored history (with its truncated plan) replays by itself.
+    final_state_json(state, galaxy, &result.decisions, &result.marks);
+}
+
+#[test]
+fn auto_play_stops_only_at_the_redoing_seats_next_turn_and_replays_its_other_decisions() {
+    let (state, galaxy, all) = scenarios();
+    let (mut own_decisions, mut past_old_stop, mut handoffs) = (0, 0, 0);
+    for s in all {
+        let r = &s.redo;
+        let result = &r.result;
+        let tail = &r.source.decisions;
+        let next = next_turn_start(tail, &s.seat);
+        // Never past the seat's next turn start.
+        assert!(result.kept <= next.unwrap_or(tail.len()));
+        assert_eq!(result.tail_total, next.unwrap_or(tail.len()));
+        assert!(
+            find_turns(&result.decisions)
+                .iter()
+                .all(|t| t.seat != s.seat || t.start < result.prefix_len),
+            "no turn of {} starts in the kept tail",
+            s.seat
+        );
+        let kept_tail = &result.decisions[result.prefix_len..];
+        let own = kept_tail.iter().filter(|d| d.player == s.seat).count();
+        own_decisions += usize::from(own > 0);
+        // The old rule stopped at the first decision of the seat of any kind.
+        let first_own = tail.iter().position(|d| d.player == s.seat);
+        past_old_stop += usize::from(first_own.is_some_and(|f| result.kept > f));
+        if let TurnRedoStop::Handoff { seat } = &result.stop {
+            handoffs += 1;
+            assert_eq!(seat, &s.seat.to_string());
+            assert_eq!(Some(result.kept), next, "stops exactly at the turn start");
+            let (asked, prompt) =
+                next_asker(state, galaxy, &result.decisions, &result.marks).unwrap();
+            assert_eq!((asked, prompt.as_str()), (s.seat.clone(), "action phase"));
+        } else if let Some(j) = next {
+            assert!(
+                result.kept < j,
+                "a stop before the seat's turn is a conflict, not a hand-off: {:?}",
+                result.stop
+            );
+        }
+        if s.turns == 2 {
+            // The rest of the window (the second turn and after) stays in the saved original.
+            assert!(result.decisions.len() <= s.hh.len() + result.prefix_len);
+        }
+    }
+    assert!(own_decisions > 0, "the seat's own non-turn decisions are replayed");
+    assert!(past_old_stop > 0, "auto-play now passes the old stop point");
+    assert!(handoffs > 0);
+}
+
+#[test]
+fn a_recorded_decision_of_the_redoing_seat_that_no_longer_fits_hands_it_live_control() {
+    let (state, galaxy, all) = scenarios();
+    let (s, j) = all
+        .iter()
+        .find_map(|s| {
+            let kept = s.redo.result.kept;
+            s.redo.source.decisions[..kept]
+                .iter()
+                .position(|d| d.player == s.seat)
+                .map(|j| (s, j))
+        })
+        .expect("a redo that replays an own decision exists");
+    let r = &s.redo;
+    let mut source = r.source.clone();
+    source.decisions[j].chosen = "a_card_it_no_longer_has".to_owned();
+    let result = autoplay(
+        state,
+        Some(galaxy),
+        &r.current,
+        &RngMarks::new(),
+        r.window.start,
+        &s.seat,
+        &source,
+    )
+    .unwrap();
+    let TurnRedoStop::Conflict { conflict } = &result.stop else {
+        panic!("expected a conflict, got {:?}", result.stop);
+    };
+    assert_eq!(conflict.kind, ConflictKind::ChosenNotOffered);
+    assert_eq!(conflict.seat, s.seat.to_string(), "the seat decides live");
+    assert_eq!(result.kept, j);
+    let asked = next_asker(state, galaxy, &result.decisions, &result.marks)
+        .unwrap()
+        .0;
+    assert_eq!(asked, s.seat);
+}
+
+#[test]
+fn the_same_redo_with_stored_marks_gives_identical_decisions_marks_and_cards() {
+    let (state, galaxy, all) = scenarios();
+    for s in all.iter().step_by(5) {
+        let r = &s.redo;
+        let mut marks = RngMarks::new();
+        marks.deck_plan.push(open_segment(r.window.start, &r.source));
+        let a = autoplay(
+            state,
+            Some(galaxy),
+            &r.current,
+            &marks,
+            r.window.start,
+            &s.seat,
+            &r.source,
+        )
+        .unwrap();
+        assert_eq!(a.decisions, r.result.decisions);
+        assert_eq!(a.marks, r.result.marks, "marks and the card plan are equal");
+        assert!(!a.marks.deck_plan.is_empty());
+        let one = replay_draws(state, galaxy, &a.decisions, &a.marks);
+        let two = replay_draws(state, galaxy, &a.decisions, &a.marks);
+        assert_eq!(one, two);
+    }
+}
+
+#[test]
+fn a_worker_recovering_a_redone_history_from_its_marks_reaches_the_same_state_and_cards() {
+    let f = &fixtures()[2];
+    let (state, galaxy, r) = (&f.state, &f.galaxy, &f.s.redo);
+    let session_state = |decisions: &[DecisionRecord], marks: &RngMarks| {
+        let players = vec![
+            PlayerId::new("p1"),
+            PlayerId::new("p2"),
+            PlayerId::new("p3"),
+        ];
+        let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), galaxy);
+        let mut config = SessionConfig::new("redo_cards_worker", state.clone())
+            .with_seed(7)
+            .with_player_ids(players.clone())
+            .with_galaxy(galaxy.clone(), tiles)
+            .with_prior_history(decisions.to_vec(), Vec::new());
+        for p in players {
+            config = config.with_seat(p, SeatController::Human);
+        }
+        config.rng_marks = marks.clone();
+        let session = GameSession::start(config);
+        let replayed = session.wait_replayed();
+        let json = serde_json::to_string(&session.current_state()).unwrap();
+        session.stop();
+        (replayed, json)
+    };
+    // After auto-play: the worker replays kept tail cards identically.
+    let direct = final_state_json(state, galaxy, &r.result.decisions, &r.result.marks);
+    let (ok, worker) = session_state(&r.result.decisions, &r.result.marks);
+    ok.expect("the worker replays the redone history");
+    assert_eq!(worker, direct);
+    // During the new turn: the live history plus the open segment replays like the live game did.
+    let mut open = RngMarks::new();
+    open.deck_plan.push(open_segment(r.window.start, &r.source));
+    let direct_new = final_state_json(state, galaxy, &r.current, &open);
+    let (ok, worker_new) = session_state(&r.current, &open);
+    ok.expect("the worker replays the new turn");
+    assert_eq!(worker_new, direct_new);
+}
+
+// ---- a deck shifted by the new turn --------------------------------------------------------
+
+/// Replays `decisions` with `marks`; right after decision `inject_at` was answered, takes
+/// `inject` cards off the top of the action card deck for nobody, as a redone turn that drew
+/// more cards would have. Returns every draw that was logged and whether the whole history replayed with every reserved card found.
+fn replay_with_extra_draws(
+    state: &GameState,
+    galaxy: &Galaxy,
+    decisions: &[DecisionRecord],
+    marks: &RngMarks,
+    inject_at: usize,
+    inject: usize,
+) -> (Vec<ReservedDraw>, bool) {
+    struct Forced {
+        script: Vec<String>,
+        at: usize,
+        force: RngForce,
+    }
+    impl Decider for Forced {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let index = self.at;
+            let Some(wanted) = self.script.get(index) else {
+                return Err(IllegalChoice::DeciderFailed {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                    reason: "done".to_owned(),
+                });
+            };
+            self.at += 1;
+            self.force.before_answer(index);
+            choice
+                .option(wanted)
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: wanted.clone(),
+                    offered: Vec::new(),
+                })
+        }
+    }
+    let force = RngForce::always(marks);
+    let table = Table::with_default(Box::new(Forced {
+        script: decisions.iter().map(|r| r.chosen.clone()).collect(),
+        at: 0,
+        force: force.clone(),
+    }));
+    let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table)
+        .with_galaxy(galaxy.clone());
+    force.attach(&mut game);
+    let mut injected = false;
+    let mut completed = true;
+    while game.table.log.records.len() < decisions.len() {
+        let result = game.step();
+        if !injected && game.table.log.records.len() > inject_at {
+            injected = true;
+            for _ in 0..inject {
+                let drawn = ti4_model::deck_reserve::take_top(
+                    &mut game.state.deck_reserve,
+                    "action_card",
+                    &mut game.state.action_card_deck,
+                    Some("nobody"),
+                );
+                assert!(drawn.is_some(), "the deck has cards left");
+            }
+        }
+        if result.error.is_some() || result.finished {
+            completed = false;
+            break;
+        }
+    }
+    let reserve = game.state.deck_reserve.as_ref().unwrap();
+    (reserve.draws().to_vec(), completed && reserve.failure().is_none())
+}
+
+#[test]
+fn a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards() {
+    use ti4_model::deck_reserve::DeckSegment;
+    // Game 1, p3's turn at 515: the recorded tail (others' turns) draws action cards (a Politics
+    // play and more), so the action card deck is exactly what a changed number of draws shifts.
+    let (state1, galaxy1) = setup(1);
+    let full = play(&state1, &galaxy1, Box::new(Lcg(1, true)), 700);
+    let spans = find_turns(&full);
+    let n = spans.iter().position(|t| t.start == 515).unwrap();
+    let seat = spans[n].seat.clone();
+    let next = spans[n + 1..]
+        .iter()
+        .find(|t| t.seat == seat)
+        .map_or(full.len(), |t| t.start);
+    let hh = full[..next].to_vec();
+    let window = redo_window(&hh, &seat, 1).unwrap();
+    assert_eq!(window.start, 515);
+    let base = baseline(&state1, &galaxy1, &hh);
+    let source = base.tail(&window).unwrap();
+    let tail_ac: Vec<_> = source
+        .reserved
+        .iter()
+        .filter(|d| d.deck == "action_card")
+        .collect();
+    assert!(tail_ac.len() >= 2, "the tail draws action cards: {tail_ac:?}");
+
+    let plan_for = |reserved: &[ReservedDraw]| {
+        let mut marks = RngMarks::new();
+        marks.deck_plan.push(DeckSegment {
+            from: window.start,
+            until: hh.len(),
+            reserved: reserved
+                .iter()
+                .map(|d| ReservedDraw {
+                    tag: window.end + d.tag,
+                    ..d.clone()
+                })
+                .collect(),
+        });
+        marks
+    };
+    let run = |marks: &RngMarks, extra: usize| {
+        replay_with_extra_draws(&state1, &galaxy1, &hh, marks, window.start, extra)
+    };
+
+    // The original timeline, replayed without anything special.
+    let (orig, ok) = run(&RngMarks::new(), 0);
+    assert!(ok);
+    let orig_tail = draws_between(&orig, window.end, hh.len());
+    assert!(orig_tail.iter().any(|d| d.deck == "action_card"));
+
+    // The redone turn is the same decisions, but it also took `extra` cards off the action deck
+    // (more draws than the original).
+    for extra in [1usize, 3] {
+        // Identity: the tail still gets exactly the original cards...
+        let (with_plan, ok) = run(&plan_for(&source.reserved), extra);
+        assert!(ok, "the whole history replays with the plan ({extra} extra)");
+        assert_eq!(
+            draws_between(&with_plan, window.end, hh.len()),
+            orig_tail,
+            "{extra} extra draws"
+        );
+        // ...the extra ones came from further down, never from the reserved cards...
+        let reserved_ac: Vec<&str> = tail_ac.iter().map(|d| d.card.as_str()).collect();
+        let took: Vec<_> = draws_between(&with_plan, window.start, window.end)
+            .into_iter()
+            .filter(|d| d.recipient.as_deref() == Some("nobody"))
+            .collect();
+        assert_eq!(took.len(), extra);
+        assert!(took.iter().all(|d| !reserved_ac.contains(&d.card.as_str())));
+        // ...and without the plan the same decisions meet other cards (or do not replay at all).
+        let (positional, ok) = run(&RngMarks::new(), extra);
+        assert!(
+            !ok || draws_between(&positional, window.end, hh.len()) != orig_tail,
+            "a positional replay shifts the tail ({extra} extra)"
+        );
+    }
+
+    // A reserved card that is not in the deck is recorded as a failure.
+    let mut gone = plan_for(&source.reserved);
+    gone.deck_plan[0].reserved[0].card = "not_in_this_deck".to_owned();
+    let (_, ok) = run(&gone, 1);
+    assert!(!ok, "a missing reserved card is reported");
 }

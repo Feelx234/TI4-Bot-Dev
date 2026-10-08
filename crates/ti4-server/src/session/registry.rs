@@ -1162,7 +1162,7 @@ impl GameRegistry {
             batches,
             rng_marks: {
                 let mut marks = session.rng_marks();
-                marks.retain(|index, _| *index < start_cursor);
+                marks.truncate_to(start_cursor);
                 marks
             },
         };

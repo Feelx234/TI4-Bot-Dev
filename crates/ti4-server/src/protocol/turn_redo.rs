@@ -2,8 +2,8 @@
 //!
 //! The game rewinds to the start of the seat's turn (same fixed seed), the seat plays a new turn
 //! live, then the rest of the round auto-plays from the other seats' recorded decisions until it
-//! reaches the redoing seat's next decision or the first decision that no longer fits. The
-//! timeline as it was before the redo is kept as an alternate that can be restored.
+//! reaches the start of the redoing seat's next turn or the first decision that no longer fits.
+//! The timeline as it was before the redo is kept as an alternate that can be restored.
 
 use serde::{Deserialize, Serialize};
 
@@ -50,7 +50,7 @@ pub enum TurnRedoStage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TurnRedoStop {
-    /// Reached the redoing seat's next decision, which is played live.
+    /// Reached the start of the redoing seat's next turn, which is played live.
     Handoff { seat: String },
     /// A recorded decision no longer fits; the seat the engine now asks decides live.
     Conflict { conflict: TurnRedoConflict },
@@ -69,16 +69,14 @@ pub struct TurnRedoConflict {
     pub seat: String,
     pub prompt: String,
     pub detail: String,
-    /// For `deck_cursor`: decks whose draw position differs from the original timeline, with the
-    /// difference in remaining cards (new minus original).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub deck_deltas: Vec<DeckDelta>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeckDelta {
-    pub deck: String,
-    pub delta: i64,
+    /// For `reserved_card`: the deck (`action_card`, `secret`, `exploration:<kind>`, ...), the
+    /// card id that was reserved for the seat and that seat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deck: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub card: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipient: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,10 +88,6 @@ pub struct TurnRedoOutcome {
     pub stop: TurnRedoStop,
     /// The seat the engine asks right now, if known.
     pub asking_seat: Option<String>,
-    /// Decks that sit a different number of cards from the original after the redone turn
-    /// (no replayed decision drew against them, so this did not stop the auto-play).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub deck_offsets: Vec<DeckDelta>,
 }
 
 /// What a client needs to draw the redo UI. `None` in the response means no redo is in flight.

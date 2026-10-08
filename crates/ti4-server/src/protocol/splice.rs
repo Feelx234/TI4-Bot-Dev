@@ -48,10 +48,10 @@ pub enum ConflictKind {
     EngineEnded,
     /// The engine failed while replaying. Hard.
     EngineError,
-    /// Turn redo only: the redone turn drew a different number of cards than the original one, so
-    /// every later draw from that deck lands differently. Decks are not covered by the forced
-    /// random positions (they are shuffled once, draws are positional). Hard.
-    DeckCursor,
+    /// Turn redo only: a card the original timeline drew for a recorded decision is no longer in
+    /// the deck, so that draw cannot give the seat the same card. Hard.
+    #[serde(alias = "deck_cursor")]
+    ReservedCard,
 }
 
 impl ConflictKind {

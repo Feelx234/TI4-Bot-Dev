@@ -559,6 +559,9 @@ impl Decider for PrivateDecider {
                 })
             };
         }
+        if let Some(force) = &script.force {
+            force.go_live();
+        }
         while script.kind == BatchKind::TacticalMovement
             && matches!(
                 script.steps.get(script.next),

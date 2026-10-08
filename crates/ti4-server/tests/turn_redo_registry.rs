@@ -459,6 +459,16 @@ fn the_redo_and_its_saved_original_survive_a_restart_with_their_forced_dice() {
     let live = t.session().decision_log();
     let saved = store.load_history(&t.id).unwrap().expect("history saved");
     assert_eq!(saved.decisions, live);
+    assert!(
+        saved
+            .rng_marks
+            .deck_plan
+            .iter()
+            .all(|segment| segment.until != ti4_server::session::rng_force::OPEN),
+        "the finished redo's card reservations are closed"
+    );
+    assert_eq!(saved.rng_marks.deck_plan.len(), 1);
+    let plan = saved.rng_marks.deck_plan.clone();
     t.session().stop();
 
     // A new registry on the same store recovers the redone timeline and the saved original.
@@ -468,6 +478,7 @@ fn the_redo_and_its_saved_original_survive_a_restart_with_their_forced_dice() {
     let session = registry.get_game(&t.id).unwrap();
     session.wait_replayed().expect("replays with its marks");
     assert_eq!(session.decision_log(), live);
+    assert_eq!(session.rng_marks().deck_plan, plan, "the card plan came back from disk");
     let status = registry
         .turn_redo_status(&t.id, &t.host_token)
         .expect("status after restart")
@@ -651,4 +662,44 @@ fn the_host_can_redo_a_bot_seats_turn_and_the_bot_replays_it_live() {
         .turn_redo_restore(&t.id, &t.host_token, t.version())
         .expect("restore");
     assert_eq!(json_of(&t.session().decision_log()), json_of(&log0));
+}
+
+#[test]
+fn a_redo_in_its_new_turn_recovers_from_disk_with_its_open_card_reservations() {
+    let dir = std::env::temp_dir().join(format!("ti4_turn_redo_{:016x}", rand::random::<u64>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let t = table(
+        "redo_open_recover",
+        SeatController::BotFirstOption,
+        Some(store.clone()),
+    );
+    t.play_until(two_turns_done);
+    t.settle();
+    t.request(&t.host_token, Some("p1"), None).expect("redo");
+    t.settle();
+    // Half a new turn is played live; the redo is still in its new-turn stage.
+    assert!(t.answer(|_| 0));
+    t.settle();
+    let live = t.session().decision_log();
+    let saved = store.load_history(&t.id).unwrap().expect("history saved");
+    let open: Vec<_> = saved
+        .rng_marks
+        .deck_plan
+        .iter()
+        .filter(|s| s.until == ti4_server::session::rng_force::OPEN)
+        .collect();
+    assert_eq!(open.len(), 1, "the new turn is governed by one open segment");
+    t.session().stop();
+
+    let registry = Arc::new(GameRegistry::new().with_store(store.clone()));
+    registry.recover_all_games().expect("recover");
+    let session = registry.get_game(&t.id).unwrap();
+    session.wait_replayed().expect("replays with the open segment");
+    assert_eq!(session.decision_log(), live);
+    let status = registry
+        .turn_redo_status(&t.id, &t.host_token)
+        .unwrap()
+        .expect("still in flight");
+    assert_eq!(status.stage, TurnRedoStage::NewTurn);
+    let _ = std::fs::remove_dir_all(&dir);
 }

@@ -329,7 +329,7 @@ pub struct GameHistory {
     pub batches: Vec<BatchRecord>,
     /// Forced random stream positions by decision index; present only on a timeline made by a
     /// turn redo (see `session::rng_force`). Absent in every older save.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "crate::session::RngMarks::is_empty")]
     pub rng_marks: crate::session::RngMarks,
 }
 
