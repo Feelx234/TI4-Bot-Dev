@@ -198,8 +198,31 @@ pub fn enforce_hand_limit(
         ));
         let answer = table.ask_seeing(&choice, &Observed::new(state, content, POK, None))?;
         let index = answer.id.parse::<usize>().unwrap_or(0);
-        discard(state, player, index);
+        if let Some(card) = discard(state, player, index) {
+            discarded(state, player, &card, false);
+        }
     }
+}
+
+/// The one place an action card that has left `discarder`'s hand by discarding lands.
+///
+/// Data Skimmer (Ral Nel): during the action phase, another player's discard is placed on the
+/// breakthrough instead of going anywhere else. Returns whether it was taken there. Otherwise,
+/// with `to_pile`, the card goes on the discard pile; without it the card is simply gone, as the
+/// callers that never kept a pile have always done (hand limit, agenda effects, Expedition).
+pub fn discarded(
+    state: &mut GameState,
+    discarder: &PlayerId,
+    card: &ActionCardId,
+    to_pile: bool,
+) -> bool {
+    if crate::factions::ralnel_cards::skimmer_takes(state, discarder, card) {
+        return true;
+    }
+    if to_pile {
+        state.discarded_action_cards.push(card.clone());
+    }
+    false
 }
 
 /// Remove one card from a hand by index.
@@ -1549,12 +1572,15 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
         .entry(planet_id.clone())
         .or_default()
         .push(Unit::new(landed.type_id, player.clone()));
-    if others_there {
-        board
+    let began = others_there
+        && board
             .coexisting
             .entry(planet_id)
             .or_default()
             .insert(player.clone());
+    // Oceanbound: "When your units begin coexisting on a planet".
+    if began {
+        crate::factions::deepwrought::note_coexistence_began(context.state, player);
     }
 }
 
@@ -3284,6 +3310,22 @@ fn reveal_prototype(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     if lines.is_empty() {
         return; // no unit of the player's is in the combat
     }
+    // Doctor Carrina's window: this is a research (see `factions/deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::unit_upgrades,
+        |context| reveal_prototype_research(context, player, &lines),
+    );
+}
+
+/// Reveal Prototype's research, once the units in the combat are known.
+fn reveal_prototype_research(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    lines: &[&str],
+) {
+    let types = ti4_content::units::catalogue(context.content, context.sources);
     let open =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     let options: Vec<(String, String)> = open
@@ -3428,9 +3470,12 @@ fn pirate_systems_off_homes(
 /// the faction's limit.
 fn harness_energy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let limit = crate::strategy_cards::commodity_limit(context.state, context.content, player);
+    let mut gained = 0;
     if let Some(seat) = context.state.player_mut(player) {
+        gained = (limit - seat.commodities).max(0);
         seat.commodities = limit;
     }
+    crate::supply::note_commodities_gained(context.state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(context.state, player);
 }
@@ -3766,6 +3811,17 @@ fn divert_funding(context: &mut crate::timing::TimingContext<'_>, player: &Playe
         seat.technologies
             .remove(&ti4_model::TechnologyId::new(&alias));
     }
+    // Doctor Carrina's window: the research half is a research (see `deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::any,
+        |context| divert_funding_research(context, player),
+    );
+}
+
+/// Divert Funding's "then, research another technology".
+fn divert_funding_research(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let open =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     if open.is_empty() {
@@ -6103,9 +6159,14 @@ const FOCUSED_RESEARCH_COST: i32 = 4;
 /// Focused Research: spend four trade goods to research one technology.
 fn focused_research(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     // Xander Alexin Victori III (Keleres): the agent may let commodities pay the 4 trade goods.
-    crate::supply::with_goods_window(context, player, i64::from(FOCUSED_RESEARCH_COST), |context| {
-        focused_research_spend(context, player);
-    });
+    crate::supply::with_goods_window(
+        context,
+        player,
+        i64::from(FOCUSED_RESEARCH_COST),
+        |context| {
+            focused_research_spend(context, player);
+        },
+    );
 }
 
 fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
@@ -6113,6 +6174,17 @@ fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player
     if held < i64::from(FOCUSED_RESEARCH_COST) {
         return; // 22.3: it cannot resolve, so it does nothing
     }
+    // Doctor Carrina's window: this is a research (see `factions/deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::any,
+        |context| focused_research_chosen(context, player),
+    );
+}
+
+/// Focused Research's choice and payment, once the four trade goods are known to be there.
+fn focused_research_chosen(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let available =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     let options: Vec<(String, String)> = available
@@ -9619,6 +9691,53 @@ mod tests {
         );
     }
 
+    /// Doctor Carrina reaches an action-card research (Focused Research): the holder ignores the
+    /// prerequisite the researcher lacks and places an infantry into coexistence.
+    #[test]
+    fn doctor_carrina_reaches_focused_research() {
+        use crate::factions::deepwrought::testkit as dw;
+        let mut state = dw::game();
+        let researcher = dw::b();
+        state.player_mut(&researcher).unwrap().technologies.clear();
+        state.player_mut(&researcher).unwrap().trade_goods = 6;
+        let (system, planet) = dw::plain_planet();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), researcher.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &researcher, 1);
+        let place = format!("{system}|{planet}");
+        let effect = effect_for(&ActionCardId::new("f_researched")).expect("a registered effect");
+        let mut table = dw::scripted(&["use", "dxa", place.as_str()]);
+        crate::fixtures::with_context(
+            &mut state,
+            ti4_model::content_types::DEFAULT,
+            None,
+            &mut table,
+            |context| effect(context, &researcher),
+        );
+        assert!(
+            state
+                .player(&researcher)
+                .unwrap()
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("dxa")),
+            "researched past the prerequisite"
+        );
+        assert_eq!(state.player(&researcher).unwrap().trade_goods, 2);
+        assert!(crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &dw::a()
+        ));
+        assert_eq!(dw::infantry_on(&state, &system, &planet, &dw::a()), 1);
+        assert_eq!(
+            crate::factions::deepwrought::oceans(&state, &dw::a()),
+            vec![ti4_model::id::PlanetId::new("ocean1")],
+            "Oceanbound answered"
+        );
+    }
+
     #[test]
     fn focused_research_charges_nothing_when_it_cannot_pay() {
         // 22.3: a card that cannot resolve does nothing, and must not take the money anyway.
@@ -12394,6 +12513,7 @@ mod hidden_hands {
         let chosen = with_context(&mut state, POK, None, &mut table, |ctx| {
             choose_from_own_hand(
                 ctx,
+
                 &pid("a"),
                 "stall_tactics",
                 "stall_tactics_discard",
@@ -12484,5 +12604,4 @@ mod hidden_hands {
         assert_eq!(state.board, board);
         assert!(table.log.records.is_empty());
     }
-
 }

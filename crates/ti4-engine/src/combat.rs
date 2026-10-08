@@ -116,18 +116,103 @@ pub fn ships_of(
         })
         .cloned()
         .collect();
-    if planetary_maximum_participates(state, content, sources, player, system) {
-        ships.extend(
-            state
-                .system_state(system)
-                .planet_units
-                .values()
-                .flatten()
-                .filter(|unit| &unit.owner == player && unit.type_id.as_str() == "naaz_voltron")
-                .cloned(),
+    ships.extend(
+        planet_combatants(state, content, sources, player, system)
+            .into_iter()
+            .map(|(_, _, unit)| unit),
+    );
+    ships
+}
+
+/// Units standing on a planet that fight this system's space combat as ships, in planet order and
+/// then list order, each with its planet and its index in that planet's unit list.
+///
+/// Two kinds: a Naaz Eidolon Maximum (see [`planetary_maximum_participates`]) and the ground
+/// forces a Nekro Alastor chose "to participate in that combat as if they were ships"
+/// (`factions::nekro_units::alastor_participants`).
+pub(crate) fn planet_combatants(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+) -> Vec<(ti4_model::id::PlanetId, usize, Unit)> {
+    let maximum = planetary_maximum_participates(state, content, sources, player, system);
+    let chosen = crate::factions::nekro_units::alastor_participants(state, player, system);
+    let mut found = Vec::new();
+    for (planet, units) in &state.system_state(system).planet_units {
+        for (index, unit) in units.iter().enumerate() {
+            if &unit.owner != player {
+                continue;
+            }
+            let voltron = maximum && unit.type_id.as_str() == "naaz_voltron";
+            if voltron || chosen.contains(&(planet.clone(), index)) {
+                found.push((planet.clone(), index, unit.clone()));
+            }
+        }
+    }
+    found
+}
+
+/// Whether a planet-standing combatant can use SUSTAIN DAMAGE against a space-combat hit: a ship
+/// by the ship rule, a ground force chosen by the Alastor by its own printed ability.
+fn planet_unit_sustains(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    system: &SystemId,
+    player: &PlayerId,
+    unit: &Unit,
+    in_combat: bool,
+) -> bool {
+    let types = catalogue(content, sources);
+    let Some(kind) = types.get(unit.type_id.as_str()) else {
+        return false;
+    };
+    if kind.is_ship() {
+        return sustains_in_space(
+            state, content, sources, system, player, unit, kind, in_combat,
         );
     }
-    ships
+    &unit.owner == player
+        && !unit.sustained_damage
+        && kind.sustain_damage()
+        && !crate::laws::sustain_suppressed(state, kind.base_type())
+        && crate::factions::hooks_combat::may_sustain(
+            state,
+            content,
+            sources,
+            &crate::factions::CombatUnit {
+                player,
+                system: Some(system),
+                planet: None,
+                unit_type: unit.type_id.as_str(),
+                context: "space",
+            },
+        )
+}
+
+/// The label of a planet-standing sustain option: the Maximum keeps its name, anything else is
+/// named by its unit type.
+fn planet_sustain_label(
+    content: &ContentStore,
+    sources: SourceSet,
+    planet: &str,
+    unit: &Unit,
+) -> String {
+    let place = ti4_content::galaxy::planet(content, planet, sources)
+        .and_then(|record| record.name())
+        .unwrap_or(planet);
+    if unit.type_id.as_str() == "naaz_voltron" {
+        let form = if unit.galvanized {
+            "galvanized"
+        } else {
+            "plain"
+        };
+        format!("sustain damage on Maximum on {place} ({form})")
+    } else {
+        format!("sustain damage on {} on {place}", unit.type_id)
+    }
 }
 
 /// The corpus clarification for Eidolon Maximum permits a planet-standing unit to join
@@ -152,12 +237,39 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
-    if unit.type_id.as_str() == "naaz_voltron" {
-        for units in state.system_mut(system).planet_units.values_mut() {
-            if let Some(index) = units.iter().position(|found| found == unit) {
-                units.remove(index);
-                return;
+    crate::factions::bastion::note_ship_lost(state, system, unit);
+    let voltron = unit.type_id.as_str() == "naaz_voltron";
+    // An Alastor participant is a ground force standing on its planet: it leaves from there, and
+    // the choice that made it a participant shrinks by one.
+    let alastor = !voltron
+        && crate::factions::nekro_units::alastor_covers(
+            state,
+            system,
+            &unit.owner,
+            unit.type_id.as_str(),
+        );
+    if voltron || alastor {
+        let removed_from =
+            state
+                .system_mut(system)
+                .planet_units
+                .iter_mut()
+                .find_map(|(planet, units)| {
+                    let index = units.iter().position(|found| found == unit)?;
+                    units.remove(index);
+                    Some(planet.clone())
+                });
+        if let Some(planet) = removed_from {
+            if alastor {
+                crate::factions::nekro_units::alastor_decrement(
+                    state,
+                    system,
+                    &unit.owner,
+                    &planet,
+                    unit.type_id.as_str(),
+                );
             }
+            return;
         }
     }
     state.system_mut(system).remove(std::slice::from_ref(unit));
@@ -261,6 +373,26 @@ fn effective_from(
         unit.type_id.as_str(),
     );
 
+    // Nekro Mordred: +2 to its rolls against an opponent with an "X" or "Y" assimilator token.
+    let nekro_mech = crate::factions::nekro_units::mech_roll_bonus(
+        state,
+        content,
+        sources,
+        player,
+        unit.type_id.as_str(),
+        state.active_system.as_ref(),
+        None,
+    );
+
+    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
+    let assail = crate::factions::firmament_plots::assail_space(
+        state,
+        content,
+        sources,
+        player,
+        state.active_system.as_ref(),
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
@@ -268,7 +400,9 @@ fn effective_from(
             - fighter_bonus
             - i64::from(nebula_defender)
             - module
-            - mahact_flagship,
+            - mahact_flagship
+            - nekro_mech
+            - assail,
     )
 }
 
@@ -878,7 +1012,9 @@ fn forces_non_fighters(
 ) -> bool {
     ships_of(state, content, sources, player, system)
         .iter()
-        .any(|unit| unit.type_id.as_str() == L1Z1X_FLAGSHIP)
+        .any(|unit| {
+            crate::factions::flagship_has_text(state, player, unit.type_id.as_str(), L1Z1X_FLAGSHIP)
+        })
 }
 
 /// Whether a ship's hits are ones 0.0.1 forces onto non-fighters.
@@ -889,8 +1025,8 @@ fn forced_hull(kind: UnitType<'_>) -> bool {
 /// A ship's roll group beyond its combat value. A ship whose hits follow a rule the others' do not
 /// rolls on its own, so the staged entry says whose dice they were: 1 for J.N.S. Hylarim, 2 for
 /// the hulls 0.0.1 binds.
-fn roll_tag(kind: UnitType<'_>, id: &str, forced: bool) -> u8 {
-    if id == JOLNAR_FLAGSHIP {
+fn roll_tag(kind: UnitType<'_>, jolnar_text: bool, forced: bool) -> u8 {
+    if jolnar_text {
         1
     } else if forced && forced_hull(kind) {
         2
@@ -917,7 +1053,7 @@ fn fleet_hits(
             !entry.unit_types.is_empty() && entry.unit_types.keys().all(|id| test(id))
         };
         let mut hits = entry.hits();
-        if only(&|id| id == JOLNAR_FLAGSHIP) {
+        if only(&|id| crate::factions::flagship_has_text(state, player, id, JOLNAR_FLAGSHIP)) {
             hits += 2 * entry.faces.iter().filter(|face| **face >= 9).count();
         }
         if binding && only(&|id| types.get(id).is_some_and(|kind| forced_hull(*kind))) {
@@ -971,7 +1107,12 @@ fn repair_self_repairing(state: &mut GameState, system: &SystemId, player: &Play
         .iter()
         .filter(|unit| {
             &unit.owner == player
-                && unit.type_id.as_str() == LETNEV_FLAGSHIP
+                && crate::factions::flagship_has_text(
+                    state,
+                    player,
+                    unit.type_id.as_str(),
+                    LETNEV_FLAGSHIP,
+                )
                 && unit.sustained_damage
         })
         .cloned()
@@ -1069,6 +1210,8 @@ fn fleet_groups(
             dice += 1;
             extra_die_added = true;
         }
+        // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
+        dice += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
         dice += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1080,7 +1223,13 @@ fn fleet_groups(
             unit_index,
             state.combat_round_seq,
         );
-        let tag = roll_tag(*kind, unit.type_id.as_str(), forced);
+        let jolnar_text = crate::factions::flagship_has_text(
+            state,
+            player,
+            unit.type_id.as_str(),
+            JOLNAR_FLAGSHIP,
+        );
+        let tag = roll_tag(*kind, jolnar_text, forced);
         let group = groups.entry((value, tag)).or_insert(FleetGroup {
             dice: 0,
             types: std::collections::BTreeMap::new(),
@@ -1198,11 +1347,8 @@ fn wrath_of_kenara(
     player: &PlayerId,
     system: &SystemId,
 ) {
-    let has_flagship = state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|unit| &unit.owner == player && unit.type_id.as_str() == "hacan_flagship");
+    let has_flagship =
+        crate::factions::has_flagship_text_in(state, player, system, "hacan_flagship");
     if !has_flagship || crate::supply::potential_goods(state, player) <= 0 {
         return;
     }
@@ -1386,10 +1532,16 @@ pub fn roll_barrage_side(
         crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
             .and_then(|borrowed| borrowed.barrage.map(|barrage| (borrowed.unit, barrage)));
     let mut borrower_used = false;
+    // Quietus: units in an active breach beside another player's Quietus have lost every unit
+    // ability, ANTI-FIGHTER BARRAGE among them.
+    let abilities_lost = crate::factions::crimson::abilities_lost(state, player, system);
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
+        if abilities_lost {
+            continue;
+        }
         let lent = borrower
             .as_ref()
             .filter(|(ship, _)| !borrower_used && *ship == unit)
@@ -1403,6 +1555,8 @@ pub fn roll_barrage_side(
         if count == 0 {
             continue;
         }
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
         // Fighter Prototype names "each of your fighters' combat rolls": the barrage is a
         // fighters' combat roll, so it gets the same +2 per copy as the fleet rolls do.
         let value = if kind.is_fighter() {
@@ -1410,6 +1564,16 @@ pub fn roll_barrage_side(
         } else {
             value
         };
+        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
+        let value = (value
+            - crate::factions::firmament_plots::assail_space(
+                state,
+                content,
+                sources,
+                player,
+                Some(system),
+            ))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -1752,6 +1916,7 @@ fn reaching_guns_by(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     system: &SystemId,
     fires: impl Fn(&PlayerId) -> bool,
+    silenced_in_space: impl Fn(&Unit) -> bool,
 ) -> Vec<Unit> {
     let Some(galaxy) = galaxy else {
         return Vec::new();
@@ -1759,14 +1924,18 @@ fn reaching_guns_by(
     let mut found = Vec::new();
     for neighbour in galaxy.adjacent(system.as_str()) {
         let board = state.system_state(&SystemId::new(neighbour));
+        // Miniaturization: a Ral Nel structure in the space area has no unit abilities.
         let standing = board
             .planet_units
             .values()
             .flat_map(|units| units.iter())
-            .chain(board.units.iter());
+            .chain(board.units.iter().filter(|unit| !silenced_in_space(unit)));
+        let here = SystemId::new(neighbour);
         found.extend(
             standing
                 .filter(|unit| fires(&unit.owner))
+                // Quietus: a gun in an active breach beside another player's Quietus has lost it.
+                .filter(|unit| !crate::factions::crimson::abilities_lost(state, &unit.owner, &here))
                 .filter(|unit| {
                     types
                         .get(unit.type_id.as_str())
@@ -1816,9 +1985,13 @@ pub fn space_cannon_offense(
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
     // activation-scoped, like the card's "this tactical action" wording.
+    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships that moved the same way.
     let solar_flare = state
         .player(active)
-        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq));
+        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq))
+        || crate::factions::firmament::space_cannon_silenced(
+            state, content, sources, active, system,
+        );
     let types = catalogue(content, sources);
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships
@@ -1844,10 +2017,18 @@ pub fn space_cannon_offense(
         }
     };
 
+    // Quietus: a unit in an active breach beside another player's Quietus has lost SPACE CANNON.
+    let may_fire_here = |owner: &PlayerId| {
+        may_fire(owner) && !crate::factions::crimson::abilities_lost(state, owner, system)
+    };
+    // Miniaturization: a Ral Nel structure in the space area cannot use its own SPACE CANNON.
     let mut guns: Vec<Unit> = board
         .units
         .iter()
-        .filter(|unit| may_fire(&unit.owner))
+        .filter(|unit| {
+            may_fire_here(&unit.owner)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .cloned()
         .collect();
     for planet in board.planet_units.keys() {
@@ -1855,7 +2036,7 @@ pub fn space_cannon_offense(
             board
                 .on_planet(planet)
                 .iter()
-                .filter(|unit| may_fire(&unit.owner))
+                .filter(|unit| may_fire_here(&unit.owner))
                 .cloned(),
         );
     }
@@ -1864,7 +2045,22 @@ pub fn space_cannon_offense(
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
     // PDS next door -- a technology every faction can research -- never fired at all.
-    guns.extend(reaching_guns_by(state, &types, galaxy, system, &may_fire));
+    guns.extend(reaching_guns_by(
+        state,
+        &types,
+        galaxy,
+        system,
+        &may_fire,
+        |unit| crate::factions::ralnel::silenced_in_space(state, content, sources, unit),
+    ));
+    // Linkship I / II: the SPACE CANNON of a Ral Nel structure in the space area, borrowed.
+    guns.extend(crate::factions::ralnel::linkship_guns(
+        state,
+        content,
+        sources,
+        system,
+        &may_fire_here,
+    ));
     // SPACE CANNON an attachment gives its planet "as if it were a unit" (Titans' Geoform).
     // Disable and Plasma Scoring do not apply to these dice: the attachment is not a PDS unit.
     let attachment_guns: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)> = board
@@ -1916,6 +2112,18 @@ pub fn space_cannon_offense(
             continue;
         }
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
+        // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
+        // player's guns fire at the opponent, every other gun at the active player).
+        let target = if unit.owner == *active {
+            opponent.clone()
+        } else {
+            Some(active.clone())
+        };
+        let value = (value
+            - crate::factions::firmament_plots::assail_against(state, &unit.owner, target.iter()))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -2105,9 +2313,7 @@ fn pay_sustain_commander(state: &mut GameState, content: &ContentStore, player: 
 
 /// Barony of Letnev, Non-Euclidean Shielding: each use of SUSTAIN DAMAGE cancels two hits.
 pub(crate) fn non_euclidean_shielding(state: &GameState, player: &PlayerId) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.iter().any(|held| held.as_str() == "nes"))
+    crate::technology::has_technology_text(state, player, "nes")
 }
 
 /// Whether this unit may use SUSTAIN DAMAGE against a hit in space.
@@ -2254,50 +2460,43 @@ fn offer_sustain(
             .collect();
         // A Maximum on a planet is a combat ship only while a normal ship shares the space area;
         // mirror `ships_of` here so it can actually cancel a hit it was allowed to join.
-        if planetary_maximum_participates(state, content, sources, player, system) {
-            for (planet, units) in &state.system_state(system).planet_units {
-                let mut distinct_fresh = Vec::new();
-                for (index, unit) in units.iter().enumerate() {
-                    if unit.owner == *player
-                        && unit.type_id.as_str() == "naaz_voltron"
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            sustains_in_space(
-                                state,
-                                content,
-                                sources,
-                                system,
-                                player,
-                                unit,
-                                kind,
-                                during_space_combat,
-                            )
-                        })
-                        && assignable_to_hit(
-                            state,
-                            content,
-                            sources,
-                            player,
-                            system,
-                            unit,
-                            Some(planet),
-                            origin,
-                        )
-                    {
-                        if distinct_fresh.contains(unit) {
-                            continue;
-                        }
-                        let location = if crate::supply::staging_enabled(state)
-                            && !distinct_fresh.is_empty()
-                        {
-                            format!("planet:{planet}:variant:{index}")
-                        } else {
-                            format!("planet:{planet}")
-                        };
-                        distinct_fresh.push(unit.clone());
-                        available.push((location, unit.clone()));
-                    }
-                }
+        // A ground force an Alastor brought into the battle is mirrored the same way.
+        let mut distinct_fresh: std::collections::BTreeMap<ti4_model::id::PlanetId, Vec<Unit>> =
+            std::collections::BTreeMap::new();
+        for (planet, index, unit) in planet_combatants(state, content, sources, player, system) {
+            if !planet_unit_sustains(
+                state,
+                content,
+                sources,
+                system,
+                player,
+                &unit,
+                during_space_combat,
+            ) || !assignable_to_hit(
+                state,
+                content,
+                sources,
+                player,
+                system,
+                &unit,
+                Some(&planet),
+                origin,
+            ) {
+                continue;
             }
+            let seen_here = distinct_fresh.entry(planet.clone()).or_default();
+            if seen_here.contains(&unit) {
+                continue;
+            }
+            let location = if unit.type_id.as_str() != "naaz_voltron"
+                || (crate::supply::staging_enabled(state) && !seen_here.is_empty())
+            {
+                format!("planet:{planet}:variant:{index}")
+            } else {
+                format!("planet:{planet}")
+            };
+            seen_here.push(unit.clone());
+            available.push((location, unit));
         }
         if available.is_empty() {
             return Ok(hits);
@@ -2323,19 +2522,7 @@ fn offer_sustain(
             let label = if crate::supply::staging_enabled(state) {
                 planetary_sustain_location(location).map_or_else(
                     || format!("sustain damage on {}", unit.type_id),
-                    |(planet, _)| {
-                        let form = if unit.galvanized {
-                            "galvanized"
-                        } else {
-                            "plain"
-                        };
-                        format!(
-                            "sustain damage on Maximum on {} ({form})",
-                            ti4_content::galaxy::planet(content, planet, sources)
-                                .and_then(|record| record.name())
-                                .unwrap_or(planet)
-                        )
-                    },
+                    |(planet, _)| planet_sustain_label(content, sources, planet, unit),
                 )
             } else {
                 format!("sustain damage on {}", unit.type_id)
@@ -2405,21 +2592,27 @@ fn offer_sustain(
         let Some(location) = answer.id.strip_prefix("sustain|") else {
             return Ok(hits);
         };
+        let planet_side: std::collections::BTreeSet<(ti4_model::id::PlanetId, usize)> =
+            planet_combatants(state, content, sources, player, system)
+                .into_iter()
+                .map(|(planet, index, _)| (planet, index))
+                .collect();
         let sustained = if let Some(index) = location
             .strip_prefix("space:")
             .and_then(|rest| rest.parse::<usize>().ok())
         {
             state.system_mut(system).units.get_mut(index)
         } else if let Some((planet, variant_index)) = planetary_sustain_location(location) {
+            let planet_id = ti4_model::id::PlanetId::new(planet);
             state
                 .system_mut(system)
                 .planet_units
-                .get_mut(&ti4_model::id::PlanetId::new(planet))
+                .get_mut(&planet_id)
                 .and_then(|units| {
                     if let Some(index) = variant_index {
                         units.get_mut(index).filter(|unit| {
                             unit.owner == *player
-                                && unit.type_id.as_str() == "naaz_voltron"
+                                && planet_side.contains(&(planet_id.clone(), index))
                                 && !unit.sustained_damage
                         })
                     } else {
@@ -2760,7 +2953,7 @@ pub fn destroyed_during_combat(event: &crate::event::Event) -> bool {
 /// Shared by the combat window's own emissions and by the card-play path that drains
 /// [`GameState::pending_destructions`], so the two cannot drift apart on a key a listener reads.
 pub(crate) fn ship_destroyed_payload(
-    state: &GameState,
+    state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
     system: &SystemId,
@@ -2771,6 +2964,11 @@ pub(crate) fn ship_destroyed_payload(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let remaining = ships_of(state, content, sources, owner, system).len();
     let mut payload = std::collections::BTreeMap::new();
+    // The galvanize token went back to the supply with the ship; the event is the only record that
+    // it was galvanized (Last Bastion). Present only when true, so other games' events are unchanged.
+    if crate::factions::bastion::take_ship_lost(state, system, owner, unit) {
+        payload.insert("galvanized".to_owned(), true.into());
+    }
     payload.insert("system".to_owned(), system.to_string().into());
     payload.insert("player".to_owned(), owner.to_string().into());
     payload.insert("unit".to_owned(), unit.to_string().into());
@@ -3309,6 +3507,8 @@ pub fn eligible_retreats(
     system: &SystemId,
 ) -> Vec<SystemId> {
     let types = catalogue(content, sources);
+    // A retreat is a move: Sundered and the sever token close the wormholes it may not use.
+    let galaxy = crate::factions::hooks_movement::galaxy_for_mover(state, player, galaxy);
     galaxy
         .adjacent(system.as_str())
         .into_iter()
@@ -3418,6 +3618,9 @@ pub fn retreat_to(
     destination: &SystemId,
 ) -> usize {
     let types = catalogue(content, sources);
+    // Ground forces an Alastor brought into the battle stay on their planets and leave it with the
+    // fleet: they are no longer in this combat.
+    crate::factions::nekro_units::alastor_clear(state, system, Some(player));
     let mut own: Vec<Unit> = state
         .system_state(system)
         .units_of(player)
@@ -3468,8 +3671,25 @@ pub fn retreat_to(
     for unit in &planetary {
         if leaving.contains(unit) {
             remove_combat_ship(state, system, unit);
+            // Leaving is not destroying: forget the galvanized-loss note the removal made.
+            let _ = crate::factions::bastion::take_ship_lost(
+                state,
+                system,
+                &unit.owner,
+                &unit.type_id,
+            );
         }
     }
+    let ships_leaving: Vec<Unit> = leaving
+        .iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+        })
+        .cloned()
+        .collect();
+    crate::factions::bastion::note_retreat(state, system, destination, player, &ships_leaving);
     state.move_units(system, destination, &leaving);
     // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
     // one that retreats takes its ground form again where it lands.
@@ -3874,40 +4094,27 @@ impl CombatWindow {
             })
             .map(|(index, unit)| (index.to_string(), unit.clone()))
             .collect();
-        if planetary_maximum_participates(state, content, sources, player, &self.system) {
-            for (planet, units) in &state.system_state(&self.system).planet_units {
-                let mut distinct_fresh = Vec::new();
-                for (index, unit) in units.iter().enumerate() {
-                    if unit.owner == *player
-                        && unit.type_id.as_str() == "naaz_voltron"
-                        && types.get(unit.type_id.as_str()).is_some_and(|kind| {
-                            sustains_in_space(
-                                state,
-                                content,
-                                sources,
-                                &self.system,
-                                player,
-                                unit,
-                                kind,
-                                true,
-                            )
-                        })
-                    {
-                        if distinct_fresh.contains(unit) {
-                            continue;
-                        }
-                        let location = if crate::supply::staging_enabled(state)
-                            && !distinct_fresh.is_empty()
-                        {
-                            format!("planet:{planet}:variant:{index}")
-                        } else {
-                            format!("planet:{planet}")
-                        };
-                        distinct_fresh.push(unit.clone());
-                        found.push((location, unit.clone()));
-                    }
-                }
+        let mut distinct_fresh: std::collections::BTreeMap<ti4_model::id::PlanetId, Vec<Unit>> =
+            std::collections::BTreeMap::new();
+        for (planet, index, unit) in
+            planet_combatants(state, content, sources, player, &self.system)
+        {
+            if !planet_unit_sustains(state, content, sources, &self.system, player, &unit, true) {
+                continue;
             }
+            let seen_here = distinct_fresh.entry(planet.clone()).or_default();
+            if seen_here.contains(&unit) {
+                continue;
+            }
+            let location = if unit.type_id.as_str() != "naaz_voltron"
+                || (crate::supply::staging_enabled(state) && !seen_here.is_empty())
+            {
+                format!("planet:{planet}:variant:{index}")
+            } else {
+                format!("planet:{planet}")
+            };
+            seen_here.push(unit.clone());
+            found.push((location, unit));
         }
         found
     }
@@ -4018,6 +4225,14 @@ impl CombatWindow {
             if let Some(index) = now.iter().position(|held| *held == kind) {
                 now.remove(index);
             }
+        }
+        // Last Dispatch: "When this unit retreats". Only a flagship that arrived counts.
+        if crate::factions::ralnel::flagship_among(state, player, &now) {
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("system".to_owned(), self.system.to_string().into());
+            payload.insert("player".to_owned(), player.to_string().into());
+            payload.insert("destination".to_owned(), destination.to_string().into());
+            let _ = ctx.emit(state, "FLAGSHIP_RETREATED", payload);
         }
         self.fled.push((player.clone(), now));
     }
@@ -4265,6 +4480,8 @@ impl CombatWindow {
         // the losses above, which count ships, so a flipped mech is not reported destroyed.
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
+        crate::factions::nekro_units::alastor_clear(state, &self.system, None);
+        crate::factions::bastion::clear_retreated(state, &self.system);
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(
@@ -5214,19 +5431,7 @@ impl Window for CombatWindow {
                     let label = if crate::supply::staging_enabled(state) {
                         planetary_sustain_location(&index).map_or_else(
                             || format!("sustain damage on {}", unit.type_id),
-                            |(planet, _)| {
-                                let form = if unit.galvanized {
-                                    "galvanized"
-                                } else {
-                                    "plain"
-                                };
-                                format!(
-                                    "sustain damage on Maximum on {} ({form})",
-                                    ti4_content::galaxy::planet(content, planet, sources)
-                                        .and_then(|record| record.name())
-                                        .unwrap_or(planet)
-                                )
-                            },
+                            |(planet, _)| planet_sustain_label(content, sources, planet, &unit),
                         )
                     } else {
                         format!("sustain damage on {}", unit.type_id)
@@ -5402,20 +5607,26 @@ impl Window for CombatWindow {
                 if option.is_decline() {
                     self.stage = Stage::Assigning { queue, round };
                 } else if let Some(location) = option.id.strip_prefix("sustain|") {
+                    let planet_side: std::collections::BTreeSet<(ti4_model::id::PlanetId, usize)> =
+                        planet_combatants(state, content, sources, &front_player, &self.system)
+                            .into_iter()
+                            .map(|(planet, index, _)| (planet, index))
+                            .collect();
                     let sustained = if let Ok(index) = location.parse::<usize>() {
                         state.system_mut(&self.system).units.get_mut(index)
                     } else if let Some((planet, variant_index)) =
                         planetary_sustain_location(location)
                     {
+                        let planet_id = ti4_model::id::PlanetId::new(planet);
                         state
                             .system_mut(&self.system)
                             .planet_units
-                            .get_mut(&ti4_model::id::PlanetId::new(planet))
+                            .get_mut(&planet_id)
                             .and_then(|units| {
                                 if let Some(index) = variant_index {
                                     units.get_mut(index).filter(|unit| {
                                         unit.owner == front_player
-                                            && unit.type_id.as_str() == "naaz_voltron"
+                                            && planet_side.contains(&(planet_id.clone(), index))
                                             && !unit.sustained_damage
                                     })
                                 } else {
@@ -5904,9 +6115,14 @@ mod tests {
 
         let types = catalogue(ContentStore::embedded(), POK);
         let guns = |state: &GameState| {
-            reaching_guns_by(state, &types, Some(&hub.galaxy), &active, |owner| {
-                owner != &attacker()
-            })
+            reaching_guns_by(
+                state,
+                &types,
+                Some(&hub.galaxy),
+                &active,
+                |owner| owner != &attacker(),
+                |_| false,
+            )
             .len()
         };
 
@@ -9134,6 +9350,113 @@ mod tests {
             !state.did_at_occurrence(&b, Feat::WonAgainstANoteHolder, occurrence),
             "the snapshot predates the receipt"
         );
+    }
+
+    fn nekro_arena(lent: &[&str]) -> (GameState, SystemId) {
+        let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+        let system = SystemId::new("18");
+        put(&mut state, &system, "nekro_flagship", &attacker(), 1);
+        (state, system)
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_hacan_z_token_may_buy_hits_with_trade_goods() {
+        let roll = |lent: &[&str], answers: Vec<String>| {
+            let (mut state, system) = nekro_arena(lent);
+            state.player_mut(&attacker()).unwrap().trade_goods = 5;
+            let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(answers)));
+            // Two dice just short of the Nekro flagship's 9: every 8 is a near miss.
+            let mut dice = Dice::from_faces([8, 8, 8, 8]);
+            let mut rng = GameRng::new(7);
+            let mut ctx = Resolving {
+                content: ContentStore::embedded(),
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            let hits = roll_fleet_and_open(&mut state, &mut ctx, &attacker(), &system);
+            (hits, state.player(&attacker()).unwrap().trade_goods)
+        };
+        assert_eq!(roll(&[], vec![]), (0, 5), "off by default: nothing offered");
+        let (hits, goods) = roll(&["hacan"], vec!["kenara|1".to_owned()]);
+        assert_eq!((hits, goods), (1, 4));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_jolnar_z_token_makes_two_extra_hits_on_nines() {
+        let set = |system: &SystemId| RerollSet {
+            kind: "fleet".into(),
+            system: system.clone(),
+            rolls: vec![RerollEntry {
+                unit: "nekro_flagship".into(),
+                planet: None,
+                hits_on: Some(9),
+                faces: vec![9, 3],
+                rerolled: std::collections::BTreeSet::new(),
+                deltas: std::collections::BTreeMap::new(),
+                unit_types: std::iter::once(("nekro_flagship".to_owned(), 1)).collect(),
+            }],
+        };
+        let hits = |lent: &[&str]| {
+            let (state, system) = nekro_arena(lent);
+            fleet_hits(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &attacker(),
+                &system,
+                &set(&system),
+            )
+        };
+        assert_eq!(hits(&[]), (1, 0));
+        assert_eq!(hits(&["jolnar"]), (3, 0));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_l1z1x_z_token_forces_its_hits_onto_non_fighters() {
+        let hits = |lent: &[&str]| {
+            let (state, system) = nekro_arena(lent);
+            let set = RerollSet {
+                kind: "fleet".into(),
+                system: system.clone(),
+                rolls: vec![RerollEntry {
+                    unit: "nekro_flagship".into(),
+                    planet: None,
+                    hits_on: Some(9),
+                    faces: vec![10],
+                    rerolled: std::collections::BTreeSet::new(),
+                    deltas: std::collections::BTreeMap::new(),
+                    unit_types: std::iter::once(("nekro_flagship".to_owned(), 1)).collect(),
+                }],
+            };
+            fleet_hits(
+                &state,
+                ContentStore::embedded(),
+                POK,
+                &attacker(),
+                &system,
+                &set,
+            )
+        };
+        assert_eq!(hits(&[]), (1, 0));
+        assert_eq!(hits(&["l1z1x"]), (0, 1));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_letnev_z_token_repairs_itself_each_round() {
+        let damaged_after = |lent: &[&str]| {
+            let (mut state, system) = nekro_arena(lent);
+            let unit = state.system_state(&system).units[0].clone();
+            let mut hurt = unit.clone();
+            hurt.sustained_damage = true;
+            state.system_mut(&system).replace_unit(&unit, hurt);
+            repair_self_repairing(&mut state, &system, &attacker());
+            state.system_state(&system).units[0].sustained_damage
+        };
+        assert!(damaged_after(&[]));
+        assert!(!damaged_after(&["letnev"]));
     }
 }
 

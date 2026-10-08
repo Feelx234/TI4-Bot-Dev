@@ -135,6 +135,15 @@ fn timing_abilities(state: &GameState, owner_name: &str, seat: &PlayerId) -> Vec
     // Only while a Cabal is seated: without one the note does not exist.
     let crucible = crucible(owner_name, seat);
     if !is_cabal(state, seat) {
+        // A Nekro flagship may carry The Terror Between (Valefar Assimilator Z); the condition
+        // decides.
+        if super::nekro::is_nekro(state, seat) {
+            return vec![
+                crucible,
+                terror_between_ships(owner_name, seat),
+                terror_between_ground_forces(owner_name, seat),
+            ];
+        }
         return if crate::promissory::seat_of(state, FACTION).is_some() {
             vec![crucible]
         } else {
@@ -391,11 +400,7 @@ fn destroyed_model(
 
 /// True when one of the Cabal's flagships is in that system.
 fn flagship_present(state: &GameState, owner: &PlayerId, system: &SystemId) -> bool {
-    state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|unit| &unit.owner == owner && unit.type_id.as_str() == FLAGSHIP)
+    super::has_flagship_text_in(state, owner, system, FLAGSHIP)
 }
 
 /// The participation marks Devour reads. A space combat names its attacker and its defender, and so
@@ -1408,10 +1413,7 @@ const VORTEX_ACTION: &str = "faction|cabal|vortex";
 
 /// True when the seat holds the card and has not exhausted it.
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn decision(state: &GameState, player: &PlayerId, card: &str, subtype: &str) -> DecisionContext {
@@ -4576,5 +4578,29 @@ mod tests {
             Box::new(crate::choice::Scripted::new(["never offered"])),
         );
         assert_eq!(state, before);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_cabal_z_token_captures_losses_in_its_system() {
+        let system = space_system();
+        let run = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "cabal")], lent);
+            state
+                .system_mut(&system)
+                .units
+                .push(Unit::new(UnitTypeId::new("nekro_flagship"), a()));
+            emit(
+                &mut state,
+                "SHIP_DESTROYED",
+                &ship_destroyed(&system, "b", "destroyer", false),
+            )
+            .unwrap();
+            captured(&state)
+        };
+        assert!(run(&[]).is_empty(), "off by default");
+        assert_eq!(
+            run(&["cabal"]),
+            vec![("b".to_owned(), "destroyer".to_owned())]
+        );
     }
 }

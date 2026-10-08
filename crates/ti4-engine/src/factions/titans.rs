@@ -760,15 +760,30 @@ fn ouranos_planets(
 ) -> Vec<PlanetId> {
     // The flagship's plastic is the PDS being replaced's to give back, not the box's: it must be
     // off the board, as the one flagship a player owns.
-    let Some(id) = ti4_content::units::faction_unit(content, FACTION, "flagship", sources)
-        .map(|kind| UnitTypeId::new(kind.id().to_owned()))
-    else {
+    let Some(id) = deploy_flagship(state, content, sources, player) else {
         return Vec::new();
     };
     if crate::supply::allowed(state, content, sources, player, &id, 1) == 0 {
         return Vec::new();
     }
     planets_holding(state, content, sources, player, system, "pds")
+}
+
+/// The unit Ouranos' DEPLOY places for `player`: the Titans flagship, or the Nekro flagship when
+/// the Z token has switched the Titans flagship's text on ("this unit" is the Nekro flagship).
+fn deploy_flagship(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Option<UnitTypeId> {
+    if is_titans(state, player) {
+        ti4_content::units::faction_unit(content, FACTION, "flagship", sources)
+            .map(|kind| UnitTypeId::new(kind.id().to_owned()))
+    } else {
+        super::flagship_has_text(state, player, super::nekro::NEKRO_FLAGSHIP, FLAGSHIP)
+            .then(|| UnitTypeId::new(super::nekro::NEKRO_FLAGSHIP))
+    }
 }
 
 /// Ouranos DEPLOY: "After you activate a system that contains 1 or more of your PDS, you may
@@ -785,7 +800,10 @@ fn ouranos(owner_name: &str, seat: &PlayerId) -> Ability {
             let Some(system) = event.text("system").map(SystemId::new) else {
                 return Ok(());
             };
-            if event_player(event).as_ref() != Some(&owner) || !is_titans(context.state, &owner) {
+            if event_player(event).as_ref() != Some(&owner)
+                || deploy_flagship(context.state, context.content, context.sources, &owner)
+                    .is_none()
+            {
                 return Ok(());
             }
             let planets = ouranos_planets(
@@ -831,7 +849,13 @@ fn ouranos(owner_name: &str, seat: &PlayerId) -> Ability {
     .with_optional(true)
     .with_stateful_condition(Arc::new(move |event, _, context| {
         event_player(event).as_ref() == Some(&condition_owner)
-            && is_titans(context.state, &condition_owner)
+            && deploy_flagship(
+                context.state,
+                context.content,
+                context.sources,
+                &condition_owner,
+            )
+            .is_some()
             && event
                 .text("system")
                 .map(SystemId::new)
@@ -857,9 +881,7 @@ fn replace_pds_with_flagship(
     planet: &PlanetId,
 ) -> bool {
     let types = ti4_content::units::catalogue(context.content, context.sources);
-    let Some(flagship) =
-        ti4_content::units::faction_unit(context.content, FACTION, "flagship", context.sources)
-            .map(|kind| UnitTypeId::new(kind.id().to_owned()))
+    let Some(flagship) = deploy_flagship(context.state, context.content, context.sources, owner)
     else {
         return false;
     };
@@ -2205,6 +2227,29 @@ mod tests {
         assert!(
             has_sleeper(&game.state, &planet),
             "and Terragenesis placed its token"
+        );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_titans_z_token_deploys_in_place_of_a_pds() {
+        let run = |lent: &[&str], answers: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let (system, planets) = system_with_planets(&state, 1);
+            crate::fixtures::put_on_planet(&mut state, &system, &planets[0], "pds", &a(), 2);
+            activate(&mut state, &mut scripted(answers), "a", &system);
+            (
+                count_space(&state, &system, &a(), "nekro_flagship"),
+                count_on(&state, &system, &planets[0], &a(), "pds"),
+            )
+        };
+        assert_eq!(run(&[], &[]), (0, 2), "off by default");
+        assert_eq!(
+            run(
+                &["titans"],
+                &["unit:nekro:titans_flagship:SYSTEM_ACTIVATED:after"]
+            ),
+            (1, 1),
+            "the Nekro flagship, not the Titans one, is deployed"
         );
     }
 }

@@ -14,10 +14,7 @@ use crate::decision_context::{DecisionContext, DecisionSource};
 
 /// Whether `player` holds `alias` and it is not exhausted.
 fn ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let tech = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&tech) && !seat.exhausted_technologies.contains(&tech)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 /// The other seats that have at least one ship in `system`, in seating order.
@@ -51,7 +48,7 @@ pub fn e_res_siphons(
         .filter(|seat| {
             state
                 .player(seat)
-                .is_some_and(|holder| holder.technologies.contains(&TechnologyId::new("ers")))
+                .is_some_and(|_| crate::technology::has_technology_text(state, seat, "ers"))
         })
         .collect();
     for seat in &gained {
@@ -115,7 +112,7 @@ pub fn offer_nullification_field(
         if !seat.spend_token(TokenPool::Strategic) {
             continue;
         }
-        seat.exhausted_technologies.insert(TechnologyId::new("nf"));
+        crate::technology::exhaust_technology_text(state, &holder, "nf");
         crate::supply::note_strategy_token_spent(state, &holder, "nullification_field");
         return Some(holder);
     }
@@ -137,7 +134,14 @@ pub fn genesis(
         .flat_map(|(system, here)| {
             here.units
                 .iter()
-                .filter(|unit| unit.type_id.as_str() == "sol_flagship")
+                .filter(|unit| {
+                    crate::factions::flagship_has_text(
+                        state,
+                        &unit.owner,
+                        unit.type_id.as_str(),
+                        "sol_flagship",
+                    )
+                })
                 .map(|unit| (unit.owner.clone(), system.clone()))
                 .collect::<Vec<_>>()
         })
@@ -271,7 +275,7 @@ pub fn offer_quantum_datahub(
         .players
         .iter()
         .find(|seat| {
-            seat.technologies.contains(&TechnologyId::new("qdn"))
+            crate::technology::has_technology_text(state, &seat.id, "qdn")
                 && seat.strategic_tokens > 0
                 && seat.trade_goods >= QUANTUM_DATAHUB_GOODS
                 && !seat.strategy_cards.is_empty()
@@ -395,10 +399,10 @@ pub fn offer_spatial_conduit(
         return false;
     }
     let activation = state.activation_seq;
+    crate::technology::exhaust_technology_text(state, active, "scc");
     let Some(seat) = state.player_mut(active) else {
         return false;
     };
-    seat.exhausted_technologies.insert(TechnologyId::new("scc"));
     seat.spatial_conduit = Some(activation);
     true
 }
@@ -888,5 +892,24 @@ mod tests {
         } else {
             assert_eq!(chosen, None, "a planet with no trait cannot be explored");
         }
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_sol_z_token_places_an_infantry_in_its_system() {
+        let system = SystemId::new("19");
+        let run = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            put(
+                &mut state,
+                &system,
+                "nekro_flagship",
+                &PlayerId::new("a"),
+                1,
+            );
+            let placed = genesis(&mut state, ContentStore::embedded(), POK);
+            (placed.len(), state.system_state(&system).units.len())
+        };
+        assert_eq!(run(&[]), (0, 1), "off by default");
+        assert_eq!(run(&["sol"]), (1, 2));
     }
 }

@@ -45,7 +45,7 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 use ti4_model::units::Unit;
 
@@ -134,10 +134,9 @@ fn is_naalu(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == FACTION)
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -298,12 +297,9 @@ fn matriarch_fighters(
     invader: &PlayerId,
     system: &SystemId,
 ) -> Vec<Unit> {
-    if !is_naalu(state, invader)
-        || !state
-            .ships_of(invader, system)
-            .into_iter()
-            .any(|unit| unit.type_id.as_str() == "naalu_flagship")
-    {
+    if !state.ships_of(invader, system).into_iter().any(|unit| {
+        super::flagship_has_text(state, invader, unit.type_id.as_str(), "naalu_flagship")
+    }) {
         return Vec::new();
     }
     let types = catalogue(content, sources);
@@ -328,14 +324,12 @@ fn matriarch_temporary_ground_force(
     _planet: &ti4_model::id::PlanetId,
     unit: &Unit,
 ) -> bool {
-    is_naalu(state, player)
-        && catalogue(content, sources)
-            .get(unit.type_id.as_str())
-            .is_some_and(ti4_content::units::UnitType::is_fighter)
-        && state
-            .ships_of(player, system)
-            .into_iter()
-            .any(|ship| ship.type_id.as_str() == "naalu_flagship")
+    catalogue(content, sources)
+        .get(unit.type_id.as_str())
+        .is_some_and(ti4_content::units::UnitType::is_fighter)
+        && state.ships_of(player, system).into_iter().any(|ship| {
+            super::flagship_has_text(state, player, ship.type_id.as_str(), "naalu_flagship")
+        })
 }
 
 // -- Neuroglaive ---------------------------------------------------------------------------------
@@ -914,6 +908,7 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
     use ti4_model::id::{StrategyCardId, UnitTypeId};
 
     fn a() -> PlayerId {
@@ -2130,5 +2125,22 @@ mod tests {
         assert_eq!(MODULE.abilities, ["telepathic", "foresight"]);
         assert!(MODULE.units.contains(&"naalu_fighter"));
         assert!(MODULE.units.contains(&"naalu_flagship"));
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_naalu_z_token_lets_fighters_join_an_invasion() {
+        let content = ContentStore::embedded();
+        let candidates = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let home = state.player(&a()).unwrap().home_system.clone().unwrap();
+            crate::fixtures::put(&mut state, &home, "fighter", &a(), 2);
+            crate::fixtures::put(&mut state, &home, "nekro_flagship", &a(), 1);
+            matriarch_fighters(&state, content, DEFAULT, &a(), &home).len()
+        };
+        assert_eq!(candidates(&[]), 0, "off by default");
+        assert!(
+            candidates(&["naalu"]) >= 2,
+            "every fighter in the system may join"
+        );
     }
 }

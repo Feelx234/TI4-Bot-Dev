@@ -783,7 +783,7 @@ pub fn announce(
         context.state.last_ship_destroyed =
             Some((system.clone(), owner.clone(), unit_type.clone()));
         let payload = crate::combat::ship_destroyed_payload(
-            context.state,
+            &mut *context.state,
             context.content,
             context.sources,
             &system,
@@ -816,7 +816,8 @@ fn announce_discard(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> Result<(), TimingError> {
-    context.state.discarded_action_cards.push(alias.clone());
+    // Data Skimmer: another player's discard is placed on the breakthrough, not the pile.
+    crate::action_cards::discarded(context.state, player, alias, true);
     context.state.last_action_discarded = Some((player.clone(), alias.clone()));
     let mut payload = BTreeMap::new();
     payload.insert("player".to_owned(), player.to_string().into());
@@ -1137,12 +1138,10 @@ fn l1z1x_agent(owner_name: &str, player: &PlayerId) -> Ability {
 
 /// Whether `player` can use Instinct Training now: holds it ready, with a strategy token.
 fn instinct_training_ready(state: &GameState, player: &PlayerId) -> bool {
-    let card = ti4_model::id::TechnologyId::new("it");
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&card)
-            && !seat.exhausted_technologies.contains(&card)
-            && seat.strategic_tokens > 0
-    })
+    crate::technology::technology_text_ready(state, player, "it")
+        && state
+            .player(player)
+            .is_some_and(|seat| seat.strategic_tokens > 0)
 }
 
 /// Instinct Training (Xxcha): "You may exhaust this card and spend 1 token from your strategy pool
@@ -1192,9 +1191,8 @@ fn instinct_training(owner_name: &str, player: &PlayerId) -> Ability {
             }
             if let Some(seat) = context.state.player_mut(&owner) {
                 seat.strategic_tokens -= 1;
-                seat.exhausted_technologies
-                    .insert(ti4_model::id::TechnologyId::new("it"));
             }
+            crate::technology::exhaust_technology_text(context.state, &owner, "it");
             crate::supply::note_strategy_token_spent(context.state, &owner, "instinct_training");
             event.cancel();
             Ok(())
@@ -1789,123 +1787,6 @@ mod tests {
             .iter()
             .find_map(|choice| choice.context.as_ref().and_then(|c| c.trigger.clone()))
             .expect("a reaction decision carries its trigger")
-    }
-
-    /// Emit through an armed resolver with seat `reactor` answered by `NeverOffer` over a decider
-    /// that records every question it is really asked. Returns (questions asked, decisions
-    /// recorded, skip notes).
-    fn asked_with_never(
-        mut state: GameState,
-        reactor: &str,
-        never: &[&str],
-        event_type: &str,
-        payload: BTreeMap<String, serde_json::Value>,
-    ) -> (Vec<String>, Vec<(String, String)>, Vec<Vec<String>>) {
-        use std::sync::{Arc, Mutex};
-        struct Recorder(Arc<Mutex<Vec<String>>>);
-        impl crate::choice::Decider for Recorder {
-            fn choose(
-                &mut self,
-                choice: &crate::choice::Choice,
-            ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-                self.0.lock().unwrap().push(choice.prompt.clone());
-                crate::choice::AlwaysDecline.choose(choice)
-            }
-        }
-        let asked = Arc::new(Mutex::new(Vec::new()));
-        let skipped = Arc::new(Mutex::new(Vec::new()));
-        let set: crate::reaction_modes::NeverSet = Arc::new(Mutex::new(
-            never.iter().map(|name| (*name).to_owned()).collect(),
-        ));
-        let sink = skipped.clone();
-        let wrapper = crate::reaction_modes::NeverOffer::new(Box::new(Recorder(asked.clone())), set)
-            .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
-        let mut table = crate::choice::Table::with_default(Box::new(Recorder(asked.clone())));
-        table.seat(PlayerId::new(reactor), Box::new(wrapper));
-        let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
-        let mut resolver = Resolver::new(
-            seats.clone(),
-            seats.first().cloned(),
-            crate::choice::Table::default(),
-        );
-        arm(&mut resolver, &state);
-        let mut dice = crate::dice::Dice::new();
-        let mut rng = crate::rng::GameRng::new(0);
-        let mut event_sequence = crate::event::EventSequence::new();
-        let mut context = TimingContext {
-            state: &mut state,
-            content: ContentStore::embedded(),
-            sources: POK,
-            table: &mut table,
-            dice: &mut dice,
-            rng: &mut rng,
-            event_sequence: &mut event_sequence,
-            galaxy: None,
-        };
-        let event = context.event_sequence.next(event_type, payload).unwrap();
-        resolver
-            .emit_with_context(&mut context, event, |_, _| {})
-            .unwrap();
-        let recorded = table
-            .log
-            .records
-            .iter()
-            .map(|record| (record.player.to_string(), record.chosen.clone()))
-            .collect();
-        let questions = asked.lock().unwrap().clone();
-        let notes = skipped.lock().unwrap().clone();
-        (questions, recorded, notes)
-    }
-
-    #[test]
-    fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
-        let build = || {
-            let mut state = crate::fixtures::game(&["a", "b"]);
-            state.player_mut(&PlayerId::new("a")).unwrap().action_cards.clear();
-            state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
-                vec![ActionCardId::new("sabo1"), ActionCardId::new("sabo2")];
-            state
-        };
-        let play = || payload(&[("player", "a".into()), ("card", "fs1".into())]);
-        // Offered as before when the seat has no preference.
-        let (asked, recorded, notes) =
-            asked_with_never(build(), "b", &[], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1, "the window is asked: {asked:?}");
-        assert_eq!(recorded, vec![("b".to_owned(), "decline".to_owned())]);
-        assert!(notes.is_empty());
-        // Never: all copies by name, nothing asked, the same decline is journaled.
-        let (asked, recorded, notes) =
-            asked_with_never(build(), "b", &["Sabotage"], "ACTION_CARD_PLAYED", play());
-        assert!(asked.is_empty(), "skipped without asking: {asked:?}");
-        assert_eq!(recorded, vec![("b".to_owned(), "decline".to_owned())]);
-        assert_eq!(notes, vec![vec!["Sabotage".to_owned()]]);
-        // Another card name set to Never leaves Sabotage offered.
-        let (asked, _, notes) =
-            asked_with_never(build(), "b", &["Flank Speed"], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1);
-        assert!(notes.is_empty());
-        // The preference belongs to one seat: the wrapper sits on "a", the holder is "b".
-        let (asked, _, notes) =
-            asked_with_never(build(), "a", &["Sabotage"], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1);
-        assert!(notes.is_empty());
-    }
-
-    #[test]
-    fn a_never_card_leaves_the_same_seats_other_cards_offered() {
-        let mut state = crate::fixtures::game(&["a", "b"]);
-        state.player_mut(&PlayerId::new("b")).unwrap().action_cards.clear();
-        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
-            vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
-        let (asked, _, notes) = asked_with_never(
-            state,
-            "a",
-            &["Sabotage"],
-            "SYSTEM_ACTIVATED",
-            payload(&[("player", "a".into()), ("system", "27".into())]),
-        );
-        assert!(!asked.is_empty(), "the seat is still asked about its other cards");
-        assert!(notes.is_empty());
     }
 
     #[test]

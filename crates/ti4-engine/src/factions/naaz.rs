@@ -27,7 +27,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus, TokenPool};
 
 use super::hooks_combat::CombatHooks;
@@ -456,10 +456,7 @@ fn explored(
     player: &PlayerId,
     planet: &PlanetId,
 ) {
-    if state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("pfa")))
-    {
+    if crate::technology::has_technology_text(state, player, "pfa") {
         state.exhausted_planets.remove(planet);
     }
 }
@@ -471,10 +468,7 @@ fn supercharge_key(player: &PlayerId) -> String {
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn space_combat_round_started(
@@ -539,9 +533,7 @@ fn offer_supercharge(
     state
         .faction_marks
         .insert(supercharge_key(player), format!("{context}:{seq}"));
-    if let Some(seat) = state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("sc"));
-    }
+    crate::technology::exhaust_technology_text(state, player, "sc");
 }
 
 fn unit_roll_modifier(
@@ -571,12 +563,8 @@ fn unit_dice(
     let is_mech = catalogue(content, sources)
         .get(unit.unit_type)
         .is_some_and(|kind| kind.base_type() == "mech")
-        && unit.unit_type.starts_with("naaz_");
-    let flagship = state
-        .system_state(system)
-        .units
-        .iter()
-        .any(|ship| &ship.owner == unit.player && ship.type_id.as_str() == "naaz_flagship");
+        && (unit.unit_type.starts_with("naaz_") || super::nekro::is_nekro(state, unit.player));
+    let flagship = super::has_flagship_text_in(state, unit.player, system, "naaz_flagship");
     if is_mech && flagship { dice + 1 } else { dice }
 }
 
@@ -1469,6 +1457,7 @@ mod tests {
     use crate::choice::Window;
     use std::collections::BTreeMap;
     use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::TechnologyId;
 
     fn a() -> PlayerId {
         PlayerId::new("a")
@@ -3608,5 +3597,31 @@ mod tests {
                 .iter()
                 .any(|unit| is_voltron(unit, &a()))
         );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_naaz_z_token_gives_its_mechs_a_die() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let dice = |lent: &[&str], kind: &str| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            crate::fixtures::put(&mut state, &system, "nekro_flagship", &a(), 1);
+            unit_dice(
+                &state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: &a(),
+                    system: Some(&system),
+                    planet: None,
+                    unit_type: kind,
+                    context: "space",
+                },
+                2,
+            )
+        };
+        assert_eq!(dice(&[], "nekro_mech"), 2, "off by default");
+        assert_eq!(dice(&["naaz"], "nekro_mech"), 3);
+        assert_eq!(dice(&["naaz"], "nekro_flagship"), 2, "not a mech");
     }
 }

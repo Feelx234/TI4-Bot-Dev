@@ -43,7 +43,7 @@ use std::sync::Arc;
 
 use ti4_content::ContentStore;
 use ti4_model::content_types::{POK, SourceSet};
-use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId, TechnologyId};
+use ti4_model::id::{ActionCardId, LeaderId, PlayerId, SystemId};
 use ti4_model::state::{GameState, Phase};
 
 use super::hooks_cards::{self, CardHooks, RevealKind, RevealScope};
@@ -119,10 +119,7 @@ fn hand_size(state: &GameState, player: &PlayerId) -> usize {
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let tech = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&tech) && !seat.exhausted_technologies.contains(&tech)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn decision(state: &GameState, player: &PlayerId, source: &str, subtype: &str) -> DecisionContext {
@@ -319,10 +316,7 @@ fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
         return false;
     }
     state.active.as_ref().is_some_and(|active| {
-        active != player
-            && state
-                .player(active)
-                .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("tp")))
+        active != player && crate::technology::has_technology_text(state, active, "tp")
     })
 }
 
@@ -330,12 +324,12 @@ fn action_cards_forbidden(state: &GameState, player: &PlayerId) -> bool {
 
 /// Y'sia Y'ssrila: "This ship can move through systems that contain other player's ships."
 fn may_move_through_ships(
-    _state: &GameState,
+    state: &GameState,
     _content: &ContentStore,
     _sources: SourceSet,
     site: &PassSite<'_>,
 ) -> bool {
-    site.ship_type == "yssaril_flagship"
+    super::flagship_has_text(state, site.player, site.ship_type, "yssaril_flagship")
 }
 
 // -- component actions: Stall Tactics and Mageon Implants ----------------------------------------
@@ -440,9 +434,7 @@ fn mageon_implants(context: &mut TimingContext<'_>, player: &PlayerId, target: &
     if !mageon_targets(context.state, player).contains(target) {
         return false;
     }
-    if let Some(seat) = context.state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new("mi"));
-    }
+    crate::technology::exhaust_technology_text(context.state, player, "mi");
     // A decider answering outside the options leaves the card exhausted, as the look happened.
     let _ = crate::action_cards::look_at_hand_and_take(context, player, target, "mi", false);
     true
@@ -1035,6 +1027,7 @@ fn kyver_decisions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ti4_model::id::TechnologyId;
     use ti4_model::state::LeaderStatus;
 
     fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -2208,5 +2201,24 @@ mod tests {
             0
         );
         assert!(state.faction_marks.is_empty(), "no bookkeeping written");
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_yssaril_z_token_passes_through_other_players_ships() {
+        let content = ContentStore::embedded();
+        let passes = |lent: &[&str], ship: &str| {
+            let state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let active = home_of(&state, &a());
+            let player = a();
+            let site = PassSite {
+                player: &player,
+                active: &active,
+                ship_type: ship,
+            };
+            crate::factions::hooks_movement::may_move_through_ships(&state, content, DEFAULT, &site)
+        };
+        assert!(!passes(&[], "nekro_flagship"), "off by default");
+        assert!(passes(&["yssaril"], "nekro_flagship"));
+        assert!(!passes(&["yssaril"], "cruiser"), "only the flagship");
     }
 }

@@ -105,10 +105,7 @@ fn holds_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
 
 /// A technology that is owned and not exhausted.
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 /// Every agent `player` holds, in leader-id order.
@@ -170,7 +167,9 @@ fn memoria_adjacent(
     player: &PlayerId,
     ship_type: &str,
 ) -> Vec<String> {
-    if !FLAGSHIPS.contains(&ship_type) {
+    if !FLAGSHIPS.contains(&ship_type)
+        && !super::flagship_has_text(state, player, ship_type, "nomad_flagship")
+    {
         return Vec::new();
     }
     let types = catalogue(content, sources);
@@ -365,9 +364,7 @@ fn temporal_command_suite(owner_name: &str, seat: &PlayerId) -> Ability {
             // transaction (or its window) fails, nothing of this use may remain.
             let snapshot = context.state.clone();
             let result = (|| -> Result<(), TimingError> {
-                if let Some(seat) = context.state.player_mut(&owner) {
-                    seat.exhausted_technologies.insert(TechnologyId::new(TCS));
-                }
+                crate::technology::exhaust_technology_text(context.state, &owner, TCS);
                 crate::leaders::ready(context.state, &agent_owner, &agent);
                 if agent_owner == owner {
                     return Ok(());
@@ -1568,5 +1565,44 @@ mod tests {
         }
         assert_eq!(state.players, before);
         assert!(state.faction_marks.is_empty());
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_nomad_z_token_is_adjacent_to_systems_with_its_mechs() {
+        let reach = |lent: &[&str]| {
+            let hub = crate::fixtures::plain_hub();
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let origin = hub.outer[0].clone();
+            let active = hub.across(&origin);
+            let beside = hub
+                .galaxy
+                .adjacent(&active)
+                .into_iter()
+                .map(ToOwned::to_owned)
+                .find(|id| id != &hub.centre)
+                .expect("a ring neighbour");
+            crate::fixtures::put(
+                &mut state,
+                &SystemId::new(origin.clone()),
+                "nekro_flagship",
+                &a(),
+                1,
+            );
+            crate::fixtures::put(
+                &mut state,
+                &SystemId::new(hub.centre.clone()),
+                "destroyer",
+                &b(),
+                1,
+            );
+            mech_on_planet(&mut state, &beside, &a());
+            rules_for(&hub, &state, &active, &a()).can_reach_ship(
+                &origin,
+                2,
+                Some("nekro_flagship"),
+            )
+        };
+        assert!(!reach(&[]), "off by default");
+        assert!(reach(&["nomad"]));
     }
 }

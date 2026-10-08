@@ -39,7 +39,7 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_content::units::catalogue;
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId};
+use ti4_model::id::{LeaderId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus};
 
 use super::hooks_economy::EconomyHooks;
@@ -108,23 +108,17 @@ fn is_winnu(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.faction.as_str() == FACTION)
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn technology_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    let id = TechnologyId::new(alias);
-    state.player(player).is_some_and(|seat| {
-        seat.technologies.contains(&id) && !seat.exhausted_technologies.contains(&id)
-    })
+    crate::technology::technology_text_ready(state, player, alias)
 }
 
 fn exhaust_technology(state: &mut GameState, player: &PlayerId, alias: &str) {
-    if let Some(seat) = state.player_mut(player) {
-        seat.exhausted_technologies.insert(TechnologyId::new(alias));
-    }
+    crate::technology::exhaust_technology_text(state, player, alias);
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -704,10 +698,10 @@ fn unit_dice(
     unit: &CombatUnit<'_>,
     dice: i64,
 ) -> i64 {
-    if unit.unit_type != "winnu_flagship"
-        || unit.context != "space"
-        || !is_winnu(state, unit.player)
-    {
+    let own = unit.unit_type == "winnu_flagship" && is_winnu(state, unit.player);
+    let lent = unit.unit_type != "winnu_flagship"
+        && super::flagship_has_text(state, unit.player, unit.unit_type, "winnu_flagship");
+    if !(own || lent) || unit.context != "space" {
         return dice;
     }
     let Some(system) = unit.system else {
@@ -725,7 +719,14 @@ fn unit_dice(
                 .is_some_and(|kind| kind.is_ship() && !kind.is_fighter())
         })
         .count();
-    dice + i64::try_from(theirs).unwrap_or(0)
+    let theirs = i64::try_from(theirs).unwrap_or(0);
+    if unit.unit_type == "winnu_flagship" {
+        dice + theirs
+    } else {
+        // The Nekro flagship with the text: "rolls a number of dice equal to ..." replaces its
+        // printed dice; the hit value stays its own printed stat.
+        theirs
+    }
 }
 
 // -- Acquiescence --------------------------------------------------------------------------------
@@ -1460,6 +1461,7 @@ mod tests {
     }
 
     use super::*;
+    use ti4_model::id::TechnologyId;
 
     /// These fixtures have no map, so Mecatol Rex is the base tile.
     fn mecatol() -> SystemId {
@@ -2786,5 +2788,33 @@ mod tests {
     fn the_claims_are_the_sheet() {
         assert_eq!(MODULE.leaders.len(), 3);
         assert_eq!(MODULE.units.len(), 2);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_winnu_z_token_rolls_a_die_per_opposing_non_fighter_ship() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("19");
+        let dice = |lent: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            state.system_mut(&system).units.clear();
+            crate::fixtures::put(&mut state, &system, "nekro_flagship", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "cruiser", &b(), 3);
+            crate::fixtures::put(&mut state, &system, "fighter", &b(), 4);
+            crate::factions::unit_dice(
+                &state,
+                content,
+                DEFAULT,
+                &CombatUnit {
+                    player: &a(),
+                    system: Some(&system),
+                    planet: None,
+                    unit_type: "nekro_flagship",
+                    context: "space",
+                },
+                2,
+            )
+        };
+        assert_eq!(dice(&[]), 2, "off by default: its own printed dice");
+        assert_eq!(dice(&["winnu"]), 3, "three opposing non-fighter ships");
     }
 }

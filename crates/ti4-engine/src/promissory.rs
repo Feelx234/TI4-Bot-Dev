@@ -157,7 +157,12 @@ pub fn take(state: &mut GameState, content: &ContentStore, holder: &PlayerId, no
     state
         .promissory_notes
         .insert(note.to_owned(), holder.clone());
-    if is_play_area(content, note) && !is_action_placed(alias_of(note)) {
+    // Antivirus is a play-area note, but its text places it ("At the start of a combat: Place this
+    // card faceup"): it waits in hand until the holder does (`factions::nekro`).
+    if is_play_area(content, note)
+        && !is_action_placed(alias_of(note))
+        && alias_of(note) != "antivirus"
+    {
         state.promissory_faceup.insert(note.to_owned());
     }
 }
@@ -172,9 +177,19 @@ const CONVOYS: &str = "convoys";
 const BLOOD_PACT: &str = "blood_pact";
 const DARK_PACT: &str = "dark_pact";
 
+/// The Deepwrought's Share Knowledge ("ACTION: Place this card faceup in your play area and gain ...").
+const SHARE_KNOWLEDGE: &str = "shareknowledge";
+
+/// The Crimson Rebellion's Sever ("ACTION: place this card face up in your play area, and place the
+/// sever token in a system that contains your units ...").
+const SEVER: &str = "sever";
+
 /// Whether a note's own text places it faceup with an ACTION rather than on receipt.
 fn is_action_placed(alias: &str) -> bool {
-    matches!(alias, CONVOYS | BLOOD_PACT | DARK_PACT)
+    matches!(
+        alias,
+        CONVOYS | BLOOD_PACT | DARK_PACT | SHARE_KNOWLEDGE | SEVER
+    )
 }
 
 /// The notes `player` holds in hand (not yet faceup) whose ACTION places them in their play area
@@ -441,7 +456,9 @@ pub fn spend_support_on_activation(
     }
     // Blood Pact and Dark Pact: "If you activate a system that contains 1 or more of the Empyrean
     // player's units, return this card to the Empyrean player."
-    for alias in [BLOOD_PACT, DARK_PACT] {
+    // Antivirus: "If you activate a system that contains 1 or more of the Nekro player's units,
+    // return this card to the Nekro player."
+    for alias in [BLOOD_PACT, DARK_PACT, "antivirus"] {
         for note in faceup_returned_by_activation(state, activator, system, alias) {
             give_back(state, &note);
         }

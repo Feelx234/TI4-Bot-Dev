@@ -1,6 +1,7 @@
 pub mod batch;
 pub mod bluff;
 pub mod bluff_hold;
+pub mod reaction_modes;
 pub mod decider;
 pub mod registry;
 pub mod replay;
@@ -106,7 +107,7 @@ pub struct SessionConfig {
     pub rng_marks: RngMarks,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
-    /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
+    /// Card names each seat asked never to be offered (see `reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
     /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
     /// `step_snapshot`). Off only in tests that compare against the full-replay path.

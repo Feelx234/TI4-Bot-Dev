@@ -100,6 +100,9 @@ pub fn held(
             }
         }
     }
+    // Ships on the Crimson hero card are off the board and still out of the box.
+    total +=
+        crate::factions::crimson_cards::held_on_card(state, content, sources, player, base_type);
     total
 }
 
@@ -243,9 +246,12 @@ const STAGED_EVENT_PREFIX: &str = "private:#staged:event:";
 pub fn staging_enabled(state: &GameState) -> bool {
     state.seating_order.iter().any(|player| {
         state.player(player).is_some_and(|seat| {
-            crate::factions::MODULES
-                .iter()
-                .any(|module| module.alias == seat.faction.as_str())
+            // The Obsidian is the Firmament's other face: a seat that became it keeps the staging
+            // the Firmament had (part B gives it a module of its own).
+            seat.faction.as_str() == crate::factions::firmament::OBSIDIAN
+                || crate::factions::MODULES
+                    .iter()
+                    .any(|module| module.alias == seat.faction.as_str())
         })
     })
 }
@@ -446,6 +452,23 @@ pub fn note_trade_goods_gained(
             state,
             "TRADE_GOODS_GAINED",
             &goods_payload(player, amount, source),
+        );
+    }
+}
+
+/// Stage `COMMODITIES_GAINED` (`player`, `amount`) for a gain of commodities the caller has already
+/// made, so Siphon (an Obsidian plot) can answer it. Staged only while a Siphon watches `player`:
+/// nothing else listens, so every other game keeps its event stream exactly. A no-op for
+/// `amount <= 0`.
+pub fn note_commodities_gained(state: &mut GameState, player: &PlayerId, amount: i32) {
+    if amount > 0 && crate::factions::firmament_plots::siphon_watches(state, player) {
+        stage_event(
+            state,
+            crate::factions::firmament_plots::COMMODITIES_GAINED,
+            &std::collections::BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("amount".to_owned(), i64::from(amount).into()),
+            ]),
         );
     }
 }

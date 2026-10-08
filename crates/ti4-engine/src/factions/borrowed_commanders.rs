@@ -126,6 +126,8 @@ fn crimson_commander(owner_name: &str, seat: &PlayerId, event_type: &'static str
                     1,
                     "crimsoncommander",
                 );
+            } else {
+                crate::supply::note_commodities_gained(context.state, &owner, 1);
             }
             Ok(())
         }),

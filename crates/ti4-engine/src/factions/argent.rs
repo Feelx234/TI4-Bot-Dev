@@ -131,11 +131,9 @@ fn votes_first(state: &GameState, player: &PlayerId) -> bool {
 
 // -- the flagship, the mech and Aerie Hololattice --------------------------------------------
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn owns_technology(state: &GameState, player: &PlayerId, technology: &str) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new(technology))
-    })
+    crate::technology::has_technology_text(state, player, technology)
 }
 
 /// Quetzecoatl: "Other players cannot use SPACE CANNON against your ships in this system."
@@ -148,12 +146,7 @@ fn space_cannon_barred(
     system: &SystemId,
 ) -> bool {
     shooter != target_owner
-        && is_argent(state, target_owner)
-        && state
-            .system_state(system)
-            .units
-            .iter()
-            .any(|unit| &unit.owner == target_owner && unit.type_id.as_str() == "argent_flagship")
+        && super::has_flagship_text_in(state, target_owner, system, "argent_flagship")
 }
 
 /// Aerie Sentinel: "This unit does not count against capacity if it is being transported ..."
@@ -2658,5 +2651,27 @@ mod tests {
         assert!(asked.is_empty(), "{asked:?}");
         excess(&mut state, &[], &a(), 2);
         assert_eq!(damaged(&state, &system, &b(), "dreadnought"), 0);
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_argent_z_token_bars_space_cannon_against_its_owner() {
+        let content = ContentStore::embedded();
+        let system = SystemId::new("18");
+        let barred = |state: &GameState| {
+            crate::factions::hooks_combat::space_cannon_barred(
+                state,
+                content,
+                DEFAULT,
+                &b(),
+                &a(),
+                &system,
+            )
+        };
+        let mut bare = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &[]);
+        put(&mut bare, &system, "nekro_flagship", &a(), 1);
+        assert!(!barred(&bare), "the toggle is off by default");
+        let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], &["argent"]);
+        put(&mut state, &system, "nekro_flagship", &a(), 1);
+        assert!(barred(&state));
     }
 }

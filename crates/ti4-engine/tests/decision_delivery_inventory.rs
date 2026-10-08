@@ -297,6 +297,18 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        module: "nekro.rs",
+        function: "take_from",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "nekro_units.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "naaz.rs",
         function: "ask_checked",
         count: 1,
@@ -463,6 +475,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Last Bastion: which unit to galvanize (BF-bastion.md); every ask goes through this one.
+        module: "bastion.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Mahact: Edict opponent, Scepter system (BF-mahact.md).
         module: "mahact.rs",
         function: "ask_among",
@@ -533,6 +552,68 @@ const PRODUCERS: &[Producer] = &[
         // Slumberstate Computing: fight or coexist when Coalescence forces a ground combat.
         module: "invasion.rs",
         function: "coexist_instead",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Deepwrought Research Team: fight or coexist for each committed planet (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Deepwrought: every question asked inside a timing window or component action (BF-deepwrought.md).
+        module: "deepwrought.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "deepwrought.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Crimson Rebellion: every question asked inside a timing window or component action
+        // (BF-crimson.md). Ahk Ravin's transport questions are the shared cargo hold's own.
+        module: "crimson.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "crimson.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Ral Nel: every question asked inside a timing window or component action (BF-ralnel.md).
+        module: "ralnel.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Doctor Carrina, in the one window every research route opens: the holder's exhaust
+        // offer, then the infantry placement (BF-deepwrought.md).
+        module: "deepwrought_research.rs",
+        function: "open",
+        count: 1,
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
+    },
+    Producer {
+        module: "deepwrought_research.rs",
+        function: "settle",
+        count: 1,
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
+    },
+    Producer {
+        // Research Team on defense: the Deepwrought defender chooses to coexist (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team_defense",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -755,7 +836,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "combat.rs",
-        function: "choose_casualty",
+        function: "choose_casualty_owing",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -879,6 +960,30 @@ const PRODUCERS: &[Producer] = &[
         // and an empty candidate set breaks out before a choice is built rather than offering none.
         module: "fracture.rs",
         function: "after_breakthrough_gained",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Fracture, rule 11: a game effect (Firmament Planesplitter) puts it into play and the
+        // player who caused it chooses one ingress system per technology colour (BF-firmament.md).
+        module: "fracture.rs",
+        function: "enter_play_by_effect",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Firmament: every question asked inside a timing window, component action or leader
+        // action (BF-firmament.md).
+        module: "firmament.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Obsidian: every question asked inside a timing window, including the opponent's
+        // choice for Vos Hollow (BF-obsidian.md).
+        module: "obsidian.rs",
+        function: "ask",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1036,9 +1141,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The scoring choice, and Plots Within Plots' second step: the plot card to place.
         module: "objectives.rs",
         function: "pending_choice",
-        count: 1,
+        count: 2,
         delivery: Delivery::ObservedVia("game.rs::step_scoring"),
     },
     Producer {
@@ -1147,7 +1253,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy.rs",
-        function: "secondary_choice",
+        function: "secondary_question",
         count: 3,
         delivery: Delivery::ObservedVia("game.rs::step_secondary"),
     },
@@ -1184,7 +1290,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "gain_tokens",
+        function: "gain_tokens_offering",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1202,7 +1308,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "offer_research",
+        function: "offer_research_inner",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1214,7 +1320,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "place_structure",
+        function: "place_structure_step",
         count: 2, // the spot, then a PDS or a module alternative (Hecatoncheires)
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1386,6 +1492,10 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("argent.rs", "ask_option_for", 1),
     ("sardakk.rs", "skip_to_commit", 1),
     ("muaat.rs", "ask", 1),
+    ("nekro.rs", "take_from", 1),
+    ("nekro_units.rs", "ask", 1),
+    // Null Reference (Nekro): the ability production window's unit-type and placement questions.
+    ("production.rs", "produce_unit_by_ability", 1),
     ("naaz.rs", "ask", 1),
     ("naaz.rs", "ask_checked", 1),
     ("naaz.rs", "borrowed_agent", 1),
@@ -1422,6 +1532,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("empyrean.rs", "tether_place", 1),
     ("empyrean.rs", "voidwatch", 1),
     ("mahact.rs", "ask_among", 1),
+    ("bastion.rs", "ask", 1),
     ("mahact_units.rs", "legionnaire", 1),
     ("mahact_units.rs", "legionnaire_returns", 1),
     ("mahact_units.rs", "offer_starlancer", 1),
@@ -1430,6 +1541,18 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),
+    ("invasion.rs", "offer_research_team", 1),
+    ("invasion.rs", "offer_research_team_defense", 1),
+    ("deepwrought_research.rs", "put", 1),
+    ("deepwrought.rs", "ask", 1),
+    ("deepwrought.rs", "ask_about", 1),
+    ("crimson.rs", "ask", 1),
+    ("crimson.rs", "ask_about", 1),
+    ("crimson_cards.rs", "fill_hold", 1),
+    // Ral Nel's timing windows and component actions (BF-ralnel): every question is put through
+    // `ralnel::ask`; Survival Instinct's transport is the shared cargo hold (`passengers`).
+    ("ralnel.rs", "ask", 1),
+    ("ralnel.rs", "passengers", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
@@ -1464,7 +1587,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("agenda_effects.rs", "resolve_with", 1),
     ("choice.rs", "ask_seeing", 1),
     ("choice.rs", "drive", 1),
-    ("combat.rs", "choose_casualty", 1),
+    ("combat.rs", "choose_casualty_owing", 1),
     ("combat.rs", "choose_reroll_dice", 1),
     ("combat.rs", "heart_ixth", 1),
     ("combat.rs", "offer_sustain", 1),
@@ -1516,6 +1639,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("relics.rs", "titan_prototype", 1),
     ("entropic_scars.rs", "resolve_status_start", 1),
     ("fracture.rs", "after_breakthrough_gained", 1),
+    ("fracture.rs", "enter_play_by_effect", 1),
+    ("firmament.rs", "ask", 1),
+    ("obsidian.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),

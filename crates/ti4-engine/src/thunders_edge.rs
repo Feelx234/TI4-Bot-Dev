@@ -197,7 +197,9 @@ fn pay(
                     ask_seeing(state, content, sources, galaxy, table, &choice)?
                 };
                 let index = chosen.id.parse::<usize>().unwrap_or(0);
-                crate::action_cards::discard(state, player, index);
+                if let Some(card) = crate::action_cards::discard(state, player, index) {
+                    crate::action_cards::discarded(state, player, &card, false);
+                }
             }
             Ok(true)
         }

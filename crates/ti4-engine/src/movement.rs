@@ -168,6 +168,11 @@ pub struct MovementRules<'a> {
     /// Ship types of the moving player that may pass other players' ships, from
     /// `MovementHooks::may_move_through_ships`. Consulted only by [`Self::path_from_ship`].
     passing_ship_types: BTreeSet<String>,
+    /// Ship types of the moving player that may pass through systems holding the player's own units
+    /// despite other players' ships, earning a step per such system (`MovementHooks::own_unit_passage`).
+    own_passage_types: BTreeSet<String>,
+    /// The systems that hold at least one of the moving player's units, read when the rules are built.
+    own_unit_systems: BTreeSet<String>,
     /// Per ship type of the moving player: systems that type is treated as adjacent to from
     /// wherever it stands (`MovementHooks::unit_adjacent_systems`). Consulted only by
     /// [`Self::path_from_ship`].
@@ -181,6 +186,10 @@ pub struct MovementRules<'a> {
     /// Borders this mover does not treat as adjacent, normalised `(low, high)`
     /// (`MovementHooks::blocked_borders`; Void Tether).
     blocked_edges: BTreeSet<(String, String)>,
+    /// Firmament agent Myru Vos: ships that are not transporting units may also move through other
+    /// players' ships (`MovementHooks::unladen_pass`). Used by [`Self::path_from_ship`] only when no
+    /// route exists without it, so a ship that can sail clear keeps its freedom to carry cargo.
+    unladen_pass: bool,
 }
 
 impl<'a> MovementRules<'a> {
@@ -229,10 +238,13 @@ impl<'a> MovementRules<'a> {
             rifts_ignored: false,
             rift_extra_steps: 0,
             passing_ship_types: BTreeSet::new(),
+            own_passage_types: BTreeSet::new(),
+            own_unit_systems: BTreeSet::new(),
             ship_adjacent: BTreeMap::new(),
             token_free_types: BTreeSet::new(),
             nebulae_ignored: false,
             blocked_edges: BTreeSet::new(),
+            unladen_pass: false,
         };
         if let Some(state) = state {
             rules.apply_faction_modules(state, content, sources);
@@ -285,6 +297,19 @@ impl<'a> MovementRules<'a> {
                 self.galaxy = Cow::Owned(owned);
             }
         }
+        // Wormholes a move may not use: a severed system's (Sever) and, for a restricted mover, every
+        // kind it may not use (Sundered). On a copy of the map, so adjacency queries outside movement
+        // still see them.
+        if hooks::any(|table| {
+            table.severed_systems.is_some() || table.usable_wormhole_kinds.is_some()
+        }) {
+            let limits = hooks::wormhole_limits(state, self.board.mover.as_ref());
+            if !limits.is_empty() {
+                let mut owned = (*self.galaxy).clone();
+                limits.apply(&mut owned);
+                self.galaxy = Cow::Owned(owned);
+            }
+        }
         let Some(mover) = self.board.mover.clone() else {
             return;
         };
@@ -308,6 +333,9 @@ impl<'a> MovementRules<'a> {
         }
         if hooks::any(|table| table.blocked_borders.is_some()) {
             self.blocked_edges = hooks::blocked_borders(state, &mover);
+        }
+        if hooks::any(|table| table.unladen_pass.is_some()) {
+            self.unladen_pass = hooks::unladen_pass(state, &mover);
         }
         if hooks::any(|table| table.passable_owners.is_some()) {
             // Aetherpassage: a system whose only foreign ships belong to players who allow the
@@ -358,6 +386,7 @@ impl<'a> MovementRules<'a> {
         }
         if hooks::any(|table| {
             table.may_move_through_ships.is_some()
+                || table.own_unit_passage.is_some()
                 || table.unit_adjacent_systems.is_some()
                 || table.ignores_command_tokens.is_some()
         }) {
@@ -378,6 +407,9 @@ impl<'a> MovementRules<'a> {
                 if hooks::may_move_through_ships(state, content, sources, &site) {
                     self.passing_ship_types.insert(ship_type.to_owned());
                 }
+                if hooks::own_unit_passage(state, content, sources, &site) {
+                    self.own_passage_types.insert(ship_type.to_owned());
+                }
                 let near = hooks::unit_adjacent_systems(state, content, sources, &mover, ship_type);
                 if !near.is_empty() {
                     self.ship_adjacent.insert(ship_type.to_owned(), near);
@@ -385,6 +417,20 @@ impl<'a> MovementRules<'a> {
                 if hooks::ignores_command_tokens(state, content, sources, &mover, ship_type) {
                     self.token_free_types.insert(ship_type.to_owned());
                 }
+            }
+            if !self.own_passage_types.is_empty() {
+                self.own_unit_systems = state
+                    .board
+                    .iter()
+                    .filter(|(_, board)| {
+                        board
+                            .units
+                            .iter()
+                            .chain(board.planet_units.values().flatten())
+                            .any(|unit| unit.owner == mover)
+                    })
+                    .map(|(system, _)| system.to_string())
+                    .collect();
             }
         }
     }
@@ -456,6 +502,18 @@ impl<'a> MovementRules<'a> {
         origin: Option<&str>,
         ship_type: Option<&str>,
     ) -> bool {
+        self.passes(system_id, origin, ship_type, false)
+    }
+
+    /// [`Self::can_pass_through_ship`], optionally lifting 58.4b altogether (`past_ships`): the
+    /// second search of an unladen ship under Myru Vos. Every other bar still applies.
+    fn passes(
+        &self,
+        system_id: &str,
+        origin: Option<&str>,
+        ship_type: Option<&str>,
+        past_ships: bool,
+    ) -> bool {
         if !self.enterable(system_id, true) {
             return false;
         }
@@ -465,11 +523,18 @@ impl<'a> MovementRules<'a> {
         if self.barred_transit.contains(system_id) {
             return false;
         }
-        if self.ignore_enemy_ships {
+        if self.ignore_enemy_ships || past_ships {
             return true;
         }
         if ship_type.is_some_and(|kind| self.passing_ship_types.contains(kind)) {
             return true; // a faction's ship that passes blockades
+        }
+        // A ship that passes through systems holding its owner's own units, other players' ships
+        // notwithstanding (Deepwrought Luminous); every other system still blocks.
+        if ship_type.is_some_and(|kind| self.own_passage_types.contains(kind))
+            && self.own_unit_systems.contains(system_id)
+        {
+            return true;
         }
         if origin.is_some() && origin.map(str::to_owned) == self.ignore_enemy_ships_from {
             return true;
@@ -523,6 +588,22 @@ impl<'a> MovementRules<'a> {
         move_value: i32,
         ship_type: Option<&str>,
     ) -> Option<Vec<String>> {
+        // Myru Vos: an unladen ship may also go through other players' ships, but only when no
+        // route avoids them, so a ship that can sail clear is never denied its cargo for it.
+        self.search_path(origin, move_value, ship_type, false).or_else(|| {
+            self.unladen_pass
+                .then(|| self.search_path(origin, move_value, ship_type, true))
+                .flatten()
+        })
+    }
+
+    fn search_path(
+        &self,
+        origin: &str,
+        move_value: i32,
+        ship_type: Option<&str>,
+        past_ships: bool,
+    ) -> Option<Vec<String>> {
         if !self.may_depart_ship(origin, ship_type) {
             return None;
         }
@@ -556,6 +637,16 @@ impl<'a> MovementRules<'a> {
                     allowance += self.rift_extra_steps;
                     bonus_used = true;
                 }
+            }
+
+            // Moving through a system that holds the mover's own units earns a step for ships that
+            // may (Deepwrought Luminous). Only an intermediate system is "moved through": the
+            // origin is entered at 0 and the active system ends the route before it is queued.
+            if entered > 0
+                && ship_type.is_some_and(|kind| self.own_passage_types.contains(kind))
+                && self.own_unit_systems.contains(&current)
+            {
+                allowance += 1;
             }
 
             let remaining = allowance - entered;
@@ -620,7 +711,7 @@ impl<'a> MovementRules<'a> {
                 if ends_here {
                     return Some(arrived); // 58.4a — movement ends here
                 }
-                if !self.can_pass_through_ship(&neighbour, Some(origin), ship_type) {
+                if !self.passes(&neighbour, Some(origin), ship_type, past_ships) {
                     continue;
                 }
                 queue.push_back((neighbour, entered + 1, allowance, arrived, bonus_used));

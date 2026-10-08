@@ -44,12 +44,22 @@ pub struct CombatUnit<'a> {
 
 pub mod arborec;
 pub mod argent;
+pub mod bastion;
+pub mod bastion_units;
 mod borrowed_commanders;
 pub(crate) mod borrowed_commanders_b;
 pub mod borrowed_round_agents;
 pub mod empyrean;
 pub mod empyrean_units;
 pub mod cabal;
+pub mod crimson;
+pub(crate) mod crimson_cards;
+pub mod deepwrought;
+mod deepwrought_cards;
+pub(crate) mod deepwrought_research;
+pub mod firmament;
+mod firmament_flip;
+pub mod firmament_plots;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;
@@ -65,8 +75,13 @@ pub mod mentak;
 pub mod muaat;
 pub mod naalu;
 pub mod naaz;
+pub mod nekro;
+pub mod nekro_units;
 pub mod nomad;
 pub mod nomad_agents;
+pub mod obsidian;
+pub mod ralnel;
+pub(crate) mod ralnel_cards;
 pub mod saar;
 pub mod sardakk;
 pub mod titans;
@@ -76,11 +91,15 @@ pub mod yin;
 pub mod yssaril;
 
 /// Every per-faction module, in dispatch order.
-pub const MODULES: [&FactionModule; 20] = [
+pub const MODULES: [&FactionModule; 27] = [
     &arborec::MODULE,
     &argent::MODULE,
+    &bastion::MODULE,
     &cabal::MODULE,
+    &crimson::MODULE,
+    &deepwrought::MODULE,
     &empyrean::MODULE,
+    &firmament::MODULE,
     &ghost::MODULE,
     &keleres::MODULE_M,
     &keleres::MODULE_X,
@@ -90,7 +109,10 @@ pub const MODULES: [&FactionModule; 20] = [
     &muaat::MODULE,
     &naalu::MODULE,
     &naaz::MODULE,
+    &nekro::MODULE,
     &nomad::MODULE,
+    &obsidian::MODULE,
+    &ralnel::MODULE,
     &saar::MODULE,
     &sardakk::MODULE,
     &titans::MODULE,
@@ -135,6 +157,38 @@ impl FactionModule {
             hooks: Hooks::NONE,
         }
     }
+}
+
+/// Whether a unit of `owner` with type `unit_type` has the printed text of flagship
+/// `flagship_id`: it is that flagship, or it is a Nekro flagship whose owner has placed the Z
+/// token (Valefar Assimilator Z) on that faction. Only text abilities follow; stats never do.
+#[must_use]
+pub fn flagship_has_text(
+    state: &GameState,
+    owner: &PlayerId,
+    unit_type: &str,
+    flagship_id: &str,
+) -> bool {
+    unit_type == flagship_id
+        || (unit_type == nekro::NEKRO_FLAGSHIP && nekro::z_lends(state, owner, flagship_id))
+}
+
+/// Whether `owner` has, in `system`'s space area, a unit with the text of flagship `flagship_id`.
+#[must_use]
+pub fn has_flagship_text_in(
+    state: &GameState,
+    owner: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    flagship_id: &str,
+) -> bool {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .any(|unit| {
+            &unit.owner == owner
+                && flagship_has_text(state, owner, unit.type_id.as_str(), flagship_id)
+        })
 }
 
 /// Engine entry points. Each mirrors the shared hook of the same name and is optional; a module
@@ -747,11 +801,18 @@ pub fn assets(content: &ContentStore, sources: SourceSet, alias: &str) -> Vec<As
     for id in faction.abilities() {
         add(AssetKind::Ability, id);
     }
+    // Operator ruling 2026-10-07: only the technologies the faction sheet lists (`factionTech`,
+    // which includes the unit upgrades) count, plus official Thunder's Edge reprints. Cards that
+    // merely carry the faction's tag from an obscure variant (Nekro's `nekroc4y`, `nekroc4r`) are
+    // not part of the game and are not ledger assets.
+    let sheet_technologies: std::collections::BTreeSet<&str> =
+        faction.record().strings("factionTech").into_iter().collect();
     for record in content.from_sources(ContentType::Technologies, sources) {
         if record
             .text("faction")
             .is_some_and(|f| keleres::tag_belongs_to(f, alias, false))
             && let Some(id) = record.text("alias")
+            && (sheet_technologies.contains(id) || record.text("source") == Some("thunders_edge"))
         {
             add(AssetKind::Technology, id);
         }

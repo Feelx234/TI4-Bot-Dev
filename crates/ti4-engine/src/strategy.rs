@@ -207,6 +207,20 @@ fn with_waivers(
     costs_token: bool,
 ) -> Choice {
     if !costs_token {
+        // Enervate: a puppeted player's Leadership may be followed by performing its primary
+        // ability instead of its secondary.
+        if crate::factions::firmament_plots::primary_instead_offered(
+            state,
+            player,
+            primary_player,
+            crate::strategy_cards::card_name(content, card.as_str()).as_deref(),
+        ) {
+            choice.options.push(ChoiceOption::labelled(
+                crate::factions::firmament_plots::PRIMARY_INSTEAD_ID,
+                STRATEGY_KIND,
+                "perform the primary ability instead (Enervate)",
+            ));
+        }
         return choice;
     }
     let waivers = waiver_options(state, content, player, primary_player, card);
@@ -444,6 +458,9 @@ impl StrategySecondaryWindow {
             }
             SecondaryResolution::Followed
         };
+        // Enervate: remember whether this follower took the primary instead (and forget a stale
+        // one). After every refusal above, so a refused answer changes nothing.
+        crate::factions::firmament_plots::record_follow_answer(state, &choice.player, &answer.id);
         self.resolutions.push((choice.player, resolution));
         self.next_follower += 1;
         if self.is_complete() {
@@ -461,6 +478,12 @@ impl StrategySecondaryWindow {
         player: &PlayerId,
     ) -> bool {
         secondary_eligible(state, content, sources, player, &self.card)
+            || crate::factions::firmament_plots::primary_instead_offered(
+                state,
+                player,
+                &self.primary_player,
+                crate::strategy_cards::card_name(content, self.card.as_str()).as_deref(),
+            )
             || (secondary_costs_token(content, &self.card)
                 && crate::strategy_cards::card_name(content, self.card.as_str()).as_deref()
                     != Some("Leadership")

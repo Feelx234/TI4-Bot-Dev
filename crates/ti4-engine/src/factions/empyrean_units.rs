@@ -158,10 +158,10 @@ fn dynamo_reaches(
 ) -> bool {
     state.board.iter().any(|(at, board)| {
         near(galaxy, at, system)
-            && board
-                .units
-                .iter()
-                .any(|unit| &unit.owner == owner && unit.type_id.as_str() == FLAGSHIP)
+            && board.units.iter().any(|unit| {
+                &unit.owner == owner
+                    && super::flagship_has_text(state, owner, unit.type_id.as_str(), FLAGSHIP)
+            })
     })
 }
 
@@ -1440,6 +1440,38 @@ mod tests {
             state.player(&a()).unwrap().trade_goods,
             before,
             "the Empyrean gave: no bonus"
+        );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_empyrean_z_token_repairs_for_two_influence() {
+        let hub = crate::fixtures::plain_hub();
+        let centre = SystemId::new(&hub.centre);
+        let ring = SystemId::new(&hub.outer[0]);
+        let run = |lent: &[&str], script: &[&str]| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            state.player_mut(&a()).unwrap().trade_goods = 5;
+            crate::fixtures::put(&mut state, &centre, "nekro_flagship", &a(), 1);
+            state
+                .system_mut(&ring)
+                .units
+                .push(Unit::new(UnitTypeId::new("dreadnought"), b()).sustained());
+            emit(
+                &mut state,
+                Some(&hub.galaxy),
+                &mut scripted(script),
+                "SUSTAIN_DAMAGE_USED",
+                &sustained_space(&ring, "b", "dreadnought"),
+            );
+            damaged(&state, &ring, "dreadnought")
+        };
+        assert_eq!(run(&[], &[]), 1, "off by default: nothing is offered");
+        assert_eq!(
+            run(
+                &["empyrean"],
+                &["unit:nekro:empyrean_flagship:SUSTAIN_DAMAGE_USED:after"]
+            ),
+            0
         );
     }
 }

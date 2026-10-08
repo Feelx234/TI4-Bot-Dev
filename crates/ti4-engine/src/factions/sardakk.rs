@@ -79,10 +79,9 @@ pub const MODULE: FactionModule = FactionModule {
 
 // -- small readers -------------------------------------------------------------------------------
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 fn leader_status(state: &GameState, player: &PlayerId, leader: &str) -> Option<LeaderStatus> {
@@ -161,14 +160,20 @@ fn unit_roll_modifier(
     match unit.context {
         "space" => {
             let Some(system) = unit.system else { return 0 };
-            if unit.unit_type == "sardakk_flagship" {
+            if super::flagship_has_text(state, unit.player, unit.unit_type, "sardakk_flagship") {
                 return 0; // "your other ship's combat rolls"
             }
             let flagship_here =
                 ships_in(state, content, sources, system)
                     .iter()
                     .any(|(owner, ship)| {
-                        owner == unit.player && ship.type_id.as_str() == "sardakk_flagship"
+                        owner == unit.player
+                            && super::flagship_has_text(
+                                state,
+                                owner,
+                                ship.type_id.as_str(),
+                                "sardakk_flagship",
+                            )
                     });
             i64::from(flagship_here)
         }
@@ -1122,6 +1127,14 @@ fn supremacy(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Abi
             {
                 return Ok(());
             }
+            // Doctor Carrina's window: the research is a research (`deepwrought_research.rs`). It
+            // opens before the choice because the waiver widens the unit upgrades on offer.
+            let window = super::deepwrought_research::open(
+                &mut super::deepwrought_research::Host::of(context),
+                &owner,
+                &super::deepwrought_research::unit_upgrades,
+            )
+            .map_err(TimingError::IllegalChoice)?;
             let options = supremacy_options(context, &owner);
             let choice = Choice::new(
                 owner.clone(),
@@ -1152,7 +1165,13 @@ fn supremacy(owner_name: &str, seat: &PlayerId, event_type: &'static str) -> Abi
                     &TechnologyId::new(alias),
                 );
             }
-            Ok(())
+            super::deepwrought_research::settle(
+                &mut super::deepwrought_research::Host::of(context),
+                &owner,
+                window,
+                true,
+            )
+            .map_err(TimingError::IllegalChoice)
         }),
     )
     .with_optional(true)
@@ -2418,7 +2437,7 @@ mod tests {
         // Enough coloured technologies that every unit upgrade's prerequisites are met.
         let mut per_colour: std::collections::BTreeMap<&str, usize> =
             std::collections::BTreeMap::default();
-        for alias in crate::technology::active_aliases(content) {
+        for alias in crate::technology::active_aliases(content, DEFAULT) {
             if crate::technology::faction_of(content, &alias).is_some() {
                 continue;
             }
@@ -2787,6 +2806,26 @@ mod tests {
             ask(&state, Some(&hub.galaxy)).len(),
             1,
             "a command token closes it"
+        );
+    }
+
+    #[test]
+    fn a_nekro_flagship_with_the_sardakk_z_token_helps_its_other_ships() {
+        let content = ContentStore::embedded();
+        let hits = |lent: &[&str], kind: &str| {
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let home = home_of(&state, &a());
+            state.active_system = Some(home.clone());
+            state.system_mut(&home).units.clear();
+            crate::fixtures::put(&mut state, &home, "nekro_flagship", &a(), 1);
+            crate::combat::effective_hits_on(&state, content, DEFAULT, &a(), &unit(kind, &a()))
+                .expect("it fights")
+        };
+        assert_eq!(hits(&[], "cruiser"), hits(&["sardakk"], "cruiser") + 1);
+        assert_eq!(
+            hits(&[], "nekro_flagship"),
+            hits(&["sardakk"], "nekro_flagship"),
+            "not its own roll"
         );
     }
 }

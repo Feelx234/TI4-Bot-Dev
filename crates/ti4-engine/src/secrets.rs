@@ -47,6 +47,8 @@ pub fn timing(content: &ContentStore, alias: &SecretObjectiveId) -> Timing {
 /// How many of this player's scored objectives were secrets (45.4 counts them).
 #[must_use]
 pub fn scored_count(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
+    // A secret scored as a plot (Plots Within Plots) is not in `scored_objectives` at all, so it is
+    // not counted here: it "does not count against your secret objective limit".
     state
         .scored_by(player)
         .iter()
@@ -1122,6 +1124,69 @@ pub fn scoreable_event(
         })
         .cloned()
         .collect()
+}
+
+/// Whether `player`, who does not hold `alias`, fulfils the requirement of a secret objective that
+/// another player has scored (the Firmament's Plots Within Plots), at this timing.
+///
+/// The same two footings as [`scoreable_on`] / [`scoreable_event`]: a status secret by its
+/// position, an action or agenda secret by a feat recorded for this event or by its position.
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the context scoreable_event already takes, plus the secret asked about"
+)]
+pub(crate) fn fulfils(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &SecretObjectiveId,
+    when: Timing,
+    occurrence: Option<FeatOccurrence>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> bool {
+    if timing(content, alias) != when {
+        return false;
+    }
+    let position = Position {
+        state,
+        content,
+        sources,
+        player,
+        galaxy,
+        imagined: crate::objectives::Imagined::NONE,
+    };
+    let by_position = || requirement_for(alias).is_some_and(|check| check(&position));
+    if when == Timing::Status {
+        return by_position();
+    }
+    occurrence.is_some_and(|occurrence| {
+        feat_for(alias.as_str()).is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
+    }) || by_position()
+}
+
+/// Score a secret another player already scored, as a plot: pay its price, record the plot, and give
+/// no victory point. It is deliberately **not** recorded as a scored objective (operator ruling
+/// 2026-10-08): a secret scored through Plots Within Plots is neither a scored objective nor part of
+/// the secret objective limit. The caller places the plot card.
+///
+/// `false`, changing nothing, when the price cannot be paid.
+pub(crate) fn award_plot(
+    state: &mut GameState,
+    player: &PlayerId,
+    alias: &SecretObjectiveId,
+) -> bool {
+    if !pay_for(state, player, alias) {
+        return false;
+    }
+    match state.player_mut(player) {
+        Some(seat) => {
+            seat.plot_objectives.insert(alias.clone());
+            true
+        }
+        None => false,
+    }
 }
 
 /// 61.18: reveal it, take the points, and it leaves the hand.

@@ -245,6 +245,20 @@ pub fn seated_game(
     state
 }
 
+/// `seats` seated, the seat named `a` a Nekro holding the Valefar Assimilator Z breakthrough with a
+/// Z token on each faction in `lent`. For the Nekro flagship-text tests.
+pub fn nekro_with_z(seats: &[(&str, &str)], lent: &[&str]) -> GameState {
+    let mut state = seated_game(seats, ti4_model::content_types::DEFAULT);
+    let nekro = PlayerId::new("a");
+    state.player_mut(&nekro).expect("seat a").breakthrough = Some(
+        ti4_model::id::BreakthroughId::new(crate::factions::nekro::Z_BREAKTHROUGH),
+    );
+    for faction in lent {
+        assert!(crate::factions::nekro::place_z(&mut state, &nekro, faction));
+    }
+    state
+}
+
 /// Run `run` with a real [`crate::timing::TimingContext`] over `state`, seed-0 dice and an empty
 /// event sequence — what a faction hook or a component action receives in a game.
 pub fn with_context<T>(

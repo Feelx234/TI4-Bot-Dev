@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use ti4_content::ContentStore;
-use ti4_model::content_types::{ContentType, SourceSet};
+use ti4_model::content_types::{ContentType, Source, SourceSet};
 use ti4_model::id::{PlanetId, PlayerId, SystemId, TechnologyId, UnitTypeId};
 use ti4_model::state::GameState;
 
@@ -31,9 +31,11 @@ pub fn plasma_scoring(state: &GameState, player: &PlayerId) -> bool {
 /// The raw corpus deliberately contains original and replacement printings together.  The oracle
 /// uses `techs_pok_c4` to select the active printing; treating every corpus record as researchable
 /// offers obsolete Magen and X-89 variants as separate technologies.
+///
+/// `sources` adds the Thunder's Edge technologies (all faction cards) when that expansion is in play.
 #[must_use]
-pub fn active_aliases(content: &ContentStore) -> BTreeSet<TechnologyId> {
-    content
+pub fn active_aliases(content: &ContentStore, sources: SourceSet) -> BTreeSet<TechnologyId> {
+    let mut active: BTreeSet<TechnologyId> = content
         .get(ContentType::Decks, "techs_pok_c4")
         .map(|deck| {
             deck.strings("cardIDs")
@@ -41,7 +43,20 @@ pub fn active_aliases(content: &ContentStore) -> BTreeSet<TechnologyId> {
                 .map(TechnologyId::new)
                 .collect()
         })
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // Thunder's Edge adds only faction technologies (no generic card, no replaced printing), and
+    // the PoK + Codex deck predates it. When the game uses the expansion its technologies are active.
+    if sources.contains(Source::ThundersEdge) {
+        active.extend(
+            content
+                .records(ContentType::Technologies)
+                .iter()
+                .filter(|record| record.source() == Some(Source::ThundersEdge))
+                .filter_map(|record| record.text("alias"))
+                .map(TechnologyId::new),
+        );
+    }
+    active
 }
 
 /// Printed technology name used by learned choice labels.
@@ -290,10 +305,7 @@ pub fn start_turn(
         }
     }
 
-    if state
-        .player(player)
-        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("cm")))
-    {
+    if has_technology_text(state, player, "cm") {
         let systems: Vec<SystemId> = state
             .board
             .keys()
@@ -961,6 +973,10 @@ pub fn can_research(
     if seat.technologies.contains(alias) {
         return false;
     }
+    // Ta Zern purged this card from every deck.
+    if crate::factions::deepwrought::technology_purged(state, alias) {
+        return false;
+    }
     // Some cards say so of themselves.
     if record.text("text").is_some_and(|printed| {
         printed
@@ -1014,7 +1030,7 @@ fn inheritance_systems_ready(
 pub const INHERITANCE_SYSTEMS_COST: i64 = 2;
 
 /// Whether this player meets `alias`'s prerequisites, with every standing waiver counted.
-fn prerequisites_met(
+pub(crate) fn prerequisites_met(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -1079,7 +1095,7 @@ pub fn researchable(
     sources: SourceSet,
     player: &PlayerId,
 ) -> Vec<TechnologyId> {
-    let active = active_aliases(content);
+    let active = active_aliases(content, sources);
     let mut open: Vec<TechnologyId> = content
         .records(ContentType::Technologies)
         .iter()
@@ -1090,6 +1106,62 @@ pub fn researchable(
         .collect();
     open.sort();
     open
+}
+
+/// Whether `player` has the printed text of technology `alias` to use: they own it, or they are
+/// the Nekro Virus and a Valefar Assimilator token (X or Y) sits on it while another player still
+/// owns it, so that card "gains that technology's text".
+///
+/// This is the gate for what a **faction technology's effect** does. It is *not* ownership: an
+/// assimilated technology never enters `Player::technologies`, so it counts for no prerequisite,
+/// objective, unit upgrade or "technologies you own" total. Generic technologies and prerequisites
+/// keep reading the owned set.
+#[must_use]
+pub fn has_technology_text(state: &GameState, player: &PlayerId, alias: &str) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(alias)))
+        || crate::factions::nekro::assimilated_card(state, player, alias).is_some()
+}
+
+/// [`has_technology_text`] for a card that exhausts: the owner's copy is ready while unexhausted;
+/// an assimilated text is ready while the Valefar Assimilator carrying it is (its exhaustion is
+/// the Valefar card's, not the owner's).
+#[must_use]
+pub fn technology_text_ready(state: &GameState, player: &PlayerId, alias: &str) -> bool {
+    let id = TechnologyId::new(alias);
+    let Some(seat) = state.player(player) else {
+        return false;
+    };
+    if seat.technologies.contains(&id) {
+        return !seat.exhausted_technologies.contains(&id);
+    }
+    crate::factions::nekro::assimilated_card(state, player, alias).is_some_and(|card| {
+        !seat
+            .exhausted_technologies
+            .contains(&TechnologyId::new(card))
+    })
+}
+
+/// Exhaust the card that carries technology `alias`'s text for `player`: the technology itself, or
+/// the Valefar Assimilator carrying it. `false`, changing nothing, when the player has neither.
+pub fn exhaust_technology_text(state: &mut GameState, player: &PlayerId, alias: &str) -> bool {
+    let id = TechnologyId::new(alias);
+    let carrier = if state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&id))
+    {
+        id
+    } else if let Some(card) = crate::factions::nekro::assimilated_card(state, player, alias) {
+        TechnologyId::new(card)
+    } else {
+        return false;
+    };
+    let Some(seat) = state.player_mut(player) else {
+        return false;
+    };
+    seat.exhausted_technologies.insert(carrier);
+    true
 }
 
 /// Gain a technology outright (90.5), without checking prerequisites.
@@ -1377,6 +1449,13 @@ fn complete_research(
     player: &PlayerId,
     alias: &TechnologyId,
 ) {
+    // Propagation (Nekro): "When you would research a technology: Gain 3 command tokens instead."
+    // Every research route ends here, so none can forget it. The technology is not gained and
+    // nothing that fires on research fires; the game opens the token window at its next step.
+    if crate::factions::nekro::propagation_replaces_research(state, player) {
+        crate::factions::nekro::note_propagation(state, player);
+        return;
+    }
     grant(state, player, alias);
     // 90.8: the upgrade covers the unit on the faction sheet, so units already on the board
     // become the new version too -- not only the ones built after this.
@@ -1541,6 +1620,16 @@ mod tests {
         for alias in aliases {
             state
                 .player_mut(&player())
+                .unwrap()
+                .technologies
+                .insert(TechnologyId::new(*alias));
+        }
+    }
+
+    fn give_to(state: &mut GameState, who: &PlayerId, aliases: &[&str]) {
+        for alias in aliases {
+            state
+                .player_mut(who)
                 .unwrap()
                 .technologies
                 .insert(TechnologyId::new(*alias));
@@ -2219,7 +2308,7 @@ mod tests {
     #[test]
     fn researchable_uses_the_authoritative_current_printings() {
         let content = ContentStore::embedded();
-        let active = active_aliases(content);
+        let active = active_aliases(content, POK);
         assert!(active.contains(&TechnologyId::new("md")));
         assert!(!active.contains(&TechnologyId::new("md_base")));
         assert!(!active.contains(&TechnologyId::new("md_c1")));
@@ -2228,6 +2317,36 @@ mod tests {
         assert!(!offered.is_empty());
         assert!(!offered.contains(&TechnologyId::new("md_base")));
         assert!(!offered.contains(&TechnologyId::new("md_c1")));
+    }
+
+    #[test]
+    fn thunders_edge_faction_techs_are_active_only_when_the_expansion_is_in_play() {
+        let content = ContentStore::embedded();
+        let pok = active_aliases(content, POK);
+        let full = active_aliases(content, ti4_model::content_types::DEFAULT);
+        for alias in ["proxima", "helios2", "hydrothermal", "nanomachines", "linkship2"] {
+            assert!(!pok.contains(&TechnologyId::new(alias)), "{alias} under PoK");
+            assert!(full.contains(&TechnologyId::new(alias)), "{alias} under TE");
+        }
+        // The PoK-only set is exactly the deck, and TE only adds to it.
+        assert!(pok.is_subset(&full));
+        assert!(pok.contains(&TechnologyId::new("md")) && !full.contains(&TechnologyId::new("md_base")));
+        assert!(pok.len() < full.len());
+    }
+
+    #[test]
+    fn a_thunders_edge_faction_can_research_its_own_faction_tech_and_no_one_else_can() {
+        let content = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().faction = ti4_model::id::FactionId::new("bastion");
+        give(&mut state, &["md"]);
+        let proxima = TechnologyId::new("proxima");
+        let full = ti4_model::content_types::DEFAULT;
+        assert!(researchable(&state, content, full, &player()).contains(&proxima));
+        assert!(!researchable(&state, content, POK, &player()).contains(&proxima));
+        let other = PlayerId::new("b");
+        give_to(&mut state, &other, &["md"]);
+        assert!(!researchable(&state, content, full, &other).contains(&proxima));
     }
 
     #[test]

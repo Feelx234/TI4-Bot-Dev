@@ -11,7 +11,7 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
-use ti4_engine::reaction_modes::NeverOffer;
+use crate::session::reaction_modes::NeverOffer;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
@@ -104,7 +104,7 @@ pub struct SessionShared {
     pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
-    pub reaction_modes: BTreeMap<PlayerId, ti4_engine::reaction_modes::NeverSet>,
+    pub reaction_modes: BTreeMap<PlayerId, crate::session::reaction_modes::NeverSet>,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
     /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.

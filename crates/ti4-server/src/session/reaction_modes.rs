@@ -15,7 +15,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use crate::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 
 /// The card names a seat has asked never to be offered. Shared with whoever changes it.
 pub type NeverSet = Arc<Mutex<BTreeSet<String>>>;
@@ -68,7 +68,7 @@ fn card_names(option: &ChoiceOption) -> Vec<String> {
 
 fn is_card_offer(option: &ChoiceOption) -> bool {
     (option.kind == "ability" && option.id.starts_with("reaction:"))
-        || option.kind == crate::reactions::ACTION_CARD_KIND
+        || option.kind == ti4_engine::reactions::ACTION_CARD_KIND
 }
 
 /// Apply a seat's Never set to a question.
@@ -180,7 +180,7 @@ mod tests {
     use ti4_model::id::PlayerId;
 
     fn card(id: &str, name: &str) -> ChoiceOption {
-        ChoiceOption::labelled(id, crate::reactions::ACTION_CARD_KIND, format!("play {name}"))
+        ChoiceOption::labelled(id, ti4_engine::reactions::ACTION_CARD_KIND, format!("play {name}"))
             .with("card", id.to_owned())
             .with("card_name", name.to_owned())
     }
@@ -251,7 +251,7 @@ mod tests {
         let skipped = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
         let sink = skipped.clone();
         let set: NeverSet = Arc::new(Mutex::new(never(&["Sabotage"])));
-        let mut decider = NeverOffer::new(Box::new(crate::choice::FirstOption), set.clone())
+        let mut decider = NeverOffer::new(Box::new(ti4_engine::choice::FirstOption), set.clone())
             .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
         let sabotage = window(vec![slot(&["Sabotage"]), ChoiceOption::decline()]);
         assert!(decider.choose(&sabotage).unwrap().is_decline());

@@ -194,6 +194,11 @@ pub fn planet_value_now(
     planet_value(content, sources, planet, kind)
         + crate::laws::planet_value_bonus(state, planet, kind)
         + attachment_bonus(state, content, planet, kind)
+        + match kind {
+            // The Last Bastion's Helios dock raises the resource value of its own planet.
+            Spend::Resources => crate::factions::bastion_units::resource_bonus(state, planet),
+            Spend::Influence => 0,
+        }
 }
 
 /// The faction mark holding the [`GameState::production_seq`] a value swap was declared in.
@@ -288,6 +293,10 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
         .into_iter()
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
+        // The Deepwrought's ocean cards are planet cards off the map (1 resource, 1 influence).
+        .chain(crate::factions::deepwrought::spendable_oceans(
+            state, player,
+        ))
         .collect()
 }
 
@@ -1399,7 +1408,11 @@ pub fn producers(
     let mut found: Vec<(Unit, Option<PlanetId>)> = board
         .units_of(player)
         .into_iter()
-        .filter(|unit| produces(unit))
+        // Miniaturization: a Ral Nel structure in the space area cannot use PRODUCTION.
+        .filter(|unit| {
+            produces(unit)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .map(|unit| (unit.clone(), None))
         .collect();
     for (planet, units) in &board.planet_units {
@@ -1704,6 +1717,11 @@ pub fn placements(
     system: &SystemId,
     kind: &UnitType<'_>,
 ) -> Vec<String> {
+    // Quietus: PRODUCTION is a unit ability, and a unit in an active breach beside another player's
+    // Quietus has lost every unit ability, so its space dock produces nothing.
+    if crate::factions::crimson::abilities_lost(state, player, system) {
+        return Vec::new();
+    }
     if kind.is_ship() {
         // 68.10: "A player cannot produce ships in a system that contains other players' ships."
         // 68.10a keeps ground forces available, which is why this sits on the ship branch rather
@@ -1937,6 +1955,9 @@ pub struct ProductionWindow {
     /// Highest printed cost of one unit this use may produce (Muaat Umbat: "4 or less"). `None`
     /// is no cap. Applied in [`Self::build_options`].
     max_unit_cost: Option<i64>,
+    /// The only unit type this use may produce (Nekro `nekroc4y`: "a ship of the same type").
+    /// `None` is any. Applied in [`Self::build_options`].
+    only_unit: Option<String>,
     /// Whether the current placement batch has opened its pre-placement ground-force window.
     placement_timing_done: bool,
 }
@@ -2030,6 +2051,7 @@ impl ProductionWindow {
             ability,
             fixed_limit,
             max_unit_cost: None,
+            only_unit: None,
             placement_timing_done: false,
         }
     }
@@ -2039,6 +2061,13 @@ impl ProductionWindow {
     #[must_use]
     pub fn with_max_unit_cost(mut self, max: Option<i64>) -> Self {
         self.max_unit_cost = max;
+        self
+    }
+
+    /// Only this unit type may be offered (Nekro `nekroc4y`). Builder for [`Self::for_ability`].
+    #[must_use]
+    pub fn with_only_unit(mut self, unit: Option<String>) -> Self {
+        self.only_unit = unit;
         self
     }
 
@@ -2116,6 +2145,21 @@ impl ProductionWindow {
                     format!("{system}{REMOTE_SEPARATOR}{at}")
                 }),
             );
+            if kind.is_ship() {
+                // The Last Bastion's Icon: "place those ships in a system that contains 1 of your
+                // command tokens, ...". Shapes the ship spots over the whole use.
+                crate::factions::bastion::adjust_ship_spots(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    &self.report.produced,
+                    &mut spots,
+                );
+                // The Crimson hero: "You may place any of those ships onto this card."
+                crate::factions::crimson_cards::offer_card_spot(state, &self.player, &mut spots);
+            }
         }
         spots
     }
@@ -2425,6 +2469,9 @@ impl ProductionWindow {
             let Some(kind) = types.get(id.as_str()) else {
                 continue;
             };
+            if self.only_unit.as_ref().is_some_and(|only| only != &id) {
+                continue;
+            }
             if self
                 .max_unit_cost
                 .is_some_and(|max| kind.cost() > f64::from(i32::try_from(max).unwrap_or(i32::MAX)))
@@ -2659,6 +2706,14 @@ impl ProductionWindow {
         let (target, spot) = placement_target(&self.system, where_to);
         for _ in 0..made {
             let unit = Unit::new(UnitTypeId::new(id), self.player.clone());
+            // The Crimson hero card is not a place on the board.
+            if target.as_str() == crate::factions::crimson_cards::CARD_SYSTEM {
+                crate::factions::crimson_cards::put_on_card(state, &self.player, id);
+                self.report
+                    .produced
+                    .push((UnitTypeId::new(id), where_to.to_owned()));
+                continue;
+            }
             if spot == SPACE {
                 state.system_mut(&target).units.push(unit);
             } else {
@@ -2673,6 +2728,18 @@ impl ProductionWindow {
             self.report
                 .produced
                 .push((UnitTypeId::new(id), where_to.to_owned()));
+        }
+        // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
+        if made > 0 && target != self.system {
+            crate::factions::bastion::ship_placed(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                &target,
+                &UnitTypeId::new(id),
+            );
         }
         // Bellum Gloriosum: a capacity ship opens an allowance that fighters and ground forces
         // spend instead of the production limit. Opened after the ship is placed and spent by
@@ -3284,6 +3351,48 @@ pub fn produce_by_ability_capped(
     }
     if agent_window {
         crate::factions::keleres::close_agent_window(state, player);
+    }
+    end_value_swap(state);
+    Ok(window.into_report())
+}
+
+/// Whether [`produce_unit_by_ability`] would offer `unit` in `system` now: it is buildable, the
+/// player can pay for it and a spot takes it. The same filter the window applies, asked up front so
+/// a card is only offered when its production can happen.
+#[must_use]
+pub fn can_produce_unit_by_ability(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> bool {
+    let window = ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
+        .with_only_unit(Some(unit.to_owned()));
+    window.pending_choice(state, content, sources).is_some()
+}
+
+/// Produce 1 unit of exactly one type outside a tactical action, by an ability (Nekro
+/// `nekroc4y`): [`produce_by_ability`] with a limit of 1 and every other unit type withheld.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered.
+pub fn produce_unit_by_ability(
+    state: &mut GameState,
+    ctx: &mut Resolving<'_>,
+    galaxy: Option<&Galaxy>,
+    player: &PlayerId,
+    system: &SystemId,
+    unit: &str,
+) -> Result<ProductionReport, IllegalChoice> {
+    let (content, sources) = (ctx.content, ctx.sources);
+    let mut window = ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
+        .with_only_unit(Some(unit.to_owned()));
+    while let Some(choice) = window.pending_choice(state, content, sources) {
+        ctx.table
+            .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+            .and_then(|answer| window.resolve(state, ctx, answer))?;
     }
     end_value_swap(state);
     Ok(window.into_report())

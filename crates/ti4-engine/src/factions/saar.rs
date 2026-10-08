@@ -321,11 +321,9 @@ fn perform_component(
     true
 }
 
+/// Owns the technology, or the Nekro's Valefar Assimilator carries its text.
 fn has_technology(state: &GameState, player: &PlayerId, alias: &str) -> bool {
-    state.player(player).is_some_and(|seat| {
-        seat.technologies
-            .contains(&ti4_model::id::TechnologyId::new(alias))
-    })
+    crate::technology::has_technology_text(state, player, alias)
 }
 
 /// The Saar seat, if one is playing.

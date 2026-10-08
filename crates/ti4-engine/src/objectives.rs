@@ -2035,6 +2035,9 @@ pub struct ScoringWindow {
     /// score this window. The event-window secret cap is tracked separately, on `state` itself,
     /// via `record_occurrence_score`; this set is status-only.
     scored_secret_this_window: std::collections::BTreeSet<PlayerId>,
+    /// Plots Within Plots: the Firmament player who has scored another player's secret as a plot
+    /// and still has to choose the plot card, with the player whose control token goes on it.
+    plot_card: Option<(PlayerId, PlayerId)>,
 }
 
 impl ScoringWindow {
@@ -2063,6 +2066,7 @@ impl ScoringWindow {
             event_score_limit: EventScoreLimit::OnePerPlayer,
             scored_public_this_window: std::collections::BTreeSet::new(),
             scored_secret_this_window: std::collections::BTreeSet::new(),
+            plot_card: None,
         }
     }
 
@@ -2083,7 +2087,7 @@ impl ScoringWindow {
 
     #[must_use]
     pub const fn is_complete(&self) -> bool {
-        self.pending.is_empty()
+        self.pending.is_empty() && self.plot_card.is_none()
     }
 
     /// What was scored, in resolution order.
@@ -2103,6 +2107,37 @@ impl ScoringWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Option<Choice> {
+        // Plots Within Plots, second step: the secret is scored; its owner now chooses which plot
+        // card goes into play with the other player's control token on it.
+        if let Some((owner, token)) = &self.plot_card {
+            let options: Vec<ChoiceOption> = crate::factions::firmament::remaining_cards(state)
+                .into_iter()
+                .map(|card| {
+                    ChoiceOption::labelled(
+                        card,
+                        "plot_card",
+                        format!(
+                            "place {} with {token}'s control token",
+                            crate::factions::firmament::card_name(card)
+                        ),
+                    )
+                })
+                .collect();
+            return Some(
+                Choice::new(
+                    owner.clone(),
+                    format!("place a plot card with {token}'s control token on it"),
+                    options,
+                )
+                .contextualized(DecisionContext::new(
+                    owner.clone(),
+                    DecisionSource::FactionAbility(crate::factions::firmament::PLOTS.to_owned()),
+                    "plot_card",
+                    state.phase,
+                    state.round,
+                )),
+            );
+        }
         let (_, player, available) = self.next_askable(state, content, sources)?;
         // OBS-008d2: every objective card grants exactly one victory point (LRR 98); the option
         // previews the seat's own count reaching one more, capped the same way custodians removal
@@ -2112,6 +2147,20 @@ impl ScoringWindow {
         let mut options: Vec<ChoiceOption> = available
             .into_iter()
             .map(|alias| {
+                // A plot (Plots Within Plots) scores with no victory point.
+                if let Some((secret, token)) = crate::factions::firmament::parse_option(alias.as_str())
+                {
+                    return ChoiceOption::labelled(
+                        alias.as_str(),
+                        SCORE_KIND,
+                        format!("{secret} as a plot with {token}'s control token"),
+                    )
+                    .previewed(Preview::certain(vec![Delta::new(
+                        Quantity::VictoryPoints,
+                        vp,
+                        vp,
+                    )]));
+                }
                 ChoiceOption::labelled(alias.as_str(), SCORE_KIND, alias.as_str()).previewed(
                     Preview::certain(vec![Delta::new(Quantity::VictoryPoints, vp, vp_after)]),
                 )
@@ -2207,6 +2256,24 @@ impl ScoringWindow {
                     .into_iter()
                     .map(|secret| ObjectiveId::new(secret.as_str())),
             );
+            // Plots Within Plots: secrets other players scored, which the Firmament may score too.
+            // Not subject to either per-window limit above ("does not count against ... the number
+            // you can score in a round"), so they are added after those filters.
+            available.extend(
+                crate::factions::firmament::plot_options(
+                    state,
+                    content,
+                    sources,
+                    player,
+                    self.timing,
+                    self.event_occurrence,
+                    self.galaxy.as_ref(),
+                )
+                .into_iter()
+                .map(|(secret, token)| {
+                    ObjectiveId::new(crate::factions::firmament::option_id(&secret, &token))
+                }),
+            );
             if !available.is_empty() {
                 return Some((offset, player.clone(), available));
             }
@@ -2230,6 +2297,12 @@ impl ScoringWindow {
             .pending_choice(state, content, sources)
             .ok_or(ScoringError::Complete)?;
         let option = validate(&choice, answer)?;
+        // Plots Within Plots, second step: the chosen card goes into play. No victory point and no
+        // scored objective, so nothing is reported as scored.
+        if let Some((owner, token)) = self.plot_card.take() {
+            crate::factions::firmament::place_card(state, &owner, &option.id, &token);
+            return Ok(None);
+        }
         let (offset, player, _) = self
             .next_askable(state, content, sources)
             .ok_or(ScoringError::Complete)?;
@@ -2238,6 +2311,33 @@ impl ScoringWindow {
             // Declining ends this player's whole turn in the window, both categories included --
             // the same behaviour as before 61.6's public and secret caps were tracked apart.
             let keep = self.pending.len() - offset - 1;
+            self.pending.truncate(keep);
+            return Ok(None);
+        }
+        // Plots Within Plots: a secret another player scored, scored as a plot. No victory point,
+        // and neither per-window cap is used, so this player stays in the window while anything
+        // is still on offer to them.
+        if let Some((secret, token)) = crate::factions::firmament::parse_option(&option.id) {
+            if !crate::factions::firmament::score_as_plot(state, content, &player, &secret, &token)
+            {
+                self.pending.truncate(self.pending.len() - offset - 1);
+                return Err(ScoringError::SecretAwardFailed(secret));
+            }
+            // One card left: it is placed now; several: the Firmament is asked next.
+            match crate::factions::firmament::remaining_cards(state).as_slice() {
+                [only] => {
+                    crate::factions::firmament::place_card(state, &player, only, &token);
+                }
+                _ => self.plot_card = Some((player.clone(), token)),
+            }
+            let still_has_more = self.next_askable(state, content, sources).is_some_and(
+                |(next_offset, next_player, _)| next_offset == offset && next_player == player,
+            );
+            let keep = if still_has_more {
+                self.pending.len() - offset
+            } else {
+                self.pending.len() - offset - 1
+            };
             self.pending.truncate(keep);
             return Ok(None);
         }
@@ -2290,7 +2390,23 @@ impl ScoringWindow {
                 self.pending.len() - offset - 1
             }
         } else if self.event_score_limit == EventScoreLimit::OnePerPlayer {
-            self.pending.len() - offset - 1
+            // Plots Within Plots is not subject to the one-per-player cap: the Firmament stays in
+            // the window while a plot is still on offer.
+            let plots_left = !crate::factions::firmament::plot_options(
+                state,
+                content,
+                sources,
+                &player,
+                self.timing,
+                self.event_occurrence,
+                self.galaxy.as_ref(),
+            )
+            .is_empty();
+            if plots_left {
+                self.pending.len() - offset
+            } else {
+                self.pending.len() - offset - 1
+            }
         } else {
             self.pending.len() - offset
         };
