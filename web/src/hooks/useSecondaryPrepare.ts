@@ -8,6 +8,7 @@ import type {
   SecondaryBlocker,
 } from "../protocol/types.ts";
 import type { BasketPlan, SecondaryPreviewReply } from "../protocol/client.ts";
+import { planetResourceMap } from "../presentation/PlanetResourcesContext.tsx";
 import { TOKEN_POOLS, type TokenStep } from "../presentation/commandTokens.ts";
 import type { CommandTokenDraftApi } from "../presentation/CommandTokenDraftContext.tsx";
 import {
@@ -477,12 +478,13 @@ export function useSecondaryPrepare({
     if (secondaryOpen && action) setOpenedFor(action.key);
   }, [secondaryOpen, action]);
   const applicable = secondaryOpen || (action !== null && openedFor === action.key);
+  const planetResources = useMemo(() => planetResourceMap(board), [board]);
   const resolution: StepResolution = useMemo(
     () =>
       plan && applicable
-        ? resolveStep(plan, realChoice, viewerSeat, done)
+        ? resolveStep(plan, realChoice, viewerSeat, done, planetResources)
         : { kind: "none" as const },
-    [plan, applicable, realChoice, viewerSeat, done],
+    [plan, applicable, realChoice, viewerSeat, done, planetResources],
   );
 
   /**

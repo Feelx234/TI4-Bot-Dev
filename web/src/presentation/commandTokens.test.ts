@@ -171,7 +171,7 @@ const purchaseDetails = (over: Record<string, unknown> = {}) => ({
   max: 3,
   trade_goods: 7,
   trade_good_worth: 1,
-  planets: [{ id: "jord", worth: 2 }],
+  planets: [{ id: "jord", worth: 2, resources: null }],
   ...over,
 });
 const gainBuy = (toPlace = 3, purchase = purchaseDetails()) => ({
@@ -231,15 +231,15 @@ describe("gain + buy model", () => {
   it("pays like Auto-pay: planets with the least waste, goods only when they fall short", () => {
     const view = describeCommandTokens(gainBuy(), true)!;
     expect(planPayment(view, 0)).toMatchObject({ spent: 0, extra: 0 });
-    expect(planPayment(view, 1)).toMatchObject({ planets: [{ id: "jord", worth: 2 }], tradeGoods: 1, spent: 3, extra: 0 });
+    expect(planPayment(view, 1)).toMatchObject({ planets: [{ id: "jord", worth: 2, resources: null }], tradeGoods: 1, spent: 3, extra: 0 });
     expect(planPayment(view, 3)).toMatchObject({ tradeGoods: 7, spent: 9 });
     expect(planPayment(view, 4)).toBeNull();
     const big = describeCommandTokens(
-      gainBuy(3, purchaseDetails({ planets: [{ id: "a", worth: 4 }, { id: "b", worth: 1 }], influence_available: 12, max: 4 })),
+      gainBuy(3, purchaseDetails({ planets: [{ id: "a", worth: 4, resources: null }, { id: "b", worth: 1 }], influence_available: 12, max: 4 })),
       true,
     )!;
     // 3 influence: planets a (4) over-pays by one; a+b is worse; so a alone, and one is carried.
-    expect(planPayment(big, 1)).toMatchObject({ planets: [{ id: "a", worth: 4 }], tradeGoods: 0, extra: 1 });
+    expect(planPayment(big, 1)).toMatchObject({ planets: [{ id: "a", worth: 4, resources: null }], tradeGoods: 0, extra: 1 });
   });
 
   it("totals free plus bought tokens and gates Confirm on assigning all of them", () => {
@@ -287,7 +287,7 @@ describe("gain + buy model", () => {
 
   it("carries an overpayment into the next token instead of paying twice", () => {
     const view = describeCommandTokens(
-      gainBuy(3, purchaseDetails({ planets: [{ id: "big", worth: 6 }], influence_available: 6, max: 2, trade_goods: 0 })),
+      gainBuy(3, purchaseDetails({ planets: [{ id: "big", worth: 6, resources: null }], influence_available: 6, max: 2, trade_goods: 0 })),
       true,
     )!;
     const steps = tokenPlanWithPurchase(view, staged(3, 2, 0), 2)!;
@@ -333,9 +333,9 @@ describe("payment override", () => {
       influence: 14,
       max: 4,
       planets: [
-        { id: "jord", worth: 2 },
-        { id: "arcturus", worth: 4 },
-        { id: "lodor", worth: 3 },
+        { id: "jord", worth: 2, resources: null },
+        { id: "arcturus", worth: 4, resources: null },
+        { id: "lodor", worth: 3, resources: null },
       ],
       tradeGoods: 2,
       tradeGoodWorth: 1,

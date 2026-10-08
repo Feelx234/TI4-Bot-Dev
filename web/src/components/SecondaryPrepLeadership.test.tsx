@@ -184,15 +184,17 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 describe("Leadership: preparing the exact payment", () => {
-  /** Buys one token into the fleet pool and pays jord plus a trade good instead of Auto-pay's jord and lodor. */
+  /** Planet first: picks jord, tops it up with a trade good (so one token is bought), assigns it to the fleet pool. */
   const chooseAndSave = async () => {
-    click("token-buy-plus");
-    click("token-plus-fleet");
-    // Auto-pay's plan is on the map first; the player changes it there, as in the real flow.
-    expect(screen.getByTestId("map-marks").textContent).toBe("exhaust|jord,exhaust|lodor|0");
-    click("map-toggle-lodor");
+    // Nothing is staged when the panel opens; the player starts from the planets.
+    expect(screen.getByTestId("token-buy-count").textContent).toBe("0");
+    expect(screen.getByTestId("map-marks").textContent).toBe("|0");
+    click("token-payment-planet-jord");
+    expect(screen.getByTestId("token-buy-count").textContent).toBe("0");
     click("map-goods-plus");
+    expect(screen.getByTestId("token-buy-count").textContent).toBe("1");
     expect(screen.getByTestId("map-marks").textContent).toBe("exhaust|jord|1");
+    click("token-plus-fleet");
     await act(async () => {
       click("token-confirm");
     });

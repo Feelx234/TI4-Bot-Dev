@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { ChoiceRendererModel, isDeclineOption } from "../presentation/choiceModel.ts";
@@ -44,6 +45,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
 }) => {
   const present = useParticipantText();
   const shared = useSharedPaymentDraft();
+  const resourcesOf = usePlanetResources();
   const local = usePaymentDraftState(choice.nonce);
   const { draft, setDraft, reset } = shared ?? local;
   const [running, setRunning] = useState(false);
@@ -53,7 +55,7 @@ export const PaymentBar: React.FC<PaymentBarProps> = ({
     onSubmit,
   );
 
-  const baseOffer = useMemo(() => derivePaymentOffer(choice, model), [choice, model]);
+  const baseOffer = useMemo(() => derivePaymentOffer(choice, model, resourcesOf), [choice, model, resourcesOf]);
   const tradeGoodsAvailable = player?.trade_goods ?? (baseOffer.hasTradeGoodOption ? 1 : 0);
   const production = useProductionPaymentPanel(choice, baseOffer, tradeGoodsAvailable, draft, setDraft);
   const offer = production.offer;

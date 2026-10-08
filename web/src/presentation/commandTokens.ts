@@ -26,7 +26,10 @@ const gainOptionId = (pool: TokenPool) => `${pool}_tokens`;
 /** One ready planet that can pay influence, as the engine lists it. */
 export interface PurchasePlanet {
   id: string;
+  /** Influence it pays. */
   worth: number;
+  /** Its own resource value (what exhausting it takes from production); null when not known. */
+  resources: number | null;
 }
 
 /**
@@ -76,11 +79,13 @@ const asCount = (value: unknown): number | null =>
 export function describeCommandTokens(
   choice: Pick<PendingChoiceDto, "options" | "details">,
   canBatch: boolean,
+  /** Resource value per planet id (from the board), so the flow can show and weigh resources. */
+  resourcesOf?: ReadonlyMap<string, number>,
 ): CommandTokenView | null {
   const details = choice.details;
   if (!details) return null;
   // Leadership's secondary window keeps its strategy-secondary details and adds the purchase.
-  const purchase = describePurchase(details.purchase);
+  const purchase = describePurchase(details.purchase, resourcesOf);
   const buyWindow = details.kind === "strategy_secondary" && purchase !== null;
   if (details.kind !== "command_tokens" && !buyWindow) return null;
   const pools = details.pools as Partial<Record<TokenPool, unknown>> | undefined;
@@ -132,7 +137,7 @@ export function describeCommandTokens(
   return null;
 }
 
-function describePurchase(raw: unknown): PurchaseView | null {
+function describePurchase(raw: unknown, resourcesOf?: ReadonlyMap<string, number>): PurchaseView | null {
   if (!raw || typeof raw !== "object") return null;
   const source = raw as Record<string, unknown>;
   const cost = asCount(source.cost);
@@ -146,7 +151,7 @@ function describePurchase(raw: unknown): PurchaseView | null {
     const planet = entry as Record<string, unknown>;
     const worth = asCount(planet?.worth);
     if (typeof planet?.id !== "string" || worth === null) return null;
-    planets.push({ id: planet.id, worth });
+    planets.push({ id: planet.id, worth, resources: resourcesOf?.get(planet.id) ?? null });
   }
   return { cost, influence, max, planets, tradeGoods, tradeGoodWorth };
 }
@@ -252,7 +257,7 @@ export const canConfirmTokens = (
 ): boolean =>
   (tokensToAssign(view, bought) > 0 || view.purchase !== null) &&
   confirmBlocker(view, staging, bought) === null &&
-  (bought === 0 || paymentCheck(view, bought, override).problem === null);
+  (view.purchase === null || paymentCheck(view, bought, override).problem === null);
 
 /** A step of a token batch plan, as the server's `tokens` batch kind takes it. */
 export type TokenStep =
@@ -317,6 +322,7 @@ export function planPayment(view: CommandTokenView, bought: number): PaymentPlan
     planetName: planet.id,
     worth: planet.worth,
     label: planet.id,
+    resources: planet.resources ?? undefined,
   }));
   const offer: PaymentOffer = {
     planets,
@@ -394,7 +400,20 @@ export function paymentCheck(
   const paid = plan.spent;
   const remainder = Math.max(0, bill - paid);
   const waste = Math.max(0, paid - bill);
-  if (bought === 0) return { plan, bill, paid, remainder: 0, waste: paid, problem: paid > 0 ? "No tokens are bought, so nothing is paid." : null };
+  if (bought === 0) {
+    const need = Math.max(0, purchase.cost - paid);
+    return {
+      plan,
+      bill,
+      paid,
+      remainder: 0,
+      waste: paid,
+      problem:
+        paid > 0
+          ? `Selected ${paid} influence buys no token: select ${need} more influence, or clear the selection.`
+          : null,
+    };
+  }
   let problem: string | null = null;
   if (paid < bill) {
     problem = `Short by ${bill - paid} influence: exhaust another planet or spend more trade goods.`;
@@ -528,6 +547,7 @@ export function purchaseOffer(view: CommandTokenView, bought: number): PaymentOf
       planetName: planet.id,
       worth: planet.worth,
       label: planet.id,
+      resources: planet.resources ?? undefined,
     })),
     hasTradeGoodOption: purchase.tradeGoods > 0,
     tradeGoodWorth: purchase.tradeGoodWorth,
@@ -559,32 +579,115 @@ export function paymentDraftOf(
   return { planetIds: pay.planetIds.map((id) => `exhaust|${id}`), tradeGoods: pay.tradeGoods };
 }
 
-/** A map click on a planet: starts from what is paid now (Auto-pay's plan) and flips that planet. */
-export function toggleMapPlanet(
-  view: CommandTokenView,
-  bought: number,
-  override: PaymentOverride | null,
-  planetId: string,
-): PaymentOverride | null {
-  const purchase = view.purchase;
-  if (!purchase || bought === 0 || !purchase.planets.some((planet) => planet.id === planetId)) return override;
-  const base = effectivePayment(view, bought, override);
-  const has = base.planetIds.includes(planetId);
-  return {
-    ...base,
-    planetIds: has ? base.planetIds.filter((id) => id !== planetId) : [...base.planetIds, planetId],
-  };
+/**
+ * What the player has staged for the purchase, planet first: the payment (planets and trade goods)
+ * decides how many tokens are bought. `override` null means "the suggestion for `bought` tokens"
+ * (nothing at all when `bought` is 0).
+ */
+export interface PurchaseState {
+  bought: number;
+  override: PaymentOverride | null;
 }
 
-/** Spend one trade good more or less, from what is paid now. */
-export function stepPaymentGoods(
-  view: CommandTokenView,
-  bought: number,
-  override: PaymentOverride | null,
-  delta: number,
-): PaymentOverride | null {
+export const NO_PURCHASE: PurchaseState = { bought: 0, override: null };
+
+/** Influence a payment is worth (planets plus trade goods). */
+export function paymentInfluence(view: CommandTokenView, pay: PaymentOverride): number {
   const purchase = view.purchase;
-  if (!purchase || bought === 0) return override;
-  const base = effectivePayment(view, bought, override);
-  return { ...base, tradeGoods: Math.max(0, Math.min(purchase.tradeGoods, base.tradeGoods + delta)) };
+  if (!purchase) return 0;
+  const planets = purchase.planets
+    .filter((planet) => pay.planetIds.includes(planet.id))
+    .reduce((sum, planet) => sum + planet.worth, 0);
+  const goods = Math.max(0, Math.min(purchase.tradeGoods, Math.floor(pay.tradeGoods)));
+  return planets + goods * purchase.tradeGoodWorth;
+}
+
+/** Tokens a payment buys: whole `cost`s of influence, at most what the engine allows. */
+export function purchasesFor(view: CommandTokenView, pay: PaymentOverride): number {
+  const purchase = view.purchase;
+  if (!purchase) return 0;
+  return Math.min(Math.floor(paymentInfluence(view, pay) / purchase.cost), maxPurchases(view));
+}
+
+/** A chosen payment as purchase state: the token count follows it; an empty payment is no purchase. */
+export function purchaseFromPayment(view: CommandTokenView, pay: PaymentOverride): PurchaseState {
+  if (pay.planetIds.length === 0 && pay.tradeGoods === 0) return NO_PURCHASE;
+  return { bought: purchasesFor(view, pay), override: pay };
+}
+
+/** The payment staged right now: the player's own selection, else the suggestion for `bought` tokens. */
+export function stagedPayment(view: CommandTokenView, state: PurchaseState): PaymentOverride {
+  return effectivePayment(view, state.bought, state.override);
+}
+
+/** A click on a planet (map or list): flips it in the staged payment; the token count follows. */
+export function togglePaymentPlanet(
+  view: CommandTokenView,
+  state: PurchaseState,
+  planetId: string,
+): PurchaseState {
+  const purchase = view.purchase;
+  if (!purchase || !purchase.planets.some((planet) => planet.id === planetId)) return state;
+  const base = stagedPayment(view, state);
+  const has = base.planetIds.includes(planetId);
+  return purchaseFromPayment(view, {
+    ...base,
+    planetIds: has ? base.planetIds.filter((id) => id !== planetId) : [...base.planetIds, planetId],
+  });
+}
+
+/** Spend one trade good more or less; the token count follows. */
+export function stepPaymentGoods(view: CommandTokenView, state: PurchaseState, delta: number): PurchaseState {
+  const purchase = view.purchase;
+  if (!purchase) return state;
+  const base = stagedPayment(view, state);
+  return purchaseFromPayment(view, {
+    ...base,
+    tradeGoods: Math.max(0, Math.min(purchase.tradeGoods, base.tradeGoods + delta)),
+  });
+}
+
+/** "Buy N tokens": pre-stages the suggested payment (see Auto-pay) for exactly N. */
+export function chooseTokenCount(view: CommandTokenView, count: number): PurchaseState {
+  const clamped = Math.max(0, Math.min(maxPurchases(view), Math.floor(count)));
+  return { bought: clamped, override: null };
+}
+
+/**
+ * The one-tap suggestion: the suggested planets for the tokens already bought, or for the most the
+ * seat can buy when nothing is staged.
+ */
+export function suggestedPurchase(view: CommandTokenView, state: PurchaseState): PurchaseState {
+  return chooseTokenCount(view, state.bought > 0 ? state.bought : maxPurchases(view));
+}
+
+export interface PurchaseSummary {
+  /** Influence staged (planets plus trade goods). */
+  influence: number;
+  bought: number;
+  cost: number;
+  /** Influence staged beyond what the bought tokens cost (lost; no carry beyond the last token). */
+  wasted: number;
+  /** Resources the exhausted planets would have produced (unknown planets count 0). */
+  resourcesLost: number;
+  /** More whole tokens' worth is staged than the engine allows (reinforcements or influence limits). */
+  atLimit: boolean;
+}
+
+export function purchaseSummary(view: CommandTokenView, state: PurchaseState): PurchaseSummary {
+  const purchase = view.purchase;
+  const pay = stagedPayment(view, state);
+  const influence = paymentInfluence(view, pay);
+  const cost = purchase?.cost ?? 0;
+  const resourcesLost = (purchase?.planets ?? [])
+    .filter((planet) => pay.planetIds.includes(planet.id))
+    .reduce((sum, planet) => sum + (planet.resources ?? 0), 0);
+  return {
+    influence,
+    bought: state.bought,
+    cost,
+    wasted: Math.max(0, influence - cost * state.bought),
+    resourcesLost,
+    atLimit: cost > 0 && Math.floor(influence / cost) > maxPurchases(view),
+  };
 }

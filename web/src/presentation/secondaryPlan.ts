@@ -252,6 +252,12 @@ export function ownPlanets(board: BoardView | null | undefined, seat: string | n
 }
 
 export const planetName = (planet: string): string => findPlanetMeta(planet)?.name ?? planet;
+
+/** A planet's name for lists: the catalog name, else its id as words ("dal_bootha" -> "Dal Bootha"). */
+export const planetLabel = (planet: string): string => {
+  const known = findPlanetMeta(planet)?.name;
+  return known ?? planet.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
 export const techName = (tech: string): string => getTechnologyMeta(tech).name;
 export const structureName = (unit: StructureUnit): string => (unit === "pds" ? "PDS" : "space dock");
 
@@ -304,6 +310,8 @@ export function resolveStep(
   viewerSeat: string | null | undefined,
   /** Steps of this plan already sent (a production's later offers belong to its own build queue). */
   done: ReadonlySet<string> = NOTHING_DONE,
+  /** Resource value per planet id: feeds the influence Auto-pay policy of a Leadership purchase. */
+  resourcesOf?: ReadonlyMap<string, number>,
 ): StepResolution {
   if (!plan || !choice || !viewerSeat || choice.actor !== viewerSeat) return { kind: "none" };
   const family = cardFamily(plan.card);
@@ -318,7 +326,7 @@ export function resolveStep(
         ? { kind: "option", optionId: no.id, text: `Skip the ${name} secondary` }
         : { kind: "review", reason: "Skipping is not offered any more." };
     }
-    if (family === "leadership" && plan.leadership) return resolveLeadership(plan, choice, name);
+    if (family === "leadership" && plan.leadership) return resolveLeadership(plan, choice, name, resourcesOf);
     const yes = choice.options.find(isYesOption);
     if (yes) {
       const spends = choice.details?.costs_token !== false;
@@ -439,10 +447,11 @@ function resolveLeadership(
   plan: SecondaryPlan,
   choice: PendingChoiceDto,
   name: string,
+  resourcesOf?: ReadonlyMap<string, number>,
 ): StepResolution {
   const wanted = plan.leadership!;
   const count = leadershipTokens(wanted.pools);
-  const view = describeCommandTokens(choice, true);
+  const view = describeCommandTokens(choice, true, resourcesOf);
   if (!view?.purchase) {
     // No purchase details: fall back to the plain first purchase; later prompts are answered by hand.
     const yes = choice.options.find(isYesOption);
