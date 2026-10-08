@@ -24,6 +24,36 @@ type MenuKey = "components" | "cards" | "trade";
 
 const MAX_PIPS = 12;
 
+/** The viewer's single preference for the phone layout: is the action pane minimized to a slim bar. */
+export const MINIMIZED_KEY = "ti4_action_pane_minimized";
+
+function readMinimized(): boolean {
+  try {
+    return window.localStorage.getItem(MINIMIZED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeMinimized(value: boolean): void {
+  try {
+    window.localStorage.setItem(MINIMIZED_KEY, value ? "1" : "0");
+  } catch {
+    /* storage blocked: the choice lasts until the page reloads */
+  }
+}
+
+/**
+ * Whether the bar was last shown read-only (another seat's turn). Module level so a remount between
+ * the read-only and the active bar does not forget it. Rule: the pane expands once when it turns
+ * from another seat's turn into the viewer's own, so the viewer notices; every other render, and
+ * a pane the viewer minimized during this decision, is left as it is.
+ */
+let lastShownReadOnly = false;
+export function resetActionPaneMemory(): void {
+  lastShownReadOnly = false;
+}
+
 const Pips: React.FC<{ count: number }> = ({ count }) => (
   <span className="turn-bar__pips" aria-hidden="true">
     {Array.from({ length: Math.min(Math.max(count, 0), MAX_PIPS) }, (_, i) => (
@@ -125,10 +155,28 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
   const rootRef = useRef<HTMLElement | null>(null);
   useBottomBarOffset(rootRef);
   const [open, setOpen] = useState<MenuKey | null>(null);
+  const [minimized, setMinimized] = useState<boolean>(readMinimized);
+  const bodyId = React.useId();
   const [info, setInfo] = useState<BarInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const readOnly = model.mode === "readonly";
+
+  // Minimizing only changes how the phone layout looks (CSS); the buttons stay mounted so the keys work.
+  const setPaneMinimized = useCallback((value: boolean) => {
+    setMinimized(value);
+    writeMinimized(value);
+  }, []);
+  useEffect(() => {
+    if (readOnly) {
+      lastShownReadOnly = true;
+      return;
+    }
+    if (lastShownReadOnly) {
+      lastShownReadOnly = false;
+      setPaneMinimized(false);
+    }
+  }, [readOnly, setPaneMinimized]);
 
   const submit = useCallback(
     async (optionId: string | null) => {
@@ -350,6 +398,15 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
 
   const tokens = model.tokens;
   const errorText = error ?? lastError ?? null;
+  // A rejected action must be seen: the error lives in the full pane.
+  useEffect(() => {
+    if (errorText) setMinimized(false);
+  }, [errorText]);
+  // A menu opened by key press needs the full pane too.
+  useEffect(() => {
+    if (open) setMinimized(false);
+  }, [open]);
+  const miniText = readOnly ? heading : `Your turn \u2014 ${heading.charAt(0).toLowerCase()}${heading.slice(1)}`;
   const tradeSub =
     model.trade.partners.length > 0
       ? `${model.trade.partners.length} partners · ${model.trade.available} in contact`
@@ -362,6 +419,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
       className="turn-bar"
       data-testid="turn-action-bar"
       data-mode={model.mode}
+      data-minimized={minimized ? "true" : "false"}
       aria-label="Turn actions"
     >
       {info && (
@@ -384,6 +442,23 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
 
       <div className="turn-bar__head">
         <strong data-testid="turn-bar-heading">{heading}</strong>
+        <span className="turn-bar__mini-text" data-testid="turn-bar-mini-text">
+          {miniText}
+        </span>
+        <button
+          type="button"
+          className="turn-bar__minimize"
+          data-testid="turn-bar-minimize"
+          aria-expanded={!minimized}
+          aria-controls={bodyId}
+          aria-label={minimized ? "Show actions" : "Minimize actions"}
+          title={minimized ? "Show actions" : "Minimize actions"}
+          onClick={() => setPaneMinimized(!minimized)}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+            <path d="M3 6l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
         {tokens && (
           <span className="turn-bar__pools" data-testid="turn-bar-pools">
             <span className="turn-bar__pool" data-testid="turn-bar-pool-tactic">
@@ -399,6 +474,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
         )}
       </div>
 
+      <div id={bodyId} className="turn-bar__body">
       <div className="turn-bar__actions" role="group" aria-label={`Actions: ${cardWord}`}>
         {actionBtn(model.tactical, "T")}
         {model.strategic.length === 0 ? (
@@ -573,6 +649,8 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
           {notice}
         </div>
       )}
+
+      </div>
 
       {!readOnly && (
         <div className="turn-bar__hints" aria-label="Keyboard shortcuts">
