@@ -87,11 +87,12 @@ half of the cases (opens the "Prepare your secondary" chip, answers the stand-in
 usual UI, saves the plan) and then lets Auto mode play it silently (about 90%: the decision dialog
 must not open and an "Auto-played your prepared secondary" toast appears) or confirms the "Prepared"
 bar in Review mode. `prep` counts opportunities, planned, autoPlayed, reviewConfirmed, chooseMyself,
-needsReview, fallbacks; `cases` has one line per planned case. Every deviation (Auto did not fire,
+needsReview, fallbacks, windowNeverOpened; `cases` has one line per planned case. Every deviation (Auto did not fire,
 no review bar, "Needs review", plan dropped before its window) is a finding with evidence, and the
 decision is then played normally. Known suspicion: in real games a saved plan is often dropped
 before its window opens (the case line says `plan no longer shown at decision #N`); report new
-shapes of that, do not file each occurrence.
+shapes of that, do not file each occurrence. A plan dropped because the engine skipped a secondary
+that could do nothing (the window never opened, counted as `windowNeverOpened`) is not a finding.
 
 New UI elements to watch for. A crash is not the only bug: judge what you can see, and report UI
 problems even when the game ran clean (layout glitches, overlaps, clipped or overflowing text, wrong
