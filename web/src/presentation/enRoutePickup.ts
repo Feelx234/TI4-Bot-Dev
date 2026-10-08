@@ -38,7 +38,9 @@ export function predictRouteBetween(
   if (!tiles?.length || origin === destination) return [];
   const byId = new Map(tiles.map((tile) => [tile.system_id, tile]));
   const byCoord = new Map(
-    tiles.filter((tile) => !tile.special_area).map((tile) => [`${tile.q},${tile.r}`, tile]),
+    tiles
+      .filter((tile) => !tile.special_area)
+      .map((tile) => [`${tile.q},${tile.r}`, tile]),
   );
   if (!byId.has(origin) || !byId.has(destination)) return [];
 
@@ -46,7 +48,9 @@ export function predictRouteBetween(
     const tile = byId.get(id);
     if (!tile || tile.hyperlane) return false;
     if ((tile.anomalies ?? []).some((a) => IMPASSABLE.test(a))) return false;
-    return !(board?.systems?.[id]?.units ?? []).some((u) => !u.planet && u.owner !== actor);
+    return !(board?.systems?.[id]?.units ?? []).some(
+      (u) => !u.planet && u.owner !== actor,
+    );
   };
   const neighbours = (id: string): string[] => {
     const tile = byId.get(id);
@@ -96,4 +100,14 @@ export function enRoutePickupSystems(
   return predictRouteBetween(board, origin, destination, actor).filter(
     (id) => !(board?.systems?.[id]?.command_tokens ?? []).includes(actor),
   );
+}
+
+/**
+ * Units that are transported without using a capacity slot. The engine decides this per unit with
+ * the faction hook `MovementHooks::free_cargo`; the only user is the Argent Flight's Aerie Sentinel
+ * (crates/ti4-engine/src/factions/argent.rs `free_cargo`: `type_id == "argent_mech"`). The hold
+ * payload does not carry the flag, so the UI keys on the unit type id the board reports.
+ */
+export function ridesFree(unitType: string): boolean {
+  return unitType === "argent_mech";
 }
