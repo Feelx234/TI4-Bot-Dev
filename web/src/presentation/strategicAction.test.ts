@@ -4,7 +4,7 @@ import { actionEvent, playedLog, player } from "../test/secondaryPrepFixtures.ts
 
 const primary = (cards: string[], exhausted: string[] = []) =>
   player("a", { strategy_cards: cards, exhausted_strategy_cards: exhausted });
-const base = { phase: "action", activePlayer: "a" };
+const base = { phase: "action" };
 
 describe("cardFamily", () => {
   it("maps base and Thunder's Edge cards to the printed family", () => {
@@ -55,11 +55,29 @@ describe("detectStrategicAction", () => {
     ).toBeNull();
   });
 
-  it("is not in progress when the turn moved on (cancelled action) or for other action kinds", () => {
+  it("stays the same action while followers and the primary are asked (regression: view.active_player is the asked seat)", () => {
     const players = [primary(["pok7technology"]), player("b")];
-    expect(
-      detectStrategicAction({ ...base, activePlayer: "b", events: playedLog("Technology"), players }),
-    ).toBeNull();
+    const first = detectStrategicAction({ ...base, events: playedLog("Technology"), players });
+    expect(first).not.toBeNull();
+    const later = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "a", { stage: "strategy", detail: "a researched something" }),
+      actionEvent("action_5", "b", { stage: "strategy", detail: "b followed" }),
+    ];
+    expect(detectStrategicAction({ ...base, events: later, players })?.key).toBe(first?.key);
+  });
+
+  it("is over when a Coup d'Etat cancelled it (the card stays unexhausted)", () => {
+    const players = [primary(["pok7technology"]), player("b")];
+    const events = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "b", { detail: "b played Coup d'Etat" }),
+    ];
+    expect(detectStrategicAction({ ...base, events, players })).toBeNull();
+  });
+
+  it("is not in progress for other action kinds or phases", () => {
+    const players = [primary(["pok7technology"]), player("b")];
     expect(
       detectStrategicAction({
         ...base,

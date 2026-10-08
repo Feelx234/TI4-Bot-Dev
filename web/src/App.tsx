@@ -341,7 +341,6 @@ const GameViewContainer: React.FC<{
     events,
     board: snapshot?.view.board,
     phase: snapshot?.view.phase,
-    activePlayer: snapshot?.view.active_player ?? null,
     history: gameHistory,
     realChoice: realPendingChoice,
     busy: historyBusy,

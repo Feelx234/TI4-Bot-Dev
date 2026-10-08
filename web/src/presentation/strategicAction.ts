@@ -51,9 +51,11 @@ export interface StrategicAction {
 export interface DetectInput {
   events: readonly GameEvent[] | undefined;
   players: readonly PlayerView[] | undefined;
-  activePlayer: string | null | undefined;
   phase: string | undefined;
 }
+
+/** Coup d'Etat ends the primary's turn before anything resolves; the log says who played it. */
+const COUP = /\bplayed Coup d.Etat\b/i;
 
 /**
  * Which strategic action is in progress, from data the client already receives and nothing else.
@@ -64,19 +66,21 @@ export interface DetectInput {
  * `strategic` option, and the server's detail for it is generic, so the card is then the primary
  * seat's single unexhausted strategy card.
  *
- * "In progress" means: the action phase, the latest action in the log is a strategic action by the
- * seat whose turn it is, and that seat's card is not exhausted yet (the engine exhausts it when the
- * last follower is recorded). A cancelled action (Coup d'Etat) hands the turn on, so the active
- * seat no longer matches. Known blind spot: a cancelled action followed by the same seat being up
- * again with no other event in between looks like an action still in progress.
+ * "In progress" means: the action phase, the latest action in the log is a strategic action, its
+ * primary's card is not exhausted yet (the engine exhausts it when the last follower is recorded),
+ * and nobody cancelled it with Coup d'Etat (which leaves the card unexhausted).
+ *
+ * The primary comes from the log, never from `view.active_player`: that is the seat the engine is
+ * asking right now, which is a follower, or the primary's own sub-question, during the action. Using
+ * it made the action vanish whenever a follower was asked, which dropped every prepared plan just
+ * before its window opened.
  */
 export function detectStrategicAction({
   events,
   players,
-  activePlayer,
   phase,
 }: DetectInput): StrategicAction | null {
-  if (phase !== "action" || !activePlayer || !events?.length || !players?.length) return null;
+  if (phase !== "action" || !events?.length || !players?.length) return null;
   let last: GameEvent | undefined;
   for (let i = events.length - 1; i >= 0; i--) {
     if (events[i].action_id) {
@@ -85,14 +89,18 @@ export function detectStrategicAction({
     }
   }
   if (!last?.action_id || last.action_type !== "strategic") return null;
-  if ((last.action_actor ?? last.actor) !== activePlayer) return null;
+  const primarySeat = last.action_actor ?? last.actor;
+  if (!primarySeat) return null;
   const actionId = last.action_id;
-  const primary = players.find((player) => player.id === activePlayer);
+  if (events.some((event) => event.action_id === actionId && event.detail && COUP.test(event.detail))) {
+    return null;
+  }
+  const primary = players.find((player) => player.id === primarySeat);
   if (!primary) return null;
   const unexhausted = primary.strategy_cards.filter(
     (card) => !primary.exhausted_strategy_cards.includes(card),
   );
-  const prefix = `${activePlayer} played `;
+  const prefix = `${primarySeat} played `;
   const named = events
     .filter((event) => event.action_id === actionId && event.detail?.startsWith(prefix))
     .map((event) => event.detail!.slice(prefix.length).trim())
@@ -108,10 +116,10 @@ export function detectStrategicAction({
   if (!card) return null;
   const round = last.round ?? 0;
   return {
-    key: `${round}:${actionId}:${activePlayer}:${card}`,
+    key: `${round}:${actionId}:${primarySeat}:${card}`,
     actionId,
     round,
-    primary: activePlayer,
+    primary: primarySeat,
     card,
     cardName: cardName(card),
     family: cardFamily(card),

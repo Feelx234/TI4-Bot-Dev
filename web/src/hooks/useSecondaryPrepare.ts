@@ -35,7 +35,6 @@ export interface UseSecondaryPrepareInput {
   events: readonly GameEvent[];
   board?: BoardView;
   phase?: string;
-  activePlayer?: string | null;
   history?: HistoryStatus;
   /** The engine's own pending decision (never the dry one). */
   realChoice: PendingChoiceDto | null;
@@ -64,7 +63,6 @@ export function useSecondaryPrepare({
   events,
   board,
   phase,
-  activePlayer,
   history,
   realChoice,
   busy,
@@ -73,8 +71,8 @@ export function useSecondaryPrepare({
 }: UseSecondaryPrepareInput) {
   const generation = history?.generation ?? 0;
   const action = useMemo(
-    () => detectStrategicAction({ events, players, activePlayer, phase }),
-    [events, players, activePlayer, phase],
+    () => detectStrategicAction({ events, players, phase }),
+    [events, players, phase],
   );
   const eligibility = prepareEligibility(action, viewerSeat, players, events);
   const ready = events.length > 0 && players.length > 0;
