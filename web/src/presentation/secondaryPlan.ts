@@ -58,7 +58,7 @@ export interface StoredPlan {
   v: 1;
   /** `StrategicAction.key` of the action it was made for. */
   actionKey: string;
-  /** History generation it was made in; any other generation (undo, redo, restore) voids it. */
+  /** History generation it was made in (diagnostic only: batch commits bump it mid-action). */
   generation: number;
   plan: SecondaryPlan;
 }

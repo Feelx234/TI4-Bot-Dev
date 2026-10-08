@@ -14,7 +14,16 @@ export interface UseTurnRedoOptions {
   generation: number;
   /** After the timeline was replaced by this client's own command. */
   onTimelineChanged?: () => void;
+  /**
+   * The seat this client plays. Only the redoing seat's tab asks for the auto-play at once; any
+   * other controlling tab (the host's) waits `HOST_FALLBACK_MS` and asks only if the redo is still
+   * waiting. Left out, every controlling tab asks at once.
+   */
+  viewerSeat?: string | null;
 }
+
+/** How long the host's tab waits for the redoing seat's tab before it asks for the auto-play itself. */
+export const HOST_FALLBACK_MS = 6000;
 
 export interface UseTurnRedoResult {
   status: TurnRedoStatus | null;
@@ -42,6 +51,7 @@ export function useTurnRedo({
   gameVersion,
   generation,
   onTimelineChanged,
+  viewerSeat,
 }: UseTurnRedoOptions): UseTurnRedoResult {
   const [status, setStatus] = useState<TurnRedoStatus | null>(null);
   const [busy, setBusy] = useState<TurnRedoBusy>(null);
@@ -50,10 +60,18 @@ export function useTurnRedo({
   const busyRef = useRef<TurnRedoBusy>(null);
   busyRef.current = busy;
 
+  const latestRead = useRef(0);
   const refresh = useCallback(async () => {
     if (!enabled) return;
+    const read = ++latestRead.current;
     try {
-      setStatus(await fetchStatus());
+      const next = await fetchStatus();
+      // An older response must not overwrite a newer one, and an unchanged status keeps its
+      // identity, so the bar does not re-render (and its buttons do not flicker) for nothing.
+      if (read !== latestRead.current) return;
+      setStatus((previous) =>
+        JSON.stringify(previous) === JSON.stringify(next) ? previous : next,
+      );
     } catch {
       // A status that cannot be read (an older server, a dropped request) is not a redo that is
       // not happening, and not worth a banner of its own: keep what we know and try again on the
@@ -96,19 +114,38 @@ export function useTurnRedo({
 
   const autoplay = useCallback(() => void run("autoplay", { action: "autoplay" }), [run]);
 
-  // The new turn is complete: ask the server to replay the round, once per game version.
+  // The new turn is complete: ask the server to replay the round, once per game version. The
+  // redoing seat's tab asks at once; the host's tab only as a fallback after a delay, so the two do
+  // not race (the loser used to get a 409 or a 400 on every redo). The server also treats a repeat
+  // as a no-op, so a race that still happens is harmless.
+  const gameVersionRef = useRef(gameVersion);
+  gameVersionRef.current = gameVersion;
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  const waiting =
+    status?.stage === "new_turn" && status.turn_complete && status.can_control ? status.seat : null;
+  const mine = waiting !== null && (viewerSeat === undefined || viewerSeat === waiting);
   useEffect(() => {
-    if (
-      status?.stage === "new_turn" &&
-      status.turn_complete &&
-      status.can_control &&
-      !busyRef.current &&
-      autoplayedAt.current !== gameVersion
-    ) {
-      autoplayedAt.current = gameVersion;
+    if (waiting === null) return;
+    const ask = () => {
+      const current = statusRef.current;
+      if (
+        current?.stage !== "new_turn" ||
+        !current.turn_complete ||
+        busyRef.current ||
+        autoplayedAt.current === gameVersionRef.current
+      )
+        return;
+      autoplayedAt.current = gameVersionRef.current;
       void run("autoplay", { action: "autoplay" }, true);
+    };
+    if (mine) {
+      ask();
+      return;
     }
-  }, [status, gameVersion, run]);
+    const timer = setTimeout(ask, HOST_FALLBACK_MS);
+    return () => clearTimeout(timer);
+  }, [waiting, mine, gameVersion, run]);
 
   return {
     status,

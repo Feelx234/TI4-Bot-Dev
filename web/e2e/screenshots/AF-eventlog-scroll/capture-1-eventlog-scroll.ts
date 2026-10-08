@@ -37,7 +37,7 @@ const decision = (n: number, round: number, phase: string, extra: Partial<GameEv
   ({
     id: `g-${n}`,
     timestamp: "10:05",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     round,
     phase,
@@ -47,12 +47,12 @@ const decision = (n: number, round: number, phase: string, extra: Partial<GameEv
     ...extra,
   }) as GameEvent;
 const marker = (id: string, round: number, phase: string): GameEvent =>
-  ({ id, visibility: "public", event: { kind: "phase_transition", round, phase } }) as GameEvent;
+  ({ id, visibility: { visibility: "public" as const }, event: { kind: "phase_transition", round, phase } }) as GameEvent;
 
 /** Round 1: 40 decisions in the action phase; round 2: 30 decisions. */
 function history(): GameEvent[] {
   const out: GameEvent[] = [
-    { id: "init", visibility: "public", event: { kind: "game_initialized", round: 1, phase: "action", speaker: actor } } as GameEvent,
+    { id: "init", visibility: { visibility: "public" as const }, event: { kind: "game_initialized", round: 1, phase: "action", speaker: actor } } as GameEvent,
   ];
   let n = 0;
   for (let i = 0; i < 40; i++) out.push(decision(++n, 1, "action"));

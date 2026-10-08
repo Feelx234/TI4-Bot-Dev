@@ -23,7 +23,7 @@ const sabotageOffer = (subtype = "reaction_when_ACTION_CARD_PLAYED"): PendingCho
 });
 
 const logEntry = (actor: string, detail: string): GameEvent => ({
-  visibility: "public",
+  visibility: { visibility: "public" as const },
   id: "e1",
   timestamp: "t",
   actor,

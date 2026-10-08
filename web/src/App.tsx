@@ -344,6 +344,7 @@ const GameViewContainer: React.FC<{
     command: turnRedoCommand,
     gameVersion,
     generation: gameHistory.generation ?? 0,
+    viewerSeat: userSeat,
     onTimelineChanged: () => {
       setSelectedOptionId(undefined);
       setSelectedPlanetId(null);
@@ -362,7 +363,6 @@ const GameViewContainer: React.FC<{
     events,
     board: snapshot?.view.board,
     phase: snapshot?.view.phase,
-    activePlayer: snapshot?.view.active_player ?? null,
     history: gameHistory,
     realChoice: realPendingChoice,
     busy: historyBusy,

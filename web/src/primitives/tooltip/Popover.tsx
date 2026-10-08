@@ -73,13 +73,25 @@ export const Popover: React.FC<PopoverProps> = ({
       if (!trigger || !card) return;
       const margin = 8;
       const roomBelow = window.innerHeight - trigger.bottom - margin;
-      const above = roomBelow < card.height && trigger.top - margin > roomBelow;
-      const top = above ? trigger.top - card.height - 6 : trigger.bottom + 6;
-      const left = Math.min(
+      const roomAbove = trigger.top - margin;
+      const above = roomBelow < card.height && roomAbove > roomBelow;
+      let top = above ? trigger.top - card.height - 6 : trigger.bottom + 6;
+      let left = Math.min(
         Math.max(margin, trigger.left + trigger.width / 2 - card.width / 2),
         Math.max(margin, window.innerWidth - card.width - margin),
       );
-      setFixedPlace({ left, top: Math.max(margin, top) });
+      if (roomBelow < card.height && roomAbove < card.height) {
+        // Neither side has room for the whole card. Put it beside the trigger when there is width for
+        // that (it then never covers the trigger, so a pointer resting on the trigger cannot reopen
+        // it after Escape), else overlap. Either way its bottom edge stays on screen.
+        const roomRight = window.innerWidth - trigger.right - margin;
+        const roomLeft = trigger.left - margin;
+        if (roomRight >= card.width) left = trigger.right + 6;
+        else if (roomLeft >= card.width) left = trigger.left - card.width - 6;
+        top = trigger.top;
+      }
+      const fit = Math.min(top, window.innerHeight - card.height - margin);
+      setFixedPlace({ left, top: Math.max(margin, fit) });
     };
     place();
     window.addEventListener("resize", place);

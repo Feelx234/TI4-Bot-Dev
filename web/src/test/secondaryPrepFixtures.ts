@@ -41,7 +41,7 @@ export function actionEvent(
   return {
     id: `e${counter}`,
     timestamp: "2026-10-07T00:00:00Z",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     action_id: actionId,
     action_type: "strategic",

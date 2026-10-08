@@ -4,7 +4,7 @@ import { actionEvent, playedLog, player } from "../test/secondaryPrepFixtures.ts
 
 const primary = (cards: string[], exhausted: string[] = []) =>
   player("a", { strategy_cards: cards, exhausted_strategy_cards: exhausted });
-const base = { phase: "action", activePlayer: "a" };
+const base = { phase: "action" };
 
 describe("cardFamily", () => {
   it("maps base and Thunder's Edge cards to the printed family", () => {
@@ -55,11 +55,41 @@ describe("detectStrategicAction", () => {
     ).toBeNull();
   });
 
-  it("is not in progress when the turn moved on (cancelled action) or for other action kinds", () => {
+  it("stays the same action while followers and the primary are asked (regression: view.active_player is the asked seat)", () => {
     const players = [primary(["pok7technology"]), player("b")];
-    expect(
-      detectStrategicAction({ ...base, activePlayer: "b", events: playedLog("Technology"), players }),
-    ).toBeNull();
+    const first = detectStrategicAction({ ...base, events: playedLog("Technology"), players });
+    expect(first).not.toBeNull();
+    const later = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "a", { stage: "strategy", detail: "a researched something" }),
+      actionEvent("action_5", "b", { stage: "strategy", detail: "b followed" }),
+    ];
+    expect(detectStrategicAction({ ...base, events: later, players })?.key).toBe(first?.key);
+  });
+
+  it("keeps its key when the latest event of the action carries no round (seen in real games: the plan was dropped)", () => {
+    const players = [primary(["pok7technology"]), player("b")];
+    const first = detectStrategicAction({ ...base, events: playedLog("Technology"), players });
+    const later = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "b", { stage: "strategy", detail: "b followed", round: undefined }),
+    ];
+    const next = detectStrategicAction({ ...base, events: later, players });
+    expect(next?.key).toBe(first?.key);
+    expect(next?.round).toBe(2);
+  });
+
+  it("is over when a Coup d'Etat cancelled it (the card stays unexhausted)", () => {
+    const players = [primary(["pok7technology"]), player("b")];
+    const events = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "b", { detail: "b played Coup d'Etat" }),
+    ];
+    expect(detectStrategicAction({ ...base, events, players })).toBeNull();
+  });
+
+  it("is not in progress for other action kinds or phases", () => {
+    const players = [primary(["pok7technology"]), player("b")];
     expect(
       detectStrategicAction({
         ...base,
@@ -96,6 +126,10 @@ describe("prepareEligibility", () => {
     const asked = [...events, actionEvent("action_5", "b", { detail: "b followed" })];
     expect(prepareEligibility(action, "b", players, asked).reason).toBe("asked");
     expect(prepareEligibility(null, "b", players, events).canPrepare).toBe(false);
+  });
+  it("counts a follower's own answer that carries no action id (real servers omit it)", () => {
+    const answered = [...events, actionEvent("action_5", "b", { action_id: undefined, detail: undefined })];
+    expect(prepareEligibility(action, "b", players, answered).reason).toBe("asked");
   });
   it("lets Leadership be prepared without a token", () => {
     const leadershipPlayers = [primary(["pok1leadership"]), player("c", { strategic_tokens: 0 })];

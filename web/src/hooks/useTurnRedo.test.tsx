@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { useTurnRedo } from "./useTurnRedo.ts";
-import type { TurnRedoStatus } from "../protocol/turnRedo.ts";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { HOST_FALLBACK_MS, useTurnRedo } from "./useTurnRedo.ts";
+import type { TurnRedoCommand, TurnRedoStatus } from "../protocol/turnRedo.ts";
 
 const base: TurnRedoStatus = {
   seat: "p2",
@@ -84,5 +84,95 @@ describe("useTurnRedo", () => {
     await waitFor(() => expect(command).toHaveBeenCalledWith({ action: "restore" }));
     await act(async () => hook.result.current.keep());
     await waitFor(() => expect(command).toHaveBeenCalledWith({ action: "keep" }));
+  });
+
+  describe("one tab asks for the auto-play", () => {
+    afterEach(() => vi.useRealTimers());
+    const complete: TurnRedoStatus = { ...base, turn_complete: true };
+    const renderFor = (viewerSeat: string, command: (c: TurnRedoCommand) => Promise<void>) =>
+      renderHook(() =>
+        useTurnRedo({
+          enabled: true,
+          fetchStatus: async () => complete,
+          command,
+          gameVersion: 5,
+          generation: 0,
+          viewerSeat,
+        }),
+      );
+
+    it("the redoing seat's tab asks at once", async () => {
+      const command = vi.fn().mockResolvedValue(undefined);
+      renderFor("p2", command);
+      await waitFor(() => expect(command).toHaveBeenCalledWith({ action: "autoplay" }));
+    });
+
+    it("the host's tab waits, then asks only if the redo is still waiting", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const command = vi.fn().mockResolvedValue(undefined);
+      const hook = renderFor("host", command);
+      await vi.waitFor(() => expect(hook.result.current.status).not.toBeNull());
+      await act(async () => {
+        vi.advanceTimersByTime(HOST_FALLBACK_MS - 100);
+      });
+      expect(command).not.toHaveBeenCalled();
+      await act(async () => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(command).toHaveBeenCalledTimes(1);
+    });
+
+    it("the host's tab stays quiet when the redo moved on before the delay ran out", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const command = vi.fn().mockResolvedValue(undefined);
+      let status: TurnRedoStatus = complete;
+      const { result, rerender } = renderHook(
+        (props: { gameVersion: number }) =>
+          useTurnRedo({
+            enabled: true,
+            fetchStatus: async () => status,
+            command,
+            generation: 0,
+            viewerSeat: "host",
+            ...props,
+          }),
+        { initialProps: { gameVersion: 5 } },
+      );
+      await vi.waitFor(() => expect(result.current.status).not.toBeNull());
+      status = { ...complete, stage: "auto_played" };
+      rerender({ gameVersion: 6 });
+      await vi.waitFor(() => expect(result.current.status?.stage).toBe("auto_played"));
+      await act(async () => {
+        vi.advanceTimersByTime(HOST_FALLBACK_MS + 500);
+      });
+      expect(command).not.toHaveBeenCalled();
+    });
+  });
+
+  it("keeps the status object (no re-render) when a re-read returns the same status", async () => {
+    const { hook } = setup([base, { ...base }]);
+    await waitFor(() => expect(hook.result.current.status).toEqual(base));
+    const first = hook.result.current.status;
+    hook.rerender({ gameVersion: 6, generation: 0 });
+    await waitFor(() => expect(hook.result.current.status).toEqual(base));
+    expect(hook.result.current.status).toBe(first);
+  });
+
+  it("does not let an older status response overwrite a newer one", async () => {
+    let resolveFirst!: (value: TurnRedoStatus | null) => void;
+    const first = new Promise<TurnRedoStatus | null>((resolve) => (resolveFirst = resolve));
+    const fetchStatus = vi
+      .fn()
+      .mockReturnValueOnce(first)
+      .mockResolvedValue({ ...base, stage: "auto_played" });
+    const hook = renderHook(
+      (props: { generation: number }) =>
+        useTurnRedo({ enabled: true, fetchStatus, command: vi.fn(), gameVersion: 5, ...props }),
+      { initialProps: { generation: 0 } },
+    );
+    hook.rerender({ generation: 1 });
+    await waitFor(() => expect(hook.result.current.status?.stage).toBe("auto_played"));
+    await act(async () => resolveFirst(base));
+    expect(hook.result.current.status?.stage).toBe("auto_played");
   });
 });

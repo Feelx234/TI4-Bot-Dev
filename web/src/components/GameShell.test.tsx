@@ -373,7 +373,7 @@ describe("GameShell", () => {
         timestamp: "00:00",
         version: 1,
         decision_count: 0,
-        visibility: "public" as const,
+        visibility: { visibility: "public" as const },
         event: { kind: "game_initialized" as const, round: 1, phase: "strategy", speaker: "p1" },
       },
       {
@@ -381,7 +381,7 @@ describe("GameShell", () => {
         timestamp: "00:01",
         version: 2,
         decision_count: 1,
-        visibility: "public" as const,
+        visibility: { visibility: "public" as const },
         event: { kind: "decision_resolved" as const },
       },
       {
@@ -389,7 +389,7 @@ describe("GameShell", () => {
         timestamp: "00:02",
         version: 3,
         decision_count: 2,
-        visibility: "public" as const,
+        visibility: { visibility: "public" as const },
         event: { kind: "decision_resolved" as const },
       },
     ];

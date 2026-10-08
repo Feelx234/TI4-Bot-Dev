@@ -8,7 +8,7 @@ const ev = (id: string, actor: string, detail: string): GameEvent =>
   ({
     id,
     timestamp: "1",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     actor,
     detail: `${actor} ${detail}`,

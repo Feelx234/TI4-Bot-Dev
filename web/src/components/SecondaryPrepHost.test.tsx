@@ -41,7 +41,6 @@ interface HarnessProps {
   events?: GameEvent[];
   board?: BoardView;
   phase?: string;
-  activePlayer?: string | null;
   history?: HistoryStatus;
   choice?: PendingChoiceDto | null;
   submit: (optionId: string) => Promise<void>;
@@ -60,7 +59,6 @@ const Harness: React.FC<HarnessProps> = (p) => {
     events: p.events ?? playedLog("Technology"),
     board,
     phase: p.phase ?? "action",
-    activePlayer: p.activePlayer === undefined ? "a" : p.activePlayer,
     history: p.history ?? hist(5),
     realChoice: p.choice ?? null,
     submitChoice: p.submit,
@@ -159,7 +157,6 @@ describe("waiting: the chip", () => {
       { players: players("pok7technology", { strategic_tokens: 0 }) },
       { events: [...playedLog("Technology"), actionEvent("action_5", "b", { detail: "b followed" })] },
       { events: [] },
-      { activePlayer: "b" },
       { phase: "status" },
     ];
     for (const over of hidden) {
@@ -302,21 +299,39 @@ describe("invalidation", () => {
     const { again } = prepared();
     again({
       events: [...playedLog("Technology"), actionEvent("action_9", "c", { action_actor: "c", detail: "c played Politics" })],
-      activePlayer: "c",
       players: [player("a"), player("b"), player("c", { strategy_cards: ["pok3politics"] })],
     });
     expect(plan()).toBeUndefined();
   });
 
-  it("drops the plan when the action is cancelled (the turn moves on)", () => {
+  it("drops the plan when the action is cancelled (Coup d'Etat)", () => {
     const { again } = prepared();
-    again({ activePlayer: "c" });
+    again({ events: [...playedLog("Technology"), actionEvent("action_5", "c", { detail: "c played Coup d'Etat" })] });
     expect(plan()).toBeUndefined();
   });
 
-  it("drops the plan when history changes generation (undo past the action)", async () => {
+  it("keeps the plan through the same action's later decisions of other seats", () => {
+    const { again } = prepared();
+    expect(plan()).toBeDefined();
+    again({
+      events: [
+        ...playedLog("Technology"),
+        actionEvent("action_5", "a", { stage: "strategy", detail: "a researched" }),
+        actionEvent("action_5", "c", { stage: "strategy", detail: "c followed" }),
+      ],
+    });
+    expect(plan()).toBeDefined();
+  });
+
+  it("keeps the plan when a batch commit bumps the history generation mid-action", async () => {
     const { again } = prepared();
     again({ history: hist(3, 1) });
+    expect(plan()).toBeDefined();
+  });
+
+  it("drops the plan when an undo took the action out of the log", async () => {
+    const { again } = prepared();
+    again({ history: hist(3, 1), events: [actionEvent("action_3", "a", { action_type: "tactical" })] });
     expect(plan()).toBeUndefined();
   });
 });

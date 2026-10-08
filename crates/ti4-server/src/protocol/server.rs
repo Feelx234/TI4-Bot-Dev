@@ -1288,6 +1288,21 @@ mod fact_tests {
         );
     }
 
+    /// The web client decodes this exact file (web/src/protocol/eventVisibility.test.ts).
+    #[test]
+    fn event_visibility_wire_shape_matches_the_client_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../fixtures/event_visibility.json")).unwrap();
+        let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
+        assert_eq!(events[0].visibility, EventVisibility::Public);
+        assert_eq!(
+            events[1].visibility,
+            EventVisibility::Seat(PlayerId::new("p1"))
+        );
+        assert_eq!(events[2].visibility, EventVisibility::Referee);
+        assert_eq!(serde_json::to_value(&events).unwrap(), fixture);
+    }
+
     #[test]
     fn secret_facts_are_projected_only_to_the_actor() {
         let secret =

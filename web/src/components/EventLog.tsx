@@ -1,3 +1,4 @@
+import { isPublicEvent, visibilityKind } from "../protocol/eventVisibility.ts";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { GameLogEntry, HistoryChange } from "../protocol/client.ts";
 import { CurrentLogPath } from "../protocol/types.ts";
@@ -454,9 +455,9 @@ export const EventLog: React.FC<EventLogProps> = ({
               );
             })}
           </span>
-          {entry.visibility !== "public" && (
+          {!isPublicEvent(entry) && (
             <span className="event-log__private">
-              {entry.visibility === "seat" ? "Private" : "Referee"}
+              {visibilityKind(entry.visibility) === "seat" ? "Private" : "Referee"}
             </span>
           )}
           {entry.timestamp && <time className="event-log__meta">{entry.timestamp}</time>}

@@ -96,10 +96,18 @@ describe("usePreparedPlan", () => {
     expect(loadPlan("g1", "b")).toBeNull();
   });
 
-  it("is dropped by undo, redo or restore (history generation change)", () => {
+  it("survives a history generation change while the same action is in progress (a committed batch replaces the session)", () => {
     const hook = setup({ actionKey: "k1", generation: 2 });
     act(() => hook.result.current.set(plan));
     hook.rerender({ actionKey: "k1", generation: 3 });
+    expect(hook.result.current.plan).toEqual(plan);
+    expect(loadPlan("g1", "b")?.plan).toEqual(plan);
+  });
+
+  it("is dropped when an undo, redo or restore removed the action from the log", () => {
+    const hook = setup({ actionKey: "k1", generation: 2 });
+    act(() => hook.result.current.set(plan));
+    hook.rerender({ actionKey: null, generation: 3 });
     expect(hook.result.current.plan).toBeNull();
     expect(loadPlan("g1", "b")).toBeNull();
   });

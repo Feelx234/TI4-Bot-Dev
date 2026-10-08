@@ -347,6 +347,19 @@ fn a_new_turn_then_autoplay_keeps_the_round_and_a_second_redo_keeps_the_first_or
         .expect("autoplay");
     let session = t.session();
     assert!(session.game_version() > version);
+    // A duplicate auto-play (another tab asking for the same round) is not an error, with the
+    // stale version or the current one, and applies nothing a second time.
+    let after = session.game_version();
+    let log_after = json_of(&session.decision_log());
+    for expected in [version, after] {
+        let again = t
+            .registry
+            .turn_redo_autoplay(&t.id, &t.host_token, expected)
+            .expect("a duplicate auto-play is idempotent");
+        assert_eq!(again.game_version, after);
+    }
+    assert_eq!(t.session().game_version(), after);
+    assert_eq!(json_of(&t.session().decision_log()), log_after);
     let status = t
         .status(&t.host_token)
         .expect("still restorable at the hand-off");

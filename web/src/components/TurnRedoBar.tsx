@@ -108,7 +108,9 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
     state = "replaying";
     title = "Replaying the round…";
     detail = `${name(status.seat)}'s new turn is done. The recorded decisions that followed are being replayed, with the original dice and the cards they drew, up to ${name(status.seat)}'s next turn.`;
-    actions = busy ? "none" : "replay";
+    // Restore stays while the replay request runs (disabled): taking it away and putting it back made
+    // it flicker, and a click aimed at it could land on a detached element.
+    actions = "replay";
   } else if (status.stage === "new_turn") {
     state = "new-turn";
     title = `Redoing ${name(status.seat)}'s ${status.turns_back === 2 ? "last two turns" : "last turn"}`;
@@ -155,7 +157,7 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
       </div>
       {control && (
         <div className="turn-redo__actions">
-          {actions === "replay" && (
+          {actions === "replay" && busy === null && (
             <button
               type="button"
               className="button button--secondary button--sm"

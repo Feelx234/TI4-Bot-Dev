@@ -11,7 +11,7 @@ function ev(actionId: string, actionActor: string, actor: string, what?: string,
   return {
     id: `h${n}`,
     timestamp: "1",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     action_id: actionId,
     action_actor: actionActor,

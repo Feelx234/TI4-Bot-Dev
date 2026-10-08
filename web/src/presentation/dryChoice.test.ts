@@ -12,7 +12,7 @@ const actionFor = (card: string, name: string) => {
   const players = [player("a", { strategy_cards: [card] }), player("b")];
   return {
     players,
-    action: detectStrategicAction({ events: playedLog(name), players, activePlayer: "a", phase: "action" })!,
+    action: detectStrategicAction({ events: playedLog(name), players, phase: "action" })!,
   };
 };
 

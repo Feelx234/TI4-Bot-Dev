@@ -1,3 +1,4 @@
+import { isPublicEvent } from "../protocol/eventVisibility.ts";
 import type { GameEvent } from "../protocol/types.ts";
 
 /**
@@ -34,7 +35,7 @@ export interface TurnRecap {
 }
 
 const isPublicDecision = (e: GameEvent) =>
-  e.visibility === "public" && e.event.kind === "decision_resolved";
+  isPublicEvent(e) && e.event.kind === "decision_resolved";
 
 const isSelection = (e: GameEvent) => e.stage === "action selection" && Boolean(e.action_type);
 
@@ -63,7 +64,7 @@ export function trackTurns(
     current = null;
   };
   for (const e of fresh) {
-    if (e.visibility === "public" && e.event.kind !== "decision_resolved") {
+    if (isPublicEvent(e) && e.event.kind !== "decision_resolved") {
       // Phase change or game end: nothing continues.
       if (e.event.kind === "phase_transition" || e.event.kind === "game_finished") close();
       continue;

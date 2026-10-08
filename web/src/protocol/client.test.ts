@@ -151,7 +151,7 @@ describe("GameSessionClient reducer", () => {
     const events = Array.from({ length: 510 }, (_, index) => ({
       id: String(index),
       timestamp: "",
-      visibility: "public" as const,
+      visibility: { visibility: "public" as const },
       event: { kind: "decision_resolved" as const },
       decision_count: index + 1,
       batch_id: index >= 5 && index < 20 ? "basket" : undefined,
@@ -191,14 +191,14 @@ describe("GameSessionClient reducer", () => {
             {
               id: "one",
               timestamp: "",
-              visibility: "public",
+              visibility: { visibility: "public" as const },
               decision_count: 1,
               event: { kind: "decision_resolved" },
             },
             {
               id: "two",
               timestamp: "",
-              visibility: "public",
+              visibility: { visibility: "public" as const },
               decision_count: 2,
               event: { kind: "decision_resolved" },
             },

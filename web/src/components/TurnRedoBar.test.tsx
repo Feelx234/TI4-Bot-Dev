@@ -68,6 +68,26 @@ describe("TurnRedoBar", () => {
     expect(bar).toHaveAttribute("aria-busy", "true");
     expect(bar.textContent).toMatch(/Replaying the round/);
     expect(screen.queryByTestId("turn-redo-replay")).toBeNull();
+    // Restore stays (disabled) instead of leaving the bar while the request runs.
+    expect(screen.getByTestId("turn-redo-restore")).toBeDisabled();
+  });
+
+  it("keeps the very same Restore element while a replay starts and ends (no remount, no flicker)", () => {
+    const status = { ...base, turn_complete: true };
+    const view = renderBar(status);
+    const restore = screen.getByTestId("turn-redo-restore");
+    view.rerender(
+      <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2", "p3"]}>
+        <TurnRedoBar status={status} busy="autoplay" error={null} {...handlers} />
+      </PlayerIdentityProvider>,
+    );
+    expect(screen.getByTestId("turn-redo-restore")).toBe(restore);
+    view.rerender(
+      <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2", "p3"]}>
+        <TurnRedoBar status={{ ...status }} busy={null} error={null} {...handlers} />
+      </PlayerIdentityProvider>,
+    );
+    expect(screen.getByTestId("turn-redo-restore")).toBe(restore);
   });
 
   it("offers a manual replay when the new turn is done and nothing is running", () => {

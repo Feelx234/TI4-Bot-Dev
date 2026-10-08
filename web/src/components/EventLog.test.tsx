@@ -8,7 +8,7 @@ import type { LobbyDto } from "../protocol/types.ts";
 const decision = (cursor: number, stage = "movement", actor = "p1"): GameLogEntry => ({
   id: `event-${cursor}`,
   timestamp: "12:00",
-  visibility: "public",
+  visibility: { visibility: "public" as const },
   decision_count: cursor,
   round: 1,
   phase: "action",
@@ -36,8 +36,7 @@ describe("hierarchical event log", () => {
       {
         ...decision(1),
         id: "private-1",
-        visibility: "seat" as const,
-        seat: "p1",
+        visibility: { visibility: "seat" as const, seat: "p1" },
         private_detail: "Only P1",
       },
       decision(2, "combat", "p2"),
