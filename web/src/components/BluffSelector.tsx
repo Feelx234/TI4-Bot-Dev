@@ -73,18 +73,20 @@ export function bluffLockedReason(
 export const BluffSelector: React.FC<BluffSelectorProps> = ({ controls, cardsCount, neverMode }) => {
   const { intent, onChange } = controls;
   const serverSet = intent ? intent.triggers : controls.stored;
-  const [pending, setPending] = useState<string[] | null>(null);
-  // The server's answer replaces whatever was shown while waiting for it.
-  useEffect(() => setPending(null), [intent]);
-  const declared = pending ?? serverSet;
+  // The picks being made; nothing is sent until "Declare", because a declaration can change only
+  // once per round and a single pick must not use that up.
+  const [draft, setDraft] = useState<string[] | null>(null);
+  // The server's answer replaces the draft.
+  useEffect(() => setDraft(null), [intent]);
+  const declared = draft ?? serverSet;
+  const dirty =
+    draft !== null &&
+    (draft.length !== serverSet.length || draft.some((id) => !serverSet.includes(id)));
   const max = intent?.max_triggers ?? 3;
   const off = bluffDisabledReason(controls, cardsCount, neverMode);
   const locked = bluffLockedReason(controls);
   const frozen = off !== null || locked !== null;
-  const change = (next: string[]) => {
-    setPending(next);
-    onChange(next);
-  };
+  const pick = (next: string[]) => setDraft(next);
   return (
     <details
       data-testid="bluff-selector"
@@ -142,7 +144,7 @@ export const BluffSelector: React.FC<BluffSelectorProps> = ({ controls, cardsCou
                 checked={checked}
                 disabled={disabled}
                 onChange={() =>
-                  change(
+                  pick(
                     checked
                       ? declared.filter((id) => id !== trigger.id)
                       : [...declared, trigger.id],
@@ -153,18 +155,33 @@ export const BluffSelector: React.FC<BluffSelectorProps> = ({ controls, cardsCou
             </label>
           );
         })}
-        {declared.length > 0 && (
+        <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
-            className="button button--secondary"
-            data-testid="bluff-clear"
-            // Clearing is always allowed, even while the declaration is locked.
-            onClick={() => change([])}
-            style={{ justifySelf: "start" }}
+            className="button button--primary"
+            data-testid="bluff-declare"
+            disabled={frozen || !dirty || declared.length === 0}
+            title={
+              frozen
+                ? (off ?? locked ?? undefined)
+                : "Declare these moments. You can change them again next round."
+            }
+            onClick={() => onChange(declared)}
           >
-            Clear
+            Declare
           </button>
-        )}
+          {serverSet.length > 0 && (
+            <button
+              type="button"
+              className="button button--secondary"
+              data-testid="bluff-clear"
+              // Clearing is always allowed, even while the declaration is locked.
+              onClick={() => onChange([])}
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
     </details>
   );

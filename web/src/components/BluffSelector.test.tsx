@@ -35,12 +35,15 @@ const box = (id: string) => screen.getByTestId(`bluff-trigger-${id}`) as HTMLInp
 describe("BluffSelector", () => {
   beforeEach(() => localStorage.clear());
 
-  it("declares the picked moments as a whole set", () => {
+  it("sends the picked moments as one whole set only when declared", () => {
     const c = controls();
     render(<BluffSelector controls={c} cardsCount={2} neverMode={false} />);
+    expect((screen.getByTestId("bluff-declare") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(box("agenda"));
-    expect(c.onChange).toHaveBeenLastCalledWith(["agenda"]);
     fireEvent.click(box("movement"));
+    expect(c.onChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("bluff-declare"));
+    expect(c.onChange).toHaveBeenCalledTimes(1);
     expect(c.onChange).toHaveBeenLastCalledWith(["agenda", "movement"]);
     expect(screen.getByTestId("bluff-selector").dataset.state).toBe("open");
   });
@@ -76,6 +79,7 @@ describe("BluffSelector", () => {
     expect(screen.getByTestId("bluff-selector").dataset.state).toBe("locked");
     expect(screen.getByTestId("bluff-locked-reason").textContent).toMatch(/round 3/);
     expect(box("production").disabled).toBe(true);
+    expect((screen.getByTestId("bluff-declare") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByTestId("bluff-clear"));
     expect(c.onChange).toHaveBeenCalledWith([]);
   });
