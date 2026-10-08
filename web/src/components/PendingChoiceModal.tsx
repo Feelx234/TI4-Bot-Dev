@@ -35,6 +35,7 @@ import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
 import { describeOfferCard } from "../presentation/offerCard.ts";
 import { OfferCardPanel } from "./OfferCardPanel.tsx";
 import { describeVoteGoods } from "../presentation/voteGoods.ts";
+import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { VoteGoodsPanel } from "./VoteGoodsPanel.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
@@ -70,6 +71,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   boardView,
 }) => {
   const present = useParticipantText();
+  const planetResources = usePlanetResources();
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>("");
   const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -191,7 +193,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   // Minimized floating banner allowing inspection of map, players, and tables
   if (isMinimized) {
     // Leadership's purchase is paid by clicking planets on the map; this bar confirms it.
-    const minimizedTokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
+    const minimizedTokens = describeCommandTokens(choice, Boolean(onSubmitBatch), planetResources);
     if (minimizedTokens?.purchase) {
       return (
         <TokenPaymentBar
@@ -227,7 +229,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     : choice.options.some((opt) => opt.id === selectedOptionId);
 
   // Leadership's secondary window plans its purchase on the token panel instead.
-  const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch));
+  const tokens = describeCommandTokens(choice, Boolean(onSubmitBatch), planetResources);
   const secondary = tokens ? null : describeStrategySecondary(choice);
   const replenish = tokens || secondary ? null : describeTradeReplenish(choice);
   const abilityOffer = tokens || secondary || replenish ? null : describeAbilityOffer(choice);

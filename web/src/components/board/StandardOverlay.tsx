@@ -147,44 +147,57 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
               </text>
             )}
 
-            {mark && isCandidateTarget && (
-              <g
-                data-testid={`payment-mark-${p.id}`}
-                pointerEvents="none"
-                role="img"
-                aria-label={`${mark.staged ? "Staged: " : ""}${valueLabel(valueKind(mark.unit), mark.worth)}`}
-              >
-                <title>{valueLabel(valueKind(mark.unit), mark.worth)}</title>
-                <rect
-                  x={pX - 22}
-                  y={pY - planetRadius - 23}
-                  width={44}
-                  height={16}
-                  rx={8}
-                  fill={mark.staged ? "#166534" : "#0c4a6e"}
-                  stroke={mark.staged ? "#4ade80" : "#38bdf8"}
-                  strokeWidth={1.5}
-                />
-                <PlanetValueGlyph
-                  kind={valueKind(mark.unit)}
-                  x={pX - 15}
-                  y={pY - planetRadius - 21}
-                  size={12}
-                />
-                <text
-                  x={pX + 4}
-                  y={pY - planetRadius - 11}
-                  textAnchor="middle"
-                  fill="#f8fafc"
-                  fontSize="10"
-                  fontWeight="bold"
-                  aria-hidden="true"
-                >
-                  {mark.staged ? "✓ " : ""}
-                  {mark.worth}
-                </text>
-              </g>
-            )}
+            {mark && isCandidateTarget && (() => {
+              const lost = mark.resources ?? p.resources;
+              const wide = mark.unit === "I" && lost !== undefined;
+              const label = `${mark.staged ? "Staged: " : ""}${valueLabel(valueKind(mark.unit), mark.worth)}${wide ? `, exhausting loses ${valueLabel("resources", lost)}` : ""}`;
+              const width = wide ? 66 : 44;
+              const left = pX - width / 2;
+              return (
+                <g data-testid={`payment-mark-${p.id}`} pointerEvents="none" role="img" aria-label={label}>
+                  <title>{label}</title>
+                  <rect
+                    x={left}
+                    y={pY - planetRadius - 23}
+                    width={width}
+                    height={16}
+                    rx={8}
+                    fill={mark.staged ? "#166534" : "#0c4a6e"}
+                    stroke={mark.staged ? "#4ade80" : "#38bdf8"}
+                    strokeWidth={1.5}
+                  />
+                  <PlanetValueGlyph kind={valueKind(mark.unit)} x={left + 7} y={pY - planetRadius - 21} size={12} />
+                  <text
+                    x={left + 26}
+                    y={pY - planetRadius - 11}
+                    textAnchor="middle"
+                    fill="#f8fafc"
+                    fontSize="10"
+                    fontWeight="bold"
+                    aria-hidden="true"
+                  >
+                    {mark.staged ? "✓ " : ""}
+                    {mark.worth}
+                  </text>
+                  {wide && (
+                    <>
+                      <PlanetValueGlyph kind="resources" x={left + 38} y={pY - planetRadius - 21} size={12} />
+                      <text
+                        x={left + 56}
+                        y={pY - planetRadius - 11}
+                        textAnchor="middle"
+                        fill="#fef08a"
+                        fontSize="10"
+                        fontWeight="bold"
+                        aria-hidden="true"
+                      >
+                        {lost}
+                      </text>
+                    </>
+                  )}
+                </g>
+              );
+            })()}
 
             {/* Planet Abbreviation */}
             <text

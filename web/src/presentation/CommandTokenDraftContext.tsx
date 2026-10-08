@@ -2,11 +2,13 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import type { PendingChoiceDto } from "../protocol/types.ts";
 import {
   describeCommandTokens,
+  fitStaging,
+  type PurchaseState,
   paymentCheck,
   paymentDraftOf,
   purchaseOffer,
   stepPaymentGoods,
-  toggleMapPlanet,
+  togglePaymentPlanet,
   type CommandTokenView,
   type PaymentCheck,
   type PaymentOverride,
@@ -50,18 +52,24 @@ export interface TokenMapPayment {
 
 export interface CommandTokenDraftApi extends TokenDraftState {
   view: CommandTokenView | null;
-  /** Non-null while tokens are bought, so there is a bill the map can pay. */
+  /** Non-null whenever the seat can buy tokens: the map's planets are the payment, planet first. */
   mapPayment: TokenMapPayment | null;
   togglePlanet: (planetId: string) => void;
   stepTradeGoods: (delta: number) => void;
 }
 
-export function useCommandTokenDraft(choice: PendingChoiceDto | null | undefined): CommandTokenDraftApi {
+export function useCommandTokenDraft(
+  choice: PendingChoiceDto | null | undefined,
+  resourcesOf?: ReadonlyMap<string, number>,
+): CommandTokenDraftApi {
   const state = useTokenDraftState(choice?.nonce);
   const { draft, update } = state;
-  const view = useMemo(() => (choice ? describeCommandTokens(choice, true) : null), [choice]);
+  const view = useMemo(
+    () => (choice ? describeCommandTokens(choice, true, resourcesOf) : null),
+    [choice, resourcesOf],
+  );
   const mapPayment = useMemo<TokenMapPayment | null>(() => {
-    if (!view?.purchase || draft.bought <= 0) return null;
+    if (!view?.purchase) return null;
     const offer = purchaseOffer(view, draft.bought);
     if (!offer) return null;
     return {
@@ -74,14 +82,14 @@ export function useCommandTokenDraft(choice: PendingChoiceDto | null | undefined
   const togglePlanet = useCallback(
     (planetId: string) => {
       if (!view) return;
-      update((d) => ({ ...d, override: toggleMapPlanet(view, d.bought, d.override, planetId) }));
+      update((d) => withPurchase(view, d, togglePaymentPlanet(view, d, planetId)));
     },
     [view, update],
   );
   const stepTradeGoods = useCallback(
     (delta: number) => {
       if (!view) return;
-      update((d) => ({ ...d, override: stepPaymentGoods(view, d.bought, d.override, delta) }));
+      update((d) => withPurchase(view, d, stepPaymentGoods(view, d, delta)));
     },
     [view, update],
   );
@@ -89,6 +97,16 @@ export function useCommandTokenDraft(choice: PendingChoiceDto | null | undefined
     () => ({ ...state, view, mapPayment, togglePlanet, stepTradeGoods }),
     [state, view, mapPayment, togglePlanet, stepTradeGoods],
   );
+}
+
+/** The draft with a new purchase state; the staged pools shrink to fit a smaller token count. */
+export function withPurchase(view: CommandTokenView, d: TokenDraft, next: PurchaseState): TokenDraft {
+  return {
+    ...d,
+    bought: next.bought,
+    override: next.override,
+    staging: d.staging ? fitStaging(view, d.staging, next.bought) : null,
+  };
 }
 
 const CommandTokenDraftContext = createContext<CommandTokenDraftApi | null>(null);

@@ -59,13 +59,16 @@ const choice: PendingChoiceDto = {
 };
 
 /** Wires the map, the modal and the shared draft the way App does. */
-const Harness: React.FC<{ onSubmitBatch: (plan: unknown) => Promise<void> }> = ({ onSubmitBatch }) => {
+const Harness: React.FC<{ onSubmitBatch: (plan: unknown) => Promise<void>; board?: BoardView }> = ({
+  onSubmitBatch,
+  board: boardView = board,
+}) => {
   const tokenDraft = useCommandTokenDraft(choice);
   const [minimized, setMinimized] = useState(false);
   return (
     <CommandTokenDraftProvider value={tokenDraft}>
       <Board
-        board={board}
+        board={boardView}
         seatingOrder={["p1", "p2"]}
         pendingChoice={choice}
         viewerSeat="p1"
@@ -101,93 +104,137 @@ const buyOneAndAssign = async () => {
   await click("token-plus-tactic");
 };
 
-describe("Leadership purchase paid on the map", () => {
-  it("has no payment targets until tokens are bought", () => {
+describe("Leadership purchase paid on the map (planet first)", () => {
+  it("rings every planet that can pay from the start, nothing staged and no tokens bought yet", () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
-    expect(screen.queryByTestId("payment-mark-abyz")).not.toBeInTheDocument();
+    expect(screen.getByTestId("payment-mark-abyz")).toBeInTheDocument();
+    expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "false");
+    expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
+    expect(screen.getByTestId("token-buy-count")).toHaveTextContent("0");
   });
 
-  it("rings the planets that can pay, with Auto-pay's pick staged, and not the others", async () => {
+  it("a click on a map planet is the first step: it stages the payment and the token count follows", async () => {
+    render(<Harness onSubmitBatch={vi.fn()} />);
+    await click("planet-abyz");
+    expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "true");
+    expect(screen.getByTestId("token-buy-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("token-payment-planet-abyz")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("rings the planets that can pay, with the suggestion staged, and not the others", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await click("token-buy-plus");
     expect(screen.getByTestId("payment-mark-abyz")).toHaveTextContent("✓ 3");
-    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute("aria-label", "Staged: 3 influence");
+    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute("aria-label", "Staged: 3 influence, exhausting loses 0 resources");
     expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("2");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
     expect(screen.queryByTestId("payment-mark-arnor")).not.toBeInTheDocument();
   });
 
+  it("shows the planet's resource value next to what it pays in the map mark", async () => {
+    const withTiles: BoardView = {
+      ...board,
+      map_tiles: [
+        {
+          system_id: "34",
+          label: "34",
+          q: 1,
+          r: 0,
+          planets: [
+            { id: "abyz", label: "Abyz", resources: 3, influence: 0 },
+            { id: "fria", label: "Fria", resources: 0, influence: 2 },
+            { id: "arnor", label: "Arnor", resources: 1, influence: 1 },
+          ],
+        },
+      ],
+    };
+    render(<Harness onSubmitBatch={vi.fn()} board={withTiles} />);
+    expect(screen.getByTestId("payment-mark-abyz")).toHaveAttribute(
+      "aria-label",
+      "3 influence, exhausting loses 3 resources",
+    );
+    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute(
+      "aria-label",
+      "2 influence, exhausting loses 0 resources",
+    );
+  });
+
   it("toggles a planet on and off from the map and keeps the panel's list in sync", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
     await buyOneAndAssign();
-    // Auto-pay: abyz alone. Add fria: 5 paid against 3 is more than the bill needs.
+    // The suggestion is abyz alone. Add fria: 5 paid against 3 is more than the bill needs.
     await click("planet-fria");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("token-payment-planet-fria")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("token-payment-account")).toHaveTextContent("Paid 5 · owed 3");
     expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("More than needed");
     expect(screen.getByTestId("token-confirm")).toBeDisabled();
-    // Take abyz out again: 2 of 3, short.
+    // Take abyz out again: 2 influence buy no token.
     await click("planet-abyz");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "false");
     expect(screen.getByTestId("token-payment-planet-abyz")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("Short by 1");
+    expect(screen.getByTestId("token-payment-problem")).toHaveTextContent("buys no token");
     expect(screen.getByTestId("token-confirm")).toBeDisabled();
     // The list controls work too and the map follows.
     await click("token-payment-planet-abyz");
     await click("token-payment-planet-fria");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-payment-staged", "true");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
+    await click("token-plus-tactic");
     expect(screen.getByTestId("token-confirm")).toBeEnabled();
   });
 
-  it("shows paid against the bill in the bar while minimised, and confirms only when covered", async () => {
+  it("the minimised bar selects, assigns and confirms by itself: a confirm control is always reachable", async () => {
     const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
     render(<Harness onSubmitBatch={onSubmitBatch} />);
-    await buyOneAndAssign();
     await click("token-pay-on-map");
     expect(screen.getByTestId("token-payment-bar")).toBeInTheDocument();
-    expect(screen.getByTestId("token-bar-paid")).toHaveTextContent("3");
-    expect(screen.getByTestId("token-bar-remaining")).toHaveTextContent("Covered");
-    expect(screen.getByTestId("token-bar-confirm")).toBeEnabled();
-
-    // Insufficient: abyz off, fria on (2 of 3).
-    await click("planet-abyz");
+    expect(screen.getByTestId("token-bar-hint")).toBeInTheDocument();
+    // Pick planets on the map: fria alone buys nothing, the bar says so and Confirm stays off.
     await click("planet-fria");
-    expect(screen.getByTestId("token-bar-paid")).toHaveTextContent("2");
-    expect(screen.getByTestId("token-bar-remaining")).toHaveTextContent("1 remaining");
+    expect(screen.getByTestId("token-bar-bought")).toHaveTextContent("0");
+    expect(screen.getByTestId("token-bar-problem")).toHaveTextContent("buys no token");
     expect(screen.getByTestId("token-bar-confirm")).toBeDisabled();
-    // A trade good covers the gap.
+    // A trade good completes the token; the free and the bought token are assigned from the bar.
     await click("token-bar-goods-plus");
-    expect(screen.getByTestId("token-bar-remaining")).toHaveTextContent("Covered");
-    expect(screen.getByTestId("token-bar-confirm")).toBeEnabled();
-    // Over-paying is blocked like in the panel: abyz on top of fria + a trade good.
-    await click("planet-abyz");
-    expect(screen.getByTestId("token-bar-remaining")).toHaveTextContent("Overpaying by 3");
+    expect(screen.getByTestId("token-bar-paid")).toHaveTextContent("3");
+    expect(screen.getByTestId("token-bar-bought")).toHaveTextContent("1");
+    expect(screen.getByTestId("token-bar-assign")).toHaveTextContent("Assign 2 of 2");
     expect(screen.getByTestId("token-bar-confirm")).toBeDisabled();
-    await click("planet-fria");
-    await click("token-bar-goods-minus");
-
+    await click("token-bar-pool-tactic");
+    await click("token-bar-pool-fleet");
+    expect(screen.getByTestId("token-bar-assign")).toHaveTextContent("All tokens assigned");
+    expect(screen.getByTestId("token-bar-confirm")).toBeEnabled();
     expect(onSubmitBatch).not.toHaveBeenCalled();
     await click("token-bar-confirm");
     expect(onSubmitBatch).toHaveBeenCalledTimes(1);
     const steps = onSubmitBatch.mock.calls[0][0].steps as Array<{ kind: string; planet?: string }>;
-    expect(steps.filter((s) => s.kind === "exhaust")).toEqual([{ kind: "exhaust", planet: "abyz" }]);
+    expect(steps.filter((s) => s.kind === "exhaust")).toEqual([{ kind: "exhaust", planet: "fria" }]);
+    expect(steps.filter((s) => s.kind === "trade_good")).toHaveLength(1);
+  });
+
+  it("the bar offers the suggestion and lists the selected planets with their values", async () => {
+    render(<Harness onSubmitBatch={vi.fn()} />);
+    await click("token-pay-on-map");
+    await click("token-bar-auto");
+    expect(screen.getByTestId("token-bar-bought")).toHaveTextContent("2");
+    await click("token-bar-details");
+    expect(screen.getByTestId("token-bar-chip-abyz")).toBeInTheDocument();
+    expect(screen.getByTestId("token-bar-chip-fria")).toBeInTheDocument();
   });
 
   it("keeps the staged purchase and payment when the panel is minimised and reopened", async () => {
     render(<Harness onSubmitBatch={vi.fn()} />);
-    await buyOneAndAssign();
     await click("planet-fria");
-    await click("planet-abyz");
     await click("token-pay-on-map");
+    await click("token-bar-goods-plus");
     expect(screen.queryByTestId("command-token-panel")).not.toBeInTheDocument();
     await click("resume-choice-button");
     expect(screen.getByTestId("token-buy-count")).toHaveTextContent("1");
-    expect(screen.getByTestId("token-count-tactic")).toHaveTextContent("5");
     expect(screen.getByTestId("token-payment-planet-fria")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("token-payment-planet-abyz")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("token-payment-goods-count")).toHaveTextContent("1");
   });
 
   it("does not offer the planets of another player", async () => {

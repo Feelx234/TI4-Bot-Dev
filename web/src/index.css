@@ -4540,3 +4540,58 @@ select:focus-visible,
   letter-spacing: 0.02em;
   vertical-align: middle;
 }
+
+/* Leadership payment bar (planet-first): compact, the map above it stays tappable. */
+.token-bar {
+  padding: 8px 12px;
+}
+.token-bar__body {
+  gap: 6px;
+  width: 100%;
+}
+.token-bar__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #f8fafc;
+}
+.token-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.token-bar__pools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+}
+.token-bar__pool,
+.token-bar__toggle,
+.token-bar__actions .button {
+  min-height: 44px;
+}
+.token-bar__actions {
+  flex-wrap: wrap;
+  justify-content: center;
+}
+@media (max-width: 720px) {
+  .choice-banner.token-bar {
+    bottom: 56px;
+    padding: 6px 8px;
+  }
+  .token-bar__actions .button {
+    padding-inline: 10px;
+    font-size: 13px;
+  }
+}

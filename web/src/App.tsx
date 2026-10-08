@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
@@ -28,6 +28,7 @@ import {
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
+import { PlanetResourcesContext, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
 import { useSecondaryPrepare, useTokenPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
@@ -384,7 +385,8 @@ const GameViewContainer: React.FC<{
   });
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
-  const tokenDraft = useCommandTokenDraft(pendingChoice);
+  const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
+  const tokenDraft = useCommandTokenDraft(pendingChoice, planetResources);
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
@@ -487,6 +489,7 @@ const GameViewContainer: React.FC<{
     >
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
+      <PlanetResourcesContext.Provider value={planetResources}>
       <CommandTokenDraftProvider value={tokenDraft}>
       {undoRequest && (
         <UndoConfirmDialog
@@ -699,6 +702,7 @@ const GameViewContainer: React.FC<{
         }}
       />
       </CommandTokenDraftProvider>
+      </PlanetResourcesContext.Provider>
       </PaymentDraftProvider>
     </PreparedHintProvider>
     </BluffScope>

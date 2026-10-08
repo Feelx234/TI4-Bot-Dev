@@ -1,14 +1,31 @@
 import React, { useState } from "react";
 import {
+  POOL_LABEL,
+  TOKEN_POOLS,
+  addToken,
+  canAddToken,
   canConfirmTokens,
   confirmBlocker,
   initialStaging,
+  maxPurchases,
+  purchaseSummary,
+  resultingCount,
+  stagedPayment,
+  suggestedPurchase,
   tokenOutcome,
+  tokensRemaining,
+  tokensToAssign,
   type CommandTokenView,
+  type PurchaseState,
   type TokenOutcome,
 } from "../presentation/commandTokens.ts";
 import { PlanetValue, ValueUnit } from "./PlanetValueIcons.tsx";
-import { useSharedTokenDraft, useTokenDraftState } from "../presentation/CommandTokenDraftContext.tsx";
+import {
+  useSharedTokenDraft,
+  useTokenDraftState,
+  withPurchase,
+} from "../presentation/CommandTokenDraftContext.tsx";
+import { planetName } from "../presentation/secondaryPlan.ts";
 
 export interface TokenPaymentBarProps {
   view: CommandTokenView;
@@ -18,9 +35,11 @@ export interface TokenPaymentBarProps {
 }
 
 /**
- * The confirm bar for Leadership's purchase while the token panel is minimised: the planets that
- * can pay are the controls on the map, this bar shows paid against the bill and confirms. It
- * shares the staged purchase with the panel and the map; nothing is sent before Confirm.
+ * The compact bottom bar for Leadership's purchase while the token panel is minimised: the planets
+ * that can pay are the controls on the map (the map stays tappable), the bar shows what is
+ * selected, buys N tokens and lets the player assign them to the pools and confirm right here, so a
+ * confirm control is always reachable. It shares the staged purchase with the panel and the map;
+ * nothing is sent before Confirm.
  */
 export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfirm, onOpenPanel }) => {
   const shared = useSharedTokenDraft();
@@ -28,19 +47,24 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
   const { draft, update } = shared ?? local;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [details, setDetails] = useState(false);
   const purchase = view.purchase;
   if (!purchase) return null;
 
   const staging = draft.staging ?? initialStaging(view);
   const bought = draft.bought;
+  const state: PurchaseState = { bought, override: draft.override };
+  const summary = purchaseSummary(view, state);
+  const chosen = stagedPayment(view, state);
   const check = shared?.mapPayment?.check ?? null;
-  const goods = shared?.mapPayment?.draft.tradeGoods ?? 0;
-  const bill = purchase.cost * bought;
-  const paid = check?.paid ?? 0;
-  const covered = bought > 0 && paid >= bill;
+  const goods = chosen.tradeGoods;
   const blocker = confirmBlocker(view, staging, bought);
   const ready = canConfirmTokens(view, staging, bought, draft.override) && !busy;
-  const planetCount = shared?.mapPayment?.draft.planetIds.length ?? 0;
+  const remaining = tokensRemaining(view, staging, bought);
+  const total = tokensToAssign(view, bought);
+  const buyLimit = maxPurchases(view);
+  const picked = purchase.planets.filter((planet) => chosen.planetIds.includes(planet.id));
+  const problem = (bought > 0 || picked.length > 0 || goods > 0) && check?.problem ? check.problem : null;
 
   const confirm = async () => {
     const outcome = tokenOutcome(view, staging, bought, draft.override);
@@ -63,63 +87,87 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
   return (
     <aside
       data-testid="token-payment-bar"
-      className="choice-banner panel system-activation-bar payment-bar"
+      className="choice-banner panel system-activation-bar payment-bar token-bar"
       aria-label="Payment"
     >
-      <div className="system-activation-bar__body">
-        <div className="system-activation-bar__prompt-row">
-          <span className="badge badge--primary">
-            {bought > 0 ? (
-              <>
-                Pay <PlanetValue kind="influence" value={bill} size="bar" state="ready" /> for {bought} token
-                {bought === 1 ? "" : "s"}
-              </>
-            ) : (
-              "No tokens bought"
-            )}
-          </span>
-          <span className="system-activation-bar__hint text-muted">
-            {bought > 0
-              ? "(Click highlighted planets on the map)"
-              : "(Open the panel to buy tokens, then pay here)"}
-          </span>
-        </div>
-        {bought > 0 && (
-          <div className="payment-bar__tally" data-testid="token-bar-tally" data-settled={covered}>
-            <span>
-              Paid <strong data-testid="token-bar-paid">{paid}</strong> / {bill} <ValueUnit kind="influence" />
+      <div className="system-activation-bar__body token-bar__body">
+        <div className="token-bar__summary" data-testid="token-bar-tally" data-settled={bought > 0 && check?.problem === null}>
+          {picked.length === 0 && goods === 0 ? (
+            <span data-testid="token-bar-hint">
+              Tap planets on the map to pay (<ValueUnit kind="influence" /> {purchase.cost} per token)
             </span>
-            <span className="text-muted">
-              from {planetCount} planet{planetCount === 1 ? "" : "s"}
-              {purchase.tradeGoods > 0 && (
+          ) : (
+            <span data-testid="token-bar-selected">
+              Selected <strong data-testid="token-bar-paid">{summary.influence}</strong> <ValueUnit kind="influence" /> → buys{" "}
+              <strong data-testid="token-bar-bought">{bought}</strong> token{bought === 1 ? "" : "s"}
+              {summary.wasted > 0 && <span data-testid="token-bar-remaining"> · wasted {summary.wasted}</span>}
+              {summary.resourcesLost > 0 && (
                 <>
-                  , {goods} trade good{goods === 1 ? "" : "s"}
+                  {" "}
+                  · <PlanetValue kind="resources" value={summary.resourcesLost} label={`${summary.resourcesLost} resources lost this round`} />
                 </>
               )}
             </span>
-            <span
-              data-testid="token-bar-remaining"
-              className={covered && !check?.problem ? "text-success" : "text-warning"}
-            >
-              {covered
-                ? check && check.waste > 0
-                  ? `Overpaying by ${check.waste}`
-                  : "Covered"
-                : `${Math.max(0, bill - paid)} remaining`}
-            </span>
-          </div>
+          )}
+          <button
+            type="button"
+            className="button button--secondary button--sm token-bar__toggle"
+            data-testid="token-bar-details"
+            aria-expanded={details}
+            onClick={() => setDetails((open) => !open)}
+          >
+            {details ? "Hide planets" : "Planets"}
+          </button>
+        </div>
+        {details && (
+          <ul className="token-bar__chips" data-testid="token-bar-chips">
+            {picked.length === 0 && <li className="text-muted">None selected</li>}
+            {picked.map((planet) => (
+              <li key={planet.id} data-testid={`token-bar-chip-${planet.id}`}>
+                {planetName(planet.id)}{" "}
+                <PlanetValue kind="influence" value={planet.worth} label={`Pays ${planet.worth} influence`} />
+                {planet.resources !== null && (
+                  <PlanetValue
+                    kind="resources"
+                    value={planet.resources}
+                    label={`Exhausting it loses ${planet.resources} resource${planet.resources === 1 ? "" : "s"}`}
+                  />
+                )}
+              </li>
+            ))}
+          </ul>
         )}
-        {bought > 0 && check?.problem && (
+        {problem && (
           <div role="status" className="payment-bar__problem text-warning" data-testid="token-bar-problem">
-            {check.problem}
+            {problem}
           </div>
         )}
-        {blocker && (
+        {total > 0 && (
+          <div className="token-bar__pools" data-testid="token-bar-pools" data-remaining={remaining}>
+            <span className="token-bar__pools-label" data-testid="token-bar-assign">
+              {remaining > 0 ? `Assign ${remaining} of ${total} token${total === 1 ? "" : "s"}:` : "All tokens assigned:"}
+            </span>
+            {TOKEN_POOLS.map((pool) => (
+              <button
+                key={pool}
+                type="button"
+                className="button button--secondary button--sm token-bar__pool"
+                data-testid={`token-bar-pool-${pool}`}
+                aria-label={`Add a token to ${POOL_LABEL[pool]}`}
+                disabled={busy || !canAddToken(view, staging, bought)}
+                onClick={() => update((d) => ({ ...d, staging: addToken(view, d.staging ?? staging, pool, d.bought) }))}
+              >
+                + {POOL_LABEL[pool]} {resultingCount(view, staging, pool)}
+              </button>
+            ))}
+          </div>
+        )}
+        {blocker && remaining === 0 && (
           <div role="status" className="payment-bar__problem text-warning" data-testid="token-bar-blocker">
             {blocker}
           </div>
         )}
-        <div className="system-activation-bar__actions payment-bar__actions">
+        <div className="system-activation-bar__actions payment-bar__actions token-bar__actions">
           <button
             type="button"
             className="button button--primary"
@@ -129,7 +177,19 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
           >
             {busy ? "Submitting..." : bought > 0 ? "Confirm tokens and purchase" : "Confirm tokens"}
           </button>
-          {bought > 0 && purchase.tradeGoods > 0 && (
+          {buyLimit > 0 && (
+            <button
+              type="button"
+              className="button button--secondary"
+              data-testid="token-bar-auto"
+              disabled={busy || (bought > 0 && draft.override === null)}
+              title="Select the suggested planets (planets with no resources first); nothing is paid until you confirm"
+              onClick={() => update((d) => withPurchase(view, d, suggestedPurchase(view, { bought: d.bought, override: d.override })))}
+            >
+              Suggested (buys {bought > 0 ? bought : buyLimit})
+            </button>
+          )}
+          {purchase.tradeGoods > 0 && (
             <span className="token-panel__stepper" data-testid="token-bar-goods">
               Trade goods {goods}
               <button
@@ -153,18 +213,6 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
                 +
               </button>
             </span>
-          )}
-          {bought > 0 && (
-            <button
-              type="button"
-              className="button button--secondary"
-              data-testid="token-bar-auto"
-              disabled={busy || draft.override === null}
-              title="Back to the Auto-pay suggestion; nothing is paid until you confirm"
-              onClick={() => update((d) => ({ ...d, override: null }))}
-            >
-              Auto-pay
-            </button>
           )}
           <button
             type="button"

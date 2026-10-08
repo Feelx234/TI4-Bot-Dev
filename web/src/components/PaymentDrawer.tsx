@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
@@ -55,6 +56,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
 }) => {
   const display = usePlayerIdentity();
   const shared = useSharedPaymentDraft();
+  const resourcesOf = usePlanetResources();
   const local = usePaymentDraftState(choice?.nonce);
   const { draft, togglePlanet, setTradeGoods, setDraft, reset } = shared ?? local;
   const selectedPlanetIds = draft.planetIds;
@@ -69,8 +71,8 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   } = usePipelineRunner(choice, onSubmit);
 
   const baseOffer = useMemo(
-    () => (choice ? derivePaymentOffer(choice, model) : null),
-    [choice, model],
+    () => (choice ? derivePaymentOffer(choice, model, resourcesOf) : null),
+    [choice, model, resourcesOf],
   );
   const baseTradeGoods = player?.trade_goods ?? (baseOffer?.hasTradeGoodOption ? 1 : 0);
   // Staged builds are paid for once: the first question's panel is the whole production's bill.
