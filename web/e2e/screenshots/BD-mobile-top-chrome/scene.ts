@@ -62,6 +62,9 @@ export async function openScene(page: Page, size: SizeName, situation: Situation
         ],
       },
     });
+    // The decision dialog covers the screen; minimized it leaves the top bar and the map in view.
+    await page.getByRole("button", { name: "Minimize decision" }).click();
+    await page.getByRole("dialog", { name: /command token/i }).waitFor({ state: "hidden" }).catch(() => undefined);
   }
   await page.getByTestId("ti4-board-svg").waitFor();
   await page.waitForTimeout(400);
@@ -101,7 +104,14 @@ export async function measureTop(page: Page) {
     };
     const stage = rect('[data-testid="board-stage"]');
     const svg = rect('[data-testid="ti4-board-svg"]');
+    const pane = rect('[data-testid="turn-action-bar"]');
+    const svgBottom = svg ? svg.b : null;
     return {
+      // The action pane covers the lower part of a stacked map: how much of the map lies under it.
+      paneTop: pane?.y ?? null,
+      mapUnderPane: pane && svgBottom ? Math.max(0, svgBottom - pane.y) : 0,
+      mapVisibleH: svg ? Math.round((pane ? Math.min(svg.b, pane.y) : svg.b) - svg.y) : null,
+      topChrome: Math.round(stage?.y ?? 0),
       header: rect(".app-shell__header"),
       chrome: rect('[data-testid="board-chrome"]'),
       stageTop: stage?.y ?? null,
