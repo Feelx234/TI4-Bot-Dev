@@ -808,6 +808,92 @@ where
         &BTreeMap<PlayerId, Baseline>,
     ) -> Result<BTreeMap<PlayerId, Box<dyn Decider>>, String>,
 {
+    play_with_capabilities_income_digest(
+        content,
+        players,
+        factions,
+        sources,
+        seed,
+        horizon,
+        requirement,
+        map,
+        capabilities,
+        digest,
+        (0, false, None),
+        factory,
+    )
+}
+
+/// [`play_with_capabilities_and_decider_factory_digest`] with an experimental per-round income:
+/// every seat gains `round_income` trade goods as each round begins, round one included unless
+/// `skip_round_one` is set, and only `income_seat` when one is named.
+///
+/// Not a rule of the game. It exists to measure how a policy's economy responds to more money;
+/// `0` is exactly the ordinary game.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the capability-aware rollout's inputs plus the income"
+)]
+pub fn play_with_round_income_and_decider_factory<F>(
+    content: &ContentStore,
+    players: &[PlayerId],
+    factions: &BTreeMap<PlayerId, FactionId>,
+    sources: SourceSet,
+    seed: u64,
+    horizon: Horizon,
+    requirement: Requirement,
+    map: &OpeningMap,
+    capabilities: SimulationCapabilities,
+    round_income: i32,
+    skip_round_one: bool,
+    income_seat: Option<PlayerId>,
+    factory: F,
+) -> Rollout
+where
+    F: FnOnce(
+        &BTreeMap<PlayerId, Baseline>,
+    ) -> Result<BTreeMap<PlayerId, Box<dyn Decider>>, String>,
+{
+    play_with_capabilities_income_digest(
+        content,
+        players,
+        factions,
+        sources,
+        seed,
+        horizon,
+        requirement,
+        map,
+        capabilities,
+        false,
+        (round_income, !skip_round_one, income_seat),
+        factory,
+    )
+    .0
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "every rollout input plus digest and income"
+)]
+fn play_with_capabilities_income_digest<F>(
+    content: &ContentStore,
+    players: &[PlayerId],
+    factions: &BTreeMap<PlayerId, FactionId>,
+    sources: SourceSet,
+    seed: u64,
+    horizon: Horizon,
+    requirement: Requirement,
+    map: &OpeningMap,
+    capabilities: SimulationCapabilities,
+    digest: bool,
+    round_income: (i32, bool, Option<PlayerId>),
+    factory: F,
+) -> (Rollout, Option<GameDigest>)
+where
+    F: FnOnce(
+        &BTreeMap<PlayerId, Baseline>,
+    ) -> Result<BTreeMap<PlayerId, Box<dyn Decider>>, String>,
+{
     let (mut state, galaxy, factions) = match seated(content, players, factions, sources, seed, map)
     {
         Ok(seated) => seated,
@@ -839,6 +925,7 @@ where
         deciders,
         None,
         digest,
+        round_income,
     )
 }
 
@@ -1065,6 +1152,7 @@ fn finish_game(
         deciders,
         handles,
         false,
+        (0, false, None),
     )
     .0
 }
@@ -1087,8 +1175,19 @@ fn finish_game_with(
     mut deciders: BTreeMap<PlayerId, Box<dyn Decider>>,
     handles: Option<&BTreeMap<PlayerId, std::rc::Rc<std::cell::RefCell<Vec<TrajectoryStep>>>>>,
     digest: bool,
+    (round_income, in_round_one, income_seat): (i32, bool, Option<PlayerId>),
 ) -> (Rollout, Option<GameDigest>) {
     let baselines = opening_baselines(&state, content, sources, Some(&galaxy), players);
+    // Experiment only: round one's income is granted here, after the setup baselines, so the
+    // opening is still measured against the position the game was dealt.
+    let mut state = state;
+    if round_income != 0 && in_round_one {
+        for player in &mut state.players {
+            if income_seat.as_ref().is_none_or(|only| *only == player.id) {
+                player.trade_goods += round_income;
+            }
+        }
+    }
 
     let mut table = Table::with_default(Box::new(SeededRandom::new(seed)));
     for player in players {
@@ -1105,7 +1204,9 @@ fn finish_game_with(
 
     let mut game = Game::with_table(state, content, table)
         .with_sources(sources)
-        .with_galaxy(galaxy);
+        .with_galaxy(galaxy)
+        .with_round_income(round_income)
+        .with_round_income_seat(income_seat);
 
     // Round one is run on its own so the opening can be measured where the opening ends.
     //
