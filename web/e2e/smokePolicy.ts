@@ -189,7 +189,7 @@ export function isUnstage(desc: string): boolean {
 // The info buttons (unit and faction cards, hover popovers) only show text; "prepare" and the
 // secondary-prep chip/banner record a local plan instead of answering the real question.
 export const EXCLUDED_CONTROLS =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-)/i;
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-)|^top-menu/i;
 
 /** Whether a decision subtype is a reaction window, its inner card pick or a reaction ability. */
 export function isReactionSubtype(subtype: string): boolean {

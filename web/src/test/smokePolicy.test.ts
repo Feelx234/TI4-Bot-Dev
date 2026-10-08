@@ -480,6 +480,8 @@ describe("controls the harness never clicks as decisions", () => {
       "secondary-prep-chip",
       "prepare-banner",
       "prep-save",
+      "top-menu-button | Menu",
+      "top-menu-close | Close",
     ]) {
       expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(true);
     }

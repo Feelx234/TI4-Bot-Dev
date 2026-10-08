@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
@@ -6,7 +6,10 @@ import { useTurnSound } from "./hooks/useTurnSound.ts";
 import { useTurnRedo } from "./hooks/useTurnRedo.ts";
 import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
-import { TurnStatusBar } from "./components/TurnStatusBar.tsx";
+import { TurnStatusBar, TurnStatusDetails } from "./components/TurnStatusBar.tsx";
+import { MobileTopMenu, menuAttention } from "./components/MobileTopMenu.tsx";
+import { MobileMenuSlotContext } from "./presentation/MobileMenuSlot.tsx";
+import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { GameShell } from "./components/GameShell.tsx";
@@ -391,6 +394,13 @@ const GameViewContainer: React.FC<{
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
   const [isTechModalOpen, setIsTechModalOpen] = useState(false);
   const [isObjectivesModalOpen, setIsObjectivesModalOpen] = useState(false);
+  // Phones: one slim top bar and a menu sheet; the board portals its controls into the sheet.
+  const compactLayout = useCompactLayout();
+  const [menuSlotElement, setMenuSlotElement] = useState<HTMLElement | null>(null);
+  const menuSlotValue = useMemo(
+    () => ({ slot: menuSlotElement, setSlot: setMenuSlotElement }),
+    [menuSlotElement],
+  );
 
   // Play sound notification when it becomes the player's turn
   const previousPendingChoiceRef = useRef<string | null>(null);
@@ -514,17 +524,49 @@ const GameViewContainer: React.FC<{
         ready={Boolean(snapshot)}
         localNotes={localNotes}
       />
+      <MobileMenuSlotContext.Provider value={compactLayout ? menuSlotValue : null}>
       <GameShell
         header={
-          <div className="game-header">
+          <div className={`game-header${compactLayout ? " game-header--compact" : ""}`}>
             <TurnStatusBar
               status={turnStatus}
               view={snapshot?.view ?? null}
               gameVersion={gameVersion}
               connectionStatus={status}
               userSeat={userSeat}
+              compact={compactLayout}
+              trailing={
+                compactLayout ? (
+                  <MobileTopMenu
+                    attention={menuAttention({
+                      connected: status === "connected",
+                      yourDecision: Boolean(
+                        userSeat && realPendingChoice && realPendingChoice.actor === userSeat,
+                      ),
+                      yourTurn: Boolean(
+                        userSeat &&
+                          turnStatus &&
+                          ((turnStatus.kind === "waiting_for_decision" && turnStatus.seat === userSeat) ||
+                            (turnStatus.kind === "active_turn" && turnStatus.player === userSeat)),
+                      ),
+                    })}
+                    status={
+                      <TurnStatusDetails
+                        status={turnStatus}
+                        view={snapshot?.view ?? null}
+                        gameVersion={gameVersion}
+                        connectionStatus={status}
+                        userSeat={userSeat}
+                      />
+                    }
+                    onOpenTechnologies={() => setIsTechModalOpen(true)}
+                    onOpenObjectives={() => setIsObjectivesModalOpen(true)}
+                  />
+                ) : undefined
+              }
             />
             <BluffHoldBar holding={Boolean(reactionIntent?.holding)} onPass={passReactionHold} />
+            {!compactLayout && (
             <div className="game-header__actions">
               <button
                 type="button"
@@ -543,6 +585,7 @@ const GameViewContainer: React.FC<{
                 Objectives
               </button>
             </div>
+            )}
           </div>
         }
         board={
@@ -675,6 +718,7 @@ const GameViewContainer: React.FC<{
         onSelectPlanet={setSelectedPlanetId}
         onShowSystem={setSelectedSystemId}
       />
+      </MobileMenuSlotContext.Provider>
       <TechnologyModal
         isOpen={isTechModalOpen}
         onClose={() => setIsTechModalOpen(false)}
