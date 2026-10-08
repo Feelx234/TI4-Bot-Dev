@@ -16,6 +16,7 @@ import { ChoiceRendererDispatcher } from "./GameShell.tsx";
 import { SecondaryPrepHost } from "./SecondaryPrepHost.tsx";
 import {
   PREVIEW_REFRESH_DEBOUNCE_MS,
+  PREVIEW_RETRY_MS,
   useSecondaryPrepare,
 } from "../hooks/useSecondaryPrepare.ts";
 import { PreparedHintProvider } from "../presentation/PreparedHint.tsx";
@@ -262,6 +263,26 @@ describe("preparing with the engine's exact options", () => {
     // One refresh for the burst, for the question being shown.
     expect(preview).toHaveBeenCalledTimes(2);
     expect(preview).toHaveBeenLastCalledWith("pok7technology", "a", []);
+  });
+
+  it("a 'too many previews' refusal is retried, not taken for 'no preview'", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let calls = 0;
+    const preview = vi.fn(async (_card: string, _primary: string, answers: readonly string[]) => {
+      calls += 1;
+      if (calls === 1) return { kind: "refused", reason: "rate_limited", detail: "slow down" } as const;
+      return answers.length === 0
+        ? previewReply({ status: "question", choice: engineWindow("pok7technology", WINDOWS.pok7technology[1]), step: 0 })
+        : previewReply({ status: "complete" });
+    });
+    setup("pok7technology", "Technology", { preview });
+    await open();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(PREVIEW_RETRY_MS + 50);
+    });
+    expect(preview).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("prepare-as-of-now")).toBeInTheDocument();
+    expect(screen.queryByTestId("prepare-approximate")).toBeNull();
   });
 
   it("asks nothing before the panel is opened", async () => {

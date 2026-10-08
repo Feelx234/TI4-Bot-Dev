@@ -373,7 +373,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     </div>
 
                     <div className="production-drawer__footer">
-                      {stagedBatches > 1 && (
+                      {stagedBatches > 1 && !preparing && (
                         <p className="text-muted">
                           Staged builds submit one decision at a time. The queue pauses for payment
                           or placement and stops if a later offer changes.

@@ -52,7 +52,14 @@ fn start(card_name: &str, card_id: &str) -> Table {
     let session = Arc::new(GameSession::start(config));
     let c1 = MockClient::connect(session.clone(), ViewerRole::Player(p1.clone()));
     let c2 = MockClient::connect(session.clone(), ViewerRole::Player(p2.clone()));
-    Table { session, p1, p2, card: card_id.to_owned(), c1, c2 }
+    Table {
+        session,
+        p1,
+        p2,
+        card: card_id.to_owned(),
+        c1,
+        c2,
+    }
 }
 
 fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
@@ -71,8 +78,15 @@ fn pending(table: &Table) -> Option<(PlayerId, String, u64)> {
 }
 
 fn pending_prompt(table: &Table, seat: &PlayerId) -> Option<String> {
-    let client = if seat == &table.p1 { &table.c1 } else { &table.c2 };
-    client.snapshot().pending_choice.map(|envelope| envelope.choice.prompt)
+    let client = if seat == &table.p1 {
+        &table.c1
+    } else {
+        &table.c2
+    };
+    client
+        .snapshot()
+        .pending_choice
+        .map(|envelope| envelope.choice.prompt)
 }
 
 fn ask(table: &Table, seat: &PlayerId, answers: &[&str]) -> SecondaryPreviewMsg {
@@ -95,7 +109,10 @@ fn into_the_primary(table: &Table) {
             && pending_prompt(table, &table.p1).as_deref() == Some("action phase")
     });
     let (_, nonce, version) = pending(table).unwrap();
-    table.c1.submit(&nonce, version, "strategic").expect("strategic accepted");
+    table
+        .c1
+        .submit(&nonce, version, "strategic")
+        .expect("strategic accepted");
     wait_until("the primary's research question", || {
         pending_prompt(table, &table.p1).as_deref() == Some("research a technology")
     });
@@ -114,11 +131,16 @@ fn finish_primary(table: &Table) {
         .map(|option| option.id.clone())
         .collect();
     for option in options {
-        let Some((seat, nonce, version)) = pending(table) else { return };
+        let Some((seat, nonce, version)) = pending(table) else {
+            return;
+        };
         if seat != table.p1 {
             return;
         }
-        table.c1.submit(&nonce, version, &option).expect("p1 researches");
+        table
+            .c1
+            .submit(&nonce, version, &option)
+            .expect("p1 researches");
         thread::sleep(Duration::from_millis(150));
         if pending_prompt(table, &table.p1).as_deref() != Some("research a technology") {
             return;
@@ -141,13 +163,21 @@ fn a_follower_previews_exactly_what_the_real_question_then_offers() {
 
     // The primary is still resolving: p2 asks what the secondary would offer, and what follows a yes.
     let window = ask(&table, &table.p2, &[]);
-    let SecondaryPreview::Question { choice: window_question, step: 0, .. } = preview_of(&window)
+    let SecondaryPreview::Question {
+        choice: window_question,
+        step: 0,
+        ..
+    } = preview_of(&window)
     else {
         panic!("expected the window question, got {window:?}");
     };
     let research = ask(&table, &table.p2, &["yes"]);
-    let SecondaryPreview::Question { choice: research_question, payment, step: 1, .. } =
-        preview_of(&research)
+    let SecondaryPreview::Question {
+        choice: research_question,
+        payment,
+        step: 1,
+        ..
+    } = preview_of(&research)
     else {
         panic!("expected the research question, got {research:?}");
     };
@@ -162,20 +192,29 @@ fn a_follower_previews_exactly_what_the_real_question_then_offers() {
         pending(&table).is_some_and(|(seat, _, _)| seat == table.p2)
     });
     let real = table.c2.snapshot().pending_choice.unwrap().choice;
-    assert_eq!(&real, window_question, "the window question is exactly the preview");
+    assert_eq!(
+        &real, window_question,
+        "the window question is exactly the preview"
+    );
     let (_, nonce, version) = pending(&table).unwrap();
     table.c2.submit(&nonce, version, "yes").expect("p2 follows");
     wait_until("p2's research question", || {
         pending_prompt(&table, &table.p2).as_deref() == Some("research a technology")
     });
     let real = table.c2.snapshot().pending_choice.unwrap().choice;
-    assert_eq!(&real, research_question, "the follow-up is exactly the preview");
+    assert_eq!(
+        &real, research_question,
+        "the follow-up is exactly the preview"
+    );
 
     // Once asked, a follower is refused.
     let late = ask(&table, &table.p2, &[]);
     assert!(matches!(
         late.outcome,
-        PreviewResult::Refused { reason: PreviewRefusal::AlreadyAsked, .. }
+        PreviewResult::Refused {
+            reason: PreviewRefusal::AlreadyAsked,
+            ..
+        }
     ));
     table.session.stop();
 }
@@ -190,13 +229,19 @@ fn the_primary_and_a_game_without_an_action_in_progress_are_refused() {
     let early = ask(&table, &table.p2, &[]);
     assert!(matches!(
         early.outcome,
-        PreviewResult::Refused { reason: PreviewRefusal::NoStrategicAction, .. }
+        PreviewResult::Refused {
+            reason: PreviewRefusal::NoStrategicAction,
+            ..
+        }
     ));
     into_the_primary(&table);
     let own = ask(&table, &table.p1, &[]);
     assert!(matches!(
         own.outcome,
-        PreviewResult::Refused { reason: PreviewRefusal::IsPrimary, .. }
+        PreviewResult::Refused {
+            reason: PreviewRefusal::IsPrimary,
+            ..
+        }
     ));
     // A different card than the one in progress.
     let mut wrong = PreviewRequest {
@@ -208,7 +253,10 @@ fn the_primary_and_a_game_without_an_action_in_progress_are_refused() {
     let refused = table.session.preview_secondary(&table.p2, &wrong);
     assert!(matches!(
         refused.outcome,
-        PreviewResult::Refused { reason: PreviewRefusal::NoStrategicAction, .. }
+        PreviewResult::Refused {
+            reason: PreviewRefusal::NoStrategicAction,
+            ..
+        }
     ));
     // A primary that did not play it.
     wrong.card = table.card.clone();
@@ -216,7 +264,10 @@ fn the_primary_and_a_game_without_an_action_in_progress_are_refused() {
     let refused = table.session.preview_secondary(&table.p2, &wrong);
     assert!(matches!(
         refused.outcome,
-        PreviewResult::Refused { reason: PreviewRefusal::NoStrategicAction, .. }
+        PreviewResult::Refused {
+            reason: PreviewRefusal::NoStrategicAction,
+            ..
+        }
     ));
     table.session.stop();
 }
@@ -233,11 +284,17 @@ fn a_preview_changes_nothing_in_the_live_session() {
     for answers in [&[][..], &["yes"][..], &["no"][..], &["yes", "zzz"][..]] {
         let _ = ask(&table, &table.p2, answers);
     }
-    assert_eq!(state, serde_json::to_vec(&table.session.current_state()).unwrap());
+    assert_eq!(
+        state,
+        serde_json::to_vec(&table.session.current_state()).unwrap()
+    );
     assert_eq!(log, table.session.decision_log());
     assert_eq!(version, table.session.game_version());
     assert_eq!(pending_before, pending(&table));
-    assert_eq!(history, serde_json::to_vec(&table.session.replay_export().0).unwrap());
+    assert_eq!(
+        history,
+        serde_json::to_vec(&table.session.replay_export().0).unwrap()
+    );
     // The game still plays on: the preview did not disturb the worker.
     finish_primary(&table);
     wait_until("p2's real question", || {
@@ -251,7 +308,11 @@ fn the_answer_does_not_depend_on_other_seats_hidden_information() {
     // Two games that differ only in what the OTHER seats hold privately give p2 the same preview.
     let preview_with = |tweak: &dyn Fn(&mut ti4_model::state::GameState)| {
         let content = ContentStore::embedded();
-        let ids = vec![PlayerId::new("p1"), PlayerId::new("p2"), PlayerId::new("p3")];
+        let ids = vec![
+            PlayerId::new("p1"),
+            PlayerId::new("p2"),
+            PlayerId::new("p3"),
+        ];
         let (mut state, _) =
             ti4_server::map::create_game_with_map(content, &ids, 4242).expect("game");
         let card = StrategyCardId::new("pok7technology");
@@ -284,4 +345,76 @@ fn the_answer_does_not_depend_on_other_seats_hidden_information() {
         }
     });
     assert_eq!(plain, tweaked);
+}
+
+fn files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        for entry in std::fs::read_dir(&path).expect("dir") {
+            let entry = entry.expect("entry").path();
+            if entry.is_dir() {
+                stack.push(entry);
+            } else {
+                out.push((
+                    entry.to_string_lossy().into_owned(),
+                    std::fs::read(&entry).expect("file"),
+                ));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn a_preview_writes_nothing_to_storage() {
+    use ti4_server::dev::execute_launch_scenario;
+    use ti4_server::session::GameRegistry;
+    use ti4_server::storage::FileGameStore;
+    let dir =
+        std::env::temp_dir().join(format!("ti4_preview_store_{:032x}", rand::random::<u128>()));
+    let store = Arc::new(FileGameStore::new(&dir).expect("store"));
+    let registry = Arc::new(GameRegistry::new().with_store(store));
+    // Sol (human) has played Technology and is being asked its research; a bot seat follows.
+    let launch =
+        execute_launch_scenario(&registry, "research_tech_skips", Some(17)).expect("launch");
+    let session = registry.get_game(&launch.game_id).expect("game");
+    let state = session.current_state();
+    let Some(ViewerRole::Player(primary)) = session.viewer_for_seat_token(&launch.player_session)
+    else {
+        panic!("the launch token names a seat");
+    };
+    let follower = state
+        .players
+        .iter()
+        .map(|seat| seat.id.clone())
+        .find(|id| id != &primary)
+        .expect("another seat");
+    let before = files(&dir.join(&launch.game_id));
+    let history = serde_json::to_vec(&session.replay_export().0).unwrap();
+    let request = PreviewRequest {
+        request_id: 1,
+        card: "pok7technology".to_owned(),
+        primary: primary.to_string(),
+        answers: vec![],
+    };
+    let mut answered = 0;
+    for answers in [&[][..], &["yes"][..], &["no"][..], &["yes", "zzz"][..]] {
+        let message = session.preview_secondary(
+            &follower,
+            &PreviewRequest {
+                answers: answers.iter().map(ToString::to_string).collect(),
+                ..request.clone()
+            },
+        );
+        if matches!(message.outcome, PreviewResult::Preview { .. }) {
+            answered += 1;
+        }
+    }
+    assert!(answered >= 2, "the follower is previewed while the primary resolves");
+    assert_eq!(files(&dir.join(&launch.game_id)), before, "storage is byte-identical");
+    assert_eq!(history, serde_json::to_vec(&session.replay_export().0).unwrap());
+    session.stop();
+    let _ = std::fs::remove_dir_all(dir);
 }

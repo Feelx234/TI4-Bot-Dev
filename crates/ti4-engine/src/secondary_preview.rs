@@ -47,6 +47,10 @@ pub const MAX_ANSWERS: usize = 4;
 /// What the follower would be asked, as of the position given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one short-lived value per request; boxing the choice would only complicate every reader"
+)]
 pub enum SecondaryPreview {
     /// The next question: the window question when `step` is 0, a follow-up after that.
     Question {
@@ -162,7 +166,10 @@ impl Decider for Previewer {
             });
             return Ok(decline.clone());
         }
-        out.failure = Some(format!("unexpected question {subtype:?}: {}", choice.prompt));
+        out.failure = Some(format!(
+            "unexpected question {subtype:?}: {}",
+            choice.prompt
+        ));
         Err(Self::stop(choice, "unexpected question"))
     }
 }
@@ -171,7 +178,10 @@ impl Decider for Previewer {
 /// `state`, after the `answers` given so far (the first answers the window question, the rest
 /// the follow-up questions in order). Pure with respect to its arguments.
 #[must_use]
-#[allow(clippy::too_many_arguments, reason = "the position plus the question's identity")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the position plus the question's identity"
+)]
 pub fn preview_secondary(
     state: &GameState,
     content: &ContentStore,
@@ -183,7 +193,9 @@ pub fn preview_secondary(
     answers: &[String],
 ) -> SecondaryPreview {
     let run = std::panic::AssertUnwindSafe(|| {
-        preview_inner(state, content, sources, galaxy, card, primary, follower, answers)
+        preview_inner(
+            state, content, sources, galaxy, card, primary, follower, answers,
+        )
     });
     std::panic::catch_unwind(run).unwrap_or_else(|_| SecondaryPreview::Unavailable {
         detail: "the preview failed internally".to_owned(),
@@ -309,7 +321,12 @@ fn payment_preview(
         .options
         .iter()
         .filter(|option| !option.is_decline())
-        .find_map(|option| option.payload.get("cost").and_then(serde_json::Value::as_i64))?;
+        .find_map(|option| {
+            option
+                .payload
+                .get("cost")
+                .and_then(serde_json::Value::as_i64)
+        })?;
     if cost <= 0 {
         return None;
     }

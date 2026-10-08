@@ -68,7 +68,10 @@ fn basis(
     }
     let state = &shared.latest_state;
     if state.phase != Phase::Action || state.player(seat).is_none() {
-        return refuse(PreviewRefusal::NoStrategicAction, "no strategic action is in progress");
+        return refuse(
+            PreviewRefusal::NoStrategicAction,
+            "no strategic action is in progress",
+        );
     }
     if seat == primary {
         return refuse(PreviewRefusal::IsPrimary, "you played this card");
@@ -76,8 +79,14 @@ fn basis(
     // The action in progress is the newest "action phase" decision, taken by the primary, and
     // the primary is still the active seat (Coup d'Etat passes the turn without exhausting).
     let log = &shared.decision_log;
-    let Some(start) = log.iter().rposition(|record| record.prompt == "action phase") else {
-        return refuse(PreviewRefusal::NoStrategicAction, "no strategic action is in progress");
+    let Some(start) = log
+        .iter()
+        .rposition(|record| record.prompt == "action phase")
+    else {
+        return refuse(
+            PreviewRefusal::NoStrategicAction,
+            "no strategic action is in progress",
+        );
     };
     let action = &log[start];
     let named = action.chosen.strip_prefix("strategic|");
@@ -100,7 +109,11 @@ fn basis(
     // the seat has been asked. A question open for the seat right now counts as asked too.
     let asked_now = shared.pending_decision.as_ref().is_some_and(|pending| {
         &pending.seat == seat
-            && pending.choice.details.get("kind").and_then(serde_json::Value::as_str)
+            && pending
+                .choice
+                .details
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
                 == Some("strategy_secondary")
     });
     if asked_now || log[start + 1..].iter().any(|record| &record.player == seat) {
@@ -130,9 +143,7 @@ pub fn answer(
         basis(&lock, seat, &card, &primary).map_err(|refusal| (refusal, lock.game_version))
     };
     let (as_of_version, as_of_decisions, outcome) = match basis {
-        Err(((reason, detail), version)) => {
-            (version, 0, PreviewResult::Refused { reason, detail })
-        }
+        Err(((reason, detail), version)) => (version, 0, PreviewResult::Refused { reason, detail }),
         Ok(basis) => {
             let preview: SecondaryPreview = preview_secondary(
                 &basis.state,
@@ -144,7 +155,11 @@ pub fn answer(
                 seat,
                 &request.answers,
             );
-            (basis.version, basis.decisions, PreviewResult::Preview { preview })
+            (
+                basis.version,
+                basis.decisions,
+                PreviewResult::Preview { preview },
+            )
         }
     };
     SecondaryPreviewMsg {

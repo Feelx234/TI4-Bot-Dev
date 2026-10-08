@@ -10,7 +10,8 @@ fn pid(id: &str) -> PlayerId {
 /// trade goods.
 fn dealt(primary_card: &str) -> (GameState, StrategyCardId) {
     let content = ContentStore::embedded();
-    let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev"), ("c", "muaat")], POK);
+    let mut state =
+        crate::fixtures::seated_game(&[("a", "sol"), ("b", "letnev"), ("c", "muaat")], POK);
     let card = state
         .unclaimed_strategy_cards
         .iter()
@@ -60,7 +61,12 @@ fn real_follow_up(state: &GameState, card: &StrategyCardId) -> Option<Choice> {
         .next_choice(&mut state, content, POK)
         .expect("a window question");
     assert_eq!(first.player, pid("b"));
-    let yes = first.options.iter().find(|o| o.id == "yes").cloned().unwrap();
+    let yes = first
+        .options
+        .iter()
+        .find(|o| o.id == "yes")
+        .cloned()
+        .unwrap();
     window.take_choice(&mut state, content, POK, yes).unwrap();
     let (decider, seen) = Capturing::new(Box::new(AlwaysDecline));
     let mut table = Table::with_default(Box::new(decider));
@@ -80,7 +86,14 @@ fn real_follow_up(state: &GameState, card: &StrategyCardId) -> Option<Choice> {
 #[test]
 fn the_window_question_is_the_real_windows_question() {
     let content = ContentStore::embedded();
-    for name in ["Technology", "Warfare", "Construction", "Politics", "Imperial", "Trade"] {
+    for name in [
+        "Technology",
+        "Warfare",
+        "Construction",
+        "Politics",
+        "Imperial",
+        "Trade",
+    ] {
         let (mut state, card) = dealt(name);
         state.player_mut(&pid("b")).unwrap().commodities = 0;
         let mut copy = state.clone();
@@ -95,7 +108,10 @@ fn the_window_question_is_the_real_windows_question() {
             panic!("{name}: expected the window question");
         };
         assert_eq!(step, 0);
-        assert_eq!(choice, real, "{name}: the preview IS the real window question");
+        assert_eq!(
+            choice, real,
+            "{name}: the preview IS the real window question"
+        );
     }
 }
 
@@ -103,7 +119,10 @@ fn the_window_question_is_the_real_windows_question() {
 fn the_technology_follow_up_is_the_real_one_with_its_payment() {
     let (state, card) = dealt("Technology");
     let real = real_follow_up(&state, &card).expect("b is asked to research");
-    assert_eq!(real.context.as_ref().unwrap().subtype, "research_technology");
+    assert_eq!(
+        real.context.as_ref().unwrap().subtype,
+        "research_technology"
+    );
     let SecondaryPreview::Question {
         choice,
         step,
@@ -115,7 +134,10 @@ fn the_technology_follow_up_is_the_real_one_with_its_payment() {
     };
     assert_eq!(step, 1);
     assert!(skipped.is_empty());
-    assert_eq!(choice, real, "same options, payloads and context as the real question");
+    assert_eq!(
+        choice, real,
+        "same options, payloads and context as the real question"
+    );
     let payment = payment.expect("the 4 resources are paid by a plan");
     assert_eq!(payment.cost, 4);
     assert!(payment.worth >= 4);
@@ -165,8 +187,7 @@ fn a_seat_that_would_not_be_asked_gets_the_reason() {
     );
 
     let (mut state, card) = dealt("Trade");
-    let limit =
-        crate::strategy_cards::commodity_limit(&state, ContentStore::embedded(), &pid("b"));
+    let limit = crate::strategy_cards::commodity_limit(&state, ContentStore::embedded(), &pid("b"));
     state.player_mut(&pid("b")).unwrap().commodities = limit;
     assert_eq!(
         preview(&state, &card, &[]),
@@ -178,7 +199,10 @@ fn a_seat_that_would_not_be_asked_gets_the_reason() {
 
 #[test]
 fn construction_and_warfare_follow_ups_are_the_real_questions() {
-    for (name, subtype) in [("Construction", "place_structure"), ("Warfare", "produce_unit")] {
+    for (name, subtype) in [
+        ("Construction", "place_structure"),
+        ("Warfare", "produce_unit"),
+    ] {
         let (state, card) = dealt(name);
         let real = real_follow_up(&state, &card).expect("the flow asks something");
         assert_eq!(real.context.as_ref().unwrap().subtype, subtype, "{name}");
@@ -207,7 +231,8 @@ fn warfare_previews_the_question_after_a_scripted_build_too() {
     let content = ContentStore::embedded();
     let mut copy = state.clone();
     let mut window =
-        crate::strategy::begin_strategic_action(&mut copy, content, &pid("a"), strategic()).unwrap();
+        crate::strategy::begin_strategic_action(&mut copy, content, &pid("a"), strategic())
+            .unwrap();
     let yes = window
         .next_choice(&mut copy, content, POK)
         .unwrap()
@@ -217,10 +242,23 @@ fn warfare_previews_the_question_after_a_scripted_build_too() {
         .cloned()
         .unwrap();
     window.take_choice(&mut copy, content, POK, yes).unwrap();
-    let (decider, seen) = Capturing::new(Box::new(crate::choice::Scripted::new(vec![build.clone()])));
+    let (decider, seen) =
+        Capturing::new(Box::new(crate::choice::Scripted::new(vec![build.clone()])));
     let mut table = Table::with_default(Box::new(decider));
-    let _ = crate::strategy_cards::follow(&mut copy, content, POK, None, &mut table, &pid("b"), card.as_str());
-    let next = seen.borrow().get(1).cloned().expect("the engine asks something after the build");
+    let _ = crate::strategy_cards::follow(
+        &mut copy,
+        content,
+        POK,
+        None,
+        &mut table,
+        &pid("b"),
+        card.as_str(),
+    );
+    let next = seen
+        .borrow()
+        .get(1)
+        .cloned()
+        .expect("the engine asks something after the build");
     let SecondaryPreview::Question { choice, step, .. } = preview(&state, &card, &["yes", &build])
     else {
         panic!("expected the question after the build");
@@ -252,7 +290,13 @@ fn politics_imperial_and_trade_are_never_run() {
 
 #[test]
 fn a_preview_changes_nothing_it_was_given() {
-    for name in ["Technology", "Warfare", "Construction", "Diplomacy", "Leadership"] {
+    for name in [
+        "Technology",
+        "Warfare",
+        "Construction",
+        "Diplomacy",
+        "Leadership",
+    ] {
         let (mut state, card) = dealt(name);
         let owned: Vec<_> = state
             .controlled_planets(&pid("b"))
@@ -265,7 +309,11 @@ fn a_preview_changes_nothing_it_was_given() {
         for answers in [&[][..], &["yes"][..], &["yes", "x"][..], &["no"][..]] {
             let _ = preview(&state, &card, answers);
         }
-        assert_eq!(before, serde_json::to_value(&state).unwrap(), "{name}: state");
+        assert_eq!(
+            before,
+            serde_json::to_value(&state).unwrap(),
+            "{name}: state"
+        );
         assert_eq!(
             cursor,
             state.deck_reserve.as_ref().map(|reserve| reserve.cursor()),

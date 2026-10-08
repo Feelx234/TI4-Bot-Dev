@@ -1562,6 +1562,10 @@ pub enum PreviewRefusal {
 /// What a preview request resolved to.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one short-lived value per request; the engine value is carried as it is"
+)]
 pub enum PreviewResult {
     /// The engine's answer: the question, "would not be asked", "complete" or "unavailable".
     Preview {

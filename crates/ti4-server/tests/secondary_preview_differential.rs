@@ -79,6 +79,11 @@ fn card_name(card: &str) -> String {
         .unwrap_or_else(|| card.to_owned())
 }
 
+/// "Technology (pok7technology)": the card by name and by id, so the Thunder's Edge variants are told apart.
+fn card_label(card: &str) -> String {
+    format!("{} ({card})", card_name(card))
+}
+
 fn preview(
     state: &GameState,
     card: &str,
@@ -116,7 +121,11 @@ fn recorded_game(source: &Source) -> (Game<'static>, Rc<RefCell<Vec<Choice>>>) {
 }
 
 fn is_window(choice: &Choice) -> bool {
-    choice.details.get("kind").and_then(serde_json::Value::as_str) == Some("strategy_secondary")
+    choice
+        .details
+        .get("kind")
+        .and_then(serde_json::Value::as_str)
+        == Some("strategy_secondary")
 }
 
 /// What the preview said about every seat when the strategic action began.
@@ -135,7 +144,7 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
     let mut track: Option<Track> = None;
     let finish = |track: &mut Option<Track>, per_card: &mut BTreeMap<String, Tally>| {
         let Some(done) = track.take() else { return };
-        let tally = per_card.entry(card_name(&done.card)).or_default();
+        let tally = per_card.entry(card_label(&done.card)).or_default();
         for (seat, said) in &done.said {
             match (done.asked.contains(seat), said) {
                 (true, true) => tally.asked_predicted_asked += 1,
@@ -204,11 +213,16 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             }
         }
 
-        let (Some(window), Some(before)) = (window, before_state) else { continue };
-        let card = window.details["card"].as_str().unwrap_or_default().to_owned();
+        let (Some(window), Some(before)) = (window, before_state) else {
+            continue;
+        };
+        let card = window.details["card"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
         let primary = PlayerId::new(window.details["played_by"].as_str().unwrap_or_default());
         let follower = window.player.clone();
-        let tally = per_card.entry(card_name(&card)).or_default();
+        let tally = per_card.entry(card_label(&card)).or_default();
         tally.windows += 1;
         if let Some(track) = track.as_mut() {
             if track.card == card && track.primary == primary {
@@ -217,14 +231,19 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
         }
         // Just before the window: must be exactly the real question.
         match preview(&before, &card, &primary, &follower, &[]) {
-            SecondaryPreview::Question { choice, .. } if choice == window => tally.window_exact += 1,
+            SecondaryPreview::Question { choice, .. } if choice == window => {
+                tally.window_exact += 1
+            }
             other => panic!(
                 "{}: window preview differs for {follower} on {card}:\n real {window:?}\n preview {other:?}",
                 source.name
             ),
         }
         // At the start of the action (before the primary resolved).
-        if let Some(track) = track.as_ref().filter(|t| t.card == card && t.primary == primary) {
+        if let Some(track) = track
+            .as_ref()
+            .filter(|t| t.card == card && t.primary == primary)
+        {
             tally.stale_windows += 1;
             if matches!(
                 preview(&track.start, &card, &primary, &follower, &[]),
@@ -235,7 +254,9 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
         }
         // The follow-ups the real flow asked this seat in that step, in order.
         let own = follow_up_subtypes(&card_name(&card));
-        let Some(answer) = records.first().filter(|r| r.player == follower) else { continue };
+        let Some(answer) = records.first().filter(|r| r.player == follower) else {
+            continue;
+        };
         let mut answers = vec![answer.chosen.clone()];
         if answer.chosen == "no" || answer.chosen == "decline" {
             continue;
@@ -249,7 +270,11 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
         let mut chosen = records[1..].iter().filter(|r| r.player == follower);
         let mut asked = asked.into_iter();
         while let Some(real) = asked.next() {
-            let subtype = real.context.as_ref().map_or("", |c| c.subtype.as_str()).to_owned();
+            let subtype = real
+                .context
+                .as_ref()
+                .map_or("", |c| c.subtype.as_str())
+                .to_owned();
             let recorded = chosen.next().map(|r| r.chosen.clone());
             if !own.contains(&subtype.as_str()) {
                 // A faction prompt the preview declines; if the recording did not, the paths part.
@@ -270,7 +295,9 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
                     source.name
                 ),
             }
-            if let Some(track) = track.as_ref().filter(|t| t.card == card && t.primary == primary)
+            if let Some(track) = track
+                .as_ref()
+                .filter(|t| t.card == card && t.primary == primary)
             {
                 tally.stale_follow_ups += 1;
                 if matches!(
@@ -329,7 +356,11 @@ fn report(title: &str, per_card: &BTreeMap<String, Tally>) -> String {
     }
     out.push_str(&format!(
         "{:<13} windows {:>3} exact {:>3} | follow-ups {:>3} exact {:>3} faction-diverged {:>2}\n",
-        "ALL", all.windows, all.window_exact, all.follow_ups, all.follow_up_exact,
+        "ALL",
+        all.windows,
+        all.window_exact,
+        all.follow_ups,
+        all.follow_up_exact,
         all.follow_up_faction_diverged
     ));
     out
@@ -351,7 +382,10 @@ fn check(title: &str, sources: &[Source]) -> BTreeMap<String, Tally> {
         std::io::Write::write_all(&mut file, text.as_bytes()).expect("write report");
     }
     for (card, tally) in &per_card {
-        assert_eq!(tally.windows, tally.window_exact, "{card}: every window question is exact");
+        assert_eq!(
+            tally.windows, tally.window_exact,
+            "{card}: every window question is exact"
+        );
         assert_eq!(
             tally.follow_ups,
             tally.follow_up_exact + tally.follow_up_faction_diverged,
@@ -372,7 +406,10 @@ fn the_preview_equals_the_real_questions_on_generated_games() {
         .collect();
     let per_card = check("generated games", &sources);
     let windows: usize = per_card.values().map(|t| t.windows).sum();
-    assert!(windows >= 10, "the generated games must exercise secondaries ({windows})");
+    assert!(
+        windows >= 10,
+        "the generated games must exercise secondaries ({windows})"
+    );
 }
 
 #[test]

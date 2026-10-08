@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
@@ -59,6 +59,30 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     !holding &&
     (actionable || resolution.kind === "review");
   const showBanner = prep.preparing && action !== null;
+  // The dialog of the stand-in question starts below the banner (see SecondaryPrep.css).
+  useLayoutEffect(() => {
+    if (!showBanner) return;
+    const root = document.documentElement;
+    const measure = () => {
+      const banner = document.querySelector<HTMLElement>('[data-testid="prepare-banner"]');
+      const docked = banner?.closest(".secondary-prep") as HTMLElement | null;
+      const bottom =
+        banner && docked && getComputedStyle(docked).position !== "fixed"
+          ? Math.ceil(banner.getBoundingClientRect().bottom) + 8
+          : 0;
+      root.style.setProperty("--prep-banner-bottom", `${bottom}px`);
+    };
+    measure();
+    const banner = document.querySelector('[data-testid="prepare-banner"]');
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (banner) observer?.observe(banner);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      root.style.removeProperty("--prep-banner-bottom");
+    };
+  }, [showBanner]);
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;
 
   // The chip sits in the board's toolbar strip (a flow item there); the rest floats below that strip.

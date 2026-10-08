@@ -39,6 +39,8 @@ const NO_EXACT: ExactResult = { kind: "none", why: "no preview available" };
 
 /** How long a burst of new events waits before the preview is asked again while preparing. */
 export const PREVIEW_REFRESH_DEBOUNCE_MS = 400;
+/** How long to wait before asking again after the server said "too many previews". */
+export const PREVIEW_RETRY_MS = 250;
 
 export interface UseSecondaryPrepareInput {
   gameId?: string;
@@ -207,7 +209,14 @@ export function useSecondaryPrepare({
       const mine = ++sequence.current;
       setAsking((count) => count + 1);
       try {
-        const result = toExactResult(await previewSecondary(action.card, action.primary, answers));
+        let reply = await previewSecondary(action.card, action.primary, answers);
+        // The server answers at most one preview at a time per connection and not more often than
+        // every 200 ms (a click right after the panel's own refresh): that is "try again", never "none".
+        for (let attempt = 0; attempt < 3 && reply.kind === "refused" && reply.reason === "rate_limited"; attempt++) {
+          await new Promise((resolve) => window.setTimeout(resolve, PREVIEW_RETRY_MS));
+          reply = await previewSecondary(action.card, action.primary, answers);
+        }
+        const result = toExactResult(reply);
         // A slower, older answer never overwrites a newer one.
         if ((applied.current.get(key) ?? 0) < mine) {
           applied.current.set(key, mine);

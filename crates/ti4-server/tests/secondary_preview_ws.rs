@@ -22,16 +22,19 @@ type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn connect(addr: &str, game_id: &str, token: Option<&str>) -> Socket {
-    let (mut stream, _) = tokio_tungstenite::connect_async(format!("ws://{addr}/ws/games/{game_id}"))
-        .await
-        .expect("connect");
+    let (mut stream, _) =
+        tokio_tungstenite::connect_async(format!("ws://{addr}/ws/games/{game_id}"))
+            .await
+            .expect("connect");
     let subscribe = ClientMessage::Subscribe {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         player_session: token.map(str::to_owned),
     };
     stream
-        .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+        .send(Message::Text(
+            serde_json::to_string(&subscribe).unwrap().into(),
+        ))
         .await
         .expect("subscribe");
     let reply = stream.next().await.expect("snapshot").expect("ws ok");
@@ -100,30 +103,47 @@ async fn previews_are_seated_only_private_and_rate_limited() {
     let mut spectator = connect(&addr, &game_id, None).await;
 
     // A spectator is refused, with the id it sent echoed back.
-    spectator.send(request(&game_id, &primary, 11, &[])).await.unwrap();
+    spectator
+        .send(request(&game_id, &primary, 11, &[]))
+        .await
+        .unwrap();
     let answer = next_preview(&mut spectator).await;
     assert_eq!(answer.request_id, 11);
     assert_eq!(refusal(&answer), PreviewRefusal::NotSeated);
 
     // The seat that played the card is not a follower of it.
-    owner.send(request(&game_id, &primary, 21, &[])).await.unwrap();
+    owner
+        .send(request(&game_id, &primary, 21, &[]))
+        .await
+        .unwrap();
     let answer = next_preview(&mut owner).await;
     assert_eq!(answer.request_id, 21);
     assert_eq!(refusal(&answer), PreviewRefusal::IsPrimary);
 
     // An immediate second request on the same connection is rate limited, not evaluated.
-    owner.send(request(&game_id, &primary, 22, &[])).await.unwrap();
+    owner
+        .send(request(&game_id, &primary, 22, &[]))
+        .await
+        .unwrap();
     let answer = next_preview(&mut owner).await;
     assert_eq!(answer.request_id, 22);
     assert_eq!(refusal(&answer), PreviewRefusal::RateLimited);
     tokio::time::sleep(Duration::from_millis(300)).await;
-    owner.send(request(&game_id, &primary, 23, &[])).await.unwrap();
-    assert_eq!(refusal(&next_preview(&mut owner).await), PreviewRefusal::IsPrimary);
+    owner
+        .send(request(&game_id, &primary, 23, &[]))
+        .await
+        .unwrap();
+    assert_eq!(
+        refusal(&next_preview(&mut owner).await),
+        PreviewRefusal::IsPrimary
+    );
 
     // Nothing of the owner's answers reached the spectator's connection.
     let leaked = tokio::time::timeout(Duration::from_millis(300), async {
         loop {
-            let Some(Ok(message)) = spectator.next().await else { return false };
+            let Some(Ok(message)) = spectator.next().await else {
+                return false;
+            };
             if let Ok(text) = message.to_text()
                 && let Ok(ServerMessage::SecondaryPreview(preview)) =
                     serde_json::from_str::<ServerMessage>(text)
@@ -134,7 +154,10 @@ async fn previews_are_seated_only_private_and_rate_limited() {
         }
     })
     .await;
-    assert!(!matches!(leaked, Ok(true)), "the answer is private to the asking connection");
+    assert!(
+        !matches!(leaked, Ok(true)),
+        "the answer is private to the asking connection"
+    );
 
     // Oversized fields are rejected before any work.
     let long = Message::Text(
@@ -156,7 +179,10 @@ async fn previews_are_seated_only_private_and_rate_limited() {
         if let Ok(ServerMessage::Error(error)) =
             serde_json::from_str::<ServerMessage>(reply.to_text().unwrap())
         {
-            assert_eq!(error.kind, ti4_server::protocol::error::ErrorKind::MalformedMessage);
+            assert_eq!(
+                error.kind,
+                ti4_server::protocol::error::ErrorKind::MalformedMessage
+            );
             break;
         }
     }
@@ -178,7 +204,10 @@ fn the_message_round_trips_through_the_server_message_envelope() {
     };
     let message = ServerMessage::SecondaryPreview(refused.clone());
     let text = serde_json::to_string(&message).unwrap();
-    assert_eq!(serde_json::from_str::<ServerMessage>(&text).unwrap(), message);
+    assert_eq!(
+        serde_json::from_str::<ServerMessage>(&text).unwrap(),
+        message
+    );
     let ok = ServerMessage::SecondaryPreview(SecondaryPreviewMsg {
         outcome: PreviewResult::Preview {
             preview: ti4_engine::secondary_preview::SecondaryPreview::Complete { skipped: vec![] },
