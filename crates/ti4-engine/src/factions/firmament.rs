@@ -45,20 +45,25 @@
 //!
 //! # Plots
 //!
-//! A plot card is a [`Plot`] (`ti4_model::plots`): the control tokens on it and whether it is
-//! faceup. They live in `Player::plots` (one stored string per card). While facedown only the owner
-//! reads the tokens: `ti4_model::view` replaces other players' facedown cards with the hidden marker
-//! (the count survives), so a bot or a viewer built on a view never sees them. The engine itself
-//! reads the real state.
+//! There are exactly five plot cards (Enervate, Siphon, Seethe, Assail, Extract; `mutated_*` records
+//! in the corpus are variant pieces and not part of this game), each in play at most once. A plot
+//! card is a [`Plot`] (`ti4_model::plots`): which card, the control tokens on it, and whether it is
+//! faceup. They live in `Player::plots` (one stored string per card). Placing a plot means the owner
+//! chooses one of the [`remaining_cards`] (asked only when several remain; with none left the
+//! placement cannot happen and no text gives a fallback). While facedown the card's identity is
+//! hidden from the other players but the tokens on it are public: `ti4_model::view` shows
+//! `d:?:<tokens>`, so a bot or a viewer built on a view never reads which card it is. The engine
+//! itself reads the real state. What the cards do is [`super::firmament_plots`].
 //!
 //! # Scoring a plot
 //!
 //! The scoring window ([`crate::objectives::ScoringWindow`]) asks the Firmament, besides its own
 //! options, one `plot|<secret>|<player>` option per secret objective another player has scored that
-//! the Firmament meets the requirement of at that timing ([`plot_options`]). Choosing it pays the
-//! secret's price, records the score and the plot ([`score_as_plot`]) and gives no victory point.
-//! Neither per-window cap applies, and the secret does not count against the hand limit
-//! (`secrets::scored_count`).
+//! the Firmament meets the requirement of at that timing ([`plot_options`]); none while no plot card
+//! remains. Choosing it pays the secret's price and records the plot ([`score_as_plot`]), then the
+//! window asks which plot card to place. It gives no victory point and is **neither a scored
+//! objective nor part of the secret objective limit** (it is not in `scored_objectives`; operator
+//! ruling 2026-10-08). Neither per-window cap applies.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -194,14 +199,79 @@ fn write_plots(state: &mut GameState, player: &PlayerId, plots: &[Plot]) {
     }
 }
 
-/// Put a new plot card with `token`'s control token on it into `owner`'s play area: facedown for
-/// the Firmament, faceup for the Obsidian.
-pub fn place_plot(state: &mut GameState, owner: &PlayerId, token: &PlayerId) {
+/// The plot cards no player has in play: the ones a placement may take (at most five ever exist).
+#[must_use]
+pub fn remaining_cards(state: &GameState) -> Vec<&'static str> {
+    ti4_model::plots::remaining(state.players.iter().flat_map(|seat| seat.plots.iter()))
+}
+
+/// A plot card's printed name.
+#[must_use]
+pub fn card_name(card: &str) -> String {
+    let mut name = card.to_owned();
+    if let Some(first) = name.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    name
+}
+
+/// Put plot card `card` with `token`'s control token on it into `owner`'s play area: facedown for
+/// the Firmament, faceup for the Obsidian. `false`, changing nothing, when that card is not one of
+/// the [`remaining_cards`].
+pub fn place_card(state: &mut GameState, owner: &PlayerId, card: &str, token: &PlayerId) -> bool {
+    if !remaining_cards(state).contains(&card) {
+        return false;
+    }
     let mut cards = plots(state, owner);
-    let mut card = Plot::facedown(token);
-    card.faceup = !is_firmament(state, owner);
-    cards.push(card);
+    let mut placed = Plot::facedown(card, token);
+    placed.faceup = !is_firmament(state, owner);
+    cards.push(placed);
     write_plots(state, owner, &cards);
+    true
+}
+
+/// "Place a plot card ... with `token`'s control token on it": `owner` chooses which of the
+/// [`remaining_cards`] (asked only when more than one remains), then it is placed. `None`, and
+/// nothing placed, when no plot card remains (no text gives a fallback).
+///
+/// # Errors
+/// [`TimingError`] when the owner's answer was not offered.
+pub(crate) fn place_new_plot(
+    context: &mut TimingContext<'_>,
+    owner: &PlayerId,
+    token: &PlayerId,
+    source: &str,
+) -> Result<Option<&'static str>, TimingError> {
+    let remaining = remaining_cards(context.state);
+    let card = match remaining.as_slice() {
+        [] => return Ok(None),
+        [only] => *only,
+        _ => {
+            let options = remaining
+                .iter()
+                .map(|card| {
+                    ChoiceOption::labelled(
+                        (*card).to_owned(),
+                        "plot_card",
+                        format!("place {} with {token}'s control token", card_name(card)),
+                    )
+                })
+                .collect();
+            let answer = ask(
+                context,
+                owner,
+                format!("Place a plot card with {token}'s control token on it"),
+                source,
+                "plot_card",
+                options,
+            )?;
+            let Some(card) = remaining.iter().copied().find(|card| *card == answer.id) else {
+                return Ok(None);
+            };
+            card
+        }
+    };
+    Ok(place_card(context.state, owner, card, token).then_some(card))
 }
 
 /// Put `token`'s control token on plot card `index` of `owner`. `false`, changing nothing, when the
@@ -234,6 +304,17 @@ pub fn puppeted(state: &GameState, owner: &PlayerId) -> BTreeSet<PlayerId> {
     plots(state, owner)
         .into_iter()
         .flat_map(|card| card.tokens)
+        .collect()
+}
+
+/// The players whose control tokens are on `owner`'s faceup plot card `card` (Marionettes: the
+/// puppeted players of that plot). Empty while the card is facedown or not in play.
+#[must_use]
+pub fn puppets_of(state: &GameState, owner: &PlayerId, card: &str) -> BTreeSet<PlayerId> {
+    plots(state, owner)
+        .into_iter()
+        .filter(|plot| plot.faceup && plot.is(card))
+        .flat_map(|plot| plot.tokens)
         .collect()
 }
 
@@ -277,17 +358,24 @@ pub fn plot_options(
     occurrence: Option<FeatOccurrence>,
     galaxy: Option<&Galaxy>,
 ) -> Vec<(SecretObjectiveId, PlayerId)> {
-    if !is_firmament(state, player) {
+    // With no plot card left, scoring a plot would give neither a victory point nor a card: it is
+    // not offered.
+    if !is_firmament(state, player) || remaining_cards(state).is_empty() {
         return Vec::new();
     }
     let mine = state.scored_by(player);
     let mut found = Vec::new();
     for other in state.seating_order.iter().filter(|seat| *seat != player) {
         for scored in state.scored_by(other) {
-            if mine.contains(&scored) || state.revealed_objectives.contains(&scored) {
+            let secret = SecretObjectiveId::new(scored.as_str());
+            if mine.contains(&scored)
+                || state.revealed_objectives.contains(&scored)
+                || state
+                    .player(player)
+                    .is_some_and(|seat| seat.plot_objectives.contains(&secret))
+            {
                 continue;
             }
-            let secret = SecretObjectiveId::new(scored.as_str());
             if content
                 .get(ContentType::SecretObjectives, secret.as_str())
                 .is_none()
@@ -303,8 +391,11 @@ pub fn plot_options(
     found
 }
 
-/// Score `secret`, which `token` scored, as a plot: no victory point, a facedown plot card with
-/// `token`'s control token on it. `false`, changing nothing, when it is not a legal plot score.
+/// Score `secret`, which `token` scored, as a plot: pay its price and record that it was scored as
+/// a plot. It gives no victory point and is **not** a scored objective (it is not recorded in
+/// `scored_objectives`, so it counts toward neither the three scored objectives of the hero nor the
+/// secret objective limit). The caller then places the plot card with [`place_card`]. `false`,
+/// changing nothing, when it is not a legal plot score.
 pub fn score_as_plot(
     state: &mut GameState,
     content: &ContentStore,
@@ -315,19 +406,19 @@ pub fn score_as_plot(
     let id = ti4_model::id::ObjectiveId::new(secret.as_str());
     if !is_firmament(state, player)
         || player == token
+        || remaining_cards(state).is_empty()
         || !state.scored_by(token).contains(&id)
         || state.scored_by(player).contains(&id)
+        || state
+            .player(player)
+            .is_some_and(|seat| seat.plot_objectives.contains(secret))
         || content
             .get(ContentType::SecretObjectives, secret.as_str())
             .is_none()
     {
         return false;
     }
-    if !crate::secrets::award_plot(state, player, secret) {
-        return false;
-    }
-    place_plot(state, player, token);
-    true
+    crate::secrets::award_plot(state, player, secret)
 }
 
 // -- the units -------------------------------------------------------------------------------------
@@ -456,10 +547,101 @@ fn agent_covers(state: &GameState, mover: &PlayerId) -> bool {
     })
 }
 
-/// SPACE CANNON cannot be used against `active`'s ships during an activation Myru Vos covers.
+/// `firmament:agent:moved` = `<activation_seq>|<unit type>:<count>,...`: the ships that moved into the
+/// active system during the activation Myru Vos covers (operator ruling 2026-10-08: "those ships" are
+/// only the ships actually moving, not all the mover's ships).
+const AGENT_MOVED: &str = "firmament:agent:moved";
+
+/// The ships that have moved this activation, by unit type.
+fn moved_ships(state: &GameState) -> std::collections::BTreeMap<String, u32> {
+    let mut moved = std::collections::BTreeMap::new();
+    let Some((seq, list)) = state
+        .faction_marks
+        .get(AGENT_MOVED)
+        .and_then(|mark| mark.split_once('|'))
+    else {
+        return moved;
+    };
+    if seq.parse::<u32>().ok() != Some(state.activation_seq) {
+        return moved;
+    }
+    for entry in list.split(',') {
+        if let Some((kind, count)) = entry.split_once(':')
+            && let Ok(count) = count.parse::<u32>()
+        {
+            moved.insert(kind.to_owned(), count);
+        }
+    }
+    moved
+}
+
+/// SPACE CANNON cannot be used against the ships that moved during an activation Myru Vos covers.
+/// Ships that were already in the system and did not move are not covered, so while the mover has
+/// one there the guns still fire (the engine's units are interchangeable values with no identity,
+/// so the hits then fall as the mover assigns them; see the evidence file).
 #[must_use]
-pub fn space_cannon_silenced(state: &GameState, active: &PlayerId) -> bool {
-    agent_covers(state, active)
+pub fn space_cannon_silenced(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    active: &PlayerId,
+    system: &SystemId,
+) -> bool {
+    if !agent_covers(state, active) {
+        return false;
+    }
+    let moved = moved_ships(state);
+    let types = ti4_content::units::catalogue(content, sources);
+    let mut here: std::collections::BTreeMap<&str, u32> = std::collections::BTreeMap::new();
+    let board = state.system_state(system);
+    for unit in &board.units {
+        if &unit.owner == active
+            && types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+        {
+            *here.entry(unit.type_id.as_str()).or_insert(0) += 1;
+        }
+    }
+    here.iter()
+        .all(|(kind, count)| moved.get(*kind).is_some_and(|moved| moved >= count))
+}
+
+/// Count a ship that has just moved into the active system while Myru Vos covers the activation.
+/// Mandatory bookkeeping, no decision.
+fn myru_vos_tracks(owner_name: &str, seat: &PlayerId) -> Ability {
+    let condition_owner = seat.clone();
+    Ability::stateful(
+        format!("leader:{owner_name}:{AGENT}:SHIP_MOVED:after"),
+        seat.clone(),
+        "SHIP_MOVED",
+        Relation::After,
+        Arc::new(move |event, _resolver, context| {
+            let Some(kind) = event.text("unit") else {
+                return Ok(());
+            };
+            let mut moved = moved_ships(context.state);
+            *moved.entry(kind.to_owned()).or_insert(0) += 1;
+            let list: Vec<String> = moved
+                .iter()
+                .map(|(kind, count)| format!("{kind}:{count}"))
+                .collect();
+            context.state.faction_marks.insert(
+                AGENT_MOVED.to_owned(),
+                format!("{}|{}", context.state.activation_seq, list.join(",")),
+            );
+            Ok(())
+        }),
+    )
+    .with_stateful_condition(Arc::new(move |event, _, context| {
+        context
+            .state
+            .player(&condition_owner)
+            .is_some_and(|seat| seat.leaders.contains_key(&LeaderId::new(AGENT)))
+            && event
+                .text("player")
+                .is_some_and(|mover| agent_covers(context.state, &PlayerId::new(mover)))
+    }))
 }
 
 fn unladen_pass(state: &GameState, mover: &PlayerId) -> bool {
@@ -884,23 +1066,27 @@ fn receive_black_ops(
     owner: &PlayerId,
     holder: &PlayerId,
 ) -> Result<(), TimingError> {
-    let answer = ask(
-        context,
-        owner,
-        format!("Black Ops: place a facedown plot card with {holder}'s control token on it"),
-        NOTE,
-        "black_ops_plot",
-        vec![
-            ChoiceOption::labelled(
-                "place",
-                "plot",
-                format!("place a plot with {holder}'s token"),
-            ),
-            ChoiceOption::decline(),
-        ],
-    )?;
-    if answer.id == "place" {
-        place_plot(context.state, owner, holder);
+    // "The Firmament player may place 1 facedown plot card": a "may", and only when one remains (no
+    // text gives a fallback, so with none left the placement simply cannot happen).
+    if !remaining_cards(context.state).is_empty() {
+        let answer = ask(
+            context,
+            owner,
+            format!("Black Ops: place a facedown plot card with {holder}'s control token on it"),
+            NOTE,
+            "black_ops_plot",
+            vec![
+                ChoiceOption::labelled(
+                    "place",
+                    "plot",
+                    format!("place a plot with {holder}'s token"),
+                ),
+                ChoiceOption::decline(),
+            ],
+        )?;
+        if answer.id == "place" {
+            place_new_plot(context, owner, holder, NOTE)?;
+        }
     }
     crate::strategy_cards::gain_tokens(
         context.state,
@@ -962,9 +1148,11 @@ fn use_leader(
     })
 }
 
-/// The Blade Beckons - Knife in the Back. The first sentence reads "1 of your plot cards" as a plot
-/// card from the owner's supply, placed in play with another player's control token on it (the
-/// reading that gives the sentence somewhere to put it; see the evidence file).
+/// The Blade Beckons - Knife in the Back. Two sentences, both implemented (operator ruling
+/// 2026-10-08): the first places a **new** plot card, one of the plot cards that remain, with any
+/// other player's control token on it (the owner chooses the player, then the card; with no plot card
+/// left there is nothing to place); the second may put any player's control token on one of the
+/// owner's in-play plot cards, never twice the same player's on one card. The caller purges the card.
 fn hero(context: &mut TimingContext<'_>, owner: &PlayerId) -> Result<bool, TimingError> {
     let others: Vec<PlayerId> = context
         .state
@@ -973,10 +1161,13 @@ fn hero(context: &mut TimingContext<'_>, owner: &PlayerId) -> Result<bool, Timin
         .filter(|seat| *seat != owner)
         .cloned()
         .collect();
-    let target = match others.as_slice() {
-        [] => return Ok(false),
-        [only] => only.clone(),
-        _ => {
+    if others.is_empty() {
+        return Ok(false);
+    }
+    if !remaining_cards(context.state).is_empty() {
+        let target = if let [only] = others.as_slice() {
+            only.clone()
+        } else {
             let answer = ask(
                 context,
                 owner,
@@ -998,9 +1189,9 @@ fn hero(context: &mut TimingContext<'_>, owner: &PlayerId) -> Result<bool, Timin
                 return Ok(false);
             };
             chosen
-        }
-    };
-    place_plot(context.state, owner, &target);
+        };
+        place_new_plot(context, owner, &target, HERO)?;
+    }
     // "Then, you may place any player's control token on 1 of your in-play plot cards."
     let cards = plots(context.state, owner);
     let mut options = Vec::new();
@@ -1010,7 +1201,13 @@ fn hero(context: &mut TimingContext<'_>, owner: &PlayerId) -> Result<bool, Timin
                 options.push(ChoiceOption::labelled(
                     format!("token|{seat}|{index}"),
                     "plot_token",
-                    format!("put {seat}'s control token on plot card {}", index + 1),
+                    format!(
+                        "put {seat}'s control token on plot card {} ({})",
+                        index + 1,
+                        card.card
+                            .as_deref()
+                            .map_or_else(|| "?".to_owned(), card_name)
+                    ),
                 ));
             }
         }
@@ -1051,6 +1248,7 @@ pub(crate) fn timing_abilities(
         repairs(owner_name, seat, "SPACE_COMBAT_ROUND_ENDED"),
         repairs(owner_name, seat, "GROUND_COMBAT_ROUND_ENDED"),
         myru_vos(owner_name, seat),
+        myru_vos_tracks(owner_name, seat),
         black_ops(owner_name, seat),
     ]
 }
@@ -1124,6 +1322,32 @@ pub(crate) mod testkit {
     pub(crate) fn home(state: &GameState, who: &PlayerId) -> SystemId {
         state.player(who).unwrap().home_system.clone().unwrap()
     }
+    /// Place the first plot card that remains (in printed order) with `token`'s control token on it,
+    /// and name it. For tests that do not care which card.
+    pub(crate) fn place_plot(
+        state: &mut GameState,
+        owner: &PlayerId,
+        token: &PlayerId,
+    ) -> &'static str {
+        let card = super::remaining_cards(state)
+            .first()
+            .copied()
+            .expect("a plot card remains");
+        assert!(super::place_card(state, owner, card, token));
+        card
+    }
+    /// Place plot card `card` with `token`'s control token on it.
+    pub(crate) fn place_card(
+        state: &mut GameState,
+        owner: &PlayerId,
+        card: &str,
+        token: &PlayerId,
+    ) {
+        assert!(
+            super::place_card(state, owner, card, token),
+            "{card} remains"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1168,6 +1392,16 @@ mod tests {
             .expect("resolves")
     }
 
+    /// Score a plot: the scoring option, then the plot card the Firmament chooses.
+    fn pick_plot(window: &mut ScoringWindow, state: &mut GameState, id: &str, card: &str) {
+        assert_eq!(
+            pick(window, state, id),
+            None,
+            "a plot is not a scored objective, so nothing is announced as scored"
+        );
+        pick(window, state, card);
+    }
+
     #[test]
     fn plots_within_plots_scores_another_players_secret_as_a_plot_for_no_victory_point() {
         let mut state = docks_game();
@@ -1178,19 +1412,146 @@ mod tests {
         assert_eq!(choice.player, a());
         assert!(choice.option("plot|fwm|b").is_some(), "{:?}", choice.ids());
         let vp = state.player(&a()).unwrap().victory_points;
-        let scored = pick(&mut window, &mut state, "plot|fwm|b");
-        assert_eq!(scored, Some(ObjectiveId::new("fwm")));
+        assert_eq!(pick(&mut window, &mut state, "plot|fwm|b"), None);
+        // The secret is scored; the Firmament now chooses which of the five plot cards goes in.
+        let card_choice = window
+            .pending_choice(&state, content(), DEFAULT)
+            .expect("the plot card is chosen");
+        assert_eq!(card_choice.player, a());
+        assert_eq!(
+            card_choice.ids(),
+            ["enervate", "siphon", "seethe", "assail", "extract"]
+        );
+        assert!(!window.is_complete(), "the window waits for the card");
+        pick(&mut window, &mut state, "assail");
         let seat = state.player(&a()).unwrap();
         assert_eq!(seat.victory_points, vp, "no victory point");
-        assert_eq!(seat.plots, ["d:b"], "a facedown plot with b's token");
+        assert_eq!(
+            seat.plots,
+            ["d:assail:b"],
+            "a facedown Assail with b's token"
+        );
         assert!(
             seat.plot_objectives
                 .contains(&SecretObjectiveId::new("fwm"))
         );
-        assert!(state.scored_by(&a()).contains(&ObjectiveId::new("fwm")));
+        assert!(
+            !state.scored_by(&a()).contains(&ObjectiveId::new("fwm")),
+            "a plot is not a scored objective (ruling 2026-10-08)"
+        );
         assert!(
             window.pending_choice(&state, content(), DEFAULT).is_none(),
             "scored once"
+        );
+        assert_eq!(
+            remaining_cards(&state),
+            ["enervate", "siphon", "seethe", "extract"]
+        );
+    }
+
+    #[test]
+    fn there_are_exactly_five_plot_cards_and_the_mutated_records_are_not_among_them() {
+        use ti4_model::content_types::ContentType;
+        // The unique plot cards of the corpus are the five of `ti4_model::plots::CARDS`; the
+        // `mutated_*` records (variant pieces) are not part of this game.
+        for card in ti4_model::plots::CARDS {
+            let record = content()
+                .get(ContentType::GenericCards, card)
+                .unwrap_or_else(|| panic!("{card} in genericcards.json"));
+            assert_eq!(record.text("cardType"), Some("plot"), "{card}");
+            assert!(
+                content()
+                    .get(ContentType::GenericCards, &format!("mutated_{card}"))
+                    .is_some(),
+                "the corpus carries a mutated twin of {card}, which this game does not use"
+            );
+        }
+        let state = game();
+        assert_eq!(remaining_cards(&state), ti4_model::plots::CARDS.to_vec());
+        for plot in ["mutated_enervate", "mutated_siphon"] {
+            let mut state = game();
+            assert!(!super::place_card(&mut state, &a(), plot, &b()), "{plot}");
+        }
+    }
+
+    #[test]
+    fn a_plot_secret_is_neither_a_scored_objective_nor_part_of_the_secret_limit() {
+        let mut state = docks_game();
+        let mut window = status_window(&state);
+        pick_plot(&mut window, &mut state, "plot|fwm|b", "siphon");
+        // Not a scored objective: it does not count toward the hero's three, and the Firmament's
+        // own scored list stays empty.
+        assert!(state.scored_by(&a()).is_empty());
+        assert_eq!(crate::secrets::scored_count(&state, content(), &a()), 0);
+        assert_eq!(
+            crate::secrets::held_count(&state, content(), &a()),
+            state.player(&a()).unwrap().secret_objectives.len(),
+            "only the hand counts: the plot is not a held or scored secret"
+        );
+        for id in ["tp", "dtgs", "eap"] {
+            state.record_score(&a(), ObjectiveId::new(id));
+        }
+        let hero = LeaderId::new(HERO);
+        crate::leaders::check_unlocks(&mut state, content(), DEFAULT, None, &a());
+        assert_eq!(
+            state.player(&a()).unwrap().leaders.get(&hero),
+            Some(&LeaderStatus::Unlocked),
+            "three real scored objectives still unlock the hero"
+        );
+        // Two real ones plus the plot do not.
+        let mut two = docks_game();
+        let mut window = status_window(&two);
+        pick_plot(&mut window, &mut two, "plot|fwm|b", "siphon");
+        for id in ["tp", "dtgs"] {
+            two.record_score(&a(), ObjectiveId::new(id));
+        }
+        crate::leaders::check_unlocks(&mut two, content(), DEFAULT, None, &a());
+        assert_eq!(
+            two.player(&a()).unwrap().leaders.get(&hero),
+            Some(&LeaderStatus::Locked),
+            "the plot is not the third scored objective"
+        );
+    }
+
+    #[test]
+    fn the_last_plot_card_is_placed_without_asking_and_none_left_means_no_plot_to_score() {
+        let mut state = docks_game();
+        // Four of the five cards are in play elsewhere (the Firmament's own placements).
+        for (card, token) in [
+            ("enervate", "b"),
+            ("siphon", "c"),
+            ("seethe", "b"),
+            ("assail", "c"),
+        ] {
+            testkit::place_card(&mut state, &c(), card, &PlayerId::new(token));
+        }
+        let mut window = status_window(&state);
+        assert_eq!(pick(&mut window, &mut state, "plot|fwm|b"), None);
+        assert!(
+            window.pending_choice(&state, content(), DEFAULT).is_none(),
+            "one card remained: it was placed without a question"
+        );
+        assert!(state.player(&a()).unwrap().plots == ["d:extract:b"]);
+        // With all five in play the option is not offered at all.
+        let none = {
+            let mut state = docks_game();
+            for (card, token) in [
+                ("enervate", "b"),
+                ("siphon", "c"),
+                ("seethe", "b"),
+                ("assail", "c"),
+                ("extract", "b"),
+            ] {
+                testkit::place_card(&mut state, &c(), card, &PlayerId::new(token));
+            }
+            state
+        };
+        assert!(remaining_cards(&none).is_empty());
+        assert!(
+            status_window(&none)
+                .pending_choice(&none, content(), DEFAULT)
+                .is_none(),
+            "no plot card remains, so there is no plot to score"
         );
     }
 
@@ -1233,12 +1594,17 @@ mod tests {
             } else {
                 ("eap", "plot|fwm|b")
             };
-            pick(&mut window, &mut state, first);
-            pick(&mut window, &mut state, second);
+            for id in [first, second] {
+                if id.starts_with("plot|") {
+                    pick_plot(&mut window, &mut state, id, "seethe");
+                } else {
+                    pick(&mut window, &mut state, id);
+                }
+            }
             assert!(window.pending_choice(&state, content(), DEFAULT).is_none());
             let seat = state.player(&a()).unwrap();
             assert_eq!(seat.victory_points, 1, "only the ordinary secret scores");
-            // Two scored secrets, but the plot does not count against the limit of three.
+            // One scored secret and one plot: the plot does not count against the limit of three.
             assert_eq!(crate::secrets::scored_count(&state, content(), &a()), 1);
             assert_eq!(crate::secrets::held_count(&state, content(), &a()), 1);
         }
@@ -1260,9 +1626,9 @@ mod tests {
         );
         pick(&mut window, &mut state, "btv");
         // The ordinary cap is spent, the plot is still on offer.
-        pick(&mut window, &mut state, "plot|dtgs|b");
+        pick_plot(&mut window, &mut state, "plot|dtgs|b", "extract");
         assert!(window.pending_choice(&state, content(), DEFAULT).is_none());
-        assert_eq!(state.player(&a()).unwrap().plots, ["d:b"]);
+        assert_eq!(state.player(&a()).unwrap().plots, ["d:extract:b"]);
         // Without the feat the plot is not on offer.
         let mut bare = game();
         bare.record_score(&b(), ObjectiveId::new("dtgs"));
@@ -1280,34 +1646,35 @@ mod tests {
     fn the_plots_tokens_are_hidden_from_other_players_until_the_flip() {
         let mut state = docks_game();
         let mut window = status_window(&state);
-        pick(&mut window, &mut state, "plot|fwm|b");
-        let for_b = ti4_model::view::view_for(&state, &b());
+        pick_plot(&mut window, &mut state, "plot|fwm|b", "siphon");
+        let for_c = ti4_model::view::view_for(&state, &c());
         assert_eq!(
-            for_b.player(&a()).unwrap().plots,
-            ["?"],
-            "the count survives"
+            for_c.player(&a()).unwrap().plots,
+            ["d:?:b"],
+            "the count and the token are public, which card it is is not"
         );
-        assert!(ti4_model::view::leaks(&for_b, &b()).is_empty());
+        assert!(ti4_model::view::leaks(&for_c, &c()).is_empty());
         assert_eq!(
             ti4_model::view::view_for(&state, &a())
                 .player(&a())
                 .unwrap()
                 .plots,
-            ["d:b"]
+            ["d:siphon:b"],
+            "the owner reads the card"
         );
         flip_plots(&mut state, &a());
         let for_c = ti4_model::view::view_for(&state, &c());
-        assert_eq!(for_c.player(&a()).unwrap().plots, ["u:b"]);
+        assert_eq!(for_c.player(&a()).unwrap().plots, ["u:siphon:b"]);
     }
 
     #[test]
     fn a_plot_card_never_carries_two_tokens_of_one_player() {
         let mut state = game();
-        place_plot(&mut state, &a(), &b());
+        testkit::place_plot(&mut state, &a(), &b());
         assert!(!add_token(&mut state, &a(), 0, &b()));
         assert!(add_token(&mut state, &a(), 0, &c()));
         assert!(!add_token(&mut state, &a(), 1, &c()), "no such card");
-        assert_eq!(state.player(&a()).unwrap().plots, ["d:b,c"]);
+        assert_eq!(state.player(&a()).unwrap().plots, ["d:enervate:b,c"]);
         assert_eq!(puppeted(&state, &a()), BTreeSet::from([b(), c()]));
     }
 
@@ -1322,7 +1689,7 @@ mod tests {
             state.player(&a()).unwrap().leaders.get(&leader),
             Some(&LeaderStatus::Locked)
         );
-        place_plot(&mut state, &a(), &b());
+        testkit::place_plot(&mut state, &a(), &b());
         crate::leaders::check_unlocks(&mut state, content(), DEFAULT, None, &a());
         assert_eq!(
             state.player(&a()).unwrap().leaders.get(&leader),
@@ -1517,11 +1884,11 @@ mod tests {
         emit(
             &mut state,
             None,
-            &["place"],
+            &["place", "extract"],
             "TRANSACTION_RESOLVED",
             &resolved(),
         );
-        assert_eq!(state.player(&a()).unwrap().plots, ["d:b"]);
+        assert_eq!(state.player(&a()).unwrap().plots, ["d:extract:b"]);
         assert_eq!(goods(&state, &b()), goods_before + 2);
         assert_eq!(tokens(&state, &b()), tokens_before + 2);
         assert!(
@@ -1566,7 +1933,7 @@ mod tests {
     /// active system and holds a Sol unit.
     fn eye() -> (GameState, SystemId) {
         let mut state = game();
-        place_plot(&mut state, &a(), &b());
+        testkit::place_plot(&mut state, &a(), &b());
         let system = home(&state, &a());
         crate::fixtures::put(&mut state, &system, "firmament_flagship", &a(), 1);
         crate::fixtures::put(&mut state, &system, "destroyer", &b(), 1);
@@ -1853,8 +2220,30 @@ mod tests {
             .copied()
     }
 
+    /// Announce that one of the player's ships of the given kind has just moved into the system
+    /// from system 19.
+    fn moved_in(state: &mut GameState, system: &SystemId, player: &str, kind: &str) {
+        crate::fixtures::put(state, system, kind, &PlayerId::new(player), 1);
+        emit(
+            state,
+            None,
+            &[],
+            "SHIP_MOVED",
+            &[
+                ("player", player.into()),
+                ("system", system.to_string().into()),
+                ("origin", "19".into()),
+                ("unit", kind.into()),
+            ],
+        );
+    }
+
+    fn silenced(state: &GameState, who: &PlayerId, system: &SystemId) -> bool {
+        space_cannon_silenced(state, content(), DEFAULT, who, system)
+    }
+
     #[test]
-    fn myru_vos_covers_the_activation_it_is_used_in_and_exhausts() {
+    fn myru_vos_covers_the_ships_that_move_in_the_activation_it_is_used_in_and_exhausts() {
         let (mut state, _) = eye();
         let target = SystemId::new("18");
         crate::fixtures::put(&mut state, &SystemId::new("19"), "cruiser", &b(), 1);
@@ -1864,13 +2253,45 @@ mod tests {
         ];
         emit(&mut state, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
         assert_eq!(agent_status(&state), Some(LeaderStatus::Exhausted));
-        assert!(space_cannon_silenced(&state, &b()));
-        assert!(
-            !space_cannon_silenced(&state, &c()),
-            "only the mover's ships"
-        );
+        // Nothing has moved yet, so no ship is covered.
+        assert!(!silenced(&state, &b(), &target) || state.system_state(&target).units.is_empty());
+        moved_in(&mut state, &target, "b", "cruiser");
+        assert!(silenced(&state, &b(), &target));
+        assert!(!silenced(&state, &c(), &target), "only the mover's ships");
         state.activation_seq += 1;
-        assert!(!space_cannon_silenced(&state, &b()), "only that activation");
+        assert!(!silenced(&state, &b(), &target), "only that activation");
+    }
+
+    #[test]
+    fn a_ship_that_did_not_move_is_not_covered_by_myru_vos() {
+        let (mut state, _) = eye();
+        let target = SystemId::new("18");
+        crate::fixtures::put(&mut state, &SystemId::new("19"), "cruiser", &b(), 1);
+        // One cruiser was already in the active system; the other moves in.
+        crate::fixtures::put(&mut state, &target, "cruiser", &b(), 1);
+        let activated = [
+            ("system", target.to_string().into()),
+            ("player", "b".into()),
+        ];
+        emit(&mut state, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
+        moved_in(&mut state, &target, "b", "cruiser");
+        assert!(
+            !silenced(&state, &b(), &target),
+            "one of the two cruisers did not move: SPACE CANNON can still be used"
+        );
+        // A second cruiser arriving covers both counts of the type: nothing is left uncovered.
+        moved_in(&mut state, &target, "b", "cruiser");
+        assert!(
+            !silenced(&state, &b(), &target),
+            "three cruisers, two moved"
+        );
+        // A type that only moved in is covered; the type that stood there is not.
+        let (mut mixed, _) = eye();
+        crate::fixtures::put(&mut mixed, &SystemId::new("19"), "cruiser", &b(), 1);
+        crate::fixtures::put(&mut mixed, &target, "destroyer", &b(), 1);
+        emit(&mut mixed, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
+        moved_in(&mut mixed, &target, "b", "cruiser");
+        assert!(!silenced(&mixed, &b(), &target), "the destroyer stayed");
     }
 
     #[test]
@@ -1891,7 +2312,7 @@ mod tests {
             &activated,
         );
         assert_eq!(agent_status(&declined), Some(LeaderStatus::Readied));
-        assert!(!space_cannon_silenced(&declined, &b()));
+        assert!(!silenced(&declined, &b(), &target));
         // The mover has no ship outside the active system: nothing to cover.
         let mut none = game();
         none.board
@@ -1908,16 +2329,16 @@ mod tests {
             .leaders
             .insert(LeaderId::new(AGENT), LeaderStatus::Exhausted);
         emit(&mut spent, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
-        assert!(!space_cannon_silenced(&spent, &b()));
+        assert!(!silenced(&spent, &b(), &target));
     }
 
     #[test]
-    fn space_cannon_cannot_be_used_against_the_covered_ships() {
+    fn space_cannon_cannot_be_used_against_the_ships_that_moved_but_can_against_those_that_did_not()
+    {
         let mut state = game();
         let (system, planet) = plain_planet();
         state.system_mut(&system).set_control(planet.clone(), c());
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &c(), 1);
-        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
         let shots = |state: &mut GameState| -> usize {
             let mut dice = crate::dice::Dice::from_faces(std::iter::repeat_n(10, 12));
             let mut rng = crate::rng::GameRng::new(0);
@@ -1936,20 +2357,58 @@ mod tests {
             .map(|(_, hits, _)| hits)
             .sum()
         };
-        assert!(
-            shots(&mut state.clone()) > 0,
-            "the PDS fires at an uncovered ship"
-        );
-        crate::fixtures::put(&mut state, &SystemId::new("19"), "cruiser", &b(), 1);
         let activated = [
             ("system", system.to_string().into()),
             ("player", "b".into()),
         ];
-        emit(&mut state, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
+        // A cruiser that moved in is covered.
+        let mut moved = state.clone();
+        crate::fixtures::put(&mut moved, &SystemId::new("19"), "cruiser", &b(), 1);
+        crate::fixtures::put(&mut moved, &system, "cruiser", &b(), 1);
+        assert!(
+            shots(&mut moved.clone()) > 0,
+            "the PDS fires at an uncovered ship"
+        );
+        emit(&mut moved, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
+        emit(
+            &mut moved,
+            None,
+            &[],
+            "SHIP_MOVED",
+            &[
+                ("player", "b".into()),
+                ("system", system.to_string().into()),
+                ("origin", "19".into()),
+                ("unit", "cruiser".into()),
+            ],
+        );
         assert_eq!(
-            shots(&mut state),
+            shots(&mut moved),
             0,
-            "SPACE CANNON cannot be used against them"
+            "SPACE CANNON cannot be used against it"
+        );
+
+        // A fleet with a ship that stood there and one that moved in: the stationary one is not covered.
+        let mut mixed = state.clone();
+        crate::fixtures::put(&mut mixed, &SystemId::new("19"), "cruiser", &b(), 1);
+        crate::fixtures::put(&mut mixed, &system, "cruiser", &b(), 1);
+        crate::fixtures::put(&mut mixed, &system, "destroyer", &b(), 1);
+        emit(&mut mixed, None, &[MYRU], "SYSTEM_ACTIVATED", &activated);
+        emit(
+            &mut mixed,
+            None,
+            &[],
+            "SHIP_MOVED",
+            &[
+                ("player", "b".into()),
+                ("system", system.to_string().into()),
+                ("origin", "19".into()),
+                ("unit", "cruiser".into()),
+            ],
+        );
+        assert!(
+            shots(&mut mixed) > 0,
+            "the destroyer did not move, so the PDS still fires"
         );
     }
 
@@ -2104,8 +2563,8 @@ mod tests {
     #[test]
     fn sharsiss_places_a_plot_with_another_players_token_then_may_add_a_token_and_is_purged() {
         let mut state = hero_game();
-        assert!(use_hero(&mut state, &["b", "token|c|0"]));
-        assert_eq!(state.player(&a()).unwrap().plots, ["d:b,c"]);
+        assert!(use_hero(&mut state, &["b", "seethe", "token|c|0"]));
+        assert_eq!(state.player(&a()).unwrap().plots, ["d:seethe:b,c"]);
         assert_eq!(
             state
                 .player(&a())
@@ -2119,11 +2578,11 @@ mod tests {
     #[test]
     fn sharsiss_second_clause_is_a_may_and_never_doubles_a_token() {
         let mut state = hero_game();
-        assert!(use_hero(&mut state, &["b", "decline"]));
-        assert_eq!(state.player(&a()).unwrap().plots, ["d:b"]);
+        assert!(use_hero(&mut state, &["b", "seethe", "decline"]));
+        assert_eq!(state.player(&a()).unwrap().plots, ["d:seethe:b"]);
         // The second clause never offers b's token for the card that already carries it.
         let mut state = hero_game();
-        let mut table = scripted(&["b", "token|b|0"]);
+        let mut table = scripted(&["b", "seethe", "token|b|0"]);
         let result =
             crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
                 hero(context, &a())
@@ -2138,6 +2597,53 @@ mod tests {
             }
             other => panic!("expected the script to diverge, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn sharsiss_places_a_new_card_from_the_remaining_ones_then_may_token_any_plot_in_play() {
+        let mut state = hero_game();
+        // One plot is already in play (Assail, with c's token); the hero places a new one.
+        testkit::place_card(&mut state, &a(), "assail", &c());
+        let mut table = scripted(&["b", "enervate", "token|a|0"]);
+        let done =
+            crate::fixtures::with_context(&mut state, DEFAULT, None, &mut table, |context| {
+                crate::leaders::use_leader(context, &a(), &LeaderId::new(HERO))
+            });
+        assert!(done);
+        // The new card is Enervate (not the Assail already in play) with b's token; the second
+        // sentence then put a's own token on the card that was already in play.
+        assert_eq!(
+            state.player(&a()).unwrap().plots,
+            ["d:assail:a,c", "d:enervate:b"]
+        );
+        assert_eq!(remaining_cards(&state), ["siphon", "seethe", "extract"]);
+    }
+
+    #[test]
+    fn sharsiss_cannot_place_a_new_card_when_none_remain_but_still_adds_a_token() {
+        let mut state = hero_game();
+        for (card, token) in [
+            ("enervate", "b"),
+            ("siphon", "c"),
+            ("seethe", "b"),
+            ("assail", "c"),
+            ("extract", "b"),
+        ] {
+            testkit::place_card(&mut state, &a(), card, &PlayerId::new(token));
+        }
+        // No placement is asked (no card remains): straight to the second sentence.
+        assert!(use_hero(&mut state, &["token|a|4"]));
+        let plots = &state.player(&a()).unwrap().plots;
+        assert_eq!(plots.len(), 5, "no sixth card");
+        assert_eq!(plots[4], "d:extract:a,b");
+        assert_eq!(
+            state
+                .player(&a())
+                .unwrap()
+                .leaders
+                .get(&LeaderId::new(HERO)),
+            Some(&LeaderStatus::Purged)
+        );
     }
 
     #[test]
@@ -2193,7 +2699,7 @@ mod tests {
                 .is_none(),
             "nobody is offered a plot"
         );
-        assert!(!space_cannon_silenced(&state, &a()));
+        assert!(!silenced(&state, &a(), &SystemId::new("18")));
     }
 
     use ti4_content::galaxy::Galaxy;

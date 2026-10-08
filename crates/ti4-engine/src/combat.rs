@@ -382,6 +382,15 @@ fn effective_from(
         None,
     );
 
+    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
+    let assail = crate::factions::firmament_plots::assail_space(
+        state,
+        content,
+        sources,
+        player,
+        state.active_system.as_ref(),
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
@@ -390,7 +399,8 @@ fn effective_from(
             - i64::from(nebula_defender)
             - module
             - mahact_flagship
-            - nekro_mech,
+            - nekro_mech
+            - assail,
     )
 }
 
@@ -1552,6 +1562,16 @@ pub fn roll_barrage_side(
         } else {
             value
         };
+        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
+        let value = (value
+            - crate::factions::firmament_plots::assail_space(
+                state,
+                content,
+                sources,
+                player,
+                Some(system),
+            ))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -1963,11 +1983,13 @@ pub fn space_cannon_offense(
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
     // activation-scoped, like the card's "this tactical action" wording.
-    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships it was used on the same way.
+    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships that moved the same way.
     let solar_flare = state
         .player(active)
         .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq))
-        || crate::factions::firmament::space_cannon_silenced(state, active);
+        || crate::factions::firmament::space_cannon_silenced(
+            state, content, sources, active, system,
+        );
     let types = catalogue(content, sources);
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships
@@ -2090,6 +2112,16 @@ pub fn space_cannon_offense(
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
         let count = count + crate::factions::bastion::extra_die(&unit);
+        // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
+        // player's guns fire at the opponent, every other gun at the active player).
+        let target = if unit.owner == *active {
+            opponent.clone()
+        } else {
+            Some(active.clone())
+        };
+        let value = (value
+            - crate::factions::firmament_plots::assail_against(state, &unit.owner, target.iter()))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,

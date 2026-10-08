@@ -59,6 +59,7 @@ mod deepwrought_cards;
 pub(crate) mod deepwrought_research;
 pub mod firmament;
 mod firmament_flip;
+pub mod firmament_plots;
 pub mod ghost;
 pub mod hooks_cards;
 pub mod hooks_combat;

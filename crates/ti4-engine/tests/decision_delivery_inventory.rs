@@ -1141,9 +1141,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The scoring choice, and Plots Within Plots' second step: the plot card to place.
         module: "objectives.rs",
         function: "pending_choice",
-        count: 1,
+        count: 2,
         delivery: Delivery::ObservedVia("game.rs::step_scoring"),
     },
     Producer {

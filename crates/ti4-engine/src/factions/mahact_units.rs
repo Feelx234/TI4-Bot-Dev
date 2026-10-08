@@ -203,8 +203,11 @@ fn legionnaire(owner_name: &str, seat: &PlayerId, unit: &'static str) -> Ability
                     seat.commodities -= 1;
                 }
                 crate::supply::gain_trade_goods_staged(context.state, &owner, 1, unit);
-            } else if can_gain && let Some(seat) = context.state.player_mut(&owner) {
-                seat.commodities += 1;
+            } else if can_gain {
+                if let Some(seat) = context.state.player_mut(&owner) {
+                    seat.commodities += 1;
+                }
+                crate::supply::note_commodities_gained(context.state, &owner, 1);
             }
             if unit == INFANTRY2 {
                 let now = units_on_card(context.state, &owner) + 1;

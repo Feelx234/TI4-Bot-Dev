@@ -20,7 +20,7 @@
 //! | Units | `firmament_flagship` and `firmament_mech` on the board become `obsidian_flagship` and `obsidian_mech`, damage kept |
 //! | Technologies | each owned Firmament faction technology becomes its Obsidian side (by position in the faction sheets), exhaustion kept; unowned ones are not gained |
 //! | Breakthrough | The Sowing becomes The Reaping; the trade goods on the card stay (`firmament::goods_on_card`) |
-//! | Plots | every plot card is flipped faceup, so everyone reads it |
+//! | Plots | every plot card is flipped faceup, so everyone reads it; flipping is revealing, and the "when this card is revealed" effects (Seethe, Extract) are answered by `FACTION_FLIPPED`, not here (`firmament_plots`) |
 //! | Bookkeeping | the "gains seen" marks follow, so the swap is never announced as gaining a technology or a breakthrough; borrowed Firmament commander abilities are dropped with the purged card |
 //!
 //! It then stages `FACTION_FLIPPED` (`player`, `from`, `to`) for the game to announce after the
@@ -400,8 +400,8 @@ mod tests {
         let mut state = game();
         let home = home(&state, &a());
         assert_eq!(home.as_str(), "96a");
-        firmament::place_plot(&mut state, &a(), &b());
-        firmament::place_plot(&mut state, &a(), &c());
+        firmament::testkit::place_plot(&mut state, &a(), &b());
+        firmament::testkit::place_plot(&mut state, &a(), &c());
         {
             let seat = state.player_mut(&a()).unwrap();
             for tech in [firmament::PLANESPLITTER, firmament::PARASITE] {
@@ -467,7 +467,7 @@ mod tests {
                 .any(|option| option.id == BECOME)
         };
         assert!(!offered(&state, &a()), "no plot, no ability");
-        firmament::place_plot(&mut state, &a(), &b());
+        firmament::testkit::place_plot(&mut state, &a(), &b());
         assert!(offered(&state, &a()));
         assert!(!offered(&state, &b()), "nobody else has the ability");
     }
@@ -582,13 +582,13 @@ mod tests {
         );
         assert_eq!(firmament::goods_on_card(&state, &a()), 3);
         // Plots flip faceup and are public.
-        assert_eq!(seat.plots, ["u:b", "u:c"]);
+        assert_eq!(seat.plots, ["u:enervate:b", "u:siphon:c"]);
         assert_eq!(
             ti4_model::view::view_for(&state, &b())
                 .player(&a())
                 .unwrap()
                 .plots,
-            ["u:b", "u:c"]
+            ["u:enervate:b", "u:siphon:c"]
         );
     }
 
@@ -733,8 +733,11 @@ mod tests {
             .is_empty(),
             "Plots Within Plots is purged with the sheet"
         );
-        firmament::place_plot(&mut state, &a(), &b());
-        assert_eq!(state.player(&a()).unwrap().plots.last().unwrap(), "u:b");
+        let card = firmament::testkit::place_plot(&mut state, &a(), &b());
+        assert_eq!(
+            state.player(&a()).unwrap().plots.last().unwrap(),
+            &format!("u:{card}:b")
+        );
     }
 
     #[test]

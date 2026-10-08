@@ -456,6 +456,23 @@ pub fn note_trade_goods_gained(
     }
 }
 
+/// Stage `COMMODITIES_GAINED` (`player`, `amount`) for a gain of commodities the caller has already
+/// made, so Siphon (an Obsidian plot) can answer it. Staged only while a Siphon watches `player`:
+/// nothing else listens, so every other game keeps its event stream exactly. A no-op for
+/// `amount <= 0`.
+pub fn note_commodities_gained(state: &mut GameState, player: &PlayerId, amount: i32) {
+    if amount > 0 && crate::factions::firmament_plots::siphon_watches(state, player) {
+        stage_event(
+            state,
+            crate::factions::firmament_plots::COMMODITIES_GAINED,
+            &std::collections::BTreeMap::from([
+                ("player".to_owned(), player.to_string().into()),
+                ("amount".to_owned(), i64::from(amount).into()),
+            ]),
+        );
+    }
+}
+
 /// [`gain_trade_goods`] for a site with no timing handle: the gain is made now and its
 /// `TRADE_GOODS_GAINED` is staged for [`flush_staged_events`].
 pub fn gain_trade_goods_staged(

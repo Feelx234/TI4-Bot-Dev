@@ -3431,9 +3431,12 @@ fn pirate_systems_off_homes(
 /// the faction's limit.
 fn harness_energy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let limit = crate::strategy_cards::commodity_limit(context.state, context.content, player);
+    let mut gained = 0;
     if let Some(seat) = context.state.player_mut(player) {
+        gained = (limit - seat.commodities).max(0);
         seat.commodities = limit;
     }
+    crate::supply::note_commodities_gained(context.state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(context.state, player);
 }

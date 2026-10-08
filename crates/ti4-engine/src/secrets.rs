@@ -47,9 +47,8 @@ pub fn timing(content: &ContentStore, alias: &SecretObjectiveId) -> Timing {
 /// How many of this player's scored objectives were secrets (45.4 counts them).
 #[must_use]
 pub fn scored_count(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
-    // The Firmament's Plots Within Plots: a secret scored as a plot "does not count against your
-    // secret objective limit".
-    let plots = state.player(player).map(|seat| &seat.plot_objectives);
+    // A secret scored as a plot (Plots Within Plots) is not in `scored_objectives` at all, so it is
+    // not counted here: it "does not count against your secret objective limit".
     state
         .scored_by(player)
         .iter()
@@ -57,9 +56,6 @@ pub fn scored_count(state: &GameState, content: &ContentStore, player: &PlayerId
             content
                 .get(ContentType::SecretObjectives, alias.as_str())
                 .is_some()
-                && !plots.is_some_and(|plots| {
-                    plots.contains(&SecretObjectiveId::new(alias.as_str()))
-                })
         })
         .count()
 }
@@ -1166,8 +1162,10 @@ pub(crate) fn fulfils(
     }) || by_position()
 }
 
-/// Score a secret another player already scored, as a plot: pay its price, record the score and
-/// the plot, and give no victory point. The caller places the plot card.
+/// Score a secret another player already scored, as a plot: pay its price, record the plot, and give
+/// no victory point. It is deliberately **not** recorded as a scored objective (operator ruling
+/// 2026-10-08): a secret scored through Plots Within Plots is neither a scored objective nor part of
+/// the secret objective limit. The caller places the plot card.
 ///
 /// `false`, changing nothing, when the price cannot be paid.
 pub(crate) fn award_plot(
@@ -1178,7 +1176,6 @@ pub(crate) fn award_plot(
     if !pay_for(state, player, alias) {
         return false;
     }
-    state.record_score(player, ti4_model::id::ObjectiveId::new(alias.as_str()));
     match state.player_mut(player) {
         Some(seat) => {
             seat.plot_objectives.insert(alias.clone());

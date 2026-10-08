@@ -265,7 +265,9 @@ pub fn ground_combat_value(
         Some(system),
         Some(planet),
     );
-    Some(printed - faction - module - nekro_mech)
+    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
+    let assail = crate::factions::firmament_plots::assail_ground(state, player, system, planet);
+    Some(printed - faction - module - nekro_mech - assail)
 }
 
 pub(crate) fn is_ground_force_here(
@@ -539,7 +541,13 @@ fn roll_bombard_plan(
                     )
                     .unwrap_or(i64::MAX)
                 });
-            let value = value + bunker_penalty;
+            // Assail: +1 to the invader's unit ability rolls against a puppeted player.
+            let assail = crate::factions::firmament_plots::assail_against(
+                state,
+                invader,
+                defenders.iter().map(|unit| &unit.owner),
+            );
+            let value = (value + bunker_penalty - assail).max(1);
             let roll = dice.roll_by(
                 rng,
                 count,
@@ -4498,6 +4506,10 @@ fn space_cannon_defense(
         let count = count + crate::combat::take_plasma(&mut plasma, &unit.owner, value);
         // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
         let count = count + crate::factions::bastion::extra_die(&unit);
+        // Assail: +1 to the gunner's unit ability rolls against a puppeted invader.
+        let assail =
+            crate::factions::firmament_plots::assail_against(state, &unit.owner, [invader]);
+        let value = (value - assail).max(1);
         let roll = ctx.dice.roll_by(
             ctx.rng,
             count,

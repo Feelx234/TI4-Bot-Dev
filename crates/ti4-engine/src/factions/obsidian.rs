@@ -45,6 +45,7 @@ use ti4_model::state::{GameState, LeaderStatus};
 use ti4_model::units::Unit;
 
 use super::firmament;
+use super::hooks_strategy::StrategyHooks;
 use super::{FactionModule, Hooks};
 use crate::choice::{Choice, ChoiceOption};
 use crate::decision_context::{DecisionContext, DecisionSource};
@@ -99,6 +100,14 @@ pub const MODULE: FactionModule = FactionModule {
         commander_unlocked: Some(commander_unlocked),
         leader_action: Some(leader_action),
         use_leader: Some(use_leader),
+        // Enervate: a puppeted player's secondary without a command token; Leadership's primary
+        // instead of its secondary.
+        substitutes_primary: Some(super::firmament_plots::substitutes_primary),
+        strategy: StrategyHooks {
+            secondary_waivers: Some(super::firmament_plots::secondary_waivers),
+            secondary_waived: Some(super::firmament_plots::secondary_waived),
+            ..StrategyHooks::NONE
+        },
         ..Hooks::NONE
     },
 };
@@ -269,9 +278,9 @@ fn planesplitter(owner_name: &str, seat: &PlayerId) -> Ability {
 
 /// One infantry that Neural Parasite may destroy: where it stands (`None` for the space area), whose
 /// it is and its unit type.
-type Victim = (SystemId, Option<PlanetId>, PlayerId, String);
+pub(super) type Victim = (SystemId, Option<PlanetId>, PlayerId, String);
 
-fn is_infantry(
+pub(super) fn is_infantry(
     types: &std::collections::BTreeMap<&str, ti4_content::units::UnitType<'_>>,
     unit: &Unit,
 ) -> bool {
@@ -333,7 +342,7 @@ fn parasite_victims(
     found.into_iter().collect()
 }
 
-fn victim_id((system, planet, owner, kind): &Victim) -> String {
+pub(super) fn victim_id((system, planet, owner, kind): &Victim) -> String {
     format!(
         "{system}|{}|{owner}|{kind}",
         planet
@@ -342,8 +351,12 @@ fn victim_id((system, planet, owner, kind): &Victim) -> String {
     )
 }
 
-/// Destroy one of the infantry [`parasite_victims`] named.
-fn destroy_infantry(state: &mut GameState, (system, planet, owner, kind): &Victim) {
+/// Destroy one infantry as the effect `cause` (a [`parasite_victims`] entry, or a plot's).
+pub(super) fn destroy_infantry(
+    state: &mut GameState,
+    (system, planet, owner, kind): &Victim,
+    cause: &str,
+) {
     let unit = {
         let board = state.system_state(system);
         let pool: &[Unit] = match planet {
@@ -362,13 +375,7 @@ fn destroy_infantry(state: &mut GameState, (system, planet, owner, kind): &Victi
             state
                 .system_mut(system)
                 .remove_from_planet(planet, std::slice::from_ref(&unit));
-            super::hooks_ground::stage_ground_force_destroyed(
-                state,
-                system,
-                planet,
-                &unit,
-                "technology_parasite_obs",
-            );
+            super::hooks_ground::stage_ground_force_destroyed(state, system, planet, &unit, cause);
         }
         None => state.system_mut(system).remove(std::slice::from_ref(&unit)),
     }
@@ -430,7 +437,7 @@ fn parasite(owner_name: &str, seat: &PlayerId) -> Ability {
                     victim
                 }
             };
-            destroy_infantry(context.state, &chosen);
+            destroy_infantry(context.state, &chosen, "technology_parasite_obs");
             Ok(())
         }),
     )
@@ -1023,6 +1030,9 @@ pub(crate) fn timing_abilities(
         reaping_ground(owner_name, seat),
         reaping_harvest(owner_name, seat),
     ]
+    .into_iter()
+    .chain(super::firmament_plots::abilities(owner_name, seat))
+    .collect()
 }
 
 #[cfg(test)]
@@ -1234,6 +1244,12 @@ mod tests {
     /// The Firmament (`a`) with plots carrying `b`'s and `c`'s tokens in a ring map whose
     /// first ring system is its home tile.
     fn firmament() -> (GameState, Galaxy) {
+        plotted(&[("enervate", "b"), ("siphon", "c")])
+    }
+
+    /// The Firmament (`a`) with the given facedown plot cards (card, token) in a ring map whose
+    /// first ring system is its home tile.
+    fn plotted(cards: &[(&str, &str)]) -> (GameState, Galaxy) {
         let mut state = crate::fixtures::seated_game(
             &[("a", "firmament"), ("b", "sol"), ("c", "hacan")],
             DEFAULT,
@@ -1243,8 +1259,9 @@ mod tests {
         let mut ring_ids: Vec<&str> = ids[1..].iter().map(String::as_str).collect();
         ring_ids[0] = "96a";
         let galaxy = ring(&ids[0], &ring_ids);
-        firmament::place_plot(&mut state, &a(), &b());
-        firmament::place_plot(&mut state, &a(), &c());
+        for (card, token) in cards {
+            firmament::testkit::place_card(&mut state, &a(), card, &PlayerId::new(*token));
+        }
         (state, galaxy)
     }
 
@@ -1278,7 +1295,11 @@ mod tests {
         let seat = state.player(&a()).unwrap();
         assert!(is_obsidian(&state, &a()));
         assert_eq!(seat.home_system, Some(SystemId::new("96b")));
-        assert_eq!(seat.plots, ["u:b", "u:c"], "plots are flipped faceup");
+        assert_eq!(
+            seat.plots,
+            ["u:enervate:b", "u:siphon:c"],
+            "plots are flipped faceup"
+        );
         assert_eq!(
             leader_status(&state, &a(), AGENT),
             Some(LeaderStatus::Readied)
@@ -1421,7 +1442,7 @@ mod tests {
     #[test]
     fn marionettes_make_every_player_with_a_token_on_a_plot_a_puppeted_player() {
         let mut state = game();
-        firmament::place_plot(&mut state, &a(), &b());
+        firmament::testkit::place_plot(&mut state, &a(), &b());
         assert!(firmament::add_token(&mut state, &a(), 0, &c()));
         assert_eq!(
             firmament::puppeted(&state, &a()),
@@ -1458,7 +1479,7 @@ mod tests {
     fn reaper() -> GameState {
         let mut state = game();
         state.player_mut(&a()).unwrap().breakthrough = Some(BreakthroughId::new(BREAKTHROUGH));
-        firmament::place_plot(&mut state, &a(), &b());
+        firmament::testkit::place_plot(&mut state, &a(), &b());
         state
     }
 
@@ -1511,7 +1532,7 @@ mod tests {
         won_space(&mut state, "b", &["a"]);
         assert_eq!(firmament::goods_on_card(&state, &a()), 2);
         let mut bare = game();
-        firmament::place_plot(&mut bare, &a(), &b());
+        firmament::testkit::place_plot(&mut bare, &a(), &b());
         won_space(&mut bare, "a", &["b"]);
         assert_eq!(
             firmament::goods_on_card(&bare, &a()),
@@ -2484,10 +2505,17 @@ mod tests {
         let (mut state, galaxy) = firmament();
         firmament::add_goods_to_card(&mut state, &a(), 2);
         let facedown = ti4_model::view::view_for(&state, &b());
-        assert_eq!(facedown.player(&a()).unwrap().plots, ["?", "?"]);
+        assert_eq!(
+            facedown.player(&a()).unwrap().plots,
+            ["d:?:b", "d:?:c"],
+            "the tokens are public, which card each is is not"
+        );
         flip(&mut state, &galaxy);
         let view = ti4_model::view::view_for(&state, &b());
-        assert_eq!(view.player(&a()).unwrap().plots, ["u:b", "u:c"]);
+        assert_eq!(
+            view.player(&a()).unwrap().plots,
+            ["u:enervate:b", "u:siphon:c"]
+        );
         assert!(ti4_model::view::leaks(&view, &b()).is_empty());
         assert_eq!(
             view.faction_marks
@@ -2497,6 +2525,591 @@ mod tests {
             "the goods on the card are open information"
         );
         let _ = ContentStore::embedded();
+    }
+
+    // -- the plot cards (operator rulings 2026-10-08) ----------------------------------------------
+
+    /// `who` controls the planet of ring system `ids[index]` and has `units` on it.
+    fn hold(
+        state: &mut GameState,
+        ids: &[String],
+        index: usize,
+        who: &PlayerId,
+        units: &[(&str, usize)],
+    ) -> (SystemId, PlanetId) {
+        let system = SystemId::new(ids[index].as_str());
+        let planet = planet_of(&ids[index]);
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), who.clone());
+        for (kind, count) in units {
+            crate::fixtures::put_on_planet(state, &system, &planet, kind, who, *count);
+        }
+        (system, planet)
+    }
+
+    fn units_on(state: &GameState, system: &SystemId, planet: &PlanetId) -> usize {
+        state.system_state(system).on_planet(planet).len()
+    }
+
+    fn all_infantry_of(state: &GameState, who: &PlayerId) -> usize {
+        state
+            .board
+            .values()
+            .flat_map(|board| {
+                board
+                    .units
+                    .iter()
+                    .chain(board.planet_units.values().flatten())
+            })
+            .filter(|unit| &unit.owner == who && unit.type_id.as_str() == "infantry")
+            .count()
+    }
+
+    /// An Obsidian seat (`a`, seated directly) with the given faceup plot cards (card, token).
+    fn obsidian_with(cards: &[(&str, &str)]) -> GameState {
+        let mut state = game();
+        for (card, token) in cards {
+            firmament::testkit::place_card(&mut state, &a(), card, &PlayerId::new(*token));
+        }
+        state
+    }
+
+    /// The Obsidian (`a`) can pay only with `goods` trade goods: every planet it controls is exhausted.
+    fn pays_with_goods_only(state: &mut GameState, goods: i32) {
+        let planets: Vec<PlanetId> = state
+            .controlled_planets(&a())
+            .into_iter()
+            .map(|(_, planet)| planet.clone())
+            .collect();
+        state.exhausted_planets.extend(planets);
+        state.player_mut(&a()).unwrap().trade_goods = goods;
+    }
+
+    /// Replace the technologies of `who` with exactly `techs`.
+    fn owns_only(state: &mut GameState, who: &PlayerId, techs: &[&str]) {
+        let seat = state.player_mut(who).unwrap();
+        seat.technologies = techs.iter().map(|tech| TechnologyId::new(*tech)).collect();
+    }
+
+    #[test]
+    fn seethe_destroys_every_unit_on_a_non_home_planet_when_a_real_flip_reveals_it() {
+        let (mut state, galaxy) = plotted(&[("seethe", "b")]);
+        let ids = plain(6);
+        let (system, planet) = hold(&mut state, &ids, 2, &b(), &[("infantry", 2), ("pds", 1)]);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &c(), 1);
+        let b_home = home(&state, &b());
+        let home_before = state.system_state(&b_home).clone();
+        // Facedown it does nothing; the flip reveals it and announces the arrival.
+        assert_eq!(units_on(&state, &system, &planet), 4);
+        flip(&mut state, &galaxy);
+        assert_eq!(units_on(&state, &system, &planet), 4, "not until announced");
+        flush(&mut state, &galaxy, &[]);
+        assert_eq!(
+            units_on(&state, &system, &planet),
+            0,
+            "all units on the planet, whoever's they are"
+        );
+        assert_eq!(
+            state.system_state(&system).planet_control.get(&planet),
+            Some(&b()),
+            "the planet stays the puppeted player's"
+        );
+        assert_eq!(
+            state.system_state(&b_home),
+            home_before,
+            "a home planet is not touched"
+        );
+    }
+
+    #[test]
+    fn seethe_lets_its_owner_choose_the_planet_and_a_puppeted_player_with_none_loses_nothing() {
+        let (mut state, galaxy) = plotted(&[("seethe", "b")]);
+        let ids = plain(6);
+        let (s2, p2) = hold(&mut state, &ids, 2, &b(), &[("infantry", 1)]);
+        let (s3, p3) = hold(&mut state, &ids, 3, &b(), &[("infantry", 1)]);
+        flip(&mut state, &galaxy);
+        flush(&mut state, &galaxy, &[&format!("{s3}|{p3}")]);
+        assert_eq!(units_on(&state, &s3, &p3), 0, "the chosen planet");
+        assert_eq!(units_on(&state, &s2, &p2), 1, "the other one stands");
+        // No non-home planet: nothing is asked and nothing happens.
+        let (mut bare, galaxy) = plotted(&[("seethe", "b")]);
+        flip(&mut bare, &galaxy);
+        let before = bare.board.clone();
+        flush(&mut bare, &galaxy, &[]);
+        assert_eq!(bare.board, before);
+    }
+
+    #[test]
+    fn seethe_destroys_one_infantry_of_each_puppeted_player_at_the_start_of_the_status_phase() {
+        let mut state = obsidian_with(&[("seethe", "b")]);
+        assert!(firmament::add_token(&mut state, &a(), 0, &c()));
+        let ids = plain(6);
+        hold(&mut state, &ids, 2, &b(), &[("infantry", 2)]);
+        let (s3, p3) = hold(&mut state, &ids, 3, &b(), &[("infantry", 1)]);
+        hold(&mut state, &ids, 4, &c(), &[("infantry", 1)]);
+        let (b_before, c_before) = (all_infantry_of(&state, &b()), all_infantry_of(&state, &c()));
+        // b has infantry in several places (asked which); c has one place (forced).
+        let pick = format!("{s3}|{p3}|b|infantry");
+        emit(&mut state, None, &[&pick], "STATUS_PHASE_BEGAN", &[]);
+        assert_eq!(all_infantry_of(&state, &b()), b_before - 1);
+        assert_eq!(all_infantry_of(&state, &c()), c_before - 1);
+        assert_eq!(units_on(&state, &s3, &p3), 0, "the one the owner chose");
+    }
+
+    #[test]
+    fn a_facedown_seethe_does_nothing() {
+        let (mut state, galaxy) = plotted(&[("seethe", "b")]);
+        let ids = plain(6);
+        hold(&mut state, &ids, 2, &b(), &[("infantry", 2)]);
+        let before = state.board.clone();
+        emit(&mut state, Some(&galaxy), &[], "STATUS_PHASE_BEGAN", &[]);
+        assert_eq!(
+            state.board, before,
+            "the Firmament's plots are not revealed"
+        );
+    }
+
+    #[test]
+    fn extract_gains_a_non_faction_technology_the_puppeted_player_owns_when_revealed() {
+        let (mut state, galaxy) = plotted(&[("extract", "b")]);
+        owns_only(&mut state, &b(), &["ps", "sar", "mi"]);
+        flip(&mut state, &galaxy);
+        // Plasma Scoring and Self-Assembly Routines qualify; Mageon Implants is a faction technology.
+        flush(&mut state, &galaxy, &["sar"]);
+        let mine = &state.player(&a()).unwrap().technologies;
+        assert!(mine.contains(&TechnologyId::new("sar")), "{mine:?}");
+        assert!(!mine.contains(&TechnologyId::new("ps")));
+        assert!(
+            !mine.contains(&TechnologyId::new("mi")),
+            "a faction technology"
+        );
+        assert!(
+            state
+                .player(&b())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("sar")),
+            "gained, not taken"
+        );
+        // One candidate is gained without a question.
+        let (mut single, galaxy) = plotted(&[("extract", "b")]);
+        owns_only(&mut single, &b(), &["ps"]);
+        flip(&mut single, &galaxy);
+        flush(&mut single, &galaxy, &[]);
+        assert!(
+            single
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("ps"))
+        );
+    }
+
+    const EXTRACT_WINDOW: &str = "ability:obsidian:plot_extract:TECHNOLOGY_GAINED:after";
+
+    fn gained(tech: &str) -> [(&'static str, serde_json::Value); 2] {
+        [("player", "b".into()), ("technology", tech.into())]
+    }
+
+    #[test]
+    fn extract_lets_its_owner_spend_four_resources_to_gain_what_the_puppeted_player_gains() {
+        let mut state = obsidian_with(&[("extract", "b")]);
+        pays_with_goods_only(&mut state, 5);
+        owns_only(&mut state, &b(), &["ps"]);
+        let before = goods(&state, &a());
+        emit(
+            &mut state,
+            None,
+            &[EXTRACT_WINDOW],
+            "TECHNOLOGY_GAINED",
+            &gained("ps"),
+        );
+        assert!(
+            state
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("ps"))
+        );
+        assert_eq!(goods(&state, &a()), before - 4, "four resources were spent");
+        // A may: declined, nothing changes.
+        let mut declined = obsidian_with(&[("extract", "b")]);
+        pays_with_goods_only(&mut declined, 5);
+        owns_only(&mut declined, &b(), &["ps"]);
+        emit(
+            &mut declined,
+            None,
+            &["decline"],
+            "TECHNOLOGY_GAINED",
+            &gained("ps"),
+        );
+        assert!(
+            !declined
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("ps"))
+        );
+        assert_eq!(goods(&declined, &a()), 5);
+    }
+
+    #[test]
+    fn extract_is_not_offered_for_a_faction_technology_without_the_resources_or_for_a_stranger() {
+        // A faction technology (no question is scripted, so an offer would fail the run).
+        let mut state = obsidian_with(&[("extract", "b")]);
+        pays_with_goods_only(&mut state, 5);
+        owns_only(&mut state, &b(), &["mi"]);
+        emit(&mut state, None, &[], "TECHNOLOGY_GAINED", &gained("mi"));
+        assert!(
+            !state
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("mi"))
+        );
+        // Three resources are not four.
+        let mut poor = obsidian_with(&[("extract", "b")]);
+        pays_with_goods_only(&mut poor, 3);
+        owns_only(&mut poor, &b(), &["ps"]);
+        emit(&mut poor, None, &[], "TECHNOLOGY_GAINED", &gained("ps"));
+        assert!(
+            !poor
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("ps"))
+        );
+        // c has no token on the card.
+        let mut stranger = obsidian_with(&[("extract", "b")]);
+        pays_with_goods_only(&mut stranger, 5);
+        owns_only(&mut stranger, &c(), &["ps"]);
+        emit(
+            &mut stranger,
+            None,
+            &[],
+            "TECHNOLOGY_GAINED",
+            &[("player", "c".into()), ("technology", "ps".into())],
+        );
+        assert!(
+            !stranger
+                .player(&a())
+                .unwrap()
+                .technologies
+                .contains(&TechnologyId::new("ps"))
+        );
+    }
+
+    #[test]
+    fn siphon_gives_the_owner_trade_goods_equal_to_the_commodities_a_puppeted_player_gains() {
+        let (_, galaxy) = map();
+        let mut state = obsidian_with(&[("siphon", "b")]);
+        state.player_mut(&b()).unwrap().commodities = 1;
+        let limit = crate::strategy_cards::commodity_limit(&state, content(), &b());
+        let before = goods(&state, &a());
+        // The real replenish route (the Trade card's primary and secondary).
+        crate::strategy_cards::replenish(&mut state, content(), &b());
+        flush(&mut state, &galaxy, &[]);
+        assert_eq!(
+            goods(&state, &a()),
+            before + (limit - 1),
+            "only the commodities actually gained"
+        );
+        // Nothing gained, nothing given.
+        crate::strategy_cards::replenish(&mut state, content(), &b());
+        let after = goods(&state, &a());
+        flush(&mut state, &galaxy, &[]);
+        assert_eq!(goods(&state, &a()), after);
+        // A player without a token on the card is not watched.
+        state.player_mut(&c()).unwrap().commodities = 0;
+        crate::strategy_cards::replenish(&mut state, content(), &c());
+        assert_eq!(crate::supply::staged_events(&state), 0);
+        flush(&mut state, &galaxy, &[]);
+        assert_eq!(goods(&state, &a()), after);
+    }
+
+    #[test]
+    fn siphon_reads_the_tokens_on_its_own_card_and_not_while_facedown() {
+        let (_, galaxy) = map();
+        let mut state = obsidian_with(&[("siphon", "b")]);
+        assert!(firmament::add_token(&mut state, &a(), 0, &c()));
+        for gainer in [b(), c()] {
+            state.player_mut(&gainer).unwrap().commodities = 0;
+            let limit = crate::strategy_cards::commodity_limit(&state, content(), &gainer);
+            let before = goods(&state, &a());
+            crate::strategy_cards::replenish(&mut state, content(), &gainer);
+            flush(&mut state, &galaxy, &[]);
+            assert_eq!(goods(&state, &a()), before + limit, "{gainer}");
+        }
+        // The Firmament's facedown Siphon has no effect and stages nothing.
+        let (mut firm, _) = plotted(&[("siphon", "b")]);
+        firm.player_mut(&b()).unwrap().commodities = 0;
+        crate::strategy_cards::replenish(&mut firm, content(), &b());
+        assert_eq!(crate::supply::staged_events(&firm), 0);
+    }
+
+    #[test]
+    fn assail_adds_one_to_combat_rolls_against_a_puppeted_player_only() {
+        let (system, planet) = super::super::deepwrought::testkit::plain_planet();
+        let setup = |token: &str| {
+            let mut state = obsidian_with(&[("assail", token)]);
+            crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &a(), 1);
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b(), 1);
+            state.active_system = Some(system.clone());
+            state
+        };
+        let space = |state: &GameState| {
+            crate::combat::effective_hits_on(
+                state,
+                content(),
+                DEFAULT,
+                &a(),
+                &Unit::new(UnitTypeId::new("cruiser"), a()),
+            )
+        };
+        let ground = |state: &GameState| {
+            crate::invasion::ground_combat_value(
+                state,
+                content(),
+                DEFAULT,
+                &a(),
+                &system,
+                &planet,
+                "infantry",
+            )
+        };
+        let (against_b, against_c) = (setup("b"), setup("c"));
+        assert_eq!(
+            space(&against_c).unwrap() - 1,
+            space(&against_b).unwrap(),
+            "+1 to the result is one fewer to hit on"
+        );
+        assert_eq!(ground(&against_c).unwrap() - 1, ground(&against_b).unwrap());
+        // The other side's rolls are not helped.
+        let other = crate::combat::effective_hits_on(
+            &against_b,
+            content(),
+            DEFAULT,
+            &b(),
+            &Unit::new(UnitTypeId::new("cruiser"), b()),
+        );
+        let plain = crate::combat::effective_hits_on(
+            &against_c,
+            content(),
+            DEFAULT,
+            &b(),
+            &Unit::new(UnitTypeId::new("cruiser"), b()),
+        );
+        assert_eq!(other, plain);
+    }
+
+    #[test]
+    fn assail_adds_one_to_unit_ability_rolls_too() {
+        let (system, planet) = super::super::deepwrought::testkit::plain_planet();
+        let shots = |token: &str| -> usize {
+            let mut state = obsidian_with(&[("assail", token)]);
+            state.system_mut(&system).set_control(planet.clone(), a());
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &a(), 1);
+            crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+            // Every die shows 5; a PDS hits on 6.
+            let mut dice = crate::dice::Dice::from_faces(std::iter::repeat_n(5, 12));
+            let mut rng = crate::rng::GameRng::new(0);
+            crate::combat::space_cannon_offense(
+                &mut state,
+                content(),
+                DEFAULT,
+                &mut dice,
+                &mut rng,
+                &system,
+                &b(),
+                None,
+            )
+            .into_iter()
+            .filter(|(owner, _, _)| *owner == a())
+            .map(|(_, hits, _)| hits)
+            .sum()
+        };
+        assert_eq!(shots("c"), 0, "a 5 misses a PDS");
+        assert!(
+            shots("b") > 0,
+            "a 5 plus 1 hits against the puppeted player"
+        );
+    }
+
+    #[test]
+    fn enervate_waives_the_token_for_a_puppeted_players_secondary_after_a_real_flip() {
+        use crate::strategy::{SecondaryResolution, StrategySecondaryWindow};
+        let (mut state, galaxy) = plotted(&[("enervate", "b")]);
+        flip(&mut state, &galaxy);
+        let politics = state
+            .unclaimed_strategy_cards
+            .iter()
+            .find(|card| {
+                crate::strategy_cards::card_name(content(), card.as_str()).as_deref()
+                    == Some("Politics")
+            })
+            .cloned()
+            .expect("Politics");
+        state.player_mut(&a()).unwrap().strategic_tokens = 0;
+        state.player_mut(&c()).unwrap().strategic_tokens = 2;
+        let mut window = StrategySecondaryWindow::foreign(b(), politics.clone(), vec![a(), c()]);
+        let choice = window
+            .pending_choice(&state, content(), DEFAULT)
+            .expect("tokenless but waived: offered");
+        assert_eq!(choice.player, a());
+        let waiver = choice
+            .ids()
+            .into_iter()
+            .find(|id| id.ends_with("|enervate"))
+            .map(ToOwned::to_owned)
+            .expect("Enervate's waiver is offered");
+        assert!(!choice.ids().contains(&"yes"), "no token to spend");
+        let resolved = window
+            .take_choice(
+                &mut state,
+                content(),
+                DEFAULT,
+                crate::choice::ChoiceOption::new(&waiver, crate::strategy::STRATEGY_KIND),
+            )
+            .unwrap();
+        assert_eq!(resolved, SecondaryResolution::Followed);
+        assert_eq!(state.player(&a()).unwrap().strategic_tokens, 0);
+        // The next follower is not helped.
+        let next = window.pending_choice(&state, content(), DEFAULT).unwrap();
+        assert_eq!(next.player, c());
+        assert!(next.ids().iter().all(|id| !id.ends_with("|enervate")));
+        // A strategic action of a player with no token on the card is not covered.
+        let mut other = StrategySecondaryWindow::foreign(c(), politics, vec![a()]);
+        assert!(other.next_choice(&mut state, content(), DEFAULT).is_none());
+    }
+
+    #[test]
+    fn enervate_lets_the_obsidian_perform_leadership_s_primary_instead_of_its_secondary() {
+        use crate::strategy::StrategySecondaryWindow;
+        let (mut state, galaxy) = plotted(&[("enervate", "b")]);
+        flip(&mut state, &galaxy);
+        let leadership = state
+            .unclaimed_strategy_cards
+            .iter()
+            .find(|card| {
+                crate::strategy_cards::card_name(content(), card.as_str()).as_deref()
+                    == Some("Leadership")
+            })
+            .cloned()
+            .expect("Leadership");
+        let mut window = StrategySecondaryWindow::foreign(b(), leadership.clone(), vec![a(), c()]);
+        let choice = window
+            .pending_choice(&state, content(), DEFAULT)
+            .expect("the Obsidian follows Leadership");
+        assert_eq!(choice.player, a());
+        assert!(
+            choice
+                .ids()
+                .contains(&crate::factions::firmament_plots::PRIMARY_INSTEAD_ID),
+            "{:?}",
+            choice.ids()
+        );
+        assert!(
+            !crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            "not until chosen"
+        );
+        window
+            .take_choice(
+                &mut state,
+                content(),
+                DEFAULT,
+                crate::choice::ChoiceOption::new(
+                    crate::factions::firmament_plots::PRIMARY_INSTEAD_ID,
+                    crate::strategy::STRATEGY_KIND,
+                ),
+            )
+            .unwrap();
+        assert!(
+            crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            "the game now resolves the primary for a"
+        );
+        assert!(!crate::faction_abilities::substitutes_primary(
+            &state,
+            content(),
+            &c(),
+            "Leadership"
+        ));
+        assert!(!crate::faction_abilities::substitutes_primary(
+            &state,
+            content(),
+            &a(),
+            "Diplomacy"
+        ));
+        // The next answer (here a's own, in a later Leadership) forgets it.
+        let mut later = StrategySecondaryWindow::foreign(b(), leadership.clone(), vec![a()]);
+        later
+            .take_choice(
+                &mut state,
+                content(),
+                DEFAULT,
+                crate::choice::ChoiceOption::new("no", crate::strategy::STRATEGY_KIND),
+            )
+            .unwrap();
+        assert!(
+            !crate::faction_abilities::substitutes_primary(&state, content(), &a(), "Leadership"),
+            "a stale choice is cleared"
+        );
+        // Only for a puppeted player's Leadership.
+        let other = StrategySecondaryWindow::foreign(c(), leadership, vec![a()]);
+        let choice = other.pending_choice(&state, content(), DEFAULT);
+        assert!(choice.is_none_or(|choice| {
+            !choice
+                .ids()
+                .contains(&crate::factions::firmament_plots::PRIMARY_INSTEAD_ID)
+        }));
+    }
+
+    #[test]
+    fn siphon_and_assail_take_effect_only_once_a_real_flip_has_turned_them_faceup() {
+        let (mut state, galaxy) = plotted(&[("siphon", "b"), ("assail", "b")]);
+        let (system, _) = super::super::deepwrought::testkit::plain_planet();
+        crate::fixtures::put(&mut state, &system, "cruiser", &b(), 1);
+        crate::fixtures::put(&mut state, &system, "cruiser", &a(), 1);
+        state.active_system = Some(system);
+        let roll = |state: &GameState| {
+            crate::combat::effective_hits_on(
+                state,
+                content(),
+                DEFAULT,
+                &a(),
+                &Unit::new(UnitTypeId::new("cruiser"), a()),
+            )
+        };
+        let facedown = roll(&state);
+        state.player_mut(&b()).unwrap().commodities = 0;
+        crate::strategy_cards::replenish(&mut state, content(), &b());
+        assert_eq!(
+            crate::supply::staged_events(&state),
+            0,
+            "facedown: no effect"
+        );
+        flip(&mut state, &galaxy);
+        flush(&mut state, &galaxy, &[]);
+        assert_eq!(
+            roll(&state).unwrap(),
+            facedown.unwrap() - 1,
+            "Assail is faceup"
+        );
+        state.player_mut(&b()).unwrap().commodities = 0;
+        let before = goods(&state, &a());
+        crate::strategy_cards::replenish(&mut state, content(), &b());
+        flush(&mut state, &galaxy, &[]);
+        assert!(goods(&state, &a()) > before, "Siphon is faceup");
+    }
+
+    #[test]
+    fn a_game_without_plot_effects_stages_no_commodity_events() {
+        let mut state = game();
+        state.player_mut(&b()).unwrap().commodities = 0;
+        crate::strategy_cards::replenish(&mut state, content(), &b());
+        assert_eq!(crate::supply::staged_events(&state), 0);
     }
 
     use ti4_content::galaxy::Galaxy;

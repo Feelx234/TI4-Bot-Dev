@@ -383,9 +383,11 @@ pub struct Player {
     /// reaches them -- so they are held separately rather than borrowing `relics` for the ride.
     #[serde(default)]
     pub exploration_cards: Vec<String>,
-    /// Firmament plot cards, represented by the control token on each facedown card.
+    /// Plot cards in this player's play area, one stored string per card (`plots::Plot`: face,
+    /// which of the five cards, the control tokens on it). The earlier forms (tokens only) still read.
     pub plots: Vec<String>,
-    /// Secret aliases scored as plots. They do not count against the secret limit.
+    /// Secret aliases scored as plots (Plots Within Plots). They are not scored objectives and do not
+    /// count against the secret limit; this set only remembers which were used.
     pub plot_objectives: BTreeSet<SecretObjectiveId>,
     /// A failed Silver Flame roll permanently forbids public-objective scoring.
     pub public_objectives_forbidden: bool,

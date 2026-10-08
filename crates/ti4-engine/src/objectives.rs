@@ -2004,6 +2004,9 @@ pub struct ScoringWindow {
     /// score this window. The event-window secret cap is tracked separately, on `state` itself,
     /// via `record_occurrence_score`; this set is status-only.
     scored_secret_this_window: std::collections::BTreeSet<PlayerId>,
+    /// Plots Within Plots: the Firmament player who has scored another player's secret as a plot
+    /// and still has to choose the plot card, with the player whose control token goes on it.
+    plot_card: Option<(PlayerId, PlayerId)>,
 }
 
 impl ScoringWindow {
@@ -2032,6 +2035,7 @@ impl ScoringWindow {
             event_score_limit: EventScoreLimit::OnePerPlayer,
             scored_public_this_window: std::collections::BTreeSet::new(),
             scored_secret_this_window: std::collections::BTreeSet::new(),
+            plot_card: None,
         }
     }
 
@@ -2052,7 +2056,7 @@ impl ScoringWindow {
 
     #[must_use]
     pub const fn is_complete(&self) -> bool {
-        self.pending.is_empty()
+        self.pending.is_empty() && self.plot_card.is_none()
     }
 
     /// What was scored, in resolution order.
@@ -2072,6 +2076,37 @@ impl ScoringWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Option<Choice> {
+        // Plots Within Plots, second step: the secret is scored; its owner now chooses which plot
+        // card goes into play with the other player's control token on it.
+        if let Some((owner, token)) = &self.plot_card {
+            let options: Vec<ChoiceOption> = crate::factions::firmament::remaining_cards(state)
+                .into_iter()
+                .map(|card| {
+                    ChoiceOption::labelled(
+                        card,
+                        "plot_card",
+                        format!(
+                            "place {} with {token}'s control token",
+                            crate::factions::firmament::card_name(card)
+                        ),
+                    )
+                })
+                .collect();
+            return Some(
+                Choice::new(
+                    owner.clone(),
+                    format!("place a plot card with {token}'s control token on it"),
+                    options,
+                )
+                .contextualized(DecisionContext::new(
+                    owner.clone(),
+                    DecisionSource::FactionAbility(crate::factions::firmament::PLOTS.to_owned()),
+                    "plot_card",
+                    state.phase,
+                    state.round,
+                )),
+            );
+        }
         let (_, player, available) = self.next_askable(state, content, sources)?;
         // OBS-008d2: every objective card grants exactly one victory point (LRR 98); the option
         // previews the seat's own count reaching one more, capped the same way custodians removal
@@ -2231,6 +2266,12 @@ impl ScoringWindow {
             .pending_choice(state, content, sources)
             .ok_or(ScoringError::Complete)?;
         let option = validate(&choice, answer)?;
+        // Plots Within Plots, second step: the chosen card goes into play. No victory point and no
+        // scored objective, so nothing is reported as scored.
+        if let Some((owner, token)) = self.plot_card.take() {
+            crate::factions::firmament::place_card(state, &owner, &option.id, &token);
+            return Ok(None);
+        }
         let (offset, player, _) = self
             .next_askable(state, content, sources)
             .ok_or(ScoringError::Complete)?;
@@ -2251,6 +2292,13 @@ impl ScoringWindow {
                 self.pending.truncate(self.pending.len() - offset - 1);
                 return Err(ScoringError::SecretAwardFailed(secret));
             }
+            // One card left: it is placed now; several: the Firmament is asked next.
+            match crate::factions::firmament::remaining_cards(state).as_slice() {
+                [only] => {
+                    crate::factions::firmament::place_card(state, &player, only, &token);
+                }
+                _ => self.plot_card = Some((player.clone(), token)),
+            }
             let still_has_more = self.next_askable(state, content, sources).is_some_and(
                 |(next_offset, next_player, _)| next_offset == offset && next_player == player,
             );
@@ -2260,9 +2308,7 @@ impl ScoringWindow {
                 self.pending.len() - offset - 1
             };
             self.pending.truncate(keep);
-            let scored = ObjectiveId::new(secret.as_str());
-            self.scored.push((player, scored.clone()));
-            return Ok(Some(scored));
+            return Ok(None);
         }
         let alias = ObjectiveId::new(option.id);
         // A secret leaves its owner's hand when scored (61.18), which a public award does not

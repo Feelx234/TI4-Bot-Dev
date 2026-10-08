@@ -830,6 +830,8 @@ fn deepwrought_commander(
         }
         if convert {
             crate::supply::note_trade_goods_gained(state, &holder, 1, "deepwroughtcommander");
+        } else {
+            crate::supply::note_commodities_gained(state, &holder, 1);
         }
     }
     Ok(reduced)
@@ -1671,9 +1673,13 @@ pub(crate) fn commodity_limit(state: &GameState, content: &ContentStore, player:
 
 pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     let limit = commodity_limit(state, content, player);
+    let mut gained = 0;
     if let Some(seat) = state.player_mut(player) {
+        gained = (limit - seat.commodities).max(0);
         seat.commodities = limit;
     }
+    // Siphon (Obsidian plot): the commodities gained, announced before Trade Agreement can take them.
+    crate::supply::note_commodities_gained(state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(state, player);
 }

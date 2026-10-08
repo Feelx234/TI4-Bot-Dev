@@ -155,9 +155,13 @@ fn commodity_limit(state: &GameState, content: &ContentStore, player: &PlayerId)
 /// Gain up to `count` commodities, never past the faction's value (21.2).
 fn gain_commodities(state: &mut GameState, content: &ContentStore, player: &PlayerId, count: i32) {
     let limit = commodity_limit(state, content, player);
+    let mut gained = 0;
     if let Some(seat) = state.player_mut(player) {
-        seat.commodities = (seat.commodities + count).min(limit);
+        let after = (seat.commodities + count).min(limit);
+        gained = (after - seat.commodities).max(0);
+        seat.commodities = after;
     }
+    crate::supply::note_commodities_gained(state, player, gained);
 }
 
 /// Turn up to `most` commodities into trade goods, or all of them when `most` is `None`.
