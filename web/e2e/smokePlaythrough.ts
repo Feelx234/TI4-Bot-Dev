@@ -12,6 +12,7 @@ import {
   openPlayerGame,
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
+import { startupRetryable, tolerableConsoleError } from "./smokeBrowserErrors";
 import { missingExpected, type Expectation } from "./smokePreset";
 import { SecondaryPrepExercise, emptyPrepReport, prepConfigFromEnv, type PrepReport } from "./smokePrep";
 import {
@@ -501,96 +502,116 @@ export async function randomUiPlaythrough(
   // was ever sent it, or had it cleared afterwards.
   const wsFrames: string[][] = [];
   for (const [index, player] of players.entries()) {
-    const context = await browser.newContext();
-    // The harness clicks the bar itself; the client's lone-case auto-submit would race it.
-    // TI4_SMOKE_AUTO_LONE=1 leaves the default (on) to exercise that path.
-    if (!process.env.TI4_SMOKE_AUTO_LONE)
-      await context.addInitScript(() => {
-        try {
-          localStorage.setItem("player_auto_submit_lone", "false");
-        } catch {
-          // storage unavailable
-        }
-      });
-    if (flags.recap) await context.addInitScript(recapInitScript, index === recapSeat);
-    const page = await context.newPage();
-    page.on("pageerror", (err) =>
-      browserErrors.push(`[seat ${index + 1}] ${err.message}`),
-    );
-    const frames: string[] = (wsFrames[index] = []);
-    page.on("websocket", (ws) => {
-      ws.on("framesent", ({ payload }) => {
-        try {
-          const m = JSON.parse(String(payload));
-          if (m.type === "ping") return;
-          frames.push(
-            `SENT ${m.type} nonce=${String(m.nonce ?? "").slice(0, 6)} option=${m.option_id ?? ""} v${m.expected_version ?? "?"}`,
-          );
-        } catch {
-          frames.push("SENT unparsed frame");
-        }
-        if (frames.length > 40) frames.shift();
-      });
-      ws.on("framereceived", ({ payload }) => {
-        let line: string;
-        try {
-          const m = JSON.parse(String(payload));
-          const pending = m.pending_choice?.nonce ?? m.nonce ?? null;
-          line = `${m.type} v${m.game_version ?? m.entry?.version ?? "?"}${pending ? ` nonce=${String(pending).slice(0, 6)}` : ""}${m.type === "turn_status" ? ` ${m.status?.kind}` : ""}${m.type === "state_update" ? ` pending=${m.pending_choice ? "yes" : "no"}` : ""}`;
-        } catch {
-          line = "unparsed frame";
-        }
-        frames.push(line);
-        if (frames.length > 40) frames.shift();
-      });
-    });
-    page.on("console", (msg) => {
-      if (msg.type() !== "error") return;
-      const url = msg.location().url ?? "";
-      // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
-      // The turn redo exercise records its own HTTP failures as findings.
-      if (url.includes("/turn-redo")) return;
-      if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
-      browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
-    });
-    // The console only reports a status code; keep the server's reason for failed API calls.
-    page.on("response", async (response) => {
-      if (!response.url().includes("/api/")) return;
-      if (response.status() < 400) {
-        // A batch the server paused at a reaction window is progress, not a rejection.
-        if (response.url().includes("/batches")) {
-          const paused = pausedBatch(await response.text().catch(() => ""));
-          if (paused) {
-            report.pausedBatches += 1;
-            log(
-              `  [seat ${index + 1}] batch paused after ${paused.applied} steps, ${paused.remaining} left, waiting on ${paused.waiting}`,
-            );
+    // A host short of resources can make the browser refuse a seat's page modules; open it again.
+    for (let attempt = 1; ; attempt++) {
+      const seatErrorsFrom = browserErrors.length;
+      const context = await browser.newContext();
+      // The harness clicks the bar itself; the client's lone-case auto-submit would race it.
+      // TI4_SMOKE_AUTO_LONE=1 leaves the default (on) to exercise that path.
+      if (!process.env.TI4_SMOKE_AUTO_LONE)
+        await context.addInitScript(() => {
+          try {
+            localStorage.setItem("player_auto_submit_lone", "false");
+          } catch {
+            // storage unavailable
           }
-        }
-        return;
-      }
-      const body = await response.text().catch(() => "");
-      if (response.url().includes("/turn-redo")) {
-        if (redo) redo.noteHttp(index, response.request().method(), response.status(), body);
-        else browserErrors.push(`[seat ${index + 1}] turn-redo ${response.status()}: ${body.slice(0, 300)}`);
-        return;
-      }
-      const line = `[seat ${index + 1}] ${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}: ${body.slice(0, 500)}`;
-      browserErrors.push(line);
-      log(`  ${line}`);
-    });
-    await openPlayerGame(page, gameId, player.session);
-    try {
-      await expect(page.getByTestId("turn-status-bar")).toBeVisible();
-    } catch (err) {
-      // Say what the tab showed instead (an error page, a crashed app) rather than only "not found".
-      const text = await page.locator("body").innerText().catch(() => "");
-      await page.screenshot({ path: `test-results/smoke-open-failure-${gameId}-seat${index + 1}.png` }).catch(() => {});
-      throw new Error(
-        `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
+        });
+      if (flags.recap) await context.addInitScript(recapInitScript, index === recapSeat);
+      const page = await context.newPage();
+      page.on("pageerror", (err) =>
+        browserErrors.push(`[seat ${index + 1}] ${err.message}`),
       );
+      const frames: string[] = (wsFrames[index] = []);
+      page.on("websocket", (ws) => {
+        ws.on("framesent", ({ payload }) => {
+          try {
+            const m = JSON.parse(String(payload));
+            if (m.type === "ping") return;
+            frames.push(
+              `SENT ${m.type} nonce=${String(m.nonce ?? "").slice(0, 6)} option=${m.option_id ?? ""} v${m.expected_version ?? "?"}`,
+            );
+          } catch {
+            frames.push("SENT unparsed frame");
+          }
+          if (frames.length > 40) frames.shift();
+        });
+        ws.on("framereceived", ({ payload }) => {
+          let line: string;
+          try {
+            const m = JSON.parse(String(payload));
+            const pending = m.pending_choice?.nonce ?? m.nonce ?? null;
+            line = `${m.type} v${m.game_version ?? m.entry?.version ?? "?"}${pending ? ` nonce=${String(pending).slice(0, 6)}` : ""}${m.type === "turn_status" ? ` ${m.status?.kind}` : ""}${m.type === "state_update" ? ` pending=${m.pending_choice ? "yes" : "no"}` : ""}`;
+          } catch {
+            line = "unparsed frame";
+          }
+          frames.push(line);
+          if (frames.length > 40) frames.shift();
+        });
+      });
+      page.on("console", (msg) => {
+        if (msg.type() !== "error") return;
+        const url = msg.location().url ?? "";
+        // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
+        // The turn redo exercise records its own HTTP failures as findings.
+        if (url.includes("/turn-redo")) return;
+        if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
+        // A refused heartbeat or lobby poll is retried by the client on its next tick.
+        if (tolerableConsoleError(msg.text(), url)) {
+          log(`  [seat ${index + 1}] tolerated: ${msg.text()} (${url})`);
+          return;
+        }
+        browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
+      });
+      // The console only reports a status code; keep the server's reason for failed API calls.
+      page.on("response", async (response) => {
+        if (!response.url().includes("/api/")) return;
+        if (response.status() < 400) {
+          // A batch the server paused at a reaction window is progress, not a rejection.
+          if (response.url().includes("/batches")) {
+            const paused = pausedBatch(await response.text().catch(() => ""));
+            if (paused) {
+              report.pausedBatches += 1;
+              log(
+                `  [seat ${index + 1}] batch paused after ${paused.applied} steps, ${paused.remaining} left, waiting on ${paused.waiting}`,
+              );
+            }
+          }
+          return;
+        }
+        const body = await response.text().catch(() => "");
+        if (response.url().includes("/turn-redo")) {
+          if (redo) redo.noteHttp(index, response.request().method(), response.status(), body);
+          else browserErrors.push(`[seat ${index + 1}] turn-redo ${response.status()}: ${body.slice(0, 300)}`);
+          return;
+        }
+        const line = `[seat ${index + 1}] ${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}: ${body.slice(0, 500)}`;
+        browserErrors.push(line);
+        log(`  ${line}`);
+      });
+      await openPlayerGame(page, gameId, player.session);
+      try {
+        await expect(page.getByTestId("turn-status-bar")).toBeVisible();
+      } catch (err) {
+        const seatErrors = browserErrors.slice(seatErrorsFrom);
+        if (attempt < 3 && startupRetryable(seatErrors)) {
+          log(
+            `  [seat ${index + 1}] the browser refused ${seatErrors.length} page module(s) (ERR_INSUFFICIENT_RESOURCES); opening the seat again (attempt ${attempt + 1})`,
+          );
+          await context.close().catch(() => {});
+          browserErrors.splice(seatErrorsFrom);
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          continue;
+        }
+        // Say what the tab showed instead (an error page, a crashed app) rather than only "not found".
+        const text = await page.locator("body").innerText().catch(() => "");
+        await page.screenshot({ path: `test-results/smoke-open-failure-${gameId}-seat${index + 1}.png` }).catch(() => {});
+        throw new Error(
+          `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
+        );
+      }
+      pages.push(page);
+      break;
     }
-    pages.push(page);
   }
 
   const report: PlaythroughReport = {
