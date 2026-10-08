@@ -379,6 +379,67 @@ fn a_bot_seat_has_no_usable_credential() {
     assert!(t.session().viewer_for_seat_token(&t.host_token).is_some());
 }
 
+#[test]
+fn a_movement_batch_commits_beside_bot_seats_and_undoes() {
+    use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
+    let t = host_table("rb_batch", 17);
+    // Play the host's first options, preferring a tactical action, until it must move ships.
+    let mut request = None;
+    for _ in 0..80 {
+        t.settle();
+        let session = t.session();
+        let (seat, nonce, version) = session.current_pending_decision().expect("host asked");
+        let choice = session
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(seat.clone()))
+            .pending_choice
+            .unwrap()
+            .choice;
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|c| c.subtype == "movement_step")
+        {
+            let destination = session
+                .current_state()
+                .active_system
+                .unwrap()
+                .as_str()
+                .to_owned();
+            request = Some(BatchRequest {
+                request_id: "bots_batch".into(),
+                expected_version: version,
+                nonce,
+                plan: MovementPlan {
+                    kind: BatchKind::TacticalMovement,
+                    destination,
+                    steps: vec![MovementStep::DoneMoving],
+                },
+            });
+            break;
+        }
+        let option = choice
+            .options
+            .iter()
+            .find(|o| o.id == "tactical" || o.id == "22")
+            .unwrap_or(&choice.options[0])
+            .id
+            .clone();
+        session.submit_choice(&seat, &nonce, version, &option).unwrap();
+    }
+    let request = request.expect("the host never reached a movement step");
+    let before = t.session().decision_log();
+    let result = t.registry.submit_batch(&t.id, &t.host_token, request);
+    assert!(result.is_ok(), "{result:?}");
+    let after = t.registry.get_game(&t.id).unwrap();
+    assert!(after.decision_log().len() > before.len());
+    assert_eq!(after.decision_log()[..before.len()], before[..]);
+    t.settle();
+    t.history(HistoryAction::UndoBatch).expect("undo the batch");
+    t.settle();
+    assert_eq!(t.session().decision_log(), before);
+    assert!(t.session().error().is_none(), "{:?}", t.session().error());
+}
+
 /// 20 all-bot games, 3 and 4 players, both card sets. Run with `-- --ignored --nocapture`.
 #[test]
 #[ignore = "soak: about a minute in debug builds"]
