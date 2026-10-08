@@ -110,6 +110,73 @@ merge_pending() { # merge_pending <verify: 1 builds after each merge and drops a
 # ---------------------------------------------------------------------------------------------
 # The sweep
 # ---------------------------------------------------------------------------------------------
+# Highest NN of the existing runs/NN-HHMM directories, 0 when there are none. A restarted sweep
+# (cron after a kill) continues from it, so run names stay unique within a night. Gaps and
+# directories that do not match the pattern are ignored.
+highest_run_number() { # highest_run_number <runs-dir>
+  local d name max=0 num
+  for d in "$1"/*/; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    [[ "$name" =~ ^([0-9]+)-[0-9]{4}$ ]] || continue
+    num=$((10#${BASH_REMATCH[1]}))
+    [ "$num" -gt "$max" ] && max=$num
+  done
+  echo "$max"
+}
+
+# sleep that a signal can interrupt at once (a foreground sleep would delay the traps).
+nap() { sleep "$1" & wait $! 2>/dev/null; }
+
+# State of the run in progress, read by the signal/exit trap.
+ACTIVE_RUN_DIR="" ACTIVE_RUN_NAME="" PROCTOR_PID="" CLEANUP_DONE=0
+
+# Kill the proctor's whole session (subshell, timeout, claude and everything claude started).
+kill_proctor_session() {
+  local pid="$1" sig pids
+  [ -n "$pid" ] || return 0
+  for sig in TERM KILL; do
+    pids=$(ps -eo pid=,sid= | awk -v s="$pid" '$2 == s { print $1 }')
+    [ -n "$pids" ] || return 0
+    kill -"$sig" $pids 2>/dev/null || true
+    [ "$sig" = TERM ] && nap 3
+  done
+  return 0
+}
+
+# Runs on SIGTERM/SIGINT/SIGHUP and on every exit of the loop. Idempotent (CLEANUP_DONE); does
+# nothing when no run is active. With a run active: stop the proctor and the game, build the
+# mechanical digest and append an entry marked "sweep terminated mid-run".
+sweep_cleanup() { # sweep_cleanup <reason>
+  [ "$CLEANUP_DONE" = 1 ] && return 0
+  CLEANUP_DONE=1
+  trap '' TERM INT HUP # a second signal must not interrupt the cleanup
+  kill_proctor_session "$PROCTOR_PID"
+  PROCTOR_PID=""
+  local run_dir="$ACTIVE_RUN_DIR" name="$ACTIVE_RUN_NAME"
+  ACTIVE_RUN_DIR=""
+  [ -n "$run_dir" ] || return 0
+  timeout --kill-after=5 60 "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
+  timeout --kill-after=5 120 python3 "$NIGHTLY_DIR/digest.py" "$run_dir" > "$run_dir/digest.md" 2>&1
+  local last="unknown"
+  if [ -s "$run_dir/trace/trace.jsonl" ]; then
+    last=$(tail -n 1 "$run_dir/trace/trace.jsonl" | python3 -c \
+      'import json,sys; r=json.load(sys.stdin); print("#%s, round %s" % (r.get("decision","?"), r.get("round","?")))' 2>/dev/null) || last="unknown"
+    [ -n "$last" ] || last="unknown"
+  fi
+  {
+    echo "## Run $name — sweep terminated mid-run ($1), proctor failed, mechanical digest only"
+    echo
+    echo "The sweep process ended while this run was active; the game and the proctor were stopped and there is no proctor entry. Last decision: $last. Evidence: \`$run_dir\`."
+    if [ -s "$run_dir/proctor-entry.md" ]; then echo "A partial proctor entry was kept in \`$run_dir/proctor-entry.md\`."; fi
+    echo
+    cat "$run_dir/digest.md"
+    echo
+  } >> "$NIGHT_DIR/report.md"
+  log "run $name: sweep terminated mid-run ($1); game stopped, digest appended"
+}
+log_loop_exit() { log "sweep exited on signal or exit (wall time: $(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +"%F %T %Z"))"; }
+
 cmd_loop() {
   set_night "${1:-$(default_night)}"
   mkdir -p "$NIGHT_DIR"
@@ -117,7 +184,12 @@ cmd_loop() {
   flock -n 9 || { log "sweep already running for $NIGHT"; exit 0; }
 
   # Log when the loop exits via signal or explicit exit.
-  trap 'log "sweep exited on signal or exit (wall time: $(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +"%F %T %Z"))"' EXIT
+  # A signal first stops the active run and files its entry (sweep_cleanup), then exits, which runs
+  # the EXIT trap; the cleanup runs only once. sweep.done is not written: cron restarts the sweep.
+  trap 'sweep_cleanup exit; log_loop_exit' EXIT
+  trap 'sweep_cleanup SIGTERM; exit 143' TERM
+  trap 'sweep_cleanup SIGINT; exit 130' INT
+  trap 'sweep_cleanup SIGHUP; exit 129' HUP
 
   local report="$NIGHT_DIR/report.md"
   [ -f "$report" ] || {
@@ -148,7 +220,9 @@ cmd_loop() {
   fi
   BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
 
-  local n=0 disk_waits=0
+  # Continue the numbering of an earlier sweep of this night (cron restarts after a kill).
+  local n disk_waits=0
+  n=$(highest_run_number "$NIGHT_DIR/runs")
   while [ $(( END_EPOCH - $(now_epoch) )) -gt "$MIN_RUN_SECONDS" ]; do
     # No run (and no run directory) without free disk: a full disk used to turn the rest of a night
     # into phantom runs and a truncated report. Wait for space, and give up after MAX_DISK_WAITS.
@@ -162,7 +236,7 @@ cmd_loop() {
         note_report "## Sweep stopped: the disk stayed below $MIN_FREE_GB GB for $MAX_DISK_WAITS checks"
         log "sweep stopped: no disk space"; break
       fi
-      sleep "$DISK_WAIT_SECONDS"; continue
+      nap "$DISK_WAIT_SECONDS"; continue
     fi
     disk_waits=0
     n=$((n + 1))
@@ -172,7 +246,7 @@ cmd_loop() {
     if ! mkdir -p "$run_dir"; then
       note_report "## Run $run_name not started: cannot create $run_dir"
       log "run $run_name: cannot create the run directory"
-      n=$((n - 1)); sleep "$DISK_WAIT_SECONDS"; continue
+      n=$((n - 1)); nap "$DISK_WAIT_SECONDS"; continue
     fi
     # Fixer branches that are ready come in now, between games, never during one.
     MERGED_NOW=""
@@ -202,7 +276,10 @@ cmd_loop() {
     export DEADLINE=$(( END_EPOCH - 300 ))
     # Auto mode with edit tools, working in $REPO on the night's branch. Pushing, switching
     # branches and rewriting history stay denied.
-    (cd "$REPO" && timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
+    ACTIVE_RUN_DIR="$run_dir" ACTIVE_RUN_NAME="$run_name"
+    # Background job in its own session (setsid) + wait: a signal reaches the traps at once and
+    # sweep_cleanup can kill claude and everything it started.
+    (cd "$REPO" && exec setsid timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
       "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
       --permission-mode auto --tools Bash Read Grep Glob Edit Write \
       --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" "Bash($NIGHTLY_DIR/request_fix.sh:*)" \
@@ -212,11 +289,15 @@ cmd_loop() {
       --disallowedTools "NotebookEdit" "Agent" "Bash(git push:*)" "Bash(git checkout:*)" "Bash(git switch:*)" \
       "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git merge:*)" "Bash(git branch:*)" "Bash(git worktree:*)" \
       "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git revert:*)" "Bash(rm:*)" "Bash(sudo:*)" "Bash(kill:*)" "Bash(pkill:*)" \
-      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null)
+      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null) &
+    PROCTOR_PID=$!
+    wait "$PROCTOR_PID"
     local status=$?
+    PROCTOR_PID=""
     # Whatever the proctor did, never leave a game running.
     "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
     python3 "$NIGHTLY_DIR/digest.py" "$run_dir" > "$run_dir/digest.md" 2>&1
+    ACTIVE_RUN_DIR="" # from here on the entry is written by this loop, not by the trap
     if [ -s "$run_dir/proctor-entry.md" ] && [ -f "$run_dir/meta.json" ]; then
       { cat "$run_dir/proctor-entry.md"; echo; echo "_Raw evidence: \`$run_dir\`_"; echo; } >> "$report"
     else
@@ -231,7 +312,7 @@ cmd_loop() {
     fi
     log "run $run_name: done (proctor exit $status)"
     # A run that never started (e.g. the proctor failed immediately) must not spin the loop.
-    [ -f "$run_dir/meta.json" ] || sleep "${NIGHTLY_FAILED_RUN_SLEEP:-60}"
+    [ -f "$run_dir/meta.json" ] || nap "${NIGHTLY_FAILED_RUN_SLEEP:-60}"
   done
   touch "$NIGHT_DIR/sweep.done"
   log "sweep finished after $n runs"
@@ -488,6 +569,7 @@ case "${1:-}" in
   tick) cmd_tick ;;
   tick-decide) decide_all ;;
   loop) cmd_loop "${2:-}" ;;
+  highest-run-number) highest_run_number "${2:?usage: nightly.sh highest-run-number <runs-dir>}" ;; # test hook
   fix) cmd_fix "${2:-}" "${3:-}" ;;
   summary) cmd_summary "${2:-}" ;;
   *) echo "usage: $0 tick|tick-decide|loop [night]|fix <round> [night]|summary [night]" >&2; exit 2 ;;
