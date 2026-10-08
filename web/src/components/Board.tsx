@@ -1,4 +1,7 @@
 import React, { useMemo, useState, useRef, useId } from "react";
+import { createPortal } from "react-dom";
+import { useCompactLayout } from "../hooks/useCompactLayout.ts";
+import { useMobileMenuSlot } from "../presentation/MobileMenuSlot.tsx";
 import { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
 import {
   buildBoardPresentationModel,
@@ -89,6 +92,9 @@ export const Board: React.FC<BoardProps> = ({
   const chromeRef = useRef<HTMLDivElement | null>(null);
   useBoardChromeOffset(chromeRef);
   const prepSlot = useBoardPrepSlot();
+  // A phone with the menu sheet: the map keeps its whole height, the controls move to the sheet.
+  const menuSlot = useMobileMenuSlot();
+  const compactChrome = useCompactLayout() && menuSlot !== null;
   const helpId = useId();
 
   // Leadership's purchase: while tokens are bought the planets that can pay are the map's targets.
@@ -156,6 +162,60 @@ export const Board: React.FC<BoardProps> = ({
     setViewTransform((prev) => ({ ...prev, scale: Math.max(prev.scale / 1.25, 0.5) }));
   const resetView = () => setViewTransform({ x: 0, y: 0, scale: 1 });
 
+  const zoomControls = (
+    <div style={{ display: "flex", gap: 6 }}>
+      <Tooltip content="Zoom In" position="bottom">
+        <button
+          type="button"
+          onClick={zoomIn}
+          title="Zoom In"
+          className="button button--secondary button--icon"
+          style={{ fontSize: 16 }}
+        >
+          +
+        </button>
+      </Tooltip>
+      <Tooltip content="Zoom Out" position="bottom">
+        <button
+          type="button"
+          onClick={zoomOut}
+          title="Zoom Out"
+          className="button button--secondary button--icon"
+          style={{ fontSize: 16 }}
+        >
+          −
+        </button>
+      </Tooltip>
+      <Tooltip content="Reset Pan & Zoom" position="bottom">
+        <button
+          type="button"
+          onClick={resetView}
+          title="Reset Pan & Zoom"
+          className="button button--secondary button--icon"
+          style={{ fontSize: 14 }}
+        >
+          ⟲
+        </button>
+      </Tooltip>
+    </div>
+  );
+  const overlayToolbar = (
+    <MapOverlayToolbar
+      activeMode={effectiveOverlay}
+      onSelectMode={handleSelectOverlay}
+      disabledReason={isPlanetTargeting ? "Overlays are paused while you choose a planet" : undefined}
+    />
+  );
+  const seatLegend = (
+    <div className="board-seat-legend" aria-label="Player positions">
+      {seatingOrder.map((id, index) => (
+        <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
+          <SeatBadge position={index + 1} /> {display(id).label}
+        </span>
+      ))}
+    </div>
+  );
+
   return (
     <div
       className="board-container"
@@ -175,72 +235,41 @@ export const Board: React.FC<BoardProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
-      {/* The toolbar and seat legend take their own row, so the map is fitted below them. */}
-      <div ref={chromeRef} className="board-chrome" data-testid="board-chrome">
-      {/* Pan / Zoom Control Overlay & Map Overlay Selector */}
+      {/* The toolbar and seat legend take their own row, so the map is fitted below them. On a phone
+          that row holds nothing but the prepare chip: the controls are in the menu sheet. */}
       <div
-        className="board-controls"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-        }}
+        ref={chromeRef}
+        className={`board-chrome${compactChrome ? " board-chrome--compact" : ""}`}
+        data-testid="board-chrome"
       >
-        <div style={{ display: "flex", gap: 6 }}>
-          <Tooltip content="Zoom In" position="bottom">
-            <button
-              type="button"
-              onClick={zoomIn}
-              title="Zoom In"
-              className="button button--secondary button--icon"
-              style={{ fontSize: 16 }}
-            >
-              +
-            </button>
-          </Tooltip>
-          <Tooltip content="Zoom Out" position="bottom">
-            <button
-              type="button"
-              onClick={zoomOut}
-              title="Zoom Out"
-              className="button button--secondary button--icon"
-              style={{ fontSize: 16 }}
-            >
-              −
-            </button>
-          </Tooltip>
-          <Tooltip content="Reset Pan & Zoom" position="bottom">
-            <button
-              type="button"
-              onClick={resetView}
-              title="Reset Pan & Zoom"
-              className="button button--secondary button--icon"
-              style={{ fontSize: 14 }}
-            >
-              ⟲
-            </button>
-          </Tooltip>
-        </div>
-
-        <MapOverlayToolbar
-          activeMode={effectiveOverlay}
-          onSelectMode={handleSelectOverlay}
-          disabledReason={
-            isPlanetTargeting ? "Overlays are paused while you choose a planet" : undefined
-          }
-        />
-      </div>
-
-      <div className="board-seat-legend" aria-label="Player positions">
-        {seatingOrder.map((id, index) => (
-          <span key={id} style={{ borderColor: seatStyle(index + 1).color }}>
-            <SeatBadge position={index + 1} /> {display(id).label}
-          </span>
-        ))}
-      </div>
+        {!compactChrome && (
+          <div className="board-controls" style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {zoomControls}
+            {overlayToolbar}
+          </div>
+        )}
+        {!compactChrome && seatLegend}
         {prepSlot && <div ref={prepSlot.setSlot} className="board-chrome__prep" data-testid="board-prep-slot" />}
       </div>
+      {compactChrome &&
+        menuSlot?.slot &&
+        createPortal(
+          <>
+            <section className="top-menu__section" aria-label="Zoom">
+              <h3>Zoom</h3>
+              <div className="board-controls">{zoomControls}</div>
+            </section>
+            <section className="top-menu__section" aria-label="Map view">
+              <h3>View</h3>
+              {overlayToolbar}
+            </section>
+            <section className="top-menu__section" aria-label="Who's who">
+              <h3>Who&rsquo;s who</h3>
+              {seatLegend}
+            </section>
+          </>,
+          menuSlot.slot,
+        )}
 
       <div className="board-stage" data-testid="board-stage" style={boardStageStyle(pendingChoice != null)}>
         <p id={helpId} className="visually-hidden">
