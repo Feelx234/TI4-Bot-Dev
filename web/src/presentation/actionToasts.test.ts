@@ -12,7 +12,7 @@ const entry = (over: Partial<GameEvent> & { detail?: string }): GameEvent =>
   ({
     id: over.id ?? "e1",
     timestamp: "10:00",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     actor: "p2",
     ...over,
@@ -56,9 +56,9 @@ describe("actionToastFromEvent", () => {
 
   it("ignores private, referee, non-decision and bookkeeping entries", () => {
     expect(
-      actionToastFromEvent(entry({ visibility: "seat", seat: "p1", detail: "p2 played Sabotage" } as never), "p1"),
+      actionToastFromEvent(entry({ visibility: { visibility: "seat", seat: "p1" }, detail: "p2 played Sabotage" } as never), "p1"),
     ).toBeNull();
-    expect(actionToastFromEvent(entry({ visibility: "referee", detail: "p2 played X" } as never), "p1")).toBeNull();
+    expect(actionToastFromEvent(entry({ visibility: { visibility: "referee" }, detail: "p2 played X" } as never), "p1")).toBeNull();
     expect(
       actionToastFromEvent(entry({ event: { kind: "phase_transition", phase: "status", round: 2 } as never }), "p1"),
     ).toBeNull();

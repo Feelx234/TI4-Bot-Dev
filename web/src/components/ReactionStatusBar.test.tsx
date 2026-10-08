@@ -269,7 +269,7 @@ describe("ReactionStatusBar", () => {
         onSubmit={vi.fn()}
         events={[
           {
-            visibility: "public",
+            visibility: { visibility: "public" as const },
             id: "e1",
             timestamp: "t",
             actor: "seat_2",

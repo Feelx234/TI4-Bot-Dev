@@ -1,3 +1,4 @@
+import { isPublicEvent } from "../protocol/eventVisibility.ts";
 import type { GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 
 /** What another player did, as a short corner notification. */
@@ -83,7 +84,7 @@ export function actionToastFromEvent(
   entry: GameEvent,
   viewerSeat?: string | null,
 ): ActionToast | null {
-  if (entry.visibility !== "public" || entry.event.kind !== "decision_resolved") return null;
+  if (!isPublicEvent(entry) || entry.event.kind !== "decision_resolved") return null;
   const actor = entry.actor;
   if (!actor || actor === viewerSeat) return null;
 

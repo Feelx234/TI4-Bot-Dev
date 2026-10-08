@@ -32,7 +32,7 @@ export const playedEvent = (name: string): GameEvent =>
     id: "prep-event-1",
     timestamp: "10:20",
     version: 41,
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     decision_count: 41,
     round: 2,

@@ -107,7 +107,7 @@ it("renders player and spectator surfaces with current names, seat shapes and no
           {
             id: "e1",
             timestamp: "",
-            visibility: "public",
+            visibility: { visibility: "public" as const },
             event: { kind: "game_finished", winner: "player_a" },
           },
         ]}

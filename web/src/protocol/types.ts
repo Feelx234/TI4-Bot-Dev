@@ -421,7 +421,9 @@ export type GameEventKind =
   | { kind: "phase_transition"; phase: string; round: number }
   | { kind: "game_finished"; winner?: string | null };
 
-export type GameEvent = EventVisibility & {
+export type GameEvent = {
+  /** Nested object on the wire; decode with `visibilityKind` (protocol/eventVisibility.ts). */
+  visibility: EventVisibility;
   id: string;
   timestamp: string;
   version?: number;

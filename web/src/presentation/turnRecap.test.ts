@@ -15,7 +15,7 @@ function ev(
   return {
     id: `e${n}`,
     timestamp: "1",
-    visibility: "public",
+    visibility: { visibility: "public" as const },
     event: { kind: "decision_resolved" },
     action_id: actionId,
     action_actor: actionActor,
@@ -84,8 +84,8 @@ describe("buildTurnRecap", () => {
   });
 
   it("uses nothing that is redacted or not public", () => {
-    const secret = ev("a5", "p2", "p2", "played Sabotage", { visibility: "seat", seat: "p2" } as never);
-    const referee = ev("a5", "p2", "p2", "scored Secret Hold", { visibility: "referee" } as never);
+    const secret = ev("a5", "p2", "p2", "played Sabotage", { visibility: { visibility: "seat", seat: "p2" } } as never);
+    const referee = ev("a5", "p2", "p2", "scored Secret Hold", { visibility: { visibility: "referee" } } as never);
     const blank = ev("a5", "p2", "p2", undefined, { stage: "production" });
     const recap = buildTurnRecap(turn([select("a5", "p2", "tactical"), secret, referee, blank]));
     expect(recap?.text).toBe("tactical action");
@@ -120,7 +120,7 @@ describe("trackTurns", () => {
   it("closes a pass at once, and on a phase change", () => {
     expect(trackTurns(null, [select("y1", "p2", "pass")], "p1")).toMatchObject({ open: null, closed: [{ actor: "p2" }] });
     const open = trackTurns(null, [select("y2", "p2", "tactical")], "p1").open;
-    const phase = { id: "ph", timestamp: "1", visibility: "public", event: { kind: "phase_transition", phase: "status", round: 2 } } as GameEvent;
+    const phase = { id: "ph", timestamp: "1", visibility: { visibility: "public" as const }, event: { kind: "phase_transition", phase: "status", round: 2 } } as GameEvent;
     expect(trackTurns(open, [phase], "p1").closed).toHaveLength(1);
   });
 
