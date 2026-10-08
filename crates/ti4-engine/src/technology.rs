@@ -2065,6 +2065,50 @@ mod tests {
         assert_eq!(table.log.records[0].prompt, "Chaos Mapping");
     }
 
+    /// 68.10 applies to Chaos Mapping's production too: with an enemy ship in the dock's system
+    /// the offered builds are ground forces only (68.10a).
+    #[test]
+    fn chaos_mapping_in_a_blockaded_system_offers_no_ships() {
+        let mut state = game(&["a", "b"]);
+        give(&mut state, &["cm"]);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        crate::fixtures::put(&mut state, &system, "destroyer", &PlayerId::new("b"), 1);
+        state.player_mut(&player()).unwrap().trade_goods = 5;
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                system.to_string()
+            ])));
+        let mut table = Table::with_default(Box::new(capturing));
+
+        // The script ends after the system pick, so the build question (infantry only, no
+        // decline) diverges it; the question itself is what is inspected.
+        let _ = start_turn(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player(),
+        );
+
+        let seen = seen.borrow();
+        let builds = seen
+            .iter()
+            .find(|choice| choice.prompt.starts_with("produce one unit in"))
+            .expect("the build choice is asked");
+        let ids: Vec<&str> = builds.options.iter().map(|o| o.id.as_str()).collect();
+        assert!(ids.contains(&"build|infantry|1"), "ground forces: {ids:?}");
+        assert!(
+            !ids.iter()
+                .any(|id| id.contains("destroyer") || id.contains("cruiser")),
+            "no ships while blockaded: {ids:?}"
+        );
+    }
+
     #[test]
     fn every_requirement_letter_names_a_track() {
         // If the corpus ever spells a prerequisite with a letter this does not know, the
