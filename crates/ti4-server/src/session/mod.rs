@@ -4,6 +4,7 @@ pub mod bluff_hold;
 pub mod reaction_modes;
 pub mod decider;
 pub mod preview;
+pub mod random_bot;
 pub mod registry;
 pub mod replay;
 pub mod rng_force;
@@ -63,6 +64,7 @@ impl Drop for SessionSubscription {
 use serde::{Deserialize, Serialize};
 
 pub use decider::RemoteHumanDecider;
+pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
 pub use replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
 pub use rng_force::{RngForce, RngMarks};
@@ -79,6 +81,10 @@ pub enum SeatController {
     BotAlwaysDecline,
     /// Automated bot following a scripted sequence of option IDs.
     BotScripted(Vec<String>),
+    /// In-process bot choosing uniformly among the legal options, reproducibly from
+    /// (game seed, seat, decision index) with a think delay between decisions. See
+    /// [`random_bot`].
+    BotRandom,
 }
 
 /// Configuration used to spawn an authoritative game session.
@@ -119,6 +125,9 @@ pub struct SessionConfig {
     /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
     /// `step_snapshot`). Off only in tests that compare against the full-replay path.
     pub step_snapshots: bool,
+    /// Think delay of the `BotRandom` seats in milliseconds; `None` reads
+    /// `TI4_RANDOM_BOT_DELAY_MS` (default 600). Tests and soaks set `Some(0)`.
+    pub random_bot_delay_ms: Option<u64>,
     /// A copy of the game at an earlier step boundary of this same history: the worker forks it
     /// and replays only the decisions after it, instead of replaying the whole game. Used when a
     /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
@@ -159,6 +168,7 @@ impl SessionConfig {
             announce_tail: false,
             reaction_modes: BTreeMap::new(),
             step_snapshots: true,
+            random_bot_delay_ms: None,
             resume: None,
         }
     }
@@ -190,6 +200,12 @@ impl SessionConfig {
             self.galaxy.as_ref().expect("galaxy just assigned"),
             ti4_model::content_types::POK,
         );
+        self
+    }
+
+    #[must_use]
+    pub fn with_random_bot_delay_ms(mut self, delay_ms: u64) -> Self {
+        self.random_bot_delay_ms = Some(delay_ms);
         self
     }
 
@@ -436,7 +452,9 @@ impl GameSession {
     pub fn viewer_for_seat_token(&self, token: &str) -> Option<ViewerRole> {
         let lock = self.shared.lock().expect("shared lock");
         lock.seat_tokens.iter().find_map(|(seat, candidate)| {
-            (candidate == token).then(|| ViewerRole::Player(seat.clone()))
+            // A bot seat has no usable credential, whatever its record holds.
+            (candidate == token && !matches!(lock.seats.get(seat), Some(SeatController::BotRandom)))
+                .then(|| ViewerRole::Player(seat.clone()))
         })
     }
 

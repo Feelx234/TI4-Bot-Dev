@@ -464,6 +464,55 @@ pub struct RemoveBotRequest {
     pub player_id: PlayerId,
 }
 
+/// Body of `POST /api/games/{game_id}/lobby/bots`.
+///
+/// `kind` is `random` (in-process, authorized by the host's own credential, no password). With
+/// `fill: true` every open slot gets a bot; otherwise `count` bots (default 1) are added.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddBotsRequest {
+    pub kind: String,
+    pub nickname: Option<String>,
+    pub count: Option<usize>,
+    #[serde(default)]
+    pub fill: bool,
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/bots`.
+pub async fn add_bots_to_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<AddBotsRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    if payload.kind != "random" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Unknown bot kind '{}': only 'random' can be added here (MLP bots use /lobby/add-bot)",
+                payload.kind
+            ),
+        ));
+    }
+    if payload.fill && payload.count.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Use either fill or count, not both".to_owned(),
+        ));
+    }
+    let count = if payload.fill {
+        None
+    } else {
+        Some(payload.count.unwrap_or(1))
+    };
+    Ok(Json(
+        registry
+            .add_random_bots(&game_id, token, payload.nickname, count)
+            .map_err(lobby_error)?,
+    ))
+}
+
 /// Handler for `POST /api/games/{game_id}/lobby/add-bot`.
 pub async fn add_bot_to_lobby(
     Path(game_id): Path<String>,

@@ -506,6 +506,10 @@ pub struct PlayerLobbyView {
     pub slots: Vec<PlayerSlotView>,
     pub lobby_version: u64,
     pub bot_service_enabled: bool,
+    /// The bot kinds the host can add to this lobby: always `random` (in-process, no password),
+    /// plus `mlp` when the MLP bot service is configured. A client that does not know the field
+    /// falls back to `bot_service_enabled`.
+    pub bot_kinds: Vec<String>,
     /// What the table will play on; never the seed.
     pub map: crate::maps::MapChoiceView,
     /// Changes whenever the previewed board changes; refetch the preview when it does.
@@ -539,6 +543,10 @@ pub struct PlayerSlotView {
     pub ready: bool,
     pub connected: bool,
     pub can_take_over: bool,
+    /// The kind of bot occupying the seat (`random`), absent for a person or an MLP bot (which
+    /// connects like a person).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bot: Option<String>,
 }
 
 impl PlayerLobbyRecord {
@@ -560,6 +568,7 @@ impl PlayerLobbyRecord {
         players.insert(
             host_player_id.clone(),
             PlayerLobbyMember {
+                bot: None,
                 ready: false,
                 session: session.clone(),
                 nickname: nickname.to_owned(),
@@ -617,10 +626,15 @@ impl PlayerLobbyRecord {
                         .is_some_and(|id| self.players[id].ready),
                     connected: false,
                     can_take_over: false,
+                    bot: slot
+                        .occupant
+                        .as_ref()
+                        .and_then(|id| self.players[id].bot.clone()),
                 })
                 .collect(),
             lobby_version: self.lobby_version,
             bot_service_enabled: false,
+            bot_kinds: vec!["random".to_owned()],
             map: crate::maps::catalog::describe(
                 &crate::maps::MapChoice::from_stored(self.map_template.as_deref()),
                 self.slots.len(),
@@ -1738,7 +1752,16 @@ impl GameRegistry {
     fn player_view(&self, state: &RegistryState, record: &PlayerLobbyRecord) -> PlayerLobbyView {
         let mut view = record.public_view();
         view.bot_service_enabled = self.bot_config.is_some();
+        if self.bot_config.is_some() {
+            view.bot_kinds.push("mlp".to_owned());
+        }
         for slot in &mut view.slots {
+            if slot.bot.is_some() {
+                // An in-process bot has no connection to lose: always present, never taken over.
+                slot.connected = true;
+                slot.can_take_over = false;
+                continue;
+            }
             if let Some(player) = &slot.occupant {
                 slot.connected = state
                     .presence
@@ -1766,7 +1789,7 @@ impl GameRegistry {
         if !state
             .player_lobbies
             .get(game_id)
-            .is_some_and(|l| l.players.contains_key(player))
+            .is_some_and(|l| l.players.get(player).is_some_and(|m| m.bot.is_none()))
         {
             return false;
         }
@@ -2236,6 +2259,7 @@ impl GameRegistry {
         updated.players.insert(
             player.clone(),
             PlayerLobbyMember {
+                bot: None,
                 ready: false,
                 session: session.clone(),
                 nickname: nickname.expect("new admission has nickname").to_owned(),
@@ -2273,6 +2297,9 @@ impl GameRegistry {
             .ok_or(LobbyError::NotFound)?;
         if !lobby.players.contains_key(player) {
             return Err(LobbyError::InvalidPlayerId);
+        }
+        if lobby.players[player].bot.is_some() {
+            return Err(LobbyError::TakeoverUnavailable);
         }
         if !self.disconnected_since(&state, game_id, player) {
             return Err(LobbyError::TakeoverUnavailable);
@@ -2644,11 +2671,19 @@ impl GameRegistry {
             .with_galaxy(galaxy, map_tiles.clone());
         config.seats = players
             .iter()
-            .map(|p| (p.clone(), SeatController::Human))
+            .map(|p| {
+                let controller = if lobby.players[p].bot.is_some() {
+                    SeatController::BotRandom
+                } else {
+                    SeatController::Human
+                };
+                (p.clone(), controller)
+            })
             .collect();
         config.seat_tokens = lobby
             .players
             .iter()
+            .filter(|(_, m)| m.bot.is_none())
             .map(|(p, m)| (p.clone(), m.session.as_str().to_owned()))
             .collect();
         config.store.clone_from(&self.store);
@@ -2795,6 +2830,98 @@ impl GameRegistry {
             .get(game_id)
             .ok_or(LobbyError::NotFound)?;
         Ok(self.player_view(&state, lobby))
+    }
+
+    /// Host-only, lobby phase only: seat `count` in-process random bots in the first open
+    /// slots (`None` fills every open slot). Needs only the host's own credential: a random bot
+    /// is a seat answered by the game itself, not a child process.
+    ///
+    /// All bots are admitted or none: the lobby changes once, under the registry lock, with one
+    /// durable save. `nickname` names a single bot; several bots are always "Random bot N".
+    ///
+    /// # Errors
+    /// [`LobbyError::NotFound`], [`LobbyError::AlreadyRunning`], [`LobbyError::InvalidCapability`],
+    /// [`LobbyError::HostRequired`], [`LobbyError::InvalidNickname`] (bad nickname, or a nickname
+    /// with more than one bot), [`LobbyError::SeatUnavailable`] (no open slot, or fewer than
+    /// `count`).
+    pub fn add_random_bots(
+        &self,
+        game_id: &str,
+        host_credential: &str,
+        nickname: Option<String>,
+        count: Option<usize>,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        if let Some(name) = &nickname {
+            check_nickname(name)?;
+        }
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, host_credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let open: Vec<usize> = lobby
+            .slots
+            .iter()
+            .enumerate()
+            .filter(|(_, slot)| slot.occupant.is_none())
+            .map(|(index, _)| index)
+            .collect();
+        let wanted = count.unwrap_or(open.len());
+        if wanted == 0 || wanted > open.len() {
+            return Err(LobbyError::SeatUnavailable);
+        }
+        if nickname.is_some() && wanted != 1 {
+            return Err(LobbyError::InvalidNickname);
+        }
+        let mut updated = lobby.clone();
+        let mut next_number = 1 + updated
+            .players
+            .values()
+            .filter(|member| member.bot.is_some())
+            .count();
+        for &slot in open.iter().take(wanted) {
+            let player = generate_player_id(&updated.players);
+            let session = loop {
+                let candidate = PlayerSession::generate();
+                if updated
+                    .players
+                    .values()
+                    .all(|member| member.session != candidate)
+                {
+                    break candidate;
+                }
+            };
+            let name = nickname.clone().unwrap_or_else(|| {
+                // First unused "Random bot N", so removing and re-adding never doubles a name.
+                loop {
+                    let candidate = format!("Random bot {next_number}");
+                    next_number += 1;
+                    if updated.players.values().all(|m| m.nickname != candidate) {
+                        break candidate;
+                    }
+                }
+            });
+            updated.slots[slot].occupant = Some(player.clone());
+            updated.players.insert(
+                player,
+                PlayerLobbyMember {
+                    bot: Some("random".to_owned()),
+                    ready: true,
+                    session,
+                    nickname: name,
+                },
+            );
+        }
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
     pub fn remove_bot_or_player_from_lobby(
@@ -3418,7 +3545,10 @@ fn authenticate_player(
     lobby
         .players
         .iter()
-        .find_map(|(id, member)| (member.session.as_str() == credential).then(|| id.clone()))
+        .find_map(|(id, member)| {
+            // A bot seat has no usable credential, whatever its record holds.
+            (member.bot.is_none() && member.session.as_str() == credential).then(|| id.clone())
+        })
         .ok_or(LobbyError::InvalidCapability)
 }
 
@@ -3485,6 +3615,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
         step_snapshots: true,
+        random_bot_delay_ms: None,
         resume: None,
     })
 }
@@ -3602,6 +3733,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
         step_snapshots: true,
+        random_bot_delay_ms: None,
         resume: None,
     })
 }

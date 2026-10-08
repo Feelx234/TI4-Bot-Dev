@@ -1058,6 +1058,7 @@ fn setup_base_3p_game(
     existing_players.insert(
         p1.clone(),
         PlayerLobbyMember {
+            bot: None,
             ready: true,
             session: session1.clone(),
             nickname: "Player 1 (Sol)".to_owned(),
@@ -1069,6 +1070,7 @@ fn setup_base_3p_game(
     existing_players.insert(
         p2.clone(),
         PlayerLobbyMember {
+            bot: None,
             ready: true,
             session: session2.clone(),
             nickname: "Bot (Hacan)".to_owned(),
@@ -1080,6 +1082,7 @@ fn setup_base_3p_game(
     existing_players.insert(
         p3.clone(),
         PlayerLobbyMember {
+            bot: None,
             ready: true,
             session: session3.clone(),
             nickname: "Bot (Letnev)".to_owned(),

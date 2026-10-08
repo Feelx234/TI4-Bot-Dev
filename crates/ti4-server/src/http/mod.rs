@@ -87,6 +87,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::start_lobby),
         )
         .route(
+            "/api/games/{game_id}/lobby/bots",
+            axum::routing::post(games::add_bots_to_lobby),
+        )
+        .route(
             "/api/games/{game_id}/lobby/add-bot",
             axum::routing::post(games::add_bot_to_lobby),
         )

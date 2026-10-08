@@ -155,6 +155,10 @@ pub struct PlayerLobbyMember {
     pub ready: bool,
     pub session: PlayerSession,
     pub nickname: String,
+    /// `Some("random")` for an in-process random bot: its seat has no usable credential
+    /// (authentication skips it) and the game answers it itself. Absent for people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<String>,
 }
 
 impl std::fmt::Debug for PlayerLobbyMember {
@@ -1413,6 +1417,7 @@ mod player_record_tests {
                     .insert(
                         id,
                         PlayerLobbyMember {
+                            bot: None,
                             ready: false,
                             session: PlayerSession::generate(),
                             nickname: "Test".into(),
@@ -1498,6 +1503,7 @@ mod player_record_tests {
         lobby.players.insert(
             PlayerId::new(hex_random_256("player_")),
             PlayerLobbyMember {
+                bot: None,
                 ready: false,
                 session: lobby.players[&id].session.clone(),
                 nickname: "Test".into(),

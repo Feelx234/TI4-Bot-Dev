@@ -856,6 +856,14 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             .values()
             .any(|controller| matches!(controller, SeatController::Human));
     let snapshot_generation = config.history_generation;
+    // Decisions answered so far in the whole game, including the ones a fork already holds:
+    // the index a random bot seeds its pick from (see `random_bot`).
+    let decision_counter: crate::session::random_bot::DecisionCounter = Arc::new(
+        std::sync::atomic::AtomicUsize::new(resume.as_ref().map_or(0, |copy| copy.log_len)),
+    );
+    let random_bot_delay = config
+        .random_bot_delay_ms
+        .unwrap_or_else(crate::session::random_bot::random_bot_delay_ms);
     let handle = thread::spawn(move || {
         let mut table = Table::new();
 
@@ -886,6 +894,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 SeatController::BotFirstOption => Box::new(FirstOption),
                 SeatController::BotAlwaysDecline => Box::new(AlwaysDecline),
                 SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
+                SeatController::BotRandom => {
+                    Box::new(crate::session::random_bot::RandomBotDecider::new(
+                        seat.clone(),
+                        config.seed.unwrap_or_default(),
+                        decision_counter.clone(),
+                        random_bot_delay,
+                        worker_shared.clone(),
+                    ))
+                }
             };
 
             // A human seat's "never offer" choices are applied here, below the replay layer: a
@@ -916,22 +933,26 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 inner,
                 selected: selected_options.clone(),
             });
-            if prior_count > 0 {
-                table.seat(
-                    seat,
-                    Box::new(ReplayingDecider {
-                        prior_queue: prior_queue.clone(),
-                        inner,
-                        shared: worker_shared.clone(),
-                        has_boundary_state: boundary_state.is_some(),
-                        force: rng_force.clone(),
-                        total: prior_count,
-                        announce_tail: config.announce_tail,
-                    }),
-                );
+            let outer: Box<dyn Decider> = if prior_count > 0 {
+                Box::new(ReplayingDecider {
+                    prior_queue: prior_queue.clone(),
+                    inner,
+                    shared: worker_shared.clone(),
+                    has_boundary_state: boundary_state.is_some(),
+                    force: rng_force.clone(),
+                    total: prior_count,
+                    announce_tail: config.announce_tail,
+                })
             } else {
-                table.seat(seat, inner);
-            }
+                inner
+            };
+            table.seat(
+                seat,
+                Box::new(crate::session::random_bot::CountingDecider {
+                    inner: outer,
+                    counter: decision_counter.clone(),
+                }),
+            );
         }
 
         // Nested combat windows can ask another human before `game.step()` returns. Publish
