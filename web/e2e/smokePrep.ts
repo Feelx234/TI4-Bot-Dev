@@ -330,6 +330,12 @@ export class SecondaryPrepExercise {
       }
       p.started = true;
     }
+    // A secondary of another card after this plan's own window was answered (and no follow-up step
+    // came) is a different action's window: the plan is over (the case line keeps its outcome).
+    if (p.started && secondary && details?.card && !details.card.toLowerCase().includes(p.card.toLowerCase())) {
+      this.plans.delete(seat);
+      return "normal";
+    }
     const first = secondary;
     if (!first && (choice.prompt === "action phase" || /^end your turn/i.test(choice.prompt ?? ""))) {
       this.plans.delete(seat); // the plan's follow-up steps are over; this is the seat's own turn
