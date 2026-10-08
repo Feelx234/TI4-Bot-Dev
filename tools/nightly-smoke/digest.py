@@ -198,6 +198,20 @@ def main():
         p(f"- **Server rejections of offered UI controls** ({len(rejections)}):")
         for line in rejections[:30]:
             p(f"  - `{line[:400]}`")
+    exercises = report.get("exercises") or {}
+    if exercises:
+        p("- **Optional UI exercises** (`report.json` `exercises`): `" + json.dumps(exercises)[:1200] + "`")
+    prep = report.get("prep")
+    if prep:
+        counts = {k: v for k, v in prep.items() if k != "cases"}
+        p("- **Secondary pre-planning** (`report.json` `prep`): `" + json.dumps(counts) + "`")
+        for line in (prep.get("cases") or [])[:12]:
+            p(f"  - {str(line)[:300]}")
+    findings = report.get("findings") or []
+    if findings:
+        p(f"- **Exercise findings** ({len(findings)}):")
+        for line in findings[:20]:
+            p(f"  - {str(line)[:400]}")
     log_hits = collections.OrderedDict()
     try:
         with open(os.path.join(run_dir, "run.log"), errors="replace") as handle:

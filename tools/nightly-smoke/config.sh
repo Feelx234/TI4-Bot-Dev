@@ -52,6 +52,21 @@ PRESET_ROTATE_PERCENT="${NIGHTLY_PRESET_ROTATE_PERCENT:-20}"
 # Share of runs (percent) that play the Prophecy of Kings strategy cards (`strategy_card_set` "pok")
 # instead of the default Thunder's Edge set (TE Warfare offers an extra redistribute decision).
 POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"
+# Optional UI exercises, each switched on for a share of runs (percent) through an env switch of the
+# harness (web/e2e/smokeExercises.ts): the "ui tour" opens one unit card and the Faction card
+# (TI4_SMOKE_UI_TOUR, about 1 run in 6), the recap toggle is turned on for one random non-host seat
+# (TI4_SMOKE_RECAP), one guarded "Redo my last turn" round trip (TI4_SMOKE_REDO, rare: the redo
+# replays the round). Set a probability to 0 to switch an exercise off.
+UI_TOUR_PROBABILITY="${NIGHTLY_UI_TOUR_PROBABILITY:-17}"
+RECAP_PROBABILITY="${NIGHTLY_RECAP_PROBABILITY:-20}"
+REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-5}"
+# Secondary pre-planning (web/e2e/smokePrep.ts), a fraction 0..1: the chance a waiting follower plans
+# its strategy-card secondary per opportunity, and the chance a plan uses the Auto mode (else Review).
+# NIGHTLY_PREP_PROBABILITY=0 switches the exercise off (it passes TI4_SMOKE_PREP=0).
+PREP_PROBABILITY="${NIGHTLY_PREP_PROBABILITY:-0.5}"
+PREP_AUTO_PROBABILITY="${NIGHTLY_PREP_AUTO_PROBABILITY:-0.9}"
+# Cap on screenshots a run saves to trace/shots (TI4_SMOKE_SHOT_CAP; a number or "all" = 20).
+SHOT_CAP="${NIGHTLY_SHOT_CAP:-20}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop
 # waits (DISK_WAIT_SECONDS between checks) and gives the night up after MAX_DISK_WAITS checks.
 # DF_CMD is a test hook (the tests put a stub `df` here).

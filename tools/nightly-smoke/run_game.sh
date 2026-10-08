@@ -41,6 +41,11 @@ start)
   [ "$(shuf -i 1-100 -n 1)" -le "$POK_PROBABILITY" ] && card_set=pok
   card_env=""
   [ "$card_set" = te ] || card_env="TI4_SMOKE_CARD_SET=$card_set "
+  exercise_env=""
+  [ "$(shuf -i 1-100 -n 1)" -le "$UI_TOUR_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_UI_TOUR=1 "
+  [ "$(shuf -i 1-100 -n 1)" -le "$RECAP_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_RECAP=1 "
+  [ "$(shuf -i 1-100 -n 1)" -le "$REDO_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_REDO=1 "
+  exercises=$(echo "$exercise_env" | sed -e 's/TI4_SMOKE_//g' -e 's/=1//g' | tr 'A-Z_' 'a-z-' | xargs)
   port=$(shuf -i 20000-49000 -n 1)
   deadline="${DEADLINE:-$(( $(now_epoch) + 6 * 3600 ))}"
   # The code under test: nothing keeps interactive commits off the night branch while a game plays,
@@ -57,6 +62,9 @@ start)
   "policy": "$policy",
   "preset": "$preset",
   "card_set": "$card_set",
+  "exercises": "$exercises",
+  "prep_probability": "$PREP_PROBABILITY",
+  "prep_auto_probability": "$PREP_AUTO_PROBABILITY",
   "commit": "$commit",
   "dirty_files": $dirty_files,
   "stop_round": $STOP_ROUND,
@@ -64,13 +72,13 @@ start)
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
   "started_at": "$(TZ="$NIGHTLY_TZ" date '+%F %T %Z')",
   "deadline": "$(TZ="$NIGHTLY_TZ" date -d "@$deadline" '+%F %T %Z')",
-  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
+  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
 }
 EOF
   # A new session makes the run its own process group, so `stop` can kill browsers and the
   # Playwright web servers (cargo/vite) together.
   setsid "$NIGHTLY_DIR/_run_inner.sh" "$run_dir" "$players" "$game_seed" "$click_seed" \
-    "$policy" "$port" "$budget" "$preset" "$card_set" </dev/null >/dev/null 2>&1 &
+    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" </dev/null >/dev/null 2>&1 &
   echo $! > "$run_dir/run.pid"
   echo "started run in $run_dir"
   cat "$run_dir/meta.json"

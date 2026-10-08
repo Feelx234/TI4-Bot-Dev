@@ -49,6 +49,35 @@ has `UI observations` and `Fix requests` sections.
 the runs and Prophecy of Kings (`pok`) in the rest (`NIGHTLY_POK_PROBABILITY`). `meta.json` has
 `card_set`; the repro carries `TI4_SMOKE_CARD_SET=pok` only when it is not the default.
 
+**Optional UI exercises** (`web/e2e/smokeExercises.ts`; switches also work in a manual run, e.g.
+`TI4_SMOKE_UI_TOUR=1 TI4_SMOKE_RECAP=1 TI4_SMOKE_REDO=1 TI4_SMOKE_SHOT_CAP=all npm run test:e2e:smoke`).
+`meta.json` has `exercises` and the repro carries the switches. Results are in `report.json`
+(`exercises`, `findings`, `shots`) and the digest. None of them fails a run; a problem is a finding.
+- UI tour: Faction card at a calm turn-menu moment, one unit card when a production builder is open
+  (before anything is staged); asserts text, on-screen, unclipped, Escape closes it.
+- Recap: the seat's browser gets `player_turn_recap=true`; recap toasts are counted by a
+  MutationObserver. The harness never treats a corner toast as a decision control.
+- Turn redo: at most once per run, after some seats completed turns, at the turn menu of another
+  seat in the action phase it clicks "Redo my last turn" on the last finished seat's tab, plays the
+  new turn with the normal heuristics (the playthrough pauses while the tab fires the auto-play),
+  then randomly clicks Restore original timeline or Keep this timeline. Timeouts: 30 s for the
+  rewind, 5 min for the new turn, 150 s for the handoff and for the final state change. Any problem
+  (409/400, error text, no handoff) records a finding and tries a restore; if that fails too the run
+  ends cleanly with outcome `...STUCK`.
+- Secondary pre-planning (`web/e2e/smokePrep.ts`, on in every run): at the start of another seat's
+  decision, a seat whose "Prepare your secondary" chip is on screen is offered once per card. With
+  probability `TI4_SMOKE_PREP_PROBABILITY` it sets Auto or Review on the player sheet, opens the chip,
+  answers the stand-in question with the usual candidate heuristics (seeded RNG, follow 75%), clicks
+  Save plan if the mode is still open, and checks the chip says "Prepared". When the seat's real
+  secondary opens: Auto must answer by itself with no decision dialog (toast "Auto-played your
+  prepared secondary", 20 s limit, nothing is clicked); Review shows the "Prepared" bar, which is
+  confirmed (75%) or dismissed with "Choose myself". Follow-up steps (technology, planets) are
+  checked the same way for 6 s. Any deviation is a finding and the decision is played normally.
+  Counters are in `report.json` `prep`. The prepare chrome is clicked only by this exercise (the
+  normal heuristics still exclude it). `TI4_SMOKE_PREP=0` disables it for a manual run.
+- Screenshots: up to `TI4_SMOKE_SHOT_CAP` (default 20) per run; the tour and redo contribute at most
+  a shot or two inside that cap.
+
 ## How a night runs
 
 1. The sweep saves the checkout, uncommitted work included, as one snapshot commit on the branch
@@ -113,6 +142,12 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
 | `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
 | `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
+| `NIGHTLY_UI_TOUR_PROBABILITY` | `17` | percent of runs with `TI4_SMOKE_UI_TOUR=1`: open the Faction card and one unit card, check them |
+| `NIGHTLY_RECAP_PROBABILITY` | `20` | percent of runs with `TI4_SMOKE_RECAP=1`: one random non-host seat turns the Recap toggle on; recap toasts are counted |
+| `NIGHTLY_REDO_PROBABILITY` | `5` | percent of runs with `TI4_SMOKE_REDO=1`: one guarded turn redo round trip (see below) |
+| `NIGHTLY_PREP_PROBABILITY` | `0.5` | fraction (0..1) of secondary opportunities a waiting follower plans (`TI4_SMOKE_PREP_PROBABILITY`); `0` switches the exercise off (`TI4_SMOKE_PREP=0`) |
+| `NIGHTLY_PREP_AUTO_PROBABILITY` | `0.9` | fraction of plans that use the Auto mode, the rest Review (`TI4_SMOKE_PREP_AUTO_PROBABILITY`) |
+| `NIGHTLY_SHOT_CAP` | `20` | cap on screenshots per run (`TI4_SMOKE_SHOT_CAP`; a number or `all` = 20); exercise shots count inside it |
 | `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
 | `NIGHTLY_NOW`, `NIGHTLY_NOW_FILE` | unset | fake clock for tests |
 

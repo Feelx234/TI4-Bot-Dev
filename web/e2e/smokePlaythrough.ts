@@ -13,6 +13,17 @@ import {
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
 import { missingExpected, type Expectation } from "./smokePreset";
+import { SecondaryPrepExercise, emptyPrepReport, prepConfigFromEnv, type PrepReport } from "./smokePrep";
+import {
+  RedoExercise,
+  UiTour,
+  exerciseFlagsFromEnv,
+  readRecapToasts,
+  readToastKinds,
+  recapInitScript,
+  shotCapFromEnv,
+  type ExerciseReport,
+} from "./smokeExercises";
 import {
   activationWeight,
   preferHitConfirm,
@@ -91,6 +102,14 @@ export interface PlaythroughReport {
   reactionTextProblems: string[];
   /** Expectations (`TI4_SMOKE_EXPECT`) the run did not meet; empty when all were met. */
   expectMissing: string[];
+  /** Optional exercises (UI tour, recap toasts, turn redo) that ran in this run, and what they saw. */
+  exercises: ExerciseReport;
+  /** Secondary pre-planning exercise counters (opportunities, planned, auto-played, ...). */
+  prep: PrepReport;
+  /** Problems the exercises found (empty/clipped info cards, redo aborts, ...). Not run failures. */
+  findings: string[];
+  /** Screenshots saved to `trace/shots`, and the cap that applied. */
+  shots: { taken: number; cap: number; names: string[] };
 }
 
 // Containers that render a decision for the acting seat.
@@ -132,7 +151,9 @@ const SHOT_TARGETS = [
   "objectives-modal",
   "agenda-ballot-modal",
 ];
-const MAX_SHOTS = 20;
+// Cap on saved screenshots per run (TI4_SMOKE_SHOT_CAP, default 20, "all" = 20). The exercise shots
+// (tour, redo) count inside the cap and only fit while there is room left.
+
 
 const ERROR_BANNERS = [
   "choice-error-banner",
@@ -212,6 +233,10 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       // Secondary preparation (chip, banner, prepared-answer bar) answers into a local plan, never
       // the engine's question; it must not be clicked as a decision control.
       const inPrep = (el: Element) => el.closest('[data-testid="secondary-prep"]') !== null;
+      // Corner toasts (recap, action, auto-resolve) are buttons that dismiss on click; they are
+      // notifications, never decision controls.
+      const inToast = (el: Element) =>
+        el.closest('[data-testid="corner-toasts"], [data-testid="corner-toast"]') !== null;
       const found = new Set<Element>();
       document
         .querySelectorAll(
@@ -246,7 +271,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       }[] = [];
       let idx = 0;
       for (const el of found) {
-        if (!visible(el) || !enabled(el) || inPrep(el) || folded(el)) continue;
+        if (!visible(el) || !enabled(el) || inPrep(el) || inToast(el) || folded(el)) continue;
         // An unlabeled checkbox or radio is described by the label that wraps it.
         const named =
           el instanceof HTMLInputElement ? (el.closest("label") ?? el) : el;
@@ -459,6 +484,17 @@ export async function randomUiPlaythrough(
     `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"}`,
   );
 
+  const flags = exerciseFlagsFromEnv();
+  const shotCap = shotCapFromEnv();
+  const exerciseRng = mulberry32((options.clickSeed ^ 0x9e3779b9) >>> 0);
+  // The recap toggle is per browser: one random non-host seat turns it on.
+  const recapSeat = flags.recap && players.length > 1 ? 1 + Math.floor(exerciseRng() * (players.length - 1)) : -1;
+  const findings: string[] = [];
+  const finding = (text: string) => {
+    if (!findings.includes(text)) findings.push(text);
+    log(`  FINDING: ${text}`);
+  };
+  let redo: RedoExercise | undefined;
   const browserErrors: string[] = [];
   const pages: Page[] = [];
   // The last websocket frames each seat received, so a stuck decision can show whether the tab
@@ -476,6 +512,7 @@ export async function randomUiPlaythrough(
           // storage unavailable
         }
       });
+    if (flags.recap) await context.addInitScript(recapInitScript, index === recapSeat);
     const page = await context.newPage();
     page.on("pageerror", (err) =>
       browserErrors.push(`[seat ${index + 1}] ${err.message}`),
@@ -511,6 +548,8 @@ export async function randomUiPlaythrough(
       if (msg.type() !== "error") return;
       const url = msg.location().url ?? "";
       // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
+      // The turn redo exercise records its own HTTP failures as findings.
+      if (url.includes("/turn-redo")) return;
       if (url.includes("favicon") || url.includes("/battle") || url.includes("/ground_odds")) return;
       browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
     });
@@ -531,6 +570,11 @@ export async function randomUiPlaythrough(
         return;
       }
       const body = await response.text().catch(() => "");
+      if (response.url().includes("/turn-redo")) {
+        if (redo) redo.noteHttp(index, response.request().method(), response.status(), body);
+        else browserErrors.push(`[seat ${index + 1}] turn-redo ${response.status()}: ${body.slice(0, 300)}`);
+        return;
+      }
       const line = `[seat ${index + 1}] ${response.request().method()} ${new URL(response.url()).pathname} ${response.status()}: ${body.slice(0, 500)}`;
       browserErrors.push(line);
       log(`  ${line}`);
@@ -568,6 +612,10 @@ export async function randomUiPlaythrough(
     reactionDecisions: 0,
     reactionTextProblems: [],
     expectMissing: [],
+    exercises: {},
+    prep: emptyPrepReport(),
+    findings,
+    shots: { taken: 0, cap: shotCap, names: [] },
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -585,8 +633,10 @@ export async function randomUiPlaythrough(
     players: players.map((p) => p.id),
     options: { ...options, log: undefined },
   });
+  let finishExercisesHook: () => Promise<void> = async () => {};
   const writeFinal = async () => {
     if (!options.traceDir) return;
+    await finishExercisesHook();
     trace("report.json", report);
     const snapshot = await gameSnapshot(
       request,
@@ -598,13 +648,93 @@ export async function randomUiPlaythrough(
 
   const shotsTaken = new Set<string>();
   const shot = async (page: Page, key: string, name: string) => {
-    if (!options.traceDir || shotsTaken.size >= MAX_SHOTS || shotsTaken.has(key)) return;
+    if (!options.traceDir || shotsTaken.size >= shotCap || shotsTaken.has(key)) return;
     shotsTaken.add(key);
+    report.shots.taken = shotsTaken.size;
+    report.shots.names.push(name);
     mkdirSync(join(options.traceDir, "shots"), { recursive: true });
     await page
       .screenshot({ path: join(options.traceDir, "shots", `${name}.png`) })
       .catch(() => {});
   };
+
+  const tour = flags.tour ? new UiTour(finding, shot) : undefined;
+  if (tour) report.exercises.tour = { faction: "pending", unit: "pending", notes: tour.notes };
+  if (flags.redo) {
+    redo = new RedoExercise({
+      request,
+      gameId,
+      sessions: players.map((p) => p.session),
+      pages,
+      seatIds: players.map((p) => p.id),
+      rng: exerciseRng,
+      log,
+      finding,
+      version: async () => (await gameSnapshot(request, gameId, players[0].session)).game_version,
+      shot,
+    });
+    report.exercises.redo = redo.report;
+  }
+  const recapSamples = async () => {
+    if (recapSeat < 0) return;
+    const seen = await readRecapToasts(pages[recapSeat]);
+    const on = await pages[recapSeat]
+      .getByTestId("turn-recap-btn")
+      .first()
+      .getAttribute("aria-pressed")
+      .catch(() => null);
+    report.exercises.recap = {
+      seat: recapSeat + 1,
+      toggleOn: on === "true",
+      toastsSeen: seen.length,
+      samples: seen.slice(0, 5),
+      toastKinds: await readToastKinds(pages[recapSeat]),
+    };
+  };
+  const finishExercises = async () => {
+    if (tour) {
+      report.exercises.tour!.faction = tour.faction;
+      report.exercises.tour!.unit = tour.unit;
+      if (!tour.factionDone) finding("UI tour: the Faction card was never reached (no calm turn-menu moment)");
+      if (!tour.unitDone) report.exercises.tour!.notes.push("no unit card on screen in this run (no production builder opened)");
+    }
+    await recapSamples();
+    if (flags.recap)
+      report.exercises.toastKindsBySeat = await Promise.all(pages.map((pg) => readToastKinds(pg)));
+    const rc = report.exercises.recap;
+    if (rc) {
+      if (!rc.toggleOn) finding(`Recap: the toggle was not on for seat ${rc.seat} although it was enabled`);
+      else if (rc.toastsSeen === 0 && report.decisions > 60)
+        finding(`Recap: seat ${rc.seat} had the recap on but saw no recap toast in ${report.decisions} decisions`);
+    }
+    if (redo && redo.report.outcome === "not attempted")
+      redo.report.notes.push("no calm moment after enough completed turns before the run ended");
+    report.shots.taken = shotsTaken.size;
+  };
+
+  finishExercisesHook = () => finishExercises().catch(() => {});
+  const prepConfig = prepConfigFromEnv();
+  const prepRng = mulberry32((options.clickSeed ^ 0x5bd1e995) >>> 0);
+  const prep = prepConfig.enabled
+    ? new SecondaryPrepExercise({
+        pages,
+        rng: prepRng,
+        config: prepConfig,
+        log,
+        finding,
+        shot,
+        collect: (page) => collectCandidates(page),
+        pickOne: (cands, clicks) =>
+          pick(cands as Candidate[], clicks, prepRng, "random", new Map<string, number>()),
+        activeInfo: async (seat) => {
+          const snap = await gameSnapshot(request, gameId, players[seat].session);
+          const active = snap.view.active_player;
+          return `server view.active_player=${active === players[seat].id ? "this seat" : active ? `seat ${players.findIndex((p) => p.id === active) + 1}` : "none"}`;
+        },
+        label: `game seed ${options.gameSeed}, click seed ${options.clickSeed}`,
+      })
+    : undefined;
+  if (prep) report.prep = prep.report;
 
   let traceWritten = false;
   const fail = async (
@@ -657,6 +787,19 @@ export async function randomUiPlaythrough(
         status.round >= options.stopAtRound
       )
         break;
+      if (redo && !redo.over) {
+        // Between decisions, no click in flight: the turn redo exercise may take over for a moment.
+        let calm: { seat: string; prompt: string | undefined; phase: string } | null = null;
+        if (redo.wantsCalm() && status.kind === "waiting_for_decision") {
+          const seatIdx = players.findIndex((p) => p.id === status.seat);
+          if (seatIdx >= 0) {
+            const snap = await gameSnapshot(request, gameId, players[seatIdx].session);
+            calm = { seat: status.seat, prompt: snap.pending_choice?.choice.prompt, phase: status.phase };
+          }
+        }
+        if ((await redo.step(calm, report.decisions)) === "retry") continue;
+      }
+      if (redo?.stuck) break;
       if (
         status.kind !== "waiting_for_decision" &&
         status.kind !== "waiting_for_reactions"
@@ -777,7 +920,24 @@ export async function randomUiPlaythrough(
       const isReaction = isReactionSubtype(subtype);
       if (isReaction) report.reactionDecisions++;
       let reactionChecked = !isReaction;
-      for (let clicks = 0; clicks < options.maxClicksPerDecision;) {
+      if (tour && !tour.finished) {
+        const productionBuilder =
+          (await page.getByTestId("production-builder-drawer").count().catch(() => 0)) > 0;
+        await tour.step(page, { isTurnMenu, productionBuilder });
+      }
+      if (prep) {
+        // Secondary pre-planning: offer the waiting seats, and let a saved plan answer this decision.
+        await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
+        const handled = await prep.handle(
+          actorIndex,
+          choice as unknown as { details?: Record<string, unknown>; prompt?: string },
+          status.round,
+          before,
+          () => uiVersion(page),
+        );
+        if (handled === "done") progressed = true;
+      }
+      for (let clicks = 0; !progressed && clicks < options.maxClicksPerDecision;) {
         // Progress is read from the actor's tab (free) rather than the API; it follows the server
         // over the websocket. A late-landing commit is caught here before another click.
         if (clicks > 0 && (await uiVersion(page)) > before) {
@@ -796,7 +956,7 @@ export async function randomUiPlaythrough(
             if (problem) report.reactionTextProblems.push(`${subtype}: ${problem}`);
           }
         }
-        if (options.traceDir && shotsTaken.size < MAX_SHOTS) {
+        if (options.traceDir && shotsTaken.size < shotCap) {
           const shown = await page
             .evaluate(
               (ids) => ids.filter((id) => document.querySelector(`[data-testid="${id}"]`) !== null),
@@ -918,6 +1078,8 @@ export async function randomUiPlaythrough(
           );
         }
       }
+      if (redo)
+        redo.noteResolved(players[actorIndex].id, subtype, choice.prompt, barControl ?? "");
       report.decisions++;
     }
 

@@ -80,3 +80,35 @@ for i in $(seq 1 80); do
 done
 [ "$pok" -ge 6 ] && [ "$pok" -le 36 ] || fail "the default 25% picked pok $pok/80 times"
 echo "ok: card set pick (pok $pok/80)"
+
+# Optional UI exercises: tour, recap and redo each have a probability knob; the repro carries the switch.
+for knob in UI_TOUR:ui-tour:TI4_SMOKE_UI_TOUR RECAP:recap:TI4_SMOKE_RECAP REDO:redo:TI4_SMOKE_REDO; do
+  IFS=: read -r name label envname <<< "$knob"
+  var="NIGHTLY_${name}_PROBABILITY"
+  env "$var=100" NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/ex-$label-on" > /dev/null
+  grep -q "$envname=1 " "$tmp/ex-$label-on/meta.json" || fail "$var=100 should put $envname=1 in the repro"
+  grep -q "\"exercises\": \".*$label" "$tmp/ex-$label-on/meta.json" || fail "$var=100 should list $label in meta.json"
+  env "$var=0" NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/ex-$label-off" > /dev/null
+  grep -q "$envname" "$tmp/ex-$label-off/meta.json" && fail "$var=0 must not enable $envname"
+done
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/ex-ui-tour-on/meta.json" || fail "meta.json must stay valid JSON with exercises"
+tour=0 recap=0 redo=0
+for i in $(seq 1 120); do
+  NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/exd$i" > /dev/null
+  grep -q 'TI4_SMOKE_UI_TOUR=1' "$tmp/exd$i/meta.json" && tour=$((tour + 1))
+  grep -q 'TI4_SMOKE_RECAP=1' "$tmp/exd$i/meta.json" && recap=$((recap + 1))
+  grep -q 'TI4_SMOKE_REDO=1' "$tmp/exd$i/meta.json" && redo=$((redo + 1))
+done
+[ "$tour" -ge 5 ] && [ "$tour" -le 40 ] || fail "the default 17% picked the tour $tour/120 times"
+[ "$recap" -ge 8 ] && [ "$recap" -le 45 ] || fail "the default 20% picked recap $recap/120 times"
+[ "$redo" -le 16 ] || fail "the default 5% picked redo $redo/120 times"
+echo "ok: exercise knobs (tour $tour, recap $recap, redo $redo of 120)"
+
+# Secondary pre-planning knobs: defaults and overrides reach meta.json and the repro; 0 switches it off.
+NIGHTLY_REPO="$tmp" "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/prep-default" > /dev/null
+grep -q '"prep_probability": "0.5"' "$tmp/prep-default/meta.json" || fail "default prep probability should be 0.5"
+grep -q 'TI4_SMOKE_PREP_AUTO_PROBABILITY=0.9 ' "$tmp/prep-default/meta.json" || fail "default auto probability should be 0.9 in the repro"
+NIGHTLY_REPO="$tmp" NIGHTLY_PREP_PROBABILITY=1 NIGHTLY_PREP_AUTO_PROBABILITY=0.25 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/prep-set" > /dev/null
+grep -q 'TI4_SMOKE_PREP_PROBABILITY=1 TI4_SMOKE_PREP_AUTO_PROBABILITY=0.25 ' "$tmp/prep-set/meta.json" || fail "overridden prep knobs should appear in the repro"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/prep-set/meta.json" || fail "meta.json must stay valid JSON with prep knobs"
+echo "ok: prep knobs"

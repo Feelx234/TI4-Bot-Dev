@@ -1,0 +1,395 @@
+import type { Page } from "@playwright/test";
+
+/**
+ * Secondary pre-planning exercise. When a seat waits while another seat resolves a strategy card
+ * (its "Prepare your secondary" chip is on screen), the harness decides per opportunity whether to
+ * play the secondary the normal way or to PLAN it: open prepare mode, answer the stand-in question
+ * with the usual UI elements, save the plan, then either let the AUTO mode play it silently or
+ * confirm it in REVIEW mode when the real question opens.
+ *
+ * Env: TI4_SMOKE_PREP=0 disables; TI4_SMOKE_PREP_PROBABILITY (default 0.5) is the chance to plan
+ * per opportunity; TI4_SMOKE_PREP_AUTO_PROBABILITY (default 0.9) the chance a plan uses Auto.
+ * Any problem is a finding and the decision is played normally, so a session is never stuck.
+ */
+
+export interface PrepConfig {
+  enabled: boolean;
+  probability: number;
+  autoProbability: number;
+}
+
+const fraction = (value: string | undefined, fallback: number) => {
+  if (value === undefined || value === "") return fallback;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback;
+};
+
+export function prepConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PrepConfig {
+  const off = env.TI4_SMOKE_PREP === "0" || env.TI4_SMOKE_PREP?.toLowerCase() === "false";
+  return {
+    enabled: !off,
+    probability: fraction(env.TI4_SMOKE_PREP_PROBABILITY, 0.5),
+    autoProbability: fraction(env.TI4_SMOKE_PREP_AUTO_PROBABILITY, 0.9),
+  };
+}
+
+export interface PrepReport {
+  /** Times a seat's chip was on screen at the start of another seat's decision (once per card). */
+  opportunities: number;
+  planned: number;
+  plannedAuto: number;
+  plannedReview: number;
+  /** Plans that were opened but ended without a saved plan. */
+  noPlan: number;
+  /** Prepared answers the Auto mode played silently (decision dialog never opened). */
+  autoPlayed: number;
+  /** Review-mode bars confirmed with one click. */
+  reviewConfirmed: number;
+  /** Review-mode "Choose myself" (then played normally). */
+  chooseMyself: number;
+  needsReview: number;
+  /** Planned decisions that had to be played normally after something was off. */
+  fallbacks: number;
+  /** Follow-up steps (technology, planets, site) answered from the plan, Auto or Review. */
+  followUps: number;
+  /** One line per planned case: seat, round, card, mode, plan, outcome. */
+  cases: string[];
+}
+
+export const emptyPrepReport = (): PrepReport => ({
+  opportunities: 0,
+  planned: 0,
+  plannedAuto: 0,
+  plannedReview: 0,
+  noPlan: 0,
+  autoPlayed: 0,
+  reviewConfirmed: 0,
+  chooseMyself: 0,
+  needsReview: 0,
+  fallbacks: 0,
+  followUps: 0,
+  cases: [],
+});
+
+interface Cand {
+  idx: number;
+  desc: string;
+  full: string;
+}
+
+export interface PrepDeps {
+  pages: Page[];
+  rng: () => number;
+  config: PrepConfig;
+  log: (line: string) => void;
+  finding: (text: string) => void;
+  shot: (page: Page, key: string, name: string) => Promise<void>;
+  collect: (page: Page) => Promise<Cand[]>;
+  pickOne: (cands: Cand[], clicks: number) => Cand;
+  /** Label put into findings so they carry their evidence (game seed, click seed). */
+  label: string;
+  /** The server's view of the seat: who `view.active_player` is (evidence for findings). */
+  activeInfo?: (seat: number) => Promise<string>;
+}
+
+interface Plan {
+  seat: number;
+  round: number;
+  card: string;
+  mode: "auto" | "review";
+  summary: string;
+  /** The secondary question was seen and handled; later decisions are follow-up steps. */
+  started: boolean;
+  line: number;
+  /** When the client dropped the saved plan before its window opened (evidence). */
+  lost?: string;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export class SecondaryPrepExercise {
+  readonly report = emptyPrepReport();
+  private seen = new Set<string>();
+  private plans = new Map<number, Plan>();
+
+  constructor(private readonly d: PrepDeps) {}
+
+  private perKind = new Map<string, number>();
+  /** Records a finding; only the first two of each kind carry a line of their own (the counters have the rest). */
+  private find(p: Plan, text: string, kind = text.slice(0, 24)) {
+    const n = (this.perKind.get(kind) ?? 0) + 1;
+    this.perKind.set(kind, n);
+    if (n > 2) return;
+    this.d.finding(`Secondary prep (seat ${p.seat + 1}, round ${p.round}, ${p.card}, ${p.mode}; ${this.d.label}): ${text}`);
+  }
+
+  /** What the seat's tab shows around the prepare chrome, as evidence for a finding. */
+  private async evidence(page: Page): Promise<string> {
+    return page
+      .evaluate(() => {
+        const text = (id: string, n: number) =>
+          (document.querySelector(`[data-testid="${id}"]`)?.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, n);
+        const mode = document.querySelector('[data-testid="secondary-prep-mode"]')?.getAttribute("data-mode");
+        let stored = "";
+        try {
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i) ?? "";
+            if (k.startsWith("ti4_secondary_prepared")) stored += `${k.slice(-12)}=${(localStorage.getItem(k) ?? "").slice(0, 120)} `;
+          }
+        } catch {
+          stored = "n/a";
+        }
+        return `mode=${mode} stored=[${stored}] prep="${text("secondary-prep", 160)}" dialog="${text("pending-choice-dialog", 100)}"`;
+      })
+      .catch(() => "evidence unavailable");
+  }
+
+  private async visible(page: Page, id: string): Promise<boolean> {
+    return page.getByTestId(id).first().isVisible().catch(() => false);
+  }
+
+  /** At the start of `actor`'s decision: offer every other seat that shows the chip. */
+  async offer(actor: number, round: number, decisions: number, prompt = ""): Promise<void> {
+    if (!this.d.config.enabled) return;
+    // A saved plan whose chip is gone before its window opened was dropped by the client: note when.
+    for (const [seat, p] of this.plans) {
+      if (p.started || p.lost || seat === actor) continue;
+      const chip = this.d.pages[seat].getByTestId("secondary-prep-chip").first();
+      const text = ((await chip.textContent({ timeout: 300 }).catch(() => "")) ?? "").trim();
+      if (!/^Prepared/.test(text)) {
+        p.lost = `plan no longer shown at decision #${decisions} (seat ${actor + 1} deciding "${prompt.slice(0, 50)}"; chip: "${text.slice(0, 40)}")`;
+        this.report.cases[p.line] += ` [${p.lost}]`;
+      }
+    }
+    for (const [seat, page] of this.d.pages.entries()) {
+      if (seat === actor) continue;
+      let note: string | null = null;
+      try {
+        const chip = page.getByTestId("secondary-prep-chip").first();
+        if (!(await chip.isVisible().catch(() => false))) continue;
+        note = ((await chip.textContent({ timeout: 500 })) ?? "").trim().replace(/\s+/g, " ");
+      } catch {
+        continue;
+      }
+      if (/^Prepared/.test(note)) continue;
+      const card = /(?:Prepare your secondary)?\s*(.*?),? played by/.exec(note)?.[1]?.trim() || note.slice(0, 40);
+      const key = `${seat}|${round}|${card}`;
+      if (this.seen.has(key)) continue;
+      this.seen.add(key);
+      this.report.opportunities++;
+      if (this.d.rng() >= this.d.config.probability) continue;
+      const mode = this.d.rng() < this.d.config.autoProbability ? "auto" : "review";
+      await this.plan(seat, page, round, card, mode, decisions).catch(async (err) => {
+        this.d.finding(
+          `Secondary prep (seat ${seat + 1}, round ${round}, ${card}; ${this.d.label}): planning threw ${err instanceof Error ? err.message.split("\n")[0] : err}`,
+        );
+        this.report.fallbacks++;
+        await page.keyboard.press("Escape").catch(() => {});
+        const save = page.getByTestId("prep-save").first();
+        if (await save.isVisible().catch(() => false)) await save.click({ timeout: 2_000 }).catch(() => {});
+      });
+    }
+  }
+
+  private async setMode(page: Page, mode: "auto" | "review"): Promise<boolean> {
+    const button = page.getByTestId(`secondary-prep-mode-${mode}`).first();
+    try {
+      await button.scrollIntoViewIfNeeded({ timeout: 2_000 });
+      await button.click({ timeout: 3_000 });
+      const now = await page.getByTestId("secondary-prep-mode").first().getAttribute("data-mode");
+      return now === mode;
+    } catch {
+      return false;
+    }
+  }
+
+  private async plan(seat: number, page: Page, round: number, card: string, mode: "auto" | "review", decisions: number) {
+    const p: Plan = { seat, round, card, mode, summary: "", started: false, line: this.report.cases.length };
+    this.report.planned++;
+    if (mode === "auto") this.report.plannedAuto++;
+    else this.report.plannedReview++;
+    this.d.log(`  prep: seat ${seat + 1} plans its ${card} secondary (${mode}) at decision #${decisions}`);
+    if (!(await this.setMode(page, mode))) {
+      this.find(p, "could not set the Review/Auto switch on the player sheet");
+      this.report.fallbacks++;
+      return;
+    }
+    await page.getByTestId("secondary-prep-chip").first().click({ timeout: 3_000 });
+    const banner = page.getByTestId("prepare-banner").first();
+    if (!(await banner.waitFor({ state: "visible", timeout: 4_000 }).then(() => true).catch(() => false))) {
+      this.find(p, "the prepare banner never appeared after clicking the chip");
+      this.report.fallbacks++;
+      return;
+    }
+    await this.d.shot(page, "prep-banner", `prep-${card.toLowerCase()}-seat${seat + 1}-prepare-mode`.slice(0, 100));
+    const clicked: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      if (!(await this.visible(page, "prepare-banner"))) break;
+      let cands = await this.d.collect(page);
+      for (let w = 0; w < 15 && !cands.length && (await this.visible(page, "prepare-banner")); w++) {
+        await sleep(150);
+        cands = await this.d.collect(page);
+      }
+      if (!cands.length) break;
+      const yes = cands.find((c) => /secondary-yes-btn/.test(c.desc));
+      const skip = cands.find((c) => /secondary-skip-btn/.test(c.desc));
+      const chosen = yes && skip ? (this.d.rng() < 0.75 ? yes : skip) : this.d.pickOne(cands, i);
+      clicked.push(chosen.desc.split(" | ")[0] || chosen.desc.slice(0, 30));
+      await page.locator(`[data-smoke-idx="${chosen.idx}"]`).click({ timeout: 2_000 }).catch(() => {});
+      await sleep(250);
+    }
+    // Save plan (a plan that finished its last step has already closed the mode by itself).
+    const save = page.getByTestId("prep-save").first();
+    if (await save.isVisible().catch(() => false)) {
+      await save.click({ timeout: 3_000 }).catch(() => {});
+      await banner.waitFor({ state: "hidden", timeout: 3_000 }).catch(() => {});
+    }
+    if (await this.visible(page, "prepare-banner")) {
+      this.find(p, "prepare mode did not close after Save plan");
+      this.report.fallbacks++;
+      return;
+    }
+    const chipText = ((await page.getByTestId("secondary-prep-chip").first().textContent({ timeout: 1_000 }).catch(() => "")) ?? "").trim();
+    if (!/^Prepared/.test(chipText)) {
+      this.report.noPlan++;
+      this.report.cases.push(`seat ${seat + 1} r${round} ${card} ${mode}: no plan saved (clicks: ${clicked.join(", ")})`);
+      this.find(p, `no plan was saved after answering the stand-in question (clicks: ${clicked.join(", ")})`);
+      return;
+    }
+    p.summary = chipText.replace(/^Prepared\s*/, "").slice(0, 80);
+    p.line = this.report.cases.push(`seat ${seat + 1} r${round} ${card} ${mode}: plan "${p.summary}" (clicks: ${clicked.join(", ")}) -> pending`) - 1;
+    this.plans.set(seat, p);
+  }
+
+  private setOutcome(p: Plan, outcome: string) {
+    this.report.cases[p.line] = this.report.cases[p.line].replace(/-> .*$/, `-> ${outcome}`);
+  }
+
+  /**
+   * At the start of a decision for `seat`: when a plan covers it, let Auto answer it or confirm the
+   * review bar. Returns "done" when the decision was answered (version moved) and "normal" when the
+   * caller has to play it with the usual heuristics.
+   */
+  async handle(
+    seat: number,
+    choice: { details?: Record<string, unknown>; prompt?: string },
+    round: number,
+    before: number,
+    version: () => Promise<number>,
+  ): Promise<"done" | "normal"> {
+    const p = this.plans.get(seat);
+    if (!p) return "normal";
+    const page = this.d.pages[seat];
+    const details = choice.details as { kind?: string; card?: string } | undefined;
+    const secondary = details?.kind === "strategy_secondary";
+    if (p.round !== round) {
+      this.plans.delete(seat);
+      return "normal";
+    }
+    if (!p.started) {
+      if (!secondary) return "normal"; // some other decision first (a reaction): not this plan's window
+      p.started = true;
+    }
+    const first = secondary;
+    if (!first && (choice.prompt === "action phase" || /^end your turn/i.test(choice.prompt ?? ""))) {
+      this.plans.delete(seat); // the plan's follow-up steps are over; this is the seat's own turn
+      return "normal";
+    }
+    const limit = first ? 20_000 : 6_000;
+    const start = Date.now();
+    let sawAutoToast = false;
+    let dialogBeforeAnswer = false;
+    let reviewBar = false;
+    let needs = false;
+    let confirmed = false;
+    while (Date.now() - start < limit) {
+      if ((await version()) > before) break;
+      if (p.mode === "auto") {
+        if ((await this.visible(page, "secondary-autoplay-toast")) || (await this.visible(page, "secondary-autoplayed-toast"))) sawAutoToast = true;
+        if (!sawAutoToast && ((await this.visible(page, "pending-choice-dialog")) || (await this.visible(page, "strategy-secondary-panel"))))
+          dialogBeforeAnswer = true;
+        if (dialogBeforeAnswer && Date.now() - start > 4_000 && !sawAutoToast) break; // it opened for real: play it
+      } else {
+        if (await this.visible(page, "secondary-prepared-bar")) {
+          reviewBar = true;
+          break;
+        }
+        if (await this.visible(page, "secondary-needs-review")) {
+          needs = true;
+          break;
+        }
+      }
+      await sleep(150);
+    }
+    const moved = (await version()) > before;
+    if (p.mode === "auto") {
+      if (moved) {
+        if (first) this.report.autoPlayed++;
+        else this.report.followUps++;
+        if (!sawAutoToast) {
+          // The played toast shows for 5 s after the answer; give the last frame a moment.
+          sawAutoToast = (await this.visible(page, "secondary-autoplayed-toast")) || (await this.visible(page, "secondary-autoplay-toast"));
+        }
+        if (!sawAutoToast) this.find(p, "the prepared answer was played but no 'Auto-played your prepared secondary' toast was seen");
+        if (dialogBeforeAnswer) this.find(p, "a decision dialog opened although Auto was set and a plan was saved");
+        this.setOutcome(p, `${first ? "auto-played" : "auto follow-up"}${sawAutoToast ? " (toast seen)" : " (NO toast)"}`);
+        if (!first) this.plans.delete(seat);
+        return "done";
+      }
+      if (first) {
+        this.find(p, `Auto did not answer the secondary within ${limit / 1000} s (toast seen: ${sawAutoToast}, dialog opened: ${dialogBeforeAnswer}; ${await this.evidence(page)}; ${p.lost ?? "plan was never seen dropped"}; ${this.d.activeInfo ? await this.d.activeInfo(seat) : ""})`);
+        await this.d.shot(page, "prep-auto-miss", `prep-auto-did-not-fire-seat${seat + 1}-r${round}`);
+      }
+      this.setOutcome(p, first ? "AUTO DID NOT FIRE (played normally)" : "plan ended (follow-up played normally)");
+      if (first) this.report.fallbacks++;
+      this.plans.delete(seat);
+      return "normal";
+    }
+    // Review mode
+    if (needs) {
+      this.report.needsReview++;
+      const reason = ((await page.getByTestId("secondary-needs-review").first().textContent({ timeout: 500 }).catch(() => "")) ?? "").trim().slice(0, 160);
+      this.find(p, `the saved plan showed 'Needs review' when the real question opened: ${reason}`);
+      this.setOutcome(p, "needs review (played normally)");
+      this.plans.delete(seat);
+      return "normal";
+    }
+    if (!reviewBar) {
+      if (moved) return "done";
+      if (first) {
+        this.find(p, `no 'Prepared: ...' confirm bar within ${limit / 1000} s of the real question opening`);
+        this.report.fallbacks++;
+      }
+      this.setOutcome(p, first ? "NO REVIEW BAR (played normally)" : "plan ended (follow-up played normally)");
+      this.plans.delete(seat);
+      return "normal";
+    }
+    if (this.d.rng() < 0.25) {
+      await page.getByTestId("secondary-prepared-dismiss").first().click({ timeout: 3_000 }).catch(() => {});
+      this.report.chooseMyself++;
+      this.setOutcome(p, "choose myself (played normally)");
+      this.plans.delete(seat);
+      return "normal";
+    }
+    try {
+      await page.getByTestId("secondary-prepared-confirm").first().click({ timeout: 4_000 });
+      confirmed = true;
+    } catch {
+      confirmed = false;
+    }
+    const end = Date.now() + 12_000;
+    while (confirmed && Date.now() < end && (await version()) <= before) await sleep(150);
+    if (confirmed && (await version()) > before) {
+      if (first) this.report.reviewConfirmed++;
+      else this.report.followUps++;
+      this.setOutcome(p, first ? "review confirmed" : "review follow-up confirmed");
+      if (!first) this.plans.delete(seat);
+      return "done";
+    }
+    this.find(p, confirmed ? "Confirm was clicked but the decision did not advance in 12 s" : "the Confirm button could not be clicked");
+    this.report.fallbacks++;
+    this.setOutcome(p, "CONFIRM FAILED (played normally)");
+    this.plans.delete(seat);
+    return "normal";
+  }
+}

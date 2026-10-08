@@ -66,6 +66,33 @@ in the repro); the default is the Thunder's Edge set, whose Warfare offers an ex
 decision after the free tactical action (`warfare_redistribute_tokens`, `warfare_recall_token`).
 Both are by design.
 
+Optional exercises. A few runs switch on extra UI exercises (`meta.json` field `exercises`, the
+`TI4_SMOKE_*` switch is in the repro; `report.json` has `exercises` and `findings`). They never fail
+a run by themselves; every problem they see is a line in `report.json` `findings`:
+- `ui-tour`: at a calm moment the harness opens the Faction card and, when a production builder
+  shows up, one unit card; it checks that they show text (not the "No information available"
+  fallback), sit on screen, are not clipped and close on Escape. Shots `tour-*` if there was room.
+- `recap`: one non-host seat has the "Recap" toggle on; `exercises.recap.toastsSeen` counts the recap
+  toasts that seat got (the harness never clicks toasts). Zero toasts after many turns is a finding.
+- `redo`: once per run the harness redoes a seat's last turn through the event log, plays the new
+  turn, waits for the auto-play handoff and then restores the original timeline or keeps the new
+  one (`exercises.redo`: outcome, choice, stop kind, versions). An aborted exercise is a finding
+  with its evidence; report it as a fix request when the abort looks like a product bug (409 on a
+  fresh request, no handoff, restore failing). The run may legitimately end early ("STUCK").
+Report what these did under UI observations.
+
+Secondary pre-planning runs in every run (`report.json` `prep`, knobs in `meta.json`): when a seat
+waits while another seat resolves a strategy card, the harness plans the seat's secondary in about
+half of the cases (opens the "Prepare your secondary" chip, answers the stand-in question with the
+usual UI, saves the plan) and then lets Auto mode play it silently (about 90%: the decision dialog
+must not open and an "Auto-played your prepared secondary" toast appears) or confirms the "Prepared"
+bar in Review mode. `prep` counts opportunities, planned, autoPlayed, reviewConfirmed, chooseMyself,
+needsReview, fallbacks; `cases` has one line per planned case. Every deviation (Auto did not fire,
+no review bar, "Needs review", plan dropped before its window) is a finding with evidence, and the
+decision is then played normally. Known suspicion: in real games a saved plan is often dropped
+before its window opens (the case line says `plan no longer shown at decision #N`); report new
+shapes of that, do not file each occurrence.
+
 New UI elements to watch for. A crash is not the only bug: judge what you can see, and report UI
 problems even when the game ran clean (layout glitches, overlaps, clipped or overflowing text, wrong
 numbers, confusing wording, a button that does nothing, a control that stays enabled or disabled
@@ -84,10 +111,11 @@ Read (they are images) and look at them, plus `trace/failure.txt` and the failur
   log shows prepare mode on during a run, or the chip/banner overlapping the real question, report it.
 - Lone auto-submit and corner toasts (off in the harness unless TI4_SMOKE_AUTO_LONE=1), the recap
   toast (default off), the auto-resolved toasts: wording, placement, covering controls.
-- Turn redo in the event log ("Redo my turn", "restore original timeline") and the styled undo
-  confirm dialog (no browser confirm). The harness does not use them yet.
+- Turn redo in the event log ("Redo my last turn", "restore original timeline", "Keep this
+  timeline"): the harness exercises it in about one run in twenty (`TI4_SMOKE_REDO`); the undo
+  confirm dialog is not exercised. See "Optional exercises" below.
 - Unit and faction info cards (info buttons in the production builder, the player sheet "Faction"
-  button): popover position, clipped text, wrong stats.
+  button): popover position, clipped text, wrong stats. Only a "ui tour" run opens them.
 - Production builder: unit cards with inline stats, grouped Ships / Ground / Structures, sticky
   Confirm builds; check counts, costs, resource counters and that nothing hides behind the sticky bar.
 - Leadership purchase: "Pay on the map" with the payment bar (Paid x / y, Confirm tokens and
@@ -142,7 +170,8 @@ understood but judged too big goes under Potential bugs instead.
 ### UI observations
 What you saw in the screenshots of the new UI elements (layout glitches, clipped or overlapping
 text, wrong numbers, confusing wording), with the screenshot file name; or "none seen" / "no
-screenshots". Say which new elements were never on screen in this run.
+screenshots". Say which new elements were never on screen in this run, and what the optional
+exercises of this run (if any) found.
 
 ### Fix requests
 The `request_fix.sh` calls you made (reason, and its answer: recorded for round 1, recorded for
