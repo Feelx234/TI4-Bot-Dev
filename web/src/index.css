@@ -4541,6 +4541,26 @@ select:focus-visible,
   vertical-align: middle;
 }
 
+/* An error toast with a Dismiss button (a refused history change used to stay until the next try, over the
+   Players / Events buttons). On a phone it floats above those buttons. */
+.session-error--dismissable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.session-error--dismissable .button {
+  flex: 0 0 auto;
+}
+@media (max-width: 720px) {
+  .session-error {
+    bottom: 64px;
+  }
+  .session-error--dismissable .button {
+    min-height: 44px;
+  }
+}
+
 /* The detail / system inspector panel folds to a slim bar on a phone, so the map stays tappable. The fold
    control exists only there. The bar sits bottom left, next to the Players / Events buttons. */
 .detail-panel__fold {
@@ -4558,6 +4578,9 @@ select:focus-visible,
     flex: 0 0 auto;
     width: 44px;
     height: 44px;
+  }
+  .undo-confirm__actions .button {
+    min-height: 44px;
   }
   /* The minimize / close controls of the overlays: 32 px squares are hard to hit with a thumb. */
   .detail-panel__header .button--icon,
@@ -4597,6 +4620,10 @@ select:focus-visible,
    over the Players / Events buttons. It now spans the width above those buttons, and above a docked
    "Preparing" banner (--prep-dock is that banner's height from the bottom edge, set by the banner). */
 @media (max-width: 720px) {
+  /* Every bottom banner of a decision (the minimized choice, the activation / planet bars) clears a docked prepare banner. */
+  .choice-banner {
+    bottom: max(60px, calc(var(--prep-dock, 0px) + 8px));
+  }
   .choice-minimized-pill,
   .combat-arena-dock {
     right: 12px;
@@ -4622,6 +4649,7 @@ select:focus-visible,
 /* A landscape phone has no Players / Events buttons and the "Preparing" banner docks bottom right, so
    the pill moves to the bottom left. */
 @media (max-height: 500px) and (min-width: 721px) {
+  :root:has(.secondary-prep--preparing) .choice-banner,
   .choice-minimized-pill,
   .combat-arena-dock {
     right: auto;

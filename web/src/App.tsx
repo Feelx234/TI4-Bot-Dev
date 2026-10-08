@@ -500,8 +500,16 @@ const GameViewContainer: React.FC<{
         />
       )}
       {historyError && (
-        <div className="session-error" role="alert">
-          {historyError}
+        <div className="session-error session-error--dismissable" role="alert" data-testid="history-error">
+          <span>{historyError}</span>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            data-testid="history-error-dismiss"
+            onClick={() => setHistoryError(null)}
+          >
+            Dismiss
+          </button>
         </div>
       )}
       <CornerToastLayer

@@ -3,6 +3,7 @@ import { GAME_ID, openMockedGame } from "../_shared/mockGame";
 import { actionCardEventLog, actor, completedCombatBoard, galleryBoard, systemActivationOptions } from "../_shared/fixtures";
 import { opponent, playerWithHand } from "../_shared/players";
 import { openWaiting } from "../AH-secondary-prep-real-ui/prep";
+import { groundCombatBoard, outcomes } from "../T-ground-combat-summary/fixture";
 import { publicEntry, pushEntry } from "../G-corner-notifications/corner";
 import { PROTOCOL_VERSION } from "../../../src/protocol/types";
 import { SIZES, type SizeName } from "./scene";
@@ -146,6 +147,66 @@ export const extras: Extra[] = [
     id: "invasion-landing",
     title: "Invasion landing tray",
     open: landing,
+  },
+  {
+    id: "tile-tooltip",
+    title: "System tooltip (touch on a system, no decision)",
+    open: async (page) => {
+      await openMockedGame(page, { players: players() });
+      await ready(page);
+      await page.getByTestId("system-hex-18").hover({ force: true });
+      await page.waitForTimeout(400);
+    },
+  },
+  {
+    id: "undo-confirm",
+    title: "Undo confirmation dialog",
+    open: async (page) => {
+      await openMockedGame(page, { players: players(), events: actionCardEventLog(), history: { cursor: 5, redo_count: 0 } });
+      await ready(page);
+      await page.getByTestId("event-log-mobile-toggle").click();
+      await page.getByTestId("event-log-list").waitFor();
+      const list = page.getByTestId("event-log-list");
+      for (let i = 0; i < 6; i++) {
+        const closed = list.locator('button[aria-expanded="false"]');
+        if (!(await closed.count())) break;
+        await closed.first().click();
+      }
+      await page.getByRole("button", { name: /Undo from decision/ }).first().evaluate((el) => (el as HTMLElement).click());
+      await page.getByTestId("undo-confirm-dialog").waitFor();
+    },
+  },
+  {
+    id: "history-error",
+    title: "Error toast (a refused history change)",
+    open: async (page) => {
+      await page.route(`**/api/games/${GAME_ID}/history`, (route) => route.fulfill({ status: 500, body: "The server could not rewind the game." }));
+      await openMockedGame(page, { players: players(), events: actionCardEventLog(), history: { cursor: 5, redo_count: 0 } });
+      await ready(page);
+      await page.getByTestId("event-log-mobile-toggle").click();
+      await page.getByTestId("event-log-list").waitFor();
+      const list = page.getByTestId("event-log-list");
+      for (let i = 0; i < 6; i++) {
+        const closed = list.locator('button[aria-expanded="false"]');
+        if (!(await closed.count())) break;
+        await closed.first().click();
+      }
+      await page.getByRole("button", { name: /Undo from decision/ }).first().evaluate((el) => (el as HTMLElement).click());
+      await page.getByTestId("undo-confirm-accept").click();
+      await page.locator(".session-error").waitFor();
+      // The error toast lies over the Events button (that is what this scene shows): click through the DOM.
+      await page.getByTestId("event-log-mobile-toggle").evaluate((el) => (el as HTMLElement).click());
+      await page.waitForTimeout(300);
+    },
+  },
+  {
+    id: "ground-combat-result",
+    title: "Ground combat result (invasion overlay)",
+    open: async (page) => {
+      await openMockedGame(page, { players: players(), board: groundCombatBoard(outcomes.attackerWins) });
+      await ready(page);
+      await page.waitForTimeout(800);
+    },
   },
   {
     id: "corner-toast",

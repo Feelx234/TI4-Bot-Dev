@@ -404,12 +404,13 @@
   }
 }
 
-/* Minimize control. Phones only: the desktop bar looks exactly as before. */
+/* Minimize control. Phones only (portrait, or a short landscape screen, where the bar took about half of
+   the 390 px height and left no map): the desktop bar looks exactly as before. */
 .turn-bar__minimize,
 .turn-bar__mini-text {
   display: none;
 }
-@media screen and (max-width: 720px) {
+@media screen and (max-width: 720px), screen and (max-height: 500px) {
   .turn-bar__head {
     position: relative;
     padding-right: 48px;

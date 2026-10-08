@@ -14,13 +14,15 @@ export interface OverlayMetrics {
   small: string[];
   /** Controls of the covering root that lie outside the viewport. */
   offscreen: string[];
+  /** Sample points that belong to the map's own toolbar / legend (not covering; excluded from `covered` when passed back as `exclude`). */
+  chrome: number[];
 }
 
 const GRID = 12;
 
 /** Runs in the page. */
-export async function measureMap(page: Page): Promise<OverlayMetrics> {
-  return page.evaluate((grid) => {
+export async function measureMap(page: Page, exclude: number[] = []): Promise<OverlayMetrics> {
+  return page.evaluate(([grid, skip]) => {
     const vp = document.querySelector<HTMLElement>('[data-testid="board-viewport"]') ?? document.body;
     const svg = document.querySelector('[data-testid="ti4-board-svg"]');
     const rect = vp.getBoundingClientRect();
@@ -32,6 +34,7 @@ export async function measureMap(page: Page): Promise<OverlayMetrics> {
     let reachable = 0;
     let total = 0;
     const rootSet = new Map<Element, number>();
+    const chrome: number[] = [];
     const labelOf = (el: Element) =>
       `${el.tagName.toLowerCase()}${el.getAttribute("data-testid") ? `[${el.getAttribute("data-testid")}]` : ""}${
         typeof (el as HTMLElement).className === "string" && (el as HTMLElement).className
@@ -53,9 +56,12 @@ export async function measureMap(page: Page): Promise<OverlayMetrics> {
         for (let j = 0; j < grid; j++) {
           const x = x0 + ((i + 0.5) / grid) * (x1 - x0);
           const y = y0 + ((j + 0.5) / grid) * (y1 - y0);
-          total++;
+          const index = i * grid + j;
           const top = document.elementFromPoint(x, y);
+          if (skip.includes(index)) continue;
+          total++;
           if (!top) continue;
+          if (top.closest(".board-chrome") && vp.contains(top)) chrome.push(index);
           if ((svg && svg.contains(top)) || (vp.contains(top) && !top.closest(".board-chrome"))) {
             reachable++;
           } else {
@@ -83,7 +89,7 @@ export async function measureMap(page: Page): Promise<OverlayMetrics> {
         if (r.right < 0 || r.left > window.innerWidth || r.bottom < 0 || r.top > window.innerHeight)
           offscreen.push(`${name} @${Math.round(r.left)},${Math.round(r.top)}`);
         const id = `${el.getAttribute("data-testid") ?? ""} ${el.getAttribute("aria-label") ?? ""} ${el.textContent ?? ""}`;
-        if (!minimizeControl && /minimi[sz]e|collapse|hide|show map|view map|peek|to the map|dismiss/i.test(id))
+        if (!minimizeControl && /minimi[sz]e|collapse|hide|show map|view map|peek|to the map|dismiss|close|fold/i.test(id))
           minimizeControl = el.getAttribute("data-testid") || name;
       }
     }
@@ -94,6 +100,7 @@ export async function measureMap(page: Page): Promise<OverlayMetrics> {
       minimizeControl,
       small: small.slice(0, 12),
       offscreen: offscreen.slice(0, 8),
+      chrome,
     };
-  }, GRID);
+  }, [GRID, exclude] as [number, number[]]);
 }

@@ -99,7 +99,10 @@ describe("TurnActionBar minimize (phone)", () => {
 
   it("leaves the desktop layout alone: the control and the one-line text are phone-only", () => {
     expect(css).toMatch(/\.turn-bar__minimize,\s*\.turn-bar__mini-text \{\s*display: none;/);
-    const phone = css.slice(css.indexOf("@media screen and (max-width: 720px) {\n  .turn-bar__head"));
+    const phone = css.slice(
+      css.indexOf("@media screen and (max-width: 720px), screen and (max-height: 500px) {\n  .turn-bar__head"),
+    );
+    expect(phone.startsWith("@media")).toBe(true);
     expect(phone).toContain('.turn-bar[data-minimized="true"]');
     expect(phone).toMatch(/height: 48px/);
     const before = css.slice(0, css.indexOf("/* Minimize control."));
