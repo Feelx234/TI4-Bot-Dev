@@ -92,7 +92,15 @@ pub struct SessionShared {
     pub store: Option<Arc<FileGameStore>>,
     pub snapshot_decision_count: usize,
     pub redo_decisions: Vec<DecisionRecord>,
+    /// The timeline is kept in `history.json` (undo, redo, batch commits, turn redo and
+    /// recovered games): persisted atomically after each step, events published after the save.
+    /// This is a storage mode for the whole life of the session, NOT "replaying" (see `replaying`).
     pub history_active: bool,
+    /// The worker is still replaying recorded decisions (no live decision has been taken yet).
+    /// Set at creation when there is something to replay, cleared as soon as the last recorded
+    /// decision has been handed to the engine. Bluff holds and auto-resolve notes stay quiet
+    /// while it is set: the players already saw those moments.
+    pub replaying: bool,
     pub redo_events: Vec<GameEvent>,
     pub replay_complete: bool,
     pub history_generation: u64,
@@ -283,6 +291,7 @@ impl SessionShared {
             snapshot_decision_count: 0,
             redo_decisions: Vec::new(),
             history_active: false,
+            replaying: false,
             redo_events: Vec::new(),
             replay_complete: false,
             history_generation: 0,
@@ -623,6 +632,7 @@ struct ReplayingDecider {
     /// Forced random positions for the replayed decisions (a timeline made by a turn redo).
     force: Option<crate::session::RngForce>,
     total: usize,
+    announce_tail: bool,
 }
 
 /// Capture the actual offer for decisions made by either a human or a bot. Replay
@@ -686,6 +696,12 @@ impl ReplayingDecider {
             force.before_answer(index);
         }
 
+        if self.announce_tail
+            && next_prior.is_some()
+            && self.prior_queue.lock().expect("prior queue lock").is_empty()
+        {
+            self.shared.lock().expect("shared lock").replaying = false;
+        }
         next_prior.map(|record| {
             if let Some(opt) = choice.options.iter().find(|o| o.id == record.chosen) {
                 Ok(opt.clone())
@@ -707,8 +723,12 @@ impl Decider for ReplayingDecider {
         }
         // A single engine step can consume the last replayed decision and ask the
         // next human before returning (for example, fleet-limit enforcement).
-        if self.has_boundary_state {
-            self.shared.lock().expect("shared lock").replay_complete = true;
+        {
+            let mut lock = self.shared.lock().expect("shared lock");
+            lock.replaying = false;
+            if self.has_boundary_state {
+                lock.replay_complete = true;
+            }
         }
         if let Some(force) = &self.force {
             force.go_live();
@@ -724,8 +744,12 @@ impl Decider for ReplayingDecider {
         if let Some(res) = self.try_replay(choice) {
             return res;
         }
-        if self.has_boundary_state {
-            self.shared.lock().expect("shared lock").replay_complete = true;
+        {
+            let mut lock = self.shared.lock().expect("shared lock");
+            lock.replaying = false;
+            if self.has_boundary_state {
+                lock.replay_complete = true;
+            }
         }
         if let Some(force) = &self.force {
             force.go_live();
@@ -788,6 +812,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         .redo_decisions
         .clone_from(&config.redo_decisions);
     initial_shared.history_active = config.history_active;
+    initial_shared.replaying = !prior_queue.lock().expect("prior queue lock").is_empty();
     initial_shared.redo_events.clone_from(&config.redo_events);
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
@@ -901,6 +926,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         has_boundary_state: boundary_state.is_some(),
                         force: rng_force.clone(),
                         total: prior_count,
+                        announce_tail: config.announce_tail,
                     }),
                 );
             } else {
@@ -923,7 +949,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 return;
             }
             let mut lock = note_shared.lock().expect("shared lock");
-            if lock.stopped || lock.history_active {
+            if lock.stopped || lock.replaying {
                 return;
             }
             lock.note_auto_resolved(&note.player, &note.prompt, &note.label, &note.reason);

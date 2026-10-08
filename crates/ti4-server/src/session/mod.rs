@@ -108,6 +108,12 @@ pub struct SessionConfig {
     pub rng_marks: RngMarks,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
+    /// The worker stops being `replaying` when the last recorded decision is handed to the engine
+    /// (a batch commit: whatever the engine settles after the batch is new to the players).
+    /// Otherwise it stops at the first live question: the stretch between the last recorded
+    /// decision and that question was already shown when the position was first live (a
+    /// recovery, an undo, a redo), so its auto-resolve notes and bluff holds are not repeated.
+    pub announce_tail: bool,
     /// Card names each seat asked never to be offered (see `reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
     /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
@@ -150,6 +156,7 @@ impl SessionConfig {
             batches: Vec::new(),
             rng_marks: RngMarks::new(),
             replay_boundary_state: None,
+            announce_tail: false,
             reaction_modes: BTreeMap::new(),
             step_snapshots: true,
             resume: None,
@@ -660,6 +667,7 @@ impl GameSession {
         // Callers can replace the decision prefix (batch commit, undo, redo).
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
+        config.announce_tail = false;
         // A copy of the game belongs to one history; whatever replaces this one gets its own.
         config.resume = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
@@ -685,6 +693,12 @@ impl GameSession {
         lock.pending_decision
             .as_ref()
             .map(|p| (p.seat.clone(), p.choice.prompt.clone()))
+    }
+
+    /// The worker is still replaying recorded decisions (see `SessionShared::replaying`).
+    #[must_use]
+    pub fn is_replaying(&self) -> bool {
+        self.shared.lock().expect("shared lock").replaying
     }
 
     pub fn history_ready(&self) -> bool {

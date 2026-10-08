@@ -43,7 +43,7 @@ pub fn maybe_hold(
         if lock.stopped
             || lock.finished
             || lock.error.is_some()
-            || lock.history_active
+            || lock.replaying
             || lock.bluff.active.is_some()
             || !lock.bluff.declared(seat).contains(group)
         {

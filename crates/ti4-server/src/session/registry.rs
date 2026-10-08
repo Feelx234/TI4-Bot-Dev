@@ -1233,6 +1233,7 @@ impl GameRegistry {
         next.initial_version = revision;
         next.history_generation = history.generation;
         next.history_active = true;
+        next.announce_tail = true;
         next.batches = history.batches;
         next.rng_marks = history.rng_marks;
         next.replay_boundary_state = Some(boundary_state);
@@ -3477,6 +3478,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         redo_events: Vec::new(),
         event_counter: 0,
         history_active: false,
+        announce_tail: false,
         history_generation: 0,
         batches: Vec::new(),
         rng_marks: crate::session::RngMarks::new(),
@@ -3593,6 +3595,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         redo_events: Vec::new(),
         event_counter: 0,
         history_active: false,
+        announce_tail: false,
         history_generation: 0,
         batches: Vec::new(),
         rng_marks: crate::session::RngMarks::new(),
