@@ -48,6 +48,8 @@ export interface PrepReport {
   /** Review-mode "Choose myself" (then played normally). */
   chooseMyself: number;
   needsReview: number;
+  /** Plans whose own window the engine never opened for that seat (Diplomacy: nothing exhausted, Trade: commodities full, cannot pay, ...); the client drops them when the action ends. Not a failure. */
+  windowNeverOpened: number;
   /** Planned decisions that had to be played normally after something was off. */
   fallbacks: number;
   /** Follow-up steps (technology, planets, site) answered from the plan, Auto or Review. */
@@ -68,6 +70,7 @@ export const emptyPrepReport = (): PrepReport => ({
   reviewConfirmed: 0,
   chooseMyself: 0,
   needsReview: 0,
+  windowNeverOpened: 0,
   fallbacks: 0,
   followUps: 0,
   cases: [],
@@ -316,6 +319,15 @@ export class SecondaryPrepExercise {
     }
     if (!p.started) {
       if (!secondary) return "normal"; // some other decision first (a reaction): not this plan's window
+      // The plan's own secondary may never open for this seat (the engine withholds a secondary that
+      // could do nothing, e.g. Diplomacy with nothing exhausted); a LATER card's secondary in the same
+      // round is then a different action's window, not this plan's.
+      if (details?.card && !details.card.toLowerCase().includes(p.card.toLowerCase())) {
+        this.report.windowNeverOpened++;
+        this.setOutcome(p, `window never opened (the next secondary is ${details.card})`);
+        this.plans.delete(seat);
+        return "normal";
+      }
       p.started = true;
     }
     const first = secondary;
