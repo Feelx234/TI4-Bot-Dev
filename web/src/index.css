@@ -1196,6 +1196,37 @@ html,
   color: #94a3b8;
   text-transform: capitalize;
 }
+.invasion-split-hint {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  background: rgba(255, 193, 7, 0.14);
+  color: #e2e8f0;
+}
+.invasion-split-hint__counts {
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+}
+.invasion-planet-effects {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.invasion-effect {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
+.invasion-effect--explore { color: #86efac; }
+.invasion-effect--legendary { color: #fcd34d; }
 .invasion-planet-landing-card__meta {
   font-size: 12px;
   color: var(--color-text-muted);
