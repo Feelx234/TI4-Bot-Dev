@@ -89,6 +89,12 @@ describe("TechnologyModal", () => {
     expect(screen.queryByTestId("technology-modal")).not.toBeInTheDocument();
   });
 
+  it("labels each standard technology card with its track (shown on phones, where the header row is hidden)", () => {
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
+    expect(screen.getByTestId("tech-card-amd")).toHaveAttribute("data-track", "Propulsion");
+    expect(screen.getByTestId("tech-card-nm")).toHaveAttribute("data-track", "Biotic");
+  });
+
   it("renders modal with header, roster, and close button when isOpen is true", () => {
     const onClose = vi.fn();
     renderWithIdentity(<TechnologyModal isOpen={true} onClose={onClose} players={mockPlayers} />);

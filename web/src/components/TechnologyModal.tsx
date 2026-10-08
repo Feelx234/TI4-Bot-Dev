@@ -754,6 +754,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                                   key={tech.id}
                                   tech={tech}
                                   accentColor={track?.accentColor ?? TRACK_ACCENTS[track?.id]}
+                                  trackName={track?.name}
                                   players={playerList}
                                   isResearchMode={activeResearchMode}
                                   isResearchable={isTechResearchable(tech)}
@@ -802,6 +803,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 interface TechCardProps {
   tech: HydratedTech;
   accentColor?: string;
+  /** Track name, shown on the card on phones where the four-column header row is gone. */
+  trackName?: string;
   players: PlayerView[];
   isResearchMode?: boolean;
   isResearchable?: boolean;
@@ -812,6 +815,7 @@ interface TechCardProps {
 const TechCard: React.FC<TechCardProps> = ({
   tech,
   accentColor,
+  trackName,
   players,
   isResearchMode = false,
   isResearchable = true,
@@ -848,6 +852,7 @@ const TechCard: React.FC<TechCardProps> = ({
   return (
     <div
       className="technology-card"
+      data-track={trackName}
       data-testid={`tech-card-${tech.id}`}
       data-selectable={isSelectable}
       data-selected={isSelected}
@@ -912,7 +917,7 @@ const TechCard: React.FC<TechCardProps> = ({
             );
           })
         ) : (
-          <span style={{ fontSize: 11, color: "#475569" }}>None</span>
+          <span style={{ fontSize: 12, color: "#475569" }}>None</span>
         )}
       </div>
     </div>

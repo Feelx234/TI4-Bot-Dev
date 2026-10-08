@@ -49,6 +49,21 @@
     bottom: 72px;
   }
 }
+/* A landscape phone is too short for the banner above the dialog (the dialog was squeezed to 0 px:
+   the banner is taller than the screen). It docks at the bottom right, narrow and scrollable. */
+@media (max-height: 500px) {
+  .secondary-prep--preparing {
+    position: fixed;
+    top: auto;
+    bottom: 8px;
+    left: auto;
+    right: 12px;
+    width: min(380px, 45vw);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    transform: none;
+  }
+}
 
 .secondary-prep__banner {
   display: flex;
