@@ -15,7 +15,8 @@ test("secondary prep: Technology list, exact versus estimate", async ({ page }, 
   // Use a planet's tech skip as in the real question, then pick the first second-row technology
   // the list lets through (after: the engine listed it; before: it was never offered).
   const skip = page.locator('[data-testid^="tech-skip-"]').first();
-  if (await skip.count()) await skip.click();
+  // dispatchEvent: before the banner fix the banner covers these toggles, which a real click cannot reach.
+  if (await skip.count()) await skip.dispatchEvent("click");
   const secondRow = page.locator('[data-testid="tech-card-gd"], [data-testid="tech-card-dxa"], [data-testid="tech-card-gls"], [data-testid="tech-card-sr"], [data-testid="tech-card-bs"], [data-testid="tech-card-pi"]');
   const pick = secondRow.and(page.locator('[data-selectable="true"]')).first();
   if (await pick.count()) await pick.click();
