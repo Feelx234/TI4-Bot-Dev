@@ -49,6 +49,19 @@ describe("faction descriptions", () => {
     for (const leader of faction.leaders) expect(leader.text).toBeTruthy();
   });
 
+  // Factions the engine plays that are not seated by the in-scope rotation (reachable only through
+  // the soak harness or, for the Obsidian, the Firmament's flip): the card must still resolve.
+  it.each(["bastion", "deepwrought", "crimson", "ralnel", "nekro", "firmament", "obsidian"])(
+    "%s (outside the seated scope) resolves a card without throwing",
+    (id) => {
+      const info = describeFaction(id);
+      expect(info).toBeDefined();
+      expect(info!.abilities.length).toBeGreaterThan(0);
+      expect(info!.promissoryNotes.length).toBeGreaterThan(0);
+      expect(info!.leaders.length).toBeGreaterThan(0);
+    },
+  );
+
   it("covers the whole catalog without throwing", () => {
     for (const id of Object.keys(GENERATED_CONTENT_CATALOG.factions)) {
       expect(() => describeFaction(id)).not.toThrow();
