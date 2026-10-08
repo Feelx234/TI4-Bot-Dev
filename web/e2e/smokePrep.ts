@@ -194,8 +194,9 @@ export class SecondaryPrepExercise {
       const mode = this.d.rng() < this.d.config.autoProbability ? "auto" : "review";
       await this.plan(seat, page, round, card, mode, decisions).catch(async (err) => {
         this.d.finding(
-          `Secondary prep (seat ${seat + 1}, round ${round}, ${card}; ${this.d.label}): planning threw ${err instanceof Error ? err.message.split("\n")[0] : err}`,
+          `Secondary prep (seat ${seat + 1}, round ${round}, ${card}; ${this.d.label}): planning threw ${err instanceof Error ? err.message.split("\n").filter((l) => l.trim() && !/^\s*-\s*(waiting for|attempting|scrolling|done scrolling|element is visible|element is stable|element is enabled|retrying)/.test(l)).slice(0, 4).map((l) => l.trim().slice(0, 240)).join(" | ") : err}`,
         );
+        await this.d.shot(page, "prep-threw", `prep-planning-threw-seat${seat + 1}-r${round}`);
         this.report.fallbacks++; this.bump(card, "fallbacks");
         await page.keyboard.press("Escape").catch(() => {});
         const save = page.getByTestId("prep-save").first();
@@ -228,6 +229,11 @@ export class SecondaryPrepExercise {
       this.find(p, "could not set the Review/Auto switch on the player sheet");
       this.report.fallbacks++; this.bump(p.card, "fallbacks");
       return;
+    }
+    // The turn-redo exercise leaves the event log expanded, and it covers the board and the chip.
+    const logToggle = page.getByTestId("event-log-toggle").first();
+    if ((await logToggle.getAttribute("aria-expanded", { timeout: 500 }).catch(() => null)) === "true") {
+      await logToggle.click({ timeout: 2_000 }).catch(() => {});
     }
     await page.getByTestId("secondary-prep-chip").first().click({ timeout: 3_000 });
     const banner = page.getByTestId("prepare-banner").first();
