@@ -47,6 +47,20 @@ struct Tally {
     /// the next build list), previewed with the recorded build as the scripted answer.
     post_build: usize,
     post_build_exact: usize,
+    /// Leadership: every payment, pool and "again?" question the real flow asked a follower after
+    /// the window's answer, previewed with the follower's own earlier answers.
+    lead_questions: usize,
+    lead_questions_exact: usize,
+    /// Leadership: whole purchases (the recorded answers replayed in ONE preview) accepted by the
+    /// engine with nothing left over, by number of tokens bought.
+    lead_replays: usize,
+    lead_replays_ok: usize,
+    /// ... and the same answers replayed against the position when the action began.
+    lead_stale: usize,
+    lead_stale_ok: usize,
+    lead_replay_by_tokens: BTreeMap<usize, (usize, usize)>,
+    /// Leadership payment questions that offered a real choice (more than one option).
+    lead_choices: usize,
     /// Seats the action-start preview said would / would not be asked, against what happened.
     asked_predicted_asked: usize,
     asked_predicted_not: usize,
@@ -67,6 +81,18 @@ impl Tally {
         self.stale_follow_up_exact += other.stale_follow_up_exact;
         self.post_build += other.post_build;
         self.post_build_exact += other.post_build_exact;
+        self.lead_questions += other.lead_questions;
+        self.lead_questions_exact += other.lead_questions_exact;
+        self.lead_replays += other.lead_replays;
+        self.lead_replays_ok += other.lead_replays_ok;
+        self.lead_stale += other.lead_stale;
+        self.lead_stale_ok += other.lead_stale_ok;
+        self.lead_choices += other.lead_choices;
+        for (tokens, (all, ok)) in &other.lead_replay_by_tokens {
+            let entry = self.lead_replay_by_tokens.entry(*tokens).or_default();
+            entry.0 += all;
+            entry.1 += ok;
+        }
         self.asked_predicted_asked += other.asked_predicted_asked;
         self.asked_predicted_not += other.asked_predicted_not;
         self.not_asked_predicted_not += other.not_asked_predicted_not;
@@ -296,6 +322,26 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
                 }
                 continue;
             }
+            if card_name(&card) == "Leadership" {
+                tally.lead_questions += 1;
+                if subtype == "pay_influence" && real.options.len() > 1 {
+                    tally.lead_choices += 1;
+                }
+                let got = preview(&before, &card, &primary, &follower, &answers);
+                match &got {
+                    SecondaryPreview::Question { choice, .. } if *choice == real => {
+                        tally.lead_questions_exact += 1;
+                    }
+                    _ if faction_diverged => tally.follow_up_faction_diverged += 1,
+                    other => panic!(
+                        "{}: Leadership question differs for {follower} after {answers:?}:\n real {real:?}\n preview {other:?}",
+                        source.name
+                    ),
+                }
+                let Some(recorded) = recorded else { break };
+                answers.push(recorded);
+                continue;
+            }
             tally.follow_ups += 1;
             let got = preview(&before, &card, &primary, &follower, &answers);
             match &got {
@@ -349,6 +395,38 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             let Some(recorded) = recorded else { break };
             answers.push(recorded);
         }
+        // Leadership: the follower's whole recorded purchase, replayed through one preview.
+        if card_name(&card) == "Leadership" && !faction_diverged {
+            let tokens = answers.iter().filter(|id| id.ends_with("_tokens")).count();
+            let entry = tally.lead_replay_by_tokens.entry(tokens).or_default();
+            tally.lead_replays += 1;
+            entry.0 += 1;
+            let ok = matches!(
+                preview(&before, &card, &primary, &follower, &answers),
+                SecondaryPreview::Complete { unused_answers: 0, .. }
+                    | SecondaryPreview::Question { .. }
+            );
+            // Staleness: the same answers against the position when the action began.
+            if let Some(track) = track
+                .as_ref()
+                .filter(|t| t.card == card && t.primary == primary)
+            {
+                tally.lead_stale += 1;
+                if matches!(
+                    preview(&track.start, &card, &primary, &follower, &answers),
+                    SecondaryPreview::Complete { unused_answers: 0, .. }
+                        | SecondaryPreview::Question { .. }
+                ) {
+                    tally.lead_stale_ok += 1;
+                }
+            }
+            if ok {
+                tally.lead_replays_ok += 1;
+                entry.1 += 1;
+            } else {
+                println!("{}: the recorded purchase {answers:?} was not accepted", source.name);
+            }
+        }
     }
     finish(&mut track, per_card);
 }
@@ -365,6 +443,18 @@ fn report(title: &str, per_card: &BTreeMap<String, Tally>) -> String {
             tally.follow_up_faction_diverged, tally.stale_windows, tally.stale_exact,
             tally.stale_follow_ups, tally.stale_follow_up_exact, tally.asked_predicted_asked,
             tally.asked_predicted_not, tally.not_asked_predicted_not, tally.not_asked_predicted_asked,
+        ));
+    }
+    for (card, tally) in per_card.iter().filter(|(_, t)| t.lead_questions > 0) {
+        let by_tokens: Vec<String> = tally
+            .lead_replay_by_tokens
+            .iter()
+            .map(|(tokens, (all, ok))| format!("{tokens} tokens: {ok}/{all}"))
+            .collect();
+        out.push_str(&format!(
+            "{card:<13} Leadership payment/pool/again questions {:>3} exact {:>3} (payment questions with a real choice {:>3}) | whole purchases replayed {:>3} accepted {:>3} [{}] | same answers against the action-start position {:>3} accepted {:>3}\n",
+            tally.lead_questions, tally.lead_questions_exact, tally.lead_choices,
+            tally.lead_replays, tally.lead_replays_ok, by_tokens.join(", "), tally.lead_stale, tally.lead_stale_ok
         ));
     }
     out.push_str(&format!(
@@ -403,6 +493,14 @@ fn check(title: &str, sources: &[Source]) -> BTreeMap<String, Tally> {
             tally.follow_ups,
             tally.follow_up_exact + tally.follow_up_faction_diverged,
             "{card}: every follow-up is exact or explained by a faction prompt"
+        );
+        assert_eq!(
+            tally.lead_questions_exact, tally.lead_questions,
+            "{card}: every Leadership question is exact"
+        );
+        assert_eq!(
+            tally.lead_replays, tally.lead_replays_ok,
+            "{card}: every recorded purchase replays"
         );
         assert!(
             tally.post_build <= tally.post_build_exact + tally.follow_up_faction_diverged,
