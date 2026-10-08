@@ -365,6 +365,12 @@ export class GameSessionClient {
     plan: string;
     requestId: string;
   } | null = null;
+  /** The batch being sent now (see `submitBatch`); cleared when its request settles. */
+  private batchInFlight: {
+    nonce: string;
+    plan: string;
+    promise: Promise<void>;
+  } | null = null;
   private previewSeq = 0;
   /** Set once an older server answered the preview message with "unknown message type". */
   private previewUnsupported = false;
@@ -448,6 +454,7 @@ export class GameSessionClient {
 
   stop(): void {
     this.stopped = true;
+    this.batchInFlight = null;
     this.clearTimers();
     this.detachSocket();
     this.rejectSubmission("Submission stopped");
@@ -648,6 +655,37 @@ export class GameSessionClient {
     if (!expected.includes(pending.context.subtype))
       throw new Error("Workflow is no longer pending");
     const serialized = JSON.stringify(plan);
+    // One confirmation per decision at a time. The answer of a batch is only applied to the
+    // session when it comes back, so until then this state still shows the decision as open at
+    // the old version: a second send (a repeated click, or a prepared Auto answer racing a click)
+    // would carry that old version and be refused as stale. The same plan shares the running
+    // request; a different one waits for the answer by being refused.
+    const running = this.batchInFlight;
+    if (running && running.nonce === pending.nonce) {
+      if (running.plan === serialized) return running.promise;
+      throw new Error("Another confirmation for this decision is still being sent");
+    }
+    const entry: NonNullable<GameSessionClient["batchInFlight"]> = {
+      nonce: pending.nonce,
+      plan: serialized,
+      promise: Promise.resolve(),
+    };
+    entry.promise = (async () => {
+      try {
+        await this.sendBatch(plan, pending, serialized);
+      } finally {
+        if (this.batchInFlight === entry) this.batchInFlight = null;
+      }
+    })();
+    this.batchInFlight = entry;
+    return entry.promise;
+  }
+
+  private async sendBatch(
+    plan: BatchPlan,
+    pending: NonNullable<GameSessionClient["state"]["pendingChoice"]>,
+    serialized: string,
+  ): Promise<void> {
     if (
       this.pendingBatch?.nonce !== pending.nonce ||
       this.pendingBatch.plan !== serialized
