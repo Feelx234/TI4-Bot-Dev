@@ -5,7 +5,7 @@ import {
   useTokenDraftState,
   withPurchase,
 } from "../presentation/CommandTokenDraftContext.tsx";
-import { planetName } from "../presentation/secondaryPlan.ts";
+import { planetLabel } from "../presentation/secondaryPlan.ts";
 import {
   POOL_LABEL,
   POOL_PURPOSE,
@@ -189,7 +189,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                     disabled={locked}
                     onClick={() => setPurchase(togglePaymentPlanet(view, state, planet.id))}
                   >
-                    <span className="token-panel__planet-name">{planetName(planet.id)}</span>
+                    <span className="token-panel__planet-name">{planetLabel(planet.id)}</span>
                     <PlanetValue
                       kind="influence"
                       value={planet.worth}
@@ -302,7 +302,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
               {suggestion.planets.map((planet, i) => (
                 <span key={planet.id} data-testid={`token-suggestion-${planet.id}`}>
                   {i > 0 ? ", " : ""}
-                  {planetName(planet.id)}{" "}
+                  {planetLabel(planet.id)}{" "}
                   <PlanetValue kind="influence" value={planet.worth} label={`Pays ${planet.worth} influence`} />
                   {planet.resources !== null && (
                     <PlanetValue

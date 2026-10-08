@@ -252,6 +252,12 @@ export function ownPlanets(board: BoardView | null | undefined, seat: string | n
 }
 
 export const planetName = (planet: string): string => findPlanetMeta(planet)?.name ?? planet;
+
+/** A planet's name for lists: the catalog name, else its id as words ("dal_bootha" -> "Dal Bootha"). */
+export const planetLabel = (planet: string): string => {
+  const known = findPlanetMeta(planet)?.name;
+  return known ?? planet.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+};
 export const techName = (tech: string): string => getTechnologyMeta(tech).name;
 export const structureName = (unit: StructureUnit): string => (unit === "pds" ? "PDS" : "space dock");
 

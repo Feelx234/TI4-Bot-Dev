@@ -25,7 +25,7 @@ import {
   useTokenDraftState,
   withPurchase,
 } from "../presentation/CommandTokenDraftContext.tsx";
-import { planetName } from "../presentation/secondaryPlan.ts";
+import { planetLabel } from "../presentation/secondaryPlan.ts";
 
 export interface TokenPaymentBarProps {
   view: CommandTokenView;
@@ -48,6 +48,8 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  // Collapsed: only the summary and Confirm, so the whole map stays tappable.
+  const [collapsed, setCollapsed] = useState(false);
   const purchase = view.purchase;
   if (!purchase) return null;
 
@@ -64,7 +66,9 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
   const total = tokensToAssign(view, bought);
   const buyLimit = maxPurchases(view);
   const picked = purchase.planets.filter((planet) => chosen.planetIds.includes(planet.id));
-  const problem = (bought > 0 || picked.length > 0 || goods > 0) && check?.problem ? check.problem : null;
+  const selectionProblem =
+    (bought > 0 || picked.length > 0 || goods > 0) && check?.problem ? check.problem : null;
+  const problem = selectionProblem ?? (remaining === 0 ? blocker : null);
 
   const confirm = async () => {
     const outcome = tokenOutcome(view, staging, bought, draft.override);
@@ -112,19 +116,28 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
           <button
             type="button"
             className="button button--secondary button--sm token-bar__toggle"
+            data-testid="token-bar-collapse"
+            aria-expanded={!collapsed}
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            {collapsed ? "Show ▴" : "Hide ▾"}
+          </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm token-bar__toggle"
             data-testid="token-bar-details"
             aria-expanded={details}
             onClick={() => setDetails((open) => !open)}
           >
-            {details ? "Hide planets" : "Planets"}
+            {details ? "Planets ▾" : "Planets"}
           </button>
         </div>
-        {details && (
+        {details && !collapsed && (
           <ul className="token-bar__chips" data-testid="token-bar-chips">
             {picked.length === 0 && <li className="text-muted">None selected</li>}
             {picked.map((planet) => (
               <li key={planet.id} data-testid={`token-bar-chip-${planet.id}`}>
-                {planetName(planet.id)}{" "}
+                {planetLabel(planet.id)}{" "}
                 <PlanetValue kind="influence" value={planet.worth} label={`Pays ${planet.worth} influence`} />
                 {planet.resources !== null && (
                   <PlanetValue
@@ -137,15 +150,25 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
             ))}
           </ul>
         )}
-        {problem && (
-          <div role="status" className="payment-bar__problem text-warning" data-testid="token-bar-problem">
-            {problem}
+        {!collapsed && (
+          // One reserved line, so a message appearing or going never moves the map's planets under the finger.
+          <div
+            role="status"
+            className="payment-bar__problem text-warning token-bar__problem"
+            data-testid="token-bar-problem"
+            title={problem ?? undefined}
+          >
+            {problem ?? "\u00a0"}
           </div>
         )}
-        {total > 0 && (
+        {!collapsed && (
           <div className="token-bar__pools" data-testid="token-bar-pools" data-remaining={remaining}>
             <span className="token-bar__pools-label" data-testid="token-bar-assign">
-              {remaining > 0 ? `Assign ${remaining} of ${total} token${total === 1 ? "" : "s"}:` : "All tokens assigned:"}
+              {total === 0
+                ? "Tokens to assign: none yet"
+                : remaining > 0
+                  ? `Assign ${remaining} of ${total} token${total === 1 ? "" : "s"}:`
+                  : "All tokens assigned:"}
             </span>
             {TOKEN_POOLS.map((pool) => (
               <button
@@ -162,22 +185,18 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
             ))}
           </div>
         )}
-        {blocker && remaining === 0 && (
-          <div role="status" className="payment-bar__problem text-warning" data-testid="token-bar-blocker">
-            {blocker}
-          </div>
-        )}
         <div className="system-activation-bar__actions payment-bar__actions token-bar__actions">
           <button
             type="button"
             className="button button--primary"
             data-testid="token-bar-confirm"
+            aria-label={bought > 0 ? "Confirm tokens and purchase" : "Confirm tokens"}
             disabled={!ready}
             onClick={() => void confirm()}
           >
-            {busy ? "Submitting..." : bought > 0 ? "Confirm tokens and purchase" : "Confirm tokens"}
+            {busy ? "Submitting..." : bought > 0 ? "Confirm purchase" : "Confirm"}
           </button>
-          {buyLimit > 0 && (
+          {!collapsed && buyLimit > 0 && (
             <button
               type="button"
               className="button button--secondary"
@@ -186,10 +205,10 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
               title="Select the suggested planets (planets with no resources first); nothing is paid until you confirm"
               onClick={() => update((d) => withPurchase(view, d, suggestedPurchase(view, { bought: d.bought, override: d.override })))}
             >
-              Suggested (buys {bought > 0 ? bought : buyLimit})
+              Suggest ({bought > 0 ? bought : buyLimit})
             </button>
           )}
-          {purchase.tradeGoods > 0 && (
+          {!collapsed && purchase.tradeGoods > 0 && (
             <span className="token-panel__stepper" data-testid="token-bar-goods">
               Trade goods {goods}
               <button
@@ -214,14 +233,17 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
               </button>
             </span>
           )}
+          {!collapsed && (
           <button
             type="button"
             className="button button--secondary"
             data-testid="resume-choice-button"
+            aria-label="Open token panel"
             onClick={onOpenPanel}
           >
-            Open token panel
+            Panel
           </button>
+          )}
         </div>
         {error && (
           <div role="alert" className="system-activation-bar__error text-danger" data-testid="token-bar-error">

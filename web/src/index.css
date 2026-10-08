@@ -4595,3 +4595,64 @@ select:focus-visible,
     font-size: 13px;
   }
 }
+
+.token-bar__problem {
+  max-width: 100%;
+  min-height: 1.3em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Phone: three short rows (summary, pools, actions), buttons share the width, 44 px tall. */
+@media (max-width: 720px) {
+  .choice-banner.token-bar {
+    left: 8px;
+    right: 8px;
+    max-width: none;
+  }
+  .token-bar__body {
+    gap: 4px;
+    align-items: stretch;
+  }
+  .token-bar__summary {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    gap: 6px;
+    font-size: 12px;
+  }
+  .token-bar__summary > span {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+    text-align: left;
+  }
+  .token-bar__summary .button {
+    flex: 0 0 auto;
+    min-width: 44px;
+    padding-inline: 8px;
+    font-size: 12px;
+  }
+  .token-bar__pools {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+  .token-bar__pools-label {
+    flex: 0 0 auto;
+    font-size: 11px;
+    max-width: 72px;
+  }
+  .token-bar__pool,
+  .token-bar__actions .button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 4px;
+    font-size: 12px;
+    white-space: normal;
+    line-height: 1.1;
+  }
+  .token-bar__actions {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+}
