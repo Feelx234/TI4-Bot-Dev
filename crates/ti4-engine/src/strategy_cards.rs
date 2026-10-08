@@ -2413,6 +2413,31 @@ pub fn primary(
     Ok(Ability::Resolved)
 }
 
+/// What a follower does once the window recorded "follow": the card's secondary, or its
+/// primary for a faction whose ability substitutes it (Jol-Nar Brilliant on Technology).
+///
+/// Shared by the game driver and the read-only secondary preview
+/// ([`crate::secondary_preview`]) so the preview asks exactly what the real flow asks.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered.
+pub fn follow(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    follower: &PlayerId,
+    card: &str,
+) -> Result<Ability, IllegalChoice> {
+    let name = card_name(content, card).unwrap_or_else(|| card.to_owned());
+    if crate::faction_abilities::substitutes_primary(state, content, follower, &name) {
+        primary(state, content, sources, galaxy, table, follower, card)
+    } else {
+        secondary(state, content, sources, galaxy, table, follower, card)
+    }
+}
+
 /// Resolve one follower's secondary after the shared follower window has charged its token.
 ///
 /// # Errors

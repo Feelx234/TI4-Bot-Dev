@@ -1028,7 +1028,7 @@ pub struct GameSnapshot<'a> {
 /// the live game's cursor. The copy gets its own cursor at the same position instead; the
 /// reservations and the draw log are copied by value with the rest of the state. (Rollback clones
 /// inside the engine keep sharing the cursor on purpose: the same game rewinds.)
-fn detached_state(state: &GameState) -> GameState {
+pub(crate) fn detached_state(state: &GameState) -> GameState {
     let mut copy = state.clone();
     copy.deck_reserve = state
         .deck_reserve
@@ -1470,6 +1470,12 @@ impl<'a> Game<'a> {
     #[must_use]
     pub const fn galaxy(&self) -> Option<&Galaxy> {
         self.galaxy.as_ref()
+    }
+
+    /// The source scope this game is played under.
+    #[must_use]
+    pub const fn sources(&self) -> SourceSet {
+        self.sources
     }
 
     /// Give the game its map, which is what makes a tactical action possible.
@@ -4728,34 +4734,15 @@ impl<'a> Game<'a> {
             SecondaryResolution::Ineligible => unreachable!("ineligible followers are automatic"),
         });
         if resolution == SecondaryResolution::Followed {
-            let name = crate::strategy_cards::card_name(self.content, &card)
-                .unwrap_or_else(|| card.clone());
-            let outcome = if crate::faction_abilities::substitutes_primary(
-                &self.state,
+            let outcome = crate::strategy_cards::follow(
+                &mut self.state,
                 self.content,
+                self.sources,
+                self.galaxy.as_ref(),
+                &mut self.table,
                 &follower,
-                &name,
-            ) {
-                crate::strategy_cards::primary(
-                    &mut self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                    &mut self.table,
-                    &follower,
-                    &card,
-                )
-            } else {
-                crate::strategy_cards::secondary(
-                    &mut self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                    &mut self.table,
-                    &follower,
-                    &card,
-                )
-            };
+                &card,
+            );
             if let Err(error) = outcome {
                 if let Some((state, secondary, events)) = before {
                     self.state = state;

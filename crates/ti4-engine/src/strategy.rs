@@ -57,6 +57,27 @@ pub enum StrategySecondaryError {
     IllegalChoice(#[from] IllegalChoice),
 }
 
+/// Why a follower is not asked a card's secondary (see [`StrategySecondaryWindow::blocker`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecondaryBlocker {
+    /// The secondary costs a strategy token and the seat has none (and no waiver).
+    NoStrategyToken,
+    /// Leadership: the seat cannot afford one command token.
+    CannotAffordInfluence,
+    /// Technology: the seat cannot pay the 4 resources.
+    CannotPayResources,
+    /// Technology: nothing is researchable.
+    NothingToResearch,
+    /// Diplomacy: no controlled planet is exhausted.
+    NoExhaustedPlanet,
+    /// Trade: commodities are already at the limit.
+    CommoditiesFull,
+    /// Warfare: the home system has no production.
+    NoProduction,
+    Other,
+}
+
 /// The follower's secondary question with the facts a client needs to present it: which card
 /// was played, by whom, and how many strategy tokens the follower has left.
 fn secondary_choice(
@@ -286,6 +307,69 @@ impl StrategySecondaryWindow {
             resolutions: Vec::new(),
             exhausts_card: false,
         }
+    }
+
+    /// A window with `follower` alone in it, for the read-only secondary preview
+    /// ([`crate::secondary_preview`]): it asks the same eligibility and builds the same question
+    /// the real window would for that seat, without the followers before it.
+    #[must_use]
+    pub(crate) fn preview_for(
+        primary_player: PlayerId,
+        card: StrategyCardId,
+        follower: PlayerId,
+    ) -> Self {
+        Self {
+            primary_player,
+            card,
+            followers: vec![follower],
+            next_follower: 0,
+            resolutions: Vec::new(),
+            exhausts_card: false,
+        }
+    }
+
+    /// Why `follower` would not be asked this window's question, or `None` when it would be.
+    ///
+    /// Derived from the same predicates as [`Self::pending_choice`] (`eligible`), so the two
+    /// cannot disagree: this returns `Some` exactly when `pending_choice` returns `None` for a
+    /// window with this follower first in line. Inspection only.
+    #[must_use]
+    pub fn blocker(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        follower: &PlayerId,
+    ) -> Option<SecondaryBlocker> {
+        if self.eligible(state, content, sources, follower) {
+            return None;
+        }
+        let name = crate::strategy_cards::card_name(content, self.card.as_str())
+            .unwrap_or_else(|| self.card.to_string());
+        if name == "Leadership" {
+            return Some(SecondaryBlocker::CannotAffordInfluence);
+        }
+        let paid = state.player(follower).is_some_and(|seat| {
+            !secondary_costs_token(content, &self.card)
+                || secondary_is_free(state, content, follower, &self.card)
+                || seat.strategic_tokens > 0
+        });
+        if !paid {
+            return Some(SecondaryBlocker::NoStrategyToken);
+        }
+        Some(match name.as_str() {
+            "Technology" => {
+                if crate::technology::researchable(state, content, sources, follower).is_empty() {
+                    SecondaryBlocker::NothingToResearch
+                } else {
+                    SecondaryBlocker::CannotPayResources
+                }
+            }
+            "Diplomacy" => SecondaryBlocker::NoExhaustedPlanet,
+            "Trade" => SecondaryBlocker::CommoditiesFull,
+            "Warfare" => SecondaryBlocker::NoProduction,
+            _ => SecondaryBlocker::Other,
+        })
     }
 
     /// The player resolving the primary.

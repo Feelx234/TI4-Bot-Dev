@@ -70,6 +70,7 @@ pub mod registry;
 pub mod relics;
 pub mod rng;
 pub mod seating;
+pub mod secondary_preview;
 pub mod secrets;
 pub mod setup;
 pub mod space_stations;
@@ -126,7 +127,7 @@ pub use status::{
 };
 pub use strategy::{
     ACTION_KIND, FOLLOW_SECONDARY_ID, STRATEGIC_ACTION_ID, STRATEGY_KIND, SecondaryResolution,
-    StrategyActionError, StrategySecondaryError, StrategySecondaryWindow, begin_strategic_action,
+    SecondaryBlocker, StrategyActionError, StrategySecondaryError, StrategySecondaryWindow, begin_strategic_action,
     strategic_action_options, take_strategic_action,
 };
 pub use tactical::{TacticalError, activatable, activate, movable, movement_options};
