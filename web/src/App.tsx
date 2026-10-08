@@ -307,7 +307,7 @@ const GameViewContainer: React.FC<{
   )
     logEventsIdentity.current = snapshot.events;
   logHistoryKey.current = logHistoryKeyFor(gameHistory?.generation, logEventsIdentity.current);
-  const [localNotes, setLocalNotes] = useState<{ id: string; text: string }[]>([]);
+  const [localNotes, setLocalNotes] = useState<{ id: string; text: string; prompt?: string }[]>([]);
   const [historyBusy, setHistoryBusy] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [undoRequest, setUndoRequest] = useState<{

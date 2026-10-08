@@ -386,6 +386,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                         <label className="production-drawer__setting" data-testid="ask-each-payment-setting">
                           <input
                             type="checkbox"
+                            data-testid="ask-each-payment-toggle"
                             checked={!singlePayment}
                             onChange={(event) => setSinglePayment(!event.target.checked)}
                           />{" "}

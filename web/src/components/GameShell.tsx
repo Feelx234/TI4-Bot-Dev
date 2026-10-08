@@ -82,7 +82,7 @@ export interface GameShellProps {
   ) => void;
   historyBusy?: boolean;
   /** Told when the client answered a lone strategic action / activation, for the corner toast. */
-  onAutoSubmitNotice?: (note: { id: string; text: string }) => void;
+  onAutoSubmitNotice?: (note: { id: string; text: string; prompt?: string }) => void;
   /** Loads the replay JSON for the event log's "Copy replay" button (seated players). */
   onFetchReplay?: () => Promise<{ text: string; filename: string }>;
   /** Turn redo (seated players): the status strip and the "Redo my last turn" controls. */
@@ -1225,7 +1225,8 @@ export const GameShell: React.FC<GameShellProps> = ({
       .then(() =>
         onAutoSubmitNotice?.({
           id: `production-pay-${choice.nonce}`,
-          text: `Paid automatically from your plan: ${auto.summary}`,
+          text: auto.summary,
+          prompt: "production payment plan",
         }),
       )
       .catch((error: unknown) =>

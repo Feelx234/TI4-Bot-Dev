@@ -3412,6 +3412,14 @@ select:focus-visible,
 .production-drawer__unit .workflow-row {
   flex-shrink: 0;
 }
+.production-drawer__setting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100%;
+  font-size: 13px;
+  color: var(--color-text-muted, inherit);
+}
 .production-drawer__footer {
   display: flex;
   flex-wrap: wrap;

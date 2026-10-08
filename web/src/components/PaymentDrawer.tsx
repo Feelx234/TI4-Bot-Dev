@@ -198,7 +198,11 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
               <PlanetValue kind={kind} value={owed} size="bar" state="ready" />
             </>
           }
-          instruction={choice.prompt}
+          instruction={
+            production.panel
+              ? `You pay once: the engine asks for ${production.panel.builds} builds one after another and the later payments follow this choice.`
+              : choice.prompt
+          }
           progress={
             constraints?.amount === undefined
               ? undefined
@@ -374,7 +378,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   </div>
                 )}
 
-                {selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
+                {!production.panel && selectedPlanetIds.length + tradeGoodsToSpend > 1 && (
                   <p className="text-muted">
                     Pay submits one decision at a time. Later spends are unverified until the next
                     authoritative offer; the sequence stops if it changes or is rejected.
