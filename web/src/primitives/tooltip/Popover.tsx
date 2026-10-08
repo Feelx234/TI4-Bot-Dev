@@ -79,7 +79,9 @@ export const Popover: React.FC<PopoverProps> = ({
         Math.max(margin, trigger.left + trigger.width / 2 - card.width / 2),
         Math.max(margin, window.innerWidth - card.width - margin),
       );
-      setFixedPlace({ left, top: Math.max(margin, top) });
+      // Neither side has room for the whole card: slide it up so its bottom edge stays on screen.
+      const fit = Math.min(top, window.innerHeight - card.height - margin);
+      setFixedPlace({ left, top: Math.max(margin, fit) });
     };
     place();
     window.addEventListener("resize", place);
