@@ -98,3 +98,35 @@ it("posts the host's map choice with the credential and adopts the lobby it retu
   expect(result.current.lobby?.map?.kind).toBe("random");
   expect(result.current.lobby?.map_revision).toBe(1);
 });
+
+it("does not stack lobby polls while one is still in flight", async () => {
+  vi.useFakeTimers();
+  try {
+    let finish!: (response: unknown) => void;
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useLobbySession("game", "session_secret"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // A slow server: several poll ticks pass while the first join is unanswered.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      finish(json({ player: { id: "player_a" }, lobby }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.playerId).toBe("player_a");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  } finally {
+    vi.useRealTimers();
+  }
+});
