@@ -57,6 +57,10 @@ technologies, leaders or a pre-lifted custodians token are by design:
 - `endgame` (not in the default mix): the game ends within a round or two.
 Such prompts and fights in those runs are *expected*, not suspicious.
 
+Games that end in round 8 or 9 with low VP (well short of 98) are *expected* too, not a bug: when no
+public objective can be revealed any more the game ends (rule 81.2) and the highest VP wins. A tie
+on VP goes to the first of the tied seats in initiative order (`objectives.rs`, `first_in_initiative`).
+
 About a quarter of the runs play the Prophecy of Kings strategy cards (`card_set` in meta.json, `TI4_SMOKE_CARD_SET=pok`
 in the repro); the default is the Thunder's Edge set, whose Warfare offers an extra redistribute
 decision after the free tactical action (`warfare_redistribute_tokens`, `warfare_recall_token`).

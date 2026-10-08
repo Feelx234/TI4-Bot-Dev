@@ -74,6 +74,16 @@ the runs and Prophecy of Kings (`pok`) in the rest (`NIGHTLY_POK_PROBABILITY`). 
 5. The morning summary (`summary.md`) waits for round 2 (done, skipped, disabled, or more than
    `FIX2_MAX_SECONDS` + 30 minutes late).
 
+**Run names and a killed sweep.** Runs are named `NN-HHMM` under `runs/`. A sweep (also one that
+cron restarts after a kill) takes the highest existing `NN` in `runs/` and continues from `NN + 1`;
+gaps and directories that do not match `NN-HHMM` are ignored, so ids stay unique within a night.
+On SIGTERM, SIGINT or SIGHUP (or any exit) while a run is active, the loop kills the proctor's
+whole session (`claude` and its children), runs `run_game.sh stop` (server, vite, browsers), builds
+`digest.md` with `digest.py` and appends `## Run NN-HHMM — sweep terminated mid-run (SIGTERM),
+proctor failed, mechanical digest only` to `report.md` with the last decision number and the
+evidence path. The cleanup runs once, uses timeouts, does nothing when no run is active, and does
+not write `sweep.done`, so the next cron tick starts the sweep again.
+
 In the morning: `git checkout <orig_branch>` and merge or cherry-pick from `nightly-fixes-<night>`.
 Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git worktree remove`.
 
@@ -118,6 +128,7 @@ of midnight and both daylight-saving changes, the not-before guard, what `tick` 
 (round 1 once at 23:59 or on an early request, a request after round 1 started kept for an early round 2, requests refused after round 2 started or when no round is enabled, the reason reaching the fixer prompt and the report, round 2 only after `sweep.done`, the summary only after round 2, the
 previous-night gap), a dry run of a whole night including the between-games merge, a merge that
 breaks the build, and a merge conflict. It never starts a real proctor, game or build and never
-touches the live checkout. `test_preset_pick.sh` tests the preset and card set choice.
+touches the live checkout. It also SIGTERMs a loop mid-run (fake proctor and game) and checks the
+entry, the absence of stray processes, the restart numbering and the `highest-run-number` rule. `test_preset_pick.sh` tests the preset and card set choice.
 `coverage.py <reports-dir>...` lists the decision subtypes no run ever offered (and those offered in
 fewer than two runs) by diffing the engine's literal subtypes against the runs' `report.json`; `test_coverage.sh` tests it.

@@ -569,6 +569,7 @@ case "${1:-}" in
   tick) cmd_tick ;;
   tick-decide) decide_all ;;
   loop) cmd_loop "${2:-}" ;;
+  highest-run-number) highest_run_number "${2:?usage: nightly.sh highest-run-number <runs-dir>}" ;; # test hook
   fix) cmd_fix "${2:-}" "${3:-}" ;;
   summary) cmd_summary "${2:-}" ;;
   *) echo "usage: $0 tick|tick-decide|loop [night]|fix <round> [night]|summary [night]" >&2; exit 2 ;;
