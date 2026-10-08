@@ -13,7 +13,7 @@ pub const MAX_CARD_NAME_BYTES: usize = 128;
 /// `session::bluff::MAX_DECLARED_TRIGGERS`) and the longest id.
 pub const MAX_INTENT_TRIGGERS: usize = 16;
 pub const MAX_TRIGGER_ID_BYTES: usize = 32;
-/// Most answers one `PreviewSecondary` may carry (a card has at most two follow-up questions).
+/// Most answers one `PreviewSecondary` may carry (a Leadership purchase scripts its whole payment).
 pub const MAX_PREVIEW_ANSWERS: usize = ti4_engine::secondary_preview::MAX_ANSWERS;
 
 /// Messages submitted from a client to the authoritative server.

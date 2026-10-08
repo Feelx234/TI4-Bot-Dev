@@ -8,8 +8,11 @@ import { getTechnologyMeta, findPlanetMeta } from "../protocol/contentCatalog.ts
 import {
   describeCommandTokens,
   maxPurchases,
+  paymentCheck,
+  planPayment,
   tokenOutcome,
   TOKEN_POOLS,
+  type PaymentOverride,
   type Pools,
   type TokenStep,
   type TokenStaging,
@@ -54,8 +57,13 @@ export interface SecondaryPlan {
   planets?: string[];
   /** Construction: what to place and where. */
   structure?: { unit: StructureUnit; planet: string };
-  /** Leadership: the tokens to buy with influence and the pool each one goes to. */
-  leadership?: { pools: Pools };
+  /**
+   * Leadership: the tokens to buy with influence and the pool each one goes to, and the EXACT
+   * payment (planets to exhaust by purchase-planet id, trade goods to spend) chosen with the map
+   * payment. Without `payment` (an older plan) the payment is planned by Auto-pay when the real
+   * question opens.
+   */
+  leadership?: { pools: Pools; payment?: LeadershipPayment };
   /**
    * Warfare: what to build at home, as unit ids in the order the production builder stages them
    * (one entry per build batch, e.g. `["infantry", "infantry", "carrier"]`), and how to pay for the
@@ -63,6 +71,12 @@ export interface SecondaryPlan {
    * builds are paid by hand: their payment questions depend on what the first one left.
    */
   production?: { builds: string[]; payment?: { planets: string[]; tradeGoods: number } };
+}
+
+/** A Leadership payment as chosen: the planets exhausted and the trade goods spent. */
+export interface LeadershipPayment {
+  planets: string[];
+  tradeGoods: number;
 }
 
 export type StructureUnit = "pds" | "spacedock";
@@ -122,6 +136,14 @@ export function parseStoredPlan(raw: string | null | undefined): StoredPlan | nu
       clean.leadership = {
         pools: { tactic: counts[0] as number, fleet: counts[1] as number, strategic: counts[2] as number },
       };
+      const payment = leadership?.payment as Record<string, unknown> | undefined;
+      if (payment && Array.isArray(payment.planets)) {
+        const planets = payment.planets.filter(isString).slice(0, 24);
+        const goods = payment.tradeGoods;
+        if (typeof goods === "number" && Number.isInteger(goods) && goods >= 0 && goods <= 60) {
+          clean.leadership.payment = { planets, tradeGoods: goods };
+        }
+      }
     }
   }
   const production = plan.production as Record<string, unknown> | undefined;
@@ -241,7 +263,7 @@ export type StepResolution =
   /** The plan has nothing to say about this decision (for example a faction prompt in between). */
   | { kind: "none" }
   | { kind: "option"; optionId: string; text: string }
-  | { kind: "tokens"; steps: TokenStep[]; text: string }
+  | { kind: "tokens"; steps: TokenStep[]; text: string; prefill?: TokenPrefill }
   /**
    * Warfare: the planned builds, validated against the real production question. Sent through the
    * production builder's own path (one batch for a single build, the build queue for several).
@@ -249,8 +271,19 @@ export type StepResolution =
   | { kind: "production"; destination: string; units: string[]; text: string }
   /** Warfare: the prepared payment for the first build, as the payment batch's steps. */
   | { kind: "payment"; steps: PaymentStep[]; text: string }
-  /** The plan no longer validates: show "Needs review" and answer nothing. */
-  | { kind: "review"; reason: string };
+  /**
+   * The plan no longer validates: show "Needs review" and answer nothing. A Leadership plan whose
+   * payment no longer fits carries the replacement the usual UI is opened with (`prefill`).
+   */
+  | { kind: "review"; reason: string; prefill?: TokenPrefill };
+
+/** What the token panel is opened with: the bought tokens, their pools and the payment chosen. */
+export interface TokenPrefill {
+  bought: number;
+  pools: Pools;
+  /** `null`: Auto-pay's plan. */
+  override: PaymentOverride | null;
+}
 
 const isNoOption = (option: ChoiceOptionDto) =>
   option.id === "no" || option.id === "decline" || option.kind === "decline";
@@ -428,16 +461,73 @@ function resolveLeadership(
     };
   }
   const staging: TokenStaging = { ...wanted.pools };
+  const tokens = `${count} command token${count === 1 ? "" : "s"}`;
+  const auto = planPayment(view, count);
+  const autoPrefill: TokenPrefill | undefined = auto
+    ? { bought: count, pools: wanted.pools, override: null }
+    : undefined;
+  const autoNote = auto
+    ? ` Auto-pay would use ${describeSpend(auto.planets.map((planet) => planet.id), auto.tradeGoods)}; it is selected for you to confirm.`
+    : "";
+  const prepared = wanted.payment;
+  if (prepared) {
+    // The payment chosen while preparing, checked against the planets and goods offered now.
+    const gone = prepared.planets.find(
+      (planet) => !view.purchase!.planets.some((offered) => offered.id === planet),
+    );
+    if (gone !== undefined) {
+      return {
+        kind: "review",
+        reason: `${planetName(gone)} can no longer pay (it is exhausted or no longer yours).${autoNote}`,
+        prefill: autoPrefill,
+      };
+    }
+    if (prepared.tradeGoods > view.purchase.tradeGoods) {
+      return {
+        kind: "review",
+        reason: `You now hold ${view.purchase.tradeGoods} trade good${view.purchase.tradeGoods === 1 ? "" : "s"}, not the ${prepared.tradeGoods} you planned to spend.${autoNote}`,
+        prefill: autoPrefill,
+      };
+    }
+    const override: PaymentOverride = { planetIds: prepared.planets, tradeGoods: prepared.tradeGoods };
+    const check = paymentCheck(view, count, override);
+    if (check.problem !== null) {
+      return {
+        kind: "review",
+        reason: `The prepared payment no longer works: ${check.problem}${autoNote}`,
+        prefill: autoPrefill,
+      };
+    }
+    const outcome = tokenOutcome(view, staging, count, override);
+    if (!outcome || outcome.kind !== "plan") {
+      return { kind: "review", reason: `The prepared payment can no longer be sent.${autoNote}`, prefill: autoPrefill };
+    }
+    return {
+      kind: "tokens",
+      steps: outcome.steps,
+      text: `Buy ${tokens} (${describePools(wanted.pools)}) for ${view.purchase.cost * count} influence, paying ${describeSpend(prepared.planets, prepared.tradeGoods)}`,
+      prefill: { bought: count, pools: wanted.pools, override },
+    };
+  }
   const outcome = tokenOutcome(view, staging, count);
   if (!outcome || outcome.kind !== "plan") {
     return { kind: "review", reason: "The influence payment can no longer be planned." };
   }
-  const tokens = `${count} command token${count === 1 ? "" : "s"}`;
   return {
     kind: "tokens",
     steps: outcome.steps,
     text: `Buy ${tokens} (${describePools(wanted.pools)}) for ${view.purchase.cost * count} influence`,
+    prefill: autoPrefill,
   };
+}
+
+/** "Jord, Lodor, 2 trade goods" for a payment's planets and goods. */
+export function describeSpend(planets: readonly string[], tradeGoods: number): string {
+  const parts = [
+    ...planets.map(planetName),
+    ...(tradeGoods ? [`${tradeGoods} trade good${tradeGoods === 1 ? "" : "s"}`] : []),
+  ];
+  return parts.join(", ") || "nothing";
 }
 
 /** "2 tactic, 1 fleet" for the pools a purchase fills. */
@@ -463,7 +553,10 @@ export function describePlan(plan: SecondaryPlan): string {
   }
   if (family === "leadership" && plan.leadership) {
     const count = leadershipTokens(plan.leadership.pools);
-    return `Buy ${count} command token${count === 1 ? "" : "s"} (${describePools(plan.leadership.pools)})`;
+    const paid = plan.leadership.payment
+      ? ` paying ${describeSpend(plan.leadership.payment.planets, plan.leadership.payment.tradeGoods)}`
+      : "";
+    return `Buy ${count} command token${count === 1 ? "" : "s"} (${describePools(plan.leadership.pools)})${paid}`;
   }
   return `Follow ${name}`;
 }

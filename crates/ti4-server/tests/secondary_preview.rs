@@ -418,3 +418,139 @@ fn a_preview_writes_nothing_to_storage() {
     session.stop();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Answers the primary's Leadership questions (three pools, then no purchase) so p2's window opens.
+fn finish_leadership_primary(table: &Table) {
+    for _ in 0..8 {
+        let Some((seat, nonce, version)) = pending(table) else {
+            return;
+        };
+        if seat != table.p1 {
+            return;
+        }
+        let prompt = pending_prompt(table, &table.p1).unwrap_or_default();
+        let answer = if prompt.contains("which pool") {
+            "tactic_tokens"
+        } else {
+            "no"
+        };
+        table.c1.submit(&nonce, version, answer).expect("p1 answers");
+        thread::sleep(Duration::from_millis(150));
+    }
+}
+
+/// Leadership on a live session: the whole payment of a purchase is previewed by scripted
+/// answers (payment, pool, again), each question is exactly the one the follower is then really
+/// asked, and none of it changes the game.
+#[test]
+fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
+    let table = start("leadership", "pok1leadership");
+    wait_until("p1's action", || {
+        pending(&table).is_some_and(|(seat, _, _)| seat == table.p1)
+            && pending_prompt(&table, &table.p1).as_deref() == Some("action phase")
+    });
+    let (_, nonce, version) = pending(&table).unwrap();
+    table
+        .c1
+        .submit(&nonce, version, "strategic")
+        .expect("strategic accepted");
+    wait_until("the primary's first token question", || {
+        pending_prompt(&table, &table.p1).is_some_and(|prompt| prompt.contains("which pool"))
+    });
+    let state = serde_json::to_vec(&table.session.current_state()).unwrap();
+    let log = table.session.decision_log();
+    let version_before = table.session.game_version();
+    let history = serde_json::to_vec(&table.session.replay_export().0).unwrap();
+
+    // Script a two-token purchase with the engine's own questions: the first payment option,
+    // the tactic pool, "yes" for the second token, "no" at the end.
+    let mut answers: Vec<String> = vec!["yes".to_owned()];
+    let mut questions = Vec::new();
+    let window_message = ask(&table, &table.p2, &[]);
+    let SecondaryPreview::Question { choice: window, .. } = preview_of(&window_message) else {
+        panic!("the window question");
+    };
+    questions.push(window.clone());
+    let mut bought = 0;
+    for _ in 0..40 {
+        let refs: Vec<&str> = answers.iter().map(String::as_str).collect();
+        let message = ask(&table, &table.p2, &refs);
+        match preview_of(&message) {
+            SecondaryPreview::Question { choice, .. } => {
+                questions.push(choice.clone());
+                let subtype = choice.context.as_ref().unwrap().subtype.as_str();
+                let pick = match subtype {
+                    "pay_influence" => choice.options[0].id.clone(),
+                    "gain_command_token" => {
+                        bought += 1;
+                        "tactic_tokens".to_owned()
+                    }
+                    "buy_token_with_influence" => if bought >= 2 { "no" } else { "yes" }.to_owned(),
+                    other => panic!("unexpected question {other}"),
+                };
+                answers.push(pick);
+            }
+            SecondaryPreview::Complete {
+                unused_answers: 0, ..
+            } => break,
+            other => panic!("unexpected preview {other:?}"),
+        }
+    }
+    assert!(bought >= 1, "at least one token could be bought");
+    assert!(
+        questions.len() >= 3,
+        "payment, pool and again were previewed"
+    );
+    // The whole script replays in one request; a payment the engine does not offer is rejected.
+    let refs: Vec<&str> = answers.iter().map(String::as_str).collect();
+    assert!(matches!(
+        preview_of(&ask(&table, &table.p2, &refs)),
+        SecondaryPreview::Complete {
+            unused_answers: 0,
+            ..
+        }
+    ));
+    assert!(matches!(
+        preview_of(&ask(&table, &table.p2, &["yes", "exhaust|nowhere"])),
+        SecondaryPreview::Rejected { at: 1, .. }
+    ));
+
+    // Read only.
+    assert_eq!(
+        state,
+        serde_json::to_vec(&table.session.current_state()).unwrap()
+    );
+    assert_eq!(log, table.session.decision_log());
+    assert_eq!(version_before, table.session.game_version());
+    assert_eq!(
+        history,
+        serde_json::to_vec(&table.session.replay_export().0).unwrap()
+    );
+
+    // The primary finishes; p2 is then really asked, and every question equals its preview.
+    finish_leadership_primary(&table);
+    wait_until("p2's window", || {
+        pending(&table).is_some_and(|(seat, _, _)| seat == table.p2)
+    });
+    for (index, expected) in questions.iter().enumerate() {
+        let real = table
+            .c2
+            .snapshot()
+            .pending_choice
+            .expect("p2 is asked")
+            .choice;
+        assert_eq!(&real, expected, "question {index} is exactly the preview");
+        let Some(answer) = answers.get(index) else {
+            break;
+        };
+        let (_, nonce, version) = pending(&table).unwrap();
+        table.c2.submit(&nonce, version, answer).expect("p2 answers");
+        if let Some(next) = questions.get(index + 1) {
+            let want = next.prompt.clone();
+            wait_until("the next question", || {
+                pending_prompt(&table, &table.p2).as_deref() == Some(want.as_str())
+            });
+        }
+    }
+    table.session.stop();
+}

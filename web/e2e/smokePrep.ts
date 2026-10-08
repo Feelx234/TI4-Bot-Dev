@@ -54,6 +54,8 @@ export interface PrepReport {
   followUps: number;
   /** One line per planned case: seat, round, card, mode, plan, outcome. */
   cases: string[];
+  /** The same counters per card (key: the card's name, e.g. "Leadership"), plus `withPayment` for plans that carry an exact payment. */
+  byCard: Record<string, Record<string, number>>;
 }
 
 export const emptyPrepReport = (): PrepReport => ({
@@ -69,6 +71,7 @@ export const emptyPrepReport = (): PrepReport => ({
   fallbacks: 0,
   followUps: 0,
   cases: [],
+  byCard: {},
 });
 
 interface Cand {
@@ -113,6 +116,13 @@ export class SecondaryPrepExercise {
   private plans = new Map<number, Plan>();
 
   constructor(private readonly d: PrepDeps) {}
+
+  /** Counts `key` for the card (the card's name, as the chip shows it). */
+  private bump(card: string, key: string) {
+    const name = /leadership/i.test(card) ? "Leadership" : card;
+    const counters = (this.report.byCard[name] ??= {});
+    counters[key] = (counters[key] ?? 0) + 1;
+  }
 
   private perKind = new Map<string, number>();
   /** Records a finding; only the first two of each kind carry a line of their own (the counters have the rest). */
@@ -183,7 +193,7 @@ export class SecondaryPrepExercise {
         this.d.finding(
           `Secondary prep (seat ${seat + 1}, round ${round}, ${card}; ${this.d.label}): planning threw ${err instanceof Error ? err.message.split("\n")[0] : err}`,
         );
-        this.report.fallbacks++;
+        this.report.fallbacks++; this.bump(card, "fallbacks");
         await page.keyboard.press("Escape").catch(() => {});
         const save = page.getByTestId("prep-save").first();
         if (await save.isVisible().catch(() => false)) await save.click({ timeout: 2_000 }).catch(() => {});
@@ -206,19 +216,21 @@ export class SecondaryPrepExercise {
   private async plan(seat: number, page: Page, round: number, card: string, mode: "auto" | "review", decisions: number) {
     const p: Plan = { seat, round, card, mode, summary: "", started: false, line: this.report.cases.length };
     this.report.planned++;
+    this.bump(card, "planned");
+    this.bump(card, mode === "auto" ? "plannedAuto" : "plannedReview");
     if (mode === "auto") this.report.plannedAuto++;
     else this.report.plannedReview++;
     this.d.log(`  prep: seat ${seat + 1} plans its ${card} secondary (${mode}) at decision #${decisions}`);
     if (!(await this.setMode(page, mode))) {
       this.find(p, "could not set the Review/Auto switch on the player sheet");
-      this.report.fallbacks++;
+      this.report.fallbacks++; this.bump(p.card, "fallbacks");
       return;
     }
     await page.getByTestId("secondary-prep-chip").first().click({ timeout: 3_000 });
     const banner = page.getByTestId("prepare-banner").first();
     if (!(await banner.waitFor({ state: "visible", timeout: 4_000 }).then(() => true).catch(() => false))) {
       this.find(p, "the prepare banner never appeared after clicking the chip");
-      this.report.fallbacks++;
+      this.report.fallbacks++; this.bump(p.card, "fallbacks");
       return;
     }
     await this.d.shot(page, "prep-banner", `prep-${card.toLowerCase()}-seat${seat + 1}-prepare-mode`.slice(0, 100));
@@ -261,17 +273,18 @@ export class SecondaryPrepExercise {
     }
     if (await this.visible(page, "prepare-banner")) {
       this.find(p, "prepare mode did not close after Save plan");
-      this.report.fallbacks++;
+      this.report.fallbacks++; this.bump(p.card, "fallbacks");
       return;
     }
     const chipText = ((await page.getByTestId("secondary-prep-chip").first().textContent({ timeout: 1_000 }).catch(() => "")) ?? "").trim();
     if (!/^Prepared/.test(chipText)) {
-      this.report.noPlan++;
+      this.report.noPlan++; this.bump(p.card, "noPlan");
       this.report.cases.push(`seat ${seat + 1} r${round} ${card} ${mode}: no plan saved (clicks: ${clicked.join(", ")})`);
       this.find(p, `no plan was saved after answering the stand-in question (clicks: ${clicked.join(", ")})`);
       return;
     }
-    p.summary = chipText.replace(/^Prepared\s*/, "").slice(0, 80);
+    p.summary = chipText.replace(/^Prepared\s*/, "").slice(0, 160);
+    if (/ paying /.test(p.summary)) this.bump(card, "withPayment");
     p.line = this.report.cases.push(`seat ${seat + 1} r${round} ${card} ${mode}: plan "${p.summary}" (clicks: ${clicked.join(", ")}) -> pending`) - 1;
     this.plans.set(seat, p);
   }
@@ -340,7 +353,7 @@ export class SecondaryPrepExercise {
     const moved = (await version()) > before;
     if (p.mode === "auto") {
       if (moved) {
-        if (first) this.report.autoPlayed++;
+        if (first) { this.report.autoPlayed++; this.bump(p.card, "autoPlayed"); }
         else this.report.followUps++;
         if (!sawAutoToast) {
           // The played toast shows for 5 s after the answer; give the last frame a moment.
@@ -357,13 +370,13 @@ export class SecondaryPrepExercise {
         await this.d.shot(page, "prep-auto-miss", `prep-auto-did-not-fire-seat${seat + 1}-r${round}`);
       }
       this.setOutcome(p, first ? "AUTO DID NOT FIRE (played normally)" : "plan ended (follow-up played normally)");
-      if (first) this.report.fallbacks++;
+      if (first) { this.report.fallbacks++; this.bump(p.card, "fallbacks"); }
       this.plans.delete(seat);
       return "normal";
     }
     // Review mode
     if (needs) {
-      this.report.needsReview++;
+      this.report.needsReview++; this.bump(p.card, "needsReview");
       const reason = ((await page.getByTestId("secondary-needs-review").first().textContent({ timeout: 500 }).catch(() => "")) ?? "").trim().slice(0, 160);
       this.find(p, `the saved plan showed 'Needs review' when the real question opened: ${reason}`);
       this.setOutcome(p, "needs review (played normally)");
@@ -374,7 +387,7 @@ export class SecondaryPrepExercise {
       if (moved) return "done";
       if (first) {
         this.find(p, `no 'Prepared: ...' confirm bar within ${limit / 1000} s of the real question opening`);
-        this.report.fallbacks++;
+        this.report.fallbacks++; this.bump(p.card, "fallbacks");
       }
       this.setOutcome(p, first ? "NO REVIEW BAR (played normally)" : "plan ended (follow-up played normally)");
       this.plans.delete(seat);
@@ -382,7 +395,7 @@ export class SecondaryPrepExercise {
     }
     if (this.d.rng() < 0.25) {
       await page.getByTestId("secondary-prepared-dismiss").first().click({ timeout: 3_000 }).catch(() => {});
-      this.report.chooseMyself++;
+      this.report.chooseMyself++; this.bump(p.card, "chooseMyself");
       this.setOutcome(p, "choose myself (played normally)");
       this.plans.delete(seat);
       return "normal";
@@ -409,14 +422,14 @@ export class SecondaryPrepExercise {
     const end = Date.now() + 12_000;
     while (confirmed && Date.now() < end && (await version()) <= before) await sleep(150);
     if (confirmed && (await version()) > before) {
-      if (first) this.report.reviewConfirmed++;
+      if (first) { this.report.reviewConfirmed++; this.bump(p.card, "reviewConfirmed"); }
       else this.report.followUps++;
       this.setOutcome(p, first ? "review confirmed" : "review follow-up confirmed");
       if (!first) this.plans.delete(seat);
       return "done";
     }
     this.find(p, confirmed ? "Confirm was clicked but the decision did not advance in 12 s" : `the Confirm button could not be clicked (${clickWhy})`);
-    this.report.fallbacks++;
+    this.report.fallbacks++; this.bump(p.card, "fallbacks");
     this.setOutcome(p, "CONFIRM FAILED (played normally)");
     this.plans.delete(seat);
     return "normal";

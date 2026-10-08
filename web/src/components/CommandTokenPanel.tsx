@@ -160,9 +160,12 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
     } catch (cause) {
       // The engine moved on or rejected the plan: start again from what it offers now.
       setError(cause instanceof Error ? cause.message : String(cause));
-      setStaging(start);
-      setBought(0);
-      useAutoPay();
+      // A refusal that names a step to change (the game would not offer the payment) keeps what was staged.
+      if (!(cause instanceof Error && cause.name === "PurchaseRejected")) {
+        setStaging(start);
+        setBought(0);
+        useAutoPay();
+      }
     } finally {
       setSubmitting(false);
     }

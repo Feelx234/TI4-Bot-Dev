@@ -51,7 +51,10 @@ export const TokenPaymentBar: React.FC<TokenPaymentBarProps> = ({ view, onConfir
       await onConfirm(outcome);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
-      update(() => ({ staging: null, bought: 0, override: null }));
+      // A refusal that names a step to change (the game would not offer the payment) keeps what was staged.
+      if (!(cause instanceof Error && cause.name === "PurchaseRejected")) {
+        update(() => ({ staging: null, bought: 0, override: null }));
+      }
     } finally {
       setBusy(false);
     }

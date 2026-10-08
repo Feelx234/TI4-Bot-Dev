@@ -41,8 +41,11 @@ use crate::strategy::StrategySecondaryWindow;
 
 /// Most prompts one preview may auto-decline on its way to the card's own question.
 const MAX_SKIPPED_PROMPTS: usize = 8;
-/// Most scripted answers one preview accepts (a card has at most two follow-up questions).
-pub const MAX_ANSWERS: usize = 4;
+/// Most scripted answers one preview accepts. Most cards ask at most two follow-up questions; a
+/// Leadership purchase asks a payment question per planet or trade good, a pool and a "again?"
+/// question per token, so a whole prepared purchase needs room (the flow stops at the first
+/// answer the engine does not offer, so the cost is bounded by the game, not by this number).
+pub const MAX_ANSWERS: usize = 48;
 
 /// What the follower would be asked, as of the position given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,9 +72,26 @@ pub enum SecondaryPreview {
     Complete {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         skipped: Vec<SkippedPrompt>,
+        /// Scripted answers after the first that the flow never asked for (it ended earlier than
+        /// the script assumed: a purchase of more tokens than the seat can afford). Payment
+        /// answers for a payment the engine settled by itself (a lone option) do not count.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        unused_answers: usize,
+    },
+    /// A scripted answer is not offered by the question the engine asks at that point: the
+    /// planned answers do not fit the game as it is now. `choice` is that question.
+    Rejected {
+        /// Index into the given `answers` of the answer that is not offered.
+        at: usize,
+        answer: String,
+        choice: Box<Choice>,
     },
     /// The preview cannot say (an unexpected question, an answer that is not offered, ...).
     Unavailable { detail: String },
+}
+
+const fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// How the engine would pay a Technology secondary's resources: the first plan of
@@ -106,8 +126,16 @@ pub fn follow_up_subtypes(card_name: &str) -> &'static [&'static str] {
         // Production: the build list, then (after a scripted build) the payment or placement
         // question the engine asks next, if it asks one at all.
         "Warfare" => &["produce_unit", "pay_resources", "place_unit"],
-        // Leadership: payment is planned when the real question opens. Trade, Politics and
-        // Imperial resolve without a question (or draw cards, which a preview must not run).
+        // Leadership: the payment of each token is the player's choice, one planet or trade good
+        // per question (`pay_influence`; the engine has no automatic rule for it), then the
+        // token's pool, then the "again?" question. A client scripts the whole purchase to have
+        // the engine check it. Trade, Politics and Imperial resolve without a question (or draw
+        // cards, which a preview must not run).
+        "Leadership" => &[
+            "pay_influence",
+            "gain_command_token",
+            "buy_token_with_influence",
+        ],
         _ => &[],
     }
 }
@@ -115,6 +143,10 @@ pub fn follow_up_subtypes(card_name: &str) -> &'static [&'static str] {
 #[derive(Default)]
 struct Captured {
     question: Option<Choice>,
+    /// `(index into the full answer list, answer, the question that does not offer it)`.
+    rejected: Option<(usize, String, Choice)>,
+    /// Scripted answers consumed or skipped so far.
+    consumed: usize,
     skipped: Vec<SkippedPrompt>,
     failure: Option<String>,
 }
@@ -123,8 +155,15 @@ struct Captured {
 /// own kind and stops the flow there, and declines anything else.
 struct Previewer {
     scripted: VecDeque<String>,
+    /// Index (in the full answer list) of the first scripted answer.
+    offset: usize,
     own: &'static [&'static str],
     out: Rc<RefCell<Captured>>,
+}
+
+/// Whether a scripted answer pays a bill (a planet exhausted, a trade good or commodity spent).
+fn is_payment_answer(id: &str) -> bool {
+    id.starts_with("exhaust|") || id == "trade_good" || id == "commodity"
 }
 
 impl Previewer {
@@ -145,11 +184,21 @@ impl Decider for Previewer {
             .map_or("", |context| context.subtype.as_str());
         let mut out = self.out.borrow_mut();
         if self.own.contains(&subtype) {
+            // The engine takes a lone payment option without asking (the real batch skips those
+            // steps the same way): payment answers are dropped once the flow moves past payments.
+            if !subtype.starts_with("pay_") {
+                while self.scripted.front().is_some_and(|id| is_payment_answer(id)) {
+                    self.scripted.pop_front();
+                    out.consumed += 1;
+                }
+            }
             if let Some(wanted) = self.scripted.pop_front() {
+                let at = self.offset + out.consumed;
+                out.consumed += 1;
                 return match choice.options.iter().find(|option| option.id == wanted) {
                     Some(option) => Ok(option.clone()),
                     None => {
-                        out.failure = Some(format!("{wanted:?} is not offered by {subtype}"));
+                        out.rejected = Some((at, wanted, choice.clone()));
                         Err(Self::stop(choice, "scripted answer not offered"))
                     }
                 };
@@ -249,6 +298,7 @@ fn preview_inner(
     if answer.is_decline() || answer.id == "no" {
         return SecondaryPreview::Complete {
             skipped: Vec::new(),
+            unused_answers: rest.len(),
         };
     }
     let own = follow_up_subtypes(&name);
@@ -256,6 +306,7 @@ fn preview_inner(
         return if rest.is_empty() {
             SecondaryPreview::Complete {
                 skipped: Vec::new(),
+                unused_answers: 0,
             }
         } else {
             unavailable("this card has no follow-up question to preview")
@@ -270,6 +321,7 @@ fn preview_inner(
     let out = Rc::new(RefCell::new(Captured::default()));
     let mut table = Table::with_default(Box::new(Previewer {
         scripted: rest.iter().cloned().collect(),
+        offset: 1,
         own,
         out: out.clone(),
     }));
@@ -292,12 +344,20 @@ fn preview_inner(
             skipped: captured.skipped,
         };
     }
+    if let Some((at, answer, choice)) = captured.rejected {
+        return SecondaryPreview::Rejected {
+            at,
+            answer,
+            choice: Box::new(choice),
+        };
+    }
     if let Some(detail) = captured.failure {
         return SecondaryPreview::Unavailable { detail };
     }
     match outcome {
         Ok(_) => SecondaryPreview::Complete {
             skipped: captured.skipped,
+            unused_answers: rest.len().saturating_sub(captured.consumed),
         },
         Err(error) => SecondaryPreview::Unavailable {
             detail: format!("the flow stopped: {error}"),

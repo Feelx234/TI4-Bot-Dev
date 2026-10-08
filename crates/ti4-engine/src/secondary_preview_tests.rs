@@ -156,7 +156,7 @@ fn a_decline_completes_and_a_bad_answer_is_unavailable() {
     ));
     assert!(matches!(
         preview(&state, &card, &["yes", "not-a-technology"]),
-        SecondaryPreview::Unavailable { .. }
+        SecondaryPreview::Rejected { at: 1, .. }
     ));
 }
 
@@ -320,4 +320,197 @@ fn a_preview_changes_nothing_it_was_given() {
             "{name}: deck cursor"
         );
     }
+}
+
+/// Stops the flow at the first question the script does not answer, so the last question the
+/// recorder saw is "the next question".
+struct Halt;
+
+impl crate::choice::Decider for Halt {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+        Err(crate::choice::IllegalChoice::DeciderFailed {
+            player: choice.player.clone(),
+            prompt: choice.prompt.clone(),
+            reason: "end of script".to_owned(),
+        })
+    }
+}
+
+/// The REAL flow (the window the game driver uses, then `follow`) for `b` after `answers`
+/// (the first answers the window, the rest the follow-up questions): the question it asks next,
+/// or `None` when the secondary ends.
+fn real_after(state: &GameState, answers: &[String]) -> Option<Choice> {
+    let content = ContentStore::embedded();
+    let mut state = state.clone();
+    let mut window =
+        crate::strategy::begin_strategic_action(&mut state, content, &pid("a"), strategic())
+            .expect("a holds the card");
+    let first = window
+        .next_choice(&mut state, content, POK)
+        .expect("a window question");
+    let wanted = first
+        .options
+        .iter()
+        .find(|o| o.id == answers[0])
+        .cloned()
+        .expect("the window offers the first answer");
+    window.take_choice(&mut state, content, POK, wanted).unwrap();
+    let card = first.details["card"].as_str().unwrap().to_owned();
+    let (decider, seen) = Capturing::new(Box::new(crate::choice::Scripted::with_fallback(
+        answers[1..].to_vec(),
+        Box::new(Halt),
+    )));
+    let mut table = Table::with_default(Box::new(decider));
+    let outcome = crate::strategy_cards::follow(
+        &mut state,
+        content,
+        POK,
+        None,
+        &mut table,
+        &pid("b"),
+        &card,
+    );
+    let last = seen.borrow().last().cloned();
+    // The flow either ended on its own (Ok) or was halted at the first unscripted question.
+    match outcome {
+        Ok(_) => None,
+        Err(_) => last,
+    }
+}
+
+/// Leadership: for several trade-good stocks and purchase sizes the engine's payment, pool and
+/// "again?" questions after each scripted answer are exactly the real flow's, a whole prepared
+/// purchase replays through the preview, and a payment that is not offered is rejected.
+#[test]
+fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
+    let mut payment_questions = 0;
+    let mut sizes_seen = std::collections::BTreeSet::new();
+    let mut multi_option_payments = 0;
+    for goods in [0, 2, 4, 9, 12] {
+        for tokens in 1..=4usize {
+            let (mut state, card) = dealt("Leadership");
+            state.player_mut(&pid("b")).unwrap().trade_goods = goods;
+            if matches!(
+                preview(&state, &card, &[]),
+                SecondaryPreview::WouldNotBeAsked { .. }
+            ) {
+                continue;
+            }
+            let mut answers: Vec<String> = vec!["yes".to_owned()];
+            let mut bought = 0;
+            let mut guard = 0;
+            loop {
+                guard += 1;
+                assert!(guard < 60, "the flow must end");
+                let real = real_after(&state, &answers);
+                let got = preview(&state, &card, &answers.iter().map(String::as_str).collect::<Vec<_>>());
+                match (&real, &got) {
+                    (None, SecondaryPreview::Complete { unused_answers, .. }) => {
+                        assert_eq!(*unused_answers, 0, "goods {goods}, tokens {tokens}");
+                        break;
+                    }
+                    (Some(real), SecondaryPreview::Question { choice, step, .. }) => {
+                        assert_eq!(choice, real, "goods {goods} tokens {tokens} after {answers:?}");
+                        assert_eq!(*step, answers.len());
+                        let subtype = real.context.as_ref().unwrap().subtype.clone();
+                        let pick = match subtype.as_str() {
+                            "pay_influence" => {
+                                payment_questions += 1;
+                                if real.options.len() > 1 {
+                                    multi_option_payments += 1;
+                                }
+                                // The largest payment first, like a player covering the bill fast.
+                                real.options
+                                    .iter()
+                                    .max_by_key(|o| {
+                                        o.payload.get("worth").and_then(serde_json::Value::as_i64)
+                                    })
+                                    .unwrap()
+                                    .id
+                                    .clone()
+                            }
+                            "gain_command_token" => {
+                                bought += 1;
+                                "tactic_tokens".to_owned()
+                            }
+                            "buy_token_with_influence" => {
+                                if bought >= tokens {
+                                    "no".to_owned()
+                                } else {
+                                    "yes".to_owned()
+                                }
+                            }
+                            other => panic!("unexpected {other}"),
+                        };
+                        answers.push(pick);
+                    }
+                    other => panic!("goods {goods} tokens {tokens}: real and preview disagree: {other:?}"),
+                }
+            }
+            sizes_seen.insert(bought);
+            // The whole purchase, replayed in one go, is accepted with nothing left over; one
+            // extra answer is not (the engine asked nothing more).
+            let refs: Vec<&str> = answers.iter().map(String::as_str).collect();
+            assert!(
+                matches!(
+                    preview(&state, &card, &refs),
+                    SecondaryPreview::Complete { unused_answers: 0, .. }
+                ),
+                "goods {goods}, tokens {tokens}: {answers:?}"
+            );
+            let mut extra = refs.clone();
+            extra.push("yes");
+            assert!(
+                matches!(
+                    preview(&state, &card, &extra),
+                    SecondaryPreview::Complete { unused_answers: 1, .. }
+                ),
+                "the leftover answer is reported"
+            );
+            // A payment the engine does not offer is rejected at its index.
+            if answers.len() > 2 {
+                let mut broken = refs.clone();
+                broken[1] = "exhaust|no-such-planet";
+                match preview(&state, &card, &broken) {
+                    SecondaryPreview::Rejected { at, answer, choice } => {
+                        assert_eq!(at, 1);
+                        assert_eq!(answer, "exhaust|no-such-planet");
+                        assert_eq!(choice.context.as_ref().unwrap().subtype, "pay_influence");
+                    }
+                    other => panic!("expected a rejection, got {other:?}"),
+                }
+            }
+        }
+    }
+    assert!(payment_questions >= 5, "payments were asked ({payment_questions})");
+    assert!(multi_option_payments >= 1, "a real payment choice was exercised");
+    assert!(sizes_seen.len() >= 2, "several purchase sizes ({sizes_seen:?})");
+}
+
+/// A payment answer for a payment the engine settles by itself (a lone option) is skipped, as
+/// the real batch skips it.
+#[test]
+fn a_lone_payment_option_is_settled_by_the_engine_and_its_scripted_answer_skipped() {
+    let (mut state, card) = dealt("Leadership");
+    // Nothing but three trade goods: the only way to pay is a trade good, so no question is asked.
+    state.player_mut(&pid("b")).unwrap().trade_goods = 3;
+    let exhausted: Vec<_> = state
+        .controlled_planets(&pid("b"))
+        .into_iter()
+        .map(|(_, planet)| planet.clone())
+        .collect();
+    state.exhausted_planets.extend(exhausted);
+    let SecondaryPreview::Question { choice, .. } = preview(&state, &card, &["yes"]) else {
+        panic!("a question");
+    };
+    assert_eq!(
+        choice.context.as_ref().unwrap().subtype,
+        "gain_command_token",
+        "the lone trade-good payments were settled without a question"
+    );
+    let planned = ["yes", "trade_good", "trade_good", "trade_good", "tactic_tokens"];
+    assert!(matches!(
+        preview(&state, &card, &planned),
+        SecondaryPreview::Complete { unused_answers: 0, .. }
+    ));
 }

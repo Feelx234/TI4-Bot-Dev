@@ -180,6 +180,18 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
               <strong>{describePayment(prep.dry.payment) || "nothing"}</strong>.
             </p>
           )}
+          {prep.dry?.exact && action.family === "leadership" && (
+            <p className="secondary-prep__note" data-testid="prepare-leadership-payment" role="note">
+              Pick the planets and trade goods that pay on the map, as you would for real. The game checks the
+              whole purchase, payment included, when you save it and again when your turn comes
+              {prep.leadershipCheck?.kind === "unchecked" ? " (it could not be checked just now)" : ""}.
+            </p>
+          )}
+          {prep.leadershipCheck?.kind === "rejected" && (
+            <p className="secondary-prep__note secondary-prep__note--attention" data-testid="prepare-leadership-rejected" role="note">
+              The game would not accept this purchase as of now: {prep.leadershipCheck.reason}.
+            </p>
+          )}
           {prep.exactInfo.notAsked && (
             <p className="secondary-prep__note secondary-prep__note--attention" data-testid="prepare-not-asked" role="note">
               {describeBlocker(prep.exactInfo.notAsked)}

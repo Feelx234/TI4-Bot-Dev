@@ -48,7 +48,7 @@ describe("the server's preview reply", () => {
     expect(
       toExactResult(previewReply({ status: "would_not_be_asked", blocker: "cannot_pay_resources" })),
     ).toEqual({ kind: "not_asked", blocker: "cannot_pay_resources" });
-    expect(toExactResult(previewReply({ status: "complete" }))).toEqual({ kind: "complete" });
+    expect(toExactResult(previewReply({ status: "complete" }))).toEqual({ kind: "complete", unused: 0 });
     expect(toExactResult(previewReply({ status: "unavailable", detail: "x" })).kind).toBe("none");
     expect(
       toExactResult({ kind: "refused", reason: "already_asked", detail: "asked" }),
@@ -121,7 +121,7 @@ describe("dry choices built from the engine's exact question", () => {
 
   it("a not-asked or empty answer is no question: the estimate stands", () => {
     const { action, players } = actionFor("pok7technology", "Technology");
-    for (const exact of [{ kind: "not_asked", blocker: "no_strategy_token" }, { kind: "complete" }] as const) {
+    for (const exact of [{ kind: "not_asked", blocker: "no_strategy_token" }, { kind: "complete", unused: 0 }] as const) {
       const dry = buildDryChoice({ action, viewer: players[1], board: undefined, step: "tech", exact })!;
       expect(dry.exact).toBe(false);
     }
