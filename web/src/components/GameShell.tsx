@@ -13,6 +13,7 @@ import { TurnRedoBar } from "./TurnRedoBar.tsx";
 import type { TurnRedoRequestControls } from "./EventLog.tsx";
 import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
 import type { TurnRedoStatus } from "../protocol/turnRedo.ts";
+import { BoardPrepSlotContext } from "../presentation/BoardPrepSlot.tsx";
 import { PausedPlanBanner } from "./PausedPlanBanner.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
@@ -1092,11 +1093,19 @@ export const GameShell: React.FC<GameShellProps> = ({
     return unregister;
   }, [openDrawer]);
 
+  const [prepSlot, setPrepSlot] = useState<HTMLElement | null>(null);
+  const prepSlotValue = useMemo(() => ({ slot: prepSlot, setSlot: setPrepSlot }), [prepSlot]);
+
   return (
+    <BoardPrepSlotContext.Provider value={prepSlotValue}>
     <div data-testid="game-container" className="app-shell">
       <div className="app-shell__header">{header}</div>
       <div className="app-shell__content">
-        <main className="app-shell__board">{board}</main>
+        <main className="app-shell__board">
+          {board}
+          {/* In the board column (not the whole shell), so its offset is measured from the board. */}
+          {prepOverlay}
+        </main>
         <aside
           id="player-sheet-drawer"
           data-testid="player-sheet-drawer"
@@ -1247,8 +1256,8 @@ export const GameShell: React.FC<GameShellProps> = ({
             }}
           />
         </PipelineRunnerContext.Provider>
-        {prepOverlay}
       </div>
     </div>
+    </BoardPrepSlotContext.Provider>
   );
 };

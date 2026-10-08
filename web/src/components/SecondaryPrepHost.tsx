@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { createPortal } from "react-dom";
+import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { describePlan } from "../presentation/secondaryPlan.ts";
 import type { SecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
@@ -21,6 +23,7 @@ export interface SecondaryPrepHostProps {
  */
 export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onConfirm, busy }) => {
   const display = usePlayerIdentity();
+  const slot = useBoardPrepSlot()?.slot ?? null;
   const { action, plan, resolution, realChoice, mine, pending, played, holding } = prep;
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -50,8 +53,10 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
   const showBanner = prep.preparing && action !== null;
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;
 
-  return (
-    <div className={`secondary-prep${showBanner ? " secondary-prep--preparing" : ""}`} data-testid="secondary-prep">
+  // The chip sits in the board's toolbar strip (a flow item there); the rest floats below that strip.
+  // A preparing banner keeps a same-sized spacer in the strip so the map does not jump when it opens.
+  const chipRow = (
+    <>
       {showChip && action && (
         <button type="button" className="secondary-prep__chip" data-testid="secondary-prep-chip" onClick={prep.open}>
           {plan ? "Prepared" : "Prepare your secondary"}
@@ -65,6 +70,27 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
           Clear prepared
         </button>
       )}
+      {showBanner && <div className="secondary-prep__chip-spacer" aria-hidden="true" />}
+    </>
+  );
+  const hasChips = showChip || showBanner;
+  const hasFloating = showBanner || showBar || !!pending || !!played;
+  // Without a board slot (no board mounted) everything floats as before.
+  const floatsChips = !slot && hasChips;
+
+  return (
+    <>
+      {slot && hasChips
+        ? createPortal(
+            <div className="secondary-prep-chips" data-testid="secondary-prep-chips">
+              {chipRow}
+            </div>,
+            slot,
+          )
+        : null}
+      {(hasFloating || floatsChips) && (
+    <div className={`secondary-prep${showBanner ? " secondary-prep--preparing" : ""}`} data-testid="secondary-prep">
+      {floatsChips && chipRow}
       {showBanner && action && (
         <section className="secondary-prep__banner" data-testid="prepare-banner" aria-label="Preparing your secondary">
           <div className="secondary-prep__head">
@@ -178,5 +204,7 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
         </div>
       )}
     </div>
+      )}
+    </>
   );
 };
