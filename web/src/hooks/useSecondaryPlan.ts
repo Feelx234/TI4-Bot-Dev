@@ -40,10 +40,15 @@ export interface UsePreparedPlanInput {
 
 /**
  * The viewer's prepared secondary for the action in progress. It lives on this device only (never
- * sent anywhere) and is valid for one action and one history generation:
- *  - a different action (a new strategic action) or none in progress (finished or cancelled), or
- *  - a different generation (undo, redo, restore, load)
- * drops it. `clear()` is the player's own revoke.
+ * sent anywhere) and is valid for exactly one action: a different action (a new strategic action) or
+ * none in progress (finished, cancelled, or undone past its start) drops it. `clear()` is the
+ * player's own revoke.
+ *
+ * The history generation is deliberately NOT part of validity. Every committed batch (a movement,
+ * a production or a token purchase by any seat) replaces the live session and bumps the generation,
+ * so a plan tied to it was dropped in the middle of the very action it was made for. An undo, redo or
+ * restore that matters changes what the log says: the action then disappears or is a different one,
+ * and the key no longer matches. The generation is still stored, for diagnostics.
  */
 export function usePreparedPlan({
   gameId,
@@ -67,12 +72,11 @@ export function usePreparedPlan({
   const valid =
     stored !== null &&
     actionKey !== null &&
-    stored.actionKey === actionKey &&
-    stored.generation === generation;
+    stored.actionKey === actionKey;
 
   useEffect(() => {
     if (!stored || valid || !ready) return;
-    // Wrong action or generation (or the action is over): it can never apply again.
+    // A different action (or the action is over): it can never apply again.
     setStored(null);
     if (gameId && viewerSeat) savePlan(gameId, viewerSeat, null);
   }, [stored, valid, ready, gameId, viewerSeat]);

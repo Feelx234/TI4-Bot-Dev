@@ -35,7 +35,11 @@ export function cardName(cardId: string): string {
 
 /** A strategic action the client can see is still being resolved. */
 export interface StrategicAction {
-  /** Identity of this action: round plus the decision-cursor id the server gives its events. */
+  /**
+   * Identity of this action: the decision-cursor id the server gives its events, the primary and
+   * the card. The round is NOT part of it: not every event of an action carries one, so a key built
+   * from the latest event's round changed mid-action (0 -> 1) and dropped the prepared plan.
+   */
   key: string;
   /** The server's action id (`action_<n>`), shared by every event of the action. */
   actionId: string;
@@ -114,9 +118,9 @@ export function detectStrategicAction({
     inferred = true;
   }
   if (!card) return null;
-  const round = last.round ?? 0;
+  const round = events.find((event) => event.action_id === actionId && event.round !== undefined)?.round ?? 0;
   return {
-    key: `${round}:${actionId}:${primarySeat}:${card}`,
+    key: `${actionId}:${primarySeat}:${card}`,
     actionId,
     round,
     primary: primarySeat,
@@ -150,8 +154,18 @@ export function prepareEligibility(
   const viewer = players?.find((player) => player.id === viewerSeat);
   if (!viewer) return { canPrepare: false, reason: "no_seat" };
   // Every decision of the action the viewer has answered is in the log; once there is one, the
-  // viewer has been asked.
-  if (events?.some((event) => event.action_id === action.actionId && event.actor === viewerSeat)) {
+  // viewer has been asked. A follower's own secondary answer carries no action id (the server only
+  // stamps decisions that have a context), so those count when they follow the action's start and
+  // still read as strategic.
+  const start = events?.findIndex((event) => event.action_id === action.actionId) ?? -1;
+  if (
+    start >= 0 &&
+    events!.slice(start).some(
+      (event) =>
+        event.actor === viewerSeat &&
+        (event.action_id === action.actionId || (!event.action_id && event.action_type === "strategic")),
+    )
+  ) {
     return { canPrepare: false, reason: "asked" };
   }
   if (action.family !== "leadership" && viewer.strategic_tokens < 1) {

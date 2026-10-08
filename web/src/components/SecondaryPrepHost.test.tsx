@@ -323,9 +323,15 @@ describe("invalidation", () => {
     expect(plan()).toBeDefined();
   });
 
-  it("drops the plan when history changes generation (undo past the action)", async () => {
+  it("keeps the plan when a batch commit bumps the history generation mid-action", async () => {
     const { again } = prepared();
     again({ history: hist(3, 1) });
+    expect(plan()).toBeDefined();
+  });
+
+  it("drops the plan when an undo took the action out of the log", async () => {
+    const { again } = prepared();
+    again({ history: hist(3, 1), events: [actionEvent("action_3", "a", { action_type: "tactical" })] });
     expect(plan()).toBeUndefined();
   });
 });
