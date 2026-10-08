@@ -11,6 +11,7 @@ import {
   stagingLimits,
   whyNoDeal,
 } from "../presentation/tradeStaging.ts";
+import { printedCardName } from "../presentation/tradeNames.ts";
 import { TradeItemDisplay } from "./TradeItemDisplay.tsx";
 
 export interface Holdings {
@@ -175,7 +176,7 @@ const Column: React.FC<ColumnProps> = ({
         <ItemToggle
           key={`n-${note}`}
           name={`Promissory Note: ${note}`}
-          label={`the note ${note}`}
+          label={`the note ${printedCardName("note", note).name}`}
           card
           type={type}
           pressed={side.note === note}
@@ -187,7 +188,7 @@ const Column: React.FC<ColumnProps> = ({
         <ItemToggle
           key={`a-${card}`}
           name={`Action Card: ${card}`}
-          label={`the action card ${card}`}
+          label={`the action card ${printedCardName("action", card).name}`}
           card
           type={type}
           pressed={side.actionCard === card}
@@ -199,7 +200,7 @@ const Column: React.FC<ColumnProps> = ({
         <ItemToggle
           key={`s-${secret}`}
           name={`Secret Objective: ${secret}`}
-          label={`the secret objective ${secret}`}
+          label={`the secret objective ${printedCardName("secret", secret).name}`}
           card
           type={type}
           pressed={side.secret === secret}
@@ -326,7 +327,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
                         data-testid={`stage-suggest-${s.id}`}
                         onClick={() => onChange(s.staged)}
                       >
-                        {s.deal.label}
+                        <span title={s.deal.engineLabel}>{s.deal.label}</span>
                       </button>
                     </li>
                   ))}

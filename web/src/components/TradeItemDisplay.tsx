@@ -1,18 +1,11 @@
 import React from "react";
 import { getCardDisplayInfo } from "../presentation/cardDatabase.ts";
+import { printedItemLabel } from "../presentation/tradeNames.ts";
 
 /** A promissory note id is `alias:faction`; card text is keyed by the alias. */
 function cardLabelFor(label: string): string {
   const m = label.match(/^(Promissory Note|Action Card|Secret Objective):\s*([^:]+)(?::.*)?$/);
   return m ? `${m[1]}: ${m[2].trim()}` : label;
-}
-
-/** The printed card name when the card is known, keeping a non-generic owner (`ceasefire:sol` → "Ceasefire (sol)"). */
-function displayName(label: string, known: string | undefined): string {
-  const m = label.match(/^(Promissory Note|Action Card|Secret Objective):\s*[^:]+(?::(.*))?$/);
-  if (!m || !known) return label;
-  const owner = m[2]?.split(" for ")[0].trim();
-  return owner && owner !== "generic" ? `${known} (${owner})` : known;
 }
 
 /**
@@ -27,12 +20,15 @@ export const TradeItemDisplay: React.FC<{
   testId?: string;
 }> = ({ label, description, type, isCard, testId }) => {
   const cardInfo = getCardDisplayInfo(cardLabelFor(label));
+  const shown = printedItemLabel(label);
   const displayDesc = description || cardInfo?.description;
 
   return (
     <div className={`trade-item trade-item--${type}`} data-testid={testId}>
       <div className="trade-item__header">
-        <span className="trade-item__name">{displayName(label, cardInfo?.name)}</span>
+        <span className="trade-item__name" title={shown !== label ? label : undefined}>
+          {shown}
+        </span>
         {cardInfo?.type && <span className="trade-item__badge">{cardInfo.type}</span>}
       </div>
       {displayDesc ? (

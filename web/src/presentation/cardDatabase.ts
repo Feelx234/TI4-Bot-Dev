@@ -104,6 +104,7 @@ export function getCardInfo(cardName: string): CardInfo | null {
 
 type CatalogRecord = { name: string; text?: string; description?: string; phase?: string; window?: string };
 const CATALOG_ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards as unknown as Record<string, CatalogRecord>;
+const CATALOG_SECRETS = GENERATED_CONTENT_CATALOG.secretObjectives as unknown as Record<string, CatalogRecord>;
 const CATALOG_NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<string, CatalogRecord>;
 
 /** Engine ids the local table lacks: note aliases (`cf`, generic notes are `<color>_cf`) and action cards (`sabo1`). */
@@ -123,6 +124,14 @@ function catalogCardInfo(id: string): CardInfo | null {
       phase: card.phase,
       window: card.window,
       description: card.description ?? "",
+    };
+  const secret = CATALOG_SECRETS[id];
+  if (secret)
+    return {
+      name: secret.name,
+      type: "Secret Objective",
+      phase: secret.phase,
+      description: secret.description ?? "",
     };
   return null;
 }

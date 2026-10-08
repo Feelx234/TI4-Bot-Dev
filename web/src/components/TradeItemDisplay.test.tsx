@@ -27,8 +27,22 @@ describe("TradeItemDisplay card names", () => {
     expect(name()).toBe("Archaeological Expedition");
   });
 
-  it("leaves unknown cards and non-card items as they are", () => {
+  it("names faction notes", () => {
+    render(<TradeItemDisplay testId="item" label="Promissory Note: ra:jolnar" type="offer" isCard />);
+    expect(name()).toBe("Research Agreement (jolnar)");
+  });
+
+  it("gives unknown cards a readable name and keeps the id in the title", () => {
     render(<TradeItemDisplay testId="item" label="Action Card: nope_card" type="offer" isCard />);
-    expect(name()).toBe("Action Card: nope_card");
+    expect(name()).toBe("Nope Card");
+    expect(screen.getByTestId("item").querySelector(".trade-item__name")).toHaveAttribute(
+      "title",
+      "Action Card: nope_card",
+    );
+  });
+
+  it("leaves non-card items as they are", () => {
+    render(<TradeItemDisplay testId="item" label="2 trade goods" type="offer" />);
+    expect(name()).toBe("2 trade goods");
   });
 });

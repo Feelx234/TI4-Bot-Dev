@@ -6,6 +6,7 @@ import {
 } from "../presentation/tradeDecoder.ts";
 import { Dialog } from "../primitives/index.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import { humanizeOfferPrompt } from "../presentation/tradeNames.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
@@ -117,6 +118,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
     () => (choice && isAnswering ? parseOfferPrompt(choice.prompt) : null),
     [choice, isAnswering],
   );
+  const shownPrompt = choice ? humanizeOfferPrompt(choice.prompt) : "";
   const viewer = players?.[viewerSeat ?? choice?.actor ?? ""];
   const partner = partnerSeat ? players?.[partnerSeat] : undefined;
   const holdings = (p?: PlayerView) =>
@@ -139,13 +141,13 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
       >
         <div className="panel choice-workflow-modal">
           <Dialog.Title as="h2" className="visually-hidden">
-            {choice.prompt}
+            {shownPrompt}
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
             choice={choice}
             title={isAnswering ? "Answer the trade offer" : "Propose a trade"}
-            instruction={choice.prompt}
+            instruction={shownPrompt}
             progress={
               partnerSeat && display(partnerSeat).position
                 ? `With ${display(partnerSeat).label}`
@@ -288,7 +290,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                               className="button button--secondary trade-dialog__offer"
                               data-selected={selectedId === offer.id}
                             >
-                              <span>{offer.label}</span>
+                              <span title={offer.engineLabel !== offer.label ? offer.engineLabel : undefined}>{offer.label}</span>
                               {offer.net !== undefined && (
                                 <span>{offer.net >= 0 ? `+${offer.net}` : offer.net} Value</span>
                               )}

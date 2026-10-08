@@ -8,6 +8,7 @@
  */
 import { ChoiceOptionDto } from "../protocol/types.ts";
 import { DecodedTradeOffer, decodeTradeOption } from "./tradeDecoder.ts";
+import { printedCardName } from "./tradeNames.ts";
 
 /** One side of the table: what a seat hands over (or receives). */
 export interface StagedSide {
@@ -245,15 +246,15 @@ export function parseOfferPrompt(prompt: string): { proposer: string; staged: St
   return { proposer, staged: { give: proposerGets, receive: proposerGives } };
 }
 
-/** Plain-text lines for a side, for summaries ("2 trade goods", "the note ra:jolnar"). */
+/** Plain-text lines for a side, for summaries ("2 trade goods", "Promissory Note: Research Agreement (jolnar)"). */
 export function sideLines(side: StagedSide): string[] {
   const lines: string[] = [];
   if (side.tradeGoods) lines.push(`${side.tradeGoods} trade goods`);
   if (side.commodities) lines.push(`${side.commodities} commodities`);
   if (side.support) lines.push("Support for the Throne");
-  if (side.note) lines.push(`Promissory Note: ${side.note}`);
-  if (side.actionCard) lines.push(`Action Card: ${side.actionCard}`);
-  if (side.secret) lines.push(`Secret Objective: ${side.secret}`);
+  if (side.note) lines.push(`Promissory Note: ${printedCardName("note", side.note).name}`);
+  if (side.actionCard) lines.push(`Action Card: ${printedCardName("action", side.actionCard).name}`);
+  if (side.secret) lines.push(`Secret Objective: ${printedCardName("secret", side.secret).name}`);
   if (side.fragments.length) lines.push(`${side.fragments.length} relic fragments`);
   return lines;
 }
