@@ -186,6 +186,29 @@ describe("preparation mode renders the REAL components and sends nothing", () =>
     expect(batch).not.toHaveBeenCalled();
   });
 
+  it("folds the banner on a phone (state only: the styles do the folding) and keeps Save plan", () => {
+    setup();
+    open();
+    const banner = screen.getByTestId("prepare-banner");
+    const fold = screen.getByTestId("prep-fold");
+    expect(banner.dataset.folded).toBe("false");
+    expect(fold.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(fold);
+    expect(banner.dataset.folded).toBe("true");
+    expect(fold.getAttribute("aria-expanded")).toBe("false");
+    expect(fold.getAttribute("aria-label")).toBe("Show details");
+    expect(screen.getByTestId("prep-save")).toBeInTheDocument();
+    // The strategy question itself stays mounted: folding only changes the banner.
+    expect(screen.getByTestId("strategy-secondary-panel")).toBeInTheDocument();
+    fireEvent.click(fold);
+    expect(banner.dataset.folded).toBe("false");
+    // Closing resets the fold for the next time.
+    fireEvent.click(fold);
+    click("prep-save");
+    open();
+    expect(screen.getByTestId("prepare-banner").dataset.folded).toBe("false");
+  });
+
   it("Technology: follow, then the real technology list; picking records the plan (no submit_choice)", async () => {
     const { submit, batch } = setup();
     open();

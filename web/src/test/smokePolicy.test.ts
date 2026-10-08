@@ -482,6 +482,9 @@ describe("controls the harness never clicks as decisions", () => {
       "prep-save",
       "top-menu-button | Menu",
       "top-menu-close | Close",
+      "prep-fold | Hide details",
+      "detail-panel-fold | Fold Politics details",
+      "history-error-dismiss | Dismiss",
     ]) {
       expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(true);
     }
