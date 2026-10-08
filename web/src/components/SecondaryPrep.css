@@ -1,12 +1,32 @@
-/* Preparing a strategy-card secondary while another player resolves the card. */
+/* Preparing a strategy-card secondary while another player resolves the card.
+
+   The chip lives in the board's toolbar strip (.board-chrome__prep, a flow item there), so it needs no
+   coordinates. The banner and the bars float in the board column (.app-shell__board, the containing
+   block) just below that strip; --board-chrome-bottom is measured from the column's own top. */
+.board-chrome__prep {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.board-chrome__prep:empty {
+  display: none;
+}
+.secondary-prep-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+/* Keeps the strip as tall as the chip while the banner is open, so the map does not jump. */
+.secondary-prep__chip-spacer {
+  height: 34px;
+}
 .secondary-prep {
   position: absolute;
-  /* Below the board's toolbar row (zoom, Standard, overlays, seat legend), whose height wraps. */
   top: calc(var(--board-chrome-bottom, 56px) + 8px);
-  left: calc((100% - 330px) / 2);
+  left: 50%;
   transform: translateX(-50%);
-  z-index: calc(var(--layer-dialog, 50) + 1);
-  width: min(520px, calc(100% - 330px - 24px));
+  z-index: calc(var(--layer-modal, 30) + 1);
+  width: min(520px, calc(100% - 24px));
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -21,10 +41,10 @@
     right: 12px;
     width: auto;
     transform: none;
-    top: 52px;
   }
   /* The decision sits at the top on a phone: the preparing banner docks at the bottom instead. */
   .secondary-prep--preparing {
+    position: fixed;
     top: auto;
     bottom: 72px;
   }

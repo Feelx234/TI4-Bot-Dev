@@ -12,6 +12,7 @@ import { seatStyle } from "../presentation/playerDisplay.ts";
 import { boardStageStyle } from "./board/boardLayout.ts";
 import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
+import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { useBoardChromeOffset } from "../hooks/useBoardChromeOffset.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
@@ -87,6 +88,7 @@ export const Board: React.FC<BoardProps> = ({
   const startPanRef = useRef({ x: 0, y: 0 });
   const chromeRef = useRef<HTMLDivElement | null>(null);
   useBoardChromeOffset(chromeRef);
+  const prepSlot = useBoardPrepSlot();
   const helpId = useId();
 
   // Leadership's purchase: while tokens are bought the planets that can pay are the map's targets.
@@ -237,6 +239,7 @@ export const Board: React.FC<BoardProps> = ({
           </span>
         ))}
       </div>
+        {prepSlot && <div ref={prepSlot.setSlot} className="board-chrome__prep" data-testid="board-prep-slot" />}
       </div>
 
       <div className="board-stage" data-testid="board-stage" style={boardStageStyle(pendingChoice != null)}>
