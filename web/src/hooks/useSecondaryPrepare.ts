@@ -407,7 +407,9 @@ export function useSecondaryPrepare({
         if (check.kind === "rejected") {
           // Nothing is saved; the panel stays open on the same staging to be changed.
           setLeadershipCheck(check);
-          throw new Error(`The game would not accept this purchase as of now: ${check.reason}.`);
+          const refusal = new Error(`The game would not accept this purchase as of now: ${check.reason}.`);
+          refusal.name = "PurchaseRejected";
+          throw refusal;
         }
         setLeadershipCheck(check);
         set({ card: action.card, follow: true, leadership: { pools, payment } });

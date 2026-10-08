@@ -226,6 +226,8 @@ describe("Leadership: preparing the exact payment", () => {
     expect(plan()).toBeUndefined();
     expect(screen.getByTestId("token-error").textContent).toMatch(/would not accept this purchase/i);
     expect(screen.getByTestId("token-error").textContent).toMatch(/Jord cannot be exhausted/);
+    // What was staged stays, so the player can change the payment.
+    expect(screen.getByTestId("token-buy-count").textContent).toBe("1");
     expect(batch).not.toHaveBeenCalled();
   });
 
