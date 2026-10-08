@@ -16,6 +16,8 @@ export interface OverlayMetrics {
   offscreen: string[];
   /** Sample points that belong to the map's own toolbar / legend (not covering; excluded from `covered` when passed back as `exclude`). */
   chrome: number[];
+  /** Sample points whose topmost element is not the map (and not map chrome). */
+  coveredIdx: number[];
 }
 
 const GRID = 12;
@@ -35,6 +37,7 @@ export async function measureMap(page: Page, exclude: number[] = []): Promise<Ov
     let total = 0;
     const rootSet = new Map<Element, number>();
     const chrome: number[] = [];
+    const coveredIdx: number[] = [];
     const labelOf = (el: Element) =>
       `${el.tagName.toLowerCase()}${el.getAttribute("data-testid") ? `[${el.getAttribute("data-testid")}]` : ""}${
         typeof (el as HTMLElement).className === "string" && (el as HTMLElement).className
@@ -66,6 +69,7 @@ export async function measureMap(page: Page, exclude: number[] = []): Promise<Ov
             reachable++;
           } else {
             covered++;
+            coveredIdx.push(index);
             const r = rootOf(top);
             rootSet.set(r, (rootSet.get(r) ?? 0) + 1);
           }
@@ -101,6 +105,7 @@ export async function measureMap(page: Page, exclude: number[] = []): Promise<Ov
       small: small.slice(0, 12),
       offscreen: offscreen.slice(0, 8),
       chrome,
+      coveredIdx,
     };
   }, [GRID, exclude] as [number, number[]]);
 }

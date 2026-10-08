@@ -54,7 +54,9 @@ describe("DetailPanel fold (phone)", () => {
 
 describe("collapsed decision pills (phone)", () => {
   it("span the width above the Players / Events buttons and clear a docked prepare banner", () => {
-    expect(css).toMatch(/\.choice-minimized-pill,\s*\.combat-arena-dock \{[^}]*bottom: max\(60px, calc\(var\(--prep-dock, 0px\) \+ 8px\)\);[^}]*transform: none;/);
-    expect(css).toMatch(/@media \(max-height: 500px\) and \(min-width: 721px\) \{\s*\.choice-minimized-pill,\s*\.combat-arena-dock \{[^}]*left: 12px;/);
+    const bottom = "bottom: max\\(60px, calc\\(var\\(--prep-dock, 0px\\) \\+ 8px\\)\\);";
+    expect(css).toMatch(new RegExp(`\\.choice-banner \\{\\s*${bottom}`));
+    expect(css).toMatch(new RegExp(`\\.choice-minimized-pill,\\s*\\.combat-arena-dock \\{[^}]*${bottom}[^}]*transform: none;`));
+    expect(css).toMatch(/@media \(max-height: 500px\) and \(min-width: 721px\) \{\s*:root:has\(\.secondary-prep--preparing\) \.choice-banner,\s*\.choice-minimized-pill,\s*\.combat-arena-dock \{[^}]*left: 12px;/);
   });
 });

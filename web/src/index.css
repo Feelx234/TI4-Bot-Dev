@@ -4582,6 +4582,27 @@ select:focus-visible,
   .undo-confirm__actions .button {
     min-height: 44px;
   }
+  /* The payment confirm bar (shown while the payment list is minimized and the planets on the map pay) is
+     the one overlay the player works the map through: drop its hint and the per-source detail line, and
+     keep its buttons on as few 44 px rows as possible, so more of the map shows. */
+  .payment-bar {
+    padding: 8px 12px;
+  }
+  .payment-bar .system-activation-bar__body {
+    gap: 4px;
+  }
+  .payment-bar .system-activation-bar__hint,
+  .payment-bar .payment-bar__tally .text-muted {
+    display: none;
+  }
+  .payment-bar__actions {
+    gap: 6px;
+  }
+  .payment-bar__actions .button {
+    flex: 1 1 auto;
+    min-height: 44px;
+    padding-inline: 10px;
+  }
   /* The minimize / close controls of the overlays: 32 px squares are hard to hit with a thumb. */
   .detail-panel__header .button--icon,
   .decision-frame__header .button--icon,

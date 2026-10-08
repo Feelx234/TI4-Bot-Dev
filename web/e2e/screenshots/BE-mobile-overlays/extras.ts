@@ -17,6 +17,12 @@ export interface Extra {
   open: (page: Page) => Promise<void>;
 }
 
+/** The Events control of this layout: the phone drawer button, or the docked panel's toggle on a wide screen. */
+const eventsToggle = async (page: Page) => {
+  const phone = page.getByTestId("event-log-mobile-toggle");
+  return (await phone.isVisible()) ? phone : page.getByTestId("event-log-toggle");
+};
+
 const ready = async (page: Page) => {
   await page.getByTestId("ti4-board-svg").waitFor();
   await page.waitForTimeout(350);
@@ -96,7 +102,7 @@ export const extras: Extra[] = [
     open: async (page) => {
       await openMockedGame(page, { players: players(), events: actionCardEventLog() });
       await ready(page);
-      await page.getByTestId("event-log-mobile-toggle").click();
+      await (await eventsToggle(page)).evaluate((el) => (el as HTMLElement).click());
       await page.waitForTimeout(400);
     },
   },
@@ -106,7 +112,7 @@ export const extras: Extra[] = [
     open: async (page) => {
       await openMockedGame(page, { players: players() });
       await ready(page);
-      await page.getByTestId("player-sheet-toggle").click();
+      await page.getByTestId("player-sheet-toggle").click({ timeout: 3000 });
       await page.waitForTimeout(400);
     },
   },
@@ -129,9 +135,12 @@ export const extras: Extra[] = [
     open: async (page) => {
       await openMockedGame(page, { players: players() });
       await ready(page);
-      await page.getByTestId("player-sheet-toggle").click();
+      await page.getByTestId("player-sheet-toggle").click({ timeout: 3000 });
       await page.locator('[data-testid^="strategy-card-badge-"]').first().click();
       await page.getByTestId("detail-panel").waitFor();
+      // The panel is the subject here, not the sheet it came from: close the drawer (its toggle stays on top).
+      await page.getByTestId("player-sheet-toggle").click();
+      await page.waitForTimeout(300);
     },
   },
   {
@@ -164,7 +173,7 @@ export const extras: Extra[] = [
     open: async (page) => {
       await openMockedGame(page, { players: players(), events: actionCardEventLog(), history: { cursor: 5, redo_count: 0 } });
       await ready(page);
-      await page.getByTestId("event-log-mobile-toggle").click();
+      await (await eventsToggle(page)).evaluate((el) => (el as HTMLElement).click());
       await page.getByTestId("event-log-list").waitFor();
       const list = page.getByTestId("event-log-list");
       for (let i = 0; i < 6; i++) {
@@ -183,7 +192,7 @@ export const extras: Extra[] = [
       await page.route(`**/api/games/${GAME_ID}/history`, (route) => route.fulfill({ status: 500, body: "The server could not rewind the game." }));
       await openMockedGame(page, { players: players(), events: actionCardEventLog(), history: { cursor: 5, redo_count: 0 } });
       await ready(page);
-      await page.getByTestId("event-log-mobile-toggle").click();
+      await (await eventsToggle(page)).evaluate((el) => (el as HTMLElement).click());
       await page.getByTestId("event-log-list").waitFor();
       const list = page.getByTestId("event-log-list");
       for (let i = 0; i < 6; i++) {
@@ -195,7 +204,7 @@ export const extras: Extra[] = [
       await page.getByTestId("undo-confirm-accept").click();
       await page.locator(".session-error").waitFor();
       // The error toast lies over the Events button (that is what this scene shows): click through the DOM.
-      await page.getByTestId("event-log-mobile-toggle").evaluate((el) => (el as HTMLElement).click());
+      await (await eventsToggle(page)).evaluate((el) => (el as HTMLElement).click());
       await page.waitForTimeout(300);
     },
   },
@@ -233,7 +242,7 @@ export const extras: Extra[] = [
     title: "Secondary prepare banner (prepare mode)",
     open: async (page) => {
       await openWaiting(page, { name: "Technology", card: "pok7technology", viewer: { trade_goods: 5 } });
-      await page.getByTestId("secondary-prep-chip").click();
+      await page.getByTestId("secondary-prep-chip").evaluate((el) => (el as HTMLElement).click());
       await page.getByTestId("prepare-banner").waitFor();
       await page.waitForTimeout(300);
     },
@@ -243,7 +252,7 @@ export const extras: Extra[] = [
     title: "Secondary prep: technology dialog",
     open: async (page) => {
       await openWaiting(page, { name: "Technology", card: "pok7technology", viewer: { trade_goods: 5 } });
-      await page.getByTestId("secondary-prep-chip").click();
+      await page.getByTestId("secondary-prep-chip").evaluate((el) => (el as HTMLElement).click());
       await page.getByTestId("prepare-banner").waitFor();
       await page.getByTestId("secondary-yes-btn").click();
       await page.waitForTimeout(500);

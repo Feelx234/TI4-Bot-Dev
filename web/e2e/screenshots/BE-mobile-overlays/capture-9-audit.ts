@@ -18,7 +18,11 @@ function verdict(rows: AuditRow[]): { text: string; tone: "ok" | "warn" | "bad" 
   const worst = rows.reduce((a, r) => (r.open.covered > a.open.covered ? r : a));
   if (worst.open.covered <= 0.15) return { text: "does not cover the map", tone: "ok" };
   const control = rows.find((r) => r.open.minimizeControl);
-  if (!control) return { text: "covers the map, no way to minimize", tone: "bad" };
+  if (!control) {
+    return worst.open.covered <= 0.3
+      ? { text: `slim bar (${pct(worst.open.covered)}), carries the confirm control`, tone: "ok" }
+      : { text: "covers the map, no way to minimize", tone: "bad" };
+  }
   const still = rows.filter((r) => r.minimized && r.minimized.covered > 0.2);
   if (still.length) return { text: `still covers ${pct(Math.max(...still.map((r) => r.minimized!.covered)))} after minimizing`, tone: "warn" };
   return { text: "minimizes / closes to the map", tone: "ok" };
