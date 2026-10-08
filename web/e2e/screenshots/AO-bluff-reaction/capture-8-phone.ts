@@ -6,6 +6,8 @@ import { PROTOCOL_VERSION } from "../../../src/protocol/types";
 import { intentState, openBluffGame, openSelector, ownCard } from "./_bluff";
 
 const PHONE = { width: 390, height: 844 };
+// A reaction wait names no seat: the same status for a real window and a bluff hold.
+const reactionWait = { kind: "waiting_for_reactions" as const, phase: "action", round: 2 };
 const waiting = {
   kind: "waiting_for_decision" as const,
   seat: playerWithHand().id,
@@ -32,7 +34,7 @@ test("phone: another client's banner during a stall", async ({ page }, testInfo)
   });
   const bar = page.getByTestId("turn-status-bar");
   await expect(bar).toContainText("Active Turn");
-  send({ type: "turn_status", protocol_version: PROTOCOL_VERSION, game_id: GAME_ID, game_version: 40, status: waiting });
+  send({ type: "turn_status", protocol_version: PROTOCOL_VERSION, game_id: GAME_ID, game_version: 40, status: reactionWait });
   await expect(bar).toContainText("Waiting for");
   await shot(page, testInfo, "10-phone-banner", { of: bar, pad: 6 });
 });
@@ -45,7 +47,7 @@ test("phone: the bluffer's Pass bar", async ({ page }, testInfo) => {
     protocol_version: PROTOCOL_VERSION,
     game_id: GAME_ID,
     game_version: snapshot.game_version,
-    status: { ...waiting },
+    status: { ...reactionWait },
   });
   await expect(page.getByTestId("bluff-hold-bar")).toBeVisible();
   await shot(page, testInfo, "11-phone-pass-bar", { of: page.locator(".game-header"), pad: 6 });

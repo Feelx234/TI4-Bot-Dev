@@ -92,6 +92,8 @@ export interface JoinResponse {
 export type PublicTurnStatus =
   | { kind: "active_turn"; player: string; phase: string; round: number }
   | { kind: "waiting_for_decision"; seat: string; phase: string; round: number; stage: string }
+  /** A reaction window: names no seat, because who holds a playable card is private. */
+  | { kind: "waiting_for_reactions"; phase: string; round: number }
   | { kind: "phase_transition"; phase: string; round: number }
   | { kind: "game_over"; winner?: string | null };
 

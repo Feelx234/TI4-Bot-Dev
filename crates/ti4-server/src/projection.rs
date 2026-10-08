@@ -65,6 +65,20 @@ pub fn project_combat_view(
     pending_choice: Option<&Choice>,
     dice_rolls: &[crate::protocol::view::CombatDieRoll],
 ) -> Option<crate::protocol::view::CombatView> {
+    project_combat_view_for(state, pending_choice, dice_rolls, None)
+}
+
+/// [`project_combat_view`] as `viewer` sees it. While a reaction window is open, only the asked
+/// seat learns whose window it is: everybody else gets a view as if no question were pending.
+#[must_use]
+pub fn project_combat_view_for(
+    state: &GameState,
+    pending_choice: Option<&Choice>,
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
+    viewer: Option<&ViewerRole>,
+) -> Option<crate::protocol::view::CombatView> {
+    let pending_choice = pending_choice
+        .filter(|choice| !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player)));
     let choice_ctx = pending_choice.and_then(|c| c.context.as_ref());
     let (sys_id, attacker, defender) = state.active_space_combat.clone()?;
     state.board.get(&sys_id)?;
@@ -415,7 +429,7 @@ pub fn project_board_view_full(
         systems,
         active_system: state.active_system.clone(),
         map_tiles: map_tiles.to_vec(),
-        combat: project_combat_view(state, pending_choice, dice_rolls),
+        combat: project_combat_view_for(state, pending_choice, dice_rolls, viewer),
         invasion,
     }
 }
@@ -577,9 +591,34 @@ pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
     project_game_view_with_map(state, viewer, &[])
 }
 
-/// The status everybody else sees while `seat` is being waited for.
-///
-/// One function for the real question and for a bluff hold, so the two can never differ.
+/// Whether `choice` is a reaction window: a seat is asked whether to play an action card (or a
+/// reaction ability) in response to an event. Who is asked tells everybody who holds a card.
+#[must_use]
+pub fn is_reaction_window(choice: &Choice) -> bool {
+    choice.context.as_ref().is_some_and(|context| {
+        matches!(
+            context.source,
+            ti4_engine::decision_context::DecisionSource::Reaction(_)
+        ) || context.subtype.starts_with("reaction_")
+            || context.subtype.starts_with("play_reaction_")
+            || matches!(
+                context.subtype.as_str(),
+                "instinct_training_cancel" | "l1z1x_agent_swap"
+            )
+    })
+}
+
+/// The status everybody but the asked seat sees during a reaction window, and the status a bluff
+/// hold puts up. It names no seat and carries no stage, so real windows and holds are identical.
+#[must_use]
+pub fn waiting_for_reactions_status(state: &GameState) -> PublicTurnStatus {
+    PublicTurnStatus::WaitingForReactions {
+        phase: state.phase,
+        round: state.round,
+    }
+}
+
+/// The status everybody else sees while `seat` is being waited for (not for a reaction window).
 #[must_use]
 pub fn waiting_for_player_status(state: &GameState, seat: &PlayerId) -> PublicTurnStatus {
     PublicTurnStatus::WaitingForDecision {
@@ -591,7 +630,23 @@ pub fn waiting_for_player_status(state: &GameState, seat: &PlayerId) -> PublicTu
     }
 }
 
-/// Projects public turn status without disclosing another player's private reactions or legal choices.
+/// The turn status `viewer` is shown: the asked seat sees it named even in a reaction window.
+#[must_use]
+pub fn project_turn_status_for(
+    state: &GameState,
+    pending_choice: Option<&Choice>,
+    viewer: &ViewerRole,
+) -> PublicTurnStatus {
+    match pending_choice {
+        Some(choice) if !state.finished && viewer.is_actor(&choice.player) => {
+            waiting_for_player_status(state, &choice.player)
+        }
+        _ => project_turn_status(state, pending_choice),
+    }
+}
+
+/// Projects public turn status without disclosing another player's private reactions or legal
+/// choices. This is the view of everybody but the asked seat.
 #[must_use]
 pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -> PublicTurnStatus {
     if state.finished {
@@ -600,6 +655,9 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 
     if let Some(choice) = pending_choice {
+        if is_reaction_window(choice) {
+            return waiting_for_reactions_status(state);
+        }
         return waiting_for_player_status(state, &choice.player);
     }
 
@@ -660,7 +718,7 @@ pub fn project_initial_snapshot_with_map(
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
-        turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
+        turn_status: project_turn_status_for(state, pending_choice.map(|(c, _)| c), viewer),
         events: events
             .iter()
             .filter_map(|event| event.for_viewer(viewer))
@@ -725,7 +783,7 @@ pub fn project_state_update_with_map(
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
         pending_choice: project_pending_choice(viewer, pending_choice),
-        turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
+        turn_status: project_turn_status_for(state, pending_choice.map(|(c, _)| c), viewer),
         auto_resolved: Vec::new(),
         reaction_modes: BTreeMap::new(),
     }
@@ -814,6 +872,55 @@ mod tests {
         old["choice"]["context"].as_object_mut().unwrap().remove("trigger");
         let back: PendingChoiceEnvelope = serde_json::from_value(old).unwrap();
         assert!(back.choice.context.unwrap().trigger.is_none());
+    }
+
+    #[test]
+    fn a_reaction_window_names_no_seat_to_anyone_but_the_asked_seat() {
+        let (reaction, _) = reaction_offer();
+        let ids = [PlayerId::new("player_1"), PlayerId::new("player_2")];
+        let state = GameState::new(&ids, &[], BTreeMap::new(), None, 1);
+        let asked = ViewerRole::Player(PlayerId::new("player_2"));
+        assert!(is_reaction_window(&reaction));
+        let generic = waiting_for_reactions_status(&state);
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
+            assert_eq!(project_turn_status_for(&state, Some(&reaction), &viewer), generic);
+        }
+        assert_eq!(project_turn_status(&state, Some(&reaction)), generic);
+        assert_eq!(
+            project_turn_status_for(&state, Some(&reaction), &asked),
+            waiting_for_player_status(&state, &PlayerId::new("player_2"))
+        );
+        let json = serde_json::to_string(&generic).unwrap();
+        assert!(!json.contains("player_2") && !json.contains("stage"));
+
+        // Any other question keeps naming its seat, for every viewer.
+        let ordinary = Choice::new(PlayerId::new("player_2"), "action phase", vec![]);
+        assert!(!is_reaction_window(&ordinary));
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator, asked] {
+            assert_eq!(
+                project_turn_status_for(&state, Some(&ordinary), &viewer),
+                waiting_for_player_status(&state, &PlayerId::new("player_2"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_reaction_window_hides_its_seat_from_the_combat_view_too() {
+        let (reaction, _) = reaction_offer();
+        let ids = [PlayerId::new("player_1"), PlayerId::new("player_2")];
+        let mut state = GameState::new(&ids, &[], BTreeMap::new(), None, 1);
+        let system = ti4_model::id::SystemId::new("18");
+        state.board.insert(system.clone(), Default::default());
+        state.active_space_combat =
+            Some((system, PlayerId::new("player_1"), PlayerId::new("player_2")));
+        let asked = ViewerRole::Player(PlayerId::new("player_2"));
+        let mine = project_combat_view_for(&state, Some(&reaction), &[], Some(&asked)).unwrap();
+        assert_eq!(mine.active_player, Some(PlayerId::new("player_2")));
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
+            let seen = project_combat_view_for(&state, Some(&reaction), &[], Some(&viewer)).unwrap();
+            assert_eq!(seen.active_player, None);
+            assert_eq!(seen.stage, None);
+        }
     }
 
     #[test]

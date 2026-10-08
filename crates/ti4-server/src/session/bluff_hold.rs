@@ -7,7 +7,7 @@ use ti4_engine::timing::Relation;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::projection::waiting_for_player_status;
+use crate::projection::waiting_for_reactions_status;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{ServerMessage, TurnStatusMsg};
 use crate::session::SeatController;
@@ -88,7 +88,7 @@ pub fn maybe_hold(
             protocol_version: PROTOCOL_VERSION,
             game_id: lock.game_id.clone(),
             game_version: lock.game_version,
-            status: waiting_for_player_status(state, seat),
+            status: waiting_for_reactions_status(state),
         });
         lock.subscribers
             .retain(|_, subscriber| subscriber.tx.try_send(message.clone()).is_ok());
