@@ -12,6 +12,7 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
 use super::SessionConfig;
+use super::step_snapshot::StepSnapshot;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -511,6 +512,9 @@ struct Script {
 struct PrivateDecider(Arc<Mutex<Script>>);
 
 pub struct Simulation {
+    /// How many decisions of the prefix a forked step-boundary copy covered (`None`: the whole
+    /// prefix was replayed from the opening state). Not part of the result's meaning.
+    pub forked_at: Option<usize>,
     pub interruption: Option<BatchInterruption>,
     pub decisions: Vec<DecisionRecord>,
     pub selected: Vec<ChoiceOption>,
@@ -871,12 +875,45 @@ fn offered_decision(choice: &Choice, own_seat: bool) -> OfferedDecision {
     }
 }
 
+/// Diagnostic: how many batch checks (process-wide) started from a step-boundary copy instead
+/// of replaying the whole game. Tests read the difference around one request.
+pub static FORKED_CHECKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How a batch check obtains the position the staged choices start from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationMode {
+    /// Fork the worker's step-boundary copy when it is valid for the history, else replay in
+    /// full. `TI4_BATCH_VERIFY=1` upgrades this to [`SimulationMode::Verify`].
+    Auto,
+    /// Always replay the whole recorded prefix from the opening state (the reference).
+    FullReplay,
+    /// Run the forked path (when a valid copy exists) AND the full replay, and panic when
+    /// their results differ in any way. Used by tests and `TI4_BATCH_VERIFY=1`.
+    Verify,
+}
+
 /// Replays the prefix and proves every staged choice against a fresh engine offer.
+///
+/// With a valid step-boundary `snapshot` only the decisions recorded after it are replayed
+/// (see [`crate::session::step_snapshot`]); otherwise the whole prefix is.
 pub fn simulate(
     config: &SessionConfig,
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
+    snapshot: Option<&StepSnapshot>,
+) -> Result<Simulation, BatchFailure> {
+    simulate_with(config, prefix, actor, plan, snapshot, SimulationMode::Auto)
+}
+
+/// [`simulate`] with an explicit [`SimulationMode`].
+pub fn simulate_with(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+    actor: &PlayerId,
+    plan: &MovementPlan,
+    snapshot: Option<&StepSnapshot>,
+    mode: SimulationMode,
 ) -> Result<Simulation, BatchFailure> {
     if let Some(problem) = plan_problem(plan) {
         let mut failure =
@@ -885,14 +922,91 @@ pub fn simulate(
         failure.message = format!("invalid batch plan: {problem}");
         return Err(failure);
     }
-    simulate_script(config, prefix, actor, plan).map_err(|failure| {
-        let planned = plan.steps.len();
-        if failure.planned_steps == 0 {
-            failure.with_planned_steps(planned)
-        } else {
-            failure
+    let mode = if mode == SimulationMode::Auto
+        && std::env::var_os("TI4_BATCH_VERIFY").is_some_and(|value| value != "0")
+    {
+        SimulationMode::Verify
+    } else {
+        mode
+    };
+    let usable = snapshot.filter(|copy| copy.is_valid_for(config.history_generation, prefix));
+    let planned = plan.steps.len();
+    let finish = |result: Result<Simulation, BatchFailure>| {
+        result.map_err(|failure| {
+            if failure.planned_steps == 0 {
+                failure.with_planned_steps(planned)
+            } else {
+                failure
+            }
+        })
+    };
+    match (mode, usable) {
+        (SimulationMode::Auto, Some(copy)) => {
+            FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            finish(simulate_script(config, prefix, actor, plan, Some(copy)))
         }
-    })
+        (SimulationMode::Verify, Some(copy)) => {
+            FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let forked = finish(simulate_script(config, prefix, actor, plan, Some(copy)));
+            let full = finish(simulate_script(config, prefix, actor, plan, None));
+            if let Some(difference) = simulation_difference(&forked, &full) {
+                panic!(
+                    "batch check from a step-boundary copy (log {} of {}) disagrees with the full replay: {difference}",
+                    copy.log_len,
+                    prefix.len()
+                );
+            }
+            forked
+        }
+        _ => finish(simulate_script(config, prefix, actor, plan, None)),
+    }
+}
+
+fn json<T: Serialize>(value: &T) -> serde_json::Value {
+    serde_json::to_value(value).expect("serializable")
+}
+
+/// How two batch results differ, or `None` when they mean the same (the verifier's comparison:
+/// selected options, recorded decisions, boundary state, transitions, winner, interruption, and
+/// for failures every field the client sees).
+#[must_use]
+pub fn simulation_difference(
+    a: &Result<Simulation, BatchFailure>,
+    b: &Result<Simulation, BatchFailure>,
+) -> Option<String> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => {
+            if a.decisions != b.decisions {
+                return Some("recorded decisions differ".to_owned());
+            }
+            if a.selected != b.selected {
+                return Some("selected options differ".to_owned());
+            }
+            if a.transitions != b.transitions {
+                return Some(format!(
+                    "transitions differ: {:?} vs {:?}",
+                    a.transitions, b.transitions
+                ));
+            }
+            if a.winner != b.winner {
+                return Some("winner differs".to_owned());
+            }
+            if json(&a.interruption) != json(&b.interruption) {
+                return Some("interruption differs".to_owned());
+            }
+            if !a.boundary_state.identical(&b.boundary_state)
+                || json(&a.boundary_state) != json(&b.boundary_state)
+            {
+                return Some("boundary state differs".to_owned());
+            }
+            None
+        }
+        (Err(a), Err(b)) => {
+            (json(a) != json(b)).then(|| format!("failures differ: {a:?} vs {b:?}"))
+        }
+        (Ok(_), Err(b)) => Some(format!("only the other path failed: {b:?}")),
+        (Err(a), Ok(_)) => Some(format!("only one path failed: {a:?}")),
+    }
 }
 
 /// Explains why a plan cannot be a batch of its kind, or `None` when its shape is valid.
@@ -1000,7 +1114,7 @@ pub fn replay_boundary_state(
         .last()
         .map(|record| record.player.clone())
         .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
-    simulate_script(config, prefix, &actor, &plan).map(|simulation| simulation.boundary_state)
+    simulate_script(config, prefix, &actor, &plan, None).map(|simulation| simulation.boundary_state)
 }
 
 /// Wall-clock budget for replaying `decisions` recorded choices from the opening state.
@@ -1018,10 +1132,13 @@ fn simulate_script(
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
+    from: Option<&StepSnapshot>,
 ) -> Result<Simulation, BatchFailure> {
     let force = crate::session::RngForce::new(&config.rng_marks);
+    // Decisions the copy already covers are not replayed; the rest of the prefix is.
+    let covered = from.map_or(0, |copy| copy.log_len);
     let script = Arc::new(Mutex::new(Script {
-        prefix: prefix.iter().cloned().collect(),
+        prefix: prefix[covered..].iter().cloned().collect(),
         force: force.clone(),
         prefix_len: prefix.len(),
         steps: plan.steps.clone(),
@@ -1037,20 +1154,28 @@ fn simulate_script(
         interruption: None,
         casualty_owed: None,
     }));
-    let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
-    let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
-    if let Some(galaxy) = &config.galaxy {
-        game = game.with_galaxy(galaxy.clone());
-    }
+    let mut game = if let Some(copy) = from {
+        let mut game = copy.fork(prefix);
+        game.table
+            .set_default(Box::new(PrivateDecider(script.clone())));
+        game
+    } else {
+        let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
+        let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
+        if let Some(galaxy) = &config.galaxy {
+            game = game.with_galaxy(galaxy.clone());
+        }
+        game
+    };
     if let Some(force) = &force {
         force.attach(&mut game);
     }
-    let deadline = Instant::now() + replay_budget(prefix.len());
+    let replayed = prefix.len() - covered;
+    let deadline = Instant::now() + replay_budget(replayed);
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
-    for _ in 0..(prefix
-        .len()
+    for _ in 0..(replayed
         .saturating_add(plan.steps.len())
         .saturating_mul(8)
         .saturating_add(128))
@@ -1105,6 +1230,7 @@ fn simulate_script(
                 .then(|| ti4_engine::objectives::leader(&game.state))
                 .flatten();
             return Ok(Simulation {
+                forked_at: from.map(|copy| copy.log_len),
                 interruption: guard.interruption.clone(),
                 decisions: game.table.log.records[prefix.len()..].to_vec(),
                 selected: guard.selected.clone(),
@@ -1196,7 +1322,7 @@ mod tests {
             destination: String::new(),
             steps: Vec::new(),
         };
-        let simulation = simulate_script(&config, &prefix, &players[0], &plan).unwrap();
+        let simulation = simulate_script(&config, &prefix, &players[0], &plan, None).unwrap();
         assert!(simulation.boundary_state.finished);
         assert!(
             simulation

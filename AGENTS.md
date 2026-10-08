@@ -36,6 +36,19 @@ Use one coherent, reviewable behavior change, with explicit dependencies, writab
 - Never turn parser errors, bridge refusals, worker crashes, or incomplete games into apparent success.
 - Validate schema version, size limits, references, and checksums before mutating state. Keep checkpoint writes atomic and recoverable.
 
+## FORK RULE: new per-game state must be copied by `Game::fork`
+
+**Every new field on `Game`, `GameState`, `Table`, `Resolver` (timing), a window or reaction struct, or any other per-game or per-turn state MUST be checked against `Game::fork` / `Game::snapshot` (`crates/ti4-engine/src/game.rs`) and either copied or documented there as intentionally not copied.** A missed field makes the session's batch check (which forks a snapshot taken at a step boundary instead of replaying the whole game) disagree with the live game: a staged workflow is accepted or refused on a position the player never saw.
+
+Enforcement, so this cannot silently rot:
+
+- Compile time: `Game::snapshot`, `GameSnapshot::instantiate`/`into_game`, `Resolver::snapshot`/`ResolverSnapshot::*` (`timing.rs`) and `Table::state` (`choice.rs`) destructure their structs WITHOUT `..`. Adding a field is a compile error until you decide: copy it, or list it with a comment saying why it is input wiring (deciders, observation callbacks, the RNG side channel) rather than game state. `GameState`, `GameRng`, `Dice`, windows and the rest are cloned with `#[derive(Clone)]`, so a new field there is copied automatically; a type that cannot derive `Clone` needs a hand-written copy.
+- Behaviour: `crates/ti4-server/tests/fork_equivalence.rs` forks a game at many step boundaries (a generated game, a game with forced RNG marks, and the saved real games on the development machine, see `TI4_FORK_FIXTURES`) and asserts the fork and the original produce identical offers, step results, decision log, state, events, timing log, dice and RNG positions when given the same answers. The batch differential test (`crates/ti4-server/tests/batch_fork_differential.rs`) does the same for the batch check against the full replay (`TI4_BATCH_VERIFY=1` runs both paths in any server test).
+- Where the copy is used: the session worker keeps one step-boundary copy (`crates/ti4-server/src/session/step_snapshot.rs`); `batch::simulate` forks it and a committed batch's replacement session resumes from it. It is used only when its history generation and decision-log prefix match; anything else falls back to the full replay.
+- Mutable state captured inside registered timing-ability closures is NOT copied (the closures are shared); keep rules state in `GameState` or the resolver.
+
+Never "fix" a failing fork test by weakening the comparison; copy the missing field.
+
 ## Testing discipline
 
 ### Multi-minute CPU-bound commands (operator rule, 2026-10-04)

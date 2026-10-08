@@ -302,7 +302,153 @@ pub struct Resolver {
     turn_number: u64,
 }
 
+/// Everything a [`Resolver`] needs to continue identically, minus its decider input, so it can
+/// move between threads (see [`Resolver::snapshot`]).
+///
+/// FORK RULE: every field of `Resolver` is destructured without `..` in `snapshot` and
+/// `instantiate`; adding a field is a compile error until it is copied here or explicitly
+/// listed as not copied.
+#[derive(Clone)]
+pub struct ResolverSnapshot {
+    registry: AbilityRegistry,
+    initiative_order: Vec<PlayerId>,
+    seating_order: Vec<PlayerId>,
+    active_player: Option<PlayerId>,
+    speaker: Option<PlayerId>,
+    phase: Phase,
+    table: crate::choice::TableState,
+    log: Vec<String>,
+    applied_events: Vec<Event>,
+    relation_being_resolved: Option<Relation>,
+    emission_stack: Vec<(String, u64)>,
+    maximum_depth: usize,
+    used: BTreeSet<(String, FrequencyScope)>,
+    round_number: u64,
+    turn_number: u64,
+}
+
+impl ResolverSnapshot {
+    pub(crate) fn instantiate(&self) -> Resolver {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        } = self;
+        Resolver {
+            registry: registry.clone(),
+            initiative_order: initiative_order.clone(),
+            seating_order: seating_order.clone(),
+            active_player: active_player.clone(),
+            speaker: speaker.clone(),
+            phase: *phase,
+            table: crate::choice::Table::from_state(table.clone()),
+            log: log.clone(),
+            applied_events: applied_events.clone(),
+            relation_being_resolved: *relation_being_resolved,
+            emission_stack: emission_stack.clone(),
+            maximum_depth: *maximum_depth,
+            used: used.clone(),
+            round_number: *round_number,
+            turn_number: *turn_number,
+        }
+    }
+
+    pub(crate) fn into_resolver(self) -> Resolver {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        } = self;
+        Resolver {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table: crate::choice::Table::from_state(table),
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        }
+    }
+}
+
 impl Resolver {
+    /// Copy this resolver's rules state. Decider input (who answers) is NOT copied: the copy's
+    /// table has first-option deciders, no observation callbacks, but the same decision log
+    /// and counters. Registered abilities are shared functions (their captures must not hold
+    /// mutable rules state).
+    pub(crate) fn snapshot_with(&self, keep_table_log: bool) -> ResolverSnapshot {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        } = self;
+        ResolverSnapshot {
+            registry: registry.clone(),
+            initiative_order: initiative_order.clone(),
+            seating_order: seating_order.clone(),
+            active_player: active_player.clone(),
+            speaker: speaker.clone(),
+            phase: *phase,
+            table: if keep_table_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
+            log: log.clone(),
+            applied_events: applied_events.clone(),
+            relation_being_resolved: *relation_being_resolved,
+            emission_stack: emission_stack.clone(),
+            maximum_depth: *maximum_depth,
+            used: used.clone(),
+            round_number: *round_number,
+            turn_number: *turn_number,
+        }
+    }
+
     pub(crate) fn checkpoint(&self) -> ResolverCheckpoint {
         ResolverCheckpoint {
             table_log: self.table.log.clone(),

@@ -102,6 +102,13 @@ impl RngSync {
             .push(tag);
     }
 
+    /// Whether a restore or a capture still waits for the next draw.
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        let inner = self.inner.lock().expect("rng sync lock");
+        inner.restore.is_some() || !inner.pending_marks.is_empty()
+    }
+
     /// Tags still waiting for a draw to read their positions.
     #[must_use]
     pub fn pending_marks(&self) -> Vec<usize> {
@@ -163,6 +170,13 @@ impl GameRng {
         self.sync = sync;
     }
 
+    /// Whether the attached side channel holds a forced position or capture that no draw has
+    /// applied yet (`false` without a channel).
+    #[must_use]
+    pub fn sync_pending(&self) -> bool {
+        self.sync.as_ref().is_some_and(|sync| sync.is_pending())
+    }
+
     /// Where every stream that has been drawn from stands.
     #[must_use]
     pub fn positions(&self) -> RngPositions {
@@ -184,6 +198,15 @@ impl GameRng {
                 .or_insert_with(|| ChaCha8Rng::from_seed(Self::derive_seed(seed, domain)));
             stream.set_word_pos(*position);
         }
+    }
+
+    /// Apply a pending restore and resolve pending captures now instead of at the next draw.
+    ///
+    /// Equivalent to waiting: nothing moves a stream between the decision being answered and
+    /// the next draw, so "positions at the next draw" are "positions now". It lets a step
+    /// boundary hold no deferred work, which a snapshot needs.
+    pub fn flush_sync(&mut self) {
+        self.apply_sync();
     }
 
     fn apply_sync(&mut self) {

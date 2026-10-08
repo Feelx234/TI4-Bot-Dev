@@ -853,6 +853,9 @@ fn start_committed_worker(
         return (first, Ok(()));
     }
     first.stop();
+    // The retry replays everything: it must not depend on whatever made the first attempt fail.
+    let mut config = config;
+    config.resume = None;
     let retry = Arc::new(start(config));
     let replay = retry.wait_replayed();
     (retry, replay)
@@ -1011,9 +1014,15 @@ impl GameRegistry {
             ));
         }
         let config = session.restart_config();
-        let prior = session.decision_log();
+        let (prior, step_snapshot) = session.batch_basis();
         drop(state);
-        let simulation = simulate(&config, &prior, &actor, &request.plan)?;
+        let simulation = simulate(
+            &config,
+            &prior,
+            &actor,
+            &request.plan,
+            step_snapshot.as_deref(),
+        )?;
         let boundary_state = simulation.boundary_state.clone();
         let decisions = simulation.decisions;
         let start_cursor = prior.len();
@@ -1227,6 +1236,10 @@ impl GameRegistry {
         next.batches = history.batches;
         next.rng_marks = history.rng_marks;
         next.replay_boundary_state = Some(boundary_state);
+        // The replacement forks the step-boundary copy of the session it replaces and replays
+        // only the decisions after it (the worker re-checks that the copy fits this history and
+        // otherwise replays everything; recovery from disk always replays everything).
+        next.resume.clone_from(&step_snapshot);
         let (replacement, replay) = start_committed_worker(next, &mut start_worker);
         {
             let mut state = self.state.lock().expect("registry lock");
@@ -3469,6 +3482,8 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        step_snapshots: true,
+        resume: None,
     })
 }
 
@@ -3583,5 +3598,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        step_snapshots: true,
+        resume: None,
     })
 }

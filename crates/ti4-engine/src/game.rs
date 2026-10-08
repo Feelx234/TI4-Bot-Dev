@@ -974,7 +974,365 @@ pub struct Game<'a> {
     blocked: Option<GameError>,
 }
 
+/// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary.
+///
+/// Unlike a `Game` (whose table holds deciders that may be thread-local) a snapshot is plain
+/// data, so a session worker can publish one for other threads. Turn it back into a game with
+/// [`GameSnapshot::instantiate`] or [`GameSnapshot::into_game`].
+///
+/// FORK RULE (see AGENTS.md): `Game::snapshot`, `GameSnapshot::instantiate` and
+/// `GameSnapshot::into_game` destructure `Game` / `GameSnapshot` WITHOUT `..`. Adding a field to
+/// `Game` is a compile error here until it is copied or listed as deliberately not copied. The
+/// fork-equivalence tests (`crates/ti4-engine/tests/fork_equivalence.rs`) then prove a fork
+/// continues exactly like the original on real recorded games.
+#[derive(Clone)]
+pub struct GameSnapshot<'a> {
+    state: GameState,
+    table: crate::choice::TableState,
+    events: Vec<String>,
+    timing: crate::timing::ResolverSnapshot,
+    event_sequence: EventSequence,
+    content: &'a ContentStore,
+    sources: SourceSet,
+    strategy_cards: Vec<StrategyCardId>,
+    secondary: Option<StrategySecondaryWindow>,
+    secondary_after_tactical: Option<StrategySecondaryWindow>,
+    leader_strategy: Option<(PlayerId, ti4_model::id::LeaderId, StrategyCardId)>,
+    leader_followers: Option<(Vec<Choice>, Vec<PlayerId>)>,
+    scoring: Option<ScoringWindow>,
+    event_scoring: Option<ScoringWindow>,
+    tokens: Option<(TokenGain, Box<StatusPhaseReport>)>,
+    voting: Option<(Box<VoteWindow>, Vec<String>)>,
+    executive_order: Option<(PlayerId, PlayerId)>,
+    agenda_queue_after_event_scoring: Option<Vec<String>>,
+    galaxy: Option<Galaxy>,
+    tactical: Option<TacticalWindow>,
+    aftermath: Option<AftermathWindow>,
+    trade: Option<crate::transactions::TradeWindow>,
+    diplomacy: Option<Box<crate::diplomacy::window::DiplomacyWindow>>,
+    agenda_talks: Option<AgendaTalks>,
+    rng: GameRng,
+    dice: Dice,
+    status_resolved: bool,
+    agenda_resolved: bool,
+    strategy_phase_announced: bool,
+    failed_component_actions: std::collections::BTreeSet<String>,
+    turn_closing: Option<PlayerId>,
+    actions_this_turn: u8,
+    prepared_turn_seq: Option<u32>,
+    blocked: Option<GameError>,
+}
+
+impl<'a> GameSnapshot<'a> {
+    /// A new game from this snapshot (the snapshot stays usable). First-option deciders, no
+    /// callbacks, no RNG side channel.
+    #[must_use]
+    pub fn instantiate(&self) -> Game<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        } = self;
+        Game {
+            state: state.clone(),
+            table: Table::from_state(table.clone()),
+            events: events.clone(),
+            timing: timing.instantiate(),
+            event_sequence: event_sequence.clone(),
+            content: *content,
+            sources: *sources,
+            strategy_cards: strategy_cards.clone(),
+            secondary: secondary.clone(),
+            secondary_after_tactical: secondary_after_tactical.clone(),
+            leader_strategy: leader_strategy.clone(),
+            leader_followers: leader_followers.clone(),
+            scoring: scoring.clone(),
+            event_scoring: event_scoring.clone(),
+            tokens: tokens.clone(),
+            voting: voting.clone(),
+            executive_order: executive_order.clone(),
+            agenda_queue_after_event_scoring: agenda_queue_after_event_scoring.clone(),
+            galaxy: galaxy.clone(),
+            tactical: tactical.clone(),
+            aftermath: aftermath.clone(),
+            trade: trade.clone(),
+            diplomacy: diplomacy.clone(),
+            agenda_talks: agenda_talks.clone(),
+            rng: rng.clone(),
+            dice: dice.clone(),
+            status_resolved: *status_resolved,
+            agenda_resolved: *agenda_resolved,
+            strategy_phase_announced: *strategy_phase_announced,
+            failed_component_actions: failed_component_actions.clone(),
+            turn_closing: turn_closing.clone(),
+            actions_this_turn: *actions_this_turn,
+            prepared_turn_seq: *prepared_turn_seq,
+            blocked: blocked.clone(),
+        }
+    }
+
+    /// Like [`GameSnapshot::instantiate`], consuming the snapshot (no second copy).
+    #[must_use]
+    pub fn into_game(self) -> Game<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        } = self;
+        Game {
+            state,
+            table: Table::from_state(table),
+            events,
+            timing: timing.into_resolver(),
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        }
+    }
+
+    /// The decisions recorded when the snapshot was taken.
+    #[must_use]
+    pub fn decisions(&self) -> &[crate::choice::DecisionRecord] {
+        &self.table.log.records
+    }
+
+    /// The state when the snapshot was taken.
+    #[must_use]
+    pub const fn state(&self) -> &GameState {
+        &self.state
+    }
+}
+
 impl<'a> Game<'a> {
+    /// Copy everything this game needs to continue identically, as plain data.
+    ///
+    /// Take it BETWEEN steps (before `step()` or after it returned): the control flow of a step
+    /// lives on the call stack and cannot be copied. Copied: the state, the timing resolver
+    /// (registered abilities, usage, event log), open windows and reactions, the decision log
+    /// and failure counters, the dice and every RNG stream position, the per-turn fields
+    /// (`leader_strategy`, `leader_followers`, `executive_order`, `turn_closing`, ...), the
+    /// galaxy and the content handle.
+    ///
+    /// NOT copied (input wiring, chosen by whoever drives the copy): the deciders, the
+    /// observation callbacks, and the RNG side channel (`RngSync`): a copy sharing the
+    /// original's channel would consume its pending forced positions. Attach a channel of
+    /// your own with [`Game::set_rng_sync`]; [`Game::rng_sync_pending`] says whether the
+    /// original had a forced position or capture that no draw has applied yet (a snapshot
+    /// taken then would lose it).
+    ///
+    /// Destructures `Game` without `..`: a new field is a compile error until decided.
+    #[must_use]
+    pub fn snapshot(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(true)
+    }
+
+    /// [`Game::snapshot`] without the decision log (the game's own and the resolver's table
+    /// log are left empty), for a holder that already has the log and puts it back with
+    /// `game.table.log.records = ...` before stepping the instantiated game. The log is the
+    /// largest single part of a late-game snapshot and grows with every decision.
+    #[must_use]
+    pub fn snapshot_unlogged(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(false)
+    }
+
+    fn snapshot_with(&self, keep_log: bool) -> GameSnapshot<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        } = self;
+        let mut rng = rng.clone();
+        rng.set_sync(None);
+        GameSnapshot {
+            state: state.clone(),
+            table: if keep_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
+            events: events.clone(),
+            timing: timing.snapshot_with(keep_log),
+            event_sequence: event_sequence.clone(),
+            content: *content,
+            sources: *sources,
+            strategy_cards: strategy_cards.clone(),
+            secondary: secondary.clone(),
+            secondary_after_tactical: secondary_after_tactical.clone(),
+            leader_strategy: leader_strategy.clone(),
+            leader_followers: leader_followers.clone(),
+            scoring: scoring.clone(),
+            event_scoring: event_scoring.clone(),
+            tokens: tokens.clone(),
+            voting: voting.clone(),
+            executive_order: executive_order.clone(),
+            agenda_queue_after_event_scoring: agenda_queue_after_event_scoring.clone(),
+            galaxy: galaxy.clone(),
+            tactical: tactical.clone(),
+            aftermath: aftermath.clone(),
+            trade: trade.clone(),
+            diplomacy: diplomacy.clone(),
+            agenda_talks: agenda_talks.clone(),
+            rng,
+            dice: dice.clone(),
+            status_resolved: *status_resolved,
+            agenda_resolved: *agenda_resolved,
+            strategy_phase_announced: *strategy_phase_announced,
+            failed_component_actions: failed_component_actions.clone(),
+            turn_closing: turn_closing.clone(),
+            actions_this_turn: *actions_this_turn,
+            prepared_turn_seq: *prepared_turn_seq,
+            blocked: blocked.clone(),
+        }
+    }
+
+    /// Replace the game's table (its deciders and callbacks) with `table`, carrying over the
+    /// current table's decision log and counters, so a forked game can be wired to a session's
+    /// deciders and keep going.
+    pub fn install_table(&mut self, mut table: Table) {
+        table.restore_state(self.table.state());
+        self.table = table;
+    }
+
+    /// A new game that continues exactly like this one (see [`Game::snapshot`]).
+    #[must_use]
+    pub fn fork(&self) -> Game<'a> {
+        self.snapshot().into_game()
+    }
+
+    /// Apply any forced RNG position (and resolve any capture) that waits for the next draw,
+    /// right now. Changes nothing observable (see [`GameRng::flush_sync`]); call it at a step
+    /// boundary before [`Game::snapshot`] so the snapshot holds no deferred work.
+    pub fn flush_rng_sync(&mut self) {
+        self.rng.flush_sync();
+    }
+
+    /// Whether the RNG side channel holds a forced position or capture that no draw has
+    /// applied yet. A snapshot taken now would not carry it (see [`Game::flush_rng_sync`]).
+    #[must_use]
+    pub fn rng_sync_pending(&self) -> bool {
+        self.rng.sync_pending()
+    }
+
     /// Create a game with the default first-option table.
     #[must_use]
     pub fn new(state: GameState, content: &'a ContentStore) -> Self {
@@ -6453,6 +6811,116 @@ mod tests {
             0,
             "a hex hop is not counted as a wormhole hop",
         );
+    }
+
+    #[test]
+    fn a_snapshot_is_plain_data_that_can_cross_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<GameSnapshot<'static>>();
+    }
+
+    #[test]
+    fn fork_keeps_the_log_and_takes_new_deciders_without_touching_the_original() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        let table = Table::with_default(Box::new(Scripted::new(["pok1leadership", "decline"])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+        game.timing.register([Ability::stateful(
+            "strategy-point",
+            players[0].clone(),
+            "STRATEGY_CARD_CHOSEN",
+            Relation::When,
+            Arc::new(|_, _, context| {
+                context
+                    .state
+                    .player_mut(&PlayerId::new("a"))
+                    .unwrap()
+                    .victory_points += 1;
+                Ok(())
+            }),
+        )
+        .with_optional(true)]);
+
+        let mut fork = game.fork();
+        assert!(fork.table.log.records.is_empty());
+        // The fork has its own (first-option) deciders: it takes the optional ability, the
+        // original's script declines it.
+        assert_eq!(fork.step().error, None);
+        assert_eq!(fork.state.player(&players[0]).unwrap().victory_points, 1);
+        assert!(game.table.log.records.is_empty());
+        assert_eq!(game.state.player(&players[0]).unwrap().victory_points, 0);
+        assert_eq!(game.step().error, None);
+        assert_eq!(game.state.player(&players[0]).unwrap().victory_points, 0);
+        assert_eq!(game.table.log.records.len(), fork.table.log.records.len());
+
+        // A fork taken later carries the log recorded so far.
+        let later = game.fork();
+        assert_eq!(later.table.log, game.table.log);
+        assert_eq!(later.events, game.events);
+        assert_eq!(later.timing.log(), game.timing.log());
+    }
+
+    #[test]
+    fn fork_preserves_rng_positions_and_dice_history() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        state.rng_seed = 42;
+        let mut game = Game::new(state, ContentStore::embedded());
+        game.dice = Dice::with_sides(6);
+        let deck: Vec<u32> = (0..40).collect();
+        let _ = game.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        game.dice.roll(&mut game.rng, 7, "before fork", Some(5));
+        assert_eq!(game.step().error, None);
+        let history = game.rolls().to_vec();
+
+        let mut fork = game.fork();
+        assert_eq!(fork.rolls(), history);
+        assert_eq!(fork.rng_positions(), game.rng_positions());
+        let fork_roll = fork.dice.roll(&mut fork.rng, 12, "after fork", Some(5));
+        let fork_deck = fork.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        assert_eq!(game.rolls(), history, "fork rolls leave the original untouched");
+        assert_eq!(
+            game.dice.roll(&mut game.rng, 12, "after fork", Some(5)),
+            fork_roll
+        );
+        assert_eq!(
+            game.rng.shuffled(crate::rng::domain::AGENDAS, &deck),
+            fork_deck
+        );
+        assert_eq!(game.rolls(), fork.rolls());
+    }
+
+    #[test]
+    fn a_fork_does_not_share_the_rng_side_channel_and_flushing_it_is_equivalent() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        state.rng_seed = 9;
+        let mut game = Game::new(state, ContentStore::embedded());
+        let sync = crate::rng::RngSync::new();
+        game.set_rng_sync(Some(sync.clone()));
+        let deck: Vec<u32> = (0..40).collect();
+        let _ = game.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        let at = game.rng_positions();
+        for _ in 0..5 {
+            game.rng.die(crate::rng::domain::DICE, 10);
+        }
+        sync.restore_at_next_draw(at.clone());
+        assert!(game.rng_sync_pending());
+        let mut fork = game.fork();
+        assert!(!fork.rng_sync_pending(), "the fork must not carry the original's channel");
+        // Flushing applies the forced position now; the next draw is what it would have been.
+        let mut reference = GameRng::new(9);
+        let _ = reference.shuffled(crate::rng::domain::AGENDAS, &deck);
+        game.flush_rng_sync();
+        assert!(!game.rng_sync_pending());
+        assert_eq!(game.rng_positions(), at);
+        assert_eq!(
+            game.rng.die(crate::rng::domain::DICE, 10),
+            reference.die(crate::rng::domain::DICE, 10)
+        );
+        // The fork was taken before the flush, so it still sits at the unforced position.
+        assert_ne!(fork.rng_positions(), at);
+        let _ = fork.rng.die(crate::rng::domain::DICE, 10);
     }
 
     #[test]
