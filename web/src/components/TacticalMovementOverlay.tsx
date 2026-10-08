@@ -4,6 +4,7 @@ import { getMovementPayload, ChoiceRendererModel } from "../presentation/choiceM
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName, getUnitBaseType } from "./UnitIcon.tsx";
 import type { MovementStep } from "../protocol/client.ts";
+import { enRoutePickupSystems } from "../presentation/enRoutePickup.ts";
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
@@ -34,18 +35,43 @@ interface OriginShipGroup {
 }
 
 interface OriginCargoGroup {
+  /** The origin of the ship that carries it: loads are matched to ships by this. */
   originSystemId: string;
+  /** The system the unit stands in: the origin, or a system the ship moves through (95.1). */
+  pickupSystemId: string;
   unitType: string;
   source: string | null;
   damaged: boolean;
   totalAvailable: number;
+  /** Why this en-route pickup cannot be staged (the engine would take another unit instead). */
+  blocked?: string;
 }
+
+const cargoKey = (c: OriginCargoGroup) =>
+  `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}${
+    c.pickupSystemId === c.originSystemId ? "" : `@${c.pickupSystemId}`
+  }`;
+
+const cargoTestId = (c: OriginCargoGroup) =>
+  `${c.originSystemId}-${c.unitType}-${c.source ?? "space"}${
+    c.pickupSystemId === c.originSystemId ? "" : `-via-${c.pickupSystemId}`
+  }`;
 
 export interface ExecutionPlan {
   active: boolean;
   actor: string | null;
-  remainingShips: { origin: string; unitType: string; capacity: number; damaged: boolean }[];
-  remainingCargo: { origin: string; unitType: string; source: string | null; damaged: boolean }[];
+  remainingShips: {
+    origin: string;
+    unitType: string;
+    capacity: number;
+    damaged: boolean;
+  }[];
+  remainingCargo: {
+    origin: string;
+    unitType: string;
+    source: string | null;
+    damaged: boolean;
+  }[];
   currentShipOrigin: string | null;
   currentShipCapacity: number;
   currentShipLoadedCount: number;
@@ -181,7 +207,15 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     shipGroups.filter((g) => g.options.every((option) => option.gravityDrive)).map(groupKey),
   );
 
-  // Discover cargo (ground forces + fighters) in origin systems where ships can move from
+  const destinationSystemId =
+    activeSystemId ??
+    (model?.selectionMode.mode === "tactical_move" ? model.selectionMode.activeSystem : null) ??
+    (choice?.context?.target && "System" in choice.context.target
+      ? choice.context.target.System
+      : null);
+
+  // Discover cargo (ground forces + fighters) in origin systems where ships can move from, and in
+  // the systems such a ship moves through (95.1)
   const originCargoGroups = useMemo(() => {
     if (!choice || isCargoStep || !board?.systems) return [] as OriginCargoGroup[];
 
@@ -214,6 +248,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
         } else {
           cargoMap.set(key, {
             originSystemId: origin,
+            pickupSystemId: origin,
             unitType: u.unit_type,
             source,
             damaged,
@@ -223,8 +258,55 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
       }
     }
 
+    // 95.1: a ship also picks up from each system it moves through. Planet units are exact; a unit
+    // in a space area is offered once per kind by the engine (the first one in route order), so it
+    // is only stageable when no other system holds the same kind.
+    if (destinationSystemId && choice) {
+      for (const origin of originsWithMovable) {
+        const route = enRoutePickupSystems(board, origin, destinationSystemId, choice.actor);
+        for (const pickup of route) {
+          for (const u of board.systems[pickup]?.units ?? []) {
+            if (u.owner !== choice.actor) continue;
+            const base = getUnitBaseType(u.unit_type);
+            if (base !== "infantry" && base !== "mech" && base !== "fighter") continue;
+            const source = u.planet ?? null;
+            const damaged = Boolean(u.damaged);
+            const group: OriginCargoGroup = {
+              originSystemId: origin,
+              pickupSystemId: pickup,
+              unitType: u.unit_type,
+              source,
+              damaged,
+              totalAvailable: 1,
+            };
+            const key = cargoKey(group);
+            const existing = cargoMap.get(key);
+            if (existing) {
+              existing.totalAvailable += 1;
+            } else {
+              cargoMap.set(key, group);
+            }
+          }
+        }
+      }
+      for (const group of cargoMap.values()) {
+        if (group.pickupSystemId === group.originSystemId || group.source !== null) continue;
+        const sameKind = Array.from(cargoMap.values()).some(
+          (other) =>
+            other !== group &&
+            other.originSystemId === group.originSystemId &&
+            other.source === null &&
+            other.unitType === group.unitType &&
+            other.damaged === group.damaged,
+        );
+        if (sameKind) {
+          group.blocked = `Units of this kind in ${group.originSystemId} or on the route are taken in route order; stage that group instead`;
+        }
+      }
+    }
+
     return Array.from(cargoMap.values());
-  }, [choice, board, shipGroups, isCargoStep]);
+  }, [choice, board, shipGroups, isCargoStep, destinationSystemId]);
 
   // Reset staging on choice nonce change only when NOT actively executing
   useEffect(() => {
@@ -236,13 +318,6 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   }, [choice?.nonce]);
 
   const fleetTokens = player?.fleet_tokens;
-
-  const destinationSystemId =
-    activeSystemId ??
-    (model?.selectionMode.mode === "tactical_move" ? model.selectionMode.activeSystem : null) ??
-    (choice?.context?.target && "System" in choice.context.target
-      ? choice.context.target.System
-      : null);
 
   // Existing non-fighter ships already in active destination system
   const existingNonFightersInDestination = useMemo(() => {
@@ -289,7 +364,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
 
     // 2. Staged pooled cargo from origin
     for (const c of originCargoGroups) {
-      const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
+      const key = cargoKey(c);
       const count = stagedMoves[key] ?? 0;
       if (count === 0) continue;
       cargo += count;
@@ -328,6 +403,22 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
   const spareCapacity = (origin: string) =>
     (capacityByOrigin[origin] ?? 0) - (cargoByOrigin[origin] ?? 0);
   const noCapacityTitle = "No free transport capacity from this system: stage a carrier first";
+
+  // Two origins can share a system on their route; the same unit cannot ride with both.
+  const cargoMax = (c: OriginCargoGroup) => {
+    const key = cargoKey(c);
+    const others = originCargoGroups
+      .filter(
+        (o) =>
+          cargoKey(o) !== key &&
+          o.pickupSystemId === c.pickupSystemId &&
+          o.unitType === c.unitType &&
+          o.source === c.source &&
+          o.damaged === c.damaged,
+      )
+      .reduce((sum, o) => sum + (stagedMoves[cargoKey(o)] ?? 0), 0);
+    return c.blocked ? 0 : Math.max(0, c.totalAvailable - others);
+  };
 
   const totalProjectedFleet = existingNonFightersInDestination + totalNonFightersMoving;
   const isOverFleetSupply = fleetTokens !== undefined && totalProjectedFleet > fleetTokens;
@@ -579,7 +670,7 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
     // Collect cargo to load
     const cargo: ExecutionPlan["remainingCargo"] = [];
     for (const c of originCargoGroups) {
-      const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
+      const key = cargoKey(c);
       const count = stagedMoves[key] ?? 0;
       for (let i = 0; i < count; i++) {
         cargo.push({
@@ -648,6 +739,19 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
             if (u.owner !== choice?.actor) continue;
             const base = getUnitBaseType(u.unit_type);
             if (base === "infantry" || base === "mech" || base === "fighter") count++;
+          }
+          // ...and own forces in the systems it moves through (95.1).
+          for (const pickup of enRoutePickupSystems(
+            board,
+            ship.origin,
+            destinationSystemId,
+            choice?.actor ?? "",
+          )) {
+            for (const u of board?.systems?.[pickup]?.units ?? []) {
+              if (u.owner !== choice?.actor) continue;
+              const base = getUnitBaseType(u.unit_type);
+              if (base === "infantry" || base === "mech" || base === "fighter") count++;
+            }
           }
           remainingCandidatesByOrigin[ship.origin] = count;
         }
@@ -849,7 +953,13 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                               justifyContent: "space-between",
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.6rem",
+                              }}
+                            >
                               <UnitIcon type={g.unitType} size={22} />
                               <div>
                                 <div className="workflow-unit-name">
@@ -917,13 +1027,14 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                     <>
                       <div className="origin-system-group__section-title">Carryable Cargo</div>
                       {cargoForOrigin.map((c) => {
-                        const key = `cargo:${c.originSystemId}:${c.unitType}:${c.source ?? "space"}${c.damaged ? ":damaged" : ""}`;
+                        const key = cargoKey(c);
                         const count = stagedMoves[key] ?? 0;
+                        const maxStage = cargoMax(c);
 
                         return (
                           <div
                             key={key}
-                            data-testid={`rally-row-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                            data-testid={`rally-row-cargo-${cargoTestId(c)}`}
                             className="workflow-card workflow-card--row"
                             style={{
                               display: "flex",
@@ -931,7 +1042,13 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                               justifyContent: "space-between",
                             }}
                           >
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.6rem",
+                              }}
+                            >
                               <UnitIcon type={c.unitType} size={18} />
                               <div>
                                 <div className="workflow-unit-name">
@@ -939,8 +1056,10 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                                   {c.damaged ? " (Damaged)" : ""}
                                 </div>
                                 <div className="text-muted">
-                                  Origin: #{c.originSystemId} ({c.source ?? "Space"}) • Available:{" "}
-                                  {c.totalAvailable}
+                                  {c.pickupSystemId === c.originSystemId
+                                    ? `Origin: #${c.originSystemId}`
+                                    : `On the way: #${c.pickupSystemId}`}{" "}
+                                  ({c.source ?? "Space"}) • Available: {maxStage}
                                 </div>
                               </div>
                             </div>
@@ -948,33 +1067,34 @@ export const TacticalMovementOverlay: React.FC<TacticalMovementOverlayProps> = (
                             <div className="workflow-row">
                               <button
                                 type="button"
-                                data-testid={`rally-dec-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                                onClick={() => handleUpdateCount(key, -1, c.totalAvailable)}
+                                data-testid={`rally-dec-cargo-${cargoTestId(c)}`}
+                                onClick={() => handleUpdateCount(key, -1, maxStage)}
                                 disabled={count <= 0 || isExecuting || isDirectSubmitting}
                                 className="button button--secondary button--icon workflow-button--stepper"
                               >
                                 -
                               </button>
                               <span
-                                data-testid={`rally-count-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
+                                data-testid={`rally-count-cargo-${cargoTestId(c)}`}
                                 className="workflow-count"
                               >
                                 {count}
                               </span>
                               <button
                                 type="button"
-                                data-testid={`rally-inc-cargo-${c.originSystemId}-${c.unitType}-${c.source ?? "space"}`}
-                                onClick={() => handleUpdateCount(key, 1, c.totalAvailable)}
+                                data-testid={`rally-inc-cargo-${cargoTestId(c)}`}
+                                onClick={() => handleUpdateCount(key, 1, maxStage)}
                                 disabled={
-                                  count >= c.totalAvailable ||
+                                  count >= maxStage ||
                                   spareCapacity(c.originSystemId) <= 0 ||
                                   isExecuting ||
                                   isDirectSubmitting
                                 }
                                 title={
-                                  count < c.totalAvailable && spareCapacity(c.originSystemId) <= 0
+                                  c.blocked ??
+                                  (count < maxStage && spareCapacity(c.originSystemId) <= 0
                                     ? noCapacityTitle
-                                    : undefined
+                                    : undefined)
                                 }
                                 className="button button--secondary button--icon workflow-button--stepper"
                               >
