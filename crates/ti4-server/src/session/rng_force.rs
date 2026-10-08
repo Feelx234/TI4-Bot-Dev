@@ -145,10 +145,19 @@ impl RngForce {
     /// Connect the game's random source and its decks to this force.
     pub fn attach(&self, game: &mut Game<'_>) {
         game.set_rng_sync(Some(Arc::clone(&self.sync)));
-        game.state.deck_reserve = Some(DeckReserve::new(
-            Arc::clone(&self.cursor),
-            self.marks.deck_plan.clone(),
-        ));
+        // A game forked from a step-boundary copy already carries the reserve as it stood there
+        // (pending reservations consumed so far, the draw log, an independent cursor): keep it
+        // and follow this force's cursor from the copy's position. A new game starts one from
+        // the recorded plan.
+        match game.state.deck_reserve.as_mut() {
+            Some(reserve) => reserve.rebind(&self.cursor),
+            None => {
+                game.state.deck_reserve = Some(DeckReserve::new(
+                    Arc::clone(&self.cursor),
+                    self.marks.deck_plan.clone(),
+                ));
+            }
+        }
     }
 
     /// Call when decision `index` is about to be answered from the record.

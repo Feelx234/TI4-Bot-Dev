@@ -1396,3 +1396,137 @@ fn a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards() {
     let (_, ok) = run(&gone, 1);
     assert!(!ok, "a missing reserved card is reported");
 }
+
+/// Replays `decisions` with `marks` forced (card reservations included), forking at step
+/// boundaries inside the redone turn and the replayed tail. Every fork continues exactly like the
+/// original and never moves the original's cursor.
+#[test]
+fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor() {
+    struct Forced {
+        script: Vec<String>,
+        at: usize,
+        force: RngForce,
+    }
+    impl Decider for Forced {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            let index = self.at;
+            let Some(wanted) = self.script.get(index) else {
+                return Err(IllegalChoice::DeciderFailed {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                    reason: "done".to_owned(),
+                });
+            };
+            self.at += 1;
+            self.force.before_answer(index);
+            choice
+                .option(wanted)
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: wanted.clone(),
+                    offered: Vec::new(),
+                })
+        }
+    }
+    fn run_out(game: &mut Game<'static>, len: usize) {
+        while game.table.log.records.len() < len {
+            let result = game.step();
+            if result.error.is_some() || result.finished {
+                break;
+            }
+        }
+    }
+    fn cursor(game: &Game<'static>) -> usize {
+        game.state.deck_reserve.as_ref().expect("a reserve").cursor()
+    }
+    fn outcome(game: &Game<'static>) -> (serde_json::Value, Vec<ReservedDraw>, Vec<String>) {
+        (
+            serde_json::to_value(&game.state).unwrap(),
+            game.state
+                .deck_reserve
+                .as_ref()
+                .map(|r| r.draws().to_vec())
+                .unwrap_or_default(),
+            game.table.log.records.iter().map(|r| r.chosen.clone()).collect(),
+        )
+    }
+
+    let mut forks = 0;
+    let mut forks_with_reservations = 0;
+    for f in fixtures() {
+        let r = &f.s.redo;
+        let decisions = &r.result.decisions;
+        let marks = &r.result.marks;
+        let script: Vec<String> = decisions.iter().map(|d| d.chosen.clone()).collect();
+        let build = |script: &[String]| {
+            let force = RngForce::always(marks);
+            let table = Table::with_default(Box::new(Forced {
+                script: script.to_vec(),
+                at: 0,
+                force: force.clone(),
+            }));
+            let mut game = Game::with_table(f.state.clone(), ContentStore::embedded(), table)
+                .with_galaxy(f.galaxy.clone());
+            force.attach(&mut game);
+            game
+        };
+        let mut game = build(&script);
+        run_out(&mut game, r.window.start);
+        let end = r.result.prefix_len + r.result.kept;
+        let span = (end - r.window.start).max(1);
+        // The original, run to the end without any fork, is the reference.
+        let reference = {
+            let mut plain = build(&script);
+            run_out(&mut plain, decisions.len());
+            outcome(&plain)
+        };
+        for i in 0..6 {
+            let at = r.window.start + span * i / 6;
+            run_out(&mut game, at);
+            game.flush_rng_sync();
+            if game.rng_sync_pending() {
+                continue;
+            }
+            let before = cursor(&game);
+            let logged_before = game.state.deck_reserve.as_ref().map(|r| r.draws().len());
+            // A fork with its own driver and force (the batch simulation / resumed session).
+            let mut fork = game.fork();
+            let (own, forked) = (
+                game.state.deck_reserve.as_ref().unwrap(),
+                fork.state.deck_reserve.as_ref().unwrap(),
+            );
+            assert!(!own.shares_cursor_with(forked), "{}: a fork shares the cursor", f.label);
+            assert_eq!(own.draws(), forked.draws());
+            let snapshot_game = game.snapshot().instantiate();
+            assert!(
+                !own.shares_cursor_with(snapshot_game.state.deck_reserve.as_ref().unwrap()),
+                "{}: an instantiated snapshot shares the cursor",
+                f.label
+            );
+            let fork_force = RngForce::always(marks);
+            fork.table.set_default(Box::new(Forced {
+                script: script.clone(),
+                at: game.table.log.records.len(),
+                force: fork_force.clone(),
+            }));
+            fork_force.attach(&mut fork);
+            assert_eq!(cursor(&fork), before, "{}: the fork starts at the same position", f.label);
+            run_out(&mut fork, decisions.len());
+            assert_eq!(cursor(&game), before, "{}: the fork moved the original's cursor", f.label);
+            assert_eq!(
+                game.state.deck_reserve.as_ref().map(|r| r.draws().len()),
+                logged_before,
+                "{}: the fork logged draws on the original",
+                f.label
+            );
+            assert_eq!(outcome(&fork), reference, "{}: fork at {at}", f.label);
+            forks += 1;
+            forks_with_reservations += usize::from(before != ti4_model::deck_reserve::IDLE);
+        }
+        run_out(&mut game, decisions.len());
+        assert_eq!(outcome(&game), reference, "{}: the forked-from original", f.label);
+    }
+    assert!(forks >= 12, "forks checked: {forks}");
+    assert!(forks_with_reservations >= 8, "forks inside the replay: {forks_with_reservations}");
+}

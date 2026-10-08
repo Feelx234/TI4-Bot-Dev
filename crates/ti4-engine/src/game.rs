@@ -1023,6 +1023,20 @@ pub struct GameSnapshot<'a> {
     blocked: Option<GameError>,
 }
 
+/// A copy of `state` for a fork or snapshot. A plain `clone` shares the turn-redo deck reserve's
+/// cursor (an `Arc<AtomicUsize>` the replay driver moves), so a fork stepping forward would move
+/// the live game's cursor. The copy gets its own cursor at the same position instead; the
+/// reservations and the draw log are copied by value with the rest of the state. (Rollback clones
+/// inside the engine keep sharing the cursor on purpose: the same game rewinds.)
+fn detached_state(state: &GameState) -> GameState {
+    let mut copy = state.clone();
+    copy.deck_reserve = state
+        .deck_reserve
+        .as_ref()
+        .map(ti4_model::deck_reserve::DeckReserve::detached);
+    copy
+}
+
 impl<'a> GameSnapshot<'a> {
     /// A new game from this snapshot (the snapshot stays usable). First-option deciders, no
     /// callbacks, no RNG side channel.
@@ -1065,7 +1079,7 @@ impl<'a> GameSnapshot<'a> {
             blocked,
         } = self;
         Game {
-            state: state.clone(),
+            state: detached_state(state),
             table: Table::from_state(table.clone()),
             events: events.clone(),
             timing: timing.instantiate(),
@@ -1264,7 +1278,7 @@ impl<'a> Game<'a> {
         let mut rng = rng.clone();
         rng.set_sync(None);
         GameSnapshot {
-            state: state.clone(),
+            state: detached_state(state),
             table: if keep_log {
                 table.state()
             } else {

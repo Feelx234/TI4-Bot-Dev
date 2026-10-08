@@ -47,6 +47,8 @@ Enforcement, so this cannot silently rot:
 - Where the copy is used: the session worker keeps one step-boundary copy (`crates/ti4-server/src/session/step_snapshot.rs`); `batch::simulate` forks it and a committed batch's replacement session resumes from it. It is used only when its history generation and decision-log prefix match; anything else falls back to the full replay.
 - Mutable state captured inside registered timing-ability closures is NOT copied (the closures are shared); keep rules state in `GameState` or the resolver.
 
+- The turn-redo card reserve (`GameState.deck_reserve`, serde-skipped) holds a shared `Arc<AtomicUsize>` cursor that the replay driver moves. `Game::snapshot`/`instantiate` therefore copy the state through `detached_state`, which gives the copy its OWN cursor at the same position (pending reservations and the draw log are copied by value); `RngForce::attach` on a forked game keeps that reserve and rebinds it to the new force's cursor instead of building a fresh one. Rollback clones inside the engine intentionally keep sharing the cursor. Test: `turn_redo.rs::a_fork_during_a_redo_timeline_...`; batch after redo: `batch_after_redo.rs`.
+
 Never "fix" a failing fork test by weakening the comparison; copy the missing field.
 
 ## Testing discipline

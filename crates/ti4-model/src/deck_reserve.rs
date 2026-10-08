@@ -92,6 +92,36 @@ impl DeckReserve {
         }
     }
 
+    /// A copy with its own cursor at the same position (for a fork or snapshot): the pending
+    /// reservations and the draw log are copied by value, only the shared cursor is split.
+    #[must_use]
+    pub fn detached(&self) -> Self {
+        Self {
+            cursor: Arc::new(AtomicUsize::new(self.cursor.load(Ordering::Relaxed))),
+            ..self.clone()
+        }
+    }
+
+    /// Follow `cursor` instead of the current one, which is set to the current position first
+    /// (a fork resumed under a new replay driver).
+    pub fn rebind(&mut self, cursor: &Arc<AtomicUsize>) {
+        cursor.store(self.cursor.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.cursor = Arc::clone(cursor);
+    }
+
+    /// Whether both reserves move the same cursor (true for a plain clone, false for a
+    /// [`DeckReserve::detached`] copy).
+    #[must_use]
+    pub fn shares_cursor_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.cursor, &other.cursor)
+    }
+
+    /// Where the cursor stands now (a decision index, [`IDLE`] or [`LIVE`]).
+    #[must_use]
+    pub fn cursor(&self) -> usize {
+        self.cursor.load(Ordering::Relaxed)
+    }
+
     /// Every draw made so far (tagged with the cursor), oldest first.
     #[must_use]
     pub fn draws(&self) -> &[ReservedDraw] {
