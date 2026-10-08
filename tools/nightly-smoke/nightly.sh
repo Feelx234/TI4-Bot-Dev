@@ -521,13 +521,22 @@ slot_loop() {
   if [ "$NSLOTS" -gt 1 ]; then log "slot $SLOT finished after $n runs"; else log "sweep finished after $n runs"; fi
 }
 
+slot_signal() { # slot_signal <name> <exit status>
+  trap '' TERM INT HUP
+  cleanup_slot "$SLOT" "$1"
+  exit "$2"
+}
+
 # A parallel worker: stagger, set up the slot's worktree, play until the window ends. Runs in a
 # subshell of the sweep; its own traps file the entry of its run when the sweep is stopped.
 slot_main() { # slot_main <k>
   slot_init "$1"
-  trap 'cleanup_slot "$SLOT" SIGTERM; exit 143' TERM
-  trap 'cleanup_slot "$SLOT" SIGINT; exit 130' INT
-  trap 'cleanup_slot "$SLOT" SIGHUP; exit 129' HUP
+  # A signal can reach a worker twice (once from the sweep, once as part of a process group kill,
+  # e.g. `timeout`): the handler ignores further signals first, or the second one would cut the
+  # cleanup short.
+  trap 'slot_signal SIGTERM 143' TERM
+  trap 'slot_signal SIGINT 130' INT
+  trap 'slot_signal SIGHUP 129' HUP
   trap 'cleanup_slot "$SLOT" exit' EXIT
   [ "$SLOT" -le 1 ] || nap $(( (SLOT - 1) * SLOT_STAGGER_SECONDS ))
   if ! slot_prepare; then
@@ -589,7 +598,14 @@ cmd_loop() {
   fi
 
   local k pid
-  # A run left active by a sweep that died without cleaning up (SIGKILL) is closed off first.
+  # A run left active by a sweep that died without cleaning up (SIGKILL, or killed half way through
+  # the cleanup: its claim file is still there) is closed off first.
+  local claim
+  for claim in "$NIGHT_DIR"/.active-s*.claim.*; do
+    [ -f "$claim" ] || continue
+    k=${claim##*/.active-s}; k=${k%%.*}
+    [ -e "$NIGHT_DIR/.active-s$k" ] && rm -f "$claim" || mv -f "$claim" "$NIGHT_DIR/.active-s$k"
+  done
   for k in $(seq 1 "$NSLOTS"); do cleanup_slot "$k" "earlier sweep died"; done
   if [ "$NSLOTS" -le 1 ]; then
     slot_init 1

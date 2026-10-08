@@ -319,6 +319,33 @@ check "restart: finished normally" "$(yesno test -e "$ND/sweep.done")" yes
 check "restart: the old entries are still the only terminated ones" "$(grep -c 'sweep terminated mid-run' "$ND/report.md")" 2
 unset STUB_RUN_SECONDS
 
+echo "== SIGTERM to the whole process group (as timeout(1) does) still cleans up each run once"
+setup_env "$TMP/group"
+export NIGHTLY_SLOTS=2 STUB_HANG=1
+setsid bash "$NIGHTLY_SH" loop "$NIGHT" > "$E/loop.out" 2>&1 &
+LOOP=$!
+check_true "group: both games started" bash -c "for i in \$(seq 1 150); do [ -e '$E/hang-s1.ready' ] && [ -e '$E/hang-s2.ready' ] && exit 0; sleep 0.2; done; exit 1"
+g1=$(cat "$E/fake-game-s1.pid"); g2=$(cat "$E/fake-game-s2.pid")
+kill -TERM -- "-$LOOP"
+t0=$SECONDS
+wait "$LOOP"; rc=$?
+check "group: the sweep exits with 143" "$rc" 143
+check_true "group: the cleanup did not hang (under 40 s)" test $((SECONDS - t0)) -lt 40
+check_true "group: both games are gone" bash -c "! kill -0 $g1 2>/dev/null && ! kill -0 $g2 2>/dev/null"
+check "group: exactly one entry per run" "$(grep -c '^## Run s[12]-01-2030 — sweep terminated mid-run (SIGTERM)' "$ND/report.md")" 2
+check_true "group: both digests exist" bash -c "[ -s '$ND/runs/s1-01-2030/digest.md' ] && [ -s '$ND/runs/s2-01-2030/digest.md' ]"
+check "group: no active or claim files are left" "$(ls -a "$ND" | grep -c '^\.active-s')" 0
+check "group: no stray processes" "$(stray)" 0
+# A cleanup that was killed half way leaves its claim file; the next sweep closes that run off.
+mkdir -p "$ND/runs/s1-05-2100"; echo '{"preset":"stub"}' > "$ND/runs/s1-05-2100/meta.json"
+printf '%s\n%s\n%s\n' "$ND/runs/s1-05-2100" s1-05-2100 "" > "$ND/.active-s1.claim.12345"
+unset STUB_HANG
+export STUB_RUN_SECONDS=34000
+run_loop loop2
+check_true "claim: the half-cleaned run got its entry at the next start" grep -q '^## Run s1-05-2100 — sweep terminated mid-run (earlier sweep died)' "$ND/report.md"
+check "claim: the next run of slot 1 is 06" "$(ls "$ND/runs" | grep -c '^s1-06-')" 1
+unset STUB_RUN_SECONDS
+
 echo "== a signal while no slot has a run adds no entry; a stale active file is closed off at the next start"
 setup_env "$TMP/idle"
 export NIGHTLY_SLOTS=2 NIGHTLY_MIN_FREE_GB=999999 NIGHTLY_DISK_WAIT_SECONDS=100 NIGHTLY_MAX_DISK_WAITS=5
