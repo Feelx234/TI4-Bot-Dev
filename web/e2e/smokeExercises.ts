@@ -312,7 +312,11 @@ export class RedoExercise {
     this.report.notes.push(line);
     this.d.log(`  redo: ${line}`);
     if (this.phase === "requested") this.httpFailure = line;
-    else {
+    else if (status === 409 && /Game advanced or a decision is in flight/.test(body)) {
+      // The tab asked with the version it had when the last decision of the new turn landed; the
+      // client treats this refusal as stale and asks again with the new version. Only counted.
+      this.report.notes.push("(stale-version 409 above is retried by the client; not a finding)");
+    } else {
       // Several tabs (the host and the redoing seat) each fire the auto-play: the losers get a 409/400.
       const kind = `${status} ${body.replace(/\d+/g, "N").slice(0, 80)}`;
       if (!this.httpKinds.has(kind)) {
@@ -346,14 +350,22 @@ export class RedoExercise {
   private async click(page: Page, testId: string, waitMs = 30_000): Promise<boolean> {
     const el = page.getByTestId(testId).first();
     const end = Date.now() + waitMs;
+    let minimized = false;
     while (Date.now() < end) {
       if ((await el.isVisible().catch(() => false)) && (await el.isEnabled().catch(() => false))) {
         try {
+          // The seat's own live question is a modal over the bar (by design): minimise it like a
+          // player would (Escape) instead of reaching through it.
+          if (!minimized && (await page.getByTestId("pending-choice-dialog").isVisible().catch(() => false))) {
+            minimized = true;
+            await page.keyboard.press("Escape");
+            await page.waitForTimeout(300);
+          }
           await el.click({ timeout: 4_000 });
           return true;
         } catch (err) {
           // Keep the reason (usually "intercepts pointer events"), then click through the DOM.
-          this.report.notes.push(`${testId}: normal click failed: ${(err instanceof Error ? err.message : String(err)).split("\n").slice(0, 3).join(" ").slice(0, 300)}`);
+          this.report.notes.push(`${testId}: normal click failed: ${(err instanceof Error ? err.message : String(err)).split("\n").slice(0, 12).join(" ").slice(0, 900)}`);
           return el.evaluate((b) => (b as HTMLButtonElement).click()).then(
             () => true,
             () => false,
