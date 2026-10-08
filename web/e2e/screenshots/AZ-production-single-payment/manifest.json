@@ -1,5 +1,5 @@
 {
-  "title": "Production: pay once for all builds",
+  "title": "Single Production Payment",
   "description": "Producing several units used to ask how to pay for every build. Now the player confirms the staged builds, is asked once how to pay for the whole production, and the engine's later payment questions are answered from that single choice. Anything unexpected stops the automatic payments and the normal payment is asked.",
   "tag": "web/e2e/screenshots/AZ-production-single-payment",
   "shots": [
