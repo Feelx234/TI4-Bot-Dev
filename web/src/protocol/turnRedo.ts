@@ -2,9 +2,11 @@
  * Turn redo (H7): a casual-play "replay my last turn". Mirrors `ti4-server/src/protocol/turn_redo.rs`.
  *
  * The game rewinds to the start of the seat's turn (same fixed seed), the seat plays a new turn
- * live, then the round auto-plays from the other seats' recorded decisions until it reaches the
- * redoing seat's next decision or the first decision that no longer fits. The timeline as it was
- * before the redo is kept on the server and can be restored.
+ * live, then the round auto-plays from the recorded decisions (the other seats', and the redoing
+ * seat's own that are not a turn start) until the redoing seat's next turn begins or the first
+ * decision that no longer fits. Cards keep their identity: a recorded draw gives the seat the
+ * card it got originally. The timeline as it was before the redo is kept on the server and can
+ * be restored.
  */
 
 export type TurnRedoCommand =
@@ -25,7 +27,7 @@ export type TurnRedoConflictKind =
   | "quantity_changed"
   | "engine_ended"
   | "engine_error"
-  | "deck_cursor";
+  | "reserved_card";
 
 const CONFLICT_KINDS: readonly string[] = [
   "actor",
@@ -36,14 +38,8 @@ const CONFLICT_KINDS: readonly string[] = [
   "quantity_changed",
   "engine_ended",
   "engine_error",
-  "deck_cursor",
+  "reserved_card",
 ];
-
-export interface DeckDelta {
-  deck: string;
-  /** New timeline minus original, in remaining cards. */
-  delta: number;
-}
 
 export interface TurnRedoConflict {
   /** Index in the original timeline of the decision that did not fit. */
@@ -53,7 +49,15 @@ export interface TurnRedoConflict {
   seat: string;
   prompt: string;
   detail: string;
-  deck_deltas: DeckDelta[];
+  /** `reserved_card` only: the deck (`action_card`, `secret`, `exploration:<kind>`, ...). */
+  deck: string | null;
+  /**
+   * `reserved_card` only: the card that was reserved. Absent for a card of a hidden deck (action
+   * card, secret objective) when the viewer is not the seat it was reserved for.
+   */
+  card: string | null;
+  /** `reserved_card` only: the seat the card was reserved for. */
+  recipient: string | null;
 }
 
 export type TurnRedoStop =
@@ -62,13 +66,12 @@ export type TurnRedoStop =
   | { kind: "tail_exhausted" };
 
 export interface TurnRedoOutcome {
-  /** Recorded decisions of other seats that were replayed and kept. */
+  /** Recorded decisions that were replayed and kept (other seats', and the seat's own non-turn ones). */
   kept: number;
-  /** How many recorded decisions followed the redone turn in the original timeline. */
+  /** How many recorded decisions lay between the redone turn and the seat's next turn. */
   tail_total: number;
   stop: TurnRedoStop;
   asking_seat: string | null;
-  deck_offsets: DeckDelta[];
 }
 
 export interface TurnRedoStatus {
@@ -98,15 +101,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
-function decodeDeltas(value: unknown, what: string): DeckDelta[] {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) fail(`${what} must be a list`);
-  return value.map((item) => {
-    if (!isRecord(item) || typeof item.deck !== "string" || typeof item.delta !== "number")
-      fail(`invalid ${what} entry`);
-    return { deck: item.deck, delta: item.delta };
-  });
-}
+const optionalString = (value: unknown, what: string): string | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") fail(`${what} must be a string`);
+  return value;
+};
 
 function decodeStop(value: unknown): TurnRedoStop {
   if (!isRecord(value)) fail("invalid stop");
@@ -132,7 +131,9 @@ function decodeStop(value: unknown): TurnRedoStop {
         seat: c.seat,
         prompt: c.prompt,
         detail: c.detail,
-        deck_deltas: decodeDeltas(c.deck_deltas, "deck_deltas"),
+        deck: optionalString(c.deck, "deck"),
+        card: optionalString(c.card, "card"),
+        recipient: optionalString(c.recipient, "recipient"),
       },
     };
   }
@@ -148,7 +149,6 @@ function decodeOutcome(value: unknown): TurnRedoOutcome {
     tail_total: value.tail_total,
     stop: decodeStop(value.stop),
     asking_seat: (value.asking_seat as string | null | undefined) ?? null,
-    deck_offsets: decodeDeltas(value.deck_offsets, "deck_offsets"),
   };
 }
 

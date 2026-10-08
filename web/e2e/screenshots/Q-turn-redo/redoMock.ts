@@ -26,12 +26,13 @@ export const handoff: TurnRedoStatus = {
   handoff_len: 203,
   outcome: {
     kept: 11,
-    tail_total: 24,
+    tail_total: 11,
     stop: { kind: "handoff", seat: ME },
     asking_seat: ME,
-    deck_offsets: [{ deck: "action_card", delta: -1 }],
   },
 };
+
+const noCard = { deck: null, card: null, recipient: null };
 
 export const conflict: TurnRedoStatus = {
   ...newTurn,
@@ -39,7 +40,7 @@ export const conflict: TurnRedoStatus = {
   handoff_len: 196,
   outcome: {
     kept: 4,
-    tail_total: 24,
+    tail_total: 11,
     stop: {
       kind: "conflict",
       conflict: {
@@ -48,32 +49,56 @@ export const conflict: TurnRedoStatus = {
         seat: OTHER,
         prompt: "choose a system to activate",
         detail: "the options on offer are different now",
-        deck_deltas: [],
+        ...noCard,
       },
     },
     asking_seat: OTHER,
-    deck_offsets: [],
   },
 };
 
-export const deckConflict: TurnRedoStatus = {
+/** A card of a public deck (exploration) that was drawn for a recorded decision is gone. */
+export const reservedCard: TurnRedoStatus = {
   ...conflict,
   outcome: {
     kept: 2,
-    tail_total: 24,
+    tail_total: 11,
     stop: {
       kind: "conflict",
       conflict: {
         original_cursor: 193,
-        kind: "deck_cursor",
+        kind: "reserved_card",
         seat: OTHER,
-        prompt: "play an action card",
-        detail: "the new turn drew a different number of cards",
-        deck_deltas: [{ deck: "action_card", delta: 1 }],
+        prompt: "explore the planet",
+        detail: "the hazardous exploration card gamma_wormhole reserved for other_seat is no longer in the deck",
+        deck: "exploration:hazardous",
+        card: "gamma_wormhole",
+        recipient: OTHER,
       },
     },
     asking_seat: OTHER,
-    deck_offsets: [],
+  },
+};
+
+/** The same conflict for a card of a hidden deck, seen by a seat it was not reserved for. */
+export const reservedHiddenCard: TurnRedoStatus = {
+  ...conflict,
+  outcome: {
+    kept: 2,
+    tail_total: 11,
+    stop: {
+      kind: "conflict",
+      conflict: {
+        original_cursor: 193,
+        kind: "reserved_card",
+        seat: OTHER,
+        prompt: "play an action card",
+        detail: "an action card reserved for other_seat is no longer in the deck",
+        deck: "action_card",
+        card: null,
+        recipient: OTHER,
+      },
+    },
+    asking_seat: OTHER,
   },
 };
 

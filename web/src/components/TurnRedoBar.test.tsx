@@ -86,14 +86,14 @@ describe("TurnRedoBar", () => {
         tail_total: 30,
         stop: { kind: "handoff", seat: "p2" },
         asking_seat: "p2",
-        deck_offsets: [{ deck: "action_card", delta: -1 }],
       },
     });
     const bar = screen.getByTestId("turn-redo-bar");
     expect(bar).toHaveAttribute("data-state", "handoff");
     expect(bar.textContent).toMatch(/Back to Bo/);
-    expect(bar.textContent).toMatch(/9 decisions of the other seats were replayed/);
-    expect(screen.getByTestId("turn-redo-deck-offsets").textContent).toMatch(/action card -1/);
+    expect(bar.textContent).toMatch(/next turn begins/);
+    expect(bar.textContent).toMatch(/9 recorded decisions were replayed and kept/);
+    expect(bar.textContent).toMatch(/that seat's own reactions and votes/);
     fireEvent.click(screen.getByTestId("turn-redo-keep"));
     expect(handlers.onKeep).toHaveBeenCalledOnce();
     expect(screen.getByTestId("turn-redo-keep").textContent).toBe("Keep this timeline");
@@ -111,25 +111,57 @@ describe("TurnRedoBar", () => {
           kind: "conflict",
           conflict: {
             original_cursor: 108,
-            kind: "deck_cursor",
+            kind: "reserved_card",
             seat: "p3",
             prompt: "action phase",
             detail: "…",
-            deck_deltas: [{ deck: "action_card", delta: 1 }],
+            deck: "secret",
+            card: null,
+            recipient: "p2",
           },
         },
         asking_seat: "p3",
-        deck_offsets: [],
       },
     });
     const bar = screen.getByTestId("turn-redo-bar");
     expect(bar).toHaveAttribute("data-state", "conflict");
     expect(bar.textContent).toMatch(/1 recorded decision was kept/);
-    expect(bar.textContent).toMatch(/drew a different number of cards/);
+    expect(bar.textContent).toMatch(/a secret objective reserved for Bo is no longer in the deck/);
+    expect(bar.textContent).not.toMatch(/deck offset|different number of cards/);
     expect(bar.textContent).toMatch(/Cy decides/);
     expect(screen.getByTestId("turn-redo-keep").textContent).toBe("Continue from here");
     fireEvent.click(screen.getByTestId("turn-redo-restore"));
     expect(handlers.onRestore).toHaveBeenCalled();
+  });
+
+  it("says the replay stops at the next turn and names a public card that is gone", () => {
+    renderBar(base);
+    expect(screen.getByTestId("turn-redo-bar").textContent).toMatch(/stop when your next turn begins/);
+    renderBar({
+      ...base,
+      stage: "auto_played",
+      handoff_len: 106,
+      outcome: {
+        kept: 2,
+        tail_total: 9,
+        stop: {
+          kind: "conflict",
+          conflict: {
+            original_cursor: 108,
+            kind: "reserved_card",
+            seat: "p3",
+            prompt: "explore",
+            detail: "…",
+            deck: "exploration:hazardous",
+            card: "gamma_wormhole",
+            recipient: "p3",
+          },
+        },
+        asking_seat: "p3",
+      },
+    });
+    const bars = screen.getAllByTestId("turn-redo-bar");
+    expect(bars[1].textContent).toMatch(/the hazardous exploration card .* reserved for Cy is no longer in the deck/);
   });
 
   it("reports an exhausted tail", () => {
@@ -137,14 +169,14 @@ describe("TurnRedoBar", () => {
       ...base,
       stage: "auto_played",
       handoff_len: 120,
-      outcome: { kept: 4, tail_total: 4, stop: { kind: "tail_exhausted" }, asking_seat: null, deck_offsets: [] },
+      outcome: { kept: 4, tail_total: 4, stop: { kind: "tail_exhausted" }, asking_seat: null },
     });
     expect(screen.getByTestId("turn-redo-bar")).toHaveAttribute("data-state", "complete");
   });
 
   it("lets other players watch but not steer", () => {
     renderBar({ ...base, can_control: false, stage: "auto_played", handoff_len: 1, outcome: {
-      kept: 0, tail_total: 0, stop: { kind: "tail_exhausted" }, asking_seat: null, deck_offsets: [] } });
+      kept: 0, tail_total: 0, stop: { kind: "tail_exhausted" }, asking_seat: null } });
     expect(screen.getByTestId("turn-redo-bar")).toBeVisible();
     expect(screen.queryByTestId("turn-redo-restore")).toBeNull();
     expect(screen.queryByTestId("turn-redo-keep")).toBeNull();

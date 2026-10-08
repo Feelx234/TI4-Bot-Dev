@@ -1,6 +1,13 @@
 import React from "react";
 import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
-import type { TurnRedoConflictKind, TurnRedoStatus } from "../protocol/turnRedo.ts";
+import {
+  findActionCardMeta,
+  findExplorationCardMeta,
+  findPublicObjectiveMeta,
+  findSecretObjectiveMeta,
+  humanizeId,
+} from "../protocol/contentCatalog.ts";
+import type { TurnRedoConflict, TurnRedoConflictKind, TurnRedoStatus } from "../protocol/turnRedo.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 
 export interface TurnRedoBarProps {
@@ -22,18 +29,49 @@ const REASON: Record<TurnRedoConflictKind, string> = {
   quantity_changed: "the amounts owed or available are different now",
   engine_ended: "the game ended before the recorded decisions did",
   engine_error: "the game could not continue with the recorded decisions",
-  deck_cursor: "the new turn drew a different number of cards, so later draws would land differently",
+  reserved_card: "a card that was drawn for a recorded decision is no longer in the deck",
 };
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-const deckText = (deltas: readonly { deck: string; delta: number }[]) =>
-  deltas
-    .map(
-      ({ deck, delta }) =>
-        `${deck.replace(/_/g, " ").replace(":", " ")} ${delta > 0 ? "+" : ""}${delta}`,
-    )
-    .join(", ");
+const DECK_NOUN: Record<string, string> = {
+  action_card: "action card",
+  secret: "secret objective",
+  objective: "public objective",
+  relic: "relic",
+  agenda: "agenda",
+};
+
+/** "the action card Sabotage" / "an action card": the card is absent for a hidden deck's draw. */
+function reservedCardText(deck: string | null, card: string | null): string {
+  const kind = deck?.startsWith("exploration:")
+    ? `${deck.slice("exploration:".length)} exploration card`
+    : ((deck && DECK_NOUN[deck]) ?? "card");
+  if (!card) return `an ${kind}`.replace(/^an ([^aeiou])/, "a $1");
+  const meta =
+    deck === "action_card"
+      ? findActionCardMeta(card)
+      : deck === "secret"
+        ? findSecretObjectiveMeta(card)
+        : deck === "objective"
+          ? findPublicObjectiveMeta(card)
+          : deck?.startsWith("exploration:")
+            ? findExplorationCardMeta(card)
+            : undefined;
+  return `the ${kind} ${meta?.name ?? humanizeId(card)}`;
+}
+
+/** Why the replay stopped at a conflict, as one clause. */
+function conflictReason(
+  conflict: TurnRedoConflict,
+  name: (seat: string) => string,
+): string {
+  if (conflict.kind === "reserved_card") {
+    const who = name(conflict.recipient ?? conflict.seat);
+    return `${reservedCardText(conflict.deck, conflict.card)} reserved for ${who} is no longer in the deck`;
+  }
+  return REASON[conflict.kind];
+}
 
 /**
  * The strip for a turn redo in flight: waiting for the new turn, replaying the round, and where
@@ -69,33 +107,32 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   } else if (busy === "autoplay" || (status.stage === "new_turn" && status.turn_complete)) {
     state = "replaying";
     title = "Replaying the round…";
-    detail = `${name(status.seat)}'s new turn is done. The other seats' recorded decisions are being replayed with the original dice.`;
+    detail = `${name(status.seat)}'s new turn is done. The recorded decisions that followed are being replayed, with the original dice and the cards they drew, up to ${name(status.seat)}'s next turn.`;
     actions = busy ? "none" : "replay";
   } else if (status.stage === "new_turn") {
     state = "new-turn";
     title = `Redoing ${name(status.seat)}'s ${status.turns_back === 2 ? "last two turns" : "last turn"}`;
     detail =
-      "Play the new turn. When it ends, the other seats' recorded decisions replay on top of it, with the original dice.";
+      "Play the new turn. When it ends, the recorded decisions that followed replay on top of it, with the original dice and the cards they drew, and stop when your next turn begins.";
     actions = "restore";
   } else if (outcome?.stop.kind === "conflict") {
     const { conflict } = outcome.stop;
     state = "conflict";
     title = "The replay stopped";
-    detail = `${plural(outcome.kept, "recorded decision was", "recorded decisions were")} kept, then ${REASON[conflict.kind]}. ${name(conflict.seat)} decides "${conflict.prompt}" now.`;
+    detail = `${plural(outcome.kept, "recorded decision was", "recorded decisions were")} kept, then ${conflictReason(conflict, name)}. ${name(conflict.seat)} decides "${conflict.prompt}" now.`;
     actions = "decide";
   } else if (outcome?.stop.kind === "handoff") {
     state = "handoff";
-    title = `Back to ${name(outcome.stop.seat)}`;
-    detail = `${plural(outcome.kept, "decision", "decisions")} of the other seats ${outcome.kept === 1 ? "was" : "were"} replayed and kept.`;
+    title = `Back to ${name(outcome.stop.seat)}: the next turn begins`;
+    detail = `${plural(outcome.kept, "recorded decision", "recorded decisions")} ${outcome.kept === 1 ? "was" : "were"} replayed and kept, including that seat's own reactions and votes. Nothing more is replayed; the rest of the original stays in the saved timeline.`;
     actions = "decide";
   } else {
     state = "complete";
     title = "The recorded round was replayed";
-    detail = `All ${plural(outcome?.kept ?? 0, "decision", "decisions")} that followed the redone turn were kept.`;
+    detail = `All ${plural(outcome?.kept ?? 0, "recorded decision", "recorded decisions")} that followed the redone turn were kept.`;
     actions = "decide";
   }
 
-  const offsets = outcome?.deck_offsets ?? [];
   const control = status?.can_control ?? false;
 
   return (
@@ -110,11 +147,6 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
       <div className="turn-redo__text">
         <strong className="turn-redo__title">{title}</strong>
         {detail && <span className="turn-redo__detail">{detail}</span>}
-        {offsets.length > 0 && (
-          <span className="turn-redo__note" data-testid="turn-redo-deck-offsets">
-            Decks now sit a different number of cards from the original: {deckText(offsets)}.
-          </span>
-        )}
         {error && (
           <span className="turn-redo__error text-danger" data-testid="turn-redo-error">
             {error}

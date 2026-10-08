@@ -30,11 +30,9 @@ describe("decodeTurnRedoStatus", () => {
         tail_total: 9,
         stop: { kind: "handoff", seat: "p2" },
         asking_seat: "p2",
-        deck_offsets: [{ deck: "action_card", delta: -1 }],
       },
     });
     expect(handoff.outcome?.stop).toEqual({ kind: "handoff", seat: "p2" });
-    expect(handoff.outcome?.deck_offsets).toEqual([{ deck: "action_card", delta: -1 }]);
 
     const conflict = decodeTurnRedoStatus({
       ...base,
@@ -47,18 +45,22 @@ describe("decodeTurnRedoStatus", () => {
           kind: "conflict",
           conflict: {
             original_cursor: 108,
-            kind: "deck_cursor",
+            kind: "reserved_card",
             seat: "p3",
             prompt: "action phase",
-            detail: "the redone turn drew a different number of cards",
-            deck_deltas: [{ deck: "action_card", delta: 1 }],
+            detail: "the action card sabotage reserved for p3 is no longer in the deck",
+            deck: "action_card",
+            card: "sabotage",
+            recipient: "p3",
           },
         },
         asking_seat: "p3",
       },
     });
-    expect(conflict.outcome?.stop).toMatchObject({ kind: "conflict" });
-    expect(conflict.outcome?.deck_offsets).toEqual([]);
+    expect(conflict.outcome?.stop).toMatchObject({
+      kind: "conflict",
+      conflict: { kind: "reserved_card", deck: "action_card", card: "sabotage", recipient: "p3" },
+    });
 
     const done = decodeTurnRedoStatus({
       ...base,
