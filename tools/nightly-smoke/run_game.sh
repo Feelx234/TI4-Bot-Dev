@@ -46,12 +46,40 @@ start)
   [ "$(shuf -i 1-100 -n 1)" -le "$RECAP_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_RECAP=1 "
   [ "$(shuf -i 1-100 -n 1)" -le "$REDO_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_REDO=1 "
   exercises=$(echo "$exercise_env" | sed -e 's/TI4_SMOKE_//g' -e 's/=1//g' | tr 'A-Z_' 'a-z-' | xargs)
-  port=$(shuf -i 20000-49000 -n 1)
+  # The backend takes <port>, the frontend <port>+1. Skip ports that are bound right now or that a
+  # run still in progress (another slot, possibly still building) has picked.
+  port=""
+  for _ in $(seq 1 50); do
+    candidate=$(shuf -i 20000-49000 -n 1)
+    if python3 - "$candidate" "$(dirname "$run_dir")" <<'PY'
+import glob, json, os, socket, sys
+port, runs = int(sys.argv[1]), sys.argv[2]
+for meta in glob.glob(os.path.join(runs, "*", "meta.json")):
+    if os.path.exists(os.path.join(os.path.dirname(meta), "exit_code")):
+        continue
+    try:
+        other = int(json.load(open(meta))["backend_port"])
+    except Exception:
+        continue
+    if abs(other - port) <= 1:
+        sys.exit(1)
+for number in (port, port + 1):
+    sock = socket.socket()
+    try:
+        sock.bind(("127.0.0.1", number))
+    except OSError:
+        sys.exit(1)
+    finally:
+        sock.close()
+PY
+    then port=$candidate; break; fi
+  done
+  [ -n "$port" ] || port=$(shuf -i 20000-49000 -n 1)
   deadline="${DEADLINE:-$(( $(now_epoch) + 6 * 3600 ))}"
   # The code under test: nothing keeps interactive commits off the night branch while a game plays,
   # so each run records the commit and how many files differ from it.
-  commit=$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)
-  dirty_files=$(git -C "$REPO" status --porcelain 2>/dev/null | wc -l)
+  commit=$(git -C "$GAME_REPO" rev-parse HEAD 2>/dev/null || echo unknown)
+  dirty_files=$(git -C "$GAME_REPO" status --porcelain 2>/dev/null | wc -l)
   budget=$(( deadline - $(now_epoch) ))
   [ "$budget" -gt 60 ] || { echo "no time left before the deadline" >&2; exit 1; }
   cat > "$run_dir/meta.json" <<EOF

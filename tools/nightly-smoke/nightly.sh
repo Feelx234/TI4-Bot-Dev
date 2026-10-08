@@ -68,7 +68,14 @@ previous_pipeline_busy() (
 # Hand-off of fixer branches into the night branch. The fixers work in their own worktrees; their
 # commits arrive in $REPO only here, between games, so no game ever runs on changing sources.
 # ---------------------------------------------------------------------------------------------
-note_report() { echo "$*" >> "$NIGHT_DIR/report.md"; echo >> "$NIGHT_DIR/report.md"; }
+# Everything that goes into report.md is one append under a lock, so entries of parallel slots
+# (and the notes of the fix rounds) never interleave.
+report_append() { # report_append: stdin is appended as a whole
+  local text
+  text=$(cat; echo x)
+  ( flock 5; printf '%s' "${text%x}" >> "$NIGHT_DIR/report.md" ) 5>> "$NIGHT_DIR/.report.lock"
+}
+note_report() { printf '%s\n\n' "$*" | report_append; }
 note_once() { # note_once <round> <text>
   [ -f "$NIGHT_DIR/.merge-note-$1" ] && return 0
   touch "$NIGHT_DIR/.merge-note-$1"
@@ -110,15 +117,16 @@ merge_pending() { # merge_pending <verify: 1 builds after each merge and drops a
 # ---------------------------------------------------------------------------------------------
 # The sweep
 # ---------------------------------------------------------------------------------------------
-# Highest NN of the existing runs/NN-HHMM directories, 0 when there are none. A restarted sweep
-# (cron after a kill) continues from it, so run names stay unique within a night. Gaps and
-# directories that do not match the pattern are ignored.
-highest_run_number() { # highest_run_number <runs-dir>
-  local d name max=0 num
+# Highest NN of the existing runs/<prefix>NN-HHMM directories, 0 when there are none. A restarted
+# sweep (cron after a kill) continues from it, so run names stay unique within a night. Gaps and
+# directories that do not match the pattern are ignored. The prefix is empty for the classic
+# single-slot sweep and "sK-" for slot K of a parallel sweep (every slot counts on its own).
+highest_run_number() { # highest_run_number <runs-dir> [<prefix>]
+  local d name max=0 num prefix="${2:-}"
   for d in "$1"/*/; do
     [ -d "$d" ] || continue
     name=$(basename "$d")
-    [[ "$name" =~ ^([0-9]+)-[0-9]{4}$ ]] || continue
+    [[ "$name" =~ ^${prefix}([0-9]+)-[0-9]{4}$ ]] || continue
     num=$((10#${BASH_REMATCH[1]}))
     [ "$num" -gt "$max" ] && max=$num
   done
@@ -127,9 +135,8 @@ highest_run_number() { # highest_run_number <runs-dir>
 
 # sleep that a signal can interrupt at once (a foreground sleep would delay the traps).
 nap() { sleep "$1" & wait $! 2>/dev/null; }
-
-# State of the run in progress, read by the signal/exit trap.
-ACTIVE_RUN_DIR="" ACTIVE_RUN_NAME="" PROCTOR_PID="" CLEANUP_DONE=0
+# A process that exists and is not a zombie (a child that ended but was not waited for yet).
+alive() { local st; st=$(ps -o stat= -p "$1" 2>/dev/null); [ -n "$st" ] && [[ "$st" != Z* ]]; }
 
 # Kill the proctor's whole session (subshell, timeout, claude and everything claude started).
 kill_proctor_session() {
@@ -144,17 +151,88 @@ kill_proctor_session() {
   return 0
 }
 
-# Runs on SIGTERM/SIGINT/SIGHUP and on every exit of the loop. Idempotent (CLEANUP_DONE); does
-# nothing when no run is active. With a run active: stop the proctor and the game, build the
-# mechanical digest and append an entry marked "sweep terminated mid-run".
-sweep_cleanup() { # sweep_cleanup <reason>
-  [ "$CLEANUP_DONE" = 1 ] && return 0
-  CLEANUP_DONE=1
-  trap '' TERM INT HUP # a second signal must not interrupt the cleanup
-  kill_proctor_session "$PROCTOR_PID"
-  PROCTOR_PID=""
-  local run_dir="$ACTIVE_RUN_DIR" name="$ACTIVE_RUN_NAME"
-  ACTIVE_RUN_DIR=""
+# ---------------------------------------------------------------------------------------------
+# Slots. A slot is one worker that plays proctored games one after another. With NIGHTLY_SLOTS=1
+# the single slot is the classic sweep: it works in the live checkout on the night branch, run
+# names are NN-HHMM. With N >= 2 the sweep process only supervises N workers (subshells); slot K
+# works in its own git worktree $NIGHT_DIR/slot-K/repo on branch <night branch>-sK (so proctors
+# never share a working tree, index or branch), builds into its own cargo target dir, names its
+# runs sK-NN-HHMM and files its entries into the one shared report.md.
+# ---------------------------------------------------------------------------------------------
+NSLOTS=1 WORKER_PIDS=() CLEANUP_DONE=0
+SLOT=1 SLOT_TAG="" SDIR="" SREPO="" SBRANCH="" STARGET="" SUFFIX="" SACTIVE="" BASE_COMMIT="" MERGED_NOW=""
+
+# The number of slots the sweep of this night uses (written by the sweep; the fix rounds and the
+# summary follow the sweep, not their own environment).
+night_slots() {
+  local n=""
+  [ -s "$NIGHT_DIR/slots" ] && read -r n < "$NIGHT_DIR/slots"
+  case "${n:-}" in ''|*[!0-9]*|0) n="$SLOTS" ;; esac
+  case "$n" in ''|*[!0-9]*|0) n=1 ;; esac
+  echo "$n"
+}
+
+slot_init() { # slot_init <k>: sets the per-slot globals (no side effects)
+  SLOT="$1"
+  SACTIVE="$NIGHT_DIR/.active-s$1"
+  if [ "$NSLOTS" -le 1 ]; then
+    SLOT_TAG="" SDIR="$NIGHT_DIR" SREPO="$REPO" SBRANCH="$FIX_BRANCH" STARGET="" SUFFIX=""
+  else
+    SLOT_TAG="s$1-" SDIR="$NIGHT_DIR/slot-$1" SREPO="$NIGHT_DIR/slot-$1/repo" SBRANCH="$FIX_BRANCH-s$1" \
+      STARGET="$REPORT_ROOT/target-slot-$1" SUFFIX=" (slot $1)"
+  fi
+}
+
+# Make web/node_modules of the live checkout visible in a worktree (and keep git from seeing it).
+link_node_modules() { # link_node_modules <worktree>
+  local wt="$1" exclude
+  if [ -d "$REPO/web/node_modules" ] && [ ! -e "$wt/web/node_modules" ]; then
+    ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
+    exclude=$(git -C "$wt" rev-parse --git-path info/exclude)
+    grep -qxF '/web/node_modules' "$exclude" 2>/dev/null || echo '/web/node_modules' >> "$exclude"
+  fi
+}
+
+# Create (or, after a restart, refresh) this slot's worktree. A restarted slot drops the half-done
+# edits of a killed proctor and takes in anything the night branch gained meanwhile.
+slot_prepare() {
+  mkdir -p "$SDIR" || return 1
+  (
+    flock 4
+    git -C "$REPO" worktree prune
+    if [ ! -e "$SREPO/.git" ]; then
+      git -C "$REPO" worktree add -q -B "$SBRANCH" "$SREPO" "$FIX_BRANCH"
+    else
+      git -C "$SREPO" reset -q --hard HEAD || exit 1
+      if ! git -C "$SREPO" merge-base --is-ancestor "$FIX_BRANCH" HEAD; then
+        git -C "$SREPO" merge --no-edit -q "$FIX_BRANCH" || { git -C "$SREPO" merge --abort; exit 1; }
+      fi
+    fi
+  ) 4>"$NIGHT_DIR/.repo.lock" >> "$SDIR/prepare.log" 2>&1 || return 1
+  link_node_modules "$SREPO"
+  mkdir -p "$STARGET"
+}
+
+# The state of the run in progress is a file, $NIGHT_DIR/.active-sK (run dir, run name, proctor pid
+# on three lines). Whoever moves it away first owns the end of that run: the slot after its proctor
+# ended, the slot's own signal trap, or the supervisor's cleanup. So every run gets exactly one entry.
+set_active() { # set_active <run-dir> <run-name> [<proctor pid>]
+  printf '%s\n%s\n%s\n' "$1" "$2" "${3:-}" > "$SACTIVE.tmp" && mv -f "$SACTIVE.tmp" "$SACTIVE"
+}
+claim_active() { # claim_active: 0 when this process now owns the end of the slot's run
+  mv -f "$SACTIVE" "$SACTIVE.claim.$BASHPID" 2>/dev/null && rm -f "$SACTIVE.claim.$BASHPID"
+}
+
+# Stop the slot's proctor and game, build the mechanical digest and append an entry marked "sweep
+# terminated mid-run". Does nothing when the slot has no run active. Idempotent.
+cleanup_slot() { # cleanup_slot <slot> <reason>
+  local k="$1" reason="$2" claim run_dir="" name="" pid=""
+  slot_init "$k"
+  claim="$SACTIVE.claim.$BASHPID"
+  mv -f "$SACTIVE" "$claim" 2>/dev/null || return 0
+  { read -r run_dir; read -r name; read -r pid; } < "$claim"
+  rm -f "$claim"
+  kill_proctor_session "$pid"
   [ -n "$run_dir" ] || return 0
   timeout --kill-after=5 60 "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
   timeout --kill-after=5 120 python3 "$NIGHTLY_DIR/digest.py" "$run_dir" > "$run_dir/digest.md" 2>&1
@@ -165,27 +243,308 @@ sweep_cleanup() { # sweep_cleanup <reason>
     [ -n "$last" ] || last="unknown"
   fi
   {
-    echo "## Run $name — sweep terminated mid-run ($1), proctor failed, mechanical digest only"
+    echo "## Run $name — sweep terminated mid-run ($reason), proctor failed, mechanical digest only"
     echo
     echo "The sweep process ended while this run was active; the game and the proctor were stopped and there is no proctor entry. Last decision: $last. Evidence: \`$run_dir\`."
     if [ -s "$run_dir/proctor-entry.md" ]; then echo "A partial proctor entry was kept in \`$run_dir/proctor-entry.md\`."; fi
     echo
     cat "$run_dir/digest.md"
     echo
-  } >> "$NIGHT_DIR/report.md"
-  log "run $name: sweep terminated mid-run ($1); game stopped, digest appended"
+  } | report_append
+  log "run $name: sweep terminated mid-run ($reason); game stopped, digest appended"
+}
+
+# Runs on SIGTERM/SIGINT/SIGHUP and on every exit of the sweep process. Idempotent
+# (CLEANUP_DONE). With parallel slots every worker is told to clean up its own run (they do it
+# concurrently); whatever is left afterwards (a worker that died or hangs) is cleaned up here from
+# the slots' state files. With no run active nothing happens and no entry is written.
+sweep_cleanup() { # sweep_cleanup <reason>
+  [ "$CLEANUP_DONE" = 1 ] && return 0
+  CLEANUP_DONE=1
+  trap '' TERM INT HUP # a second signal must not interrupt the cleanup
+  local pid k t0=$SECONDS
+  for pid in "${WORKER_PIDS[@]}"; do kill -TERM "$pid" 2>/dev/null; done
+  for pid in "${WORKER_PIDS[@]}"; do
+    while alive "$pid" && [ $((SECONDS - t0)) -lt 300 ]; do sleep 0.5; done
+    alive "$pid" && kill -KILL "$pid" 2>/dev/null
+  done
+  for k in $(seq 1 "$NSLOTS"); do cleanup_slot "$k" "$1"; done
 }
 log_loop_exit() { log "sweep exited on signal or exit (wall time: $(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +"%F %T %Z"))"; }
 
+# --- hand-off of fixer branches into one slot's branch (parallel sweeps) -----------------------
+# Like merge_pending, but into this slot's own worktree and only between this slot's games. The
+# ready marker stays where it is (it is consumed once, into the night branch, after the sweep);
+# what a slot did with a branch is recorded next to the slot: $SDIR/.fixer-N.merged|.rejected|.conflict.
+merge_pending_slot() {
+  local r branch pre count
+  MERGED_NOW=""
+  for r in 1 2; do
+    [ -f "$NIGHT_DIR/fixer-$r.ready" ] || continue
+    if [ -e "$SDIR/.fixer-$r.merged" ] || [ -e "$SDIR/.fixer-$r.rejected" ] || [ -e "$SDIR/.fixer-$r.conflict" ]; then continue; fi
+    branch=$(cat "$NIGHT_DIR/fixer-$r.ready")
+    pre=$(git -C "$SREPO" rev-parse HEAD)
+    count=$(git -C "$SREPO" rev-list --count "$pre..$branch")
+    if git -C "$SREPO" merge --no-edit -q "$branch" >> "$SDIR/merge.log" 2>&1; then
+      touch "$SDIR/.fixer-$r.merged"
+      MERGED_NOW="$MERGED_NOW $r"
+      note_report "## Fixer round $r: merged $branch ($count commits) into $SBRANCH (slot $SLOT)"
+      log "fixer round $r: merged $branch ($count commits) into slot $SLOT"
+    else
+      git -C "$SREPO" merge --abort >> "$SDIR/merge.log" 2>&1 || true
+      touch "$SDIR/.fixer-$r.conflict"
+      note_report "## Fixer round $r: merge of $branch into slot $SLOT conflicted (with that slot's own repairs) and was aborted; the slot goes on without it (branch is kept for the user)"
+      log "fixer round $r: merge conflict in slot $SLOT, aborted"
+    fi
+  done
+}
+
+# After the sweep (and before a fix round starts) the slots' branches, with the proctors' repairs
+# and the fixer merges, come together in the night branch of the live checkout. A conflict between
+# two slots' repairs is aborted, noted once per branch tip, and the branch is kept for the user.
+integrate_slots() {
+  local d k branch count tip
+  ls -d "$NIGHT_DIR"/slot-*/repo > /dev/null 2>&1 || return 0
+  if [ "$(git -C "$REPO" branch --show-current)" != "$FIX_BRANCH" ]; then
+    note_once "slots" "the checkout is on '$(git -C "$REPO" branch --show-current)', not on $FIX_BRANCH; the slot branches $FIX_BRANCH-s* are kept for the user"
+    return 0
+  fi
+  (
+    flock 4
+    for d in "$NIGHT_DIR"/slot-*/repo; do
+      k=${d%/repo}; k=${k##*slot-}
+      branch="$FIX_BRANCH-s$k"
+      git -C "$REPO" show-ref -q --verify "refs/heads/$branch" || continue
+      count=$(git -C "$REPO" rev-list --count "$FIX_BRANCH..$branch")
+      [ "$count" -gt 0 ] || continue
+      tip=$(git -C "$REPO" rev-parse "$branch")
+      [ "$(cat "$NIGHT_DIR/.slot-s$k.conflict" 2>/dev/null)" = "$tip" ] && continue
+      if git -C "$REPO" merge --no-edit -q "$branch" >> "$NIGHT_DIR/merge.log" 2>&1; then
+        note_report "## Slot $k: merged $branch ($count commits) into $FIX_BRANCH"
+        log "slot $k: merged $branch ($count commits) into $FIX_BRANCH"
+      else
+        git -C "$REPO" merge --abort >> "$NIGHT_DIR/merge.log" 2>&1 || true
+        echo "$tip" > "$NIGHT_DIR/.slot-s$k.conflict"
+        note_report "## Slot $k: merge of $branch into $FIX_BRANCH conflicted and was aborted (branch is kept for the user)"
+        log "slot $k: merge conflict, aborted"
+      fi
+    done
+  ) 4>"$NIGHT_DIR/.repo.lock"
+}
+
+# Sentences about the parallel slots for the fixer and summary prompts (empty for one slot).
+slots_note_fixer() {
+  [ "$(night_slots)" -gt 1 ] || return 0
+  printf '%s' " The night ran $(night_slots) games in parallel (slots; run names sK-NN-HHMM, K = slot): the report mixes their entries, and the same bug may show up in two slots at once. Your commits are merged into every slot's branch between that slot's games."
+}
+slots_note_summary() {
+  local n
+  n=$(night_slots)
+  [ "$n" -gt 1 ] || return 0
+  printf '%s' "
+The night ran $n games in parallel (slots; run names sK-NN-HHMM with K = slot, entries of all slots are interleaved in the report). Each slot's proctor worked in its own worktree on the branch \`$FIX_BRANCH-sK\`; after the sweep these branches were merged into \`$FIX_BRANCH\` (the report says per slot whether that worked; a conflicting slot branch is kept and its commits are NOT in \`$FIX_BRANCH\`). A fixer round's merge was done per slot between that slot's games (markers \`$NIGHT_DIR/slot-K/.fixer-N.merged|.rejected|.conflict\`). Report lines like \"Slot K waiting for memory\" mean the memory gate delayed a start; list them under Harness / sweep issues."
+}
+
+# --- admission: memory ------------------------------------------------------------------------
+mem_needed_mb() {
+  local p max=0
+  for p in $PLAYER_COUNTS; do [ "$p" -gt "$max" ] && max=$p; done
+  echo $(( MEM_BASE_MB + MEM_PER_PLAYER_MB * max ))
+}
+mem_available_mb() { bash -c "$MEM_AVAIL_CMD" 2>/dev/null | head -n 1; }
+other_slot_active() {
+  local f
+  for f in "$NIGHT_DIR"/.active-s*; do
+    [ -f "$f" ] || continue
+    case "$f" in *.claim.*|*.tmp) continue ;; esac
+    [ "$f" = "$SACTIVE" ] || return 0
+  done
+  return 1
+}
+time_left() { [ $(( END_EPOCH - $(now_epoch) )) -gt "$MIN_RUN_SECONDS" ]; }
+# Parallel sweeps only. Takes the admission lock (fd 6; starts are one at a time) and, while another
+# slot has a run active, waits until mem_needed_mb is available. The lock stays held until the new
+# game has had SLOT_SETTLE_SECONDS to ramp up (admit_release), so the next check sees its memory.
+# Returns 1 when the window ended while waiting.
+admit_run() {
+  [ "$NSLOTS" -gt 1 ] || return 0
+  exec 6>"$NIGHT_DIR/.admit.lock"
+  until flock -n 6; do time_left || return 1; nap "$SLOT_POLL_SECONDS"; done
+  local need avail noted=0
+  need=$(mem_needed_mb)
+  while other_slot_active; do
+    avail=$(mem_available_mb)
+    case "$avail" in ''|*[!0-9]*) log "slot $SLOT: cannot read the available memory, starting anyway"; break ;; esac
+    [ "$avail" -ge "$need" ] && break
+    if [ "$noted" = 0 ]; then
+      noted=1
+      note_report "## Slot $SLOT waiting for memory: $avail MB available, a new game needs $need MB and another game is running (checked every ${MEM_WAIT_SECONDS}s)"
+    fi
+    log "slot $SLOT: low memory: $avail MB available, need $need MB"
+    time_left || { flock -u 6; return 1; }
+    nap "$MEM_WAIT_SECONDS"
+  done
+  [ "$noted" = 0 ] || log "slot $SLOT: memory is available now ($avail MB), starting"
+  return 0
+}
+admit_release() { # admit_release <proctor pid>: hold the lock while the new game ramps up
+  [ "$NSLOTS" -gt 1 ] || return 0
+  local t0=$SECONDS
+  while [ $((SECONDS - t0)) -lt "$SLOT_SETTLE_SECONDS" ] && alive "$1"; do nap 2; done
+  flock -u 6
+}
+
+branch_note() { # the sentence about the branch in the proctor prompt
+  if [ "$NSLOTS" -le 1 ]; then
+    printf '%s' "That branch is shared by every run tonight: earlier proctors' repairs are
+  already in it, and the next run is built from it."
+  else
+    printf '%s' "This is your own copy of the repository (slot $SLOT of $NSLOTS): another proctor is
+  probably playing a game in parallel on another slot, in a copy of its own, on the same machine
+  (its CPU, memory and log noise are not your run's, and its repairs are not in your copy). Your
+  branch is private to this slot: earlier runs' repairs of this slot are in it, fixer rounds'
+  commits are merged into it between this slot's games, and after the sweep all slots' branches
+  are merged into the night branch. The next run of this slot is built from it."
+  fi
+}
+
+# --- one slot's loop ----------------------------------------------------------------------------
+slot_loop() {
+  local n disk_waits=0 run_name run_dir prompt status r proctor_pid
+  n=$(highest_run_number "$NIGHT_DIR/runs" "$SLOT_TAG")
+  BASE_COMMIT=$(git -C "$SREPO" rev-parse HEAD)
+  while time_left; do
+    # No run (and no run directory) without free disk: a full disk used to turn the rest of a night
+    # into phantom runs and a truncated report. Wait for space, and give up after MAX_DISK_WAITS.
+    if ! disk_ok; then
+      disk_waits=$((disk_waits + 1))
+      if [ "$disk_waits" -eq 1 ]; then
+        note_report "## Waiting for disk space: $(free_gb) GB free, runs need $MIN_FREE_GB GB (checked every ${DISK_WAIT_SECONDS}s)$SUFFIX"
+      fi
+      log "low disk: $(free_gb) GB free, need $MIN_FREE_GB GB (check $disk_waits of $MAX_DISK_WAITS)$SUFFIX"
+      if [ "$disk_waits" -ge "$MAX_DISK_WAITS" ]; then
+        note_report "## Sweep stopped: the disk stayed below $MIN_FREE_GB GB for $MAX_DISK_WAITS checks$SUFFIX"
+        log "sweep stopped: no disk space$SUFFIX"; break
+      fi
+      nap "$DISK_WAIT_SECONDS"; continue
+    fi
+    disk_waits=0
+    n=$((n + 1))
+    run_name="$SLOT_TAG$(printf '%02d' "$n")-$(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +%H%M)"
+    run_dir="$NIGHT_DIR/runs/$run_name"
+    if ! mkdir -p "$run_dir"; then
+      note_report "## Run $run_name not started: cannot create $run_dir"
+      log "run $run_name: cannot create the run directory"
+      n=$((n - 1)); nap "$DISK_WAIT_SECONDS"; continue
+    fi
+    # Fixer branches that are ready come in now, between games, never during one.
+    MERGED_NOW=""
+    if [ "$NSLOTS" -gt 1 ]; then merge_pending_slot; else merge_pending 0; fi
+    # Build before every run so Playwright's backend start stays fast after a repair. A repair or
+    # merge that broke the build is dropped (reset to the last good commit), so one bad fix
+    # cannot cost the rest of the night.
+    if ! (cd "$SREPO" && { [ -z "$STARGET" ] || export CARGO_TARGET_DIR="$STARGET"; } && bash -c "$BUILD_CMD") > "$run_dir/build.log" 2>&1; then
+      if [ "$(git -C "$SREPO" rev-parse HEAD)" != "$BASE_COMMIT" ]; then
+        # Only proctor commits and fixer merges exist past the last good build; drop them (they
+        # stay in the reflog and in the fixer branches).
+        git -C "$SREPO" reset -q --hard "$BASE_COMMIT" >> "$run_dir/build.log" 2>&1
+        for r in $MERGED_NOW; do
+          if [ "$NSLOTS" -gt 1 ]; then mv "$SDIR/.fixer-$r.merged" "$SDIR/.fixer-$r.rejected" 2>/dev/null
+          else mv "$NIGHT_DIR/.fixer-$r.merged" "$NIGHT_DIR/.fixer-$r.rejected" 2>/dev/null; fi
+        done
+        { echo "## Before run $run_name: a proctor repair or fixer merge broke the build; branch reset to the last good commit${MERGED_NOW:+ (fixer round(s)$MERGED_NOW rejected)}"; echo; } | report_append
+        log "run $run_name: build broke, reset to last good commit"
+        rm -rf "$run_dir"; n=$((n - 1)); continue
+      fi
+      if [ "$NSLOTS" -gt 1 ]; then
+        { echo "## Build failed on slot $SLOT — no more runs on this slot tonight"; echo '```'; tail -n 60 "$run_dir/build.log"; echo '```'; } | report_append
+        log "build failed (slot $SLOT)"; break
+      fi
+      { echo "## Build failed — no runs tonight"; echo '```'; tail -n 60 "$run_dir/build.log"; echo '```'; } | report_append
+      log "build failed"; break
+    fi
+    BASE_COMMIT=$(git -C "$SREPO" rev-parse HEAD)
+    # Parallel sweeps: wait for memory and for our turn to start (a no-op with one slot).
+    if ! admit_run; then rm -rf "$run_dir"; n=$((n - 1)); break; fi
+    log "run $run_name: launching proctor"
+    prompt=$(render "$NIGHTLY_DIR/prompts/proctor.md" "RUN_DIR=$run_dir" "TOOLS=$NIGHTLY_DIR" "RUN_NAME=$run_name" \
+      "FIX_BRANCH=$SBRANCH" "REPO=$SREPO" "BRANCH_NOTE=$(branch_note)")
+    # The game itself stops 5 minutes before END so the proctor can still write its entry.
+    export DEADLINE=$(( END_EPOCH - 300 ))
+    # Auto mode with edit tools, working in the slot's repo on its branch. Pushing, switching
+    # branches and rewriting history stay denied.
+    set_active "$run_dir" "$run_name"
+    # Background job in its own session (setsid) + wait: a signal reaches the traps at once and
+    # cleanup_slot can kill claude and everything it started.
+    (cd "$SREPO" && { [ "$NSLOTS" -le 1 ] || export NIGHTLY_GAME_REPO="$SREPO" CARGO_TARGET_DIR="$STARGET" NIGHTLY_SLOT="$SLOT" NIGHTLY_RUN_NAME="$run_name"; } \
+      && exec setsid timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
+      "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
+      --permission-mode auto --tools Bash Read Grep Glob Edit Write \
+      --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" "Bash($NIGHTLY_DIR/request_fix.sh:*)" \
+      "Bash(python3 $NIGHTLY_DIR/digest.py:*)" "Read" "Grep" "Glob" "Edit" "Write" \
+      "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git log:*)" \
+      "Bash(cargo check:*)" "Bash(cargo test:*)" "Bash(cargo fmt:*)" "Bash(npm test:*)" "Bash(npx tsc:*)" "Bash(npx vitest:*)" \
+      --disallowedTools "NotebookEdit" "Agent" "Bash(git push:*)" "Bash(git checkout:*)" "Bash(git switch:*)" \
+      "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git merge:*)" "Bash(git branch:*)" "Bash(git worktree:*)" \
+      "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git revert:*)" "Bash(rm:*)" "Bash(sudo:*)" "Bash(kill:*)" "Bash(pkill:*)" \
+      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null 6>&-) &
+    proctor_pid=$!
+    set_active "$run_dir" "$run_name" "$proctor_pid"
+    admit_release "$proctor_pid"
+    wait "$proctor_pid"
+    status=$?
+    # If a signal cleanup took the run over, it has filed the entry and this slot is done.
+    claim_active || exit 0
+    # Whatever the proctor did, never leave a game running.
+    "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
+    python3 "$NIGHTLY_DIR/digest.py" "$run_dir" > "$run_dir/digest.md" 2>&1
+    if [ -s "$run_dir/proctor-entry.md" ] && [ -f "$run_dir/meta.json" ]; then
+      { cat "$run_dir/proctor-entry.md"; echo; echo "_Raw evidence: \`$run_dir\`_"; echo; } | report_append
+    else
+      {
+        echo "## Run $run_name — proctor failed (exit $status), mechanical digest only"
+        echo
+        sed -n '1,20p' "$run_dir/proctor.err" | sed 's/^/    /'
+        echo
+        cat "$run_dir/digest.md"
+        echo
+      } | report_append
+    fi
+    log "run $run_name: done (proctor exit $status)"
+    # A run that never started (e.g. the proctor failed immediately) must not spin the loop.
+    [ -f "$run_dir/meta.json" ] || nap "${NIGHTLY_FAILED_RUN_SLEEP:-60}"
+  done
+  if [ "$NSLOTS" -gt 1 ]; then log "slot $SLOT finished after $n runs"; else log "sweep finished after $n runs"; fi
+}
+
+# A parallel worker: stagger, set up the slot's worktree, play until the window ends. Runs in a
+# subshell of the sweep; its own traps file the entry of its run when the sweep is stopped.
+slot_main() { # slot_main <k>
+  slot_init "$1"
+  trap 'cleanup_slot "$SLOT" SIGTERM; exit 143' TERM
+  trap 'cleanup_slot "$SLOT" SIGINT; exit 130' INT
+  trap 'cleanup_slot "$SLOT" SIGHUP; exit 129' HUP
+  trap 'cleanup_slot "$SLOT" exit' EXIT
+  [ "$SLOT" -le 1 ] || nap $(( (SLOT - 1) * SLOT_STAGGER_SECONDS ))
+  if ! slot_prepare; then
+    { echo "## Slot $SLOT could not set up its worktree $SREPO on $SBRANCH — no runs on this slot tonight"; echo '```'; tail -n 20 "$SDIR/prepare.log"; echo '```'; } | report_append
+    log "slot $SLOT: worktree setup failed"; return 1
+  fi
+  log "slot $SLOT: working in $SREPO on $SBRANCH (cargo target $STARGET)"
+  slot_loop
+}
+
 cmd_loop() {
   set_night "${1:-$(default_night)}"
+  case "$SLOTS" in ''|*[!0-9]*|0) SLOTS=1 ;; esac
+  NSLOTS="$SLOTS"
   mkdir -p "$NIGHT_DIR"
   exec 9>"$LOCK"
   flock -n 9 || { log "sweep already running for $NIGHT"; exit 0; }
 
   # Log when the loop exits via signal or explicit exit.
-  # A signal first stops the active run and files its entry (sweep_cleanup), then exits, which runs
-  # the EXIT trap; the cleanup runs only once. sweep.done is not written: cron restarts the sweep.
+  # A signal first stops the active runs and files their entries (sweep_cleanup), then exits, which
+  # runs the EXIT trap; the cleanup runs only once. sweep.done is not written: cron restarts the sweep.
   trap 'sweep_cleanup exit; log_loop_exit' EXIT
   trap 'sweep_cleanup SIGTERM; exit 143' TERM
   trap 'sweep_cleanup SIGINT; exit 130' INT
@@ -197,14 +556,20 @@ cmd_loop() {
     echo
     echo "Window $START_HHMM–$END_HHMM $NIGHTLY_TZ, runs until round $STOP_ROUND, proctor $PROCTOR_MODEL, fixer rounds: ${FIXERS:-none} ($FIXER_MODEL)."
     echo
+    if [ "$NSLOTS" -gt 1 ]; then
+      echo "Parallel slots: $NSLOTS. Runs are named sK-NN-HHMM (K = slot); each slot works in its own worktree on the branch $FIX_BRANCH-sK and is merged into $FIX_BRANCH after the sweep."
+      echo
+    fi
   } > "$report"
+  echo "$NSLOTS" > "$NIGHT_DIR/slots"
   log "sweep for $NIGHT until $(TZ="$NIGHTLY_TZ" date -d "@$END_EPOCH" '+%F %T %Z')"
 
   # The whole night runs on one branch, nightly-fixes-<night>, checked out in $REPO. Before
   # switching, the current state (uncommitted and untracked work included) is committed onto it,
-  # so nothing is lost. Proctors commit their minor repairs here, and the Opus fixers' branches are
-  # merged into it between games, so every later run includes the earlier fixes. Nothing is
-  # pushed. In the morning: git checkout <orig_branch> and merge/cherry-pick.
+  # so nothing is lost. Proctors commit their minor repairs here (with parallel slots: on the slot
+  # branches, merged into it after the sweep), and the Opus fixers' branches are merged into it
+  # between games, so every later run includes the earlier fixes. Nothing is pushed. In the
+  # morning: git checkout <orig_branch> and merge/cherry-pick.
   if [ "$(git -C "$REPO" branch --show-current)" != "$FIX_BRANCH" ]; then
     git -C "$REPO" branch --show-current > "$NIGHT_DIR/orig_branch"
     if git -C "$REPO" show-ref -q --verify "refs/heads/$FIX_BRANCH"; then
@@ -214,108 +579,29 @@ cmd_loop() {
         && git -C "$REPO" add -A \
         && { git -C "$REPO" diff --cached --quiet || git -C "$REPO" commit -q -m "nightly $NIGHT: snapshot of the working tree before the sweep"; }
     fi >> "$NIGHT_DIR/build.log" 2>&1 || {
-      { echo "## Could not switch to $FIX_BRANCH — no runs tonight"; echo '```'; tail -n 30 "$NIGHT_DIR/build.log"; echo '```'; } >> "$report"
+      { echo "## Could not switch to $FIX_BRANCH — no runs tonight"; echo '```'; tail -n 30 "$NIGHT_DIR/build.log"; echo '```'; } | report_append
       log "branch setup failed"; touch "$NIGHT_DIR/sweep.done"; exit 1
     }
   fi
-  BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
 
-  # Continue the numbering of an earlier sweep of this night (cron restarts after a kill).
-  local n disk_waits=0
-  n=$(highest_run_number "$NIGHT_DIR/runs")
-  while [ $(( END_EPOCH - $(now_epoch) )) -gt "$MIN_RUN_SECONDS" ]; do
-    # No run (and no run directory) without free disk: a full disk used to turn the rest of a night
-    # into phantom runs and a truncated report. Wait for space, and give up after MAX_DISK_WAITS.
-    if ! disk_ok; then
-      disk_waits=$((disk_waits + 1))
-      if [ "$disk_waits" -eq 1 ]; then
-        note_report "## Waiting for disk space: $(free_gb) GB free, runs need $MIN_FREE_GB GB (checked every ${DISK_WAIT_SECONDS}s)"
-      fi
-      log "low disk: $(free_gb) GB free, need $MIN_FREE_GB GB (check $disk_waits of $MAX_DISK_WAITS)"
-      if [ "$disk_waits" -ge "$MAX_DISK_WAITS" ]; then
-        note_report "## Sweep stopped: the disk stayed below $MIN_FREE_GB GB for $MAX_DISK_WAITS checks"
-        log "sweep stopped: no disk space"; break
-      fi
-      nap "$DISK_WAIT_SECONDS"; continue
-    fi
-    disk_waits=0
-    n=$((n + 1))
-    local run_name
-    run_name="$(printf '%02d' "$n")-$(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" +%H%M)"
-    local run_dir="$NIGHT_DIR/runs/$run_name"
-    if ! mkdir -p "$run_dir"; then
-      note_report "## Run $run_name not started: cannot create $run_dir"
-      log "run $run_name: cannot create the run directory"
-      n=$((n - 1)); nap "$DISK_WAIT_SECONDS"; continue
-    fi
-    # Fixer branches that are ready come in now, between games, never during one.
-    MERGED_NOW=""
-    merge_pending 0
-    # Build before every run so Playwright's backend start stays fast after a repair. A repair or
-    # merge that broke the build is dropped (reset to the last good commit), so one bad fix
-    # cannot cost the rest of the night.
-    if ! (cd "$REPO" && bash -c "$BUILD_CMD") > "$run_dir/build.log" 2>&1; then
-      if [ "$(git -C "$REPO" rev-parse HEAD)" != "$BASE_COMMIT" ]; then
-        # Only proctor commits and fixer merges exist past the last good build; drop them (they
-        # stay in the reflog and in the fixer branches).
-        git -C "$REPO" reset -q --hard "$BASE_COMMIT" >> "$run_dir/build.log" 2>&1
-        local r
-        for r in $MERGED_NOW; do mv "$NIGHT_DIR/.fixer-$r.merged" "$NIGHT_DIR/.fixer-$r.rejected" 2>/dev/null; done
-        { echo "## Before run $run_name: a proctor repair or fixer merge broke the build; branch reset to the last good commit${MERGED_NOW:+ (fixer round(s)$MERGED_NOW rejected)}"; echo; } >> "$report"
-        log "run $run_name: build broke, reset to last good commit"
-        rm -rf "$run_dir"; n=$((n - 1)); continue
-      fi
-      { echo "## Build failed — no runs tonight"; echo '```'; tail -n 60 "$run_dir/build.log"; echo '```'; } >> "$report"
-      log "build failed"; break
-    fi
-    BASE_COMMIT=$(git -C "$REPO" rev-parse HEAD)
-    log "run $run_name: launching proctor"
-    local prompt
-    prompt=$(render "$NIGHTLY_DIR/prompts/proctor.md" "RUN_DIR=$run_dir" "TOOLS=$NIGHTLY_DIR" "RUN_NAME=$run_name" "FIX_BRANCH=$FIX_BRANCH")
-    # The game itself stops 5 minutes before END so the proctor can still write its entry.
-    export DEADLINE=$(( END_EPOCH - 300 ))
-    # Auto mode with edit tools, working in $REPO on the night's branch. Pushing, switching
-    # branches and rewriting history stay denied.
-    ACTIVE_RUN_DIR="$run_dir" ACTIVE_RUN_NAME="$run_name"
-    # Background job in its own session (setsid) + wait: a signal reaches the traps at once and
-    # sweep_cleanup can kill claude and everything it started.
-    (cd "$REPO" && exec setsid timeout --kill-after=30 $(( END_EPOCH - $(now_epoch) + 600 )) \
-      "$CLAUDE_BIN" -p --model "$PROCTOR_MODEL" --no-session-persistence \
-      --permission-mode auto --tools Bash Read Grep Glob Edit Write \
-      --allowedTools "Bash($NIGHTLY_DIR/run_game.sh:*)" "Bash($NIGHTLY_DIR/watch.sh:*)" "Bash($NIGHTLY_DIR/request_fix.sh:*)" \
-      "Bash(python3 $NIGHTLY_DIR/digest.py:*)" "Read" "Grep" "Glob" "Edit" "Write" \
-      "Bash(git status:*)" "Bash(git diff:*)" "Bash(git add:*)" "Bash(git commit:*)" "Bash(git log:*)" \
-      "Bash(cargo check:*)" "Bash(cargo test:*)" "Bash(cargo fmt:*)" "Bash(npm test:*)" "Bash(npx tsc:*)" "Bash(npx vitest:*)" \
-      --disallowedTools "NotebookEdit" "Agent" "Bash(git push:*)" "Bash(git checkout:*)" "Bash(git switch:*)" \
-      "Bash(git reset:*)" "Bash(git rebase:*)" "Bash(git merge:*)" "Bash(git branch:*)" "Bash(git worktree:*)" \
-      "Bash(git stash:*)" "Bash(git clean:*)" "Bash(git revert:*)" "Bash(rm:*)" "Bash(sudo:*)" "Bash(kill:*)" "Bash(pkill:*)" \
-      -- "$prompt" > "$run_dir/proctor-entry.md" 2> "$run_dir/proctor.err" < /dev/null) &
-    PROCTOR_PID=$!
-    wait "$PROCTOR_PID"
-    local status=$?
-    PROCTOR_PID=""
-    # Whatever the proctor did, never leave a game running.
-    "$NIGHTLY_DIR/run_game.sh" stop "$run_dir" > /dev/null 2>&1
-    python3 "$NIGHTLY_DIR/digest.py" "$run_dir" > "$run_dir/digest.md" 2>&1
-    ACTIVE_RUN_DIR="" # from here on the entry is written by this loop, not by the trap
-    if [ -s "$run_dir/proctor-entry.md" ] && [ -f "$run_dir/meta.json" ]; then
-      { cat "$run_dir/proctor-entry.md"; echo; echo "_Raw evidence: \`$run_dir\`_"; echo; } >> "$report"
-    else
-      {
-        echo "## Run $run_name — proctor failed (exit $status), mechanical digest only"
-        echo
-        sed -n '1,20p' "$run_dir/proctor.err" | sed 's/^/    /'
-        echo
-        cat "$run_dir/digest.md"
-        echo
-      } >> "$report"
-    fi
-    log "run $run_name: done (proctor exit $status)"
-    # A run that never started (e.g. the proctor failed immediately) must not spin the loop.
-    [ -f "$run_dir/meta.json" ] || nap "${NIGHTLY_FAILED_RUN_SLEEP:-60}"
-  done
+  local k pid
+  # A run left active by a sweep that died without cleaning up (SIGKILL) is closed off first.
+  for k in $(seq 1 "$NSLOTS"); do cleanup_slot "$k" "earlier sweep died"; done
+  if [ "$NSLOTS" -le 1 ]; then
+    slot_init 1
+    slot_loop
+  else
+    log "parallel sweep: $NSLOTS slots, stagger ${SLOT_STAGGER_SECONDS}s, a new game needs $(mem_needed_mb) MB available while another runs"
+    for k in $(seq 1 "$NSLOTS"); do
+      ( slot_main "$k" ) &
+      WORKER_PIDS+=("$!")
+    done
+    for pid in "${WORKER_PIDS[@]}"; do wait "$pid"; done
+    WORKER_PIDS=()
+    integrate_slots
+    log "sweep finished (all $NSLOTS slots)"
+  fi
   touch "$NIGHT_DIR/sweep.done"
-  log "sweep finished after $n runs"
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -337,6 +623,10 @@ cmd_fix() {
   [ "$round" -ge 2 ] && max="$FIX2_MAX_SECONDS"
   local fixer_branch="nightly-opus-$NIGHT-r$round" wt="$NIGHT_DIR/fixer-$round" base status
 
+  # A parallel sweep keeps the proctors' repairs on the slot branches; bring them into the night
+  # branch first so this round starts from them (as it would after a single-slot sweep).
+  integrate_slots
+
   # With no sweep running, earlier rounds' ready branches come in first (and are build-checked),
   # so this round builds on them.
   if ! sweep_running; then merge_pending 1; fi
@@ -351,17 +641,12 @@ cmd_fix() {
     log "fixer round $round: $FIX_FAIL_REASON"; exit 1
   fi
   if [ ! -d "$wt" ]; then
-    git -C "$REPO" worktree add -q -B "$fixer_branch" "$wt" "$base" >> "$NIGHT_DIR/fixer-$round.err" 2>&1 \
+    flock "$NIGHT_DIR/.repo.lock" git -C "$REPO" worktree add -q -B "$fixer_branch" "$wt" "$base" >> "$NIGHT_DIR/fixer-$round.err" 2>&1 \
       || { FIX_FAIL_REASON="cannot create worktree $wt ($(tail -n 1 "$NIGHT_DIR/fixer-$round.err" 2>/dev/null))"
            log "fixer round $round: $FIX_FAIL_REASON"; exit 1; }
   fi
   git -C "$wt" rev-parse HEAD > "$NIGHT_DIR/fixer-$round.base"
-  if [ -d "$REPO/web/node_modules" ] && [ ! -e "$wt/web/node_modules" ]; then
-    ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
-    local exclude
-    exclude=$(git -C "$wt" rev-parse --git-path info/exclude)
-    grep -qxF '/web/node_modules' "$exclude" 2>/dev/null || echo '/web/node_modules' >> "$exclude"
-  fi
+  link_node_modules "$wt"
 
   log "fixer round $round: working in $wt on $fixer_branch ($FIXER_MODEL, budget ${max}s)"
   # A round started because a proctor asked (request_fix.sh): say so in the prompt and report.
@@ -379,7 +664,7 @@ cmd_fix() {
   local prompt
   prompt=$(render "$NIGHTLY_DIR/prompts/fixer.md" "ROUND=$round" "REPORT=$NIGHT_DIR/report.md" \
     "RUNS_DIR=$NIGHT_DIR/runs" "FIXER_BRANCH=$fixer_branch" "MAX_FIXES=$MAX_FIXES_PER_ROUND" \
-    "BUDGET_MINUTES=$(( max / 60 ))" "REQUEST=$request")
+    "BUDGET_MINUTES=$(( max / 60 ))" "REQUEST=$request" "SLOTS_NOTE=$(slots_note_fixer)")
   # Own worktree, own target dir, low priority: the games keep their memory and CPU.
   (cd "$wt" && CARGO_TARGET_DIR="$REPORT_ROOT/target-fixer" CARGO_BUILD_JOBS=2 RUST_TEST_THREADS=2 \
     nice -n 10 timeout --kill-after=60 "$max" \
@@ -464,7 +749,8 @@ cmd_summary() {
   local prompt
   prompt=$(render "$NIGHTLY_DIR/prompts/summary.md" "REPORT=$NIGHT_DIR/report.md" \
     "NIGHT_DIR=$NIGHT_DIR/runs" "NIGHT_ROOT=$NIGHT_DIR" "REPO=$REPO" "STOP_ROUND=$STOP_ROUND" \
-    "FIX_BRANCH=$FIX_BRANCH" "FIXER1_BRANCH=nightly-opus-$NIGHT-r1" "FIXER2_BRANCH=nightly-opus-$NIGHT-r2")
+    "FIX_BRANCH=$FIX_BRANCH" "FIXER1_BRANCH=nightly-opus-$NIGHT-r1" "FIXER2_BRANCH=nightly-opus-$NIGHT-r2" \
+    "SLOTS_NOTE=$(slots_note_summary)")
   (cd "$REPO" && timeout 3600 "$CLAUDE_BIN" -p --model "$SUMMARY_MODEL" --no-session-persistence \
     --permission-mode dontAsk --tools Bash Read Grep Glob \
     --allowedTools "Read" "Grep" "Glob" "Bash(git log:*)" "Bash(git show:*)" "Bash(git diff:*)" \
