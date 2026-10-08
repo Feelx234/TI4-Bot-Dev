@@ -6,6 +6,7 @@
 #   nightly.sh tick              called by cron every 5 minutes; starts whatever is due
 #   nightly.sh tick-decide       prints what tick would start, without starting it (tests)
 #   nightly.sh loop [night]      the sweep itself: one proctored run after another until END
+#                                (NIGHTLY_SLOTS=N: N such sequences side by side, see README.md)
 #   nightly.sh fix <round> [night]   an Opus fix round, working in its own git worktree
 #   nightly.sh summary [night]   the Opus morning summary (read-only)
 #
@@ -406,7 +407,8 @@ branch_note() { # the sentence about the branch in the proctor prompt
   (its CPU, memory and log noise are not your run's, and its repairs are not in your copy). Your
   branch is private to this slot: earlier runs' repairs of this slot are in it, fixer rounds'
   commits are merged into it between this slot's games, and after the sweep all slots' branches
-  are merged into the night branch. The next run of this slot is built from it."
+  are merged into the night branch. The next run of this slot is built from it. request_fix.sh
+  tags your request with the slot by itself; the report is shared by all slots."
   fi
 }
 

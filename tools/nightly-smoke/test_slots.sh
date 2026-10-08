@@ -390,6 +390,24 @@ bash "$NIGHTLY_SH" summary "$NIGHT" > "$E/summary.out" 2>&1
 check_true "summary prompt describes the slots and has no placeholder left" bash -c "grep -q 'games in parallel' '$E/prompt-summary.txt' && ! grep -q '{{' '$E/prompt-summary.txt'"
 unset NIGHTLY_FIXERS STUB_REPAIR STUB_RUN_SECONDS
 
+echo "== three slots, staggered starts"
+setup_env "$TMP/three"
+export NIGHTLY_SLOTS=3 NIGHTLY_SLOT_STAGGER_SECONDS=2 STUB_RUN_SECONDS=34000 STUB_SLEEP=8
+run_loop loop
+check "one run per slot" "$(ls "$ND/runs" | sort | tr '\n' ' ')" "s1-01-2030 s2-01-2030 s3-01-2030 "
+check "slot worktrees for all three" "$(ls -d "$ND"/slot-*/repo | wc -l)" 3
+check_true "slot K started (K-1) x stagger after slot 1" python3 - "$STUB_LOG" <<'PY'
+import sys
+t = {}
+for line in open(sys.argv[1]):
+    p = line.split()
+    if p[0] == "start": t[p[1][:2]] = float(p[2])
+sys.exit(0 if t["s2"] - t["s1"] >= 1.8 and t["s3"] - t["s1"] >= 3.8 else 1)
+PY
+check "report has three entries" "$(grep -c '^## Run s[123]-01-2030' "$ND/report.md")" 3
+check "no stray processes" "$(stray)" 0
+unset NIGHTLY_SLOT_STAGGER_SECONDS STUB_RUN_SECONDS STUB_SLEEP
+
 echo
 if [ "$failures" -eq 0 ]; then echo "all $checks checks passed"; else echo "$failures of $checks checks FAILED"; fi
 [ "$failures" -eq 0 ]
