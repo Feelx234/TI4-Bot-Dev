@@ -12,12 +12,16 @@ export function usePresence(
   useEffect(() => {
     if (!credential) return;
     let stopped = false;
+    // A slow server must not stack one more heartbeat every tick (the browser runs out of sockets).
+    let inFlight = false;
     const renew = async () => {
-      if (stopped) return;
+      if (stopped || inFlight) return;
+      inFlight = true;
       const response = await fetch(`/api/games/${encodeURIComponent(gameId)}/lobby/heartbeat`, {
         method: "POST",
         headers: { "x-ti4-player-session": credential },
       }).catch(() => undefined);
+      inFlight = false;
       if (!stopped && response?.status === 403) onInvalid();
     };
     const visible = () => void renew();
