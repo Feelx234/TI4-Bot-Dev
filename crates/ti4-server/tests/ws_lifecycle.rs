@@ -353,18 +353,24 @@ async fn websocket_full_lifecycle_and_rejections() {
             choice.choice.options[0].id.clone(),
         )
     } else {
-        // Wait for choice broadcast
-        let reply = ws_stream
-            .next()
-            .await
-            .expect("receive choice")
-            .expect("ws ok");
-        let msg: ServerMessage = serde_json::from_str(&reply.to_text().unwrap()).unwrap();
-        match msg {
-            ServerMessage::PendingChoice(p) => {
-                (p.nonce, p.game_version, p.choice.options[0].id.clone())
+        // Wait for the choice broadcast. The subscription is opened before the snapshot is
+        // taken and the worker is still starting up, so the Event / StateUpdate messages of the
+        // game's first entries may legitimately arrive first: skip them (the protocol orders
+        // messages by version, never by kind).
+        loop {
+            let reply = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
+                .await
+                .expect("a pending choice arrives within 5 s")
+                .expect("receive choice")
+                .expect("ws ok");
+            let msg: ServerMessage = serde_json::from_str(&reply.to_text().unwrap()).unwrap();
+            match msg {
+                ServerMessage::PendingChoice(p) => {
+                    break (p.nonce, p.game_version, p.choice.options[0].id.clone());
+                }
+                ServerMessage::Event(_) | ServerMessage::StateUpdate(_) => continue,
+                other => panic!("Expected PendingChoice, got {other:?}"),
             }
-            other => panic!("Expected PendingChoice, got {other:?}"),
         }
     };
 
@@ -465,7 +471,13 @@ async fn websocket_full_lifecycle_and_rejections() {
     assert_eq!(accepted.game_id, game_id);
 
     // Following action acceptance, server emits state update
-    let update = wait_for_state_update(&mut ws_stream).await;
+    // (a startup update at or below the choice's version may still be queued: skip those)
+    let update = loop {
+        let update = wait_for_state_update(&mut ws_stream).await;
+        if update.game_version > expected_version {
+            break update;
+        }
+    };
     assert_eq!(update.game_id, game_id);
     assert!(update.game_version > expected_version);
 }
@@ -737,7 +749,7 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
 
 #[tokio::test]
 async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
-    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(40)));
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(600)));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(axum::serve(listener, create_app(registry.clone())).into_future());
@@ -763,11 +775,17 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
     let first: ServerMessage =
         serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert!(matches!(first, ServerMessage::InitialSnapshot(_)));
+    // The game is still starting: events, state updates and the pending choice queued before the
+    // takeover are legitimate and may still be in flight (the bridge polls every 50 ms). Let them
+    // all arrive first, so that anything delivered after the revocation below is a real violation.
+    while let Ok(Some(Ok(Message::Text(_)))) =
+        tokio::time::timeout(Duration::from_millis(150), socket.next()).await
+    {}
     assert!(matches!(
         registry.take_over_player(&game, &host, "New Host"),
         Err(ti4_server::session::registry::LobbyError::TakeoverUnavailable)
     ));
-    tokio::time::sleep(Duration::from_millis(55)).await;
+    tokio::time::sleep(Duration::from_millis(650)).await;
     let response: serde_json::Value = client
         .post(format!("http://{addr}/api/games/{game}/lobby/join"))
         .json(&serde_json::json!({"kind":"takeover", "player_id":host, "nickname":"New Host"}))
@@ -907,7 +925,14 @@ async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
         .send(set("Sabotage", ti4_model::state::ReactionMode::Never))
         .await
         .unwrap();
-    let update = wait_for_state_update(&mut owner).await;
+    // Startup updates published before the change may still be queued: wait for the one that
+    // carries the mode instead of taking the first state update.
+    let update = loop {
+        let update = wait_for_state_update(&mut owner).await;
+        if !update.reaction_modes.is_empty() {
+            break update;
+        }
+    };
     assert_eq!(
         update.reaction_modes.get("Sabotage"),
         Some(&ti4_model::state::ReactionMode::Never)
