@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use ti4_engine::game::Game;
 use ti4_server::session::RngForce;
 
-use support::{Source, forced_decider, generated, saved_games, start_game};
+use support::{Source, forced_decider, generated, generated_with_factions, saved_games, start_game};
 
 #[derive(Default, Debug)]
 struct Stats {
@@ -159,6 +159,22 @@ fn a_fork_of_a_generated_game_continues_identically() {
     eprintln!("{stats:?}");
     assert!(stats.forks > 60, "{stats:?}");
     assert!(stats.prompts.len() > 12, "{stats:?}");
+}
+
+/// The factions added after the first six (Last Bastion, Deepwrought, Crimson, Ral Nel, Nekro,
+/// Firmament, with galvanize, breaches, plots and similar shared state) must fork like any other.
+#[test]
+fn a_fork_of_games_seating_the_newer_factions_continues_identically() {
+    for (seed, factions) in [
+        (5_u64, ["bastion", "deepwrought", "crimson", "ralnel"]),
+        (8_u64, ["nekro", "firmament", "sol", "bastion"]),
+    ] {
+        let source = generated_with_factions(&format!("newer-{seed}"), seed, factions, 500, 17);
+        assert!(source.records.len() > 150, "{factions:?}: {}", source.records.len());
+        let stats = check(&source, 4, 30);
+        eprintln!("{factions:?}: {stats:?}");
+        assert!(stats.forks > 30, "{factions:?}: {stats:?}");
+    }
 }
 
 #[test]

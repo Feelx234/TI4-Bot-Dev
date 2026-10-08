@@ -109,6 +109,57 @@ pub fn generated(name: &str, seed: u64, max_decisions: usize, mark_every: usize)
     let (state, galaxy) =
         ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
             .expect("game");
+    play_source(name, seed, max_decisions, mark_every, state, galaxy)
+}
+
+/// Like [`generated`], but the four seats play exactly `factions` (any catalogue faction, also
+/// those outside `IN_SCOPE_FACTIONS`), set up the way the base-faction soak does it: the
+/// seated state, a board with those homes, then each faction deployed.
+#[must_use]
+pub fn generated_with_factions(
+    name: &str,
+    seed: u64,
+    factions: [&str; 4],
+    max_decisions: usize,
+    mark_every: usize,
+) -> Source {
+    use ti4_model::content_types::DEFAULT;
+    use ti4_model::id::FactionId;
+    let content = ContentStore::embedded();
+    let players: Vec<PlayerId> = ["a", "b", "c", "d"].map(PlayerId::new).to_vec();
+    let assignments: std::collections::BTreeMap<PlayerId, FactionId> = players
+        .iter()
+        .cloned()
+        .zip(factions.iter().map(|f| FactionId::new(*f)))
+        .collect();
+    let mut state = ti4_engine::setup::start_game_seeded(content, &players, DEFAULT, None, seed)
+        .expect("setup");
+    for (player, faction) in &assignments {
+        state.player_mut(player).expect("seat").faction = faction.clone();
+    }
+    // Setup dealt the notes before factions were known: re-deal so every seat holds its own.
+    ti4_engine::promissory::deal(&mut state, content, DEFAULT);
+    let filler: Vec<String> = ti4_engine::seating::map_filler(content, 30, DEFAULT, seed)
+        .into_iter()
+        .map(|system| system.to_string())
+        .collect();
+    let borrowed: Vec<&str> = filler.iter().map(String::as_str).collect();
+    let galaxy = ti4_engine::seating::build_board(content, &assignments, &borrowed, DEFAULT)
+        .expect("board");
+    for (player, faction) in &assignments {
+        ti4_engine::seating::deploy(&mut state, content, player, faction, DEFAULT).expect("deploy");
+    }
+    play_source(name, seed, max_decisions, mark_every, state, galaxy)
+}
+
+fn play_source(
+    name: &str,
+    seed: u64,
+    max_decisions: usize,
+    mark_every: usize,
+    state: GameState,
+    galaxy: Galaxy,
+) -> Source {
     let table = Table::with_default(Box::new(SeededRandom::new(seed ^ 0x5eed)));
     let mut game =
         Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
