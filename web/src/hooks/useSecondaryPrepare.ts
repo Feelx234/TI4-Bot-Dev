@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   BoardView,
   GameEvent,
@@ -74,6 +74,16 @@ export function useSecondaryPrepare({
     () => detectStrategicAction({ events, players, phase }),
     [events, players, phase],
   );
+  // Did the event log only grow since the last commit? Distinguishes a committed batch (session
+  // replaced, generation bumped) from an undo, redo or restore (log rewritten).
+  const logSeen = useRef<{ length: number; lastId?: string }>({ length: 0 });
+  const logExtended =
+    logSeen.current.length === 0 ||
+    (events.length >= logSeen.current.length &&
+      events[logSeen.current.length - 1]?.id === logSeen.current.lastId);
+  useEffect(() => {
+    logSeen.current = { length: events.length, lastId: events[events.length - 1]?.id };
+  });
   const eligibility = prepareEligibility(action, viewerSeat, players, events);
   const ready = events.length > 0 && players.length > 0;
   const { plan, set, clear } = usePreparedPlan({
@@ -223,6 +233,7 @@ export function useSecondaryPrepare({
     choice: realChoice,
     viewerSeat,
     history,
+    logExtended,
     busy,
     resolution,
     submitOption: submitChoice,

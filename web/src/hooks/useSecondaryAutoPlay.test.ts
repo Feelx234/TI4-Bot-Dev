@@ -15,6 +15,7 @@ interface Props {
   viewerSeat?: string | null;
   busy?: boolean;
   plan?: SecondaryPlan | null;
+  logExtended?: boolean;
 }
 
 function setup(initial: Props) {
@@ -28,6 +29,7 @@ function setup(initial: Props) {
         choice: p.choice,
         viewerSeat,
         history: p.history,
+        logExtended: p.logExtended,
         busy: p.busy,
         resolution,
         submitOption,
@@ -194,6 +196,19 @@ describe("useSecondaryAutoPlay", () => {
       restore.hook.rerender({ choice: windowChoice("s1"), history: hist(9, 0, 1) });
       restore.wait();
       expect(restore.submitOption).not.toHaveBeenCalled();
+    });
+
+    it("still sends after a committed batch: generation bumped, log only grew, cursor moved forward", () => {
+      const batch = setup({ choice: null, history: hist(6, 0, 0), logExtended: true });
+      batch.hook.rerender({ choice: windowChoice("b1"), history: hist(9, 0, 1), logExtended: true });
+      batch.wait();
+      expect(batch.submitOption).toHaveBeenCalledWith("yes");
+
+      // The same history change with a rewritten log (restore) stays a manual question.
+      const rewritten = setup({ choice: null, history: hist(6, 0, 0), logExtended: false });
+      rewritten.hook.rerender({ choice: windowChoice("b2"), history: hist(9, 0, 1), logExtended: false });
+      rewritten.wait();
+      expect(rewritten.submitOption).not.toHaveBeenCalled();
     });
 
     it("does not send while a pipeline or history change is busy", () => {

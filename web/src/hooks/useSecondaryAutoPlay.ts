@@ -17,6 +17,12 @@ export interface SecondaryAutoPlayInput {
   /** The viewer's own seat; absent for spectators, who never act. */
   viewerSeat?: string | null;
   history?: HistoryStatus;
+  /**
+   * The event log only grew since the previous render (the old log is a prefix of the new one). A
+   * committed batch replaces the live session and bumps the history generation while the game moves
+   * forward; undo, redo and restore bump it too but rewrite the log. Only the former may arm.
+   */
+  logExtended?: boolean;
   /** The pipeline runner or a history change is busy: leave the decision alone. */
   busy?: boolean;
   /** What the prepared plan says about this decision (already validated against its options). */
@@ -55,11 +61,16 @@ function claim(nonce: string): boolean {
  * Each nonce is evaluated once; a failed submit is not retried. Multi-step plans (follow, then the
  * technology) are armed again by their own forward progress, and stop at the first step that does
  * not validate (`review`) or that the plan has nothing to say about (`none`).
+ *
+ * A generation change disarms too, except when it is a batch commit: the session was replaced, the
+ * log only grew and the cursor moved forward (see `logExtended`). Otherwise every batch (a move, a
+ * production, a token purchase by any seat) would turn a prepared answer into a manual question.
  */
 export function useSecondaryAutoPlay({
   choice,
   viewerSeat,
   history,
+  logExtended,
   busy,
   resolution,
   submitOption,
@@ -92,8 +103,13 @@ export function useSecondaryAutoPlay({
     const before = prev.current;
     prev.current = history;
     if (!before) return;
-    if (history.generation !== before.generation) armed.current = false;
-    else if (history.redo_count > 0 || before.redo_count > 0) armed.current = false;
+    if (history.generation !== before.generation) {
+      armed.current =
+        Boolean(logExtended) &&
+        history.cursor > before.cursor &&
+        history.redo_count === 0 &&
+        before.redo_count === 0;
+    } else if (history.redo_count > 0 || before.redo_count > 0) armed.current = false;
     else if (history.cursor > before.cursor) armed.current = true;
     else if (history.cursor < before.cursor) armed.current = false;
   }, [history]);
