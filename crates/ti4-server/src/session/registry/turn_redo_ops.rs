@@ -340,9 +340,7 @@ impl GameRegistry {
             ));
         }
         if record.stage != TurnRedoStage::NewTurn {
-            return Ok(current
-                .session
-                .get_snapshot(&ViewerRole::Player(actor)));
+            return Ok(current.session.get_snapshot(&ViewerRole::Player(actor)));
         }
         let state = self.state.lock().expect("registry lock");
         let snap = self.snapshot(&state, game_id, Some(expected_version))?;

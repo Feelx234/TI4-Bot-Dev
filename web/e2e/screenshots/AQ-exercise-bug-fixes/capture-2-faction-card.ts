@@ -14,7 +14,12 @@ for (const vp of [
   test(`faction card fits ${vp.id}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width: vp.width, height: vp.height });
     await openMockedGame(page, { players: [solSeat(), opponent] });
-    await page.getByTestId("faction-info-button").first().click();
+    const phone = vp.width < 600;
+    // On a phone the player sheet lives in a drawer.
+    if (phone) await page.getByTestId("player-sheet-toggle").click();
+    const button = page.getByTestId("faction-info-button").first();
+    await button.scrollIntoViewIfNeeded();
+    await button.click();
     const card = page.getByTestId("faction-info-card").locator("xpath=ancestor::*[@role='dialog'][1]");
     await card.waitFor();
     await page.waitForTimeout(250);

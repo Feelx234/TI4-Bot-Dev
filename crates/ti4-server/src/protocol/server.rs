@@ -1295,7 +1295,10 @@ mod fact_tests {
             serde_json::from_str(include_str!("../../fixtures/event_visibility.json")).unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
         assert_eq!(events[0].visibility, EventVisibility::Public);
-        assert_eq!(events[1].visibility, EventVisibility::Seat(PlayerId::new("p1")));
+        assert_eq!(
+            events[1].visibility,
+            EventVisibility::Seat(PlayerId::new("p1"))
+        );
         assert_eq!(events[2].visibility, EventVisibility::Referee);
         assert_eq!(serde_json::to_value(&events).unwrap(), fixture);
     }
