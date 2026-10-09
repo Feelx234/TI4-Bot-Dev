@@ -672,6 +672,8 @@ export const ChoiceRendererDispatcher: React.FC<
   const spectatorCombatWorkflow =
     combatSubtype === "sustain_damage" ||
     combatSubtype === "assign_casualty" ||
+    combatSubtype === "assault_cannon_destroy" ||
+    combatSubtype === "courageous_to_the_end_assign_casualty" ||
     combatSubtype === "announce_retreat" ||
     combatSubtype === "retreat_to";
   const isBattleChoice = Boolean(
