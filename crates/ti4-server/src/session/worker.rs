@@ -306,6 +306,40 @@ impl SessionShared {
         }
     }
 
+    /// A live decision at log position `index` (0-based) was just accepted while a redo stack
+    /// exists.
+    ///
+    /// Redo replays the recorded timeline. A decision equal to the head of the redo list (a
+    /// random bot re-deciding the same position: bots are a pure function of seed, seat and
+    /// index) is that recorded entry coming back, so it is consumed together with its recorded
+    /// events and the rest of the redo list stays. Any other decision forks history: the redo
+    /// list, its events and everything recorded past `index` are dropped.
+    fn consume_or_fork_redo(&mut self, record: &DecisionRecord, index: usize) {
+        if self.redo_decisions.is_empty() {
+            return;
+        }
+        if self.redo_decisions.first() == Some(record) {
+            self.redo_decisions.remove(0);
+            if let Some(resolved) = self
+                .redo_events
+                .iter()
+                .position(|entry| matches!(entry.event, GameEventKind::DecisionResolved))
+            {
+                self.redo_events.drain(..=resolved);
+            }
+            if self.redo_decisions.is_empty() {
+                self.redo_events.clear();
+            }
+            return;
+        }
+        // Only an accepted, different decision forks history; autonomous engine steps between
+        // decisions leave redo available.
+        self.redo_decisions.clear();
+        self.redo_events.clear();
+        self.batches.retain(|b| b.end_cursor <= index);
+        self.rng_marks.truncate_to(index);
+    }
+
     fn publish(&mut self, message: impl Fn(&ViewerRole) -> ServerMessage) {
         self.subscribers
             .retain(|_, subscriber| subscriber.tx.try_send(message(&subscriber.viewer)).is_ok());
@@ -1062,6 +1096,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     return;
                 }
                 *published += 1;
+                lock.consume_or_fork_redo(record, start + index);
                 let in_flight = lock.in_flight_submissions.front().is_some_and(|pending| {
                     pending.seat == record.player
                         && pending.submitted_option_id.as_deref() == Some(&record.chosen)
@@ -1090,12 +1125,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         },
                     ));
                 }
-            }
-            if !lock.redo_decisions.is_empty() {
-                lock.redo_decisions.clear();
-                lock.redo_events.clear();
-                lock.batches.retain(|batch| batch.end_cursor <= start);
-                lock.rng_marks.truncate_to(start);
             }
             if let Err(error) = lock.persist_history() {
                 lock.error = Some(error);
@@ -1278,7 +1307,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
 
                 // Any newly resolved decisions:
                 if game.table.log.records.len() > prev_decision_count {
-                    let fork_cursor = prev_decision_count;
                     for (offset, record) in game.table.log.records[prev_decision_count..]
                         .iter()
                         .enumerate()
@@ -1345,6 +1373,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             }
                             break 'worker;
                         }
+                        lock.consume_or_fork_redo(record, prev_decision_count + offset);
                         let in_flight = lock.in_flight_submissions.front().is_some_and(|pending| {
                             pending.seat == record.player
                                 && pending.submitted_option_id.as_deref() == Some(&record.chosen)
@@ -1378,14 +1407,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     }
                     prev_decision_count = game.table.log.records.len();
                     *published_count.lock().expect("published count lock") = prev_decision_count;
-                    if !lock.redo_decisions.is_empty() {
-                        // Only an accepted decision forks history; autonomous engine
-                        // steps between decisions leave redo available.
-                        lock.redo_decisions.clear();
-                        lock.redo_events.clear();
-                        lock.batches.retain(|b| b.end_cursor <= fork_cursor);
-                        lock.rng_marks.truncate_to(fork_cursor);
-                    }
                 }
                 if !lock.history_active
                     && game.table.log.records.len() - lock.snapshot_decision_count >= 32
