@@ -457,7 +457,10 @@ pub fn create_game_with_options(
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
     let rotation = preset.map_or(0, |name| crate::preset::rotation(name, seed));
-    let mut assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    // A preset that seats factions outside the in-scope six names them itself (`+fac`, `world`).
+    let mut assignments = preset
+        .and_then(|name| crate::preset::roster(name, seed, player_ids))
+        .unwrap_or_else(|| seating::seat_in_scope_rotated(player_ids, rotation));
     if let Some(name) = preset {
         crate::preset::seat_roster(name, seed, player_ids, &mut assignments);
     }
@@ -469,12 +472,66 @@ pub fn create_game_with_options(
     Ok((state, galaxy))
 }
 
+/// The galaxy a game was built with, rebuilt for recovery from the factions its saved opening state
+/// seats. Rebuilding with the in-scope order instead (as recovery did) lays the board out for the
+/// wrong home systems whenever a start preset rotated the factions or seated others (`+rot`,
+/// `+fac`, `leaders`, `world`), and the replay then diverges at the first move.
+///
+/// # Errors
+///
+/// As [`create_game_with_template_seated`].
+pub fn rebuild_galaxy(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    opening: &GameState,
+) -> Result<Galaxy, String> {
+    let seated: std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId> = player_ids
+        .iter()
+        .filter_map(|player| {
+            opening
+                .player(player)
+                .map(|seat| (player.clone(), seat.faction.clone()))
+        })
+        .collect();
+    // A state whose seats have no faction yet (the "generic" placeholder of a bare test session)
+    // keeps the old behaviour.
+    let real = seated.len() == player_ids.len()
+        && seated
+            .values()
+            .all(|faction| ti4_content::factions::get(content, faction.as_str()).is_some());
+    let assignments = if real {
+        seated
+    } else {
+        seating::seat_in_scope(player_ids)
+    };
+    create_game_with_template_seated(content, player_ids, seed, template, &assignments, None)
+        .map(|(_, galaxy)| galaxy)
+}
+
 #[cfg(test)]
 mod template_tests {
     use super::*;
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
+    }
+
+    #[test]
+    fn a_rebuilt_galaxy_follows_the_seated_factions_not_the_in_scope_order() {
+        let content = ContentStore::embedded();
+        let list = players(4);
+        for preset in ["world", "combat+rot", "leaders", "agenda+fac:naalu:mentak", "combat"] {
+            let (state, galaxy) =
+                create_game_with_preset(content, &list, 7, Some("4pHyperlanes"), Some(preset)).unwrap();
+            let rebuilt = rebuild_galaxy(content, &list, 7, Some("4pHyperlanes"), &state).unwrap();
+            assert_eq!(
+                build_board_tiles(content, &galaxy),
+                build_board_tiles(content, &rebuilt),
+                "{preset}"
+            );
+        }
     }
 
     #[test]

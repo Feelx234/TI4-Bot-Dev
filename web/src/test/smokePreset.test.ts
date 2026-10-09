@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { cardSetFromEnv, createGameBody, missingExpected, parseExpect, presetFromEnv } from "../../e2e/smokePreset";
+import {
+  basePreset,
+  cardSetFromEnv,
+  createGameBody,
+  mapTemplateFromEnv,
+  missingExpected,
+  parseExpect,
+  presetFromEnv,
+} from "../../e2e/smokePreset";
 
 describe("smoke start preset", () => {
   it("treats an unset or empty TI4_SMOKE_PRESET as a normal opening", () => {
@@ -18,6 +26,32 @@ describe("smoke start preset", () => {
     expect(() => presetFromEnv("nope+rot")).toThrow(/unknown TI4_SMOKE_PRESET/);
     expect(parseExpect("preset", "invasion+rot")).toEqual(parseExpect("preset", "invasion"));
     expect(parseExpect("preset", "invasion").length).toBeGreaterThan(0);
+  });
+
+  it("accepts the roster and short suffixes in any order, with named factions", () => {
+    for (const ok of ["world", "explore+short", "notes+rot", "combat+fac", "techs+short+fac:naalu:mentak", "leaders+fac:yin+short"]) {
+      expect(presetFromEnv(ok)).toBe(ok);
+    }
+    for (const bad of ["world+nope", "combat+fac:Naalu", "combat+short+", "nope+fac", "+rot"]) {
+      expect(() => presetFromEnv(bad)).toThrow(/unknown TI4_SMOKE_PRESET/);
+    }
+    expect(basePreset("techs+short+fac")).toBe("techs");
+    expect(basePreset(undefined)).toBe("");
+    expect(parseExpect("preset", "invasion+fac+short")).toEqual(parseExpect("preset", "invasion"));
+  });
+
+  it("sends map_template only when one was asked for", () => {
+    expect(mapTemplateFromEnv(undefined)).toBeUndefined();
+    expect(mapTemplateFromEnv(" ")).toBeUndefined();
+    expect(mapTemplateFromEnv(" 3pInPersonHyperlanes ")).toBe("3pInPersonHyperlanes");
+    expect(createGameBody(3, 7, "explore", undefined, "3pInPersonHyperlanes")).toEqual({
+      player_count: 3,
+      seed: 7,
+      nickname: "E2E Host",
+      start_preset: "explore",
+      map_template: "3pInPersonHyperlanes",
+    });
+    expect(createGameBody(3, 7)).not.toHaveProperty("map_template");
   });
 
   it("sends start_preset only when one was asked for", () => {

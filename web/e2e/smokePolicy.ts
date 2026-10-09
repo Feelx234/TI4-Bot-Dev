@@ -264,6 +264,7 @@ export function activationWeight(
   hasEnemies: boolean,
   groundForcesInPlaceOnMecatol: boolean, // ground forces in the system's own space area
   defendedPlanet = false,
+  exploreInPlace = false, // an unclaimed trait planet to land on, or a frontier token to explore
 ): number {
   // Dominant: among ~35 other activations a weight of 40 was rarely picked, and the raider then
   // moved its ships out of Mecatol instead.
@@ -273,6 +274,9 @@ export function activationWeight(
   // The capture preset: the Cabal's home holds its space dock, the one place Amalgamation (return a
   // captured unit instead of paying) is offered; activating it opens the production step.
   if (CAPTURE_RUN && id === CABAL_HOME) return 80;
+  // Landing on an unclaimed planet explores it; a ship in a frontier system explores its token
+  // (Dark Energy Tap). Both are rarely chosen among ~35 activations otherwise.
+  if (exploreInPlace) return 1500;
   if (!reachable) return 0.2;
   // Another player's ground forces on a planet: the way to an invasion with space cannon,
   // bombardment and ground casualties, which fleet-versus-fleet space fights never reach.

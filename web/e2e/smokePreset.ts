@@ -1,12 +1,23 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture", "explore", "notes", "world"] as const;
 
-/** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
+/** The preset without its `+rot`, `+short` and `+fac[:alias...]` suffixes. */
+export function basePreset(name: string | undefined): string {
+  return (name ?? "").split("+")[0];
+}
+
+/**
+ * Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error.
+ * Suffixes, in any order: "+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables;
+ * "leaders" always does), "+fac" seats factions from the engine's roster by seed ("+fac:naalu:mentak"
+ * names the first seats; "world" always does), "+short" starts the game near its end.
+ */
 export function presetFromEnv(value: string | undefined): string | undefined {
   const name = value?.trim();
   if (!name) return undefined;
-  // "<preset>+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables); "leaders" always does.
-  if (!(KNOWN_PRESETS as readonly string[]).includes(name.replace(/\+rot$/, ""))) {
+  const [base, ...suffixes] = name.split("+");
+  const suffixOk = (s: string) => s === "rot" || s === "short" || /^fac(:[a-z0-9_]+)*$/.test(s);
+  if (!(KNOWN_PRESETS as readonly string[]).includes(base) || !suffixes.every(suffixOk)) {
     throw new Error(`unknown TI4_SMOKE_PRESET "${name}" (known: ${KNOWN_PRESETS.join(", ")})`);
   }
   return name;
@@ -25,8 +36,20 @@ export function cardSetFromEnv(value: string | undefined): string | undefined {
   return name;
 }
 
+/** Reads TI4_SMOKE_MAP_TEMPLATE: unset or empty means the server's default map for the table size. */
+export function mapTemplateFromEnv(value: string | undefined): string | undefined {
+  const name = value?.trim();
+  return name || undefined;
+}
+
 /** The POST /api/games body; `start_preset` is only sent when a preset was asked for. */
-export function createGameBody(playerCount: number, seed: number, preset?: string, cardSet?: string) {
+export function createGameBody(
+  playerCount: number,
+  seed: number,
+  preset?: string,
+  cardSet?: string,
+  mapTemplate?: string,
+) {
   return {
     player_count: playerCount,
     seed,
@@ -34,6 +57,8 @@ export function createGameBody(playerCount: number, seed: number, preset?: strin
     ...(preset ? { start_preset: preset } : {}),
     // Left out for the server default (te); the nightly sets pok on part of the runs.
     ...(cardSet ? { strategy_card_set: cardSet } : {}),
+    // A named map (e.g. "3pInPersonHyperlanes", the only default-size map with frontier systems).
+    ...(mapTemplate ? { map_template: mapTemplate } : {}),
   };
 }
 
@@ -79,6 +104,13 @@ export const PRESET_EXPECT: Record<string, string> = {
   // The invasion setup with every seat owning the prompt-bearing technologies.
   techs:
     "quantum_datahub_swap|spatial_conduit_link|nullification_field_end_turn|chaos_mapping_choose_system|bio_stims_ready|psychoarchaeology_exhaust_specialty|transit_diodes_redeploy|supercharge|scanlink_explore>=5",
+  // Exploration: a planet or frontier card that asks a question (the subtype is "<card name>_choose_reward").
+  explore:
+    "merchant_station_choose_reward|abandoned_warehouses_choose_reward|functioning_base_choose_reward|local_fabricators_choose_reward|mercenary_outfit_choose_reward|core_mine_choose_reward|expedition_choose_reward|volatile_fuel_source_choose_reward|ion_storm_choose_reward",
+  // Promissory notes in foreign hands: the trade desk offers them, Political Secret asks, notes are given.
+  notes: "propose_transaction,ps|give_note|commander_give_note|reaction_after_STRATEGY_PHASE_ENDED",
+  // Roster factions at war from round one (their own decisions differ per table; the fights do not).
+  world: "fight_ground_combat_round",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {
@@ -87,7 +119,7 @@ export function parseExpect(value: string | undefined, preset?: string): Expecta
   return text
     .split(",")
     .flatMap((item) =>
-      item.trim() === "preset" ? (PRESET_EXPECT[(preset ?? "").replace(/\+rot$/, "")] ?? "").split(",") : [item],
+      item.trim() === "preset" ? (PRESET_EXPECT[basePreset(preset)] ?? "").split(",") : [item],
     )
     .map((item) => item.trim())
     .filter(Boolean)

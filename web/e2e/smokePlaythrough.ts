@@ -12,7 +12,7 @@ import {
   openPlayerGame,
 } from "./lobbyHelpers";
 import type { BoardView } from "../src/protocol/types";
-import { missingExpected, type Expectation } from "./smokePreset";
+import { basePreset, missingExpected, type Expectation } from "./smokePreset";
 import { SecondaryPrepExercise, emptyPrepReport, prepConfigFromEnv, type PrepReport } from "./smokePrep";
 import {
   RedoExercise,
@@ -54,6 +54,8 @@ export interface PlaythroughOptions {
   startPreset?: string;
   /** Strategy card set for the game ("te" server default, "pok", "base_game_codex1"). */
   cardSet?: string;
+  /** Named map template for the game (default: the server's choice for the table size). */
+  mapTemplate?: string;
   /** Decision subtypes the run must have offered (see `parseExpect`); a miss fails the run. */
   expect?: Expectation[];
   /** Stop successfully after this many resolved decisions. */
@@ -321,6 +323,7 @@ function shipMove(unitType: string): number {
 function activationWeights(
   board: BoardView,
   actor: string,
+  exploreMode = false,
 ): Map<string, number> {
   const tiles = new Map((board.map_tiles ?? []).map((t) => [t.system_id, t]));
   const fleets = Object.values(board.systems).flatMap((sys) => {
@@ -349,27 +352,45 @@ function activationWeights(
     const defended =
       board.systems[id]?.units.some((u) => u.owner !== actor && !!u.planet) ??
       false;
-    const inPlace =
-      (id === "18" || defended) &&
-      (board.systems[id]?.units.some(
+    const ownGroundInSpace =
+      board.systems[id]?.units.some(
         // Still in space: once landed on the planet there is nothing left to do in place.
         (u) =>
           u.owner === actor &&
           !u.planet &&
           /infantry|mech|spec_ops/i.test(u.unit_type),
-      ) ??
+      ) ?? false;
+    // An unclaimed planet with an exploration trait (nobody has units on it): landing explores it.
+    const explorable =
+      !!tile?.planets?.some((p) => (p.traits?.length ?? 0) > 0 && !p.legendary && !p.space_station) &&
+      !(board.systems[id]?.units.some((u) => !!u.planet) ?? false);
+    // A planetless system holding the actor's ships (a frontier token with Dark Energy Tap): the
+    // explore preset parks a ship pair there, and activating the system explores the token.
+    const frontierShips =
+      exploreMode &&
+      !!tile &&
+      !tile.hyperlane &&
+      (tile.planets?.length ?? 0) === 0 &&
+      id !== "18" &&
+      (board.systems[id]?.units.some((u) => u.owner === actor && !u.planet && shipMove(u.unit_type) > 0) ??
         false);
+    const inPlace = (id === "18" || defended) && ownGroundInSpace;
+    const exploreInPlace = (explorable && ownGroundInSpace) || frontierShips;
     weights.set(
       id,
-      activationWeight(id, reachable, enemies, inPlace, defended),
+      activationWeight(id, reachable, enemies, inPlace, defended, exploreInPlace),
     );
   }
   return weights;
 }
 
+// The notes preset wants promissory notes sold, swapped and given: trading is steered up there.
+let tradeBoost = false;
+
 function steerWeight(desc: string, hexWeights: Map<string, number>): number {
   const hex = /^system-hex-(\S+) /.exec(desc);
   if (hex) return hexWeights.get(hex[1]) ?? 1;
+  if (tradeBoost && /^turn-bar-trade\b/.test(desc)) return 6;
   return policySteerWeight(desc);
 }
 
@@ -472,6 +493,7 @@ export async function randomUiPlaythrough(
   options: PlaythroughOptions,
 ): Promise<PlaythroughReport> {
   const log = options.log ?? (() => {});
+  tradeBoost = basePreset(options.startPreset) === "notes";
   const rng = mulberry32(options.clickSeed);
   const { gameId, players } = await createStartedGame(
     request,
@@ -479,9 +501,10 @@ export async function randomUiPlaythrough(
     options.gameSeed,
     options.startPreset,
     options.cardSet,
+    options.mapTemplate,
   );
   log(
-    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"}`,
+    `game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} preset=${options.startPreset ?? "none"} cards=${options.cardSet ?? "default"} map=${options.mapTemplate ?? "default"}`,
   );
 
   const flags = exerciseFlagsFromEnv();
@@ -904,7 +927,7 @@ export async function randomUiPlaythrough(
       const before = actorState.game_version;
       const hexWeights =
         options.policy === "steer" && subtype === "activate_system"
-          ? activationWeights(actorState.view.board, players[actorIndex].id)
+          ? activationWeights(actorState.view.board, players[actorIndex].id, basePreset(options.startPreset) === "explore")
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
       if (status.round <= 3)

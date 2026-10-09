@@ -91,6 +91,9 @@ describe("steerWeight (smoke harness steering)", () => {
 describe("activationWeight (smoke harness steering)", () => {
   it("favours Mecatol and enemy systems, and avoids unreachable ones", () => {
     expect(activationWeight("18", true, false, false)).toBe(40);
+    // An unclaimed trait planet with the landing party in place, or a frontier ship, is worth a lot.
+    expect(activationWeight("69", true, false, false, false, true)).toBe(1500);
+    expect(activationWeight("69", true, false, false, false, false)).toBe(5);
     expect(activationWeight("35", true, true, false)).toBe(30);
     expect(activationWeight("35", true, false, false)).toBe(5);
     // A defended planet outranks a bare enemy fleet, but an unreachable one is still skipped.
