@@ -159,3 +159,61 @@ kill_run_processes() {
     [ "$sig" = TERM ] && sleep 5
   done
 }
+
+# ---------------------------------------------------------------------------------------------
+# Host resources. Playwright starts Chromium with --disable-dev-shm-usage, which makes Chromium back
+# its shared memory (mojo data pipes, compositor frames) with unlinked files in TMPDIR (/tmp). /tmp
+# is a RAM-backed tmpfs here, so a /tmp that is nearly full (a cargo target dir, a copied
+# node_modules, leftover game data) makes the browser refuse page modules and fetches with
+# net::ERR_INSUFFICIENT_RESOURCES and crash its compositor (2026-10-08, 20:51-21:46). So a run
+#  * leaves the browser its default /dev/shm backing (a separate tmpfs) when that has room
+#    (TI4_E2E_DEV_SHM=1, read by web/playwright.config.ts),
+#  * removes /tmp leftovers of finished runs before it starts, and
+#  * records memory, swap, /tmp and /dev/shm in <run-dir>/resources.log every RESOURCE_LOG_SECONDS.
+SHM_MIN_MB="${NIGHTLY_MIN_SHM_MB:-2048}"
+RESOURCE_LOG_SECONDS="${NIGHTLY_RESOURCE_LOG_SECONDS:-30}"
+TMP_ROOT="${NIGHTLY_TMP_ROOT:-/tmp}"
+SHM_ROOT="${NIGHTLY_SHM_ROOT:-/dev/shm}"
+STALE_TMP_MINUTES="${NIGHTLY_STALE_TMP_MINUTES:-90}"
+
+# Free MB of the filesystem holding <dir> (empty when it cannot be read).
+free_mb() { df -Pk "$1" 2>/dev/null | awk 'NR == 2 { print int($4 / 1024) }'; }
+
+# True when the browser can keep its default /dev/shm backing.
+dev_shm_ok() {
+  local free
+  free=$(free_mb "$SHM_ROOT")
+  [ -n "$free" ] && [ "$free" -ge "$SHM_MIN_MB" ]
+}
+
+# One line: when, memory, swap, load, /tmp and /dev/shm use, and how many browsers and servers exist.
+resource_snapshot() {
+  local mem swap load tmp shm browsers servers
+  mem=$(awk '/^MemAvailable:/ { a = int($2 / 1024) } /^MemTotal:/ { t = int($2 / 1024) } /^Shmem:/ { s = int($2 / 1024) } END { printf "mem_avail=%sMB/%sMB shmem=%sMB", a, t, s }' /proc/meminfo 2>/dev/null)
+  swap=$(awk '/^SwapTotal:/ { t = int($2 / 1024) } /^SwapFree:/ { f = int($2 / 1024) } END { printf "swap_used=%sMB/%sMB", t - f, t }' /proc/meminfo 2>/dev/null)
+  load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null)
+  tmp=$(df -Pk "$TMP_ROOT" 2>/dev/null | awk 'NR == 2 { printf "tmp_used=%dMB/%dMB tmp_free=%dMB", $3 / 1024, ($3 + $4) / 1024, $4 / 1024 }')
+  shm=$(df -Pk "$SHM_ROOT" 2>/dev/null | awk 'NR == 2 { printf "shm_used=%dMB/%dMB", $3 / 1024, ($3 + $4) / 1024 }')
+  browsers=$(pgrep -fc 'chrome-headless-shell|chromium' 2>/dev/null || true)
+  servers=$(pgrep -fc 'ti4-server|bin/server' 2>/dev/null || true)
+  echo "$(date '+%F %T') $mem $swap load=$load $tmp $shm browsers=${browsers:-0} servers=${servers:-0}"
+}
+
+# Largest entries of the temp dir (what is filling it), for the start of a run's resources.log.
+tmp_top() { du -sm "$TMP_ROOT"/* "$TMP_ROOT"/.[!.]* 2>/dev/null | sort -rn | head -"${1:-8}"; }
+
+# Remove temp leftovers of finished runs: game data dirs and Playwright browser profiles older than
+# STALE_TMP_MINUTES that no running process mentions (a live run's processes carry the path in their
+# command line or environment; another agent's browser carries its own profile path).
+clean_stale_tmp() {
+  local dir busy pat
+  for dir in "$TMP_ROOT"/ti4-playwright-games-* "$TMP_ROOT"/playwright_chromiumdev_profile-* "$TMP_ROOT"/playwright-artifacts-*; do
+    [ -d "$dir" ] || continue
+    [ -n "$(find "$dir" -maxdepth 0 -mmin "-$STALE_TMP_MINUTES" 2>/dev/null)" ] && continue
+    # Bracketing the first character keeps this grep's own command line from matching its pattern.
+    pat="[${dir:0:1}]$(printf '%s' "${dir:1}" | sed 's/[][\.*^$/]/\\&/g')"
+    busy=$(grep -lsa -e "$pat" /proc/[0-9]*/cmdline /proc/[0-9]*/environ 2>/dev/null | head -1 || true)
+    [ -z "$busy" ] || continue
+    rm -rf -- "$dir" && echo "removed stale $dir"
+  done
+}

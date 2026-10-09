@@ -20,6 +20,12 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${frontendPort}`,
     trace: "on-first-retry",
+    // Playwright starts Chromium with --disable-dev-shm-usage, so its shared memory (data pipes,
+    // compositor frames) lives in unlinked files under /tmp. When /tmp is a nearly full tmpfs every
+    // page after the first fails with net::ERR_INSUFFICIENT_RESOURCES. The nightly sweep sets
+    // TI4_E2E_DEV_SHM=1 (when /dev/shm is big enough) to keep the browser's default /dev/shm backing.
+    launchOptions:
+      process.env.TI4_E2E_DEV_SHM === "1" ? { ignoreDefaultArgs: ["--disable-dev-shm-usage"] } : {},
     actionTimeout: 5_000,
     navigationTimeout: 5_000,
   },

@@ -154,11 +154,29 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 To switch the Opus rounds off: `NIGHTLY_FIXERS=` in the cron line. Two long Opus sessions per night
 are the main cost of this schedule.
 
+## Host resources (`net::ERR_INSUFFICIENT_RESOURCES`)
+
+Playwright launches Chromium with `--disable-dev-shm-usage`, so the browser's shared memory (mojo
+data pipes, compositor frames) is kept in unlinked files under `/tmp`. Here `/tmp` is a RAM-backed
+tmpfs (7.7 GB), and anything else that fills it (a cargo target dir, a copied `node_modules`, game
+data) makes every page after the first fail with `net::ERR_INSUFFICIENT_RESOURCES` and crash the
+browser's compositor (night 2026-10-08, 20:51-21:46). Each run therefore:
+
+- removes `/tmp/ti4-playwright-games-*` and `playwright_chromiumdev_profile-*` dirs older than
+  `NIGHTLY_STALE_TMP_MINUTES` (90) that no process uses, and deletes its own game dir after copying
+  it to `<run>/server-data`;
+- sets `TI4_E2E_DEV_SHM=1` when `/dev/shm` has `NIGHTLY_MIN_SHM_MB` (2048) free, so
+  `web/playwright.config.ts` drops `--disable-dev-shm-usage` and the browser uses `/dev/shm`, a
+  separate tmpfs that a full `/tmp` does not affect;
+- writes `<run>/resources.log`: memory, swap, load, `/tmp` and `/dev/shm` use and the biggest `/tmp`
+  entries at the start, then a line every `NIGHTLY_RESOURCE_LOG_SECONDS` (30) and one at the end.
+
 ## Tests
 
     tools/nightly-smoke/test_schedule.sh
+    tools/nightly-smoke/test_resources.sh   # the host-resource helpers of config.sh
 
-Runs in a temp directory with stub `claude` binaries and a fake clock: window maths on both sides
+test_schedule.sh runs in a temp directory with stub `claude` binaries and a fake clock: window maths on both sides
 of midnight and both daylight-saving changes, the not-before guard, what `tick` starts at each time
 (round 1 once at 23:59 or on an early request, a request after round 1 started kept for an early round 2, requests refused after round 2 started or when no round is enabled, the reason reaching the fixer prompt and the report, round 2 only after `sweep.done`, the summary only after round 2, the
 previous-night gap), a dry run of a whole night including the between-games merge, a merge that
