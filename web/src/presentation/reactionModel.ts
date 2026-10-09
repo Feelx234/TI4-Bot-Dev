@@ -5,6 +5,7 @@ import type {
   PendingChoiceDto,
 } from "../protocol/types.ts";
 import { decodeDecisionTrigger } from "../protocol/decode.ts";
+import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
 import {
   findActionCardByName,
   findActionCardMeta,
@@ -443,16 +444,45 @@ function stripPlay(label: string): string {
   return label.replace(/^play\s+/i, "").trim();
 }
 
-/** Non-card abilities (`technology:<faction>:<id>:<EVENT>:<rel>`, `leader:...`). */
+interface CatalogNamed {
+  name: string;
+  text?: string;
+  abilityText?: string;
+  ability?: string;
+}
+
+const CATALOG_NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<string, CatalogNamed>;
+const CATALOG_UNITS = GENERATED_CONTENT_CATALOG.units as unknown as Record<string, CatalogNamed>;
+const CATALOG_LEADERS = GENERATED_CONTENT_CATALOG.leaders as unknown as Record<string, CatalogNamed>;
+
+/**
+ * Non-card abilities (`technology:<faction>:<id>:<EVENT>:<rel>`, `leader:...`, and the faction's
+ * `promissory:<owner>:<alias>:...` note and `unit:<owner>:<unit>:...` card): the printed name and
+ * text from the content catalog, never the raw engine id.
+ */
 function abilityName(optionId: string): { name: string; note: string | null; text: string } | null {
-  const match = /^(technology|leader):[^:]*:([^:]+):/.exec(optionId);
+  const match = /^(technology|leader|promissory|unit):[^:]*:([^:]+):/.exec(optionId);
   if (!match) return null;
   const [, family, id] = match;
   if (family === "technology") {
     const tech = findTechnologyMeta(id);
     return { name: tech?.name ?? humanizeId(id), note: null, text: tech?.description ?? "" };
   }
-  const name = humanizeId(id.replace(/agent$/, " agent").trim());
+  if (family === "promissory") {
+    const note = CATALOG_NOTES[id] ?? CATALOG_NOTES[`<color>_${id}`];
+    return {
+      name: note?.name ?? humanizeId(id),
+      note: null,
+      text: (note?.text ?? "").replace(/<color>/g, "issuing"),
+    };
+  }
+  if (family === "unit") {
+    const unit = CATALOG_UNITS[id];
+    return { name: unit?.name ?? humanizeId(id), note: null, text: unit?.ability ?? "" };
+  }
+  const leader = CATALOG_LEADERS[id];
+  if (leader) return { name: leader.name, note: null, text: leader.abilityText ?? "" };
+  const name = humanizeId(id.replace(/(agent|commander|hero)$/, " $1").trim());
   return { name, note: null, text: "" };
 }
 

@@ -284,6 +284,16 @@ pub fn create_game_with_map_rotated_and_card_set(
     create_game_with_map_seated(content, player_ids, seed, &assignments, card_set)
 }
 
+/// Deals every seat its faction's promissory notes (69.1).
+///
+/// Setup deals while the seats still hold the placeholder faction `generic`, which leaves four
+/// `<alias>:generic` notes in the last seat's hand and no faction note anywhere. Dealing again once
+/// the factions are seated gives each seat its real hand. The opening state is stored with the
+/// game, so games created before this call keep the hand they were created with.
+fn deal_notes_after_seating(state: &mut GameState, content: &ContentStore) {
+    ti4_engine::promissory::deal(state, content, POK);
+}
+
 /// As [`create_game_with_map_rotated_and_card_set`], with the faction of every seat given (a
 /// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
 ///
@@ -303,6 +313,7 @@ pub fn create_game_with_map_seated(
     for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK)?;
     }
+    deal_notes_after_seating(&mut state, content);
 
     let filler = seating::map_filler(content, 36, POK, seed);
     let filler_refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
@@ -415,6 +426,7 @@ pub fn create_game_with_template_seated(
     for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
     }
+    deal_notes_after_seating(&mut state, content);
     let homes: Vec<SystemId> = player_ids
         .iter()
         .map(|player| {
@@ -564,5 +576,51 @@ mod template_tests {
             build_board_tiles(content, &galaxy).len(),
             build_board_tiles(content, &random).len()
         );
+    }
+
+    #[test]
+    fn every_roster_faction_is_dealt_its_own_notes_at_every_table_size() {
+        use crate::preset::ROSTER;
+        let content = ContentStore::embedded();
+        let mut failures = Vec::new();
+        for alias in ROSTER {
+            for (n, seed) in [(3, 1_u64), (4, 2), (6, 3)] {
+                let list = players(n);
+                let name = format!("world+fac:{alias}");
+                // Both the plain map path and a preset (which seats named factions).
+                let (state, _) = create_game_with_map(content, &list, seed).unwrap();
+                assert!(
+                    state.promissory_notes.keys().all(|k| !k.ends_with(":generic")),
+                    "generic notes left in a {n}p default game"
+                );
+                let _ = &name;
+                let Ok((state, _)) = create_game_with_preset(content, &list, seed, None, Some(&name))
+                else {
+                    failures.push(format!("{alias} {n}p"));
+                    continue;
+                };
+                for seat in &state.players {
+                    let faction = seat.faction.as_str();
+                    for generic in ["cf", "ps", "ta"] {
+                        let id = ti4_engine::promissory::note_id(generic, faction);
+                        if !state.promissory_notes.contains_key(&id) {
+                            failures.push(format!("{alias} {n}p: {faction} lacks {id}"));
+                        }
+                    }
+                    let own = ti4_content::factions::get(content, faction)
+                        .map(|f| f.promissory_notes().len())
+                        .unwrap_or(0);
+                    let held = state
+                        .promissory_notes
+                        .keys()
+                        .filter(|k| ti4_engine::promissory::owner_of(k).as_deref() == Some(faction))
+                        .count();
+                    if own == 0 || held < 3 + own {
+                        failures.push(format!("{alias} {n}p: {faction} holds {held}, own {own}"));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
     }
 }
