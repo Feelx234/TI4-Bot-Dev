@@ -95,6 +95,13 @@ export const PRESET_EXPECT: Record<string, string> = {
   // The invasion setup with every seat owning the prompt-bearing technologies.
   techs:
     "quantum_datahub_swap|spatial_conduit_link|nullification_field_end_turn|chaos_mapping_choose_system|bio_stims_ready|psychoarchaeology_exhaust_specialty|transit_diodes_redeploy|supercharge|scanlink_explore>=5",
+  // Exploration: a planet or frontier card that asks a question (the subtype is "<card name>_choose_reward").
+  explore:
+    "merchant_station_choose_reward|abandoned_warehouses_choose_reward|functioning_base_choose_reward|local_fabricators_choose_reward|mercenary_outfit_choose_reward|core_mine_choose_reward|expedition_choose_reward|volatile_fuel_source_choose_reward|ion_storm_choose_reward",
+  // Promissory notes in foreign hands: the trade desk offers them, Political Secret asks, notes are given.
+  notes: "propose_transaction,ps|give_note|commander_give_note|reaction_after_STRATEGY_PHASE_ENDED",
+  // Roster factions at war from round one (their own decisions differ per table; the fights do not).
+  world: "fight_ground_combat_round",
 };
 
 export function parseExpect(value: string | undefined, preset?: string): Expectation[] {

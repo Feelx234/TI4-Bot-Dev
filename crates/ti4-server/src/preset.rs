@@ -290,7 +290,7 @@ fn parse(name: &str) -> Option<Parts<'_>> {
 /// systems the preset looks up are those of the factions actually seated.
 #[must_use]
 pub fn rotation(name: &str, seed: u64) -> usize {
-    if name == LEADERS || parse(name).is_some_and(|parts| parts.rotate) {
+    if parse(name).is_some_and(|parts| parts.rotate || parts.base == LEADERS) {
         2 + (mix(seed, 900) % 4) as usize
     } else {
         0
@@ -1854,6 +1854,19 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{} failures: {:#?}", failures.len(), &failures[..failures.len().min(25)]);
+    }
+
+    #[test]
+    fn leaders_rotates_the_factions_with_or_without_suffixes() {
+        for name in ["leaders", "leaders+short", "leaders+rot+short"] {
+            assert!((2..=5).contains(&rotation(name, 3)), "{name}");
+        }
+        assert_eq!(rotation("combat+short", 3), 0);
+        assert_eq!(rotation("techs+fac", 3), 0);
+        let list = players(3);
+        let (state, _) = create_game_with_preset(content(), &list, 3, None, Some("leaders+short")).unwrap();
+        let factions: Vec<&str> = list.iter().map(|p| state.player(p).unwrap().faction.as_str()).collect();
+        assert!(factions.contains(&"jolnar") || factions.contains(&"l1z1x"), "{factions:?}");
     }
 
     #[test]
