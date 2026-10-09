@@ -1526,7 +1526,7 @@ fn dispatch_leader(
                 return false;
             }
             let safe: Vec<ti4_model::id::SystemId> = galaxy
-                .system_ids()
+                .system_ids_holding_things()
                 .into_iter()
                 .map(ti4_model::id::SystemId::new)
                 .filter(|system| {
