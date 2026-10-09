@@ -955,11 +955,12 @@ impl FileGameStore {
 
         let content = ContentStore::embedded();
         let galaxy = if let Some(seed) = init_record.seed {
-            let (_, g) = crate::map::create_game_with_template(
+            let g = crate::map::rebuild_galaxy(
                 content,
                 &init_record.player_ids,
                 seed,
                 init_record.map_template.as_deref(),
+                &init_record.initial_state,
             )
             .map_err(StorageError::Map)?;
             Some(g)

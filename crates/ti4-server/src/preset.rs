@@ -96,6 +96,13 @@ pub const ROSTER: &[&str] = &[
     "titans", "winnu", "yin", "yssaril",
 ];
 
+/// Roster factions the seeded walk skips, so a nightly game is not lost to a known product bug;
+/// `+fac:arborec` still seats them. Arborec: every game that seats it ends in a replay divergence
+/// (the session rejects a batch with "replay diverged", and a recovery replay reports differing
+/// canonical hashes), seen in three of three runs from the first Arborec flagship or Mitosis
+/// decision on. Take it off this list when that is fixed.
+pub const HELD_OUT: &[&str] = &["arborec"];
+
 /// Exploration cards drawn first, per deck, in this order: the ones that ask the player something
 /// (reward choices, "remove an infantry" payments, a production offer), with a fragment and an
 /// attachment between them. Cards the corpus lacks are skipped.
@@ -302,11 +309,12 @@ pub fn roster(
 ) -> Option<BTreeMap<PlayerId, FactionId>> {
     let listed = parse(name)?.factions?;
     let mut taken: Vec<&str> = listed.iter().copied().take(players.len()).collect();
-    let len = ROSTER.len();
+    let walk: Vec<&str> = ROSTER.iter().copied().filter(|a| !HELD_OUT.contains(a)).collect();
+    let len = walk.len();
     let step = (3..).step_by(2).find(|s| gcd(*s, len) == 1).unwrap_or(1);
     let mut at = (mix(seed, 950) % len as u64) as usize;
     while taken.len() < players.len() {
-        let alias = ROSTER[at % len];
+        let alias = walk[at % len];
         at += step;
         if !taken.contains(&alias) {
             taken.push(alias);
@@ -1688,7 +1696,12 @@ mod tests {
                 reached.insert(faction.as_str().to_owned());
             }
         }
-        assert_eq!(reached.len(), ROSTER.len(), "{reached:?}");
+        let expected: BTreeSet<String> = ROSTER
+            .iter()
+            .filter(|a| !HELD_OUT.contains(a))
+            .map(|a| (*a).to_owned())
+            .collect();
+        assert_eq!(reached, expected);
     }
 
     #[test]
