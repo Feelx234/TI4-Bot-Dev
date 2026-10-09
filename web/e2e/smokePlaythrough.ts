@@ -658,6 +658,27 @@ export async function randomUiPlaythrough(
       .catch(() => {});
   };
 
+  const shotSubtypes = new Set(
+    (process.env.TI4_SMOKE_SHOT_SUBTYPES ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+  );
+  const subtypeShots = new Set<string>();
+  const shotSubtypesDone = new Set<string>();
+  const subtypeShot = async (page: Page, name: string) => {
+    const dir = process.env.TI4_SMOKE_SHOT_DIR ?? join(options.traceDir ?? "test-results", "decision-shots");
+    mkdirSync(dir, { recursive: true });
+    const original = page.viewportSize();
+    for (const [label, size] of [
+      ["desktop", { width: 1440, height: 900 }],
+      ["phone", { width: 390, height: 844 }],
+    ] as const) {
+      await page.setViewportSize(size);
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: join(dir, `${name}-${label}.png`), fullPage: true }).catch(() => {});
+    }
+    if (original) await page.setViewportSize(original);
+    log(`  SHOT ${name}`);
+  };
+
   const tour = flags.tour ? new UiTour(finding, shot) : undefined;
   if (tour) report.exercises.tour = { faction: "pending", unit: "pending", notes: tour.notes };
   if (flags.redo) {
@@ -911,6 +932,14 @@ export async function randomUiPlaythrough(
           fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
         );
 
+      // TI4_SMOKE_SHOT_SUBTYPES=a,b: save the deciding seat's real view of each listed subtype the
+      // first time it is shown (before answering) at desktop and phone size, and again after the answer.
+      const wantShot = shotSubtypes.has(subtype) && !subtypeShots.has(subtype);
+      if (wantShot) {
+        subtypeShots.add(subtype);
+        await page.waitForTimeout(600);
+        await subtypeShot(page, `${subtype}-seat${actorIndex + 1}-before`);
+      }
       const isTurnMenu =
         choice.prompt === "action phase" || subtype === "end_turn";
       if (isTurnMenu) report.turnMenuDecisions++;
@@ -1066,6 +1095,12 @@ export async function randomUiPlaythrough(
           page,
           `${subtype} did not advance after ${options.maxClicksPerDecision} clicks (seat ${actorIndex + 1}); options: ${JSON.stringify(choice?.options.map((o) => o.id))}`,
         );
+      }
+      if (wantShot) {
+        await page.waitForTimeout(800);
+        await subtypeShot(page, `${subtype}-seat${actorIndex + 1}-after`);
+        shotSubtypesDone.add(subtype);
+        if (process.env.TI4_SMOKE_SHOT_STOP && shotSubtypesDone.size >= shotSubtypes.size) break;
       }
       if (isTurnMenu) {
         if (barControl) {

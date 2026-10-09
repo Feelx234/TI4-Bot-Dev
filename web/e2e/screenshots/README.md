@@ -31,3 +31,7 @@ Shared parts in `_shared/`:
 Vite runs without its file watcher (`_shared/vite.shots.config.ts`), so a low inotify limit (ENOSPC) does not break the runner.
 
 Fixtures are synthetic, not captured engine states. Playwright starts and stops vite itself (`playwright.config.ts`); set `TI4_SHOT_PORT` to pin the port.
+
+## Real-game shots (BJ-combat-decisions)
+
+`BJ-combat-decisions` holds shots of the real UI taken from real engine games, not mocked fixtures. `capture-real.sh` drives the smoke playthrough (`TI4_SMOKE_SHOT_SUBTYPES`, `TI4_SMOKE_SHOT_DIR` in `e2e/smokePlaythrough.ts`) and commits the PNGs; `capture-committed.ts` only checks that they are present, so `npm run screenshots -- BJ` builds the page from them.
