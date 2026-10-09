@@ -36,6 +36,8 @@ import { useSecondaryPrepare, useTokenPrefill } from "./hooks/useSecondaryPrepar
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
+import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
+import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 import {
@@ -174,6 +176,8 @@ const GameRoute: React.FC<{
     playerId,
     error,
     connectionLost,
+    gone,
+    retry,
     dismissError,
     loading,
     invalidCredential,
@@ -198,8 +202,13 @@ const GameRoute: React.FC<{
     return (
       <main className="lobby-page">
         <div className="panel lobby-panel">
-          {loading ? "Loading lobby..." : "Unable to load lobby."}
+          {loading && !gone ? "Loading lobby..." : null}
         </div>
+        {gone ? (
+          <ConnectionProblem kind="gone" message={GONE_MESSAGE} onRetry={retry} />
+        ) : !loading ? (
+          <ConnectionProblem kind="unreachable" message={UNREACHABLE_MESSAGE} onRetry={retry} />
+        ) : null}
       </main>
     );
   const viewer: ViewerRole =
@@ -231,13 +240,12 @@ const GameRoute: React.FC<{
           </button>
         </div>
       )}
-      {connectionLost && (
-        <div className="connection-indicator" role="status" data-testid="lobby-connection-lost">
-          Connection lost. Retrying…
-        </div>
+      {lobby.phase === "running" && (playerId || watching) ? null : (
+        <ReconnectingChip visible={connectionLost} />
       )}
       {lobby.phase === "running" && (playerId || watching) ? (
         <GameViewContainer
+          lobbyConnectionLost={connectionLost}
           key={`${gameId}:${token ?? "watch"}`}
           gameId={gameId}
           lobby={lobby}
@@ -285,11 +293,12 @@ const BluffScope: React.FC<{
   );
 
 const GameViewContainer: React.FC<{
+  lobbyConnectionLost?: boolean;
   gameId: string;
   lobby: import("./protocol/types.ts").LobbyDto;
   viewer: ViewerRole;
   onLeave?: () => void;
-}> = ({ gameId, lobby, viewer }) => {
+}> = ({ gameId, lobby, viewer, lobbyConnectionLost }) => {
   const {
     status,
     gameVersion,
@@ -297,6 +306,8 @@ const GameViewContainer: React.FC<{
     pendingChoice: realPendingChoice,
     turnStatus,
     lastError,
+    fatal,
+    retryConnection,
     events,
     history: gameHistory,
     submitChoice,
@@ -315,6 +326,10 @@ const GameViewContainer: React.FC<{
     resumeBatch,
     dismissBatchResume,
   } = useGameSession({ gameId, viewer });
+  const reconnecting = useAfterDelay(
+    (status !== "connected" || Boolean(lobbyConnectionLost)) && !fatal,
+    1_200,
+  );
   const { playTurnNotification } = useTurnSound();
   // The event log drops the reader's manual expansion only for a new history generation (undo,
   // redo, restore). A reconnect re-sends the same generation with a fresh events array and keeps
@@ -539,6 +554,10 @@ const GameViewContainer: React.FC<{
             Dismiss
           </button>
         </div>
+      )}
+      <ReconnectingChip visible={reconnecting} />
+      {fatal && (
+        <ConnectionProblem kind={fatal.kind} message={fatal.message} onRetry={retryConnection} />
       )}
       <CornerToastLayer
         events={events}
