@@ -35,6 +35,30 @@ describe("detectStrategicAction", () => {
     expect(action).toMatchObject({ card: "pok2diplomacy", inferred: true });
   });
 
+  it("keeps the inferred card when the primary plays an action card during its own action (nightly 2026-10-08: Warfare + Morale Boost dropped every follower's plan)", () => {
+    const players = [primary(["te6warfare", "pok1leadership"], ["pok1leadership"]), player("b")];
+    const events = [
+      ...playedLog(null),
+      actionEvent("action_5", "a", { detail: "a played Morale Boost", stage: "reactions" }),
+    ];
+    expect(detectStrategicAction({ ...base, events, players })).toMatchObject({
+      card: "te6warfare",
+      inferred: true,
+    });
+  });
+
+  it("still reads a named card when the same action also logs an action card the primary played", () => {
+    const players = [primary(["pok7technology", "pok1leadership"]), player("b")];
+    const events = [
+      ...playedLog("Technology"),
+      actionEvent("action_5", "a", { detail: "a played Morale Boost", stage: "reactions" }),
+    ];
+    expect(detectStrategicAction({ ...base, events, players })).toMatchObject({
+      card: "pok7technology",
+      inferred: false,
+    });
+  });
+
   it("does not guess when two unexhausted cards could be meant", () => {
     expect(
       detectStrategicAction({

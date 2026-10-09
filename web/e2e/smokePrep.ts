@@ -96,7 +96,12 @@ export interface PrepDeps {
   label: string;
   /** The server's view of the seat: who `view.active_player` is (evidence for findings). */
   activeInfo?: (seat: number) => Promise<string>;
+  /** The public event log's details as the server has them now (to tell a cancelled action from a dropped plan). */
+  eventDetails?: (seat: number) => Promise<string[]>;
 }
+
+/** Coup d'Etat cancels the strategic action before anything resolves; the card is then played again as a NEW action. */
+const COUP = /\bplayed Coup d.Etat\b/i;
 
 interface Plan {
   seat: number;
@@ -109,6 +114,10 @@ interface Plan {
   line: number;
   /** When the client dropped the saved plan before its window opened (evidence). */
   lost?: string;
+  /** How many log events the server had when the plan was saved. */
+  eventsAtPlan?: number;
+  /** The plan's own window was answered (auto-played or confirmed); what follows is optional follow-up. */
+  answered?: boolean;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -295,7 +304,17 @@ export class SecondaryPrepExercise {
     p.summary = chipText.replace(/^Prepared\s*/, "").slice(0, 160);
     if (/ paying /.test(p.summary)) this.bump(card, "withPayment");
     p.line = this.report.cases.push(`seat ${seat + 1} r${round} ${card} ${mode}: plan "${p.summary}" (clicks: ${clicked.join(", ")}) -> pending`) - 1;
+    p.eventsAtPlan = (await this.d.eventDetails?.(seat).catch(() => undefined))?.length;
     this.plans.set(seat, p);
+  }
+
+  /**
+   * A later decision of the seat found nothing to do for the plan. When the plan's own window was
+   * answered, its outcome stays (auto-played / confirmed): a plan that records no follow-up step
+   * (no technology, planet or site: "Follow Technology" and nothing else) simply has none left.
+   */
+  private planEnded(p: Plan) {
+    if (!p.answered) this.setOutcome(p, "plan ended (follow-up played normally)");
   }
 
   private setOutcome(p: Plan, outcome: string) {
@@ -333,6 +352,17 @@ export class SecondaryPrepExercise {
         this.setOutcome(p, `window never opened (the next secondary is ${details.card})`);
         this.plans.delete(seat);
         return "normal";
+      }
+      // Coup d'Etat cancelled the action the plan was made for (the client rightly drops the plan);
+      // the primary then plays the same card again, and THAT action's window is not this plan's.
+      if (p.lost && p.eventsAtPlan !== undefined) {
+        const details = await this.d.eventDetails?.(seat).catch(() => undefined);
+        if (details?.slice(p.eventsAtPlan).some((line) => COUP.test(line))) {
+          this.report.windowNeverOpened++;
+          this.setOutcome(p, "action cancelled by Coup d'Etat (this window belongs to the card's replay)");
+          this.plans.delete(seat);
+          return "normal";
+        }
       }
       p.started = true;
     }
@@ -377,7 +407,7 @@ export class SecondaryPrepExercise {
     const moved = (await version()) > before;
     if (p.mode === "auto") {
       if (moved) {
-        if (first) { this.report.autoPlayed++; this.bump(p.card, "autoPlayed"); }
+        if (first) { this.report.autoPlayed++; this.bump(p.card, "autoPlayed"); p.answered = true; }
         else this.report.followUps++;
         if (!sawAutoToast) {
           // The played toast shows for 5 s after the answer; give the last frame a moment.
@@ -393,7 +423,8 @@ export class SecondaryPrepExercise {
         this.find(p, `Auto did not answer the secondary within ${limit / 1000} s (toast seen: ${sawAutoToast}, dialog opened: ${dialogBeforeAnswer}; ${await this.evidence(page)}; ${p.lost ?? "plan was never seen dropped"}; ${this.d.activeInfo ? await this.d.activeInfo(seat) : ""})`);
         await this.d.shot(page, "prep-auto-miss", `prep-auto-did-not-fire-seat${seat + 1}-r${round}`);
       }
-      this.setOutcome(p, first ? "AUTO DID NOT FIRE (played normally)" : "plan ended (follow-up played normally)");
+      if (first) this.setOutcome(p, "AUTO DID NOT FIRE (played normally)");
+      else this.planEnded(p);
       if (first) { this.report.fallbacks++; this.bump(p.card, "fallbacks"); }
       this.plans.delete(seat);
       return "normal";
@@ -413,7 +444,8 @@ export class SecondaryPrepExercise {
         this.find(p, `no 'Prepared: ...' confirm bar within ${limit / 1000} s of the real question opening`);
         this.report.fallbacks++; this.bump(p.card, "fallbacks");
       }
-      this.setOutcome(p, first ? "NO REVIEW BAR (played normally)" : "plan ended (follow-up played normally)");
+      if (first) this.setOutcome(p, "NO REVIEW BAR (played normally)");
+      else this.planEnded(p);
       this.plans.delete(seat);
       return "normal";
     }
@@ -446,7 +478,7 @@ export class SecondaryPrepExercise {
     const end = Date.now() + 12_000;
     while (confirmed && Date.now() < end && (await version()) <= before) await sleep(150);
     if (confirmed && (await version()) > before) {
-      if (first) { this.report.reviewConfirmed++; this.bump(p.card, "reviewConfirmed"); }
+      if (first) { this.report.reviewConfirmed++; this.bump(p.card, "reviewConfirmed"); p.answered = true; }
       else this.report.followUps++;
       this.setOutcome(p, first ? "review confirmed" : "review follow-up confirmed");
       if (!first) this.plans.delete(seat);
