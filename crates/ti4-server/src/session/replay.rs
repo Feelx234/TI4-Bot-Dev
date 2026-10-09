@@ -37,6 +37,10 @@ struct ReplayDecider {
     #[allow(dead_code)]
     step_index: usize,
     force: Option<crate::session::RngForce>,
+    /// Every answer given, as the engine's log would record it. A system activation is rolled
+    /// back as a whole when a nested question finds the script used up, which takes the
+    /// activation's earlier answers out of the game's log; this list keeps them.
+    answered: std::sync::Arc<std::sync::Mutex<Vec<DecisionRecord>>>,
 }
 
 impl Decider for ReplayDecider {
@@ -57,6 +61,12 @@ impl Decider for ReplayDecider {
         }
         let offered: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
         if let Some(opt) = choice.options.iter().find(|o| o.id == wanted) {
+            let mut log = ti4_engine::choice::DecisionLog::default();
+            log.record(choice, opt);
+            self.answered
+                .lock()
+                .expect("replay answers lock")
+                .extend(log.records);
             Ok(opt.clone())
         } else {
             Err(IllegalChoice::ScriptDiverged {
@@ -108,10 +118,12 @@ pub fn replay_session_forced(
 
     let choices: VecDeque<String> = records.iter().map(|r| r.chosen.clone()).collect();
     let force = crate::session::RngForce::new(marks);
+    let answered = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let decider = Box::new(ReplayDecider {
         script: choices,
         step_index: 0,
         force: force.clone(),
+        answered: answered.clone(),
     });
     let table = Table::with_default(decider);
 
@@ -140,10 +152,15 @@ pub fn replay_session_forced(
         }
     }
 
-    let replayed_hashes: Vec<CanonicalHash> = game
-        .table
-        .log
-        .records
+    // The log, unless an activation that was still asking when the script ran out was rolled back
+    // and took answered decisions with it.
+    let answered = answered.lock().expect("replay answers lock").clone();
+    let replayed = if answered.len() > game.table.log.records.len() {
+        answered
+    } else {
+        game.table.log.records.clone()
+    };
+    let replayed_hashes: Vec<CanonicalHash> = replayed
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
         .collect();
@@ -151,7 +168,7 @@ pub fn replay_session_forced(
     let hashes_match = replayed_hashes == original_hashes;
 
     Ok(ReplayReport {
-        decision_count: game.table.log.records.len(),
+        decision_count: replayed.len(),
         original_hashes,
         replayed_hashes,
         hashes_match,

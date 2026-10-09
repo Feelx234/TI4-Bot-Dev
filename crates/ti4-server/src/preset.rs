@@ -97,11 +97,9 @@ pub const ROSTER: &[&str] = &[
 ];
 
 /// Roster factions the seeded walk skips, so a nightly game is not lost to a known product bug;
-/// `+fac:arborec` still seats them. Arborec: every game that seats it ends in a replay divergence
-/// (the session rejects a batch with "replay diverged", and a recovery replay reports differing
-/// canonical hashes), seen in three of three runs from the first Arborec flagship or Mitosis
-/// decision on. Take it off this list when that is fixed.
-pub const HELD_OUT: &[&str] = &["arborec"];
+/// `+fac:<name>` still seats them. Empty now: Arborec was held out while every game that seated it
+/// ended in a replay divergence (see `tests/arborec_batch_replay.rs`).
+pub const HELD_OUT: &[&str] = &[];
 
 /// Exploration cards drawn first, per deck, in this order: the ones that ask the player something
 /// (reward choices, "remove an infantry" payments, a production offer), with a fragment and an
@@ -832,9 +830,8 @@ fn deal_notes(
     players: &[PlayerId],
     others: usize,
 ) {
-    // The server deals notes while the seats are still factionless (setup runs before seating), so
-    // every game starts with four "<alias>:generic" notes that the last seat holds and no faction
-    // note at all. Deal them again now that the factions are known, as the simulators do.
+    // Game creation already deals after seating, so this only restates the hands before the
+    // spread below (a no-op on a fresh game; kept so a preset applied to any opening state works).
     ti4_engine::promissory::deal(state, content, POK);
     let count = players.len();
     let spread = others.min(count.saturating_sub(1)).max(1);
