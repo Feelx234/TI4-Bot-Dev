@@ -184,6 +184,25 @@ export interface DecisionTriggerDto {
   chain?: number[];
 }
 
+export type HitCauseDto =
+  | "assault_cannon"
+  | "courageous_to_the_end"
+  | "anti_fighter_barrage"
+  | "space_cannon"
+  | "combat_roll"
+  | "start_of_combat"
+  | "end_of_round"
+  | "other";
+
+/** What kind of hit a casualty decision assigns (display only; absent from older servers). */
+export interface HitDetailDto {
+  cause: HitCauseDto;
+  /** A destroy effect: not a hit, so Sustain Damage does not apply. */
+  destroy: boolean;
+  restriction: "any" | "non_fighter";
+  producer?: string;
+}
+
 export interface DecisionContextDto {
   version?: number;
   actor?: string;
@@ -200,6 +219,7 @@ export interface DecisionContextDto {
   details?: Record<string, unknown>;
   /** Present on reaction decisions from servers that send it; absent in older saves and fixtures. */
   trigger?: DecisionTriggerDto | null;
+  hit?: HitDetailDto | null;
 }
 
 export interface OutstandingConstraintDto {

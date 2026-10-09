@@ -688,6 +688,18 @@ export const ChoiceRendererDispatcher: React.FC<
     workflow === "combat_retreat";
 
   if (boardView?.invasion && !boardView.combat) {
+    // Participant ids in the prompt and option labels ("player_<hash>'s units" for a
+    // bombardment target) are shown as the seat's name, as in every other decision.
+    const shownChoice = choice
+      ? {
+          ...choice,
+          prompt: present(choice.prompt),
+          options: choice.options.map((option) => ({
+            ...option,
+            label: present(option.label),
+          })),
+        }
+      : choice;
     const isActor = choice?.actor === viewerSeat;
     return isMinimized ? (
       <div className="choice-banner">
@@ -706,7 +718,7 @@ export const ChoiceRendererDispatcher: React.FC<
     ) : (
       <InvasionOverlay
         board={boardView}
-        choice={choice}
+        choice={shownChoice}
         players={players}
         viewerSeat={viewerSeat}
         onSubmit={onSubmit}

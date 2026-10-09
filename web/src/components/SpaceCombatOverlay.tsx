@@ -1,3 +1,9 @@
+import { HitKindBanner, BarrageWindowBanner } from "./HitKindBanner.tsx";
+import {
+  deriveBarrageWindow,
+  deriveHitKind,
+  illegalTargetReason,
+} from "../presentation/hitKind.ts";
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   PendingChoiceDto,
@@ -217,6 +223,24 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     choice?.context?.subtype.startsWith("reaction_") ||
     choice?.context?.subtype.startsWith("play_reaction_"),
   );
+  const hitKind =
+    (isCasualtyStage || isSustainStage) && choice?.context
+      ? deriveHitKind(choice.context, {
+          producer: choice.context.hit?.producer
+            ? display(choice.context.hit.producer).label
+            : undefined,
+          hits: hitsOwed,
+        })
+      : null;
+  const barrageWindow =
+    isReactionStage && choice
+      ? deriveBarrageWindow(
+          choice.context,
+          choice.context?.trigger?.actor
+            ? display(choice.context.trigger.actor).label
+            : null,
+        )
+      : null;
   // Sustains and casualties are staged in one panel and sent together as a plan.
   // Only the hit-pool decisions go through the staged panel (its `casualties` plan is accepted for
   // exactly these subtypes). One-off losses (Assault Cannon, Courageous to the End, ...) are a single
@@ -245,19 +269,21 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     board?.combat?.round === 1 &&
     Object.keys(board.combat.barrage_hits ?? {}).length > 0;
   const showAssignment = isResolving || showBarrageRecap;
-  const reactionTiming = subtype.includes("SUSTAIN_DAMAGE_USED")
-    ? "Your opponent sustained damage to cancel your hit."
-    : subtype.includes("HITS_TO_ASSIGN")
-      ? "Before assigning incoming hits"
-      : subtype.includes("ACTION_CARD_PLAYED")
-        ? "In response to an action card"
-        : subtype.includes("SPACE_COMBAT_WON")
-          ? "After winning space combat"
-          : subtype.includes("SPACE_COMBAT_STARTED")
-            ? "At the start of space combat"
-            : subtype.includes("COMBAT_ROUND_STARTED")
-              ? "At the start of this combat round"
-              : (choice?.prompt.replaceAll("_", " ") ?? "Choose a reaction");
+  const reactionTiming = barrageWindow
+    ? "Before the barrage dice are rolled"
+    : subtype.includes("SUSTAIN_DAMAGE_USED")
+      ? "Your opponent sustained damage to cancel your hit."
+      : subtype.includes("HITS_TO_ASSIGN")
+        ? "Before assigning incoming hits"
+        : subtype.includes("ACTION_CARD_PLAYED")
+          ? "In response to an action card"
+          : subtype.includes("SPACE_COMBAT_WON")
+            ? "After winning space combat"
+            : subtype.includes("SPACE_COMBAT_STARTED")
+              ? "At the start of space combat"
+              : subtype.includes("COMBAT_ROUND_STARTED")
+                ? "At the start of this combat round"
+                : (choice?.prompt.replaceAll("_", " ") ?? "Choose a reaction");
 
   // Identify system where combat is taking place
   const combatSystemId =
@@ -294,9 +320,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     onlyFighters:
       phase === "barrage" && onlyFighterOptions(choice?.options ?? []),
   };
-  const stagedHits =
-    stagedStage &&
-    canStageHits(hitPanelContext);
+  const stagedHits = stagedStage && canStageHits(hitPanelContext);
 
   // Discover sides
   const { attackerSeat, defenderSeat } = useMemo(() => {
@@ -763,6 +787,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       }
 
       const isCasualtyInteractive = matchingCasualties.length > 0;
+      // With the kind of hit known, a ship this decision does not offer is dimmed and says why.
+      const illegalReason =
+        hitKind && isCurrentDecider && isCasualtyStage && !isCasualtyInteractive
+          ? (illegalTargetReason(hitKind, group.unitType) ??
+            "Cannot be assigned: not a legal target for this hit")
+          : null;
       const isSustainInteractive = matchingSustains.length > 0;
 
       const handleRowClick = () => {
@@ -782,8 +812,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       return (
         <div
           key={group.unitType}
-          className={`combat-unit-row ${isCasualtyInteractive ? "combat-unit-row--interactive combat-unit-row--casualty" : ""}`}
+          className={`combat-unit-row ${isCasualtyInteractive ? "combat-unit-row--interactive combat-unit-row--casualty" : ""} ${illegalReason ? "combat-unit-row--illegal" : ""}`}
           data-testid={`unit-row-${group.unitType}`}
+          title={illegalReason ?? undefined}
+          aria-disabled={illegalReason ? true : undefined}
+          data-illegal-target={illegalReason ? "true" : undefined}
           role={isCasualtyInteractive ? "button" : undefined}
           tabIndex={isCasualtyInteractive ? 0 : undefined}
           onClick={isCasualtyInteractive ? handleRowClick : undefined}
@@ -800,6 +833,11 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             {getUnitDisplayName(group.unitType, group.count)}
           </span>
           <span className="combat-unit-row__count">×{group.count}</span>
+          {illegalReason && (
+            <span className="combat-unit-row__illegal-note">
+              Not a legal target
+            </span>
+          )}
           {showAssignment && destroyed > 0 && (
             <span
               className="combat-unit-row__loss"
@@ -836,7 +874,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   className="combat-unit-row__click-hint"
                   data-testid={`casualty-opt-${matchingCasualties[0].id}`}
                 >
-                  💥 Click to assign
+                  {hitKind?.tone === "destroy"
+                    ? "💥 Click to destroy"
+                    : "💥 Click to assign"}
                 </span>
               ) : (
                 matchingCasualties.map((opt) => {
@@ -1002,7 +1042,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             title={
               phase === "complete"
                 ? `Space Combat · System ${combatSystemId}`
-                : `Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : "Retreat / next round"}`
+                : `Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${hitKind?.cause === "assault_cannon" ? "Assault Cannon" : barrageWindow ? "Anti-fighter barrage" : phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : "Retreat / next round"}`
             }
             onMinimize={() =>
               phase === "complete"
@@ -1023,28 +1063,36 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
             data-phase={phase}
             className="combat-action-prompt"
           >
-            {phase === "pre_roll"
-              ? "Before rolls"
-              : phase === "barrage"
-                ? "Anti-fighter barrage"
-                : phase === "resolving_hits"
-                  ? "Roll results · Resolve hits"
-                  : phase === "retreating"
-                    ? "Retreat / next round"
-                    : "Combat complete"}
+            {hitKind?.cause === "assault_cannon"
+              ? "Start of combat"
+              : barrageWindow
+                ? "Start of combat"
+                : phase === "pre_roll"
+                  ? "Before rolls"
+                  : phase === "barrage"
+                    ? "Anti-fighter barrage"
+                    : phase === "resolving_hits"
+                      ? "Roll results · Resolve hits"
+                      : phase === "retreating"
+                        ? "Retreat / next round"
+                        : "Combat complete"}
           </div>
-          {(phase === "barrage" || showBarrageRecap) && (
-            <div
-              className="combat-barrage-note"
-              data-testid="combat-barrage-results"
-            >
-              <strong>Anti-fighter barrage</strong>
-              <span>
-                Hits automatically destroy opposing fighters. Waylay lets the
-                defender assign hits to other ships instead.
-              </span>
-            </div>
-          )}
+          {hitKind && <HitKindBanner model={hitKind} />}
+          {barrageWindow && <BarrageWindowBanner model={barrageWindow} />}
+          {(phase === "barrage" || showBarrageRecap) &&
+            !barrageWindow &&
+            !hitKind && (
+              <div
+                className="combat-barrage-note"
+                data-testid="combat-barrage-results"
+              >
+                <strong>Anti-fighter barrage</strong>
+                <span>
+                  Hits automatically destroy opposing fighters. Waylay lets the
+                  defender assign hits to other ships instead.
+                </span>
+              </div>
+            )}
 
           {choice ? (
             <WorkflowShell
@@ -1780,13 +1828,17 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                 </div>
               </div>
 
-              {phase === "complete" && board?.combat && (() => {
-                const summary = summarizeCombat(
-                  board.combat,
-                  board.systems[combatSystemId]?.units ?? [],
-                );
-                return summary ? <CombatResultSummary summary={summary} /> : null;
-              })()}
+              {phase === "complete" &&
+                board?.combat &&
+                (() => {
+                  const summary = summarizeCombat(
+                    board.combat,
+                    board.systems[combatSystemId]?.units ?? [],
+                  );
+                  return summary ? (
+                    <CombatResultSummary summary={summary} />
+                  ) : null;
+                })()}
 
               {phase !== "complete" && (
                 <div
