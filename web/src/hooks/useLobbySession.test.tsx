@@ -98,3 +98,45 @@ it("posts the host's map choice with the credential and adopts the lobby it retu
   expect(result.current.lobby?.map?.kind).toBe("random");
   expect(result.current.lobby?.map_revision).toBe(1);
 });
+
+it("keeps background poll failures out of `error`, shows connectionLost only after repeated failures, and recovers", async () => {
+  vi.useFakeTimers();
+  let failing = 0;
+  const fetchMock = vi.fn().mockImplementation(() => {
+    if (failing > 0) {
+      failing--;
+      return Promise.reject(new TypeError("Failed to fetch"));
+    }
+    return Promise.resolve(json({ player: { id: "player_a" }, lobby }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  try {
+    const { result } = renderHook(() => useLobbySession("game", "session_secret"));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.playerId).toBe("player_a");
+    failing = 1;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.connectionLost).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(result.current.error).toBeNull();
+    failing = 3;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.connectionLost).toBe(true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(result.current.connectionLost).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});

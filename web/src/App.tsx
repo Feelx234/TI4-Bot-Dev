@@ -173,6 +173,8 @@ const GameRoute: React.FC<{
     lobby,
     playerId,
     error,
+    connectionLost,
+    dismissError,
     loading,
     invalidCredential,
     pendingAction,
@@ -217,8 +219,21 @@ const GameRoute: React.FC<{
   return (
     <>
       {error && (
-        <div className="session-error" role="alert">
-          {participantText(error, lobby, [])} Check the lobby and try again.
+        <div className="session-error session-error--dismissable" role="alert" data-testid="lobby-error">
+          <span>{participantText(error, lobby, [])}</span>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            data-testid="lobby-error-dismiss"
+            onClick={dismissError}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+      {connectionLost && (
+        <div className="connection-indicator" role="status" data-testid="lobby-connection-lost">
+          Connection lost. Retrying…
         </div>
       )}
       {lobby.phase === "running" && (playerId || watching) ? (

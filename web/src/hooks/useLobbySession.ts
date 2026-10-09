@@ -6,7 +6,11 @@ import { rememberNickname, validNickname } from "../protocol/nickname.ts";
 export interface LobbySessionState {
   lobby: LobbyDto | null;
   playerId: string | null;
+  /** The last failed ACTION (ready, start, join ...); cleared by the next action or `dismissError`. */
   error: string | null;
+  /** True after LOBBY_POLL_FAILURE_LIMIT consecutive failed background polls; clears on the next success. */
+  connectionLost: boolean;
+  dismissError: () => void;
   loading: boolean;
   invalidCredential: boolean;
   pendingAction: string | null;
@@ -23,10 +27,14 @@ export interface LobbySessionState {
   addRandomBots: (options?: { fill?: boolean; count?: number; nickname?: string }) => Promise<boolean>;
 }
 
+/** A single dropped background poll is noise; the indicator shows after this many in a row. */
+export const LOBBY_POLL_FAILURE_LIMIT = 3;
+
 export function useLobbySession(gameId: string, playerSession?: string): LobbySessionState {
   const [lobby, setLobby] = useState<LobbyDto | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pollFailures, setPollFailures] = useState(0);
   const [loading, setLoading] = useState(true);
   const [invalidCredential, setInvalidCredential] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -73,10 +81,12 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
           setLobby(next);
           setPlayerId(joined?.player.id ?? null);
           setLoading(false);
+          setPollFailures(0);
         }
-      } catch (cause) {
+      } catch {
+        // A background poll failure is not an action error: count it, show it only when it persists.
         if (active && observed === revision.current && !pending.current) {
-          setError(String(cause));
+          setPollFailures((count) => count + 1);
           setLoading(false);
         }
       }
@@ -267,6 +277,8 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     lobby,
     playerId,
     error,
+    connectionLost: pollFailures >= LOBBY_POLL_FAILURE_LIMIT,
+    dismissError: () => setError(null),
     loading,
     invalidCredential,
     pendingAction,
