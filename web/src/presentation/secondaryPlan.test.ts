@@ -122,12 +122,19 @@ describe("resolveStep: second-level choices", () => {
     expect(resolveStep({ ...tech, follow: false }, offered, "b")).toEqual({ kind: "none" });
   });
 
-  it("diplomacy: readies prepared planets in turn and flags when none is offered", () => {
+  it("diplomacy: readies both prepared planets together and flags what is no longer offered", () => {
     const plan: SecondaryPlan = { card: "pok2diplomacy", follow: true, planets: ["jord", "lodor"] };
-    const first = stepChoice("ready_planet", [option("jord", "ready"), option("lodor", "ready")]);
-    expect(resolveStep(plan, first, "b")).toMatchObject({ optionId: "jord" });
-    const second = stepChoice("ready_planet", [option("lodor", "ready"), option("xxcha", "ready")]);
-    expect(resolveStep(plan, second, "b")).toMatchObject({ optionId: "lodor" });
+    const both = stepChoice("ready_planet", [option("jord", "ready"), option("lodor", "ready"), option("xxcha", "ready")]);
+    expect(resolveStep(plan, both, "b")).toMatchObject({ kind: "ready", planetIds: ["jord", "lodor"] });
+    // Only two are exhausted at all: both are owed, whatever else was planned.
+    const two = stepChoice("ready_planet", [option("jord", "ready"), option("lodor", "ready")]);
+    expect(resolveStep(plan, two, "b")).toMatchObject({ kind: "ready", planetIds: ["jord", "lodor"] });
+    // One prepared planet is gone while two are owed: review, with the one that remains preselected.
+    const partly = stepChoice("ready_planet", [option("lodor", "ready"), option("xxcha", "ready"), option("quann", "ready")]);
+    expect(resolveStep(plan, partly, "b")).toMatchObject({ kind: "review", ready: ["lodor"] });
+    // A single exhausted planet owes one ready; the prepared one is enough.
+    const lone = stepChoice("ready_planet", [option("lodor", "ready")]);
+    expect(resolveStep(plan, lone, "b")).toMatchObject({ kind: "ready", planetIds: ["lodor"] });
     expect(resolveStep(plan, stepChoice("ready_planet", [option("xxcha", "ready")]), "b").kind).toBe("review");
   });
 

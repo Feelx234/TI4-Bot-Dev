@@ -32,7 +32,7 @@ import {
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
 import { PlanetResourcesContext, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
-import { useSecondaryPrepare, useTokenPrefill } from "./hooks/useSecondaryPrepare.ts";
+import { useSecondaryPrepare, useTokenPrefill, useReadyPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
@@ -44,6 +44,7 @@ import {
   CommandTokenDraftProvider,
   useCommandTokenDraft,
 } from "./presentation/CommandTokenDraftContext.tsx";
+import { ReadyPlanetsDraftProvider, useReadyPlanetsDraft } from "./presentation/ReadyPlanetsDraftContext.tsx";
 
 const DevDecisionGallery = import.meta.env.DEV
   ? React.lazy(() =>
@@ -421,6 +422,11 @@ const GameViewContainer: React.FC<{
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const tokenDraft = useCommandTokenDraft(pendingChoice, planetResources);
+  // Diplomacy: the planets picked for its ready question (bar, list and map share them).
+  const readyDraft = useReadyPlanetsDraft(
+    pendingChoice && pendingChoice.actor === userSeat ? pendingChoice : null,
+    snapshot?.view.board,
+  );
   const [selectedOptionId, setSelectedOptionId] = useState<string>();
   const [selectedPlanetId, setSelectedPlanetId] = useState<string | null>(null);
   const [selectedSystemId, setSelectedSystemId] = useState<string | null>(null);
@@ -461,6 +467,8 @@ const GameViewContainer: React.FC<{
   // Leadership: the usual token panel opens with the prepared purchase already staged (tokens, their
   // pools and the payment on the map). Once per question, so the player's own changes stay.
   useTokenPrefill(prep, pendingChoice?.nonce, tokenDraft);
+  // Diplomacy: the ready bar opens with the prepared planets already picked.
+  useReadyPrefill(prep, pendingChoice?.nonce, readyDraft);
   const cardIsVisible =
     cardSubject &&
     snapshot &&
@@ -480,6 +488,11 @@ const GameViewContainer: React.FC<{
             ));
   const handleSelectTarget = (systemId: string, planetId?: string) => {
     if (!pendingChoice || pendingChoice.actor !== userSeat) return;
+    // Diplomacy: a click on an exhausted planet picks or drops it (Confirm sends them together).
+    if (readyDraft.view) {
+      if (planetId) readyDraft.toggle(planetId);
+      return;
+    }
     // Leadership purchase: a click on a planet that can pay flips it in the staged payment.
     if (tokenDraft.mapPayment) {
       if (planetId && tokenDraft.mapPayment.offer.planets.some((p) => p.planetId === planetId)) {
@@ -532,6 +545,7 @@ const GameViewContainer: React.FC<{
       <PaymentDraftProvider value={paymentDraft}>
       <PlanetResourcesContext.Provider value={planetResources}>
       <CommandTokenDraftProvider value={tokenDraft}>
+      <ReadyPlanetsDraftProvider value={readyDraft}>
       {undoRequest && (
         <UndoConfirmDialog
           steps={undoRequest.steps}
@@ -788,6 +802,7 @@ const GameViewContainer: React.FC<{
           setCardSubject(subject);
         }}
       />
+      </ReadyPlanetsDraftProvider>
       </CommandTokenDraftProvider>
       </PlanetResourcesContext.Provider>
       </PaymentDraftProvider>

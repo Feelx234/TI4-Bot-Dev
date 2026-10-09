@@ -297,6 +297,8 @@ export interface PaymentMark {
   staged: boolean;
   /** The planet's own resource value, when known (shown beside the payment worth). */
   resources?: number;
+  /** Diplomacy: the planet is picked to be readied, not exhausted (worth is its influence). */
+  readies?: boolean;
 }
 
 export function derivePaymentMarks(offer: PaymentOffer, draft: PaymentDraft): Map<string, PaymentMark> {

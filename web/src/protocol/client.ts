@@ -111,6 +111,11 @@ export type BasketPlan =
   | {
       kind: "tokens";
       steps: import("../presentation/commandTokens.ts").TokenStep[];
+    }
+  | {
+      /** Diplomacy: the planets to ready, one `ready_planet` step per engine question, in order. */
+      kind: "ready_planets";
+      steps: { kind: "ready_planet"; planet: string }[];
     };
 
 export type BatchPlan =
@@ -138,6 +143,7 @@ const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
   production: ["produce_unit"],
   casualties: ["sustain_damage", "assign_casualty", "assign_ground_casualty"],
   tokens: ["gain_command_token", "buy_token_with_influence", "pay_influence"],
+  ready_planets: ["ready_planet"],
 };
 
 /**

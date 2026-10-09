@@ -692,6 +692,48 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("sends a ready_planets plan only while a ready question is pending", async () => {
+    const { client, send } = await connectedPlayer();
+    const pending = (subtype: string) => ({
+      ...snapshot,
+      type: "initial_snapshot" as const,
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: {
+        nonce: "nonce-9",
+        choice: {
+          player: "player_a",
+          prompt: "ready which planet",
+          context: { subtype },
+          options: [
+            { id: "jord", kind: "ready", label: "ready jord" },
+            { id: "lodor", kind: "ready", label: "ready lodor" },
+          ],
+        },
+      },
+    });
+    const plan = {
+      kind: "ready_planets" as const,
+      steps: [
+        { kind: "ready_planet" as const, planet: "jord" },
+        { kind: "ready_planet" as const, planet: "lodor" },
+      ],
+    };
+    send(pending("gain_command_token"));
+    await expect(client.submitBatch(plan)).rejects.toThrow("Workflow is no longer pending");
+    send(pending("ready_planet"));
+    const request = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        active: true,
+        snapshot: { ...snapshot, game_version: 5, viewer: { role: "player", seat: "player_a" } },
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    await client.submitBatch(plan);
+    expect(JSON.parse(request.mock.calls[0][1].body)).toMatchObject({ plan, nonce: "nonce-9" });
+    client.stop();
+  });
+
   describe("a plan paused at a reaction window", () => {
     let version = 6;
     const pendingAt = (subtype: string, nonce: string) => ({

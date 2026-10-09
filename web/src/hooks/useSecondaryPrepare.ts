@@ -41,6 +41,7 @@ import {
 } from "../presentation/secondaryPreview.ts";
 import { usePreparedPlan } from "./useSecondaryPlan.ts";
 import { useSecondaryAutoPlay } from "./useSecondaryAutoPlay.ts";
+import type { ReadyPlanetsDraftApi } from "../presentation/ReadyPlanetsDraftContext.tsx";
 
 const NOTHING_SENT: ReadonlySet<string> = new Set();
 
@@ -418,6 +419,14 @@ export function useSecondaryPrepare({
         return;
       }
       const current = base ?? { card: action.card, follow: true };
+      if (batch.kind === "ready_planets") {
+        // Diplomacy: both planets were picked together; the plan keeps them by planet id.
+        if (step !== "planet1") return;
+        const planets = batch.steps.map((entry) => entry.planet);
+        set({ ...current, follow: true, planets });
+        close();
+        return;
+      }
       if (batch.kind === "production" && step === "produce") {
         const builds = batch.steps.flatMap((entry) => (entry.kind === "produce" ? [stepUnitKey(entry)] : []));
         if (!builds.length) {
@@ -507,6 +516,17 @@ export function useSecondaryPrepare({
     return null;
   }, [preparing, plan, resolution]);
 
+  /**
+   * Diplomacy: the planets the ready bar is opened with. While preparing, the saved plan's; at
+   * arrival the prepared planets (or those of them still exhausted, when the plan needs a review).
+   */
+  const readyPrefill: string[] | null = useMemo(() => {
+    if (preparing) return step === "planet1" && plan?.follow && plan.planets?.length ? plan.planets : null;
+    if (resolution.kind === "ready") return resolution.planetIds;
+    if (resolution.kind === "review") return resolution.ready ?? null;
+    return null;
+  }, [preparing, step, plan, resolution]);
+
   const markSent = useCallback(
     (part: string, on: boolean) =>
       setSent((before) => {
@@ -543,6 +563,13 @@ export function useSecondaryPrepare({
     ? (steps: Extract<StepResolution, { kind: "payment" }>["steps"]) =>
         sendPart("payment", () => submitBatch({ kind: "payment", steps }))
     : undefined;
+  const sendReady = submitBatch
+    ? (planetIds: string[]) =>
+        submitBatch({
+          kind: "ready_planets",
+          steps: planetIds.map((planet) => ({ kind: "ready_planet" as const, planet })),
+        })
+    : undefined;
   const { pending, played, cancel, holding } = useSecondaryAutoPlay({
     choice: realChoice,
     viewerSeat,
@@ -554,6 +581,7 @@ export function useSecondaryPrepare({
     submitTokens,
     submitProduction: sendProduction,
     submitPayment: sendPayment,
+    submitReady: sendReady,
   });
 
   /** Sends a prepared answer for the viewer's real decision (the Review bar's Confirm). */
@@ -563,8 +591,9 @@ export function useSecondaryPrepare({
       else if (target.kind === "tokens") await submitTokens?.(target.steps);
       else if (target.kind === "production") await sendProduction?.(target.units, target.destination);
       else if (target.kind === "payment") await sendPayment?.(target.steps);
+      else if (target.kind === "ready") await sendReady?.(target.planetIds);
     },
-    [submitChoice, submitTokens, sendProduction, sendPayment],
+    [submitChoice, submitTokens, sendProduction, sendPayment, sendReady],
   );
 
   /** What the app shows as the pending decision: the dry one while preparing, nothing while held. */
@@ -582,6 +611,7 @@ export function useSecondaryPrepare({
     exactInfo,
     leadershipCheck,
     tokenPrefill,
+    readyPrefill,
     shownChoice,
     prepareSubmit,
     prepareBatch,
@@ -623,4 +653,26 @@ export function useTokenPrefill(
       override: tokenPrefill.override,
     }));
   }, [tokenPrefill, key, holding, update]);
+}
+
+/**
+ * Diplomacy: the ready bar opens with the prepared planets already picked (Confirm stays the
+ * player's). Once per question, so the player's own changes stay.
+ */
+export function useReadyPrefill(
+  prep: Pick<SecondaryPrepare, "readyPrefill" | "holding">,
+  nonce: string | null | undefined,
+  readyDraft: Pick<ReadyPlanetsDraftApi, "set" | "view">,
+): void {
+  const prefilledFor = useRef<string | null>(null);
+  const { readyPrefill, holding } = prep;
+  const key = nonce ?? null;
+  const { set, view } = readyDraft;
+  useEffect(() => {
+    if (prefilledFor.current !== key) prefilledFor.current = null;
+    if (!readyPrefill || !key || holding || !view) return;
+    if (prefilledFor.current === key) return;
+    prefilledFor.current = key;
+    set(readyPrefill);
+  }, [readyPrefill, key, holding, set, view]);
 }

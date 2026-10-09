@@ -277,11 +277,13 @@ export type StepResolution =
   | { kind: "production"; destination: string; units: string[]; text: string }
   /** Warfare: the prepared payment for the first build, as the payment batch's steps. */
   | { kind: "payment"; steps: PaymentStep[]; text: string }
+  /** Diplomacy: the planets to ready, validated against the exhausted planets offered now (sent as one batch). */
+  | { kind: "ready"; planetIds: string[]; text: string }
   /**
    * The plan no longer validates: show "Needs review" and answer nothing. A Leadership plan whose
    * payment no longer fits carries the replacement the usual UI is opened with (`prefill`).
    */
-  | { kind: "review"; reason: string; prefill?: TokenPrefill };
+  | { kind: "review"; reason: string; prefill?: TokenPrefill; ready?: string[] };
 
 /** What the token panel is opened with: the bought tokens, their pools and the payment chosen. */
 export interface TokenPrefill {
@@ -359,10 +361,20 @@ export function resolveStep(
   }
   if (subtype === "ready_planet" && plan.planets?.length) {
     const offered = new Set(choice.options.filter((o) => o.kind === "ready").map((o) => o.id));
-    const next = plan.planets.find((planet) => offered.has(planet));
-    return next
-      ? { kind: "option", optionId: next, text: `Ready ${planetName(next)}` }
-      : { kind: "review", reason: "No prepared planet is offered (readied already, or no longer exhausted); choose by hand." };
+    // The engine asks until two planets are readied (or nothing is left): both are answered together.
+    const required = Math.min(2, offered.size);
+    const picks = [...new Set(plan.planets)].filter((planet) => offered.has(planet));
+    if (required > 0 && picks.length >= required) {
+      const planetIds = picks.slice(0, required);
+      return { kind: "ready", planetIds, text: `Ready ${planetIds.map(planetName).join(" and ")}` };
+    }
+    return {
+      kind: "review",
+      reason: picks.length
+        ? `Only ${picks.length} of the ${required} planets to ready is still exhausted; pick the rest by hand.`
+        : "No prepared planet is offered (readied already, or no longer exhausted); choose by hand.",
+      ...(picks.length ? { ready: picks } : {}),
+    };
   }
   if (subtype === "produce_unit" && plan.production?.builds.length && !done.has("production")) {
     const planned = planBuilds(choice, plan.production.builds);

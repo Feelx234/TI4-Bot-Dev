@@ -37,7 +37,8 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
         const isCandidateTarget = Boolean(p.isCandidateTarget);
         const isPlanetMode = targetMode === "planet" || targetMode === "payment";
         const isDimmed = isPlanetMode && !isCandidateTarget;
-        const mark = targetMode === "payment" ? paymentMarks?.get(p.id) : undefined;
+        const mark =
+          targetMode === "payment" || targetMode === "planet" ? paymentMarks?.get(p.id) : undefined;
 
         return (
           <SvgButton
@@ -48,15 +49,17 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             data-payment-staged={mark ? String(mark.staged) : undefined}
             isInteractive={isCandidateTarget}
             label={
-              mark
-                ? `${mark.staged ? "Stop exhausting" : "Exhaust"} planet ${p.label} for ${valueLabel(valueKind(mark.unit), mark.worth)}`
-                : `Target planet ${p.label}`
+              mark?.readies
+                ? `${mark.staged ? "Do not ready" : "Ready"} planet ${p.label}`
+                : mark
+                  ? `${mark.staged ? "Stop exhausting" : "Exhaust"} planet ${p.label} for ${valueLabel(valueKind(mark.unit), mark.worth)}`
+                  : `Target planet ${p.label}`
             }
             onActivate={() => {
               if (isCandidateTarget) {
                 // Inspect first: a system inspection may reset the selection, the target must win.
                 // Paying toggles planets one after another, so the inspector must not pop up.
-                if (targetMode !== "payment") onSelectSystem?.(tile.systemId);
+                if (targetMode !== "payment" && !mark) onSelectSystem?.(tile.systemId);
                 onSelectTarget?.(tile.systemId, p.id);
               }
             }}
@@ -70,7 +73,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
                 e.stopPropagation();
                 // Inspect first: a system inspection may reset the selection, the target must win.
                 // Paying toggles planets one after another, so the inspector must not pop up.
-                if (targetMode !== "payment") onSelectSystem?.(tile.systemId);
+                if (targetMode !== "payment" && !mark) onSelectSystem?.(tile.systemId);
                 onSelectTarget?.(tile.systemId, p.id);
               }
             }}
@@ -150,7 +153,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
             {mark && isCandidateTarget && (() => {
               const lost = mark.resources ?? p.resources;
               const wide = mark.unit === "I" && lost !== undefined;
-              const label = `${mark.staged ? "Staged: " : ""}${valueLabel(valueKind(mark.unit), mark.worth)}${wide ? `, exhausting loses ${valueLabel("resources", lost)}` : ""}`;
+              const label = `${mark.staged ? (mark.readies ? "To ready: " : "Staged: ") : ""}${valueLabel(valueKind(mark.unit), mark.worth)}${wide ? `${mark.readies ? ", " : ", exhausting loses "}${valueLabel("resources", lost)}` : ""}`;
               const width = wide ? 66 : 44;
               const left = pX - width / 2;
               return (
