@@ -61,10 +61,10 @@ PRESET_FACTIONS_PERCENT="${NIGHTLY_PRESET_FACTIONS_PERCENT:-25}"
 SHORT_PRESETS="${NIGHTLY_SHORT_PRESETS:-techs agenda leaders notes}"
 PRESET_SHORT_PERCENT="${NIGHTLY_PRESET_SHORT_PERCENT:-70}"
 # `explore` at three seats plays this map in part of the runs (percent): it is the only map of
-# the default size with planetless systems that are not hyperlanes, so the only one with a frontier
-# token a ship can reach (every default 3-, 4- and 5-player map puts them on hyperlane tiles).
+# the default size with planetless systems that are not hyperlanes, so the only one with frontier
+# tokens off the hyperlane tiles (every default 3-, 4- and 5-player map puts them on hyperlanes).
 EXPLORE_MAP_TEMPLATE="${NIGHTLY_EXPLORE_MAP_TEMPLATE:-3pInPersonHyperlanes}"
-EXPLORE_MAP_PERCENT="${NIGHTLY_EXPLORE_MAP_PERCENT:-60}"
+EXPLORE_MAP_PERCENT="${NIGHTLY_EXPLORE_MAP_PERCENT:-30}"
 # Share of runs (percent) that play the Prophecy of Kings strategy cards (`strategy_card_set` "pok")
 # instead of the default Thunder's Edge set (TE Warfare offers an extra redistribute decision).
 POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"

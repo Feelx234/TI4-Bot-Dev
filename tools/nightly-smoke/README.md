@@ -140,7 +140,7 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_BUILD_CMD` | `cargo build --quiet -p ti4-server --bin server` | check before every game and after merges |
 | `NIGHTLY_PROCTOR_MODEL`, `NIGHTLY_SUMMARY_MODEL` | Sonnet 5.5, Opus 5.5 | |
 | `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
-| `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
+| `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders explore notes world world` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix). `explore`: landings on unclaimed trait planets, frontier ships with Dark Energy Tap, fragments, stacked exploration decks. `notes`: promissory notes in foreign hands. `world`: roster factions beyond the original six with their techs, leaders, flagship, notes |
 | `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
 | `NIGHTLY_UI_TOUR_PROBABILITY` | `17` | percent of runs with `TI4_SMOKE_UI_TOUR=1`: open the Faction card and one unit card, check them |
 | `NIGHTLY_RECAP_PROBABILITY` | `20` | percent of runs with `TI4_SMOKE_RECAP=1`: one random non-host seat turns the Recap toggle on; recap toasts are counted |
@@ -149,6 +149,9 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_PREP_AUTO_PROBABILITY` | `0.9` | fraction of plans that use the Auto mode, the rest Review (`TI4_SMOKE_PREP_AUTO_PROBABILITY`) |
 | `NIGHTLY_SHOT_CAP` | `20` | cap on screenshots per run (`TI4_SMOKE_SHOT_CAP`; a number or `all` = 20); exercise shots count inside it |
 | `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
+| `NIGHTLY_PRESET_FACTIONS_PERCENT` | `25` | percent of preset runs (not rotated, not `world`) that seat factions from the engine roster by seed (`<preset>+fac`; `+fac:naalu:mentak` names the first seats) |
+| `NIGHTLY_SHORT_PRESETS` / `NIGHTLY_PRESET_SHORT_PERCENT` | `techs agenda leaders notes` / `70` | presets that get `+short` (a few victory points each, three public objectives left: the game ends in a few rounds) and how often |
+| `NIGHTLY_EXPLORE_MAP_TEMPLATE` / `NIGHTLY_EXPLORE_MAP_PERCENT` | `3pInPersonHyperlanes` / `30` | `explore` at three seats plays this map, the only default-size map with frontier tokens off the hyperlane tiles |
 | `NIGHTLY_NOW`, `NIGHTLY_NOW_FILE` | unset | fake clock for tests |
 
 To switch the Opus rounds off: `NIGHTLY_FIXERS=` in the cron line. Two long Opus sessions per night

@@ -374,19 +374,23 @@ function activationWeights(
       id !== "18" &&
       (board.systems[id]?.units.some((u) => u.owner === actor && !u.planet && shipMove(u.unit_type) > 0) ??
         false);
-    const inPlace =
-      (((id === "18" || defended || explorable) && ownGroundInSpace) || frontierShips);
+    const inPlace = (id === "18" || defended) && ownGroundInSpace;
+    const exploreInPlace = (explorable && ownGroundInSpace) || frontierShips;
     weights.set(
       id,
-      activationWeight(id, reachable, enemies, inPlace, defended),
+      activationWeight(id, reachable, enemies, inPlace, defended, exploreInPlace),
     );
   }
   return weights;
 }
 
+// The notes preset wants promissory notes sold, swapped and given: trading is steered up there.
+let tradeBoost = false;
+
 function steerWeight(desc: string, hexWeights: Map<string, number>): number {
   const hex = /^system-hex-(\S+) /.exec(desc);
   if (hex) return hexWeights.get(hex[1]) ?? 1;
+  if (tradeBoost && /^turn-bar-trade\b/.test(desc)) return 6;
   return policySteerWeight(desc);
 }
 
@@ -489,6 +493,7 @@ export async function randomUiPlaythrough(
   options: PlaythroughOptions,
 ): Promise<PlaythroughReport> {
   const log = options.log ?? (() => {});
+  tradeBoost = basePreset(options.startPreset) === "notes";
   const rng = mulberry32(options.clickSeed);
   const { gameId, players } = await createStartedGame(
     request,

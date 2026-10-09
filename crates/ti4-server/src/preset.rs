@@ -56,7 +56,8 @@ pub const ENDGAME: &str = "endgame";
 /// interleaved with fragments and attachments.
 pub const EXPLORE: &str = "explore";
 
-/// Every seat holds other seats' promissory notes (each kind there is, their faction ones too), so
+/// Every seat holds other seats' promissory notes (each kind there is, their faction ones too) and the
+/// agenda phase runs from round one (custodians gone), so
 /// the play, return and give flows have something to work on from the first turn.
 pub const NOTES: &str = "notes";
 
@@ -99,10 +100,10 @@ pub const ROSTER: &[&str] = &[
 /// (reward choices, "remove an infantry" payments, a production offer), with a fragment and an
 /// attachment between them. Cards the corpus lacks are skipped.
 const EXPLORE_TOPS: &[(&str, &[&str])] = &[
-    ("CULTURAL", &["mo1", "crf1", "frln1", "toe", "mo2", "crf2", "pw", "frln2"]),
-    ("HAZARDOUS", &["cm1", "hrf1", "exp1", "rw", "vfs1", "hrf2", "mw", "cm2"]),
-    ("INDUSTRIAL", &["aw1", "irf1", "fb1", "biotic", "lf1", "irf2", "aw2", "fb2"]),
-    ("FRONTIER", &["ms1", "urf1", "dv1", "ed1", "lc1", "urf2", "ion", "ms2"]),
+    ("CULTURAL", &["mo1", "toe", "crf1", "frln1", "pw", "mo2", "crf2", "frln2"]),
+    ("HAZARDOUS", &["cm1", "rw", "hrf1", "exp1", "mw", "vfs1", "hrf2", "cm2"]),
+    ("INDUSTRIAL", &["aw1", "biotic", "irf1", "fb1", "cybernetic", "lf1", "irf2", "aw2"]),
+    ("FRONTIER", &["ms1", "ed1", "urf1", "dv1", "lc1", "ion", "urf2", "ms2"]),
 ];
 
 /// Fragments dealt to seats at the start of `explore`: three of one kind crosses into a relic.
@@ -111,6 +112,9 @@ const EXPLORE_FRAGMENTS: &[(&str, i32)] = &[("CULTURAL", 3), ("HAZARDOUS", 2), (
 /// Fleet beside an unclaimed trait planet in `explore`: the landing party explores it. Three
 /// non-fighter ships fill the opening fleet supply.
 const EXPLORE_FLEET: &[(&str, usize)] = &[("carrier", 1), ("cruiser", 1), ("infantry", 3)];
+
+/// A second, lighter landing party per seat in `explore` (the faction mech rides along).
+const EXPLORE_FLEET_LIGHT: &[(&str, usize)] = &[("carrier", 1), ("infantry", 2)];
 
 /// A ship pair placed in a frontier system in `explore`.
 const FRONTIER_FLEET: &[(&str, usize)] = &[("cruiser", 1), ("destroyer", 1)];
@@ -355,6 +359,14 @@ fn apply_base(
         EXPLORE => explore_preset(content, state, galaxy, players, seed),
         NOTES => {
             deal_notes(content, state, players, 2);
+            // The agenda phase from round one: Political Secret, Alliance and the other notes with
+            // agenda windows have something to answer, and trade goods leave room to buy a note.
+            state.custodians_removed = true;
+            for player in players {
+                if let Some(seat) = state.player_mut(player) {
+                    seat.trade_goods += AGENDA_TRADE_GOODS;
+                }
+            }
             Ok(())
         }
         WORLD => {
@@ -760,6 +772,15 @@ fn explore_preset(
             place(content, state, player, &site, &fleet)?;
             used.insert(site.as_str().to_owned());
         }
+        let second = pick_site_of(
+            content, state, galaxy, homes[i].as_str(), &home_set, &used,
+            mix(seed, 1300 + i as u64), 3, Site::Traited,
+        );
+        if let Some(site) = second {
+            let fleet = fleet_for(content, &assignments[player], EXPLORE_FLEET_LIGHT);
+            place(content, state, player, &site, &fleet)?;
+            used.insert(site.as_str().to_owned());
+        }
         let frontier = pick_site_of(
             content, state, galaxy, homes[i].as_str(), &home_set, &used,
             mix(seed, 1100 + i as u64), 8, Site::Frontier,
@@ -989,7 +1010,9 @@ fn eligible(
     // frontier); a supernova, a gravity rift or a scar is never somewhere to start.
     let anomaly_ok = frontier_site
         && !(system.is_supernova() || system.is_gravity_rift() || system.is_scar());
-    if (system.is_anomaly() && !anomaly_ok) || system.is_hyperlane() {
+    // Hyperlane tiles are systems here (ships activate and sit in them) and carry the frontier
+    // tokens of the 3-, 4- and 5-player maps, so a frontier site may be one.
+    if (system.is_anomaly() && !anomaly_ok) || (system.is_hyperlane() && !frontier_site) {
         return false;
     }
     state.board.get(&SystemId::new(id)).is_none_or(|board| {
@@ -1725,18 +1748,24 @@ mod tests {
 
     #[test]
     fn the_explore_preset_stages_landings_frontier_ships_fragments_and_decks() {
-        // Only 3pInPersonHyperlanes has planetless tiles that are not hyperlanes (46, 47, 50): the
-        // default maps put every frontier token on a hyperlane tile or have none at all.
+        // The default maps put every frontier token on a hyperlane tile (3, 4 and 5 players) or have
+        // none at all (6); 3pInPersonHyperlanes has real planetless systems (46, 47, 50).
         for (n, seed, template) in [
             (3, 1_u64, Some("3pInPersonHyperlanes")),
             (3, 5, Some("3pInPersonHyperlanes")),
+            (3, 7, None),
             (4, 2, None),
             (4, 9, None),
             (6, 4, None),
         ] {
             let list = players(n);
+            let loader = crate::maps::TemplateLoader::load().unwrap();
+            let template = template
+                .map(str::to_owned)
+                .or_else(|| crate::maps::default_template_for(content(), &loader, n, POK));
             let (state, galaxy) =
-                create_game_with_preset(content(), &list, seed, template, Some(EXPLORE)).unwrap();
+                create_game_with_preset(content(), &list, seed, template.as_deref(), Some(EXPLORE))
+                    .unwrap();
             let frontier = ti4_engine::exploration::frontier_systems(content(), POK, &galaxy);
             let mut landings = 0;
             let mut frontier_ships = 0;
@@ -1762,7 +1791,7 @@ mod tests {
             }
             assert!(landings >= n - 1, "{n}p seed {seed}: {landings} landings");
             assert!(
-                frontier_ships >= usize::from(template.is_some()),
+                frontier_ships >= usize::from(n < 6),
                 "{n}p seed {seed}: {frontier_ships} frontier ships"
             );
             assert_eq!(state.exploration_decks["CULTURAL"][0], "mo1");
