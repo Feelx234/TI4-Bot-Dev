@@ -521,6 +521,45 @@ describe("GameSessionClient ingress lifecycle", () => {
       return { request, release };
     };
 
+    it("a 409 stale decision boundary already overtaken by a newer accepted version is quiet", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      let refuse!: () => void;
+      const gate = new Promise<void>((done) => (refuse = done));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockImplementation(async () => {
+          await gate;
+          return {
+            ok: false,
+            status: 409,
+            text: async () => "stale decision boundary: version 337 is behind; refresh and plan again",
+          };
+        }),
+      );
+      const manual = client.submitBatch(pay);
+      // The answer that won arrives over the socket first.
+      send({ ...snapshot, type: "initial_snapshot" as const, game_version: 339, viewer: { role: "player", seat: "player_a" } });
+      refuse();
+      await expect(manual).resolves.toBeUndefined();
+      client.stop();
+    });
+
+    it("a 409 stale decision boundary nothing has overtaken still reports", async () => {
+      const { client, send } = await connectedPlayer();
+      send(payDecision("nonce-pay", 337));
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 409,
+          text: async () => "stale decision boundary: x; refresh and plan again",
+        }),
+      );
+      await expect(client.submitBatch(pay)).rejects.toThrow(/stale decision boundary/);
+      client.stop();
+    });
+
     it("two confirmations of the same plan while the request runs send one request", async () => {
       const { client, send } = await connectedPlayer();
       send(payDecision("nonce-pay", 337));
