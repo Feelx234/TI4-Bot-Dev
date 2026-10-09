@@ -2296,7 +2296,7 @@ pub fn primary(
             return Ok(Ability::Resolved);
         };
         let systems: Vec<String> = galaxy
-            .system_ids()
+            .system_ids_holding_things()
             .into_iter()
             .map(ToOwned::to_owned)
             .collect();

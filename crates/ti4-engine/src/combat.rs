@@ -3512,6 +3512,7 @@ pub fn eligible_retreats(
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
@@ -3562,6 +3563,7 @@ pub fn skilled_retreat_destinations(
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             !state.system_state(adjacent).units.iter().any(|unit| {
@@ -3592,6 +3594,7 @@ pub fn det_retreat_destinations(
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
