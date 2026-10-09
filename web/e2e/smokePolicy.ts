@@ -336,3 +336,14 @@ export function pausedBatch(
     return null;
   }
 }
+
+/**
+ * Whether the element hit at a control's on-screen center means the control is hidden behind
+ * something else (a board hex behind a modal). A hit inside the control is the control. A hit on
+ * one of its ancestors means the control is only scrolled out of that container's box (the
+ * Confirm button of a tall choice dialog, half below the panel's scroll edge): Playwright scrolls
+ * it into view on click, so it is not covered. Runs inside the page (passed as source).
+ */
+export function coveredBy(el: Element, hit: Element | null): boolean {
+  return hit !== null && !el.contains(hit) && !hit.contains(el);
+}

@@ -27,6 +27,7 @@ import {
 } from "./smokeExercises";
 import {
   activationWeight,
+  coveredBy,
   preferHitConfirm,
   preferPayment,
   preferReadyConfirm,
@@ -201,20 +202,24 @@ function mulberry32(seed: number) {
 
 export async function collectCandidates(page: Page): Promise<Candidate[]> {
   const raw = await page.evaluate(
-    ({ containers, excluded }) => {
+    ({ containers, excluded, coveredSrc }) => {
       const excludedRe = new RegExp(excluded, "i");
+      const hiddenBehind = new Function(`return (${coveredSrc})`)() as (
+        el: Element,
+        hit: Element | null,
+      ) => boolean;
       document
         .querySelectorAll("[data-smoke-idx]")
         .forEach((el) => el.removeAttribute("data-smoke-idx"));
       // A board hex behind a modal is rendered but cannot receive the click. Only on-screen
-      // centers are tested, because Playwright scrolls off-screen controls into view itself.
+      // centers are tested, because Playwright scrolls off-screen controls into view itself (also
+      // a control clipped by its own scrolling dialog, see coveredBy).
       const covered = (rect: DOMRect, el: Element) => {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight)
           return false;
-        const hit = document.elementFromPoint(x, y);
-        return hit !== null && !el.contains(hit);
+        return hiddenBehind(el, document.elementFromPoint(x, y));
       };
       const visible = (el: Element) => {
         const rect = el.getBoundingClientRect();
@@ -307,7 +312,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       }
       return out;
     },
-    { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
+    { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source, coveredSrc: coveredBy.toString() },
   );
   return raw.map(({ staged, ...c }) => {
     return { ...c, ...classifyCandidate(c.desc, staged) };
