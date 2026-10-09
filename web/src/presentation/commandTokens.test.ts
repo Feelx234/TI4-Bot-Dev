@@ -5,6 +5,7 @@ import {
   canConfirmTokens,
   confirmBlocker,
   describeCommandTokens,
+  gainTokensPrompt,
   type CommandTokenView,
   fitStaging,
   initialStaging,
@@ -467,5 +468,29 @@ describe("restack (Predictive Intelligence)", () => {
       moveIds: ["tactic|fleet", "tactic|fleet", "tactic|fleet"],
       finish: false,
     });
+  });
+});
+
+describe("gainTokensPrompt", () => {
+  const prompt = "gain a command token into which pool";
+  const gain = (tokens: unknown, text = prompt) => ({
+    prompt: text,
+    details: { kind: "command_tokens", mode: "gain", tokens_to_place: tokens },
+  });
+  it("names the real count and pluralises", () => {
+    expect(gainTokensPrompt(gain(3))).toBe("Gain 3 command tokens — assign them to pools");
+    expect(gainTokensPrompt(gain(2))).toBe("Gain 2 command tokens — assign them to pools");
+    expect(gainTokensPrompt(gain(1))).toBe("Gain 1 command token — choose its pool");
+  });
+  it("leaves other prompts, missing counts and redistributions alone", () => {
+    expect(gainTokensPrompt(gain(3, "something else"))).toBe("something else");
+    expect(gainTokensPrompt(gain(undefined))).toBe(prompt);
+    expect(gainTokensPrompt({ prompt })).toBe(prompt);
+    expect(
+      gainTokensPrompt({
+        prompt,
+        details: { kind: "command_tokens", mode: "redistribute", total: 9 },
+      }),
+    ).toBe(prompt);
   });
 });

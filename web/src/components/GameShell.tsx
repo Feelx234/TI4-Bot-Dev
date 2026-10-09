@@ -1,3 +1,4 @@
+import { gainTokensPrompt } from "../presentation/commandTokens.ts";
 import { optionUnit, produceStep } from "../presentation/productionDraft.ts";
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
@@ -800,7 +801,7 @@ export const ChoiceRendererDispatcher: React.FC<
   // A view-only copy: IDs, payloads and the original pending choice stay intact.
   const visibleChoice = {
     ...choice,
-    prompt: present(choice.prompt),
+    prompt: present(gainTokensPrompt(choice)),
     options: choice.options.map((option) => ({
       ...option,
       label: present(option.label),

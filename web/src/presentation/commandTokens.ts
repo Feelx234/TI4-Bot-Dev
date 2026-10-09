@@ -1,6 +1,25 @@
 import type { PendingChoiceDto } from "../protocol/types.ts";
 import { suggestAutoPay, type PayablePlanet, type PaymentDraft, type PaymentOffer } from "./paymentDraft.ts";
 
+const GAIN_PROMPT = "gain a command token into which pool";
+
+/**
+ * The headline for a command-token gain. The engine's prompt names a single token; the real
+ * count is in the display-only details. Any other prompt (or a gain without a count) is
+ * returned unchanged.
+ */
+export function gainTokensPrompt(choice: Pick<PendingChoiceDto, "prompt" | "details">): string {
+  const details = choice.details;
+  if (choice.prompt !== GAIN_PROMPT || details?.kind !== "command_tokens" || details.mode !== "gain") {
+    return choice.prompt;
+  }
+  const count = details.tokens_to_place;
+  if (typeof count !== "number" || !Number.isFinite(count) || count < 1) return choice.prompt;
+  return count === 1
+    ? "Gain 1 command token — choose its pool"
+    : `Gain ${Math.floor(count)} command tokens — assign them to pools`;
+}
+
 export type TokenPool = "tactic" | "fleet" | "strategic";
 export const TOKEN_POOLS: readonly TokenPool[] = ["tactic", "fleet", "strategic"];
 export type Pools = Record<TokenPool, number>;

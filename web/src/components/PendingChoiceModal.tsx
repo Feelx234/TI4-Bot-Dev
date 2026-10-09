@@ -12,7 +12,7 @@ import {
 } from "../presentation/cardOptions.ts";
 import { describeStrategySecondary } from "../presentation/strategySecondary.ts";
 import { DecisionHeader } from "./DecisionHeader.tsx";
-import { describeCommandTokens, type TokenOutcome } from "../presentation/commandTokens.ts";
+import { describeCommandTokens, gainTokensPrompt, type TokenOutcome } from "../presentation/commandTokens.ts";
 import { CommandTokenPanel } from "./CommandTokenPanel.tsx";
 import { TokenPaymentBar } from "./TokenPaymentBar.tsx";
 import { StrategySecondaryPanel } from "./StrategySecondaryPanel.tsx";
@@ -205,7 +205,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     }
     return (
       <div data-testid="minimized-choice-banner" className="choice-banner panel">
-        <span>{choice.prompt}</span>
+        <span>{gainTokensPrompt(choice)}</span>
         <SystemPickConfirmBar
           choice={choice}
           board={boardView}
@@ -302,11 +302,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           }}
         >
           <Dialog.Title as="h2" className="visually-hidden">
-            {choice.prompt}
+            {gainTokensPrompt(choice)}
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
-            title={choice.prompt}
+            title={gainTokensPrompt(choice)}
             progress={handDecisionNote(choice) ?? undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}
