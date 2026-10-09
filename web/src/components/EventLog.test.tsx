@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameLogEntry } from "../protocol/client.ts";
-import { EventLog, buildEventTree } from "./EventLog.tsx";
+import { EventLog, HISTORY_BUSY_REASON, buildEventTree } from "./EventLog.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import type { LobbyDto } from "../protocol/types.ts";
 
@@ -30,6 +30,25 @@ const wrap = (
 );
 
 describe("hierarchical event log", () => {
+  it("disables undo and redo with the reason while a history change is running", () => {
+    const entries = [decision(1)];
+    const props = {
+      onRestore: vi.fn(),
+      onChangeHistory: vi.fn(),
+      redoCount: 2,
+      currentPath: { round: 1, phase: "action", action_id: "action_1", stage: "movement" },
+    };
+    const { rerender } = render(wrap(entries, { ...props, busy: false }));
+    expect(screen.getByRole("button", { name: "Undo from decision 1" })).not.toBeDisabled();
+    rerender(wrap(entries, { ...props, busy: true }));
+    const undo = screen.getByRole("button", { name: "Undo from decision 1" });
+    expect(undo).toBeDisabled();
+    expect(undo).toHaveAttribute("title", HISTORY_BUSY_REASON);
+    const redo = screen.getByRole("button", { name: "Redo one" });
+    expect(redo).toBeDisabled();
+    expect(redo).toHaveAttribute("title", HISTORY_BUSY_REASON);
+  });
+
   it("preserves repeated stage order and merges same-cursor private facts", () => {
     const entries = [
       decision(1),

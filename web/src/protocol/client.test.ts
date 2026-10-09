@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GameSessionClient,
   GameSessionState,
+  historyFailureMessage,
+  isHistoryVersionConflict,
   PREVIEW_TIMEOUT_MS,
   PreviewUnsupportedError,
   reduceServerMessage,
@@ -1015,14 +1017,14 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
-  it("does not retry undo if another decision was made during refresh", async () => {
+  it("keeps retrying with the fresh version when bots moved the history cursor meanwhile", async () => {
     const { client } = await connectedPlayer();
     const request = vi
       .fn()
       .mockResolvedValueOnce({
         ok: false,
         status: 409,
-        text: async () => "Game advanced or a decision is in flight",
+        text: async () => "Game advanced or a decision is in flight: the request expected version 4",
       })
       .mockResolvedValueOnce({
         ok: true,
@@ -1030,13 +1032,79 @@ describe("GameSessionClient ingress lifecycle", () => {
           ...snapshot,
           game_version: 6,
           viewer: { role: "player", seat: "player_a" },
-          history: { cursor: 1, redo_count: 0 },
+          history: { cursor: 3, redo_count: 0 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 409,
+        text: async () => "Game advanced during rewind",
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...snapshot,
+          game_version: 8,
+          viewer: { role: "player", seat: "player_a" },
+          history: { cursor: 5, redo_count: 0 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          ...snapshot,
+          game_version: 9,
+          viewer: { role: "player", seat: "player_a" },
+          history: { cursor: 2, redo_count: 3, generation: 1 },
+          events: [],
         }),
       });
     vi.stubGlobal("fetch", request);
-    await expect(client.changeHistory("undo")).rejects.toThrow(/409/);
-    expect(request).toHaveBeenCalledTimes(2);
+    await client.changeHistory("undo");
+    expect(request).toHaveBeenCalledTimes(5);
+    expect(JSON.parse(request.mock.calls[4][1].body)).toEqual({
+      action: "undo",
+      expected_version: 8,
+    });
     client.stop();
+  });
+
+  it("says the game moved on, not the raw 409, when the retries run out", async () => {
+    const { client } = await connectedPlayer();
+    const request = vi.fn().mockImplementation(async (url: string) =>
+      url.endsWith("/snapshot")
+        ? {
+            ok: true,
+            json: async () => ({
+              ...snapshot,
+              game_version: 6,
+              viewer: { role: "player", seat: "player_a" },
+              history: { cursor: 1, redo_count: 0 },
+            }),
+          }
+        : { ok: false, status: 409, text: async () => "Game advanced during rewind" },
+    );
+    vi.stubGlobal("fetch", request);
+    vi.useFakeTimers();
+    const outcome = expect(client.changeHistory("redo")).rejects.toThrow(
+      "The game moved on while redoing — try again",
+    );
+    await vi.runAllTimersAsync();
+    await outcome;
+    vi.useRealTimers();
+    client.stop();
+  });
+
+  it("recognizes both server conflict phrases and words the failure plainly", () => {
+    expect(isHistoryVersionConflict("Game advanced or a decision is in flight: history is still reloading")).toBe(true);
+    expect(isHistoryVersionConflict("Game advanced during rewind")).toBe(true);
+    expect(isHistoryVersionConflict("there is nothing to undo")).toBe(false);
+    expect(historyFailureMessage("History change", 409, "Game advanced during rewind", "undoing")).toBe(
+      "The game moved on while undoing — try again",
+    );
+    expect(historyFailureMessage("History change", 403, "only the host")).toBe(
+      "History change failed (403): only the host",
+    );
   });
 
   it("posts host rewind with the current version, drops pending submissions and reconnects", async () => {

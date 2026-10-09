@@ -33,6 +33,9 @@ export interface EventLogProps {
   turnRedo?: TurnRedoRequestControls;
 }
 
+/** Tooltip on the undo/redo buttons while a history change is still running. */
+export const HISTORY_BUSY_REASON = "A history change is still running; wait for it to finish";
+
 export interface TurnRedoRequestControls {
   onRequest: (options: { turns?: 1 | 2; seat?: string }) => void;
   /** A request is running, or a redo is already in flight: the button waits. */
@@ -469,6 +472,7 @@ export const EventLog: React.FC<EventLogProps> = ({
                 type="button"
                 className="event-log__undo"
                 disabled={busy}
+                title={busy ? HISTORY_BUSY_REASON : undefined}
                 aria-label={`Undo from decision ${entry.decision_count}`}
                 onClick={() => onRestore(entry.decision_count! - 1)}
               >
@@ -670,6 +674,7 @@ export const EventLog: React.FC<EventLogProps> = ({
                   type="button"
                   className="button button--secondary button--sm"
                   disabled={busy}
+                  title={busy ? HISTORY_BUSY_REASON : undefined}
                   onClick={() => onChangeHistory(action)}
                 >
                   Redo {["one", "batch", "action"][index]}

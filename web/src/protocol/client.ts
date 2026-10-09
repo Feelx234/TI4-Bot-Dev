@@ -170,6 +170,30 @@ export function canContinueBatch(
 }
 
 const HISTORY_RETRY_ATTEMPTS = 20;
+
+/** The server's 409 phrases for "the game moved while this history change was prepared". */
+const HISTORY_CONFLICT_PHRASES = [
+  "Game advanced or a decision is in flight",
+  "Game advanced during rewind",
+];
+
+/** True for a 409 that only means the version moved (a bot or an engine step), so a retry with the fresh version is right. */
+export function isHistoryVersionConflict(reason: string): boolean {
+  return HISTORY_CONFLICT_PHRASES.some((phrase) => reason.includes(phrase));
+}
+
+/** What the player reads when a history change gave up: plain words instead of the raw 409. */
+export function historyFailureMessage(
+  label: string,
+  status: number,
+  reason: string,
+  verb = "changing history",
+): string {
+  if (status === 409 && isHistoryVersionConflict(reason)) {
+    return `The game moved on while ${verb} — try again`;
+  }
+  return `${label} failed (${status}): ${reason}`;
+}
 /** Consecutive failed (re)connects before the page stops retrying by itself and asks for a Retry. */
 export const RECONNECT_GIVE_UP_AFTER = 8;
 /** A socket that has not opened after this long is dead (a tunnel that dropped without a reset). */
@@ -944,7 +968,9 @@ export class GameSessionClient {
         : "cursor" in action
           ? { action: "restore_cursor", cursor: action.cursor }
           : { action: "restore", event_id: action.eventId };
-    await this.replaceHistory("/history", body, "History change");
+    const name = typeof action === "string" ? action : "restore";
+    const verb = name.startsWith("redo") ? "redoing" : name.startsWith("undo") ? "undoing" : "rewinding";
+    await this.replaceHistory("/history", body, "History change", verb);
   }
 
   /**
@@ -987,7 +1013,7 @@ export class GameSessionClient {
       }
       return;
     }
-    await this.replaceHistory("/turn-redo", { ...command }, "Turn redo");
+    await this.replaceHistory("/turn-redo", { ...command }, "Turn redo", "redoing the turn");
   }
 
   /**
@@ -998,6 +1024,7 @@ export class GameSessionClient {
     path: string,
     body: Record<string, unknown>,
     label: string,
+    verb?: string,
   ): Promise<void> {
     if (
       this.options.viewer.role !== "player" ||
@@ -1006,7 +1033,6 @@ export class GameSessionClient {
       throw new Error("A player session is required");
     const url = this.snapshotUrl().replace(/\/snapshot$/, path);
     let version = this.state.gameVersion;
-    const cursor = this.state.history.cursor;
     let response!: Response;
     let conflictReason: string | undefined;
     for (let attempt = 0; attempt < HISTORY_RETRY_ATTEMPTS; attempt++) {
@@ -1023,11 +1049,12 @@ export class GameSessionClient {
       conflictReason = await response.text();
       if (
         attempt === HISTORY_RETRY_ATTEMPTS - 1 ||
-        !conflictReason.includes("Game advanced or a decision is in flight")
+        !isHistoryVersionConflict(conflictReason)
       )
         break;
-      // The worker may still be advancing automatically toward its next human choice.
-      // Refresh the version, but never rewind a different decision if someone acted meanwhile.
+      // The worker may still be advancing automatically toward its next human choice, or a bot
+      // acted while the request was being prepared (the history cursor moves with bots playing,
+      // so it is not a reason to give up). Re-read the version and issue the change again.
       await new Promise((resolve) => setTimeout(resolve, 100));
       const latest = await fetch(this.snapshotUrl(), {
         headers: this.snapshotHeaders(),
@@ -1037,12 +1064,11 @@ export class GameSessionClient {
         await latest.json(),
         this.options.gameId,
       );
-      if (snapshot.history?.cursor !== cursor) break;
       version = snapshot.game_version;
     }
     if (!response.ok) {
       const reason = conflictReason ?? (await response.text());
-      const error = `${label} failed (${response.status}): ${reason}`;
+      const error = historyFailureMessage(label, response.status, reason, verb);
       this.setState({ ...this.state, lastError: error });
       throw new Error(error);
     }
