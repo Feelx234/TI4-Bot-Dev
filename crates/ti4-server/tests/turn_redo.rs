@@ -88,7 +88,20 @@ pub fn setup(seed: u64) -> (GameState, Galaxy) {
         PlayerId::new("p2"),
         PlayerId::new("p3"),
     ];
-    ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap()
+    let content = ContentStore::embedded();
+    let (mut state, galaxy) = ti4_server::map::create_game_with_map(content, &players, seed).unwrap();
+    // The fixture turns below are pinned to the opening hands setup dealt while every seat still
+    // held the placeholder faction (four factionless notes); game creation now deals after seating,
+    // which changes the question stream. Re-deal the old hands so the pinned numbers hold.
+    let factions: Vec<_> = state.players.iter().map(|seat| seat.faction.clone()).collect();
+    for seat in &mut state.players {
+        seat.faction = ti4_model::id::FactionId::new("generic");
+    }
+    ti4_engine::promissory::deal(&mut state, content, ti4_model::content_types::POK);
+    for (seat, faction) in state.players.iter_mut().zip(factions) {
+        seat.faction = faction;
+    }
+    (state, galaxy)
 }
 
 pub fn play(

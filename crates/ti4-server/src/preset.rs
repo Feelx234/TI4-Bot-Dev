@@ -1253,9 +1253,9 @@ fn eligible(
     // frontier); a supernova, a gravity rift or a scar is never somewhere to start.
     let anomaly_ok = frontier_site
         && !(system.is_supernova() || system.is_gravity_rift() || system.is_scar());
-    // Hyperlane tiles are systems here (ships activate and sit in them) and carry the frontier
-    // tokens of the 3-, 4- and 5-player maps, so a frontier site may be one.
-    if (system.is_anomaly() && !anomaly_ok) || (system.is_hyperlane() && !frontier_site) {
+    // A hyperlane tile is not a system (nothing may be placed in it, even though the 3-, 4- and
+    // 5-player maps put frontier tokens on some); `frontier_systems` already leaves them out.
+    if (system.is_anomaly() && !anomaly_ok) || system.is_hyperlane() {
         return false;
     }
     state.board.get(&SystemId::new(id)).is_none_or(|board| {
@@ -2081,8 +2081,8 @@ mod tests {
         let (plain, _) = create_game_with_template(content(), &list, 5, None).unwrap();
         let (notes, _) = create_game_with_preset(content(), &list, 5, None, Some(NOTES)).unwrap();
         assert_ne!(plain.promissory_notes, notes.promissory_notes);
-        // A plain server game holds only four factionless "generic" notes (see deal_notes).
-        assert_eq!(plain.promissory_notes.len(), 4);
+        // A plain server game is dealt after seating: every seat holds its own faction's notes.
+        assert!(plain.promissory_notes.len() >= 4 * 5);
         assert!(notes.promissory_notes.len() >= 4 * 5);
         assert_eq!(
             serde_json::to_string(&plain.board).unwrap(),
@@ -2093,8 +2093,9 @@ mod tests {
 
     #[test]
     fn the_explore_preset_stages_landings_frontier_ships_fragments_and_decks() {
-        // The default maps put every frontier token on a hyperlane tile (3, 4 and 5 players) or have
-        // none at all (6); 3pInPersonHyperlanes has real planetless systems (46, 47, 50).
+        // Hyperlane tiles are not systems, so a frontier token on one is no frontier site: the
+        // default 3-player map has no site at all and the 6-player map none; 3pInPersonHyperlanes
+        // has real planetless systems (46, 47, 50).
         for (n, seed, template) in [
             (3, 1_u64, Some("3pInPersonHyperlanes")),
             (3, 5, Some("3pInPersonHyperlanes")),
@@ -2136,7 +2137,7 @@ mod tests {
             }
             assert!(landings >= n - 1, "{n}p seed {seed}: {landings} landings");
             assert!(
-                frontier_ships >= usize::from(n < 6),
+                frontier_ships >= usize::from(!frontier.is_empty() && n < 6),
                 "{n}p seed {seed}: {frontier_ships} frontier ships"
             );
             assert_eq!(state.exploration_decks["CULTURAL"][0], "mo1");

@@ -136,6 +136,11 @@ fn batch_checks_inside_the_flagship_production_match_between_the_copy_and_the_fu
             Some(MovementStep::Produce {
                 unit: o.payload.get("unit")?.as_str()?.to_owned(),
                 count: u32::try_from(o.payload.get("count")?.as_u64()?).ok()?,
+                exchange: o
+                    .payload
+                    .get("exchange")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
             })
         })
         .collect();
