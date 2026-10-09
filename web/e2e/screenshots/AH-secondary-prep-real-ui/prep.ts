@@ -71,7 +71,7 @@ export async function save(page: Page) {
   await page.getByTestId("prep-save").click();
 }
 
-type PendingOptions = { id: string; kind?: string; label: string }[];
+type PendingOptions = { id: string; kind?: string; label: string; payload?: Record<string, unknown> }[];
 
 /** A state update that moves the game forward; with `choice` it is the viewer's own question. */
 export function push(

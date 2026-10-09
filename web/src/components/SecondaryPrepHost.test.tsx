@@ -12,7 +12,11 @@ import type { BasketPlan } from "../protocol/client.ts";
 import { ChoiceRendererDispatcher } from "./GameShell.tsx";
 import { SecondaryPrepHost } from "./SecondaryPrepHost.tsx";
 import { PlayerSheet } from "./PlayerSheet.tsx";
-import { useSecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
+import { useReadyPrefill, useSecondaryPrepare } from "../hooks/useSecondaryPrepare.ts";
+import {
+  ReadyPlanetsDraftProvider,
+  useReadyPlanetsDraft,
+} from "../presentation/ReadyPlanetsDraftContext.tsx";
 import { resolveMapTargetSelection } from "../presentation/planetSelection.ts";
 import { PreparedHintProvider } from "../presentation/PreparedHint.tsx";
 import { SECONDARY_PREP_MODE_KEY } from "../hooks/useSecondaryPrepMode.ts";
@@ -64,6 +68,9 @@ const Harness: React.FC<HarnessProps> = (p) => {
     submitChoice: p.submit,
     submitBatch: p.batch,
   });
+  // Diplomacy's picks are shared by the bar and the map, as in App.tsx.
+  const ready = useReadyPlanetsDraft(prep.shownChoice, board);
+  useReadyPrefill(prep, prep.shownChoice?.nonce, ready);
   const [minimized, setMinimized] = useState(false);
   const [selected, setSelected] = useState<string | undefined>();
   const [planet, setPlanet] = useState<string | null>(null);
@@ -76,6 +83,7 @@ const Harness: React.FC<HarnessProps> = (p) => {
           : null
       }
     >
+      <ReadyPlanetsDraftProvider value={ready}>
       <ChoiceRendererDispatcher
         choice={prep.shownChoice}
         viewerSeat={viewerSeat}
@@ -95,6 +103,7 @@ const Harness: React.FC<HarnessProps> = (p) => {
         type="button"
         data-testid="map-click-jord"
         onClick={() => {
+          if (ready.view) return ready.toggle("jord");
           const picked = resolveMapTargetSelection(prep.shownChoice, "18", "jord", board);
           if (picked.kind === "select") {
             setSelected(picked.optionId);
@@ -102,13 +111,16 @@ const Harness: React.FC<HarnessProps> = (p) => {
           }
         }}
       />
+      <button type="button" data-testid="map-click-lodor" onClick={() => ready.toggle("lodor")} />
       <SecondaryPrepHost
         prep={prep}
         onConfirm={async (resolution) => {
           if (resolution.kind === "option") await p.submit(resolution.optionId);
           else if (resolution.kind === "tokens") await p.batch({ kind: "tokens", steps: resolution.steps });
+          else if (resolution.kind === "ready") await prep.play(resolution);
         }}
       />
+      </ReadyPlanetsDraftProvider>
     </PreparedHintProvider>
   );
 };
@@ -244,24 +256,73 @@ describe("preparation mode renders the REAL components and sends nothing", () =>
     expect(screen.queryByTestId("prepare-banner")).toBeNull();
   });
 
-  it("Diplomacy: the planet pick is the real planet selection bar with the map-selected option", async () => {
+  it("Diplomacy: both planets are picked on the real ready bar (list and map) and recorded in one confirm", async () => {
     const board = boardWith([
       { system: "18", planet: "jord", owner: "b", exhausted: true },
       { system: "26", planet: "lodor", owner: "b", exhausted: true },
+      { system: "27", planet: "quann", owner: "b", exhausted: true },
     ]);
-    const { submit } = setup({ players: players("pok2diplomacy"), events: playedLog("Diplomacy"), board });
+    const { submit, batch } = setup({ players: players("pok2diplomacy"), events: playedLog("Diplomacy"), board });
     open();
     click("secondary-yes-btn");
-    expect(screen.getByTestId("planet-selection-bar")).toBeInTheDocument();
-    // A map click selects the planet's option exactly as in the real flow; the real bar confirms.
+    expect(screen.getByTestId("ready-planets-bar")).toBeInTheDocument();
+    expect(screen.queryByTestId("planet-selection-bar")).toBeNull();
+    expect((screen.getByTestId("ready-bar-confirm") as HTMLButtonElement).disabled).toBe(true);
+    // A map click and a list tap pick the same way.
     click("map-click-jord");
-    expect(screen.getByTestId("planet-selection-action").textContent).toMatch(/Jord/i);
+    expect(screen.getByTestId("ready-planet-chip-jord").getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByTestId("ready-bar-confirm") as HTMLButtonElement).disabled).toBe(true);
+    click("ready-planet-chip-lodor");
+    expect(screen.getByTestId("ready-bar-count").textContent).toMatch(/2 of 2/);
     await act(async () => {
-      click("confirm-planet-btn");
+      click("ready-bar-confirm");
     });
-    expect(plan()?.planets).toEqual(["jord"]);
-    // The second pick follows, with the first planet no longer offered.
-    expect(screen.getByTestId("planet-selection-bar")).toBeInTheDocument();
+    expect(plan()?.planets).toEqual(["jord", "lodor"]);
+    expect(screen.queryByTestId("prepare-banner")).toBeNull();
+    // Nothing is sent while preparing.
+    expect(submit).not.toHaveBeenCalled();
+    expect(batch).not.toHaveBeenCalled();
+  });
+
+  it("Diplomacy: arriving with a prepared pair opens the bar with both picked; Confirm sends one batch", async () => {
+    const board = boardWith([
+      { system: "18", planet: "jord", owner: "b", exhausted: true },
+      { system: "26", planet: "lodor", owner: "b", exhausted: true },
+      { system: "27", planet: "quann", owner: "b", exhausted: true },
+    ]);
+    const { batch, submit, again } = setup({ players: players("pok2diplomacy"), events: playedLog("Diplomacy"), board });
+    open();
+    click("secondary-yes-btn");
+    click("map-click-jord");
+    click("ready-planet-chip-quann");
+    await act(async () => {
+      click("ready-bar-confirm");
+    });
+    expect(plan()?.planets).toEqual(["jord", "quann"]);
+    // The secondary window opens first (the plan applies from there), then the follow-up question.
+    again({ history: hist(6), choice: secondaryChoice("pok2diplomacy") });
+    again({
+      history: hist(7),
+      choice: stepChoice(
+        "ready_planet",
+        [option("jord", "ready", "ready jord"), option("lodor", "ready", "ready lodor"), option("quann", "ready", "ready quann")],
+        "ready-1",
+      ),
+    });
+    expect(screen.getByTestId("ready-planet-chip-jord").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("ready-planet-chip-quann").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("ready-planet-chip-lodor").getAttribute("aria-pressed")).toBe("false");
+    await act(async () => {
+      click("ready-bar-confirm");
+    });
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledWith({
+      kind: "ready_planets",
+      steps: [
+        { kind: "ready_planet", planet: "jord" },
+        { kind: "ready_planet", planet: "quann" },
+      ],
+    });
     expect(submit).not.toHaveBeenCalled();
   });
 

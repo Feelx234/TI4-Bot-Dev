@@ -38,6 +38,7 @@ import type { Landing } from "./InvasionLandingTray.tsx";
 import { InvasionOverlay } from "./InvasionOverlay.tsx";
 import { SystemActivationBar } from "./SystemActivationBar.tsx";
 import { PlanetSelectionBar } from "./PlanetSelectionBar.tsx";
+import { ReadyPlanetsBar } from "./ReadyPlanetsBar.tsx";
 import { TurnActionBar } from "./TurnActionBar.tsx";
 import {
   deriveReadOnlyTurnBar,
@@ -271,6 +272,21 @@ const renderPlanetSelection: WorkflowRenderer = ({
   />
 );
 
+// Diplomacy: every exhausted planet at once, one Confirm; without a batch channel the old
+// one-planet-at-a-time bar answers the same questions.
+const renderReadyPlanets: WorkflowRenderer = (props) =>
+  props.onSubmitBasketBatch ? (
+    <ReadyPlanetsBar
+      choice={props.choice}
+      viewerSeat={props.viewerSeat}
+      boardView={props.boardView}
+      onConfirm={props.onSubmitBasketBatch}
+      lastError={props.lastError}
+    />
+  ) : (
+    renderPlanetSelection(props)
+  );
+
 const workflowRenderers = new Map<
   ChoiceRendererModel["workflow"],
   WorkflowRenderer
@@ -304,6 +320,7 @@ const workflowRenderers = new Map<
     ),
   ],
   ["tactical_movement", renderTactical],
+  ["ready_planets", renderReadyPlanets],
   [
     "tactical_cargo",
     (props) =>
@@ -879,6 +896,7 @@ export const ChoiceRendererDispatcher: React.FC<
           "strategy_card_draft",
           "system_activation",
           "planet_selection",
+          "ready_planets",
           "payment",
           "combat_sustain",
           "combat_casualty",

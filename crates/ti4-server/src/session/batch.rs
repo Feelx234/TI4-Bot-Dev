@@ -62,6 +62,16 @@ enum TypedPlan {
     Tokens {
         steps: Vec<TokenStep>,
     },
+    ReadyPlanets {
+        steps: Vec<ReadyStep>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ReadyStep {
+    /// Answer one "ready which planet" question with this planet.
+    ReadyPlanet { planet: String },
 }
 
 #[derive(Deserialize)]
@@ -177,6 +187,11 @@ impl<'de> Deserialize<'de> for MovementPlan {
                 destination: String::new(),
                 steps: steps.into_iter().map(Into::into).collect(),
             },
+            WirePlan::Typed(TypedPlan::ReadyPlanets { steps }) => Self {
+                kind: BatchKind::ReadyPlanets,
+                destination: String::new(),
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
         })
     }
 }
@@ -242,6 +257,14 @@ impl From<ProductionStep> for MovementStep {
     }
 }
 
+impl From<ReadyStep> for MovementStep {
+    fn from(step: ReadyStep) -> Self {
+        match step {
+            ReadyStep::ReadyPlanet { planet } => Self::ReadyPlanet { planet },
+        }
+    }
+}
+
 impl From<TokenStep> for MovementStep {
     fn from(step: TokenStep) -> Self {
         match step {
@@ -274,6 +297,8 @@ pub enum BatchKind {
     Casualties,
     /// Several command tokens gained at once, each placed into a pool of the seat's choice.
     Tokens,
+    /// Diplomacy's "ready up to 2 exhausted planets", answered together.
+    ReadyPlanets,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,6 +345,10 @@ pub enum MovementStep {
     Purchase {
         buy: bool,
     },
+    /// One "ready which planet" answer (Diplomacy).
+    ReadyPlanet {
+        planet: String,
+    },
 }
 
 /// The decisions a casualty plan answers.
@@ -354,6 +383,7 @@ impl MovementStep {
             Self::Destroy { .. } => "assign_casualty",
             Self::Pool { .. } => "gain_command_token",
             Self::Purchase { .. } => "buy_token_with_influence",
+            Self::ReadyPlanet { .. } => "ready_planet",
         }
     }
 
@@ -402,6 +432,7 @@ impl MovementStep {
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
             Self::Pool { pool } => option.kind == "pool" && option.id == *pool,
+            Self::ReadyPlanet { planet } => option.kind == "ready" && option.id == *planet,
             Self::Purchase { buy } => {
                 option.kind == ti4_engine::strategy::STRATEGY_KIND
                     && option.id == if *buy { "yes" } else { "no" }
@@ -688,6 +719,7 @@ impl PrivateDecider {
                     | BatchKind::AgendaVotePlanets
                     | BatchKind::Production
                     | BatchKind::Tokens
+                    | BatchKind::ReadyPlanets
             )
             && is_reaction_window(choice)
         {
@@ -1120,6 +1152,24 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
             body.iter()
                 .any(|s| matches!(s, MovementStep::DoneProducing))
                 .then_some("done_producing may only be the last step")
+        }),
+        BatchKind::ReadyPlanets => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::ReadyPlanet { .. })))
+        .then_some("a ready plan may only contain ready_planet steps")
+        .or_else(|| {
+            (plan.steps.len() > 2).then_some("a ready plan readies at most 2 planets")
+        })
+        .or_else(|| {
+            let mut seen = std::collections::BTreeSet::new();
+            plan.steps
+                .iter()
+                .any(|s| match s {
+                    MovementStep::ReadyPlanet { planet } => !seen.insert(planet.as_str()),
+                    _ => false,
+                })
+                .then_some("a ready plan names each planet once")
         }),
         BatchKind::Casualties => (!plan
             .steps
@@ -2388,6 +2438,88 @@ mod tests {
                 .collect(),
         };
         assert!(plan_problem(&many).is_none());
+    }
+
+    fn ready_ask(planets: &[&str]) -> Choice {
+        offered(
+            "ready_planet",
+            planets
+                .iter()
+                .map(|p| ChoiceOption::labelled(*p, "ready", format!("ready {p}")))
+                .collect(),
+        )
+    }
+
+    fn ready(planet: &str) -> MovementStep {
+        MovementStep::ReadyPlanet {
+            planet: planet.into(),
+        }
+    }
+
+    #[test]
+    fn ready_plan_answers_both_questions_in_the_chosen_order() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert_eq!(decider.choose(&ready_ask(&["arcturus"])).unwrap().id, "arcturus");
+        assert!(decider.choose(&ready_ask(&[])).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert!(script.finished);
+        assert_eq!(script.selected.len(), 2);
+    }
+
+    #[test]
+    fn ready_plan_with_one_planet_ends_at_the_boundary() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_none());
+    }
+
+    #[test]
+    fn ready_plan_rejects_a_planet_that_is_no_longer_exhausted() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
+        assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
+        let script = decider.0.lock().unwrap();
+        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+    }
+
+    #[test]
+    fn ready_plan_is_interrupted_when_the_engine_asks_something_else() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        let other = offered(
+            "gain_command_token",
+            vec![ChoiceOption::labelled("tactic_tokens", "pool", "tactic")],
+        );
+        assert!(decider.choose(&other).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_some());
+    }
+
+    #[test]
+    fn ready_plans_parse_and_validate_their_shape() {
+        let plan = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"ready_planets","steps":[{"kind":"ready_planet","planet":"jord"},{"kind":"ready_planet","planet":"arcturus"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.kind, BatchKind::ReadyPlanets);
+        assert!(plan_problem(&plan).is_none());
+        let with = |steps: Vec<MovementStep>| MovementPlan {
+            kind: BatchKind::ReadyPlanets,
+            destination: String::new(),
+            steps,
+        };
+        assert!(plan_problem(&with(vec![])).is_some(), "zero is not a plan");
+        assert!(plan_problem(&with(vec![ready("a"), ready("b"), ready("c")])).is_some());
+        assert!(plan_problem(&with(vec![ready("a"), ready("a")])).is_some());
+        assert!(plan_problem(&with(vec![MovementStep::TradeGood])).is_some());
+        assert!(
+            serde_json::from_str::<MovementPlan>(
+                r#"{"kind":"ready_planets","steps":[{"kind":"trade_good"}]}"#
+            )
+            .is_err(),
+            "cross-workflow steps are refused at the boundary"
+        );
     }
 
     /// Cabal Amalgamation: `build|carrier|1` and `exchange|carrier` are both `produce` options of

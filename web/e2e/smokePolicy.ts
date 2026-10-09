@@ -34,6 +34,19 @@ export function preferHitConfirm<T extends PolicyCandidate>(
 }
 
 /**
+ * Diplomacy's ready bar: Confirm as soon as it is enabled; until then tap an exhausted planet that
+ * is not picked yet (a picked chip starts with a check mark, and tapping it again would take it
+ * back). The map's planet candidates stay in the pool; the bar's Hide/Clear are excluded.
+ */
+export function preferReadyConfirm<T extends PolicyCandidate>(candidates: T[]): T[] {
+  if (!candidates.some((c) => /^ready-(bar|planet-chip)-/.test(c.desc))) return candidates;
+  const confirm = candidates.find((c) => /^ready-bar-confirm\b/.test(c.desc));
+  if (confirm) return [confirm];
+  const open = candidates.filter((c) => /^ready-planet-chip-/.test(c.desc) && !/✓/.test(c.desc));
+  return open.length ? open : candidates;
+}
+
+/**
  * Command tokens: Confirm unlocks only once every token is assigned, so confirm as soon as it is
  * enabled; until then only "+" can make progress (a "-" or Reset would loop forever).
  *
@@ -198,7 +211,7 @@ export function isUnstage(desc: string): boolean {
 // The info buttons (unit and faction cards, hover popovers) only show text; "prepare" and the
 // secondary-prep chip/banner record a local plan instead of answering the real question.
 export const EXCLUDED_CONTROLS =
-  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-|detail-panel-fold)|^top-menu/i;
+  /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-|detail-panel-fold)|^top-menu|^ready-bar-(collapse|clear)/i;
 
 /** Whether a decision subtype is a reaction window, its inner card pick or a reaction ability. */
 export function isReactionSubtype(subtype: string): boolean {

@@ -54,7 +54,8 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
     resolution.kind === "option" ||
     resolution.kind === "tokens" ||
     resolution.kind === "production" ||
-    resolution.kind === "payment";
+    resolution.kind === "payment" ||
+    resolution.kind === "ready";
   const showBar =
     nonce !== null &&
     dismissed !== nonce &&

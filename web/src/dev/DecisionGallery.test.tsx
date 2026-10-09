@@ -9,8 +9,8 @@ import { fallbackCases, galleryCases } from "./decisionGalleryCases.ts";
 
 describe("development decision gallery", () => {
   it("has a correctly classified synthetic preview for every workflow and labels fallbacks", () => {
-    expect(galleryCases).toHaveLength(19);
-    expect(new Set(galleryCases.map(({ workflow }) => workflow)).size).toBe(19);
+    expect(galleryCases).toHaveLength(20);
+    expect(new Set(galleryCases.map(({ workflow }) => workflow)).size).toBe(20);
     for (const item of [...galleryCases, ...fallbackCases]) {
       expect(
         deriveChoiceRendererModel(item.choice, item.choice.actor)?.workflow,
@@ -22,7 +22,7 @@ describe("development decision gallery", () => {
 
   it("previews the real renderer, offered IDs, local submissions and the other-seat boundary", async () => {
     render(<DecisionGallery />);
-    expect(screen.getByText(/Workflow kinds \(19\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Workflow kinds \(20\)/)).toBeInTheDocument();
     expect(
       screen.getByText(
         `Fallbacks and boundary states (${fallbackCases.length})`,

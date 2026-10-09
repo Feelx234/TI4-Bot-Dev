@@ -29,6 +29,7 @@ import {
   activationWeight,
   preferHitConfirm,
   preferPayment,
+  preferReadyConfirm,
   preferTokenConfirm,
   preferTradeDesk,
   steerWeight as policySteerWeight,
@@ -121,6 +122,7 @@ const DECISION_CONTAINERS = [
   "pending-choice-dialog",
   "system-activation-bar",
   "planet-selection-bar",
+  "ready-planets-bar",
   "tactical-movement-tray",
   "cargo-loading-tray",
   "invasion-landing-tray",
@@ -163,6 +165,7 @@ const ERROR_BANNERS = [
   "movement-error-banner",
   "activation-error",
   "planet-selection-error",
+  "ready-bar-error",
   "reaction-error-badge",
   "combat-error-banner",
   "hit-assignment-error",
@@ -423,7 +426,7 @@ function pick(
     return weightedPick(bar, (c) => steerWeight(c.full, hexWeights), rng);
   }
   candidates = preferTokenConfirm(
-    preferTradeDesk(preferHitConfirm(preferPayment(candidates)), rng),
+    preferTradeDesk(preferHitConfirm(preferReadyConfirm(preferPayment(candidates))), rng),
     rng,
   );
   const resume = candidates.filter((c) => c.resume);

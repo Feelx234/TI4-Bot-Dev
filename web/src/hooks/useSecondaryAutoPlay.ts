@@ -36,6 +36,8 @@ export interface SecondaryAutoPlayInput {
   submitProduction?: (units: string[], destination: string) => Promise<void>;
   /** Same path the payment drawer's confirm takes. */
   submitPayment?: (steps: PaymentStep[]) => Promise<void>;
+  /** Same path Diplomacy's ready bar takes (one batch for both planets). */
+  submitReady?: (planetIds: string[]) => Promise<void>;
 }
 
 export interface AutoPlayNotice {
@@ -82,6 +84,7 @@ export function useSecondaryAutoPlay({
   submitTokens,
   submitProduction,
   submitPayment,
+  submitReady,
 }: SecondaryAutoPlayInput) {
   const armed = useRef(false);
   const prev = useRef<HistoryStatus | null>(null);
@@ -102,6 +105,8 @@ export function useSecondaryAutoPlay({
   productionRef.current = submitProduction;
   const paymentRef = useRef(submitPayment);
   paymentRef.current = submitPayment;
+  const readyRef = useRef(submitReady);
+  readyRef.current = submitReady;
   const busyRef = useRef(busy);
   busyRef.current = busy;
   const resolutionRef = useRef(resolution);
@@ -130,7 +135,8 @@ export function useSecondaryAutoPlay({
     resolution.kind === "option" ||
     resolution.kind === "tokens" ||
     resolution.kind === "production" ||
-    resolution.kind === "payment";
+    resolution.kind === "payment" ||
+    resolution.kind === "ready";
   const text = actionable ? resolution.text : null;
 
   useLayoutEffect(() => {
@@ -159,6 +165,7 @@ export function useSecondaryAutoPlay({
       else if (current.kind === "production")
         sent = productionRef.current?.(current.units, current.destination);
       else if (current.kind === "payment") sent = paymentRef.current?.(current.steps);
+      else if (current.kind === "ready") sent = readyRef.current?.(current.planetIds);
       if (!sent) {
         setHeld(null);
         return;

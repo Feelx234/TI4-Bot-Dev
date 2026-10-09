@@ -5,6 +5,7 @@ import {
   preferTokenConfirm,
   preferTradeDesk,
   preferPayment,
+  preferReadyConfirm,
   steerWeight,
   strongUnselected,
   isUnstage,
@@ -190,6 +191,26 @@ describe("preferHitConfirm", () => {
     expect(isUnstage("hit-destroy-fighter|intact | Destroy Fighters | +")).toBe(
       false,
     );
+  });
+});
+
+describe("preferReadyConfirm (Diplomacy ready bar)", () => {
+  it("confirms once the bar allows it", () => {
+    const confirm = c("ready-bar-confirm | Confirm: ready 2 planets | Confirm");
+    expect(preferReadyConfirm([c("ready-planet-chip-jord | ✓ Jord"), confirm])).toEqual([confirm]);
+  });
+
+  it("taps only planets that are not picked yet, so picking cannot loop", () => {
+    const open = c("ready-planet-chip-lodor | Lodor");
+    expect(preferReadyConfirm([c("ready-planet-chip-jord | ✓ Jord"), open])).toEqual([open]);
+  });
+
+  it("never clicks the bar's Hide or Clear, and leaves other decisions alone", () => {
+    expect(EXCLUDED_CONTROLS.test("ready-bar-collapse")).toBe(true);
+    expect(EXCLUDED_CONTROLS.test("ready-bar-clear")).toBe(true);
+    expect(EXCLUDED_CONTROLS.test("ready-bar-confirm")).toBe(false);
+    const other = [c("choice-option | x")];
+    expect(preferReadyConfirm(other)).toBe(other);
   });
 });
 

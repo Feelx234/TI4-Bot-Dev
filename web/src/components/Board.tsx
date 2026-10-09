@@ -24,9 +24,11 @@ import {
   EMPTY_PAYMENT_DRAFT,
   derivePaymentMarks,
   derivePaymentOffer,
+  type PaymentMark,
 } from "../presentation/paymentDraft.ts";
 import { useSharedPaymentDraft } from "../presentation/PaymentDraftContext.tsx";
 import { useSharedTokenDraft } from "../presentation/CommandTokenDraftContext.tsx";
+import { useSharedReadyDraft } from "../presentation/ReadyPlanetsDraftContext.tsx";
 
 export { getPlayerColor, PLAYER_PALETTE };
 export type { MapOverlayMode };
@@ -123,18 +125,38 @@ export const Board: React.FC<BoardProps> = ({
 
   // While paying, each payable planet shows what it is worth and whether it is staged.
   const sharedDraft = useSharedPaymentDraft();
+  // Diplomacy: the exhausted planets that can be readied show their values and whether they are picked.
+  const readyDraft = useSharedReadyDraft();
+  const readyMarks = useMemo(() => {
+    const view = readyDraft?.view;
+    if (!view || !pendingChoice || pendingChoice.actor !== viewerSeat) return undefined;
+    const marks = new Map<string, PaymentMark>();
+    for (const planet of view.planets) {
+      marks.set(planet.id, {
+        planetId: planet.id,
+        optionId: planet.id,
+        worth: planet.influence ?? 0,
+        unit: "I",
+        staged: readyDraft.selected.includes(planet.id),
+        resources: planet.resources ?? undefined,
+        readies: true,
+      });
+    }
+    return marks;
+  }, [readyDraft?.view, readyDraft?.selected, pendingChoice, viewerSeat]);
   const paymentMarks = useMemo(
     () =>
-      presentation.targets.targetMode === "payment" && tokenPayment
+      readyMarks ??
+      (presentation.targets.targetMode === "payment" && tokenPayment
         ? derivePaymentMarks(tokenPayment.offer, tokenPayment.draft)
         : presentation.targets.targetMode === "payment" && pendingChoice
           ? derivePaymentMarks(
               derivePaymentOffer(pendingChoice),
               sharedDraft?.draft ?? EMPTY_PAYMENT_DRAFT,
             )
-          : undefined,
+          : undefined),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft, tokenPayment],
+    [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft, tokenPayment, readyMarks],
   );
 
   const handlePointerDown = (e: React.PointerEvent) => {

@@ -102,6 +102,12 @@ fn step_of(option: &ChoiceOption) -> Option<(BatchKind, MovementStep)> {
                     .unwrap_or(false),
             },
         ),
+        ("ready", _) => (
+            BatchKind::ReadyPlanets,
+            MovementStep::ReadyPlanet {
+                planet: id.to_owned(),
+            },
+        ),
         ("pool", _) => (
             BatchKind::Tokens,
             MovementStep::Pool {
@@ -137,7 +143,10 @@ fn terminal(kind: BatchKind) -> Option<MovementStep> {
         BatchKind::TacticalMovement => Some(MovementStep::DoneMoving),
         BatchKind::AgendaVotePlanets => Some(MovementStep::DoneVoting),
         BatchKind::Production => Some(MovementStep::DoneProducing),
-        BatchKind::Payment | BatchKind::Casualties | BatchKind::Tokens => None,
+        BatchKind::Payment
+        | BatchKind::Casualties
+        | BatchKind::Tokens
+        | BatchKind::ReadyPlanets => None,
     }
 }
 
