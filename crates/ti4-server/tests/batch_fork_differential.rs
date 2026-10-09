@@ -95,6 +95,11 @@ fn step_of(option: &ChoiceOption) -> Option<(BatchKind, MovementStep)> {
             MovementStep::Produce {
                 unit: text("unit")?,
                 count: u32::try_from(option.payload.get("count")?.as_u64()?).ok()?,
+                exchange: option
+                    .payload
+                    .get("exchange")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false),
             },
         ),
         ("pool", _) => (

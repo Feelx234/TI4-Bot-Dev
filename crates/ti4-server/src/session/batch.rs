@@ -106,7 +106,15 @@ enum VoteStep {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ProductionStep {
-    Produce { unit: String, count: u32 },
+    /// `exchange` picks the Amalgamation option (return a captured unit of that type, no cost)
+    /// instead of the paid build; both are offered in the same decision with the same unit and
+    /// count, so a step that does not say which it means must never be able to match the exchange.
+    Produce {
+        unit: String,
+        count: u32,
+        #[serde(default)]
+        exchange: bool,
+    },
     DoneProducing,
 }
 
@@ -220,7 +228,15 @@ impl From<VoteStep> for MovementStep {
 impl From<ProductionStep> for MovementStep {
     fn from(step: ProductionStep) -> Self {
         match step {
-            ProductionStep::Produce { unit, count } => Self::Produce { unit, count },
+            ProductionStep::Produce {
+                unit,
+                count,
+                exchange,
+            } => Self::Produce {
+                unit,
+                count,
+                exchange,
+            },
             ProductionStep::DoneProducing => Self::DoneProducing,
         }
     }
@@ -287,6 +303,7 @@ pub enum MovementStep {
     Produce {
         unit: String,
         count: u32,
+        exchange: bool,
     },
     DoneProducing,
     Sustain {
@@ -404,8 +421,18 @@ impl MovementStep {
                         .unwrap_or(false)
                         == *damaged
             }
-            Self::Produce { unit, count } => {
+            Self::Produce {
+                unit,
+                count,
+                exchange,
+            } => {
                 option.kind == "produce"
+                    && option
+                        .payload
+                        .get("exchange")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                        == *exchange
                     && value("unit") == Some(unit.as_str())
                     && option
                         .payload
@@ -2322,5 +2349,42 @@ mod tests {
                 .collect(),
         };
         assert!(plan_problem(&many).is_none());
+    }
+
+    /// Cabal Amalgamation: `build|carrier|1` and `exchange|carrier` are both `produce` options of
+    /// one `produce_unit` decision with the same unit and count. A plan step names which one it
+    /// means; a plain step never matches the exchange (it used to match both: "ambiguous option").
+    #[test]
+    fn a_produce_step_picks_the_build_or_the_exchange_but_never_both() {
+        let build = ChoiceOption::labelled("build|carrier|1", "produce", "produce 1x carrier")
+            .with("unit", "carrier")
+            .with("count", 1i64);
+        let exchange =
+            ChoiceOption::labelled("exchange|carrier", "produce", "produce 1x carrier by returning")
+                .with("unit", "carrier")
+                .with("count", 1i64)
+                .with("exchange", true);
+        let plain = |exchange| MovementStep::Produce {
+            unit: "carrier".into(),
+            count: 1,
+            exchange,
+        };
+        let offered = [build.clone(), exchange.clone()];
+        let hits = |step: &MovementStep| {
+            offered
+                .iter()
+                .filter(|o| step.matches_option(o))
+                .map(|o| o.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(hits(&plain(false)), vec!["build|carrier|1".to_owned()]);
+        assert_eq!(hits(&plain(true)), vec!["exchange|carrier".to_owned()]);
+        let parsed = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"production","destination":"27","steps":[{"kind":"produce","unit":"carrier","count":1,"exchange":true},{"kind":"produce","unit":"carrier","count":1}]}"#,
+        )
+        .unwrap();
+        assert!(plan_problem(&parsed).is_none());
+        assert!(matches!(parsed.steps[0], MovementStep::Produce { exchange: true, .. }));
+        assert!(matches!(parsed.steps[1], MovementStep::Produce { exchange: false, .. }));
     }
 }
