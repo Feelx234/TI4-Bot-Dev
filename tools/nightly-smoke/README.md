@@ -140,7 +140,7 @@ Worktrees under `nightly-reports/<night>/fixer-*` can be removed with `git workt
 | `NIGHTLY_BUILD_CMD` | `cargo build --quiet -p ti4-server --bin server` | check before every game and after merges |
 | `NIGHTLY_PROCTOR_MODEL`, `NIGHTLY_SUMMARY_MODEL` | Sonnet 5.5, Opus 5.5 | |
 | `NIGHTLY_PRESET_PROBABILITY` | `70` | percent of runs that start from a prepared state |
-| `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
+| `NIGHTLY_PRESET` | `combat combat cards agenda relics invasion techs leaders siege bombard capture` | one preset name or a list to pick from per run (see `crates/ti4-server/src/preset.rs`; `endgame` is left out of the mix) |
 | `NIGHTLY_POK_PROBABILITY` | `25` | percent of runs that play the PoK strategy cards instead of the TE default |
 | `NIGHTLY_UI_TOUR_PROBABILITY` | `17` | percent of runs with `TI4_SMOKE_UI_TOUR=1`: open the Faction card and one unit card, check them |
 | `NIGHTLY_RECAP_PROBABILITY` | `20` | percent of runs with `TI4_SMOKE_RECAP=1`: one random non-host seat turns the Recap toggle on; recap toasts are counted |
