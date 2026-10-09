@@ -53,6 +53,16 @@ technologies, leaders or a pre-lifted custodians token are by design:
 - `invasion`: each seat has a defended colony (infantry, mech, two PDS) with the previous seat's
   invasion force in its space area (space cannon, ground combat in the first rounds).
 - `techs`: the invasion setup plus a set of prompt-bearing technologies for every seat.
+- `siege`: the invasion setup, but each colony also holds a fleet (carrier, cruiser, destroyer, two
+  fighters) and the invader brings carrier, dreadnought, destroyer and fighters; every seat owns
+  Assault Cannon and other combat technologies and holds combat action cards (Waylay, Maneuvering
+  Jets, Courageous to the End, Scramble Frequency, ...). Space cannon, anti-fighter barrage and the
+  Assault Cannon loss all happen in the first tactical action.
+- `bombard`: colonies without PDS (infantry and a mech, plus a lone infantry of a third seat on the
+  same planet) invaded by two dreadnoughts: bombardment and ground combat.
+- `capture`: the Vuil'raith Cabal (a faction outside the usual six) is seated, with Vortex ready,
+  its agent, hero and commander usable, captured units of every other seat on its sheet, and the
+  other seats' fleets beside its home: capture and the return of captured units.
 - `leaders`: every leader usable at once and unclaimed legendary planets handed out.
 - `endgame` (not in the default mix): the game ends within a round or two.
 Such prompts and fights in those runs are *expected*, not suspicious.

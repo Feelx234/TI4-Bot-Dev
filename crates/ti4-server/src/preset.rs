@@ -50,12 +50,31 @@ pub const LEADERS: &str = "leaders";
 /// reveal: scoring one more point or the status phase ends the game (`game_over`).
 pub const ENDGAME: &str = "endgame";
 
+/// The invasion setup with PDS colonies that also hold a defending fleet, and invaders with
+/// destroyers, fighters and three kinds of non-fighter ship: space cannon (offense and defense),
+/// anti-fighter barrage and Assault Cannon fire before the first move is made, ships are lost for
+/// Courageous to the End, and every seat holds the action cards that answer those windows.
+pub const SIEGE: &str = "siege";
+
+/// Colonies without PDS (so the planetary shield is down) that hold infantry and a mech, invaded by
+/// two dreadnoughts: bombardment and ground combat with a sustaining mech. With three or more
+/// seats a lone infantry of a third seat shares each planet, which is what makes the invader
+/// choose whose units a bombardment hits.
+pub const BOMBARD: &str = "bombard";
+
+/// The Vuil'raith Cabal sits at the table with Vortex ready, captured units of every other seat on
+/// its sheet and the other seats' fleets beside its home: capture, and the returns of captured
+/// units (Amalgamation, Riftmeld, the agent).
+pub const CAPTURE: &str = "capture";
+
 /// Suffix on any preset name that also rotates the factions (see [`rotation`]).
 pub const ROTATE: &str = "+rot";
 
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
-pub const KNOWN: &[&str] = &[COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME];
+pub const KNOWN: &[&str] = &[
+    COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE,
+];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
@@ -150,6 +169,73 @@ const INVASION_FLEET: &[(&str, usize)] = &[
 /// What a colony's planet holds: ground forces to fight and a PDS (space cannon) to shoot first.
 const COLONY_DEFENDERS: &[(&str, usize)] = &[("infantry", 3), ("pds", 2)];
 
+/// What a colony in the `siege` preset holds in its space area: three kinds of non-fighter ship
+/// (Assault Cannon needs three and makes the loser choose which to give up) and two fighters for
+/// the barrage to shoot at. The seat's own mech is not added to a ship list.
+const SIEGE_GARRISON: &[(&str, usize)] = &[
+    ("carrier", 1),
+    ("cruiser", 1),
+    ("destroyer", 1),
+    ("fighter", 2),
+];
+
+/// The siege invader: carrier, dreadnought and destroyer (three kinds of non-fighter ship, a
+/// barrage of its own), two fighters, two infantry and the faction's mech; capacity 5 is full.
+const SIEGE_FLEET: &[(&str, usize)] = &[
+    ("carrier", 1),
+    ("dreadnought", 1),
+    ("destroyer", 1),
+    ("fighter", 2),
+    ("infantry", 2),
+];
+
+/// The `bombard` invader: two dreadnoughts roll bombardment, the carrier brings four infantry and
+/// the faction's mech (capacity 6).
+const BOMBARD_FLEET: &[(&str, usize)] = &[("carrier", 1), ("dreadnought", 2), ("infantry", 3)];
+
+/// The `bombard` defenders: no PDS, so no planetary shield.
+const BOMBARD_DEFENDERS: &[(&str, usize)] = &[("infantry", 2)];
+
+/// Action cards of the windows around space cannon, anti-fighter barrage, bombardment, ground
+/// combat and ship losses: Waylay and Scramble Frequency (barrage and cannon rolls), Maneuvering
+/// Jets (cancel a cannon hit), Shields Holding, Direct Hit, Courageous to the End, Disable and
+/// Experimental Battlestation (cannon), Bunker and Blitz (bombardment), Fire Team (ground rolls),
+/// Parley and Ghost Squad (landing) and Tactical Bombardment (an action).
+const SIEGE_CARD_POOL: &[&str] = &[
+    "waylay", "mjets1", "courageous", "scramble", "sh1", "dh1", "disable", "experimental",
+    "parley", "fire_team", "ghost_squad", "bunker", "blitz", "tactical",
+];
+
+/// The bombardment-side cards of the pool above, for the `bombard` preset.
+const BOMBARD_CARD_POOL: &[&str] = &[
+    "bunker", "blitz", "tactical", "fire_team", "parley", "ghost_squad", "scramble", "sh1",
+    "courageous", "dh1",
+];
+
+/// Technologies of the `siege` preset: Assault Cannon (the opening loss), Plasma Scoring, PDS II
+/// and Destroyer II (a longer reach and a stronger barrage), Duranium Armor and the Magen Defense
+/// Grid. Prerequisites are not checked.
+const SIEGE_TECHS: &[&str] = &["asc", "ps", "pds2", "dd2", "da", "md", "ff2"];
+
+/// Technologies of the `bombard` preset: both X-89 steps, Plasma Scoring and Dreadnought II.
+const BOMBARD_TECHS: &[&str] = &["x89c4", "ps", "dn2", "inf2", "da"];
+
+/// Technologies of the `capture` preset for the Cabal: Vortex and its upgrades' prerequisites'
+/// neighbours (Dimensional Tear II, Self-Assembly), and unit upgrades that Riftmeld can waive.
+const CAPTURE_CABAL_TECHS: &[&str] = &["vtx", "dt2", "sar"];
+
+/// What the Cabal holds captured at the start, one model from each other seat: a fighter, an
+/// infantry, a destroyer, a cruiser and a mech are the types Amalgamation and Riftmeld ask about.
+const CAPTURED_TYPES: &[&str] = &["infantry", "fighter", "destroyer", "cruiser", "carrier"];
+
+/// The Cabal's second front: every other seat's fleet waits beside the Cabal's home, within
+/// Vortex's reach and in the Cabal's way.
+const CAPTURE_RAIDERS: &[(&str, usize)] = &[
+    ("cruiser", 1),
+    ("destroyer", 1),
+    ("dreadnought", 1),
+];
+
 /// Reinforcement pool sizes (LRR 76.1): a preset never puts more of a type on the board.
 const POOL: &[(&str, usize)] = &[
     ("carrier", 4),
@@ -220,13 +306,40 @@ pub fn apply(
             deal_relics(content, state, players, seed);
             Ok(())
         }
-        INVASION => invasion_preset(content, state, galaxy, players, seed),
+        INVASION => invasion_preset(content, state, galaxy, players, seed, &ColonySpec::INVASION),
         TECHS => {
-            invasion_preset(content, state, galaxy, players, seed)?;
-            grant_techs(content, state, players);
+            invasion_preset(content, state, galaxy, players, seed, &ColonySpec::INVASION)?;
+            grant_techs(content, state, players, TECH_POOL);
             Ok(())
         }
+        SIEGE => {
+            invasion_preset(content, state, galaxy, players, seed, &ColonySpec::SIEGE)?;
+            grant_techs(content, state, players, SIEGE_TECHS);
+            deal_cards(content, state, players, seed, SIEGE_CARD_POOL, SIEGE_HAND);
+            Ok(())
+        }
+        BOMBARD => {
+            invasion_preset(content, state, galaxy, players, seed, &ColonySpec::BOMBARD)?;
+            grant_techs(content, state, players, BOMBARD_TECHS);
+            deal_cards(content, state, players, seed, BOMBARD_CARD_POOL, SIEGE_HAND);
+            Ok(())
+        }
+        CAPTURE => capture(content, state, galaxy, players, seed),
         other => Err(format!("unknown start_preset {other:?}")),
+    }
+}
+
+/// Puts the faction a preset needs on its seat, before the table is built. Only `capture` does:
+/// the Vuil'raith Cabal, which is not one of `IN_SCOPE_FACTIONS`, sits on a seeded seat.
+pub fn seat_roster(
+    name: &str,
+    seed: u64,
+    players: &[PlayerId],
+    assignments: &mut BTreeMap<PlayerId, FactionId>,
+) {
+    if base(name) == CAPTURE && !players.is_empty() {
+        let seat = (mix(seed, 950) % players.len() as u64) as usize;
+        assignments.insert(players[seat].clone(), FactionId::new("cabal"));
     }
 }
 
@@ -271,6 +384,40 @@ fn agenda(content: &ContentStore, state: &mut GameState, players: &[PlayerId], s
     }
 }
 
+/// Cards per seat in the `siege` and `bombard` presets (the pools are small, so fewer in practice).
+const SIEGE_HAND: usize = 4;
+
+/// What a colony preset puts down: the planet's defenders, the ships in its space area, and the
+/// invasion force of the previous seat.
+struct ColonySpec {
+    defenders: &'static [(&'static str, usize)],
+    garrison: &'static [(&'static str, usize)],
+    attacker: &'static [(&'static str, usize)],
+    /// A lone infantry of the seat after the owner shares the planet (three or more seats).
+    third_party: bool,
+}
+
+impl ColonySpec {
+    const INVASION: Self = Self {
+        defenders: COLONY_DEFENDERS,
+        garrison: &[],
+        attacker: INVASION_FLEET,
+        third_party: false,
+    };
+    const SIEGE: Self = Self {
+        defenders: COLONY_DEFENDERS,
+        garrison: SIEGE_GARRISON,
+        attacker: SIEGE_FLEET,
+        third_party: false,
+    };
+    const BOMBARD: Self = Self {
+        defenders: BOMBARD_DEFENDERS,
+        garrison: &[],
+        attacker: BOMBARD_FLEET,
+        third_party: true,
+    };
+}
+
 /// One defended colony per seat, and the previous seat's invasion force waiting above it.
 fn invasion_preset(
     content: &ContentStore,
@@ -278,6 +425,7 @@ fn invasion_preset(
     galaxy: &Galaxy,
     players: &[PlayerId],
     seed: u64,
+    spec: &ColonySpec,
 ) -> Result<(), String> {
     let assignments = seated(state, players);
     let homes: Vec<SystemId> = players
@@ -309,7 +457,7 @@ fn invasion_preset(
         .and_then(|site| colony_planet(content, site.as_str()).map(|planet| (site, planet)));
         if let Some((site, planet)) = &colony {
             used.insert(site.as_str().to_owned());
-            let mut defenders = fleet_for(content, &assignments[player], COLONY_DEFENDERS);
+            let mut defenders = fleet_for(content, &assignments[player], spec.defenders);
             // fleet_for adds a dreadnought-less mech; keep it, the planet is a ground area.
             let board = state.system_mut(site);
             board.set_control(planet.clone(), player.clone());
@@ -321,6 +469,20 @@ fn invasion_preset(
                         .or_default()
                         .push(Unit::new(kind.clone(), player.clone()));
                 }
+            }
+            if !spec.garrison.is_empty() {
+                let ships = ships_for(content, &assignments[player], spec.garrison);
+                place(content, state, player, site, &ships)?;
+            }
+            if spec.third_party && count > 2 {
+                let third = &players[(j + 1) % count];
+                state
+                    .system_mut(site)
+                    .planet_units
+                    .entry(planet.clone())
+                    .or_default()
+                    .push(Unit::new(UnitTypeId::new("infantry"), third.clone()));
+                check_pools(state, third)?;
             }
             check_pools(state, player)?;
         }
@@ -336,17 +498,98 @@ fn invasion_preset(
         let Some((colony, _)) = &colonies[(i + 1) % count] else {
             continue;
         };
-        let fleet = fleet_for(content, &assignments[player], INVASION_FLEET);
+        let fleet = fleet_for(content, &assignments[player], spec.attacker);
         place(content, state, player, colony, &fleet)?;
     }
     Ok(())
 }
 
-/// Every seat owns every technology of [`TECH_POOL`] the corpus has.
-fn grant_techs(content: &ContentStore, state: &mut GameState, players: &[PlayerId]) {
+/// The Cabal's table: the combat setup (so the Cabal raids too, and Devour captures what it
+/// destroys), every other seat's fleet beside the Cabal's home within Vortex's reach, the Cabal's
+/// Vortex ready, its agent ready and hero and commander unlocked, and one captured model of
+/// several types from every other seat on its sheet (Amalgamation and Riftmeld offer to return
+/// them).
+fn capture(
+    content: &ContentStore,
+    state: &mut GameState,
+    galaxy: &Galaxy,
+    players: &[PlayerId],
+    seed: u64,
+) -> Result<(), String> {
+    let assignments = seated(state, players);
+    let cabal = players
+        .iter()
+        .find(|player| assignments[*player].as_str() == "cabal")
+        .cloned()
+        .ok_or_else(|| "the capture preset needs the Cabal seated".to_owned())?;
+    combat(content, state, galaxy, players, seed)?;
+
+    let homes: Vec<SystemId> = players
+        .iter()
+        .map(|player| {
+            let one = BTreeMap::from([(player.clone(), assignments[player].clone())]);
+            seating::home_systems(content, &one).map(|mut homes| homes.remove(0))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    let home_set: BTreeSet<&str> = homes.iter().map(SystemId::as_str).collect();
+    let cabal_home = players
+        .iter()
+        .position(|player| *player == cabal)
+        .map(|index| homes[index].clone())
+        .ok_or_else(|| "the Cabal has no seat".to_owned())?;
+    let mut used: BTreeSet<String> = BTreeSet::new();
+    for (index, player) in players.iter().enumerate() {
+        if *player == cabal {
+            continue;
+        }
+        if let Some(site) = pick_site(
+            content,
+            state,
+            galaxy,
+            cabal_home.as_str(),
+            &home_set,
+            &used,
+            mix(seed, 700 + index as u64),
+            2,
+        ) {
+            let fleet = fleet_for(content, &assignments[player], CAPTURE_RAIDERS);
+            place(content, state, player, &site, &fleet)?;
+            used.insert(site.as_str().to_owned());
+        }
+    }
+
+    grant_techs(content, state, std::slice::from_ref(&cabal), CAPTURE_CABAL_TECHS);
+    let others: Vec<PlayerId> = players.iter().filter(|player| **player != cabal).cloned().collect();
+    if let Some(seat) = state.player_mut(&cabal) {
+        for (index, owner) in others.iter().enumerate() {
+            // Three or four models each, rotating which types so the sheet is varied.
+            for offset in 0..3 {
+                let kind = CAPTURED_TYPES[(index + offset) % CAPTURED_TYPES.len()];
+                seat.captured_units.push((owner.clone(), UnitTypeId::new(kind)));
+            }
+        }
+        for (leader, status) in [
+            ("cabalagent", LeaderStatus::Readied),
+            ("cabalcommander", LeaderStatus::Unlocked),
+            ("cabalhero", LeaderStatus::Unlocked),
+        ] {
+            seat.leaders.insert(ti4_model::id::LeaderId::new(leader), status);
+        }
+    }
+    Ok(())
+}
+
+/// Every seat owns every technology of `pool` the corpus has.
+fn grant_techs(
+    content: &ContentStore,
+    state: &mut GameState,
+    players: &[PlayerId],
+    pool: &[&str],
+) {
     for player in players {
         if let Some(seat) = state.player_mut(player) {
-            for id in TECH_POOL {
+            for id in pool {
                 if content.get(ContentType::Technologies, id).is_some() {
                     seat.technologies.insert(TechnologyId::new(*id));
                 }
@@ -653,11 +896,24 @@ fn fleet_for(
     faction: &FactionId,
     spec: &[(&str, usize)],
 ) -> Vec<(UnitTypeId, usize)> {
+    let mut fleet = ships_for(content, faction, spec);
+    let mech = factions::resolve_unit(content, faction.as_str(), &UnitTypeId::new("mech"), POK);
+    if units::unit_type(content, mech.as_str(), POK).is_some() {
+        fleet.push((mech, 1));
+    }
+    fleet
+}
+
+/// As [`fleet_for`] without the mech: only the faction's own dreadnought is resolved.
+fn ships_for(
+    content: &ContentStore,
+    faction: &FactionId,
+    spec: &[(&str, usize)],
+) -> Vec<(UnitTypeId, usize)> {
     let resolve = |kind: &str| {
         factions::resolve_unit(content, faction.as_str(), &UnitTypeId::new(kind), POK)
     };
-    let mut fleet: Vec<(UnitTypeId, usize)> = spec
-        .iter()
+    spec.iter()
         .map(|(kind, count)| {
             let id = if *kind == "dreadnought" {
                 resolve(kind)
@@ -666,12 +922,7 @@ fn fleet_for(
             };
             (id, *count)
         })
-        .collect();
-    let mech = resolve("mech");
-    if units::unit_type(content, mech.as_str(), POK).is_some() {
-        fleet.push((mech, 1));
-    }
-    fleet
+        .collect()
 }
 
 /// Whether a unit type id is `kind` or a faction's own version of it (`sol_mech` for `mech`).
@@ -1267,6 +1518,95 @@ mod tests {
     fn every_pool_card_exists_in_the_corpus() {
         for id in CARD_POOL {
             assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
+        }
+    }
+
+    #[test]
+    fn the_siege_preset_garrisons_every_colony_and_arms_the_invader_for_assault_cannon() {
+        for n in 3..=6 {
+            for seed in 0..6 {
+                let list = players(n);
+                let (state, _) = create_game_with_preset(content(), &list, seed, None, Some(SIEGE))
+                    .unwrap_or_else(|e| panic!("{n}p seed {seed}: {e}"));
+                let mut garrisoned = 0;
+                for board in state.board.values() {
+                    let owners: BTreeSet<&PlayerId> = board.units.iter().map(|u| &u.owner).collect();
+                    if owners.len() != 2 || board.planet_units.values().flatten().all(|u| u.type_id.as_str() != "pds") {
+                        continue;
+                    }
+                    garrisoned += 1;
+                    for owner in owners {
+                        let kinds: BTreeSet<&str> = board
+                            .units
+                            .iter()
+                            .filter(|u| &u.owner == owner)
+                            .map(|u| u.type_id.as_str())
+                            .filter(|t| ["carrier", "cruiser", "destroyer"].contains(t) || t.contains("dread"))
+                            .collect();
+                        assert!(kinds.len() >= 3, "{n}p seed {seed}: {owner} has {kinds:?}");
+                        assert!(board.units.iter().any(|u| &u.owner == owner && u.type_id.as_str() == "fighter"));
+                    }
+                }
+                assert_eq!(garrisoned, n, "{n}p seed {seed}: one contested colony per seat");
+                for player in &list {
+                    let seat = state.player(player).unwrap();
+                    assert!(seat.technologies.contains(&TechnologyId::new("asc")));
+                    assert!(!seat.action_cards.is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_bombard_preset_has_no_pds_two_dreadnoughts_and_a_third_seats_infantry() {
+        for n in 3..=6 {
+            let list = players(n);
+            let (state, _) =
+                create_game_with_preset(content(), &list, 3, None, Some(BOMBARD)).unwrap();
+            let mut contested = 0;
+            for board in state.board.values() {
+                let dreads = board.units.iter().filter(|u| u.type_id.as_str().contains("dread")).count();
+                if dreads != 2 {
+                    continue;
+                }
+                contested += 1;
+                assert!(board.planet_units.values().flatten().all(|u| u.type_id.as_str() != "pds"));
+                let owners: BTreeSet<&PlayerId> =
+                    board.planet_units.values().flatten().map(|u| &u.owner).collect();
+                assert_eq!(owners.len(), 2, "{n}p: the planet is shared by two seats");
+            }
+            assert_eq!(contested, n);
+        }
+    }
+
+    #[test]
+    fn the_capture_preset_seats_the_cabal_with_vortex_targets_and_captured_units() {
+        for n in 3..=6 {
+            for seed in 0..6 {
+                let list = players(n);
+                let (state, galaxy) =
+                    create_game_with_preset(content(), &list, seed, None, Some(CAPTURE))
+                        .unwrap_or_else(|e| panic!("{n}p seed {seed}: {e}"));
+                let cabal: Vec<&PlayerId> = list
+                    .iter()
+                    .filter(|p| state.player(p).unwrap().faction.as_str() == "cabal")
+                    .collect();
+                assert_eq!(cabal.len(), 1, "{n}p seed {seed}");
+                let seat = state.player(cabal[0]).unwrap();
+                assert!(seat.technologies.contains(&TechnologyId::new("vtx")));
+                assert!(seat.captured_units.len() >= n - 1);
+                // Somebody else's fleet is next to the Cabal's home dock.
+                let assignments = BTreeMap::from([(cabal[0].clone(), seat.faction.clone())]);
+                let home = seating::home_systems(content(), &assignments).unwrap().remove(0);
+                let adjacent: Vec<&str> = galaxy.adjacent(home.as_str()).into_iter().collect();
+                assert!(
+                    adjacent.iter().any(|id| state
+                        .board
+                        .get(&SystemId::new(*id))
+                        .is_some_and(|b| b.units.iter().any(|u| &u.owner != cabal[0]))),
+                    "{n}p seed {seed}: no raider beside the Cabal"
+                );
+            }
         }
     }
 

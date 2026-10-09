@@ -131,10 +131,19 @@ export function turnBarPool<T extends PolicyCandidate>(candidates: T[]): T[] | n
 // Steering weights, first match wins; anything unmatched weighs 1. They push random play toward
 // moving fleets into contested systems and Mecatol Rex instead of passing and trading.
 const STEER_WEIGHTS: [RegExp, number][] = [
+  // The capture preset's Cabal has Vortex and its hero behind the components menu; open it far
+  // more often than the 6 below, which the tactical action (30) and ending the turn (20) outweigh.
+  ...((process.env.TI4_SMOKE_PRESET ?? "").startsWith("capture")
+    ? ([[/^turn-bar-components\b/, 45]] as [RegExp, number][])
+    : []),
   // The turn bar (matched on the test id, which comes first in the description).
   [/^turn-bar-tactical\b/, 30],
   [/^turn-bar-strategic-/, 3],
   [/^turn-bar-trade\b/, 0.1],
+  // Capture (the `capture` preset): Vortex and the Cabal hero are rare component rows; once the
+  // menu is open they are the point of the run.
+  [/^turn-bar-item-faction\|cabal\|vortex/, 40],
+  [/^turn-bar-item-[^ ]*cabalhero/, 20],
   [/^turn-bar-open-/, 1],
   // The action card and component menus: their rows are where action cards, relics, leaders and
   // technologies get played, which random play rarely reached at weight 1 among ~10 buttons.
@@ -239,6 +248,10 @@ export function steerWeight(desc: string): number {
   return STEER_WEIGHTS.find(([pattern]) => pattern.test(desc))?.[1] ?? 1;
 }
 
+const CAPTURE_RUN = (process.env.TI4_SMOKE_PRESET ?? "").startsWith("capture");
+/** The Vuil'raith Cabal's home system tile. */
+const CABAL_HOME = "54";
+
 /**
  * Steering weight for activating one system. Unreachable systems are rarely worth it; Mecatol Rex
  * and systems holding other players' units are favoured. A seat whose ground forces wait in
@@ -257,6 +270,9 @@ export function activationWeight(
   // The same holds for a defended colony (the invasion preset) with the invader's ground forces
   // waiting in its space area.
   if (groundForcesInPlaceOnMecatol && (id === "18" || defendedPlanet)) return 2000;
+  // The capture preset: the Cabal's home holds its space dock, the one place Amalgamation (return a
+  // captured unit instead of paying) is offered; activating it opens the production step.
+  if (CAPTURE_RUN && id === CABAL_HOME) return 80;
   if (!reachable) return 0.2;
   // Another player's ground forces on a planet: the way to an invasion with space cannon,
   // bombardment and ground casualties, which fleet-versus-fleet space fights never reach.
