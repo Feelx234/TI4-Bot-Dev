@@ -1,12 +1,23 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "explore", "notes", "world"] as const;
 
-/** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
+/** The preset without its `+rot`, `+short` and `+fac[:alias...]` suffixes. */
+export function basePreset(name: string | undefined): string {
+  return (name ?? "").split("+")[0];
+}
+
+/**
+ * Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error.
+ * Suffixes, in any order: "+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables;
+ * "leaders" always does), "+fac" seats factions from the engine's roster by seed ("+fac:naalu:mentak"
+ * names the first seats; "world" always does), "+short" starts the game near its end.
+ */
 export function presetFromEnv(value: string | undefined): string | undefined {
   const name = value?.trim();
   if (!name) return undefined;
-  // "<preset>+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables); "leaders" always does.
-  if (!(KNOWN_PRESETS as readonly string[]).includes(name.replace(/\+rot$/, ""))) {
+  const [base, ...suffixes] = name.split("+");
+  const suffixOk = (s: string) => s === "rot" || s === "short" || /^fac(:[a-z0-9_]+)*$/.test(s);
+  if (!(KNOWN_PRESETS as readonly string[]).includes(base) || !suffixes.every(suffixOk)) {
     throw new Error(`unknown TI4_SMOKE_PRESET "${name}" (known: ${KNOWN_PRESETS.join(", ")})`);
   }
   return name;
@@ -78,7 +89,7 @@ export function parseExpect(value: string | undefined, preset?: string): Expecta
   return text
     .split(",")
     .flatMap((item) =>
-      item.trim() === "preset" ? (PRESET_EXPECT[(preset ?? "").replace(/\+rot$/, "")] ?? "").split(",") : [item],
+      item.trim() === "preset" ? (PRESET_EXPECT[basePreset(preset)] ?? "").split(",") : [item],
     )
     .map((item) => item.trim())
     .filter(Boolean)
