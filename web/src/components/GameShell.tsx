@@ -29,6 +29,8 @@ import {
 import { SpaceCombatOverlay } from "./CombatResolutionModal.tsx";
 import { TradeDeskModal } from "./TradeDeskModal.tsx";
 import { AgendaBallotModal } from "./AgendaBallotModal.tsx";
+import { AgendaPillProvider, AgendaStrip, useAgendaPill } from "./AgendaStrip.tsx";
+import type { AgendaStrip as AgendaStripModel } from "../presentation/agendaStrip.ts";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
 import { CargoLoadingTray } from "./CargoLoadingTray.tsx";
@@ -89,6 +91,10 @@ export interface GameShellProps {
   /** Turn redo (seated players): the status strip and the "Redo my last turn" controls. */
   turnRedo?: TurnRedoShellProps;
   choice: PendingChoiceDto | null;
+  /** The agenda being decided, for the strip under the top bar and the minimized pill; null outside the agenda phase. */
+  agenda?: AgendaStripModel | null;
+  /** What the minimized decision pill says about the agenda ("Voting: Minister of Peace — For/Against"). */
+  agendaPill?: string | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
   /** The viewing seat's "never offer" cards (server state) and how to change them. */
   reactionModes?: import("../protocol/types.ts").ReactionModes;
@@ -660,6 +666,7 @@ export const ChoiceRendererDispatcher: React.FC<
   onSetReactionMode,
 }) => {
   const present = useParticipantText();
+  const agendaPill = useAgendaPill();
   const derivedModel = useMemo(() => {
     return choice
       ? deriveChoiceRendererModel(choice, viewerSeat ?? null)
@@ -887,7 +894,7 @@ export const ChoiceRendererDispatcher: React.FC<
             className="choice-banner choice-minimized-pill"
             data-testid="choice-minimized-pill"
           >
-            <span className="choice-minimized-pill__prompt">
+            <span className={`choice-minimized-pill__prompt${agendaPill ? " agenda-pill" : ""}`}>
               {workflow === "technology_research"
                 ? "Research Technology"
                 : workflow === "objective_scoring"
@@ -898,7 +905,7 @@ export const ChoiceRendererDispatcher: React.FC<
                     : workflow === "tactical_cargo" ||
                         visibleChoice.prompt === "load_cargo"
                       ? "Load Cargo"
-                      : visibleChoice.prompt}
+                      : (agendaPill ?? visibleChoice.prompt)}
             </span>
             <button
               type="button"
@@ -965,6 +972,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   onFetchReplay,
   turnRedo,
   choice,
+  agenda,
+  agendaPill,
   onSubmitChoice,
   onSubmitMovementBatch,
   onSubmitBasketBatch,
@@ -1294,8 +1303,12 @@ export const GameShell: React.FC<GameShellProps> = ({
 
   return (
     <BoardPrepSlotContext.Provider value={prepSlotValue}>
+    <AgendaPillProvider value={agendaPill ?? null}>
     <div data-testid="game-container" className="app-shell">
-      <div className="app-shell__header">{header}</div>
+      <div className="app-shell__header">
+        {header}
+        {agenda && <AgendaStrip strip={agenda} />}
+      </div>
       <div className="app-shell__content">
         <main className="app-shell__board">
           {board}
@@ -1457,6 +1470,7 @@ export const GameShell: React.FC<GameShellProps> = ({
         </ProductionPaymentProvider>
       </div>
     </div>
+    </AgendaPillProvider>
     </BoardPrepSlotContext.Provider>
   );
 };

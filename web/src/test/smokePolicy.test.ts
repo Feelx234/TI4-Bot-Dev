@@ -485,6 +485,7 @@ describe("controls the harness never clicks as decisions", () => {
       "prep-save",
       "top-menu-button | Menu",
       "top-menu-close | Close",
+      "agenda-strip-toggle | Agenda 1/2: Minister of Peace · For/Against · Your vote",
       "prep-fold | Hide details",
       "detail-panel-fold | Fold Politics details",
       "history-error-dismiss | Dismiss",

@@ -16,6 +16,15 @@ import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
+import {
+  advanceAgendaMemory,
+  agendaInfoFromChoice,
+  agendaPillLabel,
+  deriveAgendaStrip,
+  EMPTY_AGENDA_MEMORY,
+  isAgendaDecision,
+  type AgendaMemory,
+} from "./presentation/agendaStrip.ts";
 import { SeatInfoProvider } from "./presentation/SeatInfoContext.tsx";
 import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
 import { participantText } from "./presentation/participantText.ts";
@@ -435,6 +444,30 @@ const GameViewContainer: React.FC<{
     [menuSlotElement],
   );
 
+  // The agenda being decided stays on screen for the whole agenda phase: the strip under the top bar
+  // and the minimized pill. The phase's memory carries the agenda through waiting states and
+  // decisions that do not name it, and is dropped when the phase ends.
+  const agendaMemoryRef = useRef<AgendaMemory>(EMPTY_AGENDA_MEMORY);
+  const agendaPhase = snapshot?.view.phase;
+  agendaMemoryRef.current = advanceAgendaMemory(agendaMemoryRef.current, {
+    phase: agendaPhase,
+    round: snapshot?.view.round,
+    info: agendaInfoFromChoice(realPendingChoice),
+    decision: isAgendaDecision(realPendingChoice),
+  });
+  const agendaStrip = snapshot
+    ? deriveAgendaStrip({
+        phase: agendaPhase,
+        choice: realPendingChoice,
+        memory: agendaMemoryRef.current,
+        viewerSeat: userSeat,
+        speaker: snapshot.view.speaker,
+        label: (seat) => playerDisplay(lobby, snapshot.view.seating_order, seat).label,
+        waitingForReactions: turnStatus?.kind === "waiting_for_reactions",
+      })
+    : null;
+  const agendaPill = agendaStrip ? agendaPillLabel(agendaStrip, realPendingChoice) : null;
+
   // Play sound notification when it becomes the player's turn
   const previousPendingChoiceRef = useRef<string | null>(null);
   useEffect(() => {
@@ -732,6 +765,8 @@ const GameViewContainer: React.FC<{
             : undefined
         }
         choice={pendingChoice}
+        agenda={agendaStrip}
+        agendaPill={agendaPill}
         viewerSeat={userSeat}
         players={snapshot?.view.players}
         turn={
