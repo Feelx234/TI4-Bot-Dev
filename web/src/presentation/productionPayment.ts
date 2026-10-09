@@ -53,7 +53,7 @@ export function buildCosts(choice: PendingChoiceDto, units: readonly string[]): 
     const matching = options.filter((option) => optionUnit(option) === unit);
     if (matching.length !== 1) return null;
     const payload = matching[0].payload ?? {};
-    if (payload.free_this_use === true) {
+    if (payload.free_this_use === true || payload.exchange === true) {
       costs.push(0);
       continue;
     }

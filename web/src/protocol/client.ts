@@ -89,7 +89,7 @@ export type BasketPlan =
       kind: "production";
       destination: string;
       steps: (
-        | { kind: "produce"; unit: string; count: number }
+        | { kind: "produce"; unit: string; count: number; exchange?: boolean }
         | { kind: "done_producing" }
       )[];
     }
