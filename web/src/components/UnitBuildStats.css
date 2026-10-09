@@ -93,14 +93,29 @@
   font-size: 12px;
   color: var(--color-warning);
 }
-/* One scroll for the whole dialog; the confirm bar stays in reach. */
+/* One scroll for the whole dialog; the confirm bar stays in reach. A row that is focused or scrolled
+   into view stops above the bar (scroll-padding), and the bar's upper edge fades the rows behind it, so a
+   half-hidden row reads as "more below" instead of as a cut-off one (nightly 2026-10-08, run 30). */
+.production-drawer {
+  scroll-padding-bottom: 140px;
+}
 .production-drawer .production-drawer__footer {
   position: sticky;
   bottom: -20px;
   margin-bottom: -20px;
   padding: 10px 0 20px;
   background: rgba(15, 23, 42, 0.98);
+  box-shadow: 0 -14px 14px -2px rgba(15, 23, 42, 0.95);
   z-index: 1;
+}
+/* A short screen: the header, meters and settings take less room, so more unit rows show above the bar. */
+@media (max-height: 800px) {
+  .production-drawer {
+    gap: 10px;
+  }
+  .production-drawer .production-drawer__meter {
+    padding: 8px 14px;
+  }
 }
 /* The floating Players/Events buttons sit over the bottom of a phone-width dialog. */
 @media (max-width: 720px) {
