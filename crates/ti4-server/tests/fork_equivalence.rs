@@ -201,7 +201,13 @@ fn a_fork_of_a_game_with_forced_rng_positions_continues_identically() {
 
 #[test]
 fn a_fork_of_saved_real_games_continues_identically() {
-    let games = saved_games(3);
+    // Saves that activated a hyperlane tile (offered before hyperlanes were barred) no longer
+    // replay; only those that replay completely on this engine are forked.
+    let games: Vec<_> = saved_games(12)
+        .into_iter()
+        .filter(support::strictly_replayable)
+        .take(3)
+        .collect();
     if games.is_empty() {
         eprintln!("no saved games on this machine; skipped");
         return;

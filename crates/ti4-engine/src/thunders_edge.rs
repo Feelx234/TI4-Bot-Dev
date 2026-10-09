@@ -337,7 +337,7 @@ pub fn perform(
 /// Fracture").
 fn eligible_systems(content: &ContentStore, sources: SourceSet, galaxy: &Galaxy) -> Vec<SystemId> {
     let mut systems: Vec<SystemId> = galaxy
-        .system_ids()
+        .system_ids_holding_things()
         .into_iter()
         .filter(|id| {
             ti4_content::galaxy::system(content, id, sources).is_some_and(|record| {

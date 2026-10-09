@@ -78,11 +78,15 @@ pub fn activatable_with(
     let mut seen: std::collections::BTreeSet<SystemId> = std::collections::BTreeSet::new();
     let mut found = Vec::new();
     for system in galaxy
-        .system_ids()
+        .system_ids_holding_things()
         .into_iter()
         .map(SystemId::new)
         .chain(state.board.keys().cloned())
     {
+        // A hyperlane tile is not a system: it is never offered (ruling: may not be moved into).
+        if galaxy.is_hyperlane(system.as_str()) {
+            continue;
+        }
         // Mahact's commander: "During your tactical actions: you can activate systems that contain
         // your command tokens." (The driver then returns both tokens and ends the turn.)
         if (held.contains(&system) && !mahact) || !seen.insert(system.clone()) {
@@ -922,6 +926,33 @@ mod tests {
             "an opponent's token does not - that is the attack"
         );
         assert_eq!(options.len(), 6, "seven tiles, one of them yours");
+    }
+
+    fn a_hyperlane_id() -> String {
+        ti4_content::galaxy::all_systems(ContentStore::embedded(), POK)
+            .iter()
+            .find(|(_, system)| system.is_hyperlane())
+            .map(|(id, _)| (*id).to_owned())
+            .expect("the corpus has hyperlane tiles")
+    }
+
+    #[test]
+    fn a_hyperlane_tile_is_never_offered_for_activation() {
+        // Ruling: hyperlanes may not be moved into, so they cannot be activated either.
+        let mut ids = plain_systems(6);
+        let lane = a_hyperlane_id();
+        ids.push(lane.clone());
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 1).unwrap();
+        let state = start_game(ContentStore::embedded(), &[player(), PlayerId::new("b")], POK, None)
+            .unwrap();
+
+        let options = activatable(&state, &galaxy, &player());
+
+        assert!(!options.contains(&SystemId::new(&lane)), "{options:?}");
+        assert_eq!(options.len(), 6, "the six real systems stay offered");
+        let choice = activation_options(&state, &galaxy, &player()).unwrap();
+        assert!(choice.options.iter().all(|option| option.id != lane));
     }
 
     #[test]
