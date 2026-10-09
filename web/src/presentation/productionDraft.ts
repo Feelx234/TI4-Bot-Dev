@@ -36,6 +36,60 @@ export function draftResourceCost(options: ChoiceOptionDto[], draft: Record<stri
   return Math.max(0, printedTotal - discountOnce);
 }
 
+export interface ProductionTotalLine {
+  optionId: string;
+  unit: string;
+  /** Batches of this option staged. */
+  batches: number;
+  /** Printed resources for all of those batches (0 when free or an exchange). */
+  printed: number;
+  exchange: boolean;
+}
+
+export interface ProductionTotal {
+  /** Staged builds (batches). */
+  builds: number;
+  /** Resources the staged builds cost after the one-time discount; null when an option has no usable cost. */
+  total: number | null;
+  /** Resources before the discount. */
+  printed: number;
+  /** What the one-time cost reduction (Sarween Tools and the like) takes off. */
+  discount: number;
+  lines: ProductionTotalLine[];
+}
+
+/**
+ * The bill of everything staged in the builder, for the total shown on the first dialog. The sum is
+ * `draftResourceCost` (the same figure the budget meter and the payment panel use), so exchange
+ * builds and free uses cost nothing and the one-time discount counts once.
+ */
+export function productionTotal(options: ChoiceOptionDto[], draft: Record<string, number>): ProductionTotal {
+  const lines: ProductionTotalLine[] = [];
+  let builds = 0;
+  let printed = 0;
+  for (const option of options) {
+    const batches = draft[option.id] ?? 0;
+    if (!batches) continue;
+    builds += batches;
+    const exchange = isExchangeOption(option);
+    const free = exchange || option.payload?.free_this_use === true;
+    const printedCost = option.payload?.printed_cost;
+    const cost = option.payload?.cost;
+    const each = free
+      ? 0
+      : typeof printedCost === "number" && typeof cost === "number" && printedCost >= cost
+        ? printedCost
+        : typeof cost === "number"
+          ? cost
+          : 0;
+    printed += each * batches;
+    lines.push({ optionId: option.id, unit: optionUnitType(option), batches, printed: each * batches, exchange });
+  }
+  const resourceCost = draftResourceCost(options, draft);
+  const total = Number.isFinite(resourceCost) ? resourceCost : null;
+  return { builds, total, printed, discount: total === null ? 0 : Math.max(0, printed - total), lines };
+}
+
 /** Production capacity one batch of this option uses. */
 export const optionCapacity = (option: ChoiceOptionDto): number =>
   typeof option.payload?.production_spent === "number"

@@ -142,3 +142,99 @@
   font-size: 12px;
   color: var(--color-text-muted);
 }
+
+/* The total of everything staged, in the footer so it is on screen while units are added. */
+.production-total {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font-size: 12px;
+}
+.production-total__sum {
+  font-size: 14px;
+  color: var(--color-text);
+}
+.production-total__lines {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-text-muted);
+}
+.production-total__cost {
+  margin-left: 4px;
+  font-weight: 700;
+  color: var(--color-warning);
+}
+.production-total__discount .production-total__cost {
+  color: var(--color-success);
+}
+.production-total__avail {
+  color: var(--color-text-strong);
+}
+
+/* Phone (portrait, landscape and "desktop site" through the compact-layout plugin): one scrolling
+   column of 44 px rows; the payment lists are not a second scroller inside the dialog. */
+@media (max-width: 720px), (max-height: 500px) {
+  .production-drawer__group,
+  .production-drawer__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .production-drawer .production-drawer__footer {
+    background: #0f172a;
+    gap: 6px;
+  }
+  .production-drawer .production-drawer__footer .button {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
+  .production-drawer .production-drawer__setting {
+    flex: 1 1 100%;
+    min-height: 32px;
+  }
+  /* The total above already says how the builds are paid; the long note would fill the sticky bar. */
+  .production-drawer [data-testid="production-queue-note"] {
+    display: none;
+  }
+  .production-drawer__unit .button--icon {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .payment-drawer__list,
+  .decision-modal .payment-drawer__list {
+    display: flex;
+    flex-direction: column;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .payment-drawer__planet {
+    min-height: 44px;
+  }
+  .payment-drawer__footer {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+  .payment-drawer__footer .button {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
+}
+/* Portrait: the payment buttons stack and Pay stays in reach at the bottom of the dialog. */
+@media (max-width: 720px) {
+  .production-drawer .production-drawer__footer .button {
+    flex: 1 1 100%;
+  }
+  .payment-drawer__footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--color-surface);
+  }
+  .payment-drawer__footer .button {
+    flex: 1 1 100%;
+  }
+}

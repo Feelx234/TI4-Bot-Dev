@@ -11,6 +11,7 @@ import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
 import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
 import {
   draftResourceCost,
+  productionTotal,
   isExchangeOption,
   optionUnit,
   optionCapacity,
@@ -19,6 +20,7 @@ import {
 } from "../presentation/productionDraft.ts";
 import { usePreparedHint } from "../presentation/PreparedHint.tsx";
 import { useSinglePaymentSetting } from "../hooks/useSinglePaymentSetting.ts";
+import { ProductionTotal } from "./ProductionTotal.tsx";
 import { isDryNonce } from "../presentation/dryChoice.ts";
 
 export interface ProductionBuilderDrawerProps {
@@ -201,6 +203,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
     0,
   );
   const stagedCost = draftResourceCost(productionOptions, draft);
+  const total = productionTotal(productionOptions, draft);
   const availableResources = productionOptions.find(
     (opt) => typeof opt.payload?.available_resources === "number",
   )?.payload?.available_resources;
@@ -397,6 +400,12 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     </div>
 
                     <div className="production-drawer__footer">
+                      <ProductionTotal
+                        total={total}
+                        available={resourceLimit}
+                        singlePayment={singlePayment && !preparing}
+                        partial={capacitySpent > 0}
+                      />
                       {stagedBatches > 1 && !preparing && (
                         <p className="text-muted" data-testid="production-queue-note">
                           {singlePayment
@@ -426,6 +435,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                       <button
                         type="button"
                         className="button button--primary"
+                        aria-label={queued || preparing ? undefined : "Confirm builds"}
                         disabled={!stagedBatches || queued || isSubmitting || batchRunning}
                         onClick={async () => {
                           // A build can open a payment or placement decision before
@@ -468,7 +478,9 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           ? `Building (${queuedUnits.length} remaining)…`
                           : preparing
                             ? "Save these builds"
-                            : "Confirm builds"}
+                            : total.total !== null && stagedBatches > 0
+                              ? `Build (${total.total})`
+                              : "Confirm builds"}
                       </button>
                       {declineOption && (
                         <button
