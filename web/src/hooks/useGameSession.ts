@@ -27,6 +27,8 @@ export interface UseGameSessionReturn {
   lastError: string | null;
   /** Automatic reconnecting gave up, or the game is gone: show `message` with a Retry. */
   fatal: { kind: "gone" | "unreachable"; message: string } | null;
+  /** The connection was lost and the server has not answered on a new one yet. */
+  reconnecting?: boolean;
   /** Try to reconnect now (the Retry button). */
   retryConnection: () => void;
   events: GameLogEntry[];

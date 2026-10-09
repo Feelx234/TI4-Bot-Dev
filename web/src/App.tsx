@@ -307,6 +307,7 @@ const GameViewContainer: React.FC<{
     turnStatus,
     lastError,
     fatal,
+    reconnecting: reconnectingState,
     retryConnection,
     events,
     history: gameHistory,
@@ -327,7 +328,7 @@ const GameViewContainer: React.FC<{
     dismissBatchResume,
   } = useGameSession({ gameId, viewer });
   const reconnecting = useAfterDelay(
-    (status !== "connected" || Boolean(lobbyConnectionLost)) && !fatal,
+    (status !== "connected" || Boolean(reconnectingState) || Boolean(lobbyConnectionLost)) && !fatal,
     1_200,
   );
   const { playTurnNotification } = useTurnSound();

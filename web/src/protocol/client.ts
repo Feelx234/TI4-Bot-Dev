@@ -191,6 +191,8 @@ export interface GameSessionState {
    * message (Retry / back to the start page) instead of a raw network error.
    */
   fatal?: { kind: "gone" | "unreachable"; message: string } | null;
+  /** From the loss of a connection until the server answers on the new one (a socket that opens and drops again still counts). */
+  reconnecting?: boolean;
   /** This seat's own bluff settings, once the server has sent them (never for spectators). */
   reactionIntent?: ReactionIntentStateMsg | null;
   events: GameLogEntry[];
@@ -215,6 +217,7 @@ const initialState: GameSessionState = {
   turnStatus: null,
   lastError: null,
   fatal: null,
+  reconnecting: false,
   events: [],
   history: { cursor: 0, redo_count: 0 },
 };
@@ -511,6 +514,7 @@ export class GameSessionClient {
       ...this.state,
       status: "connecting",
       fatal: null,
+      reconnecting: true,
       lastError: stale ? null : this.state.lastError,
     });
     void this.loadSnapshot();
@@ -1112,7 +1116,7 @@ export class GameSessionClient {
   private giveUp(kind: "gone" | "unreachable", message: string): void {
     this.clearTimers();
     this.detachSocket();
-    this.setState({ ...this.state, status: "disconnected", fatal: { kind, message } });
+    this.setState({ ...this.state, status: "disconnected", reconnecting: false, fatal: { kind, message } });
   }
 
   private openSocket(): void {
@@ -1162,7 +1166,10 @@ export class GameSessionClient {
     };
     socket.onmessage = (event) => {
       // The server answered: this connection works, so the next failure starts the backoff over.
-      if (this.socket === socket) this.reconnectAttempt = 0;
+      if (this.socket === socket) {
+        this.reconnectAttempt = 0;
+        if (this.state.reconnecting) this.setState({ ...this.state, reconnecting: false });
+      }
       this.ingestWebSocket(event.data);
     };
     socket.onerror = () => {
@@ -1178,7 +1185,7 @@ export class GameSessionClient {
         this.settlePreviews(new Error("Disconnected"));
         // The last known game stays on screen (and with it every local draft) while reconnecting;
         // the reconnect brings a fresh snapshot, and nothing can be sent without an open socket.
-        this.setState({ ...this.state, status: "disconnected", reactionIntent: null });
+        this.setState({ ...this.state, status: "disconnected", reconnecting: true, reactionIntent: null });
         this.scheduleReconnect(event?.code ?? null);
       }
     };
@@ -1192,8 +1199,8 @@ export class GameSessionClient {
       this.giveUp("unreachable", UNREACHABLE_MESSAGE);
       return;
     }
-    if (this.state.status === "connected" || this.state.status === "connecting")
-      this.setState({ ...this.state, status: "disconnected" });
+    if (this.state.status === "connected" || this.state.status === "connecting" || !this.state.reconnecting)
+      this.setState({ ...this.state, status: "disconnected", reconnecting: true });
     this.retry = setTimeout(
       () => {
         if (this.stopped) return;

@@ -4804,7 +4804,7 @@ select:focus-visible,
 /* Persistent background-poll failure: a small, non-blocking chip at the top corner, never over the bottom controls. */
 .connection-indicator {
   position: fixed;
-  z-index: var(--layer-dialog);
+  z-index: calc(var(--layer-dialog) + 10); /* above decision dialogs */
   top: 8px;
   right: 8px;
   max-width: calc(100vw - 16px);
@@ -4817,11 +4817,18 @@ select:focus-visible,
   pointer-events: none;
 }
 
+@media (max-width: 700px) {
+  /* Below the slim top bar, so the menu button stays visible. */
+  .connection-indicator {
+    top: 46px;
+  }
+}
+
 /* Reconnecting gave up (or the game is gone): a card over the dimmed page with Retry and a way out. */
 .connection-problem {
   position: fixed;
   inset: 0;
-  z-index: var(--layer-dialog);
+  z-index: calc(var(--layer-dialog) + 10); /* above decision dialogs */
   display: flex;
   align-items: center;
   justify-content: center;
