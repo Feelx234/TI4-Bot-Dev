@@ -20,6 +20,10 @@ start() { # start <probability> <run-dir>
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+# The suffix knobs below are checked on their own; everywhere else they stay off so the checks see
+# plain preset names.
+export NIGHTLY_PRESET_FACTIONS_PERCENT=0 NIGHTLY_PRESET_SHORT_PERCENT=0 NIGHTLY_EXPLORE_MAP_PERCENT=0
+
 start 100 "$tmp/always"
 grep -q '"preset": "combat"' "$tmp/always/meta.json" || fail "100% should pick the combat preset"
 grep -q 'TI4_SMOKE=1 TI4_SMOKE_PRESET=combat ' "$tmp/always/meta.json" || fail "repro should carry the preset"
@@ -64,6 +68,67 @@ for i in $(seq 1 10); do
   grep -q '"preset": "leaders"' "$tmp/lead$i/meta.json" || fail "leaders must not get +rot"
 done
 echo "ok: preset list and rotation (+rot $rot/80)"
+
+# Roster factions (+fac), short games (+short) and the explore map: each suffix goes on about as
+# often as asked, only where it belongs, and never collides with +rot or the `world` preset.
+fac=0 short=0 rotfac=0
+for i in $(seq 1 80); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="cards" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PRESET_FACTIONS_PERCENT=50 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/fac$i" > /dev/null
+  name=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'])" "$tmp/fac$i/meta.json")
+  case "$name" in cards+fac) fac=$((fac + 1)) ;; cards) ;; *) fail "unexpected preset $name" ;; esac
+  grep -q "TI4_SMOKE_PRESET=$name " "$tmp/fac$i/meta.json" || fail "repro should carry $name"
+done
+[ "$fac" -ge 20 ] && [ "$fac" -le 60 ] || fail "50% roster factions was added $fac/80 times"
+for i in $(seq 1 20); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="cards" NIGHTLY_PRESET_ROTATE_PERCENT=100 \
+    NIGHTLY_PRESET_FACTIONS_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/rotfac$i" > /dev/null
+  grep -q '"preset": "cards+rot"' "$tmp/rotfac$i/meta.json" || fail "+rot must not also get +fac"
+done
+for i in $(seq 1 10); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="world" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PRESET_FACTIONS_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/world$i" > /dev/null
+  grep -q '"preset": "world"' "$tmp/world$i/meta.json" || fail "world already seats roster factions and gets no suffix"
+done
+for i in $(seq 1 60); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="techs relics" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PRESET_SHORT_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/short$i" > /dev/null
+  name=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'])" "$tmp/short$i/meta.json")
+  case "$name" in techs+short) short=$((short + 1)) ;; relics) ;; *) fail "short should only go on techs, got $name" ;; esac
+done
+[ "$short" -ge 15 ] || fail "100% short went on techs only $short/60 times"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/short1/meta.json" || fail "meta.json must stay valid JSON"
+NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="agenda" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+  NIGHTLY_PRESET_FACTIONS_PERCENT=100 NIGHTLY_PRESET_SHORT_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/both" > /dev/null
+grep -q '"preset": "agenda+fac+short"' "$tmp/both/meta.json" || fail "both suffixes should stack as agenda+fac+short"
+# explore plays the frontier map at three seats only.
+maps=0
+for i in $(seq 1 60); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="explore" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PLAYER_COUNTS="3 4" NIGHTLY_EXPLORE_MAP_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/map$i" > /dev/null
+  players=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['players'])" "$tmp/map$i/meta.json")
+  if [ "$players" = 3 ]; then
+    grep -q '"map_template": "3pInPersonHyperlanes"' "$tmp/map$i/meta.json" || fail "explore at 3 seats should play the frontier map"
+    grep -q 'TI4_SMOKE_MAP_TEMPLATE=3pInPersonHyperlanes ' "$tmp/map$i/meta.json" || fail "repro should carry the map template"
+    maps=$((maps + 1))
+  else
+    grep -q '"map_template": ""' "$tmp/map$i/meta.json" || fail "explore at $players seats keeps the default map"
+  fi
+done
+[ "$maps" -ge 10 ] || fail "explore at three seats got the frontier map only $maps times"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/map1/meta.json" || fail "meta.json must stay valid JSON"
+echo "ok: suffix knobs (+fac $fac/80, +short $short/60, frontier map $maps/60)"
+
+# The default preset list reaches the new presets.
+declare -A seen_default
+for i in $(seq 1 300); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET_ROTATE_PERCENT=0 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/def$i" > /dev/null
+  seen_default[$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'].split('+')[0])" "$tmp/def$i/meta.json")]=1
+done
+for want in combat cards agenda relics invasion techs leaders explore notes world; do
+  [ -n "${seen_default[$want]:-}" ] || fail "the default list never picked $want"
+done
+echo "ok: default preset list reaches every preset"
 
 # The strategy card set: Thunder's Edge by default (nothing in the repro), pok on part of the runs.
 NIGHTLY_REPO="$tmp" NIGHTLY_POK_PROBABILITY=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/pok" > /dev/null

@@ -44,11 +44,27 @@ PRESET_PROBABILITY="${NIGHTLY_PRESET_PROBABILITY:-70}"
 # One name, or a space-separated list to pick from per run (a name twice counts twice). `combat`
 # is listed twice: it is the one that reaches the custodians and the agenda phase early. `endgame`
 # is left out of the default mix because it ends the game within a round; run it on purpose
-# (NIGHTLY_PRESET=endgame). The other presets: cards, agenda, relics, invasion, techs, leaders.
-PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs leaders}"
+# (NIGHTLY_PRESET=endgame). The other presets: cards, agenda, relics, invasion, techs, leaders,
+# explore (planet and frontier exploration, fragments), notes (promissory notes in foreign hands)
+# and world (Prophecy of Kings factions beyond the original six, seated by seed, with their faction
+# techs, leaders, flagship and notes). `world` is listed twice: every roster faction should sit at
+# a table at least once a night or two.
+PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs leaders explore notes world world}"
 # Share of preset runs (percent) that also rotate the factions ("<preset>+rot": Jol-Nar and L1Z1X
 # at three and four seats); `leaders` always rotates.
 PRESET_ROTATE_PERCENT="${NIGHTLY_PRESET_ROTATE_PERCENT:-20}"
+# Share of preset runs (percent, those not rotated, `world` always) that seat factions from the
+# engine's roster by seed instead of the original six ("<preset>+fac"; see preset.rs ROSTER).
+PRESET_FACTIONS_PERCENT="${NIGHTLY_PRESET_FACTIONS_PERCENT:-25}"
+# Presets that start near their end ("<preset>+short": a few victory points each, three public
+# objectives left), so a thin preset's game finishes in a few rounds, and how often they do.
+SHORT_PRESETS="${NIGHTLY_SHORT_PRESETS:-techs agenda leaders notes}"
+PRESET_SHORT_PERCENT="${NIGHTLY_PRESET_SHORT_PERCENT:-70}"
+# `explore` at three seats plays this map in part of the runs (percent): it is the only map of
+# the default size with planetless systems that are not hyperlanes, so the only one with a frontier
+# token a ship can reach (every default 3-, 4- and 5-player map puts them on hyperlane tiles).
+EXPLORE_MAP_TEMPLATE="${NIGHTLY_EXPLORE_MAP_TEMPLATE:-3pInPersonHyperlanes}"
+EXPLORE_MAP_PERCENT="${NIGHTLY_EXPLORE_MAP_PERCENT:-60}"
 # Share of runs (percent) that play the Prophecy of Kings strategy cards (`strategy_card_set` "pok")
 # instead of the default Thunder's Edge set (TE Warfare offers an extra redistribute decision).
 POK_PROBABILITY="${NIGHTLY_POK_PROBABILITY:-25}"

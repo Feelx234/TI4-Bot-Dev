@@ -36,8 +36,20 @@ export function cardSetFromEnv(value: string | undefined): string | undefined {
   return name;
 }
 
+/** Reads TI4_SMOKE_MAP_TEMPLATE: unset or empty means the server's default map for the table size. */
+export function mapTemplateFromEnv(value: string | undefined): string | undefined {
+  const name = value?.trim();
+  return name || undefined;
+}
+
 /** The POST /api/games body; `start_preset` is only sent when a preset was asked for. */
-export function createGameBody(playerCount: number, seed: number, preset?: string, cardSet?: string) {
+export function createGameBody(
+  playerCount: number,
+  seed: number,
+  preset?: string,
+  cardSet?: string,
+  mapTemplate?: string,
+) {
   return {
     player_count: playerCount,
     seed,
@@ -45,6 +57,8 @@ export function createGameBody(playerCount: number, seed: number, preset?: strin
     ...(preset ? { start_preset: preset } : {}),
     // Left out for the server default (te); the nightly sets pok on part of the runs.
     ...(cardSet ? { strategy_card_set: cardSet } : {}),
+    // A named map (e.g. "3pInPersonHyperlanes", the only default-size map with frontier systems).
+    ...(mapTemplate ? { map_template: mapTemplate } : {}),
   };
 }
 
