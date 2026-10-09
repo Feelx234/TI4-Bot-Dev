@@ -1,5 +1,5 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
-export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame"] as const;
+export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture"] as const;
 
 /** Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error. */
 export function presetFromEnv(value: string | undefined): string | undefined {
@@ -67,6 +67,15 @@ export const PRESET_EXPECT: Record<string, string> = {
   // The game ended: `game_over` is a pseudo-subtype the harness adds when it sees that status.
   endgame: "game_over",
   leaders: "leader_hacanagent_branch|leader_xxchaagent_ready_planet|leader_l1z1xagent_copy_planet|leader_jolnarhero_swap|leader_l1z1xhero_destination|leader_hacanhero_free_production|leader_xxchahero_te_place|legendary_arms_vault|legendary_end_of_turn|legendary_place>=3",
+  // Garrisoned PDS colonies: the Assault Cannon loss, a combat window of the dealt cards (barrage,
+  // space cannon hits, hits to assign, Courageous) and a hit assignment. Barrage and cannon rolls
+  // are dice, so only their windows are asserted, and only one of them.
+  siege:
+    "assault_cannon_destroy,reaction_when_ANTI_FIGHTER_BARRAGE_STARTED|reaction_when_SPACE_CANNON_HITS|reaction_when_HITS_TO_ASSIGN|courageous_to_the_end_assign_casualty,assign_casualty|sustain_damage",
+  // Bombardment on a planet shared by two defenders asks whose units take the hits.
+  bombard: "bombardment_target,commit_ground_forces,fight_ground_combat_round",
+  // The Cabal captures from reinforcements (Vortex, the agent's Stillness of Stars).
+  capture: "vortex_target|stillness_target",
   // The invasion setup with every seat owning the prompt-bearing technologies.
   techs:
     "quantum_datahub_swap|spatial_conduit_link|nullification_field_end_turn|chaos_mapping_choose_system|bio_stims_ready|psychoarchaeology_exhaust_specialty|transit_diodes_redeploy|supercharge|scanlink_explore>=5",

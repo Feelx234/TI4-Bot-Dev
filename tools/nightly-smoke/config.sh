@@ -44,8 +44,8 @@ PRESET_PROBABILITY="${NIGHTLY_PRESET_PROBABILITY:-70}"
 # One name, or a space-separated list to pick from per run (a name twice counts twice). `combat`
 # is listed twice: it is the one that reaches the custodians and the agenda phase early. `endgame`
 # is left out of the default mix because it ends the game within a round; run it on purpose
-# (NIGHTLY_PRESET=endgame). The other presets: cards, agenda, relics, invasion, techs, leaders.
-PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs leaders}"
+# (NIGHTLY_PRESET=endgame). The other presets: cards, agenda, relics, invasion, techs, leaders, siege, bombard, capture.
+PRESET_NAME="${NIGHTLY_PRESET:-combat combat cards agenda relics invasion techs leaders siege bombard capture}"
 # Share of preset runs (percent) that also rotate the factions ("<preset>+rot": Jol-Nar and L1Z1X
 # at three and four seats); `leaders` always rotates.
 PRESET_ROTATE_PERCENT="${NIGHTLY_PRESET_ROTATE_PERCENT:-20}"
