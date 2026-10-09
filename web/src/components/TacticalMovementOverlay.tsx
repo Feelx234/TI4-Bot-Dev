@@ -9,6 +9,7 @@ import { UnitIcon, getUnitDisplayName, getUnitBaseType } from "./UnitIcon.tsx";
 import type { MovementStep } from "../protocol/client.ts";
 import {
   enRoutePickupSystems,
+  originCargoBlockedByToken,
   ridesFree,
 } from "../presentation/enRoutePickup.ts";
 
@@ -247,6 +248,7 @@ export const TacticalMovementOverlay: React.FC<
     const cargoMap = new Map<string, OriginCargoGroup>();
 
     for (const origin of originsWithMovable) {
+      if (originCargoBlockedByToken(board, origin, choice.actor, destinationSystemId)) continue;
       const units = board.systems[origin]?.units ?? [];
       for (const u of units) {
         if (u.owner !== choice.actor) continue;
@@ -786,7 +788,9 @@ export const TacticalMovementOverlay: React.FC<
         if (remainingCandidatesByOrigin[ship.origin] === undefined) {
           let count = 0;
           let freeCount = 0;
-          const units = board?.systems?.[ship.origin]?.units ?? [];
+          const units = originCargoBlockedByToken(board, ship.origin, choice?.actor ?? "", destinationSystemId)
+            ? []
+            : (board?.systems?.[ship.origin]?.units ?? []);
           for (const u of units) {
             if (u.owner !== choice?.actor) continue;
             const base = getUnitBaseType(u.unit_type);
