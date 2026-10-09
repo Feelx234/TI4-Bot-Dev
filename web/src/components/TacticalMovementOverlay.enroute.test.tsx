@@ -132,6 +132,33 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
     ).toBeNull();
   });
 
+  it("offers no cargo from an origin that holds the player's own command token (Dominus Orb, 95.5)", () => {
+    const b = board(sys("30", []));
+    b.systems["24"] = sys(
+      "24",
+      [
+        { owner: "p1", unit_type: "carrier", damaged: false },
+        { owner: "p1", unit_type: "fighter", damaged: false },
+        { owner: "p1", unit_type: "infantry", planet: "home", damaged: false },
+      ],
+      ["p1"],
+    );
+    renderOverlay(b);
+    expect(screen.getByTestId("rally-inc-24-carrier")).toBeInTheDocument();
+    expect(screen.queryByTestId("rally-row-cargo-24-fighter-space")).toBeNull();
+    expect(screen.queryByTestId("rally-row-cargo-24-infantry-home")).toBeNull();
+  });
+
+  it("still offers origin cargo without a token (control for the Dominus Orb case)", () => {
+    const b = board(sys("30", []));
+    b.systems["24"] = sys("24", [
+      { owner: "p1", unit_type: "carrier", damaged: false },
+      { owner: "p1", unit_type: "fighter", damaged: false },
+    ]);
+    renderOverlay(b);
+    expect(screen.getByTestId("rally-row-cargo-24-fighter-space")).toBeInTheDocument();
+  });
+
   it("offers nothing when the passed system has no own units", () => {
     renderOverlay(board(sys("30", [{ ...infantryOnPlanet, owner: "p2" }])));
     expect(

@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import { AUTO_PLAY_DELAY_MS, AUTO_PLAY_HOLD_LIMIT_MS } from "../src/hooks/useSecondaryAutoPlay.ts";
 
 /**
  * Secondary pre-planning exercise. When a seat waits while another seat resolves a strategy card
@@ -347,7 +348,8 @@ export class SecondaryPrepExercise {
       this.plans.delete(seat); // the plan's follow-up steps are over; this is the seat's own turn
       return "normal";
     }
-    const limit = first ? 20_000 : 6_000;
+    // A follow-up step of an Auto plan is sent after the toast delay and its hold can last up to the hold limit.
+    const limit = first ? 20_000 : AUTO_PLAY_DELAY_MS + AUTO_PLAY_HOLD_LIMIT_MS + 1_500;
     const start = Date.now();
     let sawAutoToast = false;
     let dialogBeforeAnswer = false;

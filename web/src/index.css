@@ -4800,3 +4800,19 @@ select:focus-visible,
     min-height: 44px;
   }
 }
+
+/* Persistent background-poll failure: a small, non-blocking chip at the top corner, never over the bottom controls. */
+.connection-indicator {
+  position: fixed;
+  z-index: var(--layer-dialog);
+  top: 8px;
+  right: 8px;
+  max-width: calc(100vw - 16px);
+  padding: 4px 10px;
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: #450a0a;
+  color: #fecaca;
+  font-size: 0.8125rem;
+  pointer-events: none;
+}

@@ -695,6 +695,7 @@ export class GameSessionClient {
         plan: serialized,
         requestId: crypto.randomUUID(),
       };
+    const sentAtVersion = this.state.gameVersion;
     const response = await fetch(
       this.snapshotUrl().replace(/\/snapshot$/, "/batches"),
       {
@@ -730,6 +731,15 @@ export class GameSessionClient {
       } catch {
         failure = { message: body || `HTTP ${response.status}` };
       }
+      // A refusal as stale that a newer ACCEPTED version has already overtaken (the answer that
+      // beat this one is applied: a prepared Auto answer racing a click) has nothing left to
+      // report: the decision this request targeted is gone. No error; the live state is current.
+      if (
+        response.status === 409 &&
+        /stale decision boundary/.test(body) &&
+        this.state.gameVersion > sentAtVersion
+      )
+        return;
       // The server explains the rejection in `message`; older servers only send the reason.
       throw new Error(
         failure.message

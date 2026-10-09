@@ -111,3 +111,20 @@ export function enRoutePickupSystems(
 export function ridesFree(unitType: string): boolean {
   return unitType === "argent_mech";
 }
+
+/**
+ * 95.5 (engine: crates/ti4-engine/src/transit.rs `loadable_by`): fighters and ground forces cannot
+ * be picked up from a system that holds one of the actor's own command tokens, unless it is the
+ * active system. Ordinarily unreachable (58.4c keeps a ship from leaving such a system), but the
+ * Dominus Orb suspends that, and the garrison must still stay behind. The Nomad hero's
+ * `ignores_command_tokens` exemption is not visible to the client.
+ */
+export function originCargoBlockedByToken(
+  board: BoardView | undefined,
+  system: string,
+  actor: string,
+  activeSystem: string | null | undefined,
+): boolean {
+  if (system === activeSystem) return false;
+  return (board?.systems?.[system]?.command_tokens ?? []).includes(actor);
+}
