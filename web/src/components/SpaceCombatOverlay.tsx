@@ -218,9 +218,18 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     choice?.context?.subtype.startsWith("play_reaction_"),
   );
   // Sustains and casualties are staged in one panel and sent together as a plan.
+  // Only the hit-pool decisions go through the staged panel (its `casualties` plan is accepted for
+  // exactly these subtypes). One-off losses (Assault Cannon, Courageous to the End, ...) are a single
+  // destroy choice and are answered with the plain casualty buttons.
+  const isHitPoolSubtype =
+    subtype === "" ||
+    subtype === "sustain_damage" ||
+    subtype === "assign_casualty" ||
+    subtype === "assign_ground_casualty";
   const stagedStage =
     Boolean(onSubmitBatch) &&
     (isSustainStage || isCasualtyStage) &&
+    isHitPoolSubtype &&
     !isReactionStage;
   const phase =
     board?.combat?.phase ??

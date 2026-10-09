@@ -1010,4 +1010,38 @@ describe("SpaceCombatOverlay", () => {
       ).toBe(true);
     });
   });
+  describe("one-off destroy decisions", () => {
+    it.each(["assault_cannon_destroy", "courageous_to_the_end_assign_casualty"])(
+      "%s is answered by a single click, not the staged hit panel",
+      (subtype) => {
+        const choice: PendingChoiceDto = {
+          nonce: "n-oneoff",
+          actor: "seat_1",
+          prompt: "choose a casualty",
+          context: { subtype, target: { System: "18" } },
+          options: [
+            { id: "destroy|0", label: "destroy dreadnought", kind: "casualty", payload: { unit: "dreadnought", damaged: false } },
+            { id: "destroy|1", label: "destroy cruiser", kind: "casualty", payload: { unit: "cruiser", damaged: false } },
+          ],
+        } as PendingChoiceDto;
+        const onSubmit = vi.fn();
+        render(
+          <SpaceCombatOverlay
+            isOpen={true}
+            choice={choice}
+            model={deriveChoiceRendererModel(choice, "seat_1")}
+            viewerSeat="seat_1"
+            board={sampleBoard}
+            players={samplePlayers}
+            onSubmit={onSubmit}
+            onClose={vi.fn()}
+            onSubmitBatch={vi.fn().mockResolvedValue(undefined)}
+          />,
+        );
+        expect(screen.queryByTestId("hit-assignment-panel")).not.toBeInTheDocument();
+        fireEvent.click(screen.getByTestId("casualty-opt-destroy|1"));
+        expect(onSubmit).toHaveBeenCalled();
+      },
+    );
+  });
 });
