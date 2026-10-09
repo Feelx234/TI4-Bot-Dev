@@ -94,6 +94,19 @@ export function getInvasionEffectInfo(
     };
   }
 
+  // Bombardment: several players have ground forces on the planet, so the bombarding player picks
+  // whose forces take the next hits.
+  if (choice.context?.subtype === "bombardment_target") {
+    return {
+      typeClass: "combat",
+      icon: "☄️",
+      categoryLabel: "Bombardment · choose a target",
+      title: choice.prompt,
+      description:
+        "Bombardment hits can only be assigned to ground forces on the planet (never ships or structures). Pick which player's ground forces take them; each hit destroys one ground force, and a Mech may sustain damage to cancel one.",
+    };
+  }
+
   // 4. Fallback general invasion choice
   return {
     typeClass: "general",
