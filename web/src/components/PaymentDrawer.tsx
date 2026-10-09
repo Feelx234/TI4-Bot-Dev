@@ -8,6 +8,7 @@ import { useProductionPaymentPanel } from "../presentation/ProductionPaymentCont
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
 import { PlanetValue, ValueUnit, valueKind } from "./PlanetValueIcons.tsx";
+import { productionTotalText } from "../presentation/productionTotalText.ts";
 import {
   buildPaymentSteps,
   derivePaymentOffer,
@@ -237,6 +238,11 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                   data-testid="payment-tally-card"
                   className="workflow-card payment-drawer__tally"
                 >
+                  {production.panel && (
+                    <strong className="production-total__sum" data-testid="payment-total-line">
+                      {productionTotalText(production.panel.total, production.panel.builds)}
+                    </strong>
+                  )}
                   <div className="workflow-card--row">
                     <span className="text-muted">Total Owed:</span>
                     <PlanetValue kind={kind} value={owed} state="ready" />
