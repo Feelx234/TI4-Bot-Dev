@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeJoinResponse, decodeLobby } from "../protocol/decode.ts";
 import { LobbyDto, MapChoice } from "../protocol/types.ts";
 import { rememberNickname, validNickname } from "../protocol/nickname.ts";
+import { describeError, onResume } from "../protocol/resilience.ts";
 
 export interface LobbySessionState {
   lobby: LobbyDto | null;
@@ -10,6 +11,10 @@ export interface LobbySessionState {
   error: string | null;
   /** True after LOBBY_POLL_FAILURE_LIMIT consecutive failed background polls; clears on the next success. */
   connectionLost: boolean;
+  /** The server answered 404: the game does not exist (any more). */
+  gone: boolean;
+  /** Poll again right now (the Retry button; also what a resume does). */
+  retry: () => void;
   dismissError: () => void;
   loading: boolean;
   invalidCredential: boolean;
@@ -29,6 +34,8 @@ export interface LobbySessionState {
 
 /** A single dropped background poll is noise; the indicator shows after this many in a row. */
 export const LOBBY_POLL_FAILURE_LIMIT = 3;
+/** A poll that has not answered after this long is dead (silent tunnel); the next tick starts afresh. */
+export const LOBBY_POLL_TIMEOUT_MS = 10_000;
 
 export function useLobbySession(gameId: string, playerSession?: string): LobbySessionState {
   const [lobby, setLobby] = useState<LobbyDto | null>(null);
@@ -36,6 +43,8 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
   const [error, setError] = useState<string | null>(null);
   const [pollFailures, setPollFailures] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [gone, setGone] = useState(false);
+  const pollNow = useRef<() => void>(() => undefined);
   const [invalidCredential, setInvalidCredential] = useState(false);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const pending = useRef(false);
@@ -49,11 +58,17 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     let active = true;
     // A slow server must not stack one more poll every tick (the browser runs out of sockets).
     let polling = false;
+    let abortPoll: (() => void) | null = null;
+    let generation = 0;
     setInvalidCredential(false);
     const load = async () => {
       if (pending.current || polling) return;
       polling = true;
+      const mine = ++generation;
       const observed = revision.current;
+      const controller = new AbortController();
+      const deadline = window.setTimeout(() => controller.abort(), LOBBY_POLL_TIMEOUT_MS);
+      abortPoll = () => controller.abort();
       try {
         // The public lobby intentionally has no viewer field. Reconnect explicitly to
         // obtain the authenticated identity; spectators only make a read-only GET.
@@ -64,9 +79,11 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
                 method: "POST",
                 headers: { "Content-Type": "application/json", ...headers },
                 body: JSON.stringify({ kind: "new" }),
+                signal: controller.signal,
               }
-            : {},
+            : { signal: controller.signal },
         );
+        if (response.status === 404 && active && mine === generation && !pending.current) setGone(true);
         if (!response.ok) {
           if (
             response.status === 403 &&
@@ -80,27 +97,45 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
         }
         const joined = playerSession ? decodeJoinResponse(await response.json(), gameId) : null;
         const next = joined?.lobby ?? decodeLobby(await response.json(), gameId);
-        if (active && observed === revision.current && !pending.current) {
+        if (active && mine === generation && observed === revision.current && !pending.current) {
           setLobby(next);
           setPlayerId(joined?.player.id ?? null);
           setLoading(false);
           setPollFailures(0);
+          setGone(false);
         }
       } catch {
         // A background poll failure is not an action error: count it, show it only when it persists.
-        if (active && observed === revision.current && !pending.current) {
-          setPollFailures((count) => count + 1);
-          setLoading(false);
+        if (active && mine === generation && observed === revision.current && !pending.current) {
+          setPollFailures((count) => {
+            // Until the first answer, "loading" lasts through the first few tries (the first
+            // fetches after a long sleep often fail while the tunnel comes back).
+            if (count + 1 >= LOBBY_POLL_FAILURE_LIMIT) setLoading(false);
+            return count + 1;
+          });
         }
       } finally {
-        polling = false;
+        window.clearTimeout(deadline);
+        if (mine === generation) {
+          abortPoll = null;
+          polling = false;
+        }
       }
+    };
+    // Back from a long sleep: the poll in flight (if any) rides a dead connection; replace it.
+    pollNow.current = () => {
+      abortPoll?.();
+      polling = false;
+      void load();
     };
     void load();
     const timer = window.setInterval(() => void load(), 2_000);
+    const stopResume = onResume(() => pollNow.current());
     return () => {
       active = false;
       window.clearInterval(timer);
+      stopResume();
+      abortPoll?.();
     };
   }, [gameId, playerSession]);
 
@@ -114,7 +149,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
       try {
         return await operation();
       } catch (cause) {
-        setError(String(cause));
+        setError(describeError(cause));
         return fallback;
       } finally {
         pending.current = false;
@@ -283,6 +318,12 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     playerId,
     error,
     connectionLost: pollFailures >= LOBBY_POLL_FAILURE_LIMIT,
+    gone,
+    retry: () => {
+      setLoading(true);
+      setPollFailures(0);
+      pollNow.current();
+    },
     dismissError: () => setError(null),
     loading,
     invalidCredential,

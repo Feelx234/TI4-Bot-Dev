@@ -4815,15 +4815,15 @@ select:focus-visible,
 /* Persistent background-poll failure: a small, non-blocking chip at the top corner, never over the bottom controls. */
 .connection-indicator {
   position: fixed;
-  z-index: var(--layer-dialog);
+  z-index: calc(var(--layer-dialog) + 10); /* above decision dialogs */
   top: 8px;
   right: 8px;
   max-width: calc(100vw - 16px);
   padding: 4px 10px;
-  border: 1px solid var(--color-danger);
+  border: 1px solid var(--color-warning);
   border-radius: var(--radius-sm);
-  background: #450a0a;
-  color: #fecaca;
+  background: #2a1d05;
+  color: #fde68a;
   font-size: 0.8125rem;
   pointer-events: none;
 }
@@ -4901,4 +4901,50 @@ select:focus-visible,
   border-color: var(--color-accent-strong);
   background: rgba(56, 189, 248, 0.12);
   color: #bae6fd;
+}
+
+@media (max-width: 700px) {
+  /* Below the slim top bar, so the menu button stays visible. */
+  .connection-indicator {
+    top: 46px;
+  }
+}
+
+/* Reconnecting gave up (or the game is gone): a card over the dimmed page with Retry and a way out. */
+.connection-problem {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--layer-dialog) + 10); /* above decision dialogs */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(9, 13, 22, 0.82);
+}
+.connection-problem__card {
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-panel);
+}
+.connection-problem__title {
+  margin: 0 0 8px;
+  font-size: 1.125rem;
+}
+.connection-problem__card p {
+  margin: 0 0 16px;
+  color: var(--color-text-muted);
+}
+.connection-problem__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connection-problem__actions .button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }

@@ -25,6 +25,12 @@ export interface UseGameSessionReturn {
   pendingChoice: PendingChoiceDto | null;
   turnStatus: PublicTurnStatus | null;
   lastError: string | null;
+  /** Automatic reconnecting gave up, or the game is gone: show `message` with a Retry. */
+  fatal: { kind: "gone" | "unreachable"; message: string } | null;
+  /** The connection was lost and the server has not answered on a new one yet. */
+  reconnecting?: boolean;
+  /** Try to reconnect now (the Retry button). */
+  retryConnection: () => void;
   events: GameLogEntry[];
   history: import("../protocol/types.ts").HistoryStatus;
   batchResume?: import("../protocol/client.ts").BatchResume | null;
@@ -92,6 +98,8 @@ export function useGameSession({
   return {
     ...state,
     submitChoice,
+    fatal: state.fatal ?? null,
+    retryConnection: () => client.retryNow(),
     reactionIntent: state.reactionIntent ?? null,
     setReactionIntent: (triggers) => client.setReactionIntent(triggers),
     passReactionHold: () => client.passReactionHold(),

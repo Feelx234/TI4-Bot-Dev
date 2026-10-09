@@ -1,4 +1,15 @@
 import {
+  backoffDelay,
+  describeError,
+  fetchWithRetry,
+  GONE_MESSAGE,
+  isNetworkError,
+  onResume,
+  type ResumeEvent,
+  ServerUnreachableError,
+  UNREACHABLE_MESSAGE,
+} from "./resilience.ts";
+import {
   ClientMessage,
   InitialSnapshotMsg,
   PendingChoiceDto,
@@ -159,6 +170,12 @@ export function canContinueBatch(
 }
 
 const HISTORY_RETRY_ATTEMPTS = 20;
+/** Consecutive failed (re)connects before the page stops retrying by itself and asks for a Retry. */
+export const RECONNECT_GIVE_UP_AFTER = 8;
+/** A socket that has not opened after this long is dead (a tunnel that dropped without a reset). */
+const SOCKET_CONNECT_TIMEOUT_MS = 10_000;
+/** Back after at least this long away: the socket may be a zombie, so replace it. */
+export const RESUME_FORCE_AFTER_MS = 3_000;
 /** A submit the server never acknowledges is abandoned after this long, so a click can re-send. */
 const SUBMISSION_TIMEOUT_MS = 10_000;
 
@@ -169,6 +186,13 @@ export interface GameSessionState {
   pendingChoice: PendingChoiceDto | null;
   turnStatus: PublicTurnStatus | null;
   lastError: string | null;
+  /**
+   * Set when automatic reconnecting gave up or the game is gone. The page shows an actionable
+   * message (Retry / back to the start page) instead of a raw network error.
+   */
+  fatal?: { kind: "gone" | "unreachable"; message: string } | null;
+  /** From the loss of a connection until the server answers on the new one (a socket that opens and drops again still counts). */
+  reconnecting?: boolean;
   /** This seat's own bluff settings, once the server has sent them (never for spectators). */
   reactionIntent?: ReactionIntentStateMsg | null;
   events: GameLogEntry[];
@@ -192,6 +216,8 @@ const initialState: GameSessionState = {
   pendingChoice: null,
   turnStatus: null,
   lastError: null,
+  fatal: null,
+  reconnecting: false,
   events: [],
   history: { cursor: 0, redo_count: 0 },
 };
@@ -359,6 +385,12 @@ export class GameSessionClient {
   private priorSubmissions: NonNullable<GameSessionClient["submission"]>[] = [];
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
+  private connectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive reconnect attempts that did not reach an open socket. */
+  private reconnectAttempt = 0;
+  private stopResumeWatch: (() => void) | null = null;
+  /** Bumped by every (re)load so an older, slower snapshot answer cannot overwrite a newer one. */
+  private loadSeq = 0;
   private pingSequence = 0;
   private pendingBatch: {
     nonce: string;
@@ -447,13 +479,52 @@ export class GameSessionClient {
 
   start(): void {
     this.stopped = false;
-    this.setState({ ...this.state, status: "connecting", lastError: null });
+    this.reconnectAttempt = 0;
+    this.setState({ ...this.state, status: "connecting", lastError: null, fatal: null });
+    void this.loadSnapshot();
+    this.openSocket();
+    this.stopResumeWatch?.();
+    this.stopResumeWatch = onResume((event) => this.resume(event));
+  }
+
+  /**
+   * The page is back (tab visible, bfcache restore, network online, focus) or the user pressed
+   * Retry: re-read the state and reconnect without waiting for the old socket to notice it died.
+   * A short absence with a healthy socket changes nothing.
+   */
+  resume(event: Pick<ResumeEvent, "reason"> & Partial<ResumeEvent> = { reason: "focus" }): void {
+    if (this.stopped) return;
+    const open = this.socket?.readyState === WebSocket.OPEN;
+    const away = event.awayMs ?? Infinity;
+    if (open && !this.state.fatal && away < RESUME_FORCE_AFTER_MS && event.reason !== "online") return;
+    this.reconnect();
+  }
+
+  /** User-initiated: try again after the page gave up. */
+  retryNow(): void {
+    if (!this.stopped) this.reconnect();
+  }
+
+  private reconnect(): void {
+    this.reconnectAttempt = 0;
+    this.clearTimers();
+    this.detachSocket();
+    const stale = /^(Snapshot request failed|WebSocket network error)/.test(this.state.lastError ?? "");
+    this.setState({
+      ...this.state,
+      status: "connecting",
+      fatal: null,
+      reconnecting: true,
+      lastError: stale ? null : this.state.lastError,
+    });
     void this.loadSnapshot();
     this.openSocket();
   }
 
   stop(): void {
     this.stopped = true;
+    this.stopResumeWatch?.();
+    this.stopResumeWatch = null;
     this.batchInFlight = null;
     this.clearTimers();
     this.detachSocket();
@@ -464,7 +535,7 @@ export class GameSessionClient {
   async submitChoice(optionId: string): Promise<void> {
     const { pendingChoice, gameVersion } = this.state;
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
-      const message = "Cannot submit choice: not connected to server";
+      const message = "Cannot submit choice: not connected to server (reconnecting)";
       this.setState({ ...this.state, lastError: message });
       throw new Error(message);
     }
@@ -681,6 +752,24 @@ export class GameSessionClient {
     return entry.promise;
   }
 
+  /**
+   * After a network error on a batch POST: re-read the game and report whether the decision the
+   * batch targeted is gone (applied, or overtaken by someone else). The fresh state is adopted.
+   */
+  private async batchWasApplied(nonce: string): Promise<boolean> {
+    try {
+      const response = await fetchWithRetry(
+        () => fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() }),
+        { attempts: 3, cancelled: () => this.stopped },
+      );
+      if (!response.ok) return false;
+      this.ingestHttpSnapshot(await response.json());
+      return this.state.pendingChoice?.nonce !== nonce;
+    } catch {
+      return false;
+    }
+  }
+
   private async sendBatch(
     plan: BatchPlan,
     pending: NonNullable<GameSessionClient["state"]["pendingChoice"]>,
@@ -696,22 +785,34 @@ export class GameSessionClient {
         requestId: crypto.randomUUID(),
       };
     const sentAtVersion = this.state.gameVersion;
-    const response = await fetch(
-      this.snapshotUrl().replace(/\/snapshot$/, "/batches"),
-      {
-        method: "POST",
-        headers: {
-          ...this.snapshotHeaders(),
-          "content-type": "application/json",
+    let response: Response;
+    try {
+      response = await fetch(
+        this.snapshotUrl().replace(/\/snapshot$/, "/batches"),
+        {
+          method: "POST",
+          headers: {
+            ...this.snapshotHeaders(),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            request_id: this.pendingBatch.requestId,
+            expected_version: this.state.gameVersion,
+            nonce: pending.nonce,
+            plan,
+          }),
         },
-        body: JSON.stringify({
-          request_id: this.pendingBatch.requestId,
-          expected_version: this.state.gameVersion,
-          nonce: pending.nonce,
-          plan,
-        }),
-      },
-    );
+      );
+    } catch (error) {
+      if (!isNetworkError(error)) throw error;
+      // The request may or may not have reached the server. Never re-send blindly: look at the
+      // server's state. The request id is kept, so a later confirmation of the same plan is
+      // recognised by the server as the same request.
+      if (await this.batchWasApplied(pending.nonce)) return;
+      throw new Error(
+        "The connection dropped before the server confirmed. Nothing was applied; confirm again.",
+      );
+    }
     if (!response.ok) {
       if (
         response.status !== 500 &&
@@ -800,9 +901,10 @@ export class GameSessionClient {
   async fetchReplay(): Promise<{ text: string; filename: string }> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
-    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/replay"), {
-      headers: this.snapshotHeaders(),
-    });
+    const response = await fetchWithRetry(
+      () => fetch(this.snapshotUrl().replace(/\/snapshot$/, "/replay"), { headers: this.snapshotHeaders() }),
+      { attempts: 3, cancelled: () => this.stopped },
+    );
     if (!response.ok) {
       const reason = (await response.text().catch(() => "")).trim();
       throw new Error(reason || `The server refused the replay (${response.status})`);
@@ -852,9 +954,10 @@ export class GameSessionClient {
   async fetchTurnRedoStatus(): Promise<TurnRedoStatus | null> {
     if (this.options.viewer.role !== "player" || !this.options.viewer.playerSession)
       throw new Error("A player session is required");
-    const response = await fetch(this.snapshotUrl().replace(/\/snapshot$/, "/turn-redo"), {
-      headers: this.snapshotHeaders(),
-    });
+    const response = await fetchWithRetry(
+      () => fetch(this.snapshotUrl().replace(/\/snapshot$/, "/turn-redo"), { headers: this.snapshotHeaders() }),
+      { attempts: 3, cancelled: () => this.stopped },
+    );
     if (!response.ok) {
       const reason = (await response.text().catch(() => "")).trim();
       throw new Error(reason || `The server refused the turn redo status (${response.status})`);
@@ -968,30 +1071,75 @@ export class GameSessionClient {
     this.openSocket();
   }
 
+  /**
+   * Reads the authoritative state over HTTP. A plain GET, so it is retried with backoff while the
+   * network fails or the proxy answers 502/503/504; a 404 means the game is gone.
+   */
   private async loadSnapshot(): Promise<void> {
+    const seq = ++this.loadSeq;
     try {
-      const response = await fetch(this.snapshotUrl(), {
-        headers: this.snapshotHeaders(),
-      });
+      const response = await fetchWithRetry(
+        () => fetch(this.snapshotUrl(), { headers: this.snapshotHeaders() }),
+        { attempts: 4, cancelled: () => this.stopped || seq !== this.loadSeq },
+      );
+      if (this.stopped || seq !== this.loadSeq) return;
+      if (response.status === 404) {
+        this.giveUp("gone", GONE_MESSAGE);
+        return;
+      }
       if (!response.ok)
         throw new Error(
           `Snapshot request failed (${response.status}): ${await response.text().catch(() => "")}`,
         );
-      this.ingestHttpSnapshot(await response.json());
+      const body = await response.json();
+      if (this.stopped || seq !== this.loadSeq) return;
+      this.ingestHttpSnapshot(body);
+      this.dropStaleBatch();
     } catch (error) {
-      if (!this.stopped)
-        this.setState({
-          ...this.state,
-          lastError: `Snapshot request failed: ${String(error)}`,
-        });
+      if (this.stopped || seq !== this.loadSeq) return;
+      // A network failure is the reconnect loop's business (the chip shows); only a real
+      // server answer is worth an error message.
+      if (error instanceof ServerUnreachableError || isNetworkError(error)) return;
+      this.setState({
+        ...this.state,
+        lastError: `Snapshot request failed: ${describeError(error)}`,
+      });
     }
   }
 
+  /** A batch request id only makes sense for the decision it was made for. */
+  private dropStaleBatch(): void {
+    if (this.pendingBatch && this.state.pendingChoice?.nonce !== this.pendingBatch.nonce)
+      this.pendingBatch = null;
+  }
+
+  private giveUp(kind: "gone" | "unreachable", message: string): void {
+    this.clearTimers();
+    this.detachSocket();
+    this.setState({ ...this.state, status: "disconnected", reconnecting: false, fatal: { kind, message } });
+  }
+
   private openSocket(): void {
-    const socket = new WebSocket(this.webSocketUrl());
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(this.webSocketUrl());
+    } catch {
+      this.scheduleReconnect(null);
+      return;
+    }
     this.socket = socket;
+    // A tunnel that dropped silently never answers the handshake; do not wait for the browser's
+    // own (minutes long) timeout.
+    this.connectTimer = setTimeout(() => {
+      if (this.socket === socket && socket.readyState !== WebSocket.OPEN) {
+        this.detachSocket();
+        this.scheduleReconnect(null);
+      }
+    }, SOCKET_CONNECT_TIMEOUT_MS);
     socket.onopen = () => {
       if (this.stopped || this.socket !== socket) return;
+      if (this.connectTimer) clearTimeout(this.connectTimer);
+      this.connectTimer = null;
       const playerSession =
         this.options.viewer.role === "player"
           ? this.options.viewer.playerSession
@@ -1014,17 +1162,20 @@ export class GameSessionClient {
               } satisfies ClientMessage),
             );
         }, 10_000);
-      this.setState({ ...this.state, status: "connected", lastError: null });
+      this.setState({ ...this.state, status: "connected", lastError: null, fatal: null });
     };
-    socket.onmessage = (event) => this.ingestWebSocket(event.data);
-    socket.onerror = () => {
-      if (!this.stopped && this.socket === socket) {
-        this.setState({
-          ...this.state,
-          status: "error",
-          lastError: "WebSocket network error occurred",
-        });
+    socket.onmessage = (event) => {
+      // The server answered: this connection works, so the next failure starts the backoff over.
+      if (this.socket === socket) {
+        this.reconnectAttempt = 0;
+        if (this.state.reconnecting) this.setState({ ...this.state, reconnecting: false });
       }
+      this.ingestWebSocket(event.data);
+    };
+    socket.onerror = () => {
+      // The close event follows and drives the reconnect; a network error is not an error message.
+      if (!this.stopped && this.socket === socket && this.state.status !== "connected")
+        this.setState({ ...this.state, status: "error" });
     };
     socket.onclose = (event) => {
       if (!this.stopped && this.socket === socket) {
@@ -1032,24 +1183,32 @@ export class GameSessionClient {
         this.socket = null;
         this.rejectSubmission("Submission disconnected before confirmation");
         this.settlePreviews(new Error("Disconnected"));
-        this.setState({
-          ...this.state,
-          status: "disconnected",
-          pendingChoice: null,
-          snapshot: null,
-          reactionIntent: null,
-        });
-        this.retry = setTimeout(
-          () => {
-            if (!this.stopped) {
-              void this.loadSnapshot();
-              this.openSocket();
-            }
-          },
-          event?.code === 4001 ? 0 : 2_000,
-        );
+        // The last known game stays on screen (and with it every local draft) while reconnecting;
+        // the reconnect brings a fresh snapshot, and nothing can be sent without an open socket.
+        this.setState({ ...this.state, status: "disconnected", reconnecting: true, reactionIntent: null });
+        this.scheduleReconnect(event?.code ?? null);
       }
     };
+  }
+
+  /** Reconnects with exponential backoff and jitter; asks the user after too many failures. */
+  private scheduleReconnect(code: number | null): void {
+    if (this.stopped) return;
+    if (code !== 4001) this.reconnectAttempt++;
+    if (this.reconnectAttempt > RECONNECT_GIVE_UP_AFTER) {
+      this.giveUp("unreachable", UNREACHABLE_MESSAGE);
+      return;
+    }
+    if (this.state.status === "connected" || this.state.status === "connecting" || !this.state.reconnecting)
+      this.setState({ ...this.state, status: "disconnected", reconnecting: true });
+    this.retry = setTimeout(
+      () => {
+        if (this.stopped) return;
+        void this.loadSnapshot();
+        this.openSocket();
+      },
+      code === 4001 ? 0 : backoffDelay(this.reconnectAttempt),
+    );
   }
 
   private ingestHttpSnapshot(value: unknown): void {
@@ -1220,8 +1379,10 @@ export class GameSessionClient {
   private clearTimers(): void {
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.retry) clearTimeout(this.retry);
+    if (this.connectTimer) clearTimeout(this.connectTimer);
     this.heartbeat = null;
     this.retry = null;
+    this.connectTimer = null;
   }
 
   private setState(next: GameSessionState): void {

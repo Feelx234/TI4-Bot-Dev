@@ -20,10 +20,9 @@ it("does not stack heartbeats while one is still in flight", async () => {
   const onInvalid = vi.fn();
   renderHook(() => usePresence("game", "session_secret", onInvalid));
   expect(fetchMock).toHaveBeenCalledTimes(1);
-  // A slow server: ticks and tab switches pass while the first heartbeat is unanswered.
+  // A slow server: time passes (short of the 10 s timeout that replaces a stuck request) while the first heartbeat is unanswered; a tab switch deliberately replaces it (resume).
   await act(async () => {
-    document.dispatchEvent(new Event("visibilitychange"));
-    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.advanceTimersByTimeAsync(9_000);
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
   await act(async () => {

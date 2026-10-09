@@ -25,6 +25,7 @@ Shared parts in `_shared/`:
 | `tooltip.ts` | draws native `title` tooltips, which browsers do not render into screenshots |
 | `eventLog.ts` | opens and expands the event log |
 | `build-artifact.mjs`, `artifact.tpl.html` | manifest + PNGs to a self-contained page |
+| `mockResumable.ts` | `openResumableGame()`: a mocked game whose server can go away and come back (HTTP aborts, websocket closes, status codes, counters) and `sleepAndWake()`; used with `page.clock.install()` for resume-after-idle |
 | `mapLobby.ts`, `vite.shots.config.ts` | `openMapLobby()` renders the real lobby and MapPicker against routed HTTP; the watcher-free vite config |
 | `run.mjs` | the `npm run screenshots` runner |
 
