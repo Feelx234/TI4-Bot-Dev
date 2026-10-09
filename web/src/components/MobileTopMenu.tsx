@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Drawer } from "../primitives/index.ts";
+import { setLayoutOverride, useLayoutOverride, type LayoutOverride } from "../hooks/useCompactLayout.ts";
 import { useMobileMenuSlot } from "../presentation/MobileMenuSlot.tsx";
 import "./MobileTopMenu.css";
 
@@ -17,6 +18,12 @@ export function menuAttention(input: {
   if (input.yourTurn) return "turn";
   return null;
 }
+
+const LAYOUT_CHOICES: Array<[LayoutOverride, string]> = [
+  [null, "Auto"],
+  ["compact", "Phone"],
+  ["desktop", "Desktop"],
+];
 
 const ATTENTION_LABEL: Record<Exclude<MenuAttention, null>, string> = {
   decision: "a decision is waiting for you",
@@ -45,6 +52,7 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
 }) => {
   const [open, setOpen] = useState(false);
   const slot = useMobileMenuSlot();
+  const layout = useLayoutOverride();
   const close = () => setOpen(false);
   const openThen = (action: () => void) => () => {
     close();
@@ -104,6 +112,21 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
             >
               Objectives
             </button>
+          </div>
+          <div className="top-menu__layout" role="group" aria-label="Layout" data-testid="top-menu-layout">
+            <span className="top-menu__layout-label">Layout</span>
+            {LAYOUT_CHOICES.map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                data-testid={`top-menu-layout-${value ?? "auto"}`}
+                className={`button button--secondary top-menu__layout-choice${layout === value ? " is-active" : ""}`}
+                aria-pressed={layout === value}
+                onClick={() => setLayoutOverride(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </Drawer>

@@ -1,6 +1,6 @@
 import React, { useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useCompactLayout, useMatchMedia, WIDE_LAYOUT_QUERY } from "../hooks/useCompactLayout.ts";
+import { useCompactLayout, useWideLayout } from "../hooks/useCompactLayout.ts";
 import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
 import {
   findActionCardMeta,
@@ -131,7 +131,7 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   const compact = useCompactLayout();
   // A short landscape screen keeps the desktop grid: the strip of the board would sit under the bars,
   // so the pill docks at the bottom of the side column instead.
-  const docked = useMatchMedia(WIDE_LAYOUT_QUERY);
+  const docked = useWideLayout();
   const prepSlot = useBoardPrepSlot()?.slot ?? null;
   const sheetId = useId();
   const pillRef = useRef<HTMLDivElement>(null);

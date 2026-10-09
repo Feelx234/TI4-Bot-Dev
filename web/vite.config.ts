@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+import compactLayout from "./postcss-compact-layout.mjs";
+
 export default defineConfig({
+  css: { postcss: { plugins: [compactLayout()] } },
   plugins: [react()],
   server: {
     host: "127.0.0.1",

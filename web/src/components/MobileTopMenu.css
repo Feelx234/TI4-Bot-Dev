@@ -201,3 +201,24 @@
 .board-chrome.board-chrome--compact:has(.board-chrome__prep > *) {
   padding: 4px 8px;
 }
+
+.top-menu__layout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+.top-menu__layout-label {
+  flex: 1;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.top-menu__layout-choice {
+  min-height: 44px;
+  min-width: 44px;
+}
+.top-menu__layout-choice.is-active {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.2);
+}

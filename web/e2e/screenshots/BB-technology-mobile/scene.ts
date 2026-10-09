@@ -20,6 +20,9 @@ const researchIds = ["amd", "nm", "st", "ps", "det", "pa", "sdn", "aida", "gd", 
 export async function openHeader(page: Page, size: SizeName) {
   await page.setViewportSize(SIZES[size]);
   await openMockedGame(page, { players: [playerWithHand({ technologies: ["amd", "st"] }), opponent] });
+  // On a phone the button lives in the menu sheet (top-menu-button); desktop sizes have it in the header.
+  const menu = page.getByTestId("top-menu-button");
+  if (await menu.count()) await menu.click();
   await page.getByTestId("technology-modal-button").click();
   await page.getByTestId("technology-modal").waitFor();
 }
