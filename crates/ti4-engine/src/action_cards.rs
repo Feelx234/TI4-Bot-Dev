@@ -1474,7 +1474,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
         if alive.is_empty() {
             break;
         }
-        let Ok(casualty) = crate::combat::choose_casualty(
+        let Ok(casualty) = crate::combat::choose_casualty_as(
             context.state,
             context.content,
             context.sources,
@@ -1485,6 +1485,12 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
             &played_card_source("courageous"),
             "courageous_to_the_end_assign_casualty",
             Some(&system),
+            crate::decision_context::HitDetail {
+                cause: crate::decision_context::HitCause::CourageousToTheEnd,
+                destroy: true,
+                restriction: crate::decision_context::HitRestriction::Any,
+                producer: Some(player.clone()),
+            },
         ) else {
             break; // the decider refused to choose a loss; the card stops where it is
         };
