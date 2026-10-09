@@ -545,6 +545,11 @@ export async function randomUiPlaythrough(
       });
     });
     page.on("console", (msg) => {
+      if (process.env.TI4_PREPDBG_FILE && msg.text().startsWith("PREPDBG ")) {
+        try {
+          appendFileSync(process.env.TI4_PREPDBG_FILE, `S${index + 1} ${msg.text().slice(8)}\n`);
+        } catch { /* ignore */ }
+      }
       if (msg.type() !== "error") return;
       const url = msg.location().url ?? "";
       // The optional battle advisor (/battle, /ground_odds) is not started for e2e runs.
@@ -730,6 +735,10 @@ export async function randomUiPlaythrough(
           const snap = await gameSnapshot(request, gameId, players[seat].session);
           const active = snap.view.active_player;
           return `server view.active_player=${active === players[seat].id ? "this seat" : active ? `seat ${players.findIndex((p) => p.id === active) + 1}` : "none"}`;
+        },
+        eventDetails: async (seat) => {
+          const snap = await gameSnapshot(request, gameId, players[seat].session);
+          return (snap.events ?? []).map((event) => event.detail ?? "");
         },
         label: `game seed ${options.gameSeed}, click seed ${options.clickSeed}`,
       })

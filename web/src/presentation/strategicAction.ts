@@ -105,15 +105,20 @@ export function detectStrategicAction({
     (card) => !primary.exhausted_strategy_cards.includes(card),
   );
   const prefix = `${primarySeat} played `;
-  const named = events
+  // Every "<seat> played <X>" of the action counts, not only the first: the primary can also play an
+  // action card during its own action ("played Morale Boost"), and that is not the strategy card. A
+  // name that is none of the primary's unexhausted cards is skipped, never taken for the card.
+  const playedNames = events
     .filter((event) => event.action_id === actionId && event.detail?.startsWith(prefix))
-    .map((event) => event.detail!.slice(prefix.length).trim())
-    .at(0);
-  let card: string | undefined;
+    .map((event) => event.detail!.slice(prefix.length).trim());
+  let card: string | undefined = unexhausted.find((id) => {
+    const name = findStrategyCardMeta(id)?.name;
+    return name !== undefined && playedNames.includes(name);
+  });
   let inferred = false;
-  if (named) {
-    card = unexhausted.find((id) => findStrategyCardMeta(id)?.name === named);
-  } else if (unexhausted.length === 1) {
+  // A strategy card named in the log but not unexhausted is a finished action, not a one-card holding.
+  const namedAStrategyCard = playedNames.some((name) => FAMILIES.includes(name.toLowerCase() as CardFamily));
+  if (!card && unexhausted.length === 1 && !namedAStrategyCard) {
     card = unexhausted[0];
     inferred = true;
   }
