@@ -47,9 +47,12 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
 
   useEffect(() => {
     let active = true;
+    // A slow server must not stack one more poll every tick (the browser runs out of sockets).
+    let polling = false;
     setInvalidCredential(false);
     const load = async () => {
-      if (pending.current) return;
+      if (pending.current || polling) return;
+      polling = true;
       const observed = revision.current;
       try {
         // The public lobby intentionally has no viewer field. Reconnect explicitly to
@@ -89,6 +92,8 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
           setPollFailures((count) => count + 1);
           setLoading(false);
         }
+      } finally {
+        polling = false;
       }
     };
     void load();
