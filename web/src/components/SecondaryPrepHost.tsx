@@ -78,6 +78,12 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
       // A docked banner: how far its top is from the bottom edge, so the minimized-decision pill sits above it.
       const dock = banner && fixed ? Math.ceil(window.innerHeight - banner.getBoundingClientRect().top) : 0;
       root.style.setProperty("--prep-dock", `${dock}px`);
+      // The dialog of the stand-in question keeps clear of a docked banner: below it on a portrait phone,
+      // to its left on a landscape phone (where the banner sits at the right edge).
+      const rect = banner?.getBoundingClientRect();
+      const side = !!rect && fixed && rect.left > 40;
+      root.style.setProperty("--prep-pad-bottom", `${rect && fixed && !side ? dock : 0}px`);
+      root.style.setProperty("--prep-pad-right", `${rect && side ? Math.ceil(window.innerWidth - rect.left) + 8 : 0}px`);
     };
     measure();
     const banner = document.querySelector('[data-testid="prepare-banner"]');
@@ -89,6 +95,8 @@ export const SecondaryPrepHost: React.FC<SecondaryPrepHostProps> = ({ prep, onCo
       window.removeEventListener("resize", measure);
       root.style.removeProperty("--prep-banner-bottom");
       root.style.removeProperty("--prep-dock");
+      root.style.removeProperty("--prep-pad-bottom");
+      root.style.removeProperty("--prep-pad-right");
     };
   }, [showBanner]);
   if (!showChip && !showBanner && !showBar && !pending && !played) return null;

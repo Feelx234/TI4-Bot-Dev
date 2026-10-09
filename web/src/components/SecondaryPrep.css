@@ -224,12 +224,13 @@
   z-index: calc(var(--layer-dialog, 50) + 1);
 }
 
-/* The fold control only exists on a phone. Folded, the banner keeps its title and the Save / Clear row
+/* The fold control only exists on a phone or a short window. Folded, the banner keeps its title and the Save / Clear row
    (44 px high) and drops the explanations, so a minimized stand-in question leaves the map visible. */
 .button.secondary-prep__fold {
   display: none;
 }
-@media (max-width: 720px), (max-height: 500px) {
+/* A desktop window up to 640 px high gets it too: banner and question together do not fit there. */
+@media (max-width: 720px), (max-height: 640px) {
   .button.secondary-prep__fold {
     display: inline-flex;
     align-items: center;
@@ -267,10 +268,22 @@
    floats over the board column and used to cover the top of full-screen dialogs (the production
    builder's meters, the technology modal's skip toggles). --prep-banner-bottom is measured from the
    banner by SecondaryPrepHost (0 on a phone, where the banner docks at the bottom). */
-:root:has(.secondary-prep--preparing) .choice-workflow-dialog {
+:root:has(.secondary-prep--preparing) :is(.choice-workflow-dialog, .choice-dialog) {
   box-sizing: border-box;
   padding-top: var(--prep-banner-bottom, 0px);
+  padding-bottom: var(--prep-pad-bottom, 0px);
+  padding-right: var(--prep-pad-right, 0px);
 }
-:root:has(.secondary-prep--preparing) .choice-workflow-dialog > * {
-  max-height: calc(100dvh - var(--prep-banner-bottom, 0px) - 16px) !important;
+:root:has(.secondary-prep--preparing) :is(.choice-workflow-dialog, .choice-dialog) > * {
+  max-height: calc(100dvh - var(--prep-banner-bottom, 0px) - var(--prep-pad-bottom, 0px) - 16px) !important;
+}
+/* A phone dialog is full height (index.css); with the banner docked at the bottom (or at the right
+   on a landscape phone) it shrinks to what the banner leaves, so the question's title and its
+   buttons are never behind the banner. */
+@media (max-width: 720px), (max-height: 500px) {
+  :root:has(.secondary-prep--preparing) :is(.choice-workflow-dialog, .choice-dialog) > * {
+    height: auto !important;
+    max-width: 100% !important;
+    box-sizing: border-box;
+  }
 }

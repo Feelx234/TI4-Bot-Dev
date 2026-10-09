@@ -1660,7 +1660,7 @@ html,
   position: fixed !important;
   top: 90px !important;
   right: 346px !important;
-  bottom: 250px !important;
+  bottom: max(250px, var(--bar-clear, 0px)) !important;
   z-index: calc(var(--layer-drawer) + 1) !important;
   width: min(360px, calc(100vw - 370px));
   min-height: 160px;
@@ -2052,7 +2052,7 @@ html,
   .detail-panel {
     top: 55px !important;
     right: 8px !important;
-    bottom: 85px !important;
+    bottom: max(85px, var(--bar-clear, 0px)) !important;
     width: min(340px, calc(100vw - 16px));
   }
   .board-tooltip {
