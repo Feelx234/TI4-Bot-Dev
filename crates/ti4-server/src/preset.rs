@@ -2081,8 +2081,9 @@ mod tests {
         let (plain, _) = create_game_with_template(content(), &list, 5, None).unwrap();
         let (notes, _) = create_game_with_preset(content(), &list, 5, None, Some(NOTES)).unwrap();
         assert_ne!(plain.promissory_notes, notes.promissory_notes);
-        // A plain server game is dealt after seating: every seat holds its own faction's notes.
-        assert!(plain.promissory_notes.len() >= 4 * 5);
+        // A plain server game deals every seat its own notes after seating: no "generic" ones.
+        assert!(plain.promissory_notes.len() >= 4 * 4, "{:?}", plain.promissory_notes);
+        assert!(plain.promissory_notes.keys().all(|n| !n.ends_with(":generic")));
         assert!(notes.promissory_notes.len() >= 4 * 5);
         assert_eq!(
             serde_json::to_string(&plain.board).unwrap(),

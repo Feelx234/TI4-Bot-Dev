@@ -88,19 +88,16 @@ pub fn setup(seed: u64) -> (GameState, Galaxy) {
         PlayerId::new("p2"),
         PlayerId::new("p3"),
     ];
-    let content = ContentStore::embedded();
-    let (mut state, galaxy) = ti4_server::map::create_game_with_map(content, &players, seed).unwrap();
-    // The fixture turns below are pinned to the opening hands setup dealt while every seat still
-    // held the placeholder faction (four factionless notes); game creation now deals after seating,
-    // which changes the question stream. Re-deal the old hands so the pinned numbers hold.
-    let factions: Vec<_> = state.players.iter().map(|seat| seat.faction.clone()).collect();
-    for seat in &mut state.players {
-        seat.faction = ti4_model::id::FactionId::new("generic");
-    }
-    ti4_engine::promissory::deal(&mut state, content, ti4_model::content_types::POK);
-    for (seat, faction) in state.players.iter_mut().zip(factions) {
-        seat.faction = faction;
-    }
+    let (mut state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap();
+    // These fixtures name decisions by index in games tuned against the notes a server game held
+    // before notes were dealt after seating: four factionless notes in the last seat's hand.
+    // Keep that opening so the indices still mean what they were chosen for.
+    let last = players.last().unwrap().clone();
+    state.promissory_notes = ti4_engine::promissory::GENERIC
+        .iter()
+        .map(|alias| (ti4_engine::promissory::note_id(alias, "generic"), last.clone()))
+        .collect();
     (state, galaxy)
 }
 
