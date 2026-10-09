@@ -63,7 +63,17 @@ fn setup(seed: u64) -> (GameState, Galaxy) {
         PlayerId::new("p2"),
         PlayerId::new("p3"),
     ];
-    ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap()
+    let (mut state, galaxy) =
+        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap();
+    // These fixtures name decisions by index in games tuned against the notes a server game held
+    // before notes were dealt after seating: four factionless notes in the last seat's hand.
+    // Keep that opening so the indices still mean what they were chosen for.
+    let last = players.last().unwrap().clone();
+    state.promissory_notes = ti4_engine::promissory::GENERIC
+        .iter()
+        .map(|alias| (ti4_engine::promissory::note_id(alias, "generic"), last.clone()))
+        .collect();
+    (state, galaxy)
 }
 
 fn play_with(
