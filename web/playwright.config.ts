@@ -42,7 +42,7 @@ export default defineConfig({
         PORT: backendPort,
         HOST: "127.0.0.1",
         // Never recover developer sessions while starting the bounded E2E server.
-        TI4_DATA_DIR: `/tmp/ti4-playwright-games-${backendPort}`,
+        TI4_DATA_DIR: process.env.TI4_E2E_DATA_DIR ?? `/tmp/ti4-playwright-games-${backendPort}`,
         TI4_DEV_PRESENCE_GRACE_MS: "1000",
       },
     },
