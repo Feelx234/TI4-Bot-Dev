@@ -82,6 +82,9 @@ REDO_PROBABILITY="${NIGHTLY_REDO_PROBABILITY:-5}"
 # NIGHTLY_PREP_PROBABILITY=0 switches the exercise off (it passes TI4_SMOKE_PREP=0).
 PREP_PROBABILITY="${NIGHTLY_PREP_PROBABILITY:-0.5}"
 PREP_AUTO_PROBABILITY="${NIGHTLY_PREP_AUTO_PROBABILITY:-0.9}"
+# Backend port range of the games (the frontend takes port + 1).
+PORT_MIN="${NIGHTLY_PORT_MIN:-20000}"
+PORT_MAX="${NIGHTLY_PORT_MAX:-49000}"
 # Cap on screenshots a run saves to trace/shots (TI4_SMOKE_SHOT_CAP; a number or "all" = 20).
 SHOT_CAP="${NIGHTLY_SHOT_CAP:-20}"
 # Free space (GB) needed on the report filesystem to start a run or a fixer round. Below it the loop
@@ -91,6 +94,28 @@ MIN_FREE_GB="${NIGHTLY_MIN_FREE_GB:-10}"
 DISK_WAIT_SECONDS="${NIGHTLY_DISK_WAIT_SECONDS:-120}"
 MAX_DISK_WAITS="${NIGHTLY_MAX_DISK_WAITS:-30}"
 DF_CMD="${NIGHTLY_DF_CMD:-df}"
+# Parallel games ("slots"). NIGHTLY_SLOTS=1 (default) is the classic sweep: one proctored game
+# after another in the live checkout. With N >= 2 the sweep supervises N independent workers; each
+# has its own git worktree of the night branch (nightly-reports/<night>/slot-K/repo, branch
+# nightly-fixes-<night>-sK), its own cargo target dir (nightly-reports/target-slot-K) and its own run
+# numbering (run names sK-NN-HHMM). See README.md, "Parallel slots".
+SLOTS="${NIGHTLY_SLOTS:-1}"
+# Slot K starts (K-1) * this long after the sweep starts, so the first builds do not all collide.
+SLOT_STAGGER_SECONDS="${NIGHTLY_SLOT_STAGGER_SECONDS:-60}"
+# Memory admission gate (only while another slot has a run active): a new game starts when this
+# much memory is available: MEM_BASE_MB + MEM_PER_PLAYER_MB * (the largest table in PLAYER_COUNTS).
+# Measured peaks: about 3 GB for three players, 4 GB for four. Starts are serialised and the next
+# slot is held back for SLOT_SETTLE_SECONDS after a launch, so the memory a fresh game is still
+# ramping up to is already visible when the next slot checks. MEM_AVAIL_CMD prints the available
+# memory in MB (test hook).
+MEM_BASE_MB="${NIGHTLY_MEM_BASE_MB:-1500}"
+MEM_PER_PLAYER_MB="${NIGHTLY_MEM_PER_PLAYER_MB:-1200}"
+MEM_WAIT_SECONDS="${NIGHTLY_MEM_WAIT_SECONDS:-120}"
+SLOT_SETTLE_SECONDS="${NIGHTLY_SLOT_SETTLE_SECONDS:-300}"
+SLOT_POLL_SECONDS="${NIGHTLY_SLOT_POLL_SECONDS:-5}"
+MEM_AVAIL_CMD="${NIGHTLY_MEM_AVAIL_CMD:-awk '/^MemAvailable:/ { print int(\$2 / 1024) }' /proc/meminfo}"
+# The tree the games, builds and proctors work in. The live checkout unless a slot overrides it.
+GAME_REPO="${NIGHTLY_GAME_REPO:-$REPO}"
 # A fixer round that fails to start (no disk, no worktree) is retried after this long, up to this
 # many attempts in total.
 FIX_RETRY_SECONDS="${NIGHTLY_FIX_RETRY_SECONDS:-1800}"

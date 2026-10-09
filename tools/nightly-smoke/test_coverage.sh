@@ -23,10 +23,14 @@ echo '{"subtypes": {"seen_always": 3, "seen_once": 1, "not_in_source": 2}}' > "$
 echo '{"subtypes": {"seen_always": 1}}' > "$tmp/reports/b/report.json"
 echo 'not json' > "$tmp/reports/b/other.json"
 
+# worktrees a night leaves in the reports dir (parallel slots, fixers) hold whole checkouts: not runs
+mkdir -p "$tmp/reports/slot-1/repo/e2e" "$tmp/reports/fixer-1/e2e" "$tmp/reports/target-slot-1"
+for d in slot-1/repo/e2e fixer-1/e2e target-slot-1; do echo '{"subtypes": {"from_a_worktree": 9}}' > "$tmp/reports/$d/report.json"; done
 out=$(python3 "$here/coverage.py" --repo "$tmp/repo" "$tmp/reports")
 echo "$out" | grep -q "over 2 runs" || fail "should count two reports: $out"
 echo "$out" | grep -q "3 literal engine subtypes; 1 never offered, 1 offered in fewer than 2 runs" || fail "counts: $out"
 echo "$out" | grep -A2 "## Never offered" | grep -q '`never_offered`' || fail "never_offered should be listed: $out"
 echo "$out" | grep -A2 "fewer than 2 runs$" | grep -q '`seen_once` (1)' || fail "seen_once should be rare: $out"
 echo "$out" | grep -q 'subtype_var' && fail "a variable subtype is not a literal"
+echo "$out" | grep -q "from_a_worktree" && fail "reports inside worktrees must be skipped: $out"
 echo "ok: coverage"

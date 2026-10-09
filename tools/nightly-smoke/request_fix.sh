@@ -40,8 +40,22 @@ if [ -f "$NIGHT_DIR/.fixer-1-started" ] || ! fixer_on 1; then
 fi
 # A 0-byte marker (written while the disk was full) is no request; it must not block a real one.
 [ -e "$NIGHT_DIR/$file" ] && [ ! -s "$NIGHT_DIR/$file" ] && rm -f "$NIGHT_DIR/$file"
-run=""
-[ -d "$NIGHT_DIR/runs" ] && run=$(ls -1 "$NIGHT_DIR/runs" 2>/dev/null | tail -n 1)
+# Parallel slots: the proctor's slot comes from its environment, else from its working directory
+# (.../slot-K/repo); the run is the one active on that slot. The reason then carries the slot, so
+# the fixer knows which of the games running side by side hit the problem.
+slot="${NIGHTLY_SLOT:-}"
+if [ -z "$slot" ]; then
+  case "$PWD" in
+    */slot-[0-9]*/repo|*/slot-[0-9]*/repo/*) slot=${PWD#*/slot-}; slot=${slot%%/*} ;;
+  esac
+fi
+run="${NIGHTLY_RUN_NAME:-}"
+if [ -z "$run" ] && [ -n "$slot" ] && [ -s "$NIGHT_DIR/.active-s$slot" ]; then run=$(sed -n 2p "$NIGHT_DIR/.active-s$slot"); fi
+if [ -z "$run" ] && [ -d "$NIGHT_DIR/runs" ]; then
+  if [ -n "$slot" ]; then run=$(ls -1t "$NIGHT_DIR/runs" 2>/dev/null | head -n 1)
+  else run=$(ls -1 "$NIGHT_DIR/runs" 2>/dev/null | tail -n 1); fi
+fi
+[ -z "$slot" ] || reason="[slot $slot] $reason"
 if ( set -o noclobber
      { echo "time: $(TZ="$NIGHTLY_TZ" date -d "@$(now_epoch)" '+%F %T %Z')"
        echo "run: ${run:-unknown}"

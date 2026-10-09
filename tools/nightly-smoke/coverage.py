@@ -84,12 +84,22 @@ def engine_subtypes(repo):
     return found
 
 
+def report_files(root):
+    """Every report.json under root, without walking into the git worktrees a night leaves there
+    (fixer-N, slot-K/repo: whole checkouts), node_modules, hidden or target directories."""
+    for here, dirs, files in os.walk(root):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("node_modules", "repo")
+                         and not d.startswith(("fixer-", "target")))
+        if "report.json" in files:
+            yield os.path.join(here, "report.json")
+
+
 def run_counts(report_dirs):
     """subtype -> number of runs that offered it, and the number of runs read."""
     runs = collections.Counter()
     total = 0
     for root in report_dirs:
-        for path in glob.glob(os.path.join(root, "**", "report.json"), recursive=True):
+        for path in report_files(root):
             try:
                 with open(path) as handle:
                     report = json.load(handle)

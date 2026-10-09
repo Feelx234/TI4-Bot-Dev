@@ -14,9 +14,8 @@ Bugs we care about, most important first:
    a card discarded but never resolved, Mecatol controlled without custodians removed).
 
 You may make **minor repairs**; otherwise you observe. Rules:
-- The game runs from `/root/TI4-Bot-Dev` (your working directory), checked out on branch
-  `{{FIX_BRANCH}}`. That branch is shared by every run tonight: earlier proctors' repairs are
-  already in it, and the next run is built from it.
+- The game runs from `{{REPO}}` (your working directory), checked out on branch
+  `{{FIX_BRANCH}}`. {{BRANCH_NOTE}}
 - Minor means a small, obviously correct, local change (a typo, a missing null check, a wrong
   test id, an off-by-one) that you understand from the evidence. No redesign, refactor or rules
   change, and nothing you cannot explain. When unsure, report it instead.
@@ -110,7 +109,7 @@ numbers, confusing wording, a button that does nothing, a control that stays ena
 wrongly). The harness saves screenshots in `{{RUN_DIR}}/trace/shots/` (the first decision of
 rounds 1 to 3, and the first time each of the following was on screen); open the ones that exist with
 Read (they are images) and look at them, plus `trace/failure.txt` and the failure screenshot
-(`/root/TI4-Bot-Dev/web/test-results/smoke-failure-*.png`) after a failure. What is new and worth a look:
+(`{{REPO}}/web/test-results/smoke-failure-*.png`) after a failure. What is new and worth a look:
 - Trade: a two-column staging desk (You give / You receive, steppers and item toggles); Propose is
   enabled only when the staged combination is a listed deal, otherwise "Nearest available deals"
   appear and a collapsed "Quick deals" list is the fallback; the answer screen shows the offer with
