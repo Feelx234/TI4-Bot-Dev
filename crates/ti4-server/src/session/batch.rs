@@ -534,6 +534,12 @@ struct Script {
     interruption: Option<BatchInterruption>,
     /// Casualty plans: the most hits a later decision of the same assignment may still owe.
     casualty_owed: Option<i64>,
+    /// Every decision this script answered, in order, as the engine's log records it. The engine
+    /// rolls a system activation back as a whole when a nested question is refused, and the
+    /// boundary is such a refusal: the decisions that step had already answered (the activation
+    /// itself, a reaction, an ability's production) vanish from the game's log, so the log alone
+    /// cannot say what the plan recorded.
+    answered: Vec<DecisionRecord>,
 }
 
 struct PrivateDecider(Arc<Mutex<Script>>);
@@ -552,6 +558,20 @@ pub struct Simulation {
 
 impl Decider for PrivateDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        let option = self.answer(choice)?;
+        let mut log = ti4_engine::choice::DecisionLog::default();
+        log.record(choice, &option);
+        self.0
+            .lock()
+            .expect("batch script lock")
+            .answered
+            .extend(log.records);
+        Ok(option)
+    }
+}
+
+impl PrivateDecider {
+    fn answer(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let mut script = self.0.lock().expect("batch script lock");
         let prefix_index = script.prefix_len.saturating_sub(script.prefix.len());
         if let Some(record) = script.prefix.pop_front() {
@@ -1183,6 +1203,7 @@ fn simulate_script(
         finished: false,
         interruption: None,
         casualty_owed: None,
+        answered: Vec::new(),
     }));
     let mut game = if let Some(copy) = from {
         let mut game = copy.fork(prefix);
@@ -1251,8 +1272,25 @@ fn simulate_script(
             // Every decision after the prefix must be one this batch answered. That is not one
             // per planned step: a declined cargo hold adds an answer, a skipped DoneLoading
             // removes one. `selected` is what the caller pairs with each recorded decision.
-            if game.table.log.records.get(..prefix.len()) != Some(prefix)
-                || game.table.log.records.len() != prefix.len() + guard.selected.len()
+            //
+            // A boundary inside a step the engine rolls back as a whole (a system activation
+            // with its reactions and an ability's production) takes that step's earlier answers
+            // out of the game's log; the script's own list has them.
+            let logged = &game.table.log.records;
+            let rebuilt: Vec<DecisionRecord>;
+            let records: &[DecisionRecord] = if logged.len() < covered + guard.answered.len() {
+                rebuilt = logged
+                    .iter()
+                    .take(covered)
+                    .chain(&guard.answered)
+                    .cloned()
+                    .collect();
+                &rebuilt
+            } else {
+                logged
+            };
+            if records.get(..prefix.len()) != Some(prefix)
+                || records.len() != prefix.len() + guard.selected.len()
             {
                 return Err(BatchFailure::new(0, "replay diverged", "recorded prefix"));
             }
@@ -1262,7 +1300,7 @@ fn simulate_script(
             return Ok(Simulation {
                 forked_at: from.map(|copy| copy.log_len),
                 interruption: guard.interruption.clone(),
-                decisions: game.table.log.records[prefix.len()..].to_vec(),
+                decisions: records[prefix.len()..].to_vec(),
                 selected: guard.selected.clone(),
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
@@ -1433,6 +1471,7 @@ mod tests {
             finished: false,
             interruption: None,
             casualty_owed: None,
+            answered: Vec::new(),
         })))
     }
 

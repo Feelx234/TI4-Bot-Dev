@@ -123,6 +123,14 @@ pub fn generated_with_factions(
     max_decisions: usize,
     mark_every: usize,
 ) -> Source {
+    let (state, galaxy) = factions_start(seed, factions);
+    play_source(name, seed, max_decisions, mark_every, state, galaxy)
+}
+
+/// The opening position of [`generated_with_factions`]: seats a..d playing `factions`, dealt
+/// their own promissory notes, on a board with those homes.
+#[must_use]
+pub fn factions_start(seed: u64, factions: [&str; 4]) -> (GameState, Galaxy) {
     use ti4_model::content_types::DEFAULT;
     use ti4_model::id::FactionId;
     let content = ContentStore::embedded();
@@ -149,7 +157,7 @@ pub fn generated_with_factions(
     for (player, faction) in &assignments {
         ti4_engine::seating::deploy(&mut state, content, player, faction, DEFAULT).expect("deploy");
     }
-    play_source(name, seed, max_decisions, mark_every, state, galaxy)
+    (state, galaxy)
 }
 
 fn play_source(
