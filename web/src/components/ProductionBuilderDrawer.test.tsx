@@ -533,4 +533,85 @@ describe("ProductionBuilderDrawer", () => {
     const fleetSupplyCounter = screen.getByTestId("fleet-supply-counter");
     expect(fleetSupplyCounter).toHaveTextContent("Data unavailable");
   });
+
+  describe("Amalgamation exchange", () => {
+    const cabal: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "cabal",
+      prompt: "produce in 14",
+      context: {
+        subtype: "produce_unit",
+        target: { System: "14" },
+        outstanding: [{ amount: 3, paid: 0 }],
+      },
+      options: [
+        {
+          id: "build|carrier|1",
+          kind: "produce",
+          label: "produce 1x carrier for 3",
+          payload: { unit: "carrier", count: 1, cost: 3, printed_cost: 3, discount: 0, production_spent: 1, available_resources: 3 },
+        },
+        {
+          id: "exchange|carrier",
+          kind: "produce",
+          label: "produce 1x carrier by returning a captured carrier",
+          payload: { unit: "carrier", count: 1, cost: 0, printed_cost: 3, discount: 0, production_spent: 1, available_resources: 3, exchange: true },
+        },
+        { id: "done_producing", kind: "decline", label: "done", payload: {} },
+      ],
+    };
+    const open = (props: Partial<React.ComponentProps<typeof ProductionBuilderDrawer>>) =>
+      render(
+        <ProductionBuilderDrawer
+          choice={cabal}
+          viewerSeat="seat_1"
+          onSubmit={vi.fn()}
+          onClose={vi.fn()}
+          isOpen
+          {...props}
+        />,
+      );
+
+    it("offers the exchange as its own row, costs it nothing and sends exchange true", async () => {
+      const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+      open({ onSubmitBatch });
+      expect(screen.getByTestId("produce-exchange-tag-exchange|carrier")).toBeInTheDocument();
+      expect(screen.queryByTestId("produce-exchange-tag-build|carrier|1")).toBeNull();
+      fireEvent.click(screen.getByTestId("produce-unit-btn-exchange|carrier"));
+      expect(screen.getByTestId("production-resources-counter")).toHaveTextContent("0 / 3");
+      expect(screen.getByTestId("production-capacity-counter")).toHaveTextContent("1 / 3");
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      });
+      expect(onSubmitBatch).toHaveBeenCalledWith({
+        kind: "production",
+        destination: "14",
+        steps: [{ kind: "produce", unit: "carrier", count: 1, exchange: true }],
+      });
+    });
+
+    it("keeps the paid build of the same type a plain step", async () => {
+      const onSubmitBatch = vi.fn().mockResolvedValue(undefined);
+      open({ onSubmitBatch });
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      expect(screen.getByTestId("production-resources-counter")).toHaveTextContent("3 / 3");
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      });
+      expect(onSubmitBatch).toHaveBeenCalledWith({
+        kind: "production",
+        destination: "14",
+        steps: [{ kind: "produce", unit: "carrier", count: 1 }],
+      });
+    });
+
+    it("queues an exchange under its own key so it is never mistaken for the paid build", () => {
+      const onQueueProduction = vi.fn();
+      open({ onQueueProduction });
+      fireEvent.click(screen.getByTestId("produce-unit-btn-exchange|carrier"));
+      fireEvent.click(screen.getByTestId("produce-unit-btn-build|carrier|1"));
+      fireEvent.click(screen.getByRole("button", { name: "Confirm builds" }));
+      expect(onQueueProduction).toHaveBeenCalledWith(["carrier", "exchange|carrier"]);
+    });
+  });
 });

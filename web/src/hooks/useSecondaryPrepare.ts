@@ -31,7 +31,7 @@ import {
   type DryStep,
 } from "../presentation/dryChoice.ts";
 import { paymentPlanetKey } from "../presentation/paymentDraft.ts";
-import { optionUnit } from "../presentation/productionDraft.ts";
+import { optionUnit, stepUnitKey } from "../presentation/productionDraft.ts";
 import {
   checkLeadershipReply,
   leadershipScript,
@@ -419,7 +419,7 @@ export function useSecondaryPrepare({
       }
       const current = base ?? { card: action.card, follow: true };
       if (batch.kind === "production" && step === "produce") {
-        const builds = batch.steps.flatMap((entry) => (entry.kind === "produce" ? [entry.unit] : []));
+        const builds = batch.steps.flatMap((entry) => (entry.kind === "produce" ? [stepUnitKey(entry)] : []));
         if (!builds.length) {
           set({ ...current, follow: true, production: undefined });
           close();

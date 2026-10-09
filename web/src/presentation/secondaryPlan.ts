@@ -408,7 +408,11 @@ const NOTHING_DONE: ReadonlySet<string> = new Set();
 /** "2 x infantry, carrier" for planned build batches. */
 export function describeBuilds(builds: readonly string[]): string {
   const counts = new Map<string, number>();
-  for (const unit of builds) counts.set(unit, (counts.get(unit) ?? 0) + 1);
+  for (const build of builds) {
+    // A staged exchange (`exchange|carrier`) is a different purchase from the paid build.
+    const unit = build.startsWith("exchange|") ? `${build.slice("exchange|".length)} (exchange)` : build;
+    counts.set(unit, (counts.get(unit) ?? 0) + 1);
+  }
   return [...counts].map(([unit, n]) => (n > 1 ? `${n} x ${unit}` : unit)).join(", ");
 }
 

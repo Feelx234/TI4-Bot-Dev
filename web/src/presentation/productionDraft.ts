@@ -13,7 +13,7 @@ export function draftResourceCost(options: ChoiceOptionDto[], draft: Record<stri
   for (const option of options) {
     const batches = draft[option.id] ?? 0;
     if (!batches) continue;
-    if (option.payload?.free_this_use === true) continue;
+    if (option.payload?.free_this_use === true || isExchangeOption(option)) continue;
     const cost = option.payload?.cost;
     if (typeof cost !== "number" || !Number.isSafeInteger(cost) || cost < 0) return Infinity;
     const printed = option.payload?.printed_cost;
@@ -46,9 +46,35 @@ export const optionCapacity = (option: ChoiceOptionDto): number =>
         ? option.payload.count
         : 1;
 
-/** The unit an option builds (its payload, else its id). */
-export const optionUnit = (option: ChoiceOptionDto): string =>
+/** True for the Amalgamation option: return a captured model of the type instead of paying. */
+export const isExchangeOption = (option: ChoiceOptionDto): boolean =>
+  option.payload?.exchange === true;
+
+/** The unit type an option makes (its payload, else its id), for both the build and the exchange. */
+export const optionUnitType = (option: ChoiceOptionDto): string =>
   String(option.payload?.unit ?? option.id);
+
+/**
+ * What names an option in a staged build list. A paid build is its unit type; the exchange of the
+ * same type is its own option id (`exchange|carrier`), so the two never share a key and a staged
+ * "carrier" can only ever mean the paid one.
+ */
+export const optionUnit = (option: ChoiceOptionDto): string =>
+  isExchangeOption(option) ? option.id : optionUnitType(option);
+
+/** The production batch step for one staged build of this option. */
+export const produceStep = (
+  option: ChoiceOptionDto,
+): { kind: "produce"; unit: string; count: number; exchange?: true } => ({
+  kind: "produce",
+  unit: optionUnitType(option),
+  count: Number(option.payload?.count ?? 1),
+  ...(isExchangeOption(option) ? { exchange: true as const } : {}),
+});
+
+/** The staged-build key of a batch step (the inverse of `optionUnit` for steps). */
+export const stepUnitKey = (step: { unit: string; exchange?: boolean }): string =>
+  step.exchange ? `exchange|${step.unit}` : step.unit;
 
 const isBuild = (option: ChoiceOptionDto) => option.id !== "decline" && option.kind !== "decline";
 
@@ -78,7 +104,12 @@ export function productionSystem(choice: PendingChoiceDto): string {
 }
 
 export type BuildPlanResult =
-  | { ok: true; destination: string; draft: Record<string, number>; steps: { unit: string; count: number }[] }
+  | {
+      ok: true;
+      destination: string;
+      draft: Record<string, number>;
+      steps: { unit: string; count: number; exchange?: boolean }[];
+    }
   | { ok: false; reason: string };
 
 /**
@@ -93,7 +124,7 @@ export function planBuilds(choice: PendingChoiceDto, builds: readonly string[]):
   if (!destination) return { ok: false, reason: "The production system is not named by the question." };
   if (!builds.length) return { ok: false, reason: "No units were prepared." };
   const draft: Record<string, number> = {};
-  const steps: { unit: string; count: number }[] = [];
+  const steps: { unit: string; count: number; exchange?: boolean }[] = [];
   let capacity = 0;
   const { capacityLeft, resources } = productionRoom(choice);
   for (const unit of builds) {
@@ -110,7 +141,7 @@ export function planBuilds(choice: PendingChoiceDto, builds: readonly string[]):
     const option = matching[0];
     draft[option.id] = (draft[option.id] ?? 0) + 1;
     capacity += optionCapacity(option);
-    steps.push({ unit, count: Number(option.payload?.count ?? 1) });
+    steps.push(produceStep(option));
     if (capacity > capacityLeft) {
       return { ok: false, reason: "The prepared builds no longer fit the production capacity." };
     }

@@ -9,7 +9,14 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { MechInfoRow, UnitInfoButton } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitBaseType } from "./UnitIcon.tsx";
 import { UnitBuildStats, useBuildUnit } from "./UnitBuildStats.tsx";
-import { draftResourceCost, optionCapacity, planBuilds } from "../presentation/productionDraft.ts";
+import {
+  draftResourceCost,
+  isExchangeOption,
+  optionUnit,
+  optionCapacity,
+  planBuilds,
+  produceStep,
+} from "../presentation/productionDraft.ts";
 import { usePreparedHint } from "../presentation/PreparedHint.tsx";
 import { useSinglePaymentSetting } from "../hooks/useSinglePaymentSetting.ts";
 import { isDryNonce } from "../presentation/dryChoice.ts";
@@ -64,9 +71,12 @@ const BuildOptionCard: React.FC<{
   onAdd: () => void;
   onRemove: () => void;
 }> = ({ option, seat, count, blockedReason, disabledAdd, disabledRemove, onAdd, onRemove }) => {
-  const label = option.label.replace(/^produce\s+/i, "");
   const unit = unitKeyOf(option);
   const built = useBuildUnit(unit, seat);
+  // The Amalgamation exchange is the same unit bought another way: no resources, one captured
+  // model of the type returned. It sits beside the paid build of that type, never replaces it.
+  const exchange = isExchangeOption(option);
+  const label = exchange ? `${built?.name ?? unit} (exchange)` : option.label.replace(/^produce\s+/i, "");
   const name = built?.name ?? label;
   const payload = option.payload ?? {};
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
@@ -75,11 +85,17 @@ const BuildOptionCard: React.FC<{
       className="workflow-card production-drawer__unit"
       data-testid={`produce-option-${option.id}`}
       data-blocked={blockedReason ? "true" : undefined}
+      data-exchange={exchange ? "true" : undefined}
     >
       <div className="production-drawer__unit-head">
         <span className="production-drawer__unit-name">
           <UnitIcon type={unit} size={22} className="production-drawer__unit-icon" aria-hidden="true" />
           {name}
+          {exchange && (
+            <span className="production-drawer__exchange-tag" data-testid={`produce-exchange-tag-${option.id}`}>
+              Exchange
+            </span>
+          )}
           <UnitInfoButton unit={unit} seat={seat} name={name} />
         </span>
         <div className="workflow-row">
@@ -107,6 +123,12 @@ const BuildOptionCard: React.FC<{
           </button>
         </div>
       </div>
+      {exchange && (
+        <p className="production-drawer__exchange-note" data-testid={`produce-exchange-note-${option.id}`}>
+          Return a captured {built?.name ?? unit} to produce it for no resources (Amalgamation). It still
+          uses production capacity.
+        </p>
+      )}
       <UnitBuildStats
         unit={unit}
         seat={seat}
@@ -115,7 +137,7 @@ const BuildOptionCard: React.FC<{
           cost: num(payload.cost),
           printedCost: num(payload.printed_cost),
           count: num(payload.count),
-          free: payload.free_this_use === true,
+          free: payload.free_this_use === true || exchange,
         }}
       />
       {blockedReason && (
@@ -418,11 +440,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                                 kind: "production",
                                 destination: systemId,
                                 steps: productionOptions.flatMap((opt) =>
-                                  Array.from({ length: draft[opt.id] ?? 0 }, () => ({
-                                    kind: "produce" as const,
-                                    unit: String(opt.payload?.unit ?? opt.id),
-                                    count: Number(opt.payload?.count ?? 1),
-                                  })),
+                                  Array.from({ length: draft[opt.id] ?? 0 }, () => produceStep(opt)),
                                 ),
                               });
                               setDraft({});
@@ -435,7 +453,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           }
                           const units = productionOptions.flatMap((opt) =>
                             Array.from({ length: draft[opt.id] ?? 0 }, () =>
-                              typeof opt.payload?.unit === "string" ? opt.payload.unit : opt.id,
+                              optionUnit(opt),
                             ),
                           );
                           if (onQueueProduction) onQueueProduction(units);

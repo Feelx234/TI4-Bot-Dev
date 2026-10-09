@@ -1,3 +1,4 @@
+import { optionUnit, produceStep } from "../presentation/productionDraft.ts";
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
 import {
@@ -1072,9 +1073,7 @@ export const GameShell: React.FC<GameShellProps> = ({
     }
     const unit = productionQueue.units[0];
     const matching = choice.options.filter(
-      (candidate) =>
-        candidate.kind !== "decline" &&
-        (candidate.payload?.unit === unit || candidate.id === unit),
+      (candidate) => candidate.kind !== "decline" && optionUnit(candidate) === unit,
     );
     if (matching.length !== 1) {
       setProductionError(
@@ -1094,11 +1093,7 @@ export const GameShell: React.FC<GameShellProps> = ({
           kind: "production",
           destination: system,
           steps: [
-            {
-              kind: "produce",
-              unit,
-              count: Number(option.payload?.count ?? 1),
-            },
+            produceStep(option),
           ],
         })
       : onSubmitChoice(option.id);
@@ -1136,15 +1131,13 @@ export const GameShell: React.FC<GameShellProps> = ({
           : destination;
       if (units.length === 1 && onSubmitBasketBatch) {
         const option = real.options.find(
-          (candidate) =>
-            candidate.kind !== "decline" &&
-            (candidate.payload?.unit === units[0] || candidate.id === units[0]),
+          (candidate) => candidate.kind !== "decline" && optionUnit(candidate) === units[0],
         );
         if (!option) throw new Error(`${units[0]} is no longer offered`);
         await onSubmitBasketBatch({
           kind: "production",
           destination: system,
-          steps: [{ kind: "produce", unit: units[0], count: Number(option.payload?.count ?? 1) }],
+          steps: [produceStep(option)],
         });
         return;
       }
