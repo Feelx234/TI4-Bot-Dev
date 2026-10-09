@@ -1378,6 +1378,9 @@ impl GameRegistry {
             .get(game_id)
             .ok_or(HistoryError::NotFound)?
             .clone();
+        // Random bots hold their answers for the whole change: nothing may act between the
+        // version check and the worker stop ("Game advanced during rewind").
+        let _bot_pause = session.pause_bots();
         if session.game_version() != expected_version || !session.history_ready() {
             // Clients retry on this leading phrase, so keep it stable and append details.
             return Err(HistoryError::Conflict(if session.history_ready() {

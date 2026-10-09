@@ -219,6 +219,10 @@ struct HostTable {
 }
 
 fn host_table(id: &str, seed: u64) -> HostTable {
+    host_table_with_delay(id, seed, 0)
+}
+
+fn host_table_with_delay(id: &str, seed: u64, delay_ms: u64) -> HostTable {
     let registry = Arc::new(GameRegistry::new());
     let config = config_with(
         id,
@@ -229,7 +233,8 @@ fn host_table(id: &str, seed: u64) -> HostTable {
             SeatController::BotRandom,
             SeatController::BotRandom,
         ],
-    );
+    )
+    .with_random_bot_delay_ms(delay_ms);
     let session = registry.create_game(config).unwrap();
     let host_token = session.seat_tokens()[&PlayerId::new("p1")].clone();
     HostTable {
@@ -324,6 +329,111 @@ fn undo_steps_past_bot_decisions_to_the_hosts_own_and_redo_returns() {
     let redone = t.session().decision_log();
     assert!(redone.len() > after.len());
     assert_eq!(redone[..after.len() + 1], before[..after.len() + 1]);
+}
+
+/// Wait until the host is asked again (every bot decision between has been made).
+fn wait_for_host_ask(t: &HostTable) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if t.session()
+            .current_pending_decision()
+            .is_some_and(|(seat, _, _)| seat.as_str() == "p1")
+            && t.session().history_ready()
+        {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the host was never asked");
+        std::thread::sleep(Duration::from_millis(3));
+    }
+}
+
+#[test]
+fn redo_survives_the_bots_redeciding_and_replays_the_recorded_timeline() {
+    for seed in [3, 11] {
+        let t = host_table(&format!("rb_redo_{seed}"), seed);
+        for _ in 0..30 {
+            t.answer();
+        }
+        wait_for_host_ask(&t);
+        let before = t.session().decision_log();
+        // Undo several times so the redo stack spans host and bot decisions.
+        for _ in 0..4 {
+            t.history(HistoryAction::Undo).expect("undo");
+            wait_for_host_ask(&t);
+        }
+        let undone = t.session().decision_log();
+        assert!(undone.len() < before.len());
+        let total = undone.len() + t.session().redo_decisions().len();
+        assert_eq!(total, before.len(), "undo must keep the whole future");
+        let mut redos = 0;
+        while !t.session().redo_decisions().is_empty() {
+            let at = t.session().decision_log().len();
+            t.history(HistoryAction::Redo).expect("redo");
+            wait_for_host_ask(&t);
+            let log = t.session().decision_log();
+            let left = t.session().redo_decisions().len();
+            assert_eq!(log[..], before[..log.len().min(before.len())], "diverged");
+            // Redo advances at least one decision and never drops the recorded rest.
+            assert!(log.len() > at);
+            assert_eq!(
+                log.len() + left,
+                before.len(),
+                "redo lost entries: cursor {} redo {left} (seed {seed})",
+                log.len()
+            );
+            redos += 1;
+            assert!(redos < 200);
+        }
+        assert_eq!(t.session().decision_log()[..], before[..]);
+        assert!(t.session().error().is_none());
+    }
+}
+
+#[test]
+fn undo_while_a_bot_is_thinking_never_loses_a_bot_decision_or_errors_mid_rewind() {
+    let t = host_table_with_delay("rb_undo_race", 5, 25);
+    for _ in 0..12 {
+        t.answer();
+    }
+    let mut undone = 0;
+    for _ in 0..40 {
+        // No settle: the bots are most likely mid-think, or just decided.
+        let session = t.session();
+        let version = session.game_version();
+        let before = session.decision_log();
+        match t
+            .registry
+            .change_history(&t.id, &t.host_token, version, HistoryAction::Undo)
+        {
+            Ok(_) => {
+                undone += 1;
+                let after = t.session().decision_log();
+                assert!(after.len() < before.len());
+                assert_eq!(after[..], before[..after.len()], "undo rewrote the past");
+            }
+            Err(error) => {
+                let text = format!("{error:?}");
+                assert!(
+                    text.contains("Game advanced or a decision is in flight"),
+                    "unexpected failure: {text}"
+                );
+                assert!(!text.contains("during rewind"), "{text}");
+            }
+        }
+        std::thread::sleep(Duration::from_millis(7));
+        if t.session().decision_log().is_empty() {
+            break;
+        }
+        if t.session()
+            .current_pending_decision()
+            .is_some_and(|(seat, _, _)| seat.as_str() == "p1")
+            && undone % 2 == 1
+        {
+            t.answer();
+        }
+    }
+    assert!(undone > 0, "no undo ever went through");
+    assert!(t.session().error().is_none(), "{:?}", t.session().error());
 }
 
 #[test]
