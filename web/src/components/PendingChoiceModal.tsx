@@ -37,6 +37,7 @@ import { OfferCardPanel } from "./OfferCardPanel.tsx";
 import { describeVoteGoods } from "../presentation/voteGoods.ts";
 import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { VoteGoodsPanel } from "./VoteGoodsPanel.tsx";
+import { useAgendaPill } from "./AgendaStrip.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
 
 export interface PendingChoiceModalProps {
@@ -92,6 +93,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   } = usePipelineRunner(choice, onSubmit);
 
   const isMinimized = controlledIsMinimized ?? uncontrolledIsMinimized;
+  const agendaPill = useAgendaPill();
   const setIsMinimized = (next: boolean) => {
     if (controlledIsMinimized === undefined) setUncontrolledIsMinimized(next);
     onMinimizedChange?.(next);
@@ -205,7 +207,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     }
     return (
       <div data-testid="minimized-choice-banner" className="choice-banner panel">
-        <span>{gainTokensPrompt(choice)}</span>
+        <span className={agendaPill ? "agenda-pill" : undefined}>{agendaPill ?? gainTokensPrompt(choice)}</span>
         <SystemPickConfirmBar
           choice={choice}
           board={boardView}

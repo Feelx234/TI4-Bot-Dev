@@ -1668,7 +1668,7 @@ fn commodity_map(
 }
 
 /// Display only: the agenda card being placed, as printed.
-fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
+pub(crate) fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
     let record = content.get(ContentType::Agendas, alias);
     let field = |key: &str| {
         record

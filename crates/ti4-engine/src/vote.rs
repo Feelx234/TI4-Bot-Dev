@@ -508,9 +508,22 @@ impl VoteWindow {
         }
     }
 
-    /// The decision currently owed, or `None` once the vote is finished.
+    /// The decision currently owed, or `None` once the vote is finished. Every vote decision
+    /// carries the agenda being voted on as display-only `details.agenda` (name, type, text) so a
+    /// client can keep it on screen for the whole vote; option ids and kinds are untouched.
     #[must_use]
     pub fn pending_choice(
+        &self,
+        state: &GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+    ) -> Option<Choice> {
+        self.pending_choice_bare(state, content, sources).map(|choice| {
+            choice.detailed("agenda", crate::strategy_cards::agenda_details(content, &self.alias))
+        })
+    }
+
+    fn pending_choice_bare(
         &self,
         state: &GameState,
         content: &ContentStore,
