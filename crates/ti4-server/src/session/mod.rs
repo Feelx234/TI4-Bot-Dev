@@ -728,9 +728,18 @@ impl GameSession {
             // outer engine step to return. Rewinding stops that step and discards
             // those unpublished decisions; the new offer must itself be unreserved.
             && (lock.finished
+                || lock.bot_deciding
                 || lock.pending_decision.as_ref().is_some_and(|pending| {
                     pending.submission_state == PendingSubmissionState::AwaitingSubmission
                 }))
+    }
+
+    /// Hold back random bot answers until the returned guard drops. A history change takes it
+    /// before it compares versions so a bot cannot act during the rewind.
+    #[must_use]
+    pub fn pause_bots(self: &Arc<Self>) -> BotPause {
+        self.shared.lock().expect("shared lock").history_pause = true;
+        BotPause(self.clone())
     }
 
     pub(crate) fn choice_in_flight(&self) -> bool {
@@ -798,6 +807,15 @@ impl GameSession {
         lock.pending_decision = None;
         lock.in_flight_submissions.clear();
         lock.step_snapshot = None;
+    }
+}
+
+/// Guard from [`GameSession::pause_bots`]; bots resume when it drops.
+pub struct BotPause(Arc<GameSession>);
+
+impl Drop for BotPause {
+    fn drop(&mut self) {
+        self.0.shared.lock().expect("shared lock").history_pause = false;
     }
 }
 

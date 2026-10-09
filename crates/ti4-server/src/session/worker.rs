@@ -68,6 +68,13 @@ pub struct Subscriber {
     reason = "worker lifecycle and durable history are independent states"
 )]
 pub struct SessionShared {
+    /// A history change (undo, redo, ...) is running: a random bot that has picked its answer
+    /// holds it back instead of returning it, so no decision lands while the rewind compares
+    /// versions and stops the worker.
+    pub history_pause: bool,
+    /// A random bot seat is choosing (thinking or held back by `history_pause`). Its answer has
+    /// not reached the game, so the position is still safe to rewind.
+    pub bot_deciding: bool,
     pub game_id: String,
     pub game_version: u64,
     pub latest_state: GameState,
@@ -289,6 +296,8 @@ impl SessionShared {
             },
             store: None,
             snapshot_decision_count: 0,
+            history_pause: false,
+            bot_deciding: false,
             redo_decisions: Vec::new(),
             history_active: false,
             replaying: false,

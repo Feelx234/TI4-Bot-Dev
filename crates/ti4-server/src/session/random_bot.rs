@@ -163,6 +163,24 @@ impl RandomBotDecider {
         }
     }
 
+    /// Wait while a history change is running, then hand the answer over. `Err` when stopped.
+    fn release(&self) -> Result<(), ()> {
+        loop {
+            {
+                let mut lock = self.shared.lock().expect("shared lock");
+                if lock.stopped {
+                    lock.bot_deciding = false;
+                    return Err(());
+                }
+                if !lock.history_pause {
+                    lock.bot_deciding = false;
+                    return Ok(());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+    }
+
     /// Wait out the think time in short slices without holding the session lock, so a stop
     /// (undo, redo, shutdown) is noticed within a slice. `Err` when the session was stopped.
     fn think(&self, rng: &mut ChaCha8Rng) -> Result<(), ()> {
@@ -195,7 +213,16 @@ impl Decider for RandomBotDecider {
         let index = self.counter.load(Ordering::SeqCst);
         let mut rng = decision_rng(self.game_seed, &self.seat, index);
         let picked = pick_index(choice, &mut rng);
-        if self.think(&mut rng).is_err() {
+        self.shared.lock().expect("shared lock").bot_deciding = true;
+        // `release` clears `bot_deciding` under the same lock that checks the pause, so a
+        // history change sees either a bot still holding its answer or the answer in the game.
+        let released = if self.think(&mut rng).is_ok() {
+            self.release()
+        } else {
+            self.shared.lock().expect("shared lock").bot_deciding = false;
+            Err(())
+        };
+        if released.is_err() {
             return Err(IllegalChoice::DeciderFailed {
                 player: choice.player.clone(),
                 prompt: choice.prompt.clone(),
