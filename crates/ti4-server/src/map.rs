@@ -492,7 +492,13 @@ pub fn rebuild_galaxy(
                 .map(|seat| (player.clone(), seat.faction.clone()))
         })
         .collect();
-    let assignments = if seated.len() == player_ids.len() {
+    // A state whose seats have no faction yet (the "generic" placeholder of a bare test session)
+    // keeps the old behaviour.
+    let real = seated.len() == player_ids.len()
+        && seated
+            .values()
+            .all(|faction| ti4_content::factions::get(content, faction.as_str()).is_some());
+    let assignments = if real {
         seated
     } else {
         seating::seat_in_scope(player_ids)
