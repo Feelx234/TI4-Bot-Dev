@@ -280,11 +280,27 @@ pub fn create_game_with_map_rotated_and_card_set(
     rotation: usize,
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), SeatingError> {
+    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    create_game_with_map_seated(content, player_ids, seed, &assignments, card_set)
+}
+
+/// As [`create_game_with_map_rotated_and_card_set`], with the faction of every seat given (a
+/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
+///
+/// # Errors
+///
+/// As [`create_game_with_map`].
+pub fn create_game_with_map_seated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), SeatingError> {
     let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
         .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
 
-    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
-    for (player, faction) in &assignments {
+    for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK)?;
     }
 
@@ -367,8 +383,26 @@ pub fn create_game_with_template_rotated_and_card_set(
     rotation: usize,
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
+    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    create_game_with_template_seated(content, player_ids, seed, template, &assignments, card_set)
+}
+
+/// As [`create_game_with_template_rotated_and_card_set`], with the faction of every seat given (a
+/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
+///
+/// # Errors
+///
+/// As [`create_game_with_template`].
+pub fn create_game_with_template_seated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
     let Some(alias) = template else {
-        return create_game_with_map_rotated_and_card_set(content, player_ids, seed, rotation, card_set)
+        return create_game_with_map_seated(content, player_ids, seed, assignments, card_set)
             .map_err(|e| e.to_string());
     };
     let loader = crate::maps::TemplateLoader::load()?;
@@ -378,8 +412,7 @@ pub fn create_game_with_template_rotated_and_card_set(
 
     let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
         .map_err(|e| e.to_string())?;
-    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
-    for (player, faction) in &assignments {
+    for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
     }
     let homes: Vec<SystemId> = player_ids
@@ -424,9 +457,12 @@ pub fn create_game_with_options(
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
     let rotation = preset.map_or(0, |name| crate::preset::rotation(name, seed));
-    let (mut state, galaxy) = create_game_with_template_rotated_and_card_set(
-        content, player_ids, seed, template, rotation, card_set,
-    )?;
+    let mut assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    if let Some(name) = preset {
+        crate::preset::seat_roster(name, seed, player_ids, &mut assignments);
+    }
+    let (mut state, galaxy) =
+        create_game_with_template_seated(content, player_ids, seed, template, &assignments, card_set)?;
     if let Some(preset) = preset {
         crate::preset::apply(content, &mut state, &galaxy, player_ids, seed, preset)?;
     }
