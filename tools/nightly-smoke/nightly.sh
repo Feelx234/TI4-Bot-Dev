@@ -782,8 +782,9 @@ cmd_summary() {
   flock -w 1800 9 || log "sweep still running after 30 minutes; summarising what is there"
   [ -f "$NIGHT_DIR/report.md" ] || { log "no report for $NIGHT"; exit 0; }
   log "writing morning summary for $NIGHT"
-  local prompt
-  prompt=$(render "$NIGHTLY_DIR/prompts/summary.md" "REPORT=$NIGHT_DIR/report.md" \
+  local prompt agenda_line
+  agenda_line=$(python3 "$NIGHTLY_DIR/coverage.py" --agenda-line "$NIGHT_DIR/runs" 2>/dev/null || echo "agenda phase: unknown")
+  prompt=$(render "$NIGHTLY_DIR/prompts/summary.md" "REPORT=$NIGHT_DIR/report.md" "AGENDA_LINE=$agenda_line" \
     "NIGHT_DIR=$NIGHT_DIR/runs" "NIGHT_ROOT=$NIGHT_DIR" "REPO=$REPO" "STOP_ROUND=$STOP_ROUND" \
     "FIX_BRANCH=$FIX_BRANCH" "FIXER1_BRANCH=nightly-opus-$NIGHT-r1" "FIXER2_BRANCH=nightly-opus-$NIGHT-r2" \
     "SLOTS_NOTE=$(slots_note_summary)")
@@ -794,7 +795,9 @@ cmd_summary() {
     -- "$prompt" > "$NIGHT_DIR/summary.md.tmp" 2> "$NIGHT_DIR/summary.err" < /dev/null)
   local status=$?
   if [ "$status" -eq 0 ] && [ -s "$NIGHT_DIR/summary.md.tmp" ]; then
-    mv "$NIGHT_DIR/summary.md.tmp" "$NIGHT_DIR/summary.md"
+    # The agenda line goes on top mechanically, whatever the model wrote.
+    { printf '%s\n\n' "$agenda_line"; cat "$NIGHT_DIR/summary.md.tmp"; } > "$NIGHT_DIR/summary.md"
+    rm -f "$NIGHT_DIR/summary.md.tmp"
     ln -sfn "$NIGHT_DIR/summary.md" "$REPORT_ROOT/latest-summary.md"
     log "summary written: $NIGHT_DIR/summary.md"
   else

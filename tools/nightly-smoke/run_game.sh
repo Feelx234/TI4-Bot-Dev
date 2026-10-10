@@ -44,6 +44,33 @@ start)
       *" $preset_base "*)
         [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_SHORT_PERCENT" ] && preset="$preset+short" ;;
     esac
+    case " $AGENDA_EXCLUDE " in
+      *" $preset_base "*) ;;
+      *)
+        agenda_percent=$PRESET_AGENDA_PERCENT
+        # Coverage-aware: a night (or its predecessor) without a single agenda phase pushes harder.
+        # Only inside a night's <night>/runs/<run> layout (a stray run dir has no history to read).
+        night_dir="$(dirname "$(dirname "$run_dir")")"
+        cov="$(dirname "$0")/coverage.py"
+        voted=1 total=0
+        if [ "$(basename "$(dirname "$run_dir")")" = runs ]; then
+          read -r voted total < <(python3 "$cov" --agenda-runs "$night_dir" 2>/dev/null || echo "0 0")
+        fi
+        if [ "${total:-0}" -ge "$AGENDA_NIGHT_MIN" ] && [ "${voted:-0}" -eq 0 ]; then
+          agenda_percent=100
+        else
+          prev=""
+          [ "$(basename "$(dirname "$run_dir")")" != runs ] \
+            || prev=$(ls -1d "$(dirname "$night_dir")"/20??-??-?? 2>/dev/null | awk -v me="$night_dir" '$0 < me' | tail -n 1) || prev=""
+          if [ -n "$prev" ]; then
+            read -r voted total < <(python3 "$cov" --agenda-runs "$prev" 2>/dev/null || echo "0 0")
+            if [ "${total:-0}" -ge 5 ] && [ "${voted:-0}" -eq 0 ] && [ "$AGENDA_BOOST_PERCENT" -gt "$agenda_percent" ]; then
+              agenda_percent=$AGENDA_BOOST_PERCENT
+            fi
+          fi
+        fi
+        [ "$(shuf -i 1-100 -n 1)" -le "$agenda_percent" ] && preset="$preset+agenda" ;;
+    esac
   fi
   preset_env=""
   [ -z "$preset" ] || preset_env="TI4_SMOKE_PRESET=$preset "

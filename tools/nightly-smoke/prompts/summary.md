@@ -19,6 +19,12 @@ Your job (read-only — do NOT modify, create or delete any file, do NOT commit,
 4. Briefly summarise game coverage: how many runs, rounds reached, notable events (action cards
    played, Mecatol Rex taken, technologies, agendas), and decision subtypes never reached.
 
+Agenda coverage (counted mechanically from the runs' decision counters; the line is also put on top of
+your output, so do not repeat it there, but do act on it): {{AGENDA_LINE}}
+If it says no agenda phase happened, make that the first finding of the TL;DR: the `+agenda` preset
+suffix and the custodians are the first suspects. In "## Coverage" add an "agenda phase: N runs"
+line, and name which runs had votes and with which preset.
+
 Output only the morning summary in markdown, starting with a 3–5 line TL;DR, then
 "## Findings" (ranked), "## Suggested fixes", "## Coverage", "## Harness / sweep issues".
 

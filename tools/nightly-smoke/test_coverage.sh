@@ -34,3 +34,14 @@ echo "$out" | grep -A2 "fewer than 2 runs$" | grep -q '`seen_once` (1)' || fail 
 echo "$out" | grep -q 'subtype_var' && fail "a variable subtype is not a literal"
 echo "$out" | grep -q "from_a_worktree" && fail "reports inside worktrees must be skipped: $out"
 echo "ok: coverage"
+
+# The agenda-phase counters behind run_game.sh's pick and the morning summary line.
+mkdir -p "$tmp/night/runs/a/trace" "$tmp/night/runs/b/trace" "$tmp/night/runs/c/trace"
+echo '{"subtypes": {"cast_vote": 4}}' > "$tmp/night/runs/a/trace/report.json"
+echo '{"subtypes": {"vote_tiebreak": 1}}' > "$tmp/night/runs/b/trace/report.json"
+echo '{"subtypes": {"play_card": 4, "politics_place_agenda": 1}}' > "$tmp/night/runs/c/trace/report.json"
+[ "$(python3 "$here/coverage.py" --agenda-runs "$tmp/night")" = "2 3" ] || fail "agenda runs should be '2 3'"
+[ "$(python3 "$here/coverage.py" --agenda-line "$tmp/night")" = "agenda phase: 2 of 3 runs voted" ] || fail "agenda line"
+rm "$tmp/night/runs/a/trace/report.json" "$tmp/night/runs/b/trace/report.json"
+python3 "$here/coverage.py" --agenda-line "$tmp/night" | grep -q "NO AGENDA PHASE HAPPENED TONIGHT: 0 of 1 runs" || fail "zero votes must be loud"
+echo "ok: agenda coverage line"
