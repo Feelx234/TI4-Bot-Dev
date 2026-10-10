@@ -436,15 +436,8 @@ impl FileGameStore {
     pub fn save_history(&self, game_id: &str, history: &GameHistory) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
-        let path = dir.join("history.json");
-        if serde_json::to_vec_pretty(&persist(history)?)?.len() + 1 > MAX_LOG_BYTES {
-            return Err(StorageError::Oversized {
-                path,
-                limit: MAX_LOG_BYTES,
-            });
-        }
-        atomic_write_json(&path, history)?;
-        Ok(())
+        atomic_write_json_bounded(&dir.join("history.json"), history, MAX_LOG_BYTES)
+
     }
 
     pub fn load_history(&self, game_id: &str) -> Result<Option<GameHistory>, StorageError> {
@@ -740,15 +733,8 @@ impl FileGameStore {
     ) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
-        let path = dir.join("turn_redo.json");
-        if serde_json::to_vec_pretty(&persist(record)?)?.len() + 1 > MAX_LOG_BYTES {
-            return Err(StorageError::Oversized {
-                path,
-                limit: MAX_LOG_BYTES,
-            });
-        }
-        atomic_write_json(&path, record)?;
-        Ok(())
+        atomic_write_json_bounded(&dir.join("turn_redo.json"), record, MAX_LOG_BYTES)
+
     }
 
     /// Loads the saved alternate timeline, if the game has one.
@@ -1193,14 +1179,38 @@ fn atomic_write_player_record<T: Serialize + Clone>(
     record: &T,
     limit: usize,
 ) -> Result<(), StorageError> {
-    let bytes = serde_json::to_vec_pretty(&persist(record)?)?;
-    if bytes.len() + 1 > limit {
+    atomic_write_json_bounded(path, record, limit)
+}
+
+/// Writes the persisted envelope of `value` (pretty JSON plus a newline) to `path` atomically, or
+/// fails with [`StorageError::Oversized`] without touching the file when it would exceed `limit`.
+///
+/// The envelope is built and serialized once: its checksum is a full compact serialization plus a
+/// SHA-256 pass, and a long game's history is megabytes that every committed batch writes again.
+fn atomic_write_json_bounded<T: Serialize + Clone>(
+    path: &Path,
+    value: &T,
+    limit: usize,
+) -> Result<(), StorageError> {
+    let mut bytes = serde_json::to_vec_pretty(&persist(value)?)?;
+    bytes.push(b'\n');
+    if bytes.len() > limit {
         return Err(StorageError::Oversized {
             path: path.to_owned(),
             limit,
         });
     }
-    atomic_write_json(path, record)?;
+    atomic_write_bytes(path, &bytes)?;
+    Ok(())
+}
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp_path = path.with_extension("tmp");
+    let mut file = File::create(&tmp_path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&tmp_path, path)?;
     Ok(())
 }
 
@@ -1379,6 +1389,35 @@ mod player_record_tests {
     fn store() -> (FileGameStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("ti4_pil01_{:032x}", rand::random::<u128>()));
         (FileGameStore::new(&dir).expect("create store"), dir)
+    }
+
+    #[test]
+    fn a_bounded_save_writes_one_pretty_envelope_and_refuses_oversize_without_touching_the_file() {
+        let (store, dir) = store();
+        let history = GameHistory {
+            decisions: Vec::new(),
+            redo: Vec::new(),
+            events: Vec::new(),
+            redo_events: Vec::new(),
+            event_counter: 0,
+            revision: 1,
+            generation: 0,
+            batches: Vec::new(),
+            rng_marks: Default::default(),
+        };
+        store.save_history("bounded_history", &history).unwrap();
+        let path = dir.join("bounded_history").join("history.json");
+        let written = std::fs::read(&path).unwrap();
+        let mut expected = serde_json::to_vec_pretty(&persist(&history).unwrap()).unwrap();
+        expected.push(b'\n');
+        assert_eq!(written, expected, "the file is the pretty envelope plus a newline");
+        assert!(!path.with_extension("tmp").exists());
+        assert_eq!(store.load_history("bounded_history").unwrap().unwrap().revision, 1);
+
+        let err = atomic_write_json_bounded(&path, &history, written.len() - 1).unwrap_err();
+        assert!(matches!(err, StorageError::Oversized { .. }), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), written, "an oversized save leaves the file alone");
+        atomic_write_json_bounded(&path, &history, written.len()).unwrap();
     }
 
     #[test]

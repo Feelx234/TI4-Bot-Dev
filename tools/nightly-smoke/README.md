@@ -255,6 +255,15 @@ browser's compositor (night 2026-10-08, 20:51-21:46). Each run therefore:
 - writes `<run>/resources.log`: memory, swap, load, `/tmp` and `/dev/shm` use and the biggest `/tmp`
   entries at the start, then a line every `NIGHTLY_RESOURCE_LOG_SECONDS` (30) and one at the end.
 
+## Where a run's time goes
+
+`TI4_SMOKE_TIMING=1` makes the harness add `timing` to `trace/report.json`: per phase the summed
+milliseconds and call count (`commit` = wait for the new version after a committing click, `prep`,
+`click`, `settle`, `status`/`actor` snapshot GETs, `ui`, `scan`, `tour`, and `batchHttp` = the
+POST /batches round trip). `TI4_E2E_SERVER_BIN=<path>` runs an already built server binary instead of
+`cargo run` (a debug build, as always). A 150-decision techs game on 3 seats measured: `commit` 58 %,
+`prep` 22 %, Playwright `click` 11 %, everything else under 10 %.
+
 ## Tests
 
     tools/nightly-smoke/test_schedule.sh

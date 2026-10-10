@@ -38,7 +38,11 @@ export default defineConfig({
   webServer: [
     {
       name: "backend",
-      command: "cargo run --quiet -p ti4-server --bin server",
+      // TI4_E2E_SERVER_BIN: run an already built server binary instead of letting cargo check (and
+      // possibly rebuild) the workspace at every start.
+      command: process.env.TI4_E2E_SERVER_BIN
+        ? `exec ${process.env.TI4_E2E_SERVER_BIN}`
+        : "cargo run --quiet -p ti4-server --bin server",
       cwd: "..",
       // This environment accepts unopened loopback connections without replying, so an HTTP
       // readiness probe never returns. The startup banner prints only after a successful bind.

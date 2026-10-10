@@ -116,6 +116,14 @@ export interface PlaythroughReport {
   findings: string[];
   /** Screenshots saved to `trace/shots`, and the cap that applied. */
   shots: { taken: number; cap: number; names: string[] };
+  /**
+   * Where the harness spent its wall time (TI4_SMOKE_TIMING=1): per phase the summed milliseconds
+   * and the number of calls. `status` and `actor` are the two snapshot GETs of every loop, `ui`
+   * the wait for the tab to catch up, `scan` the control scan, `click` the Playwright click,
+   * `commit` the wait for the new version after a committing click, `settle` the pause after a
+   * staging click, `prep` and `tour` the optional exercises.
+   */
+  timing?: Record<string, { ms: number; calls: number }>;
 }
 
 // Containers that render a decision for the acting seat.
@@ -602,6 +610,17 @@ export async function randomUiPlaythrough(
         }
         browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
       });
+      if (timingOn)
+        page.on("requestfinished", (request) => {
+          // The server's share of a committing click: request sent until the response was complete.
+          if (!request.url().includes("/batches")) return;
+          const { responseEnd } = request.timing();
+          if (responseEnd < 0) return;
+          report.timing ??= {};
+          const slot = (report.timing.batchHttp ??= { ms: 0, calls: 0 });
+          slot.ms += responseEnd;
+          slot.calls++;
+        });
       // The console only reports a status code; keep the server's reason for failed API calls.
       page.on("response", async (response) => {
         if (!response.url().includes("/api/")) return;
@@ -677,6 +696,20 @@ export async function randomUiPlaythrough(
     prep: emptyPrepReport(),
     findings,
     shots: { taken: 0, cap: shotCap, names: [] },
+  };
+
+  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
+  const timed = async <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    if (!timingOn) return work();
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      report.timing ??= {};
+      const slot = (report.timing[key] ??= { ms: 0, calls: 0 });
+      slot.ms += Date.now() - started;
+      slot.calls++;
+    }
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -857,7 +890,9 @@ export async function randomUiPlaythrough(
           undefined,
           `browser errors during playthrough:\n${browserErrors.join("\n")}`,
         );
-      const state = await gameSnapshot(request, gameId, players[0].session);
+      const state = await timed("status", () =>
+        gameSnapshot(request, gameId, players[0].session),
+      );
       const status = state.turn_status;
       report.finalStatus = status;
       if (status.kind === "game_over") {
@@ -926,10 +961,8 @@ export async function randomUiPlaythrough(
         actorIndex = players.findIndex((p) => p.id === status.seat);
         if (actorIndex < 0)
           await fail(undefined, `decision for unknown seat ${status.seat}`);
-        actorState = await gameSnapshot(
-          request,
-          gameId,
-          players[actorIndex].session,
+        actorState = await timed("actor", () =>
+          gameSnapshot(request, gameId, players[actorIndex].session),
         );
       } else {
         for (let i = 0; i < players.length; i++) {
@@ -990,12 +1023,14 @@ export async function randomUiPlaythrough(
       );
 
       // Let the actor's tab catch up with the server before reading its controls.
-      await expect
-        .poll(() => uiVersion(page), { timeout: 10_000 })
-        .toBeGreaterThanOrEqual(before)
-        .catch(() =>
-          fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
-        );
+      await timed("ui", () =>
+        expect
+          .poll(() => uiVersion(page), { timeout: 10_000 })
+          .toBeGreaterThanOrEqual(before)
+          .catch(() =>
+            fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
+          ),
+      );
 
       // TI4_SMOKE_SHOT_SUBTYPES=a,b: save the deciding seat's real view of each listed subtype the
       // first time it is shown (before answering) at desktop and phone size, and again after the answer.
@@ -1017,18 +1052,20 @@ export async function randomUiPlaythrough(
       if (tour && !tour.finished) {
         const productionBuilder =
           (await page.getByTestId("production-builder-drawer").count().catch(() => 0)) > 0;
-        await tour.step(page, { isTurnMenu, productionBuilder });
+        await timed("tour", () => tour.step(page, { isTurnMenu, productionBuilder }));
       }
       if (prep) {
         // Secondary pre-planning: offer the waiting seats, and let a saved plan answer this decision.
-        await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
-        const handled = await prep.handle(
-          actorIndex,
-          choice as unknown as { details?: Record<string, unknown>; prompt?: string },
-          status.round,
-          before,
-          () => uiVersion(page),
-        );
+        const handled = await timed("prep", async () => {
+          await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
+          return prep.handle(
+            actorIndex,
+            choice as unknown as { details?: Record<string, unknown>; prompt?: string },
+            status.round,
+            before,
+            () => uiVersion(page),
+          );
+        });
         if (handled === "done") progressed = true;
       }
       for (let clicks = 0; !progressed && clicks < options.maxClicksPerDecision;) {
@@ -1060,7 +1097,7 @@ export async function randomUiPlaythrough(
           for (const id of shown)
             await shot(page, id, `${id}-d${report.decisions}-${subtype}`.slice(0, 120));
         }
-        const candidates = await collectCandidates(page);
+        const candidates = await timed("scan", () => collectCandidates(page));
         if (!candidates.length) {
           // The UI can take a moment to mount the workflow for a fresh offer. Late in a game the
           // UI may also be finishing its own multi-step plan (a production builder submits one
@@ -1094,12 +1131,14 @@ export async function randomUiPlaythrough(
         log(
           `#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`,
         );
-        await page
-          .locator(`[data-smoke-idx="${chosen.idx}"]`)
-          .click({ timeout: 2_000 })
-          .catch((err: Error) =>
-            log(`  click failed: ${err.message.split("\n")[0]}`),
-          );
+        await timed("click", () =>
+          page
+            .locator(`[data-smoke-idx="${chosen.idx}"]`)
+            .click({ timeout: 2_000 })
+            .catch((err: Error) =>
+              log(`  click failed: ${err.message.split("\n")[0]}`),
+            ),
+        );
         clicks++;
         report.clicks++;
         if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
@@ -1111,26 +1150,30 @@ export async function randomUiPlaythrough(
         if (chosen.commit) {
           // Wait for the tab to show the new version; fall back to one server check in case the
           // tab's websocket lagged.
-          progressed = await expect
-            .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
-            .toBeGreaterThan(before)
-            .then(() => true)
-            .catch(async () =>
-              // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
-              // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
-              gameSnapshot(request, gameId, players[0].session).then(
-                (latest) => latest.game_version > before,
-                (err: Error) =>
-                  fail(
-                    page,
-                    `snapshot request failed after ${subtype} (decision #${report.decisions}): ${err.message.split("\n")[0]}`,
-                  ),
+          progressed = await timed("commit", () =>
+            expect
+              .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
+              .toBeGreaterThan(before)
+              .then(() => true)
+              .catch(async () =>
+                // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
+                // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
+                gameSnapshot(request, gameId, players[0].session).then(
+                  (latest) => latest.game_version > before,
+                  (err: Error) =>
+                    fail(
+                      page,
+                      `snapshot request failed after ${subtype} (decision #${report.decisions}): ${err.message.split("\n")[0]}`,
+                    ),
+                ),
               ),
-            );
+          );
         } else {
           // Staging clicks rarely advance the server: let React settle, then read the tab once.
-          await page.waitForTimeout(40);
-          progressed = (await uiVersion(page)) > before;
+          await timed("settle", async () => {
+            await page.waitForTimeout(40);
+            progressed = (await uiVersion(page)) > before;
+          });
         }
         if (progressed) break;
         // A rejected batch is rejected again if re-sent, so stop at the first one.
