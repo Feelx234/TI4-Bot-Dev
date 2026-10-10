@@ -175,10 +175,9 @@ export const TacticalMovementOverlay: React.FC<
           if (u.owner !== choice.actor) return false;
           if (u.planet) return false; // ships are in space
           if (Boolean(u.damaged) !== damaged) return false;
-          return (
-            u.unit_type.toLowerCase() === unit.toLowerCase() ||
-            getUnitBaseType(u.unit_type) === baseType
-          );
+          // Exact type only: the engine offers one option per distinct type, so a variant
+          // (sol_carrier, carrier2, ...) must not borrow its base ship's units.
+          return u.unit_type.toLowerCase() === unit.toLowerCase();
         });
         if (matchingUnits.length > 0) {
           availableCount = matchingUnits.length;

@@ -1,7 +1,7 @@
 /** Start presets the server knows (crates/ti4-server/src/preset.rs). */
 export const KNOWN_PRESETS = ["combat", "cards", "agenda", "relics", "invasion", "techs", "leaders", "endgame", "siege", "bombard", "capture", "explore", "notes", "world"] as const;
 
-/** The preset without its `+rot`, `+short` and `+fac[:alias...]` suffixes. */
+/** The preset without its `+rot`, `+short`, `+agenda` and `+fac[:alias...]` suffixes. */
 export function basePreset(name: string | undefined): string {
   return (name ?? "").split("+")[0];
 }
@@ -10,13 +10,13 @@ export function basePreset(name: string | undefined): string {
  * Reads TI4_SMOKE_PRESET: unset or empty means a normal opening; an unknown name is an error.
  * Suffixes, in any order: "+rot" also rotates the factions (Jol-Nar and L1Z1X at small tables;
  * "leaders" always does), "+fac" seats factions from the engine's roster by seed ("+fac:naalu:mentak"
- * names the first seats; "world" always does), "+short" starts the game near its end.
+ * names the first seats; "world" always does), "+short" starts the game near its end, "+agenda" removes the custodians at the start so every round has an agenda phase.
  */
 export function presetFromEnv(value: string | undefined): string | undefined {
   const name = value?.trim();
   if (!name) return undefined;
   const [base, ...suffixes] = name.split("+");
-  const suffixOk = (s: string) => s === "rot" || s === "short" || /^fac(:[a-z0-9_]+)*$/.test(s);
+  const suffixOk = (s: string) => s === "rot" || s === "short" || s === "agenda" || /^fac(:[a-z0-9_]+)*$/.test(s);
   if (!(KNOWN_PRESETS as readonly string[]).includes(base) || !suffixes.every(suffixOk)) {
     throw new Error(`unknown TI4_SMOKE_PRESET "${name}" (known: ${KNOWN_PRESETS.join(", ")})`);
   }

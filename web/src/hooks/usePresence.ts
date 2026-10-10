@@ -4,7 +4,8 @@ import { onResume } from "../protocol/resilience.ts";
 const devHeartbeatMs = Number(import.meta.env.VITE_TI4_DEV_PRESENCE_HEARTBEAT_MS);
 /** A heartbeat unanswered after this long rode a dead connection. */
 const HEARTBEAT_TIMEOUT_MS = 10_000;
-const heartbeatMs = import.meta.env.DEV && devHeartbeatMs > 0 ? devHeartbeatMs : 10_000;
+// Also honoured in a production build (the smoke harness builds with it set); unset, it is 10 s.
+const heartbeatMs = devHeartbeatMs > 0 ? devHeartbeatMs : 10_000;
 
 /** Reports ephemeral presence; it does not renew the player session. */
 export function usePresence(

@@ -324,11 +324,13 @@ pub fn is_known(name: &str) -> bool {
     parse(name).is_some()
 }
 
-/// A preset name taken apart: `<base>[+rot][+short][+fac[:alias...]]` in any order.
+/// A preset name taken apart: `<base>[+rot][+short][+agenda][+fac[:alias...]]` in any order.
 struct Parts<'a> {
     base: &'a str,
     rotate: bool,
     short: bool,
+    /// `+agenda`: the custodians are gone from the start, so every round has an agenda phase.
+    agenda: bool,
     /// `Some` when factions come from [`ROSTER`]: the aliases asked for by name, first seats first.
     factions: Option<Vec<&'a str>>,
 }
@@ -343,12 +345,14 @@ fn parse(name: &str) -> Option<Parts<'_>> {
         base,
         rotate: false,
         short: false,
+        agenda: false,
         factions: (base == WORLD).then(Vec::new),
     };
     for token in tokens {
         match token {
             "rot" => parts.rotate = true,
             "short" => parts.short = true,
+            "agenda" => parts.agenda = true,
             _ => {
                 let mut pieces = token.split(':');
                 if pieces.next() != Some("fac") {
@@ -434,6 +438,9 @@ pub fn apply(
     apply_base(content, state, galaxy, players, seed, parts.base)?;
     if parts.short {
         short_game(state, players, seed);
+    }
+    if parts.agenda {
+        agenda_suffix(state, players);
     }
     Ok(())
 }
@@ -559,6 +566,19 @@ fn agenda(content: &ContentStore, state: &mut GameState, players: &[PlayerId], s
     state.agenda_deck.retain(|alias| !top.contains(alias));
     state.agenda_deck.splice(0..0, top);
     deal_cards(content, state, players, seed, AGENDA_CARD_POOL, 4);
+    for player in players {
+        if let Some(seat) = state.player_mut(player) {
+            seat.trade_goods += AGENDA_TRADE_GOODS;
+        }
+    }
+}
+
+/// The `+agenda` suffix: the custodians token is already off Mecatol Rex (27.4, so an agenda phase
+/// follows every status phase from round one) and every seat has trade goods to spend on votes
+/// and notes. Unlike the `agenda` preset it leaves the deck order and the hands alone, so it
+/// combines with any other preset without disturbing what that one dealt.
+fn agenda_suffix(state: &mut GameState, players: &[PlayerId]) {
+    state.custodians_removed = true;
     for player in players {
         if let Some(seat) = state.player_mut(player) {
             seat.trade_goods += AGENDA_TRADE_GOODS;
@@ -1989,11 +2009,11 @@ mod tests {
         fn suffixes_parse_in_any_order_and_unknown_ones_do_not() {
         for good in [
             "world", "explore+short", "notes+rot", "combat+fac", "techs+short+fac:naalu:mentak",
-            "agenda+fac:keleresm+rot", "leaders+short",
+            "agenda+fac:keleresm+rot", "leaders+short", "combat+agenda", "world+agenda+short", "techs+rot+agenda+fac",
         ] {
             assert!(is_known(good), "{good}");
         }
-        for bad in ["nope", "world+nope", "combat+fac:nope", "combat+short+", "+rot", "explore++short"] {
+        for bad in ["nope", "world+nope", "combat+fac:nope", "combat+short+", "combat+agenda:x", "+rot", "explore++short"] {
             assert!(!is_known(bad), "{bad}");
         }
     }
@@ -2143,6 +2163,28 @@ mod tests {
             );
             assert_eq!(state.exploration_decks["CULTURAL"][0], "mo1");
             assert_eq!(state.exploration_decks["FRONTIER"][0], "ms1");
+        }
+    }
+
+    #[test]
+    fn the_agenda_suffix_removes_the_custodians_on_any_preset_and_is_deterministic() {
+        for n in 3..=6 {
+            let list = players(n);
+            for name in ["combat", "cards", "world", "leaders", "explore", "techs"] {
+                let plain = create_game_with_preset(content(), &list, 9, None, Some(name)).unwrap().0;
+                assert!(!plain.custodians_removed, "{name} {n}p");
+                let with = format!("{name}+agenda");
+                let (a, _) = create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
+                let (b, _) = create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
+                assert!(a.custodians_removed, "{with} {n}p");
+                assert_eq!(a.agenda_deck, b.agenda_deck, "{with} {n}p: deterministic");
+                for player in &list {
+                    let (x, y) = (a.player(player).unwrap(), plain.player(player).unwrap());
+                    assert_eq!(x.trade_goods, y.trade_goods + AGENDA_TRADE_GOODS, "{with}");
+                }
+            }
+            let (s, _) = create_game_with_preset(content(), &list, 9, None, Some("agenda+short+agenda")).unwrap();
+            assert!(s.custodians_removed && s.objective_deck.len() == 3);
         }
     }
 

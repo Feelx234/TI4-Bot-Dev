@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Started by run_game.sh under setsid; runs one smoke playthrough and records its exit code.
 source "$(dirname "$0")/config.sh"
-run_dir="$1" players="$2" game_seed="$3" click_seed="$4" policy="$5" port="$6" budget="$7" preset="${8:-}" card_set="${9:-te}" exercise_env="${10:-}" map_template="${11:-}"
+run_dir="$1" players="$2" game_seed="$3" click_seed="$4" policy="$5" port="$6" budget="$7" preset="${8:-}" card_set="${9:-te}" exercise_env="${10:-}" map_template="${11:-}" web="${12:-dev}"
 cd "$GAME_REPO/web" || exit 1
+[ "$web" != build ] || export TI4_E2E_WEB=build
 # Optional exercises: "TI4_SMOKE_UI_TOUR=1 TI4_SMOKE_RECAP=1 ..." from run_game.sh.
 for assignment in $exercise_env; do export "$assignment"; done
 export TI4_SMOKE_SHOT_CAP="$SHOT_CAP" TI4_SMOKE_PREP_PROBABILITY="$PREP_PROBABILITY" \

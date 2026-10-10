@@ -7,6 +7,10 @@ const frontendPort = process.env.TI4_E2E_FRONTEND_PORT ?? String(portBase + 1);
 process.env.TI4_E2E_BACKEND_PORT = backendPort;
 process.env.TI4_E2E_FRONTEND_PORT = frontendPort;
 
+// TI4_E2E_WEB=build serves a production bundle (vite build, cached per commit, then vite preview with
+// the same /api and /ws proxy) instead of the vite dev server. Default: dev.
+const webBuild = process.env.TI4_E2E_WEB === "build";
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 30_000,
@@ -38,7 +42,11 @@ export default defineConfig({
   webServer: [
     {
       name: "backend",
-      command: "cargo run --quiet -p ti4-server --bin server",
+      // TI4_E2E_SERVER_BIN: run an already built server binary instead of letting cargo check (and
+      // possibly rebuild) the workspace at every start.
+      command: process.env.TI4_E2E_SERVER_BIN
+        ? `exec ${process.env.TI4_E2E_SERVER_BIN}`
+        : "cargo run --quiet -p ti4-server --bin server",
       cwd: "..",
       // This environment accepts unopened loopback connections without replying, so an HTTP
       // readiness probe never returns. The startup banner prints only after a successful bind.
@@ -54,9 +62,11 @@ export default defineConfig({
     },
     {
       name: "frontend",
-      command: `exec npx vite --host 127.0.0.1 --port ${frontendPort} --strictPort`,
+      command: webBuild
+        ? `dist=$(bash scripts/e2e-web-build.sh) && exec npx vite preview --outDir "$dist" --host 127.0.0.1 --port ${frontendPort} --strictPort`
+        : `exec npx vite --host 127.0.0.1 --port ${frontendPort} --strictPort`,
       wait: { stdout: new RegExp(`Local:\\s+http://127\\.0\\.0\\.1:${frontendPort}/`) },
-      timeout: 5_000,
+      timeout: webBuild ? 300_000 : 5_000,
       env: { VITE_TI4_DEV_PRESENCE_HEARTBEAT_MS: "250" },
     },
   ],

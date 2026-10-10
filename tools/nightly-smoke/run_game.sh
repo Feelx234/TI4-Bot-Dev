@@ -44,6 +44,33 @@ start)
       *" $preset_base "*)
         [ "$(shuf -i 1-100 -n 1)" -le "$PRESET_SHORT_PERCENT" ] && preset="$preset+short" ;;
     esac
+    case " $AGENDA_EXCLUDE " in
+      *" $preset_base "*) ;;
+      *)
+        agenda_percent=$PRESET_AGENDA_PERCENT
+        # Coverage-aware: a night (or its predecessor) without a single agenda phase pushes harder.
+        # Only inside a night's <night>/runs/<run> layout (a stray run dir has no history to read).
+        night_dir="$(dirname "$(dirname "$run_dir")")"
+        cov="$(dirname "$0")/coverage.py"
+        voted=1 total=0
+        if [ "$(basename "$(dirname "$run_dir")")" = runs ]; then
+          read -r voted total < <(python3 "$cov" --agenda-runs "$night_dir" 2>/dev/null || echo "0 0")
+        fi
+        if [ "${total:-0}" -ge "$AGENDA_NIGHT_MIN" ] && [ "${voted:-0}" -eq 0 ]; then
+          agenda_percent=100
+        else
+          prev=""
+          [ "$(basename "$(dirname "$run_dir")")" != runs ] \
+            || prev=$(ls -1d "$(dirname "$night_dir")"/20??-??-?? 2>/dev/null | awk -v me="$night_dir" '$0 < me' | tail -n 1) || prev=""
+          if [ -n "$prev" ]; then
+            read -r voted total < <(python3 "$cov" --agenda-runs "$prev" 2>/dev/null || echo "0 0")
+            if [ "${total:-0}" -ge 5 ] && [ "${voted:-0}" -eq 0 ] && [ "$AGENDA_BOOST_PERCENT" -gt "$agenda_percent" ]; then
+              agenda_percent=$AGENDA_BOOST_PERCENT
+            fi
+          fi
+        fi
+        [ "$(shuf -i 1-100 -n 1)" -le "$agenda_percent" ] && preset="$preset+agenda" ;;
+    esac
   fi
   preset_env=""
   [ -z "$preset" ] || preset_env="TI4_SMOKE_PRESET=$preset "
@@ -62,6 +89,10 @@ start)
   [ "$(shuf -i 1-100 -n 1)" -le "$RECAP_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_RECAP=1 "
   [ "$(shuf -i 1-100 -n 1)" -le "$REDO_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_REDO=1 "
   exercises=$(echo "$exercise_env" | sed -e 's/TI4_SMOKE_//g' -e 's/=1//g' | tr 'A-Z_' 'a-z-' | xargs)
+  web=dev
+  [ "$WEB_BUILD_SHARE" -gt 0 ] && [ "$(shuf -i 1-100 -n 1)" -le "$WEB_BUILD_SHARE" ] && web=build
+  web_env=""
+  [ "$web" = dev ] || web_env="TI4_E2E_WEB=build "
   # The backend takes <port>, the frontend <port>+1. Skip ports that are bound right now or that a
   # run still in progress (another slot, possibly still building) has picked.
   port=""
@@ -106,6 +137,7 @@ PY
   "policy": "$policy",
   "preset": "$preset",
   "card_set": "$card_set",
+  "web": "$web",
   "map_template": "$map_template",
   "exercises": "$exercises",
   "prep_probability": "$PREP_PROBABILITY",
@@ -117,13 +149,13 @@ PY
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
   "started_at": "$(TZ="$NIGHTLY_TZ" date '+%F %T %Z')",
   "deadline": "$(TZ="$NIGHTLY_TZ" date -d "@$deadline" '+%F %T %Z')",
-  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
+  "repro": "cd web && ${web_env}TI4_SMOKE=1 ${preset_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
 }
 EOF
   # A new session makes the run its own process group, so `stop` can kill browsers and the
   # Playwright web servers (cargo/vite) together.
   setsid "$NIGHTLY_DIR/_run_inner.sh" "$run_dir" "$players" "$game_seed" "$click_seed" \
-    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" </dev/null >/dev/null 2>&1 &
+    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" "$web" </dev/null >/dev/null 2>&1 &
   echo $! > "$run_dir/run.pid"
   echo "started run in $run_dir"
   cat "$run_dir/meta.json"

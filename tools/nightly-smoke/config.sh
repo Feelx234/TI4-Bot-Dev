@@ -61,6 +61,22 @@ PRESET_FACTIONS_PERCENT="${NIGHTLY_PRESET_FACTIONS_PERCENT:-25}"
 # objectives left), so a thin preset's game finishes in a few rounds, and how often they do.
 SHORT_PRESETS="${NIGHTLY_SHORT_PRESETS:-techs agenda leaders notes}"
 PRESET_SHORT_PERCENT="${NIGHTLY_PRESET_SHORT_PERCENT:-70}"
+# Share of the eligible preset runs (percent) that also get "<preset>+agenda": the custodians token
+# is gone from the start, so every round has an agenda phase. Naturally lifting the custodians
+# (Mecatol Rex taken, six influence) is rare in random play, so without this the agenda phase was
+# a lottery (2026-10-09: votes in 5 of 22 runs). With 70% preset runs and the list below about half
+# of all runs get an agenda phase. Not eligible: presets that already have one (agenda, notes) and
+# endgame (the game ends within a round). The pick is raised to AGENDA_BOOST_PERCENT when the last
+# night with enough runs had no agenda phase at all, and to 100 when this night's first
+# AGENDA_NIGHT_MIN runs had none (coverage.py --agenda-runs).
+# Percent of runs (0..100) that play against a production web build (vite build + vite preview, cached
+# per commit: web/scripts/e2e-web-build.sh) instead of the vite dev server. 0 = every run on the dev
+# server, as before. The choice is recorded as "web" in meta.json and shown in the digest.
+WEB_BUILD_SHARE="${NIGHTLY_WEB_BUILD_SHARE:-0}"
+PRESET_AGENDA_PERCENT="${NIGHTLY_PRESET_AGENDA_PERCENT:-65}"
+AGENDA_EXCLUDE="${NIGHTLY_AGENDA_EXCLUDE:-agenda notes endgame}"
+AGENDA_BOOST_PERCENT="${NIGHTLY_AGENDA_BOOST_PERCENT:-90}"
+AGENDA_NIGHT_MIN="${NIGHTLY_AGENDA_NIGHT_MIN:-6}"
 # `explore` at three seats plays this map in part of the runs (percent): it is the only map of
 # the default size with planetless systems that are not hyperlanes, so the only one with frontier
 # tokens off the hyperlane tiles (every default 3-, 4- and 5-player map puts them on hyperlanes).

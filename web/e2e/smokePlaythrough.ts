@@ -27,9 +27,11 @@ import {
 } from "./smokeExercises";
 import {
   activationWeight,
+  coveredBy,
   preferHitConfirm,
   preferPayment,
   preferReadyConfirm,
+  preferTechWindowUse,
   preferTokenConfirm,
   preferTradeDesk,
   steerWeight as policySteerWeight,
@@ -115,6 +117,16 @@ export interface PlaythroughReport {
   findings: string[];
   /** Screenshots saved to `trace/shots`, and the cap that applied. */
   shots: { taken: number; cap: number; names: string[] };
+  /**
+   * Where the harness spent its wall time (TI4_SMOKE_TIMING=1): per phase the summed milliseconds
+   * and the number of calls. `status` and `actor` are the two snapshot GETs of every loop, `ui`
+   * the wait for the tab to catch up, `scan` the control scan, `click` the Playwright click,
+   * `commit` the wait for the new version after a committing click, `settle` the pause after a
+   * staging click, `prep` and `tour` the optional exercises.
+   */
+  timing?: Record<string, { ms: number; calls: number }>;
+  /** Per seat, with TI4_SMOKE_TIMING=1: requests the page made until the status bar showed, and how long that took. */
+  pageLoads?: { seat: number; ms: number; requests: number; scripts: number }[];
 }
 
 // Containers that render a decision for the acting seat.
@@ -201,20 +213,24 @@ function mulberry32(seed: number) {
 
 export async function collectCandidates(page: Page): Promise<Candidate[]> {
   const raw = await page.evaluate(
-    ({ containers, excluded }) => {
+    ({ containers, excluded, coveredSrc }) => {
       const excludedRe = new RegExp(excluded, "i");
+      const hiddenBehind = new Function(`return (${coveredSrc})`)() as (
+        el: Element,
+        hit: Element | null,
+      ) => boolean;
       document
         .querySelectorAll("[data-smoke-idx]")
         .forEach((el) => el.removeAttribute("data-smoke-idx"));
       // A board hex behind a modal is rendered but cannot receive the click. Only on-screen
-      // centers are tested, because Playwright scrolls off-screen controls into view itself.
+      // centers are tested, because Playwright scrolls off-screen controls into view itself (also
+      // a control clipped by its own scrolling dialog, see coveredBy).
       const covered = (rect: DOMRect, el: Element) => {
         const x = rect.left + rect.width / 2;
         const y = rect.top + rect.height / 2;
         if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight)
           return false;
-        const hit = document.elementFromPoint(x, y);
-        return hit !== null && !el.contains(hit);
+        return hiddenBehind(el, document.elementFromPoint(x, y));
       };
       const visible = (el: Element) => {
         const rect = el.getBoundingClientRect();
@@ -307,7 +323,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
       }
       return out;
     },
-    { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
+    { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source, coveredSrc: coveredBy.toString() },
   );
   return raw.map(({ staged, ...c }) => {
     return { ...c, ...classifyCandidate(c.desc, staged) };
@@ -477,6 +493,27 @@ function pick(
   return weightedPick(pool, (c) => steerWeight(c.full, hexWeights), rng);
 }
 
+/**
+ * When a rejected batch was a plan the UI staged (the engine says a planned step is not among the
+ * offered options), name the step and the offered ids: the control let the player stage a move
+ * the engine never offered, so the bug is in the staging UI rather than the engine.
+ */
+function stagedPlanNote(rejection: string): string {
+  const json = rejection.slice(rejection.indexOf("{"));
+  try {
+    const body = JSON.parse(json) as {
+      failed_step?: number;
+      reason?: string;
+      expected?: string;
+      offered?: { option_ids?: string[] };
+    };
+    if (body.reason !== "option unavailable" || body.failed_step === undefined) return "";
+    return `\nUI-staged invalid plan: plan step ${body.failed_step} not offered by the engine (${body.expected ?? "?"}): offered ${(body.offered?.option_ids ?? []).join(", ")}`;
+  } catch {
+    return "";
+  }
+}
+
 async function uiVersion(page: Page): Promise<number> {
   const text = await page
     .getByTestId("game-version")
@@ -502,7 +539,10 @@ export async function randomUiPlaythrough(
 ): Promise<PlaythroughReport> {
   const log = options.log ?? (() => {});
   tradeBoost = basePreset(options.startPreset) === "notes";
+  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
   const rng = mulberry32(options.clickSeed);
+  // Offers of each (seat, subtype) so far; the optional technology windows decline after a few.
+  const techOffers = new Map<string, number>();
   const { gameId, players } = await createStartedGame(
     request,
     options.playerCount,
@@ -528,6 +568,7 @@ export async function randomUiPlaythrough(
   let redo: RedoExercise | undefined;
   const browserErrors: string[] = [];
   const pages: Page[] = [];
+  const pageLoads: NonNullable<PlaythroughReport["pageLoads"]> = [];
   // The last websocket frames each seat received, so a stuck decision can show whether the tab
   // was ever sent it, or had it cleared afterwards.
   const wsFrames: string[][] = [];
@@ -597,6 +638,26 @@ export async function randomUiPlaythrough(
         }
         browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
       });
+      // TI4_SMOKE_TIMING=1: what loading this seat's page cost (dev server: hundreds of module requests).
+      const loadStats = { requests: 0, scripts: 0, done: false };
+      const loadStarted = Date.now();
+      if (timingOn)
+        page.on("request", (request) => {
+          if (loadStats.done) return;
+          loadStats.requests++;
+          if (request.resourceType() === "script") loadStats.scripts++;
+        });
+      if (timingOn)
+        page.on("requestfinished", (request) => {
+          // The server's share of a committing click: request sent until the response was complete.
+          if (!request.url().includes("/batches")) return;
+          const { responseEnd } = request.timing();
+          if (responseEnd < 0) return;
+          report.timing ??= {};
+          const slot = (report.timing.batchHttp ??= { ms: 0, calls: 0 });
+          slot.ms += responseEnd;
+          slot.calls++;
+        });
       // The console only reports a status code; keep the server's reason for failed API calls.
       page.on("response", async (response) => {
         if (!response.url().includes("/api/")) return;
@@ -644,6 +705,9 @@ export async function randomUiPlaythrough(
           `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
         );
       }
+      loadStats.done = true;
+      if (timingOn)
+        pageLoads.push({ seat: index + 1, ms: Date.now() - loadStarted, requests: loadStats.requests, scripts: loadStats.scripts });
       pages.push(page);
       break;
     }
@@ -671,7 +735,21 @@ export async function randomUiPlaythrough(
     exercises: {},
     prep: emptyPrepReport(),
     findings,
+    pageLoads: pageLoads.length ? pageLoads : undefined,
     shots: { taken: 0, cap: shotCap, names: [] },
+  };
+
+  const timed = async <T>(key: string, work: () => Promise<T>): Promise<T> => {
+    if (!timingOn) return work();
+    const started = Date.now();
+    try {
+      return await work();
+    } finally {
+      report.timing ??= {};
+      const slot = (report.timing[key] ??= { ms: 0, calls: 0 });
+      slot.ms += Date.now() - started;
+      slot.calls++;
+    }
   };
 
   const trace = (file: string, data: unknown, append = false) => {
@@ -852,7 +930,9 @@ export async function randomUiPlaythrough(
           undefined,
           `browser errors during playthrough:\n${browserErrors.join("\n")}`,
         );
-      const state = await gameSnapshot(request, gameId, players[0].session);
+      const state = await timed("status", () =>
+        gameSnapshot(request, gameId, players[0].session),
+      );
       const status = state.turn_status;
       report.finalStatus = status;
       if (status.kind === "game_over") {
@@ -921,10 +1001,8 @@ export async function randomUiPlaythrough(
         actorIndex = players.findIndex((p) => p.id === status.seat);
         if (actorIndex < 0)
           await fail(undefined, `decision for unknown seat ${status.seat}`);
-        actorState = await gameSnapshot(
-          request,
-          gameId,
-          players[actorIndex].session,
+        actorState = await timed("actor", () =>
+          gameSnapshot(request, gameId, players[actorIndex].session),
         );
       } else {
         for (let i = 0; i < players.length; i++) {
@@ -958,6 +1036,9 @@ export async function randomUiPlaythrough(
           ? activationWeights(actorState.view.board, players[actorIndex].id, basePreset(options.startPreset) === "explore")
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      const offerKey = `${actorIndex}:${subtype}`;
+      const techOffersSoFar = techOffers.get(offerKey) ?? 0;
+      techOffers.set(offerKey, techOffersSoFar + 1);
       if (status.round <= 3)
         await shot(page, `round-${status.round}`, `round-${status.round}-d${report.decisions}-${subtype}`.slice(0, 120));
       trace(
@@ -985,12 +1066,14 @@ export async function randomUiPlaythrough(
       );
 
       // Let the actor's tab catch up with the server before reading its controls.
-      await expect
-        .poll(() => uiVersion(page), { timeout: 10_000 })
-        .toBeGreaterThanOrEqual(before)
-        .catch(() =>
-          fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
-        );
+      await timed("ui", () =>
+        expect
+          .poll(() => uiVersion(page), { timeout: 10_000 })
+          .toBeGreaterThanOrEqual(before)
+          .catch(() =>
+            fail(page, `seat ${actorIndex + 1} UI never reached v${before}`),
+          ),
+      );
 
       // TI4_SMOKE_SHOT_SUBTYPES=a,b: save the deciding seat's real view of each listed subtype the
       // first time it is shown (before answering) at desktop and phone size, and again after the answer.
@@ -1012,18 +1095,20 @@ export async function randomUiPlaythrough(
       if (tour && !tour.finished) {
         const productionBuilder =
           (await page.getByTestId("production-builder-drawer").count().catch(() => 0)) > 0;
-        await tour.step(page, { isTurnMenu, productionBuilder });
+        await timed("tour", () => tour.step(page, { isTurnMenu, productionBuilder }));
       }
       if (prep) {
         // Secondary pre-planning: offer the waiting seats, and let a saved plan answer this decision.
-        await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
-        const handled = await prep.handle(
-          actorIndex,
-          choice as unknown as { details?: Record<string, unknown>; prompt?: string },
-          status.round,
-          before,
-          () => uiVersion(page),
-        );
+        const handled = await timed("prep", async () => {
+          await prep.offer(actorIndex, status.round, report.decisions, choice.prompt);
+          return prep.handle(
+            actorIndex,
+            choice as unknown as { details?: Record<string, unknown>; prompt?: string },
+            status.round,
+            before,
+            () => uiVersion(page),
+          );
+        });
         if (handled === "done") progressed = true;
       }
       for (let clicks = 0; !progressed && clicks < options.maxClicksPerDecision;) {
@@ -1055,7 +1140,7 @@ export async function randomUiPlaythrough(
           for (const id of shown)
             await shot(page, id, `${id}-d${report.decisions}-${subtype}`.slice(0, 120));
         }
-        const candidates = await collectCandidates(page);
+        const candidates = await timed("scan", () => collectCandidates(page));
         if (!candidates.length) {
           // The UI can take a moment to mount the workflow for a fresh offer. Late in a game the
           // UI may also be finishing its own multi-step plan (a production builder submits one
@@ -1080,7 +1165,13 @@ export async function randomUiPlaythrough(
           continue;
         }
         const chosen = pick(
-          candidates,
+          preferTechWindowUse(
+            subtype,
+            choice.prompt,
+            candidates,
+            techOffersSoFar,
+            process.env.TI4_SMOKE_TECH_FULL !== "1",
+          ),
           clicks,
           rng,
           options.policy ?? "random",
@@ -1089,12 +1180,14 @@ export async function randomUiPlaythrough(
         log(
           `#${report.decisions} ${subtype} seat${actorIndex + 1} click ${chosen.desc}`,
         );
-        await page
-          .locator(`[data-smoke-idx="${chosen.idx}"]`)
-          .click({ timeout: 2_000 })
-          .catch((err: Error) =>
-            log(`  click failed: ${err.message.split("\n")[0]}`),
-          );
+        await timed("click", () =>
+          page
+            .locator(`[data-smoke-idx="${chosen.idx}"]`)
+            .click({ timeout: 2_000 })
+            .catch((err: Error) =>
+              log(`  click failed: ${err.message.split("\n")[0]}`),
+            ),
+        );
         clicks++;
         report.clicks++;
         if (isTurnMenu && isBarControl(chosen.desc) && chosen.commit)
@@ -1106,26 +1199,30 @@ export async function randomUiPlaythrough(
         if (chosen.commit) {
           // Wait for the tab to show the new version; fall back to one server check in case the
           // tab's websocket lagged.
-          progressed = await expect
-            .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
-            .toBeGreaterThan(before)
-            .then(() => true)
-            .catch(async () =>
-              // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
-              // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
-              gameSnapshot(request, gameId, players[0].session).then(
-                (latest) => latest.game_version > before,
-                (err: Error) =>
-                  fail(
-                    page,
-                    `snapshot request failed after ${subtype} (decision #${report.decisions}): ${err.message.split("\n")[0]}`,
-                  ),
+          progressed = await timed("commit", () =>
+            expect
+              .poll(() => uiVersion(page), { timeout: 3_000, intervals: [50] })
+              .toBeGreaterThan(before)
+              .then(() => true)
+              .catch(async () =>
+                // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
+                // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
+                gameSnapshot(request, gameId, players[0].session).then(
+                  (latest) => latest.game_version > before,
+                  (err: Error) =>
+                    fail(
+                      page,
+                      `snapshot request failed after ${subtype} (decision #${report.decisions}): ${err.message.split("\n")[0]}`,
+                    ),
+                ),
               ),
-            );
+          );
         } else {
           // Staging clicks rarely advance the server: let React settle, then read the tab once.
-          await page.waitForTimeout(40);
-          progressed = (await uiVersion(page)) > before;
+          await timed("settle", async () => {
+            await page.waitForTimeout(40);
+            progressed = (await uiVersion(page)) > before;
+          });
         }
         if (progressed) break;
         // A rejected batch is rejected again if re-sent, so stop at the first one.
@@ -1134,7 +1231,7 @@ export async function randomUiPlaythrough(
         );
         if (batchRejection) {
           report.rejections.push(`${subtype}: ${batchRejection}`);
-          await fail(page, `batch rejected: ${batchRejection}`);
+          await fail(page, `batch rejected: ${batchRejection}${stagedPlanNote(batchRejection)}`);
         }
         const errors = await visibleErrors(page);
         for (const error of errors) {

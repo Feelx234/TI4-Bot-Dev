@@ -5,7 +5,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/tools/nightly-smoke"
-cp "$here/config.sh" "$here/run_game.sh" "$tmp/tools/nightly-smoke/"
+cp "$here/config.sh" "$here/run_game.sh" "$here/coverage.py" "$tmp/tools/nightly-smoke/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$tmp/tools/nightly-smoke/_run_inner.sh"
 chmod +x "$tmp/tools/nightly-smoke/"*.sh
 # A repo to record the commit from (the run's meta.json says which code it played).
@@ -22,7 +22,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # The suffix knobs below are checked on their own; everywhere else they stay off so the checks see
 # plain preset names.
-export NIGHTLY_PRESET_FACTIONS_PERCENT=0 NIGHTLY_PRESET_SHORT_PERCENT=0 NIGHTLY_EXPLORE_MAP_PERCENT=0
+export NIGHTLY_PRESET_FACTIONS_PERCENT=0 NIGHTLY_PRESET_SHORT_PERCENT=0 NIGHTLY_EXPLORE_MAP_PERCENT=0 NIGHTLY_PRESET_AGENDA_PERCENT=0
 
 start 100 "$tmp/always"
 grep -q '"preset": "combat"' "$tmp/always/meta.json" || fail "100% should pick the combat preset"
@@ -177,3 +177,64 @@ NIGHTLY_REPO="$tmp" NIGHTLY_PREP_PROBABILITY=1 NIGHTLY_PREP_AUTO_PROBABILITY=0.2
 grep -q 'TI4_SMOKE_PREP_PROBABILITY=1 TI4_SMOKE_PREP_AUTO_PROBABILITY=0.25 ' "$tmp/prep-set/meta.json" || fail "overridden prep knobs should appear in the repro"
 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/prep-set/meta.json" || fail "meta.json must stay valid JSON with prep knobs"
 echo "ok: prep knobs"
+
+# The +agenda suffix: goes on eligible presets only (not agenda, notes, endgame) and stacks with the
+# other suffixes in the repro.
+agenda=0
+for i in $(seq 1 60); do
+  NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET="cards agenda notes endgame" NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PRESET_AGENDA_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/ag$i" > /dev/null
+  name=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'])" "$tmp/ag$i/meta.json")
+  case "$name" in cards+agenda) agenda=$((agenda + 1)) ;; agenda|notes|endgame) ;; *) fail "unexpected agenda pick $name" ;; esac
+  grep -q "TI4_SMOKE_PRESET=$name " "$tmp/ag$i/meta.json" || fail "repro should carry $name"
+done
+[ "$agenda" -ge 4 ] || fail "100% +agenda went on cards only $agenda/60 times"
+NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET=techs NIGHTLY_PRESET_ROTATE_PERCENT=0 NIGHTLY_PRESET_FACTIONS_PERCENT=100 \
+  NIGHTLY_PRESET_SHORT_PERCENT=100 NIGHTLY_PRESET_AGENDA_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/agall" > /dev/null
+grep -q '"preset": "techs+fac+short+agenda"' "$tmp/agall/meta.json" || fail "suffixes should stack as techs+fac+short+agenda"
+NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET=techs NIGHTLY_PRESET_ROTATE_PERCENT=0 NIGHTLY_PRESET_AGENDA_PERCENT=0 \
+  "$tmp/tools/nightly-smoke/run_game.sh" start "$tmp/agnone" > /dev/null
+grep -q '"preset": "techs"' "$tmp/agnone/meta.json" || fail "0% +agenda must leave the name plain"
+
+# Coverage-aware: tonight's first runs without a vote, or a previous night without one, force +agenda.
+mkfake() { # mkfake <night-dir> <runs> <voting runs>
+  for r in $(seq 1 "$2"); do
+    mkdir -p "$1/runs/r$r/trace"
+    if [ "$r" -le "$3" ]; then echo '{"subtypes": {"cast_vote": 2}}' > "$1/runs/r$r/trace/report.json"
+    else echo '{"subtypes": {"play_card": 2}}' > "$1/runs/r$r/trace/report.json"; fi
+  done
+  mkdir -p "$1/runs/new"
+}
+rr="$tmp/reports"
+agenda_pick() { # agenda_pick <night>: a techs run at 0% base probability
+  rm -f "$rr/$1/runs/new/run.pid"
+  NIGHTLY_REPORT_ROOT="$rr" NIGHTLY_REPO="$tmp" NIGHTLY_PRESET_PROBABILITY=100 NIGHTLY_PRESET=techs NIGHTLY_PRESET_ROTATE_PERCENT=0 \
+    NIGHTLY_PRESET_AGENDA_PERCENT=0 NIGHTLY_AGENDA_BOOST_PERCENT=100 "$tmp/tools/nightly-smoke/run_game.sh" start "$rr/$1/runs/new" > /dev/null
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['preset'])" "$rr/$1/runs/new/meta.json"
+}
+mkfake "$rr/2026-10-01" 6 6
+mkfake "$rr/2026-10-02" 6 0
+mkfake "$rr/2026-10-03" 6 3
+mkfake "$rr/2026-10-04" 6 3
+mkfake "$rr/2026-10-05" 3 0
+[ "$(agenda_pick 2026-10-02)" = techs+agenda ] || fail "6 runs tonight without votes should force +agenda"
+[ "$(agenda_pick 2026-10-03)" = techs+agenda ] || fail "a previous night without votes should boost +agenda"
+[ "$(agenda_pick 2026-10-04)" = techs ] || fail "voting nights before and now keep the base share"
+[ "$(agenda_pick 2026-10-05)" = techs ] || fail "3 runs without votes are too few to force it"
+[ "$(agenda_pick 2026-10-01)" = techs ] || fail "the first night has nothing to learn from"
+echo "ok: +agenda suffix and coverage-aware pick (+agenda on cards $agenda/60)"
+
+# Web build share: default 0 keeps every run on the dev server; 100 puts every run on the build.
+web_pick() { # web_pick <share> <run-dir>
+  NIGHTLY_WEB_BUILD_SHARE="$1" start 0 "$2"
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['web'])" "$2/meta.json"
+}
+[ "$(web_pick 0 "$tmp/web0")" = dev ] || fail "share 0 must keep the dev server"
+grep -q 'TI4_E2E_WEB' "$tmp/web0/meta.json" && fail "dev runs must not mention TI4_E2E_WEB in the repro"
+[ "$(web_pick 100 "$tmp/web100")" = build ] || fail "share 100 must pick the production build"
+grep -q 'cd web && TI4_E2E_WEB=build TI4_SMOKE=1' "$tmp/web100/meta.json" || fail "a build run's repro must carry TI4_E2E_WEB=build"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/web100/meta.json" || fail "meta.json must stay valid JSON"
+builds=0
+for i in $(seq 1 60); do [ "$(web_pick 30 "$tmp/web30-$i")" = build ] && builds=$((builds + 1)); done
+[ "$builds" -ge 5 ] && [ "$builds" -le 35 ] || fail "share 30 picked $builds/60 build runs"
+echo "ok: web build share (30% picked $builds/60)"

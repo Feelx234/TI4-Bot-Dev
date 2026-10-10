@@ -336,3 +336,67 @@ export function pausedBatch(
     return null;
   }
 }
+
+/**
+ * Whether the element hit at a control's on-screen center means the control is hidden behind
+ * something else (a board hex behind a modal). A hit inside the control is the control. A hit on
+ * one of its ancestors means the control is only scrolled out of that container's box (the
+ * Confirm button of a tall choice dialog, half below the panel's scroll edge): Playwright scrolls
+ * it into view on click, so it is not covered. Runs inside the page (passed as source).
+ */
+export function coveredBy(el: Element, hit: Element | null): boolean {
+  return hit !== null && !el.contains(hit) && !hit.contains(el);
+}
+
+/**
+ * Optional technology windows that the engine asks again on every turn (start of a turn: Transit
+ * Diodes, Chaos Mapping, Psychoarchaeology; end of a turn: Bio-Stims). With every seat owning the
+ * `techs` preset's technologies they were 24% of a game's decisions, and 40-92% of them were
+ * declined, because the decline option's label ("Decline", "finish redeployment") matches the
+ * submit-control words and so was picked as an early submit.
+ *
+ * Using a window is what ends it: Transit Diodes and Bio-Stims exhaust when used, and
+ * Psychoarchaeology exhausts the specialty planet, so a used window is not asked again until the
+ * status phase. Hence:
+ * - Transit Diodes: the first prompt of a window (it says "4 left") moves a unit; the next one
+ *   finishes. Two prompts per seat and round instead of one per turn.
+ * - Psychoarchaeology and Bio-Stims: never decline (the offer ends with the last candidate).
+ * - Chaos Mapping asks on every turn whatever is answered, and a used one runs a whole production
+ *   (seconds apiece on a debug build, plus payment and capacity prompts): the first
+ *   `CHAOS_FREE_OFFERS` offers of a seat are answered freely, later ones are declined.
+ *
+ * `offersSoFar` counts the seat's earlier offers of this subtype in the game. The submit control
+ * always stays in the pool. Returns the pool unchanged when no rule applies or when disabled
+ * (`TI4_SMOKE_TECH_FULL=1`).
+ */
+export const CHAOS_FREE_OFFERS = 3;
+
+const OPTION = /^choice-option\b/;
+// Transit Diodes has its own panel: a planet target, unit rows and a "Finish redeployment" button.
+const DECLINE_OPTION =
+  /^(choice-option\b.*\b(decline|finish redeployment)\b|decline-planet-btn\b)/i;
+
+export function preferTechWindowUse<T extends PolicyCandidate>(
+  subtype: string,
+  prompt: string,
+  candidates: T[],
+  offersSoFar: number,
+  enabled = true,
+): T[] {
+  if (!enabled || !candidates.some((c) => DECLINE_OPTION.test(c.desc))) return candidates;
+  const withoutDecline = candidates.filter((c) => !DECLINE_OPTION.test(c.desc));
+  const onlyDecline = candidates.filter((c) => !OPTION.test(c.desc) || DECLINE_OPTION.test(c.desc));
+  switch (subtype) {
+    case "transit_diodes_redeploy":
+      return /\(4 left\)/.test(prompt)
+        ? withoutDecline
+        : candidates.filter((c) => DECLINE_OPTION.test(c.desc) || /^submit-choice-button\b/.test(c.desc));
+    case "psychoarchaeology_exhaust_specialty":
+    case "bio_stims_ready":
+      return withoutDecline.some((c) => OPTION.test(c.desc)) ? withoutDecline : candidates;
+    case "chaos_mapping_choose_system":
+      return offersSoFar >= CHAOS_FREE_OFFERS ? onlyDecline : candidates;
+    default:
+      return candidates;
+  }
+}

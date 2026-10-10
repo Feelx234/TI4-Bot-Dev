@@ -224,6 +224,8 @@ but with several slots nobody plays in it: it is the base the slot worktrees and
 | `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
 | `NIGHTLY_PRESET_FACTIONS_PERCENT` | `25` | percent of preset runs (not rotated, not `world`) that seat factions from the engine roster by seed (`<preset>+fac`; `+fac:naalu:mentak` names the first seats) |
 | `NIGHTLY_SHORT_PRESETS` / `NIGHTLY_PRESET_SHORT_PERCENT` | `techs agenda leaders notes` / `70` | presets that get `+short` (a few victory points each, three public objectives left: the game ends in a few rounds) and how often |
+| `NIGHTLY_PRESET_AGENDA_PERCENT` / `NIGHTLY_AGENDA_EXCLUDE` | `65` / `agenda notes endgame` | percent of eligible preset runs that also get `<preset>+agenda` (custodians gone at the start, trade goods for votes: an agenda phase every round; about half of all runs with the default mix). Raised to `NIGHTLY_AGENDA_BOOST_PERCENT` (90) when the last night with 5+ runs had no vote, and to 100 when the first `NIGHTLY_AGENDA_NIGHT_MIN` (6) runs of tonight had none (`coverage.py --agenda-runs`) |
+| `NIGHTLY_WEB_BUILD_SHARE` | `0` | percent of runs that play against a production web build (`TI4_E2E_WEB=build`: `vite build` cached per commit in `web/.e2e-dist`, served by `vite preview` with the same proxy) instead of the vite dev server. `web` in `meta.json`, `web=build` in the digest header and `TI4_E2E_WEB=build` in the repro attribute findings |
 | `NIGHTLY_EXPLORE_MAP_TEMPLATE` / `NIGHTLY_EXPLORE_MAP_PERCENT` | `3pInPersonHyperlanes` / `30` | `explore` at three seats plays this map, the only default-size map with frontier tokens off the hyperlane tiles |
 | `NIGHTLY_SLOTS` | `1` | games played side by side (see "Parallel slots"); 1 = the classic sweep |
 | `NIGHTLY_SLOT_STAGGER_SECONDS` | `60` | slot K starts (K-1) times this after the sweep starts |
@@ -255,9 +257,31 @@ browser's compositor (night 2026-10-08, 20:51-21:46). Each run therefore:
 - writes `<run>/resources.log`: memory, swap, load, `/tmp` and `/dev/shm` use and the biggest `/tmp`
   entries at the start, then a line every `NIGHTLY_RESOURCE_LOG_SECONDS` (30) and one at the end.
 
+## Where a run's time goes
+
+`TI4_SMOKE_TIMING=1` makes the harness add `timing` to `trace/report.json`: per phase the summed
+milliseconds and call count (`commit` = wait for the new version after a committing click, `prep`,
+`click`, `settle`, `status`/`actor` snapshot GETs, `ui`, `scan`, `tour`, and `batchHttp` = the
+POST /batches round trip). `TI4_E2E_SERVER_BIN=<path>` runs an already built server binary instead of
+`cargo run` (a debug build, as always). A 150-decision techs game on 3 seats measured: `commit` 58 %,
+`prep` 22 %, Playwright `click` 11 %, everything else under 10 %.
+
+## Optimized dependencies and the pre-warm
+
+The dev profile compiles third-party crates with `opt-level = 3` and no debug info
+(`[profile.dev.package."*"]` in Cargo.toml); the workspace crates stay plain debug builds (opt-level 0,
+debug assertions and overflow checks on). Changing the profile invalidates every existing cargo target
+dir, so the first build in each (`target-slot-K`, `target-fixer`, the checkout's `target/`) recompiles
+all dependencies: about 2.5 min at `-j2` instead of 1.3 min. The sweep builds before every game
+(`BUILD_CMD`, no timeout), so Playwright's backend start (180 s) only ever sees an up-to-date target.
+To take that cost out of the night, run `tools/nightly-smoke/prewarm.sh` (add `--fixer` for the fix
+rounds' `cargo test` target) before 20:30; `PREWARM_DRY_RUN=1` prints the commands. It refuses to run
+while a sweep or fix round is running.
+
 ## Tests
 
     tools/nightly-smoke/test_schedule.sh
+    tools/nightly-smoke/test_prewarm.sh     # prewarm.sh with a stub cargo
     tools/nightly-smoke/test_resources.sh   # the host-resource helpers of config.sh
 
 test_schedule.sh runs in a temp directory with stub `claude` binaries and a fake clock: window maths on both sides
@@ -269,6 +293,7 @@ touches the live checkout. It also SIGTERMs a loop mid-run (fake proctor and gam
 entry, the absence of stray processes, the restart numbering and the `highest-run-number` rule. `test_preset_pick.sh` tests the preset and card set choice.
 `coverage.py <reports-dir>...` lists the decision subtypes no run ever offered (and those offered in
 fewer than two runs) by diffing the engine's literal subtypes against the runs' `report.json`; `test_coverage.sh` tests it.
+`coverage.py --agenda-line <night>/runs` prints `agenda phase: N of M runs voted` (or a loud `NO AGENDA PHASE HAPPENED TONIGHT`); the morning summary starts with that line.
 
     tools/nightly-smoke/test_slots.sh
 
