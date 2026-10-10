@@ -224,6 +224,7 @@ but with several slots nobody plays in it: it is the base the slot worktrees and
 | `NIGHTLY_PRESET_ROTATE_PERCENT` | `20` | percent of preset runs that also rotate the factions (`<preset>+rot`: Jol-Nar and L1Z1X at small tables) |
 | `NIGHTLY_PRESET_FACTIONS_PERCENT` | `25` | percent of preset runs (not rotated, not `world`) that seat factions from the engine roster by seed (`<preset>+fac`; `+fac:naalu:mentak` names the first seats) |
 | `NIGHTLY_SHORT_PRESETS` / `NIGHTLY_PRESET_SHORT_PERCENT` | `techs agenda leaders notes` / `70` | presets that get `+short` (a few victory points each, three public objectives left: the game ends in a few rounds) and how often |
+| `NIGHTLY_PRESET_AGENDA_PERCENT` / `NIGHTLY_AGENDA_EXCLUDE` | `65` / `agenda notes endgame` | percent of eligible preset runs that also get `<preset>+agenda` (custodians gone at the start, trade goods for votes: an agenda phase every round; about half of all runs with the default mix). Raised to `NIGHTLY_AGENDA_BOOST_PERCENT` (90) when the last night with 5+ runs had no vote, and to 100 when the first `NIGHTLY_AGENDA_NIGHT_MIN` (6) runs of tonight had none (`coverage.py --agenda-runs`) |
 | `NIGHTLY_EXPLORE_MAP_TEMPLATE` / `NIGHTLY_EXPLORE_MAP_PERCENT` | `3pInPersonHyperlanes` / `30` | `explore` at three seats plays this map, the only default-size map with frontier tokens off the hyperlane tiles |
 | `NIGHTLY_SLOTS` | `1` | games played side by side (see "Parallel slots"); 1 = the classic sweep |
 | `NIGHTLY_SLOT_STAGGER_SECONDS` | `60` | slot K starts (K-1) times this after the sweep starts |
@@ -269,6 +270,7 @@ touches the live checkout. It also SIGTERMs a loop mid-run (fake proctor and gam
 entry, the absence of stray processes, the restart numbering and the `highest-run-number` rule. `test_preset_pick.sh` tests the preset and card set choice.
 `coverage.py <reports-dir>...` lists the decision subtypes no run ever offered (and those offered in
 fewer than two runs) by diffing the engine's literal subtypes against the runs' `report.json`; `test_coverage.sh` tests it.
+`coverage.py --agenda-line <night>/runs` prints `agenda phase: N of M runs voted` (or a loud `NO AGENDA PHASE HAPPENED TONIGHT`); the morning summary starts with that line.
 
     tools/nightly-smoke/test_slots.sh
 

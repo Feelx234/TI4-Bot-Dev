@@ -41,7 +41,8 @@ You may make **minor repairs**; otherwise you observe. Rules:
 
 Most runs (about 70%) start from a prepared state (`preset` in meta.json, `TI4_SMOKE_PRESET=<name>`
 in the repro; a `+rot` suffix means the factions are rotated, so Jol-Nar or L1Z1X may sit at a small
-table). The presets only change the opening state, never a rule, and extra units, cards, relics,
+table; `+short` starts near the game's end; `+agenda` lifts the custodians token at the start so every
+round has an agenda phase). The presets only change the opening state, never a rule, and extra units, cards, relics,
 technologies, leaders or a pre-lifted custodians token are by design:
 - `combat`: an extra fleet one jump from an opponent's home, and a raiding party beside Mecatol Rex
   with the trade goods for the custodians (early combats, Mecatol activations, agenda phases).

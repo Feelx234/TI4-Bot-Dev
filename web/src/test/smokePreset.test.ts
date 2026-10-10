@@ -29,10 +29,10 @@ describe("smoke start preset", () => {
   });
 
   it("accepts the roster and short suffixes in any order, with named factions", () => {
-    for (const ok of ["world", "explore+short", "notes+rot", "combat+fac", "techs+short+fac:naalu:mentak", "leaders+fac:yin+short"]) {
+    for (const ok of ["world", "explore+short", "notes+rot", "combat+fac", "techs+short+fac:naalu:mentak", "leaders+fac:yin+short", "combat+agenda", "world+agenda+short+fac:naalu"]) {
       expect(presetFromEnv(ok)).toBe(ok);
     }
-    for (const bad of ["world+nope", "combat+fac:Naalu", "combat+short+", "nope+fac", "+rot"]) {
+    for (const bad of ["world+nope", "combat+fac:Naalu", "combat+short+", "combat+agenda:x", "agenda+", "nope+fac", "+rot"]) {
       expect(() => presetFromEnv(bad)).toThrow(/unknown TI4_SMOKE_PRESET/);
     }
     expect(basePreset("techs+short+fac")).toBe("techs");

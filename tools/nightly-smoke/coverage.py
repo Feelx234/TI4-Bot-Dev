@@ -8,6 +8,10 @@ Collects every literal decision subtype the engine can offer (the third argument
 `report.json` found under the report directories. Prints the subtypes no run ever offered, and
 those offered in fewer than `--min-runs` runs (default 2), so presets and steering can be aimed at
 them. Subtypes built at run time (`format!`, a variable) are not listed.
+
+    coverage.py --agenda-runs <night-dir>     prints "<runs with votes> <runs read>"
+    coverage.py --agenda-line <night-dir>     prints the one-line "agenda phase: N of M runs" status
+                                              (loud when no run reached the agenda phase)
 """
 
 import argparse
@@ -115,7 +119,42 @@ def run_counts(report_dirs):
     return runs, total
 
 
+# A run reached the agenda phase when the agents were asked to vote.
+VOTE_SUBTYPES = ("cast_vote", "vote_tiebreak")
+
+
+def agenda_runs(night_dir):
+    """(runs that were asked to vote, runs read) in one night's directory."""
+    voted = total = 0
+    for path in report_files(night_dir):
+        try:
+            with open(path) as handle:
+                subtypes = json.load(handle).get("subtypes")
+        except (OSError, ValueError, AttributeError):
+            continue
+        if not isinstance(subtypes, dict):
+            continue
+        total += 1
+        if any(subtypes.get(name) for name in VOTE_SUBTYPES):
+            voted += 1
+    return voted, total
+
+
+def agenda_line(night_dir):
+    voted, total = agenda_runs(night_dir)
+    if total and not voted:
+        return (f"**NO AGENDA PHASE HAPPENED TONIGHT: 0 of {total} runs were asked to vote** "
+                "(check the `+agenda` preset pick and the custodians)")
+    return f"agenda phase: {voted} of {total} runs voted"
+
+
 def main(argv):
+    if len(argv) == 2 and argv[0] in ("--agenda-runs", "--agenda-line"):
+        if argv[0] == "--agenda-runs":
+            print("%d %d" % agenda_runs(argv[1]))
+        else:
+            print(agenda_line(argv[1]))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--repo", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
     parser.add_argument("--min-runs", type=int, default=2)
