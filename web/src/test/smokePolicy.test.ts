@@ -17,6 +17,8 @@ import {
   EXCLUDED_CONTROLS,
   isReactionSubtype,
   reactionTextProblem,
+  preferTechWindowUse,
+  CHAOS_FREE_OFFERS,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -530,5 +532,52 @@ describe("controls the harness never clicks as decisions", () => {
     for (const desc of ["produce-unit-btn-cruiser", "confirm-builds", "done-producing-btn", "trade-opt-1", "answer-opt-accept", "token-bar-confirm"]) {
       expect(EXCLUDED_CONTROLS.test(desc), desc).toBe(false);
     }
+  });
+});
+
+describe("preferTechWindowUse (optional technology windows)", () => {
+  const options = [
+    c("choice-option | exhaust tarmann"),
+    c("choice-option | exhaust semlore"),
+    c("choice-option | Decline"),
+    c("submit-choice-button | Submit"),
+  ];
+  const transit = [
+    c("choice-option | move infantry from 70 to 01"),
+    c("choice-option | finish redeployment"),
+    c("submit-choice-button | Submit"),
+  ];
+  const descs = (cs: { desc: string }[]) => cs.map((x) => x.desc);
+
+  it("moves a unit at the first Transit Diodes prompt and finishes at the next", () => {
+    const first = preferTechWindowUse("transit_diodes_redeploy", "Transit Diodes: redeploy ground forces (4 left)", transit, 0);
+    expect(descs(first)).toEqual(["choice-option | move infantry from 70 to 01", "submit-choice-button | Submit"]);
+    const next = preferTechWindowUse("transit_diodes_redeploy", "Transit Diodes: redeploy ground forces (3 left)", transit, 5);
+    expect(descs(next)).toEqual(["choice-option | finish redeployment", "submit-choice-button | Submit"]);
+  });
+
+  it("finishes Transit Diodes through its own panel's button", () => {
+    const panel = [c("planet-archonvail | Target planet Archon Vail"), c("decline-planet-btn | Finish redeployment")];
+    expect(descs(preferTechWindowUse("transit_diodes_redeploy", "x (4 left)", panel, 0))).toEqual(["planet-archonvail | Target planet Archon Vail"]);
+    expect(descs(preferTechWindowUse("transit_diodes_redeploy", "x (3 left)", panel, 0))).toEqual(["decline-planet-btn | Finish redeployment"]);
+  });
+
+  it("never declines Psychoarchaeology or Bio-Stims while a candidate is offered", () => {
+    for (const subtype of ["psychoarchaeology_exhaust_specialty", "bio_stims_ready"]) {
+      expect(descs(preferTechWindowUse(subtype, "", options, 9))).not.toContain("choice-option | Decline");
+    }
+  });
+
+  it("answers the first Chaos Mapping offers freely and declines later ones", () => {
+    expect(preferTechWindowUse("chaos_mapping_choose_system", "Chaos Mapping", options, CHAOS_FREE_OFFERS - 1)).toBe(options);
+    expect(descs(preferTechWindowUse("chaos_mapping_choose_system", "Chaos Mapping", options, CHAOS_FREE_OFFERS))).toEqual([
+      "choice-option | Decline",
+      "submit-choice-button | Submit",
+    ]);
+  });
+
+  it("leaves other subtypes and a disabled policy alone", () => {
+    expect(preferTechWindowUse("draft_strategy_card", "", options, 99)).toBe(options);
+    expect(preferTechWindowUse("chaos_mapping_choose_system", "", options, 99, false)).toBe(options);
   });
 });

@@ -31,6 +31,7 @@ import {
   preferHitConfirm,
   preferPayment,
   preferReadyConfirm,
+  preferTechWindowUse,
   preferTokenConfirm,
   preferTradeDesk,
   steerWeight as policySteerWeight,
@@ -515,7 +516,10 @@ export async function randomUiPlaythrough(
 ): Promise<PlaythroughReport> {
   const log = options.log ?? (() => {});
   tradeBoost = basePreset(options.startPreset) === "notes";
+  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
   const rng = mulberry32(options.clickSeed);
+  // Offers of each (seat, subtype) so far; the optional technology windows decline after a few.
+  const techOffers = new Map<string, number>();
   const { gameId, players } = await createStartedGame(
     request,
     options.playerCount,
@@ -698,7 +702,6 @@ export async function randomUiPlaythrough(
     shots: { taken: 0, cap: shotCap, names: [] },
   };
 
-  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
   const timed = async <T>(key: string, work: () => Promise<T>): Promise<T> => {
     if (!timingOn) return work();
     const started = Date.now();
@@ -996,6 +999,9 @@ export async function randomUiPlaythrough(
           ? activationWeights(actorState.view.board, players[actorIndex].id, basePreset(options.startPreset) === "explore")
           : new Map<string, number>();
       report.subtypes[subtype] = (report.subtypes[subtype] ?? 0) + 1;
+      const offerKey = `${actorIndex}:${subtype}`;
+      const techOffersSoFar = techOffers.get(offerKey) ?? 0;
+      techOffers.set(offerKey, techOffersSoFar + 1);
       if (status.round <= 3)
         await shot(page, `round-${status.round}`, `round-${status.round}-d${report.decisions}-${subtype}`.slice(0, 120));
       trace(
@@ -1122,7 +1128,13 @@ export async function randomUiPlaythrough(
           continue;
         }
         const chosen = pick(
-          candidates,
+          preferTechWindowUse(
+            subtype,
+            choice.prompt,
+            candidates,
+            techOffersSoFar,
+            process.env.TI4_SMOKE_TECH_FULL !== "1",
+          ),
           clicks,
           rng,
           options.policy ?? "random",
