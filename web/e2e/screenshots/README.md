@@ -48,3 +48,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda always visible (BQ-agenda-visible)
 
 `BQ-agenda-visible` shows the agenda strip in every agenda sub-state on phone sizes. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit before the strip (the captures only log visibility then); `npm run screenshots -- BQ` regenerates the `after-*` PNGs and asserts, per sub-state and size (390x844, 360x740, 844x390, desktop-site), that the agenda name is inside the viewport, not cut off and not covered (`elementFromPoint`). `TI4_SHOT_OUT` moves Playwright's scratch directory off /tmp.
+
+## Technology second pick (BT-tech-second-pick)
+
+`BT-tech-second-pick` shows the Technology primary with 4 and with 6 resources (desktop and 390x844): with 4, the other cards are dimmed with a reason, a hint sits next to "Selected" and Confirm stays enabled for the single free pick; with 6, two picks and a Clear second pick button. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the fix; `npm run screenshots -- BT` regenerates the `after-*` PNGs and asserts the behaviour (data-selectable, reason, hint, 44 px targets on the phone). `TI4_SHOT_OUT` moves Playwright's scratch directory off /tmp.
