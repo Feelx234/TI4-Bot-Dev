@@ -1476,7 +1476,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "vote.rs",
-        function: "pending_choice",
+        function: "pending_choice_bare",
         // Outcome, planets, Gila's trade goods (hacancommander), tiebreak, Mahact's Recombine
         // and Tribute stages.
         count: 6,
