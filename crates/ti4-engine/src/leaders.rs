@@ -1017,20 +1017,14 @@ fn dispatch_leader(
             } else {
                 "cruiser"
             };
-            let unit = ti4_content::units::faction_unit(
+            let unit = crate::action_cards::placed_unit_id(
+                context.state,
                 context.content,
-                &context
-                    .state
-                    .player(player)
-                    .map(|seat| seat.faction.to_string())
-                    .unwrap_or_default(),
-                wanted,
                 context.sources,
+                player,
+                wanted,
             )
-            .map_or_else(
-                || ti4_model::id::UnitTypeId::new(wanted),
-                |kind| ti4_model::id::UnitTypeId::new(kind.id()),
-            );
+            .unwrap_or_else(|| ti4_model::id::UnitTypeId::new(wanted));
             if let Some(seat) = context.state.player_mut(player) {
                 seat.extra_die_round = Some(round);
                 seat.extra_die_unit = Some(unit);
@@ -1253,22 +1247,14 @@ fn dispatch_leader(
             if controlled.is_empty() {
                 return false; // nothing to place on, so it was never offered
             }
-            let faction = context
-                .state
-                .player(player)
-                .map(|seat| seat.faction.to_string())
-                .unwrap_or_default();
-            let catalogue = ti4_content::units::catalogue(context.content, context.sources);
             let unit_id = |base_type: &str| -> Option<ti4_model::id::UnitTypeId> {
-                let faction_unit = ti4_content::units::faction_unit(
+                crate::action_cards::placed_unit_id(
+                    context.state,
                     context.content,
-                    &faction,
-                    base_type,
                     context.sources,
+                    player,
+                    base_type,
                 )
-                .map(|unit| unit.id().to_owned());
-                let generic = catalogue.get(base_type).map(|unit| unit.id().to_owned());
-                faction_unit.or(generic).map(ti4_model::id::UnitTypeId::new)
             };
             let pds = unit_id("pds");
             let mech = unit_id("mech");

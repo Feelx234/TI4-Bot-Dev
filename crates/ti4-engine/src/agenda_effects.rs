@@ -357,20 +357,11 @@ fn place_infantry(
     system: &ti4_model::id::SystemId,
     planet: &ti4_model::id::PlanetId,
 ) {
-    let faction = state
-        .player(player)
-        .map(|seat| seat.faction.to_string())
-        .unwrap_or_default();
-    let generic = ti4_content::units::catalogue(content, sources)
-        .get("infantry")
-        .map(|unit| unit.id().to_owned());
-    let Some(id) = ti4_content::units::faction_unit(content, &faction, "infantry", sources)
-        .map(|unit| unit.id().to_owned())
-        .or(generic)
+    let Some(type_id) =
+        crate::action_cards::placed_unit_id(state, content, sources, player, "infantry")
     else {
         return;
     };
-    let type_id = ti4_model::id::UnitTypeId::new(id);
     if crate::supply::allowed(state, content, sources, player, &type_id, 1) == 0 {
         return; // 31.4, through the one door
     }

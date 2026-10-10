@@ -1250,8 +1250,20 @@ pub fn apply_unit_upgrades(
     let mut swaps: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
     for kind in catalogue.values() {
         let base = kind.base_type();
+        // No upgrade owned: a generic base unit becomes the faction's own version where the
+        // faction has one (Sol's `sol_carrier` for `carrier`), so a seat never holds both.
+        let own_base = || {
+            if kind.faction().is_none() && kind.required_technology().is_none() {
+                ti4_content::units::faction_unit(content, &faction, base, sources)
+                    .map(|own| own.id().to_owned())
+            } else {
+                None
+            }
+        };
         let chosen = ti4_content::units::unlocked_upgrade(content, sources, base, &faction, &held)
-            .map_or_else(|| kind.id().to_owned(), |better| better.id().to_owned());
+            .map(|better| better.id().to_owned())
+            .or_else(own_base)
+            .unwrap_or_else(|| kind.id().to_owned());
         // A module may name another form for this base type (Mentak Corsair's acquisition).
         let chosen = crate::factions::hooks_strategy::unit_form_override(
             state, content, sources, player, base, &chosen,
@@ -1284,6 +1296,54 @@ pub fn apply_unit_upgrades(
             }
         }
     }
+}
+
+/// The unit type id a seat's units of `base` must have (LRR 90): the upgrade it owns, else its
+/// faction's own version, else the plain one. `None` for a base the corpus has no form of.
+#[must_use]
+pub fn expected_unit_form(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    base: &str,
+) -> Option<String> {
+    crate::action_cards::placed_unit_id(state, content, sources, player, base)
+        .map(|id| id.as_str().to_owned())
+}
+
+/// Invariant: every unit on the board is in the form its owner is entitled to, so no seat holds a
+/// plain `carrier` beside its `sol_carrier`, or a `destroyer` beside a `destroyer2` it has
+/// researched. Returns one line per offending (player, type id, system); empty when sound.
+/// Mechs and flagships have no upgrade chain and are skipped.
+#[must_use]
+pub fn unit_form_violations(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<String> {
+    let catalogue = ti4_content::units::catalogue(content, sources);
+    let mut found = std::collections::BTreeSet::new();
+    for (system, board) in &state.board {
+        for unit in board.units.iter().chain(board.planet_units.values().flatten()) {
+            let Some(kind) = catalogue.get(unit.type_id.as_str()) else {
+                continue;
+            };
+            let base = kind.base_type();
+            if matches!(base, "mech" | "flagship") {
+                continue;
+            }
+            if let Some(expected) = expected_unit_form(state, content, sources, &unit.owner, base)
+                && expected != unit.type_id.as_str()
+            {
+                found.insert(format!(
+                    "{} has {} in {system}, expected {expected}",
+                    unit.owner, unit.type_id
+                ));
+            }
+        }
+    }
+    found.into_iter().collect()
 }
 
 fn exhaust_specialties_for_research(
@@ -2423,6 +2483,105 @@ mod tests {
                 "{faction} {tech}"
             );
         }
+    }
+
+
+    /// Table-driven over the corpus: for every faction and every unit upgrade it could own
+    /// (generic or its own), researching it converts the plain and the faction base unit, and
+    /// every placement door then yields only the owned form.
+    #[test]
+    fn every_unit_upgrade_replaces_the_base_unit_for_every_faction() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let catalogue = ti4_content::units::catalogue(content, sources);
+        let plain = ti4_model::id::SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        let factions = ti4_content::factions::catalogue(content, sources);
+        assert!(factions.len() >= 17);
+        let mut checked = 0;
+        for faction in factions.keys().map(|id| id.to_string()) {
+            if faction == "neutral" {
+                continue;
+            }
+            for upgrade in catalogue.values() {
+                let Some(tech) = upgrade.required_technology() else {
+                    continue;
+                };
+                if upgrade.faction().is_some_and(|owner| owner != faction) {
+                    continue;
+                }
+                let base = upgrade.base_type();
+                if matches!(base, "mech" | "flagship")
+                    || content
+                        .get(ti4_model::content_types::ContentType::Technologies, tech)
+                        .is_none()
+                {
+                    continue;
+                }
+                let mut state = crate::fixtures::seated_game(
+                    &[("a", faction.as_str()), ("b", "hacan")],
+                    sources,
+                );
+                let player = PlayerId::new("a");
+                state.board.entry(plain.clone()).or_default();
+                // The plain type and the faction's own type both stand there.
+                let generic = catalogue.get(base).map(|kind| kind.id().to_owned());
+                let own = ti4_content::units::faction_unit(content, &faction, base, sources)
+                    .map(|kind| kind.id().to_owned());
+                for id in generic.iter().chain(own.iter()) {
+                    crate::fixtures::put(&mut state, &plain, id, &player, 1);
+                }
+                grant(&mut state, &player, &TechnologyId::new(tech));
+                apply_unit_upgrades(&mut state, content, sources, &player);
+                assert_eq!(
+                    unit_form_violations(&state, content, sources),
+                    Vec::<String>::new(),
+                    "{faction} {tech}"
+                );
+                let placed =
+                    crate::action_cards::placed_unit_id(&state, content, sources, &player, base)
+                        .map(|id| id.to_string());
+                assert_eq!(placed.as_deref(), Some(upgrade.id()), "{faction} {tech} placement");
+                assert!(
+                    state
+                        .system_state(&plain)
+                        .units
+                        .iter()
+                        .filter(|unit| unit.owner == player)
+                        .filter(|unit| {
+                            catalogue
+                                .get(unit.type_id.as_str())
+                                .is_some_and(|kind| kind.base_type() == base)
+                        })
+                        .all(|unit| unit.type_id.as_str() == upgrade.id()),
+                    "{faction} {tech}: units left in another form"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 50, "only {checked} faction/upgrade pairs checked");
+    }
+
+    /// Without any upgrade, a generic base unit becomes the faction's own (Sol's carrier).
+    #[test]
+    fn a_plain_base_unit_becomes_the_factions_own_without_any_upgrade() {
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let plain = ti4_model::id::SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        let mut state = crate::fixtures::seated_game(&[("a", "sol"), ("b", "hacan")], sources);
+        let player = PlayerId::new("a");
+        state.board.entry(plain.clone()).or_default();
+        crate::fixtures::put(&mut state, &plain, "carrier", &player, 1);
+        assert_eq!(unit_form_violations(&state, content, sources).len(), 1);
+        apply_unit_upgrades(&mut state, content, sources, &player);
+        assert!(unit_form_violations(&state, content, sources).is_empty());
+        assert!(
+            state
+                .system_state(&plain)
+                .units
+                .iter()
+                .filter(|unit| unit.owner == player)
+                .all(|unit| unit.type_id.as_str() != "carrier")
+        );
     }
 
     #[test]
