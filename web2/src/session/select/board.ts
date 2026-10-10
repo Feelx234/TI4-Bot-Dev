@@ -12,12 +12,14 @@ import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type {
   BoardTileView,
+  ExplorationCatalog,
   InvasionFacts,
   MovementFacts,
   PlacedUnitView,
   SessionUpdate,
   SystemView,
 } from "../wire";
+import { planetTraits } from "./exploration";
 import { landingTask, selectLanding, withLandings } from "./invasion";
 import { selectArrival, selectMovementBoard, selectOrigin, withMovement } from "./movement";
 import {
@@ -45,7 +47,14 @@ const onPlanet = (system: SystemView | undefined, planet: string) =>
 /** Systems outside the map (the wormhole nexus, the fracture) have no place on this board yet. */
 const onMap = (tile: BoardTileView) => !tile.special_area;
 
-function tileView(tile: BoardTileView, system: SystemView | undefined, viewer: string | null) {
+type Traits = ReturnType<typeof planetTraits>;
+
+function tileView(
+  tile: BoardTileView,
+  system: SystemView | undefined,
+  viewer: string | null,
+  traits: Traits,
+) {
   const ships = shipsIn(system);
   const fleets = seatsOf(ships).map((seat) => ({
     seat,
@@ -79,6 +88,7 @@ function tileView(tile: BoardTileView, system: SystemView | undefined, viewer: s
         tech: TECH_COLORS[planet.tech_specialties?.[0] ?? ""] ?? null,
         groundForces: types.filter((type) => type && isGroundForce(type)).length,
         planetaryShield: types.includes("pds"),
+        traits: traits(planet),
       };
     }),
     control: fleets.length > 1 ? "contested" : (fleets[0]?.seat ?? null),
@@ -92,6 +102,7 @@ function inspector(
   tile: BoardTileView,
   system: SystemView | undefined,
   viewer: string | null,
+  traits: Traits,
 ): InspectorView {
   const ships = shipsIn(system);
   const space: InspectorRowView[] = seatsOf(ships).map((seat) => ({
@@ -106,6 +117,7 @@ function inspector(
         resources: planet.resources,
         influence: planet.influence,
         owner: system?.planets[planet.id]?.controlled_by ?? null,
+        traits: traits(planet),
       },
       force: force(units),
       notes: system?.planets[planet.id]?.exhausted ? [{ text: "Exhausted", tone: "muted" }] : [],
@@ -136,7 +148,10 @@ export function selectBoard(
   movement: { facts: MovementFacts; draft: MovementDraft; handled: string[] } | null = null,
   /** The open landings: the planets of the active system are the choice, and it opens them. */
   landing: { facts: InvasionFacts; draft: LandingDraft; chosen: number | null } | null = null,
+  /** The printed names and texts of the attachments. */
+  catalog: ExplorationCatalog | null = null,
 ): BoardView {
+  const traits = planetTraits(update, catalog);
   const viewer = viewerSeat(update);
   const board = update.view.board;
   const map = (board.map_tiles ?? []).filter(onMap);
@@ -156,11 +171,11 @@ export function selectBoard(
   const origin =
     movement &&
     selectOrigin(update, movement.facts, movement.draft, open?.system_id ?? null, movement.handled);
-  const tiles = map.map((tile) => tileView(tile, board.systems[tile.system_id], viewer));
+  const tiles = map.map((tile) => tileView(tile, board.systems[tile.system_id], viewer, traits));
   // The landings with their controls take the place of the inspector of the active system.
   const sheet =
     landing && open?.system_id === landing.facts.active
-      ? selectLanding(update, landing.facts, landing.draft, landing.chosen)
+      ? selectLanding(update, landing.facts, landing.draft, landing.chosen, catalog)
       : null;
   return {
     tiles: move
@@ -196,7 +211,7 @@ export function selectBoard(
     inspector:
       open && !origin && !sheet
         ? {
-            ...inspector(open, board.systems[open.system_id], viewer),
+            ...inspector(open, board.systems[open.system_id], viewer, traits),
             ...(movement && open.system_id === movement.facts.active
               ? { arriving: selectArrival(update, movement.facts, movement.draft) }
               : {}),

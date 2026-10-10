@@ -127,6 +127,100 @@ it("shows the forces of an inspected system", () => {
   expect(inspector?.rows.at(-1)?.planet?.name).toBe("Jord");
 });
 
+it("says what the exploration means for a planet: its type, and that a home is never explored", () => {
+  const { board } = selectShell(menu, local({ inspected: "01" }));
+  expect(board.inspector?.rows.at(-1)?.planet?.traits).toEqual({
+    types: [],
+    unexplored: false,
+    attachments: [],
+  });
+  const saudor = board.tiles.find((tile) => tile.id === "23")!.planets[0];
+  expect(saudor.traits).toMatchObject({ types: ["industrial"], unexplored: true });
+});
+
+it("names an attachment as printed, with what it changes", () => {
+  const update: SessionUpdate = structuredClone(menu);
+  update.view.board.systems["01"].planets.jord.attachments = ["dysonsphere", "cybernetic", "x_y"];
+  const catalog = {
+    cards: [],
+    decks: {},
+    attachments: [
+      { id: "dysonsphere", name: "Dyson Sphere", resources: 2, influence: 1, text: "Printed." },
+      {
+        id: "cybernetic",
+        name: "Cybernetic Research Facility",
+        resources: 0,
+        influence: 0,
+        tech_specialties: ["CYBERNETIC"],
+      },
+    ],
+  };
+  const jord = selectShell(update, local(), catalog).board.tiles.find((tile) => tile.id === "01")!
+    .planets[0];
+  expect(jord.traits.attachments).toEqual([
+    { name: "Dyson Sphere", effect: "+2 / +1", text: "Printed." },
+    { name: "Cybernetic Research Facility", effect: "Yellow skip", text: "" },
+    // An attachment that the catalogue does not have keeps its id as the name.
+    { name: "X Y", effect: "", text: "" },
+  ]);
+});
+
+it("lists the exploration decks: what is left of each card, who drew it, who has the fragments", () => {
+  const update: SessionUpdate = structuredClone(menu);
+  update.exploration = {
+    decks: { CULTURAL: ["crf2", "crf3", "pw"], HAZARDOUS: [], INDUSTRIAL: [], FRONTIER: [] },
+    drawn: [
+      {
+        round: 1,
+        player: "a",
+        deck: "CULTURAL",
+        card: "crf1",
+        planet: "saudor",
+        outcome: "fragment",
+      },
+    ],
+    explores: {},
+  };
+  update.view.players.find((player) => player.id === "a")!.relic_fragments = { CULTURAL: 1 };
+  const catalog = {
+    cards: [
+      ...["crf1", "crf2", "crf3"].map((id) => ({
+        id,
+        name: "Cultural Relic Fragment",
+        deck: "CULTURAL",
+        resolution: "Fragment",
+        text: "Purge 3.",
+      })),
+      { id: "pw", name: "Paradise World", deck: "CULTURAL", resolution: "Attach", text: "+2." },
+    ],
+    decks: { CULTURAL: ["crf1", "crf2", "crf3", "pw"] },
+    attachments: [],
+  };
+  const view = selectShell(update, local(), catalog);
+  const [cultural, hazardous] = view.reference.exploration;
+  expect(view.reference.exploration.map((deck) => deck.deck)).toEqual([
+    "cultural",
+    "hazardous",
+    "industrial",
+    "frontier",
+  ]);
+  expect(cultural).toMatchObject({ title: "Cultural", left: 3, total: 4 });
+  expect(cultural.fragments).toEqual([{ seat: "a", count: 1 }]);
+  expect(cultural.cards).toEqual([
+    {
+      name: "Cultural Relic Fragment",
+      kind: "Fragment",
+      text: "Purge 3.",
+      left: 2,
+      total: 3,
+      drawn: ["Round 1 · Sol · Saudor"],
+    },
+    { name: "Paradise World", kind: "Attach", text: "+2.", left: 1, total: 1, drawn: [] },
+  ]);
+  expect(hazardous).toMatchObject({ left: 0, total: 0, cards: [] });
+  expect(view.players.rows[0].fragments).toEqual([{ deck: "cultural", count: 1 }]);
+});
+
 it("says why the game stopped", () => {
   const view = selectShell(menu, local({ error: "run: the engine failed" }));
   expect(view.toolbar.status).toBe("The game stopped");

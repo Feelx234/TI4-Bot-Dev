@@ -485,6 +485,37 @@ export const CARDS = [
   "Technology",
   "Imperial",
 ];
+/** The types of the planets of the demo. A planet that is not here has none (a home planet). */
+export const PLANET_TYPES: Record<string, ("cultural" | "hazardous" | "industrial")[]> = {
+  starpoint: ["hazardous"],
+  newalbion: ["industrial"],
+  tarmann: ["industrial"],
+  wellon: ["industrial"],
+  lodor: ["cultural"],
+  arnor: ["industrial"],
+  lor: ["industrial"],
+  siig: ["hazardous"],
+  quann: ["cultural"],
+  vefut: ["hazardous"],
+  corneeq: ["cultural"],
+  abyz: ["hazardous"],
+};
+export const ATTACHMENTS: Record<string, { name: string; effect: string; text: string }[]> = {
+  quann: [
+    {
+      name: "Dyson Sphere",
+      effect: "+2 / +1",
+      text: "This planet's resource value is increased by 2 and its influence value is increased by 1.",
+    },
+  ],
+  vefut: [
+    {
+      name: "Warfare Research Facility",
+      effect: "+1 / +1",
+      text: "This planet has a red technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
+    },
+  ],
+};
 export const TECH: Record<string, string> = {
   tarmann: "G",
   vefut: "R",

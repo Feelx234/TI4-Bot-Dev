@@ -157,7 +157,21 @@ All eight cards use one frame: one list of seats. There are no tabs, no seat col
 - Seat symbols are drawn shapes of one size (`SeatShape` in `src/game/context.tsx`). Do not use font glyphs for them: their sizes are not equal.
 
 - The board has no log line and no log button. The log is a reference sheet in the toolbar.
+- The map view "Exploration" shows the type of each planet as a letter in the colour of the type (C, H, I), "?" while the planet is still explored when a player takes it, and "+" when something is attached. It is not a control. A planet of the open choice keeps its `res/inf` in every map view.
 - Every map view shows the board after the staged movement: the ships and ground forces that stay, and the fleet that arrives. The player must see what a move leaves behind.
+
+## Exploration
+
+The owner chose on 2026-10-10 where it shows: in the landing sheet and the system inspector, in a map view of its own, and the decks as a reference sheet.
+
+- Every screen that lists a planet has the same line for it (`PlanetTraits`): the type as icon and word, "Unexplored" while a player who takes the planet explores it, and each attachment with its name and what it changes ("Dyson Sphere +2 / +1"). The printed text of an attachment is behind "?". The landing sheet and the system inspector have it.
+- The type is the control of its deck: it opens the reference sheet "Exploration" at that deck. The sheet is in the toolbar too, as the other reference sheets.
+- The sheet has the four decks. A deck says how many cards are left and who has its relic fragments. A card is one row for all cards of that name: the printed text, "left / total", and who drew one, when and where. A card with none left is dimmed and has "–".
+- Exception to "rule text is behind hover": the deck sheet shows the printed text of each card, as a list of cards does. The reason: the player opens the sheet to read what the deck can still give.
+- `res/inf` is the printed value of a planet. The attachment says what it adds, next to it.
+- A decision that an exploration card asks has the card on top, as printed (the `source` block), with the deck and the planet.
+- The facts come from the engine: which planets are explored, what the decks hold, what was drawn (`exploration` of the update). The names and texts are the catalogue of the engine (`Transport.catalog`); without it a card is shown by its id.
+- The relic fragments and the relics of a player are in the sheet of that player.
 
 ## Movement
 
@@ -183,12 +197,12 @@ The owner chose this design on 2026-10-10, from three that were compared.
 
 - The landings are staged on the map, in one sheet at the active system. It opens when the step opens. The panel says what lands on each planet and what stays in space; it has no controls. A row of it opens the sheet.
 - The ground forces that can land are one row of the sheet, the same chips as the load row of the movement: a chip for each kind with the count that is left, grouped by place, one chip chosen (▸).
-- Each planet of the system is one row: its name, `res/inf`, who controls it, the units that are there by seat, then one token for each unit that lands and one free slot ("+"). A tap on the slot lands the chosen kind; a tap on a token takes it back. A planet where nothing can land stays in its place and says so.
+- Each planet of the system is one row: its name, `res/inf`, its type and what the exploration left there (the Exploration section), who controls it, the units that are there by seat, then one token for each unit that lands and one free slot ("+"). A tap on the slot lands the chosen kind; a tap on a token takes it back. A planet where nothing can land stays in its place and says so.
 - A tap on a planet of the active system on the map lands one more unit of the chosen kind there. The planets that can be landed on stand out, as in a payment, and a planet with a staged landing has the check mark.
 - Every map view shows the ground forces of a planet after the staged landings.
 - "Reset" of the sheet takes every staged landing back. The "✓" closes the sheet and sets no mark: there is one system. A tap on the active system opens it again. On a phone the open sheet has the room of the footer, as the fleet of a system has.
 - The footer has "Commit ground forces", or "Land nothing" when nothing is staged, and "Reset selection".
-- What follows the landings (space cannon defense, ground combat, control, exploration) is not on this screen yet: these are decisions in the list.
+- What follows the landings (space cannon defense, ground combat, control, exploration) is not on this screen yet: these are decisions in the list. A decision of an exploration card names the card.
 
 ## Battle table
 

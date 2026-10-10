@@ -1,8 +1,9 @@
 // The whole screen from one update of the game and what the player staged in this page.
 import type { ShellView } from "../../model";
-import type { SessionUpdate } from "../wire";
+import type { ExplorationCatalog, SessionUpdate } from "../wire";
 import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
+import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
 import { selectPlayers, selectSeats } from "./players";
 import { selectTactical, tacticalFacts } from "./tactical";
@@ -35,7 +36,12 @@ function status(update: SessionUpdate, local: LocalState): string {
   }
 }
 
-export function selectShell(update: SessionUpdate, local: LocalState): ShellView {
+export function selectShell(
+  update: SessionUpdate,
+  local: LocalState,
+  /** The printed exploration cards and attachments. Without it they are shown by id. */
+  catalog: ExplorationCatalog | null = null,
+): ShellView {
   // The activation, the movement and the landings have their own screens; every other decision
   // is a list.
   const facts = tacticalFacts(update, local);
@@ -69,9 +75,25 @@ export function selectShell(update: SessionUpdate, local: LocalState): ShellView
       },
     },
     players: selectPlayers(update),
-    board: selectBoard(update, local.inspected, boardTask(update, local), movement, landing),
-    action: facts ? selectTactical(update, local, facts) : selectAction(update, local),
-    reference: { objectives: [], technology: [], cards: [], offerCards: [], log: [] },
+    board: selectBoard(
+      update,
+      local.inspected,
+      boardTask(update, local),
+      movement,
+      landing,
+      catalog,
+    ),
+    action: facts
+      ? selectTactical(update, local, facts, catalog)
+      : selectAction(update, local, catalog),
+    reference: {
+      objectives: [],
+      technology: [],
+      cards: [],
+      offerCards: [],
+      exploration: selectExploration(update, catalog),
+      log: [],
+    },
     apply: local.draft?.apply ?? null,
     reveal: null,
     toast: null,

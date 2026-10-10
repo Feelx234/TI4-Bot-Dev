@@ -2,13 +2,14 @@
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type PlanAnswer, type PlanStep, planAnswer, stepOf } from "./movementPlan";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
-import type { Choice, ChoiceOption, SessionUpdate } from "./wire";
+import type { Choice, ChoiceOption, ExplorationCatalog, SessionUpdate } from "./wire";
 
 interface Exports {
   memory: WebAssembly.Memory;
   ti4_play(seed: number, players: number, humans: number): number;
   ti4_play_scenario(humans: number, idLength: number): number;
   ti4_scenarios(): number;
+  ti4_catalog(): number;
   ti4_can_undo(): number;
   ti4_response_ptr(): number;
   ti4_update_ptr(): number;
@@ -57,21 +58,31 @@ export interface Engine {
   /** SHA-256 of the file, in hex. A saved game names the engine that played it. */
   hash: string;
   scenarios: ScenarioInfo[];
+  /** The printed exploration cards and attachments. Null for an engine that was not asked. */
+  catalog: ExplorationCatalog | null;
 }
 
-/** Asks the engine for its scenarios. No game is played: the instance is asked nothing. */
-export async function scenariosOf(module: WebAssembly.Module): Promise<ScenarioInfo[]> {
+/** Asks the engine a question that needs no game: the instance is asked nothing. */
+async function ask<T>(module: WebAssembly.Module, question: (exports: Exports) => number) {
   const instance = await WebAssembly.instantiate(module, { host: { ask: () => LEAVE } });
   const exports = instance.exports as unknown as Exports;
-  const status = exports.ti4_scenarios();
+  const status = question(exports);
   const text = new TextDecoder().decode(
     new Uint8Array(exports.memory.buffer, exports.ti4_response_ptr(), Math.abs(status)),
   );
   if (status < 0) {
     throw new Error(text);
   }
-  return JSON.parse(text);
+  return JSON.parse(text) as T;
 }
+
+/** Asks the engine for its scenarios. */
+export const scenariosOf = (module: WebAssembly.Module) =>
+  ask<ScenarioInfo[]>(module, (exports) => exports.ti4_scenarios());
+
+/** Asks the engine for the printed exploration cards and attachments. */
+export const catalogOf = (module: WebAssembly.Module) =>
+  ask<ExplorationCatalog>(module, (exports) => exports.ti4_catalog());
 
 /** Fetches and compiles `ti4.wasm` from `wasmUrl`. */
 export async function loadEngine(wasmUrl: string): Promise<Engine> {
@@ -94,6 +105,7 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
     module,
     hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
     scenarios: await scenariosOf(module),
+    catalog: await catalogOf(module),
   };
 }
 
@@ -480,6 +492,7 @@ export function createWasmTransport(
   start();
 
   return {
+    catalog: engine.catalog,
     subscribe(listener) {
       listeners.add(listener);
       if (latest) {

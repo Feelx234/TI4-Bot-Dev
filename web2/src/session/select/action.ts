@@ -4,7 +4,8 @@ import type { ApplyView, BoardTaskView, FlowActionView, MenuRowView } from "../.
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type { MovementPlan } from "../movementPlan";
-import type { Choice, SessionUpdate } from "../wire";
+import type { Choice, ExplorationCatalog, SessionUpdate } from "../wire";
+import { exploringCard } from "./exploration";
 import { factionName, sentence } from "./names";
 
 /** The private draft that is in view: what its toolbar and its screens say. */
@@ -93,8 +94,14 @@ export function boardTask(update: SessionUpdate, local: LocalState): BoardTaskVi
 
 const KEYS = "123456789";
 
-export function selectAction(update: SessionUpdate, local: LocalState): FlowActionView {
+export function selectAction(
+  update: SessionUpdate,
+  local: LocalState,
+  catalog: ExplorationCatalog | null = null,
+): FlowActionView {
   const choice = openChoice(update, local);
+  // The source is on top: an exploration card that asks is shown as printed.
+  const card = choice ? exploringCard(update, catalog) : null;
   const onBoard = boardTask(update, local) !== null;
   const staged = choice?.options.find((option) => option.id === local.staged) ?? null;
   const rows: MenuRowView[] = (choice?.options ?? []).map((option, index) => ({
@@ -153,7 +160,7 @@ export function selectAction(update: SessionUpdate, local: LocalState): FlowActi
                 : `${choice.options.length} systems can be chosen on the board.`,
             },
           ]
-        : [{ kind: "menu", rows }],
+        : [...(card ? [{ kind: "source" as const, ...card }] : []), { kind: "menu", rows }],
     footer: {
       note: local.planNote
         ? local.planNote.text

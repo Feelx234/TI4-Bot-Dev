@@ -1,6 +1,7 @@
 import type { LandingPlanetView, LandingView } from "../../../model";
 import { forceText, plural } from "../../../model";
 import { Button, Icon, cx } from "../../../ui";
+import { PlanetTraits } from "../../board/PlanetTraits";
 import { OwnerLabel, SeatSymbol, useDispatch } from "../../context";
 import { useLink } from "../../link";
 import { SourceChip } from "../movement/Tokens";
@@ -26,6 +27,7 @@ function PlanetRow({ view, planet }: { view: LandingView; planet: LandingPlanetV
         <span className="tabular-nums">
           {planet.resources} / {planet.influence}
         </span>
+        <PlanetTraits name={planet.name} traits={planet.traits} />
         <OwnerLabel seat={planet.owner} />
         {planet.there.map((item) => (
           <span key={item.seat} className="inline-flex items-baseline gap-1">

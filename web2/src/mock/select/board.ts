@@ -13,7 +13,7 @@ import { ANOMALY, MAP, PAY, RETREATS, SCRIPTED, TECH, U, linesOf } from "../data
 import { E } from "../loose";
 import { strategyEditor } from "../strategy";
 import { decisionShape, sysLabel, type State, type World } from "../world";
-import { countsForce, isTactical, mapStep, productionPayment, toForce } from "./shared";
+import { countsForce, isTactical, mapStep, productionPayment, toForce, traitsOf } from "./shared";
 import { movementArrival, movementBoard, movementOrigin } from "./movement";
 
 /** The movement is staged on the board: the fleet of a system opens at the system. */
@@ -153,6 +153,7 @@ function inspector(
     resources: planet.res,
     influence: planet.inf,
     owner: planet.owner,
+    traits: traitsOf(planet),
   });
   if (!here) {
     const moved =
@@ -357,6 +358,7 @@ export function selectBoard(world: World, state: State): BoardView {
         tech: (TECH[planet.id] as TechColor) ?? null,
         groundForces: troops(planet),
         planetaryShield: !!(here && planet.structures?.includes("pds")),
+        traits: traitsOf(planet),
       })),
       control: marks.length > 1 ? "contested" : (marks[0]?.seat ?? null),
       fleets: marks,

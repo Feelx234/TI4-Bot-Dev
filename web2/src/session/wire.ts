@@ -62,6 +62,9 @@ export interface PlayerView {
   exhausted_technologies: string[];
   relics: string[];
   exhausted_relics: string[];
+  /** Relic fragments by deck: CULTURAL, HAZARDOUS, INDUSTRIAL, FRONTIER. */
+  relic_fragments?: Record<string, number>;
+  exploration_cards?: string[];
   action_cards_count: number;
   secret_objectives_count: number;
   held_action_cards?: string[];
@@ -242,6 +245,42 @@ export interface InvasionFacts {
   planets: { planet: string; lands?: number[] }[];
 }
 
+/** `ti4_model::state::ExplorationRecord`: one card that was drawn. */
+export interface ExplorationRecord {
+  round: number;
+  player: string;
+  deck: string;
+  card: string;
+  /** Null for a frontier token. */
+  planet: string | null;
+  /** `fragment`, `attached:<attachment>`, `resolved`, `unresolved` or `discarded`. */
+  outcome: string;
+}
+
+/** `ti4_view::exploration::ExplorationFacts` */
+export interface ExplorationFacts {
+  /** The card ids that each deck still holds, sorted. The keys are CULTURAL, HAZARDOUS, ... */
+  decks: Record<string, string[]>;
+  drawn: ExplorationRecord[];
+  /** The planets that are explored when a player takes them, with the decks. */
+  explores: Record<string, string[]>;
+}
+
+/** `ti4_view::exploration::ExplorationCatalog`: the printed cards. The host asks for it once. */
+export interface ExplorationCatalog {
+  cards: { id: string; name: string; deck: string; resolution: string; text: string }[];
+  /** The cards that each deck begins a game with. */
+  decks: Record<string, string[]>;
+  attachments: {
+    id: string;
+    name: string;
+    resources: number;
+    influence: number;
+    tech_specialties?: string[];
+    text?: string;
+  }[];
+}
+
 /** `ti4_view::tactical::TacticalFacts` */
 export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts;
 
@@ -281,4 +320,6 @@ export interface SessionUpdate {
   turn_status: PublicTurnStatus;
   /** What the engine says about the pending choice of a tactical action. The wasm host fills it. */
   tactical?: TacticalFacts;
+  /** The exploration decks and the planets that are still explored. The wasm host fills it. */
+  exploration?: ExplorationFacts;
 }

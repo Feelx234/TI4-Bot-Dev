@@ -30,6 +30,12 @@ const PATHS = {
   target:
     '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/>',
   pickup: '<path d="M5 20c0-7 4-11 13-11m-4-4 4 4-4 4"/>',
+  // Planet types, after the symbols of the planet cards.
+  cultural: '<path d="M3 9 12 4l9 5H3Zm3 3v6m4-6v6m4-6v6m4-6v6M4 20h16"/>',
+  hazardous:
+    '<path d="m12 3 2.2 5.2L20 7l-2.8 4.9L20 17l-5.8-1.2L12 21l-2.2-5.2L4 17l2.8-5.1L4 7l5.8 1.2L12 3Z"/>',
+  industrial:
+    '<circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.2 2.2m8.4 8.4 2.2 2.2m0-12.8-2.2 2.2m-8.4 8.4-2.2 2.2"/><circle cx="12" cy="12" r="6.5"/>',
   frame: '<path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5"/>',
 } as const;
 

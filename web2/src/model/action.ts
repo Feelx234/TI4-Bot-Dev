@@ -1,3 +1,4 @@
+import type { PlanetTraitsView } from "./board";
 import type {
   CounterView,
   Force,
@@ -340,6 +341,7 @@ export interface LandingPlanetView {
   resources: number;
   influence: number;
   owner: SeatId | null;
+  traits: PlanetTraitsView;
   /** The units that are on the planet now, by seat. */
   there: { seat: SeatId; force: Force }[];
   /** One for each staged unit. `value` is the count that takes this unit back. */

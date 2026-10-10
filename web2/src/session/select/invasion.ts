@@ -18,7 +18,8 @@ import {
   landKey,
   landed,
 } from "../landingDraft";
-import type { InvasionFacts, LandingPool, SessionUpdate } from "../wire";
+import type { ExplorationCatalog, InvasionFacts, LandingPool, SessionUpdate } from "../wire";
+import { NO_TRAITS, planetTraits } from "./exploration";
 import { systemLabel } from "./movement";
 import { forceOf, unitType } from "./names";
 
@@ -42,7 +43,9 @@ export function selectLanding(
   facts: InvasionFacts,
   draft: LandingDraft,
   chosen: number | null,
+  catalog: ExplorationCatalog | null = null,
 ): LandingView {
+  const traits = planetTraits(update, catalog);
   const tiles = new Map((update.view.board.map_tiles ?? []).map((tile) => [tile.system_id, tile]));
   const planetName = (system: string, planet: string) =>
     tiles.get(system)?.planets?.find((item) => item.id === planet)?.label ?? planet;
@@ -71,6 +74,7 @@ export function selectLanding(
       resources: info?.resources ?? 0,
       influence: info?.influence ?? 0,
       owner: system?.planets[planet]?.controlled_by ?? null,
+      traits: info ? traits(info) : NO_TRAITS,
       there: [...new Set(units.map((unit) => unit.owner))].map((seat) => ({
         seat,
         force: forceOf(units.filter((unit) => unit.owner === seat)),
@@ -113,9 +117,10 @@ export const selectInvasion = (
   facts: InvasionFacts,
   draft: LandingDraft,
   chosen: number | null,
+  catalog: ExplorationCatalog | null = null,
 ): InvasionView => ({
   kind: "invasion",
-  landing: selectLanding(update, facts, draft, chosen),
+  landing: selectLanding(update, facts, draft, chosen, catalog),
   skipped: null,
   planets: [],
   gauges: [],

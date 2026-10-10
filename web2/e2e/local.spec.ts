@@ -553,6 +553,21 @@ test("an invasion: the landings are staged on the map and sent as one plan", asy
   await page.goto("/?scenario=late-game&humans=1");
   const row = (name: string) => panel(page).getByRole("button", { name });
   const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const board = page.locator("section[aria-label='Galaxy board']");
+  const decks = page.getByRole("complementary", { name: "Exploration" });
+  // The inspector says what the exploration left on a planet: its type and what is attached.
+  await system("74").click();
+  const mapView = (name: string) =>
+    page.getByRole("group", { name: "Map view" }).getByRole("button", { name });
+  const depot = board
+    .locator("> div")
+    .filter({ has: page.getByRole("button", { name: "Close system details" }) });
+  await expect(depot.getByText("Dyson Sphere", { exact: true })).toBeVisible();
+  await expect(depot.getByText("+2 / +1")).toBeVisible();
+  await expect(depot.getByText("Unexplored", { exact: true })).toHaveCount(0);
+  await expect(depot.getByRole("button", { name: /^Cultural planet Vega Major/ })).toBeVisible();
+  await page.screenshot({ path: "shots/local/inspector-attachment.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Close system details" }).click();
   await row("Take a tactical action").click();
   await send(page).click();
   // The carrier of the north takes two infantry and a mech to a system with two free planets.
@@ -586,6 +601,31 @@ test("an invasion: the landings are staged on the map and sent as one plan", asy
   await expect(page.locator("g.planet.payable")).toHaveCount(2);
   await page.screenshot({ path: "shots/local/invasion-open.png", animations: "disabled" });
   const saved = await savedLine(page);
+
+  // Nobody has these planets: a landing explores them. The type of a planet opens its deck.
+  await expect(sheet.getByText("Unexplored", { exact: true })).toHaveCount(2);
+  await sheet.getByRole("button", { name: /^Hazardous planet Abyz/ }).click();
+  await expect(decks).toBeVisible();
+  const hazardous = decks.getByRole("region", { name: "Hazardous deck" });
+  await expect(hazardous).toBeInViewport();
+  await expect(hazardous.getByText("19 of 20 cards left")).toBeVisible();
+  // A card has its printed text, how many are left, and who drew one.
+  await expect(hazardous.getByText("Mining World")).toBeVisible();
+  await expect(
+    hazardous.getByText("This planet's resource value is increased by 2."),
+  ).toBeVisible();
+  await expect(hazardous.getByText("Drawn · Round 2 · Sol · Mehar Xull")).toBeVisible();
+  await expect(hazardous.getByText(/^Relic fragments/)).toContainText("Sol 1");
+  await page.screenshot({ path: "shots/local/exploration-deck.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Close Exploration" }).click();
+  await expect(sheet).toBeVisible();
+  // The map view of the exploration: the type of each planet, "?" while it is still explored.
+  await mapView("Exploration").click();
+  // (A planet of the open choice keeps its values in every map view.)
+  await expect(planet("Siig")).toContainText("H?");
+  await expect(page.locator("g.planet").filter({ hasText: "Vega Major" })).toContainText("C+");
+  await page.screenshot({ path: "shots/local/exploration-map.png", animations: "disabled" });
+  await mapView("Standard").click();
 
   // A slot of the sheet lands the chosen kind; a tap on a planet of the map lands one more.
   await sheet.getByRole("button", { name: "Land Infantry on Abyz" }).click();
@@ -625,7 +665,17 @@ test("an invasion: the landings are staged on the map and sent as one plan", asy
     .filter({ hasText: "Abyz" });
   await expect(inspector.getByText("1 Infantry").first()).toBeVisible();
   await expect(inspector.getByText("1 Mech · 1 Infantry")).toBeVisible();
+  // Abyz was explored, and its card asks: the decision has the card on top, as printed. Fria
+  // is explored after it.
+  await expect(panel(page).getByText("Hazardous exploration · Abyz")).toBeVisible();
+  await expect(panel(page).getByText(/If you have at least 1 mech on this planet/)).toBeVisible();
+  await expect(inspector.getByRole("button", { name: /^Hazardous planet Abyz/ })).toBeVisible();
+  await expect(inspector.getByText("Unexplored", { exact: true })).toHaveCount(1);
   await page.screenshot({ path: "shots/local/after-invasion.png", animations: "disabled" });
+  await page.locator("header").getByRole("button", { name: "Exploration" }).click();
+  await expect(decks.getByText("Drawn · Round 4 · Sol · Abyz")).toBeVisible();
+  await expect(decks.getByText("18 of 20 cards left").first()).toBeVisible();
+  await page.getByRole("button", { name: "Close Exploration" }).click();
 
   // One undo takes the landings back whole, and they are staged again.
   await undo(page).click();

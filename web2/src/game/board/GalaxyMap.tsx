@@ -11,9 +11,12 @@ import { plural } from "../../model";
 import { cx } from "../../ui";
 import { SeatShape, TECH_COLOR, useDispatch, useSeats } from "../context";
 import { useLink } from "../link";
+import { TYPE_COLOR, TYPE_NAME } from "./PlanetTraits";
 import { HEX_R, hexCenter, hexPoints, routePath } from "./hex";
 
-export type MapViewId = "standard" | "economy" | "space" | "ground" | "tech";
+export type MapViewId = "standard" | "economy" | "space" | "ground" | "tech" | "explore";
+
+const TYPE_LETTER = { cultural: "C", hazardous: "H", industrial: "I" } as const;
 
 const ANOMALY_LABEL = {
   asteroid: "Asteroid field",
@@ -128,9 +131,30 @@ function Planet({
         ? text(`${planet.groundForces}${planet.planetaryShield ? "◈" : ""}`, 9.5)
         : view === "tech"
           ? planet.tech && text(planet.tech, 11, TECH_COLOR[planet.tech])
-          : planet.owner && (
-              <SeatShape symbol={seats[planet.owner].symbol} x={x} y={y} size={11} color={color} />
-            );
+          : view === "explore"
+            ? // The letter is the type, "?" says that the planet is still explored, "+" that
+              // something is attached.
+              text(
+                <>
+                  {planet.traits.types.map((type) => (
+                    <tspan key={type} style={{ fill: TYPE_COLOR[type] }}>
+                      {TYPE_LETTER[type]}
+                    </tspan>
+                  ))}
+                  {planet.traits.unexplored && "?"}
+                  {planet.traits.attachments.length > 0 && "+"}
+                </>,
+                planet.traits.types.length > 1 ? 8.5 : 10,
+              )
+            : planet.owner && (
+                <SeatShape
+                  symbol={seats[planet.owner].symbol}
+                  x={x}
+                  y={y}
+                  size={11}
+                  color={color}
+                />
+              );
   const button =
     onPlanets && payable
       ? {
@@ -164,6 +188,9 @@ function Planet({
       <title>
         {planet.name} · {planet.resources} resources / {planet.influence} influence
         {planet.owner ? " · " + seats[planet.owner].faction : ""}
+        {planet.traits.types.map((type) => " · " + TYPE_NAME[type]).join("")}
+        {planet.traits.unexplored ? " · unexplored" : ""}
+        {planet.traits.attachments.map((item) => " · " + item.name).join("")}
       </title>
       <circle cx={x} cy={y} r={radius} />
       {inside}

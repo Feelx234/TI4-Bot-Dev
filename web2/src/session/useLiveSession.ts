@@ -586,7 +586,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           return;
       }
     };
-    return { view: selectShell(shown, state), dispatch };
+    return { view: selectShell(shown, state, transport?.catalog ?? null), dispatch };
   }, [update, local, transport, plan, outcome, locked]);
 
   return { session, error: local.error, replaying: local.replaying };

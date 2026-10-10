@@ -1,5 +1,7 @@
 // The whole screen: toolbar, player table, board, action panel, reference drawers.
 import type {
+  ExplorationDeck,
+  ExplorationDeckView,
   ListSectionView,
   LogEntryView,
   PlayerTableView,
@@ -82,6 +84,90 @@ function toolbar(world: World, state: State): ToolbarView {
   };
 }
 
+/** The relic fragments of the demo. */
+const FRAGMENTS: Record<string, { deck: ExplorationDeck; count: number }[]> = {
+  sol: [
+    { deck: "cultural", count: 2 },
+    { deck: "hazardous", count: 1 },
+  ],
+  hacan: [{ deck: "industrial", count: 1 }],
+};
+
+const card = (
+  name: string,
+  kind: string,
+  text: string,
+  left: number,
+  total: number,
+  drawn: string[] = [],
+) => ({ name, kind, text, left, total, drawn });
+/** Two decks of the demo, short: the sheet is the same for every deck. */
+const EXPLORATION: Omit<ExplorationDeckView, "fragments">[] = [
+  {
+    deck: "cultural",
+    title: "Cultural",
+    left: 5,
+    total: 8,
+    cards: [
+      card(
+        "Cultural Relic Fragment",
+        "Fragment",
+        "ACTION: Purge 3 of your cultural relic fragments to gain 1 relic.",
+        2,
+        4,
+        ["Round 1 · Sol · Lodor", "Round 2 · Sol · Corneeq"],
+      ),
+      card(
+        "Dyson Sphere",
+        "Attach",
+        "This planet's resource value is increased by 2 and its influence value is increased by 1.",
+        0,
+        1,
+        ["Round 2 · Sol · Quann"],
+      ),
+      card(
+        "Freelancers",
+        "Instant",
+        "You may produce 1 unit in this system; you may spend influence as if it were resources to produce this unit.",
+        2,
+        2,
+      ),
+      card("Paradise World", "Attach", "This planet's influence value is increased by 2.", 1, 1),
+    ],
+  },
+  {
+    deck: "hazardous",
+    title: "Hazardous",
+    left: 4,
+    total: 6,
+    cards: [
+      card(
+        "Core Mine",
+        "Instant",
+        "If you have at least 1 mech on this planet, or if you remove 1 infantry from this planet, gain 1 trade good.",
+        2,
+        2,
+      ),
+      card(
+        "Hazardous Relic Fragment",
+        "Fragment",
+        "ACTION: Purge 3 of your hazardous relic fragments to gain 1 relic.",
+        2,
+        3,
+        ["Round 2 · Sol · Starpoint"],
+      ),
+      card(
+        "Warfare Research Facility",
+        "Attach",
+        "This planet has a red technology specialty. If this planet already has a technology specialty, this planet's resource and influence values are each increased by 1 instead.",
+        0,
+        1,
+        ["Round 1 · Sol · Vefut"],
+      ),
+    ],
+  },
+];
+
 /** One row for each player, in seat order. Rows do not move. */
 function players(world: World, state: State): PlayerTableView {
   const owners = cardOwners(world, state);
@@ -135,6 +221,8 @@ function players(world: World, state: State): PlayerTableView {
         abilities: player.abilities,
         technologies: player.tech,
         leaders: player.leaders,
+        relics: seat === "hacan" ? ["Shard of the Throne"] : [],
+        fragments: FRAGMENTS[seat] ?? [],
       };
     }),
     freeCards: owners.flatMap((item, index) =>
@@ -238,6 +326,14 @@ function reference(world: World, state: State): ReferenceView {
         text: REACTION_CARDS[card],
         never: world.neverOffer.includes(card),
       })),
+    exploration: EXPLORATION.map((deck) => ({
+      ...deck,
+      fragments: seats.flatMap((seat) =>
+        (FRAGMENTS[seat] ?? [])
+          .filter((item) => item.deck === deck.deck)
+          .map((item) => ({ seat, count: item.count })),
+      ),
+    })),
     log: [3, 2].map((round) => ({
       round,
       current: round === 3,

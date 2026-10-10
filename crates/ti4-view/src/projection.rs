@@ -36,6 +36,13 @@ pub fn project_player_view(player: &Player) -> PlayerView {
         exhausted_technologies: player.exhausted_technologies.clone(),
         relics: player.relics.clone(),
         exhausted_relics: player.exhausted_relics.clone(),
+        relic_fragments: player
+            .relic_fragments
+            .iter()
+            .filter(|(_, count)| **count > 0)
+            .map(|(deck, count)| (deck.clone(), *count))
+            .collect(),
+        exploration_cards: player.exploration_cards.clone(),
         action_cards_count: player.action_cards.len(),
         secret_objectives_count: player.secret_objectives.len(),
         held_action_cards: player
@@ -650,6 +657,10 @@ pub struct SessionUpdate {
     /// leaves it empty: a host that has the map fills it ([`crate::tactical`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tactical: Option<crate::tactical::TacticalFacts>,
+    /// The exploration decks and the planets that are still explored. The projection leaves it
+    /// empty: a host that has the map fills it ([`crate::exploration`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration: Option<crate::exploration::ExplorationFacts>,
 }
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
@@ -667,6 +678,7 @@ pub fn project_session_update(
         pending_choice: project_pending_choice(viewer, pending_choice),
         turn_status: project_turn_status(state, choice),
         tactical: None,
+        exploration: None,
     }
 }
 

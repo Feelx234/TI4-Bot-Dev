@@ -4,6 +4,27 @@ import type { Force, PlanetId, SeatId, SystemId } from "./core";
 export type Anomaly = "asteroid" | "supernova" | "nebula" | "rift";
 export type TechColor = "B" | "G" | "Y" | "R";
 
+/** The type of a planet, which is also its exploration deck. */
+export type PlanetType = "cultural" | "hazardous" | "industrial";
+/** An exploration deck: one for each planet type, and the frontier deck. */
+export type ExplorationDeck = PlanetType | "frontier";
+
+/** What is attached to a planet. `effect` is short ("+2 / +1"); `text` is the printed text. */
+export interface AttachmentView {
+  name: string;
+  effect: string;
+  text: string;
+}
+
+/** What the exploration says about one planet. The same line on every screen that has a planet. */
+export interface PlanetTraitsView {
+  /** More than one type: the player who explores the planet chooses the deck. */
+  types: PlanetType[];
+  /** A player who takes control of the planet explores it. */
+  unexplored: boolean;
+  attachments: AttachmentView[];
+}
+
 /** One planet on a tile. Compare `PlanetMetaView` + `PlanetView`. */
 export interface PlanetMarkView {
   id: PlanetId;
@@ -14,6 +35,7 @@ export interface PlanetMarkView {
   tech: TechColor | null;
   groundForces: number;
   planetaryShield: boolean;
+  traits: PlanetTraitsView;
 }
 
 /** One system on the board. Compare `BoardTileView` + `SystemView`. */
@@ -89,7 +111,13 @@ export interface BoardTaskView {
 export interface InspectorRowView {
   /** A seat row shows a fleet; a planet row shows a planet. */
   seat?: SeatId;
-  planet?: { name: string; resources: number; influence: number; owner: SeatId | null };
+  planet?: {
+    name: string;
+    resources: number;
+    influence: number;
+    owner: SeatId | null;
+    traits: PlanetTraitsView;
+  };
   label?: string;
   text?: string;
   force?: Force;

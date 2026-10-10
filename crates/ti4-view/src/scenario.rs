@@ -306,6 +306,60 @@ fn late_game(
         .system_mut(&SystemId::new(at::DEPOT))
         .place_token(seats[7].clone());
 
+    // What the exploration left: attachments, relic fragments, and the cards out of the decks.
+    let drawn: [(&PlayerId, &str, &str, Option<&str>); 9] = [
+        (a, "CULTURAL", "ds", Some("vegamajor")),
+        (a, "INDUSTRIAL", "cybernetic", Some("velnor")),
+        (a, "INDUSTRIAL", "biotic", Some("lisis")),
+        (a, "CULTURAL", "crf1", Some("vorhal")),
+        (a, "CULTURAL", "crf2", Some("semlore")),
+        (a, "CULTURAL", "crf3", Some("vegaminor")),
+        (a, "HAZARDOUS", "hrf1", Some("meharxull")),
+        (b, "CULTURAL", "pw", Some("loki")),
+        (b, "FRONTIER", "urf1", None),
+    ];
+    for (seat, deck, card, planet) in drawn {
+        let cards = state
+            .exploration_decks
+            .get_mut(deck)
+            .ok_or_else(|| format!("the game has no {deck} deck"))?;
+        let at = cards
+            .iter()
+            .position(|held| held == card)
+            .ok_or_else(|| format!("the {deck} deck has no card '{card}'"))?;
+        cards.remove(at);
+        let planet = planet.map(PlanetId::new);
+        let outcome = match ti4_engine::exploration::resolution(content, card).as_deref() {
+            Some("Attach") => {
+                let planet = planet
+                    .as_ref()
+                    .ok_or_else(|| format!("the card '{card}' needs a planet"))?;
+                let attachment = ti4_engine::exploration::attachment_for(content, card, planet);
+                state
+                    .planet_attachments
+                    .entry(planet.clone())
+                    .or_default()
+                    .push(attachment.clone());
+                format!("attached:{attachment}")
+            }
+            Some("Fragment") => {
+                ti4_engine::exploration::gain_fragment(state, seat, deck);
+                "fragment".to_owned()
+            }
+            other => return Err(format!("the card '{card}' resolves as {other:?}")),
+        };
+        state
+            .exploration_log
+            .push(ti4_model::state::ExplorationRecord {
+                round: 2,
+                player: seat.clone(),
+                deck: deck.to_owned(),
+                card: card.to_owned(),
+                planet,
+                outcome,
+            });
+    }
+
     // The upgrades of seat A are on its sheet: its units on the board are the upgraded ones.
     technology::apply_unit_upgrades(state, content, sources, a);
     Ok(())
@@ -691,6 +745,43 @@ mod tests {
         for planet in &landing.planets {
             assert_eq!(planet.lands, [0, 1], "{planet:?}");
         }
+    }
+
+    #[test]
+    fn the_exploration_left_attachments_fragments_and_thinner_decks() {
+        let (state, galaxy) = game(LATE_GAME);
+        let content = ContentStore::embedded();
+        let facts = crate::exploration::project_exploration_facts(&state, content, POK, &galaxy);
+        let full = crate::exploration::exploration_catalog(content, POK).decks;
+
+        assert_eq!(facts.drawn.len(), 9);
+        assert_eq!(facts.decks["CULTURAL"].len() + 5, full["CULTURAL"].len());
+        assert_eq!(
+            facts.decks["INDUSTRIAL"].len() + 2,
+            full["INDUSTRIAL"].len()
+        );
+        assert!(!facts.decks["CULTURAL"].contains(&"ds".to_owned()));
+        let attached = |planet: &str| state.planet_attachments[&PlanetId::new(planet)].clone();
+        assert_eq!(attached("vegamajor"), ["dysonsphere"]);
+        // Velnor has a technology specialty of its own, Lisis has none.
+        assert_eq!(attached("velnor"), ["cyberneticstat"]);
+        assert_eq!(attached("lisis"), ["biotic"]);
+        assert_eq!(attached("loki"), ["paradiseworld"]);
+
+        let view = crate::projection::project_player_view(state.player(&seat()).unwrap());
+        assert_eq!(view.relic_fragments["CULTURAL"], 3);
+        assert_eq!(view.relic_fragments["HAZARDOUS"], 1);
+        let other =
+            crate::projection::project_player_view(state.player(&PlayerId::new("b")).unwrap());
+        assert_eq!(other.relic_fragments["FRONTIER"], 1);
+
+        // A planet of each deck is free: the two of the free system, one next to seat B, and
+        // the one where every other seat has a token.
+        let explores = |planet: &str| facts.explores.get(&PlanetId::new(planet)).cloned();
+        assert_eq!(explores("abyz"), Some(vec!["HAZARDOUS".to_owned()]));
+        assert_eq!(explores("abaddon"), Some(vec!["CULTURAL".to_owned()]));
+        assert_eq!(explores("perimeter"), Some(vec!["INDUSTRIAL".to_owned()]));
+        assert_eq!(explores("vegamajor"), None);
     }
 
     #[test]

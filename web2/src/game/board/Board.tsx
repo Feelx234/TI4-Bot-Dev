@@ -8,6 +8,7 @@ import { LandingSheet } from "../steps/invasion/LandingSheet";
 import { OriginSheet } from "../steps/movement/OriginSheet";
 import { OriginTokens } from "../steps/movement/Tokens";
 import { PaymentBar } from "./PaymentBar";
+import { PlanetTraits } from "./PlanetTraits";
 import { useCamera } from "./useCamera";
 
 const MAP_VIEWS: { id: MapViewId; label: string; icon: IconName; legend: string }[] = [
@@ -26,6 +27,12 @@ const MAP_VIEWS: { id: MapViewId; label: string; icon: IconName; legend: string 
     legend: "ground forces per planet · ◈ Planetary Shield",
   },
   { id: "tech", label: "Tech skips", icon: "tech", legend: "B G Y R technology specialty" },
+  {
+    id: "explore",
+    label: "Exploration",
+    icon: "target",
+    legend: "C H I planet type: cultural, hazardous, industrial · ? unexplored · + attachment",
+  },
 ];
 
 /** What is in one system: fleets, planets, and what the open action plans there. */
@@ -74,6 +81,11 @@ function SystemInspector({ view }: { view: InspectorView }) {
           </span>
           <span>
             {row.planet && <OwnerLabel seat={row.planet.owner} />}
+            {row.planet && (
+              <div>
+                <PlanetTraits name={row.planet.name} traits={row.planet.traits} />
+              </div>
+            )}
             {row.text}
             {row.force && forceText(row.force)}
             {row.notes?.map((note) => (

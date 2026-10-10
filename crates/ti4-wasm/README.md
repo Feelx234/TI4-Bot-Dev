@@ -150,6 +150,7 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_play(seed, players, human_mask) -> status` | Plays a game to its end. A seat whose bit is set in the mask (bit 0 is seat `a`) is answered by the host through `host.ask`; the others decide at random. |
 | `ti4_play_scenario(human_mask, id_len) -> status` | As `ti4_play`, from a prepared board. The request buffer holds the id of the scenario. See "Scenarios". |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
+| `ti4_catalog() -> status` | The exploration cards and the attachments as printed, as JSON in the response buffer (about 20 KB). See "The exploration". |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
 | `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
 | `ti4_decided() -> count` | How many decisions the seats made, the random seats included. See "Switching seats". |
@@ -313,6 +314,27 @@ Limits:
 - The other steps (space cannon, combat, bombardment, what follows the landings, production)
   are still lists.
 
+### The exploration
+
+Every update has the field `exploration` (`ti4-view/src/exploration.rs`):
+
+- `decks`: the card ids that each of the four decks still holds, sorted. The order of a deck is
+  hidden; what left a deck was shown to the table, so its content is public.
+- `drawn`: the cards that were drawn, in order, with the seat, the planet and what came of it
+  (`GameState::exploration_log`). The outcome is empty while the card is being resolved: a
+  decision that the game asks then is of that card, and web2 shows the card on top of it.
+- `explores`: the planets that no player controls, with the decks that they are explored into
+  (`ti4_engine::planets::traits_now`). A seat that takes control of one explores it (35.1).
+
+An update names cards and attachments by id. `ti4_catalog` has what is printed on them: the
+name, the deck, the kind and the text of each exploration card, the cards that each deck begins
+with, and for each attachment its name, what it adds to the planet, and the text of the card
+that attaches it. `ti4-content` is compiled into the engine, so this costs no bytes.
+
+The relic fragments of a seat are in its player view (`relic_fragments`, by deck), and the
+attachments of a planet in its planet view. The values of a planet (`resources`, `influence`)
+are still the printed ones: the value after the attachments is not in the view yet.
+
 ### A draft
 
 A draft is the next tactical action of a seat, tried on a copy of the game: its activation and
@@ -368,7 +390,10 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
   other seats, cargo on planets and in space on the way, and a system with a command token of
   the seat. The other seats have command tokens on the board; one system has seven. Next to
   the fleet in the north is a system with two planets and no units (38), for landings without
-  a fight.
+  a fight. The exploration left its marks: seat `a` has a Dyson Sphere on Vega Major, two
+  research facilities (Velnor, which has a technology specialty, and Lisis, which has none) and
+  three cultural relic fragments and one hazardous; seat `b` has a Paradise World on Loki and a frontier fragment. These
+  nine cards are out of their decks. Planets of each type are free.
 - `late-game-deflectors`: the same, with Light/Wave Deflector and Antimass Deflectors.
 - The tests of `scenario.rs` ask the facts of a tactical action for each case (a move that needs
   Gravity Drive, a rift roll, the move of 1 out of the nebula, the way around the supernova, the

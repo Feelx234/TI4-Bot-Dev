@@ -1,7 +1,8 @@
 // The seats and the player table.
 import type { PlayerRowView, PlayerTableView, SeatId, SeatView } from "../../model";
 import type { PlayerView, SessionUpdate } from "../wire";
-import { commodityValue, factionName, seatMark, strategyCard } from "./names";
+import { DECKS } from "./exploration";
+import { commodityValue, factionName, seatMark, strategyCard, titleCase } from "./names";
 
 /** The players in seat order. */
 const seated = (update: SessionUpdate): PlayerView[] => {
@@ -102,6 +103,11 @@ export function selectPlayers(update: SessionUpdate): PlayerTableView {
       // The ids are the short names that players use: AMD, DET, NM.
       technologies: player.technologies.map((id) => id.toUpperCase()),
       leaders: leaders(player),
+      relics: player.relics.map(titleCase),
+      fragments: DECKS.flatMap(([key, deck]) => {
+        const count = player.relic_fragments?.[key] ?? 0;
+        return count > 0 ? [{ deck, count }] : [];
+      }),
     };
   };
   return {

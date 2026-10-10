@@ -12,6 +12,7 @@ import { plural } from "../../model";
 import { landed } from "../landingDraft";
 import type {
   ActivationFacts,
+  ExplorationCatalog,
   InvasionFacts,
   MovementFacts,
   SessionUpdate,
@@ -196,11 +197,12 @@ function invasion(
   update: SessionUpdate,
   local: LocalState,
   facts: InvasionFacts,
+  catalog: ExplorationCatalog | null,
 ): { content: StepContentView; footer: FooterView; target: string } {
   const nothing = landed(local.landing) === 0;
   return {
     target: systemLabel(tilesOf(update), facts.active),
-    content: selectInvasion(update, facts, local.landing, local.landingKind),
+    content: selectInvasion(update, facts, local.landing, local.landingKind, catalog),
     footer: {
       note: local.planNote?.text ?? "This commits to the live game.",
       error: !!local.planNote?.error,
@@ -233,6 +235,7 @@ export function selectTactical(
   update: SessionUpdate,
   local: LocalState,
   facts: TacticalFacts,
+  catalog: ExplorationCatalog | null = null,
 ): TacticalActionView {
   const current = CURRENT[facts.kind];
   const selected = facts.kind === "movement" && local.step === 0 ? 0 : current;
@@ -241,7 +244,7 @@ export function selectTactical(
       ? activation(update, local, facts)
       : facts.kind === "movement"
         ? movement(update, local, facts)
-        : invasion(update, local, facts);
+        : invasion(update, local, facts, catalog);
   const units = landed(local.landing);
   const seat = update.pending_choice?.choice.player ?? "";
   const faction = factionName(

@@ -201,6 +201,18 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
   await expect(sheet.getByText("2 units land")).toBeVisible();
   await fits();
   await page.screenshot({ path: "shots/phone/local/invasion.png", animations: "disabled" });
+  // The type of a planet opens its exploration deck, as a sheet over the pane.
+  await expect(sheet.getByText("Unexplored", { exact: true })).toHaveCount(2);
+  await sheet.getByRole("button", { name: /^Hazardous planet Fria/ }).click();
+  const decks = page.getByRole("complementary", { name: "Exploration" });
+  await expect(decks.getByRole("region", { name: "Hazardous deck" })).toBeInViewport();
+  await expect(
+    decks.getByRole("region", { name: "Hazardous deck" }).getByText("19 of 20 cards left"),
+  ).toBeVisible();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/exploration-deck.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Close Exploration" }).click();
+  await expect(sheet).toBeVisible();
   // The check of the sheet closes it: the main button is back, in view.
   await sheet.getByRole("button", { name: "Done with the landings" }).click();
   await expect(send).toHaveText(/Commit ground forces/);

@@ -2,6 +2,9 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
 
 - **important: the draft must go on to the invasion and the production wherever nothing random lies between** (no dice, no decision of another seat). Today the draft ends with the movement: the run does not answer "done moving" (`ti4-view/src/planning/draft.rs`). The server already plans these steps, so most of the code is there: its planning runner (`ti4-server/src/planning/runner.rs`) and the audit of the `commit_ground_forces` and production offers (`ti4-view/src/planning/audit.rs`). The landings have their screen in Live (2026-10-10); the draft should use the same screen.
 - the invasion screen covers the landings only: space cannon defense, ground combat, control and exploration after them are still lists, and so are bombardment before them and the space combat. The Invasion tab shows the steps before it as done, also when the game skipped them.
+- the values of a planet are the printed ones: `res/inf` after the attachments must come from the engine (`ti4_engine::production`), for the planet rows, the player table and the payment
+- the deck sheet lists the exploration decks only: the relic deck, the relics as printed and the exploration cards that a seat keeps (`exploration_cards` of the player view) have no text yet. The catalogue of the engine (`ti4_catalog`) is the place for them, and for the action cards, technologies and objectives
+- the server does not send `exploration` or the catalogue yet; `ti4-view/src/exploration.rs` has both
 - the production step is still a list
 - a step of the landings is matched to an option in TypeScript only (`planAnswer`); the server's batch has no landing step yet
 - on a phone a row of the panel summary (movement, landings) opens the sheet but does not open the Map pane

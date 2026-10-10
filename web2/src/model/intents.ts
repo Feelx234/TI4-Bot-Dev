@@ -1,3 +1,4 @@
+import type { ExplorationDeck } from "./board";
 import type { PlanetId, SeatId, SystemId, UnitType } from "./core";
 
 /**
@@ -88,6 +89,8 @@ export type Intent =
   | { type: "setCardOffer"; card: string; never: boolean }
   /** Opens a reference sheet. The shell answers this one itself. */
   | { type: "openReference"; sheet: "cards" }
+  /** Opens the exploration decks at one deck. */
+  | { type: "openReference"; sheet: "exploration"; deck: ExplorationDeck }
   | { type: "inspectLogEntry"; id: string }
   /** Lets another seat act. Only the demo offers this. */
   | { type: "simulate" };

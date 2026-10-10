@@ -181,6 +181,12 @@ it("opens the invasion step: the planets are the choice on the board, the panel 
   expect(landing.planets).toMatchObject([
     { id: "saudor", owner: null, there: [], tokens: [], lands: "", reason: null },
   ]);
+  // Nobody controls the planet: who lands there explores it, into the deck of its type.
+  expect(landing.planets[0].traits).toEqual({
+    types: ["industrial"],
+    unexplored: true,
+    attachments: [],
+  });
   expect(landing.stays).toBe("2 Infantry");
   expect(view.accent).toBe("live");
   // The board: the planet is the choice, and the sheet is open at the active system.

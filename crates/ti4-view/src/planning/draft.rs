@@ -427,6 +427,12 @@ pub fn run_draft(
     });
     let stop = run.stop.clone().expect("the run ended");
 
+    let explored = |state: &GameState, mut update: SessionUpdate| {
+        update.exploration = base.galaxy.map(|galaxy| {
+            crate::exploration::project_exploration_facts(state, base.content, base.sources, galaxy)
+        });
+        update
+    };
     let shown = |offer: &Offer, open: bool| {
         let mut update = project_session_update(
             &offer.state,
@@ -437,12 +443,17 @@ pub fn run_draft(
         if open {
             update.tactical = facts(base, &offer.state, &offer.choice);
         }
-        update
+        explored(&offer.state, update)
     };
     let open = matches!(stop, DraftStop::Open | DraftStop::Complete);
     DraftOutcome {
         update: run.last.as_ref().map_or_else(
-            || project_session_update(&base.game.state, &viewer, None, base.tiles),
+            || {
+                explored(
+                    &base.game.state,
+                    project_session_update(&base.game.state, &viewer, None, base.tiles),
+                )
+            },
             |offer| shown(offer, open),
         ),
         movement: run.movement.as_ref().map(|offer| shown(offer, true)),

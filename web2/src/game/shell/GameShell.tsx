@@ -6,7 +6,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { shortcuts, type GameSession, type Intent } from "../../model";
+import { shortcuts, type ExplorationDeck, type GameSession, type Intent } from "../../model";
 import {
   Badge,
   Button,
@@ -64,7 +64,12 @@ export function GameShell({
   const [drawer, setDrawer] = useState<string | null>(settingsOpen ? "settings" : null);
   const [tableOpen, setTableOpen] = useState(true);
   const [applyOpen, setApplyOpen] = useState(false);
-  const toggleDrawer = (id: string) => setDrawer((now) => (now === id ? null : id));
+  /** The exploration deck that a planet type opened: the sheet shows it on top. */
+  const [deck, setDeck] = useState<ExplorationDeck | null>(null);
+  const toggleDrawer = (id: string) => {
+    setDeck(null);
+    setDrawer((now) => (now === id ? null : id));
+  };
   const phone = usePhone();
   const [pane, setPane] = useState<Pane>("action");
   // The pane follows the choice: a choice on the board or in the player table opens that pane.
@@ -90,6 +95,7 @@ export function GameShell({
         return setApplyOpen(true);
       }
       if (intent.type === "openReference") {
+        setDeck(intent.sheet === "exploration" ? intent.deck : null);
         return setDrawer(intent.sheet);
       }
       if (intent.type === "inspectLogEntry") {
@@ -147,6 +153,7 @@ export function GameShell({
   const reference = drawer && (
     <ReferenceDrawer
       id={drawer}
+      deck={deck}
       view={view.reference}
       players={view.players.rows}
       onClose={() => setDrawer(null)}

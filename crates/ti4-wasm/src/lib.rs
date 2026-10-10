@@ -28,6 +28,7 @@ use ti4_engine::game::{Game, RunError};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
+use ti4_view::exploration::{exploration_catalog, project_exploration_facts};
 use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
 use ti4_view::planning::draft::{DraftBase, DraftStep, run_draft};
@@ -536,6 +537,9 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
     };
     let mut update =
         project_session_update(&latest.state, viewer, Some((choice, nonce)), &latest.tiles);
+    update.exploration = latest.galaxy.as_ref().map(|galaxy| {
+        project_exploration_facts(&latest.state, ContentStore::embedded(), POK, galaxy)
+    });
     // Only a seat of the host is shown these, so the random seats do not pay for them.
     if update.pending_choice.is_some() {
         update.tactical = latest.galaxy.as_ref().and_then(|galaxy| {
@@ -701,11 +705,15 @@ fn play(
     // The last update: where the game stopped, with nothing left to answer.
     let viewer = viewer.map_or(ViewerRole::Spectator, ViewerRole::Player);
     let tiles = latest_of(&game, content).tiles;
+    let mut update = project_session_update(&game.state, &viewer, None, &tiles);
+    update.exploration = game
+        .galaxy()
+        .map(|galaxy| project_exploration_facts(&game.state, content, POK, galaxy));
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",
         "UPDATE_CAPACITY",
-        &project_session_update(&game.state, &viewer, None, &tiles),
+        &update,
     )?;
     respond(
         "the result of ti4_play",
@@ -888,6 +896,16 @@ pub extern "C" fn ti4_scenarios() -> i32 {
     status(respond(
         "the list of scenarios",
         &ti4_view::scenario::SCENARIOS,
+    ))
+}
+
+/// The exploration cards and the attachments as printed, as JSON in the response buffer. A host
+/// asks once: an update names cards by id only.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_catalog() -> i32 {
+    status(respond(
+        "the catalogue of exploration cards",
+        &exploration_catalog(ContentStore::embedded(), POK),
     ))
 }
 

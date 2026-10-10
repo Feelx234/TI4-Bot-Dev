@@ -7,12 +7,24 @@ import type {
   Intent,
   InterruptView,
   PaymentView,
+  PlanetTraitsView,
   MenuRowView,
   SeatId,
   SeatView,
   UnitType,
 } from "../../model";
-import { MAP, P, PAY, REACTION_CARDS, SEAT, SEATS, STEPS, plural } from "../data";
+import {
+  ATTACHMENTS,
+  MAP,
+  P,
+  PAY,
+  PLANET_TYPES,
+  REACTION_CARDS,
+  SEAT,
+  SEATS,
+  STEPS,
+  plural,
+} from "../data";
 import { E } from "../loose";
 import type { State, World } from "../world";
 
@@ -33,6 +45,13 @@ export const seatViews: Record<SeatId, SeatView> = Object.fromEntries(
     { id, name: seat.name, faction: seat.faction, symbol: seat.symbol, color: seat.color },
   ]),
 );
+
+/** What the exploration says about a planet of the demo: a planet of nobody is still explored. */
+export const traitsOf = (planet: { id: string; owner?: string | null }): PlanetTraitsView => ({
+  types: PLANET_TYPES[planet.id] ?? [],
+  unexplored: !planet.owner && !!PLANET_TYPES[planet.id],
+  attachments: ATTACHMENTS[planet.id] ?? [],
+});
 
 export const isTactical = (state: State) => state.kind === "tactical";
 export const systemName = (state: State) => MAP[state.data.activation.system].name;

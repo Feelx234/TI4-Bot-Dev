@@ -27,6 +27,12 @@ pub struct PlayerView {
     pub exhausted_technologies: BTreeSet<TechnologyId>,
     pub relics: Vec<RelicId>,
     pub exhausted_relics: BTreeSet<RelicId>,
+    /// Relic fragments by deck, faceup in the play area.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub relic_fragments: BTreeMap<String, i32>,
+    /// Exploration cards that stay faceup in the play area.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exploration_cards: Vec<String>,
     /// Public count of action cards in hand.
     pub action_cards_count: usize,
     /// Public count of unscored secret objectives held.

@@ -7,7 +7,7 @@ import { draftOf as landingOf, stepsOf as landingSteps, setLanding } from "./lan
 import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
-import { type Engine, createWasmTransport, scenariosOf } from "./wasmTransport";
+import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
 import type { InvasionFacts, MovementFacts, SessionUpdate } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
@@ -26,6 +26,7 @@ async function play(
     module: await WebAssembly.compile(readFileSync(WASM)),
     hash: "test",
     scenarios: [],
+    catalog: null,
   };
   let answers: readonly string[] = saved.answers ?? [];
   let switches: readonly SeatSwitch[] = saved.switches ?? [];
@@ -275,6 +276,7 @@ it.skipIf(!built)(
       module: await WebAssembly.compile(readFileSync(WASM)),
       hash: "test",
       scenarios: [],
+      catalog: null,
     };
     let answers: readonly string[] = saved;
     const transport = createWasmTransport(
@@ -481,6 +483,47 @@ it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", 
   expect(facts?.kind).toBe("activation");
   transport.close();
 });
+
+it.skipIf(!built)(
+  "has the printed exploration cards, and an update says what the decks hold",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    expect(Object.keys(catalog.decks).sort()).toEqual([
+      "CULTURAL",
+      "FRONTIER",
+      "HAZARDOUS",
+      "INDUSTRIAL",
+    ]);
+    expect(catalog.cards.find((card) => card.id === "ds")).toMatchObject({
+      name: "Dyson Sphere",
+      deck: "CULTURAL",
+      resolution: "Attach",
+    });
+    const { transport, next } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const { update } = await next();
+    transport.close();
+    // The scenario drew nine cards. A deck names the cards that are left by id.
+    const facts = update.exploration!;
+    expect(facts.drawn).toHaveLength(9);
+    expect(facts.decks.CULTURAL).toHaveLength(catalog.decks.CULTURAL.length - 5);
+    expect(facts.decks.CULTURAL).not.toContain("ds");
+    expect(facts.explores.abyz).toEqual(["HAZARDOUS"]);
+    expect(facts.explores.vegamajor).toBeUndefined();
+    expect(update.view.board.systems["74"].planets.vegamajor.attachments).toEqual(["dysonsphere"]);
+    expect(update.view.players.find((player) => player.id === "a")!.relic_fragments).toEqual({
+      CULTURAL: 3,
+      HAZARDOUS: 1,
+    });
+    for (const id of Object.values(facts.decks).flat()) {
+      expect(catalog.cards.some((card) => card.id === id)).toBe(true);
+    }
+  },
+);
 
 it.skipIf(!built)(
   "plays another seat from a decision on, several times, and a replay is the same game",

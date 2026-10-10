@@ -1,5 +1,5 @@
 import type { ActionView } from "./action";
-import type { BoardView } from "./board";
+import type { BoardView, ExplorationDeck } from "./board";
 import type { Rich, SeatId, SeatView } from "./core";
 import type { Intent } from "./intents";
 
@@ -39,6 +39,9 @@ export interface PlayerRowView {
   abilities: string[];
   technologies: string[];
   leaders: string;
+  relics: string[];
+  /** Relic fragments in the play area, by deck. Decks with none are left out. */
+  fragments: { deck: ExplorationDeck; count: number }[];
 }
 
 /** The open task lets the viewer choose a player. The player table is the picker. */
@@ -72,12 +75,36 @@ export interface LogEntryView {
   current: boolean;
 }
 
+/** One card of an exploration deck. Cards of one name are one row. */
+export interface ExplorationCardView {
+  name: string;
+  /** "Instant", "Fragment", "Attach" or "Token". */
+  kind: string;
+  text: string;
+  left: number;
+  total: number;
+  /** Who drew a card of this name, and where: "Round 2 · Sol · Vega Major". */
+  drawn: string[];
+}
+
+/** One exploration deck: what it holds, and who has its relic fragments. */
+export interface ExplorationDeckView {
+  deck: ExplorationDeck;
+  title: string;
+  left: number;
+  total: number;
+  fragments: { seat: SeatId; count: number }[];
+  cards: ExplorationCardView[];
+}
+
 export interface ReferenceView {
   objectives: ListSectionView[];
   technology: ListSectionView[];
   cards: ListSectionView[];
   /** The viewer's cards that are played in a reaction window, with the offer setting of each. */
   offerCards: { card: string; text: string; never: boolean }[];
+  /** The exploration decks, in the order cultural, hazardous, industrial, frontier. */
+  exploration: ExplorationDeckView[];
   /** `current` is the round in play: the log shows it open. */
   log: { round: number; label: string; current: boolean; entries: LogEntryView[] }[];
 }
