@@ -7,6 +7,8 @@ import type { Choice, ChoiceOption, SessionUpdate } from "./wire";
 interface Exports {
   memory: WebAssembly.Memory;
   ti4_play(seed: number, players: number, humans: number): number;
+  ti4_play_scenario(humans: number, idLength: number): number;
+  ti4_scenarios(): number;
   ti4_can_undo(): number;
   ti4_response_ptr(): number;
   ti4_update_ptr(): number;
@@ -21,9 +23,9 @@ interface Exports {
 // the promise of the answer settles, and `promising` makes the export that runs the game async.
 interface Jspi {
   Suspending: new (ask: () => Promise<number>) => WebAssembly.ImportValue;
-  promising(
-    run: Exports["ti4_play"],
-  ): (...args: Parameters<Exports["ti4_play"]>) => Promise<number>;
+  promising<Args extends number[]>(
+    run: (...args: Args) => number,
+  ): (...args: Args) => Promise<number>;
 }
 
 /** Leaves the game: the engine unwinds and `ti4_play` returns. */
@@ -36,11 +38,35 @@ const GO = -3;
 /** A replay gives the page a turn this often, so it can show how far the replay is. */
 const REPLAY_SLICE_MS = 50;
 
+/** A prepared board that the engine can start a game from (`ti4_view::scenario`). */
+export interface ScenarioInfo {
+  id: string;
+  title: string;
+  description: string;
+  seed: number;
+  players: number;
+}
+
 /** The engine file, compiled once. Each game and each undo makes an instance of it. */
 export interface Engine {
   module: WebAssembly.Module;
   /** SHA-256 of the file, in hex. A saved game names the engine that played it. */
   hash: string;
+  scenarios: ScenarioInfo[];
+}
+
+/** Asks the engine for its scenarios. No game is played: the instance is asked nothing. */
+export async function scenariosOf(module: WebAssembly.Module): Promise<ScenarioInfo[]> {
+  const instance = await WebAssembly.instantiate(module, { host: { ask: () => LEAVE } });
+  const exports = instance.exports as unknown as Exports;
+  const status = exports.ti4_scenarios();
+  const text = new TextDecoder().decode(
+    new Uint8Array(exports.memory.buffer, exports.ti4_response_ptr(), Math.abs(status)),
+  );
+  if (status < 0) {
+    throw new Error(text);
+  }
+  return JSON.parse(text);
 }
 
 /** Fetches and compiles `ti4.wasm` from `wasmUrl`. */
@@ -59,9 +85,11 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
   }
   const bytes = await response.arrayBuffer();
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  const module = await WebAssembly.compile(bytes);
   return {
-    module: await WebAssembly.compile(bytes),
+    module,
     hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    scenarios: await scenariosOf(module),
   };
 }
 
@@ -247,7 +275,15 @@ export function createWasmTransport(
     exports.ti4_set_stepping(stepping ? 1 : 0);
     tellStepping = (on) => id === current && exports.ti4_set_stepping(on ? 1 : 0);
     // A status of 0 or more is the length of a result; below 0, the negated length of an error.
-    const status = await jspi.promising(exports.ti4_play)(game.seed, game.players, game.humans);
+    let status: number;
+    if (game.scenario === undefined) {
+      status = await jspi.promising(exports.ti4_play)(game.seed, game.players, game.humans);
+    } else {
+      // The engine copies the id before it plays: a draft writes into the same buffer.
+      const name = new TextEncoder().encode(game.scenario);
+      new Uint8Array(exports.memory.buffer).set(name, exports.ti4_request_ptr());
+      status = await jspi.promising(exports.ti4_play_scenario)(game.humans, name.length);
+    }
     if (id !== current) {
       return;
     }

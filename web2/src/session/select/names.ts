@@ -63,9 +63,14 @@ const UNITS: [suffix: string, unit: UnitType][] = [
 ];
 /** The display order of unit types. */
 export const UNIT_ORDER: UnitType[] = UNITS.map(([, unit]) => unit);
-/** A faction's unit has the base type at the end of its id: "sol_carrier". */
-export const unitType = (id: string): UnitType | null =>
-  UNITS.find(([suffix]) => id === suffix || id.endsWith(`_${suffix}`))?.[1] ?? null;
+/**
+ * A faction's unit has the base type at the end of its id ("sol_carrier"), and an upgraded unit
+ * has a 2 after it ("cruiser2", "sol_carrier2").
+ */
+export function unitType(id: string): UnitType | null {
+  const base = id.replace(/2$/, "");
+  return UNITS.find(([suffix]) => base === suffix || base.endsWith(`_${suffix}`))?.[1] ?? null;
+}
 
 const SHIPS = new Set<UnitType>([
   "flagship",

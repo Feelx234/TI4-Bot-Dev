@@ -30,7 +30,7 @@ export function Toolbar({
   /** A phone has the reference sheets in the menu: the row has no room for four buttons. */
   phone?: boolean;
   other?: OtherGame;
-  /** The local game has a Settings sheet, opened like the reference sheets. */
+  /** The local game has a Dev sheet, opened like the reference sheets. */
   settings?: boolean;
 }) {
   const dispatch = useDispatch();
@@ -111,7 +111,7 @@ export function Toolbar({
           aria-expanded={drawer === "settings"}
           onClick={() => onDrawer("settings")}
         >
-          Settings
+          Dev
         </Button>
       )}
       {view.draft && (
@@ -153,7 +153,7 @@ export function Toolbar({
             ...REFERENCES.map(([id, label]) => ({ label, onSelect: () => onDrawer(id) })),
             ...(view.draft ? draftItems : []),
             ...(other ? [{ label: other.label, onSelect: () => location.assign(other.href) }] : []),
-            ...(settings ? [{ label: "Settings", onSelect: () => onDrawer("settings") }] : []),
+            ...(settings ? [{ label: "Dev", onSelect: () => onDrawer("settings") }] : []),
           ]}
         />
       )}

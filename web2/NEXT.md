@@ -9,4 +9,7 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
 - map space combat view should be similar to web/
 - everywhere a system name is used (e.g. move summary, later event log, ...): on desktop hover should highlight, click should be like click on the system on the map. on mobile map view is opened with system selected. The same with planets.
 - we should also show the command tokens of other players that activate systems (we need to test the UI how to do this for a system where 8 players have activated it)
-- for testing we need some useful starting points / scenarios from real games we can just load. look at web/ for scenario ideas. We do not need all. As of now we only wired movement, so we should be able to test all kind of edge cases with a few scenarios. (gravity drive, multiple systems, ship techs which improve movement range)
+- the scenario "Late game" (Dev sheet) found these:
+  - Antimass Deflectors does nothing in the engine. The flag that opens asteroid fields (`MovementRules::asteroid_fields_open`) is only ever set in a test. The asteroid field is closed in both scenario variants, so "Late game with deflectors" really only shows Light/Wave Deflector. A test in `ti4-view/src/scenario.rs` pins this and will fail when the engine implements it. Hacan starts with this tech, so fixing it changes existing seeded games: owner decision.
+  - The 8-seat map has no asteroid field, so the scenario replaces tile 31 with tile 44 next to Sol's home.
+  - Upgraded units showed as "Cruiser": web2 did not know ids like `sol_carrier2` or `fighter2`. Fixed in `names.ts`; they now show as their base unit, with no "II" marker.

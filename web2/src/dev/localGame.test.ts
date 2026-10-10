@@ -23,3 +23,11 @@ it("an explicit game is read as before", () => {
     humans: 1,
   });
 });
+
+it("a scenario is a game of its own, and the engine says its seed and seats", () => {
+  expect(localGame(new URLSearchParams("scenario=late-game"))).toEqual({
+    ...DEFAULT_GAME,
+    scenario: "late-game",
+  });
+  expect(localGame(new URLSearchParams("scenario=late-game&humans=3"))?.humans).toBe(3);
+});

@@ -14,16 +14,16 @@ const panel = (page: Page) => page.locator("#step-panel");
 /** The main button of the footer: "Send", "Activate system", "Move fleet". Enter does what it says. */
 const send = (page: Page) => page.locator('footer button[aria-keyshortcuts="Enter"]');
 const heading = (page: Page) => panel(page).getByRole("heading").first();
-const settings = (page: Page) => page.getByRole("complementary", { name: "Settings" });
+const settings = (page: Page) => page.getByRole("complementary", { name: "Dev" });
 const undo = (page: Page) => page.getByRole("button", { name: "Undo" });
 
-/** Opens the Settings sheet from the header. */
+/** Opens the Dev sheet from the header. */
 async function openSettings(page: Page) {
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("button", { name: "Dev", exact: true }).click();
   await expect(settings(page)).toBeVisible();
 }
 
-/** The line of the Settings sheet ("Local game · seed 42 · 8 seats · 4 answers saved"). Read, then closed. */
+/** The line of the Dev sheet ("Local game · seed 42 · 8 seats · 4 answers saved"). Read, then closed. */
 async function savedLine(page: Page) {
   await openSettings(page);
   const line =
@@ -386,7 +386,7 @@ test("a draft of a tactical action is private, is kept, and is applied as one re
   expect(errors).toEqual([]);
 });
 
-test("the other seats wait for a step when Settings says so", async ({ page }) => {
+test("the other seats wait for a step when the Dev sheet says so", async ({ page }) => {
   await page.goto("/?local=3&players=8&humans=1");
   await expect(send(page)).toBeDisabled();
   const seats = settings(page).getByRole("group", { name: "Other seats" });
@@ -411,4 +411,68 @@ test("the other seats wait for a step when Settings says so", async ({ page }) =
   await seats.getByRole("button", { name: "Run" }).click();
   await page.keyboard.press("Escape");
   await expect(send(page)).toHaveText(/^Send/);
+});
+
+test("a scenario is chosen in the Dev sheet and starts at the turn menu of its board", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?local=3&players=8&humans=1");
+  await expect(send(page)).toBeDisabled();
+  await openSettings(page);
+  const start = settings(page).getByRole("region", { name: "Start from" });
+  await expect(start.getByRole("button", { name: /^Round 1/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await start.getByRole("button", { name: /^Late game$/ }).click();
+  await expect(page).toHaveURL(/\?scenario=late-game&humans=1$/);
+
+  // Round 4, and seat A has the turn: no strategy phase is played first.
+  const row = (name: string) => panel(page).getByRole("button", { name });
+  await expect(row("Take a tactical action")).toBeVisible();
+  await openSettings(page);
+  await expect(
+    settings(page).getByText(
+      "Local game · scenario late-game · seed 42 · 8 seats · 0 answers saved",
+    ),
+  ).toBeVisible();
+  await expect(start.getByRole("button", { name: /^Late game ✓ Selected$/ })).toHaveAttribute(
+    "aria-current",
+    "true",
+  );
+  await page.screenshot({ path: "shots/local/scenario-dev.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+
+  // The draft of the turn: many systems are in reach, and the fleet in the gravity rift rolls.
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Draft" })
+    .click();
+  await expect(heading(page)).toHaveText("Activation");
+  expect(await page.locator("g.system.target:not(.plain)").count()).toBeGreaterThan(30);
+  await expect(system("70")).not.toHaveClass(/target/);
+  await page.screenshot({ path: "shots/local/scenario-activation.png", animations: "disabled" });
+  await system("42").click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  await system("41").click();
+  const sheet = page.getByRole("group", { name: /^Move from / });
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole("button", { name: "Carrier 1 of 1" }).click();
+  await expect(sheet.getByText("Rift roll")).toBeVisible();
+  await page.screenshot({ path: "shots/local/scenario-movement.png", animations: "disabled" });
+
+  // A reload goes on in the scenario, with the draft.
+  await page.reload();
+  await expect(row("Take a tactical action")).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .getByRole("button", { name: "Draft" })
+    .click();
+  await expect(heading(page)).toHaveText("Movement");
+  expect(errors).toEqual([]);
 });

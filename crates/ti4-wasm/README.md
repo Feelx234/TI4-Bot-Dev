@@ -148,6 +148,8 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 |---|---|
 | `ti4_run_seeded(seed, players, max_steps) -> status` | Random deciders on all seats; the result is the state. |
 | `ti4_play(seed, players, human_mask) -> status` | Plays a game to its end. A seat whose bit is set in the mask (bit 0 is seat `a`) is answered by the host through `host.ask`; the others decide at random. |
+| `ti4_play_scenario(human_mask, id_len) -> status` | As `ti4_play`, from a prepared board. The request buffer holds the id of the scenario. See "Scenarios". |
+| `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
 | `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
@@ -313,6 +315,29 @@ Limits:
   start-of-turn ability) stops the draft at its first step.
 - The matching of a movement step to an option is now in three places: `DraftStep` in
   `ti4-view`, `planAnswer` in `web2` (for the live plan) and `batch.rs` in the server.
+
+### Scenarios
+
+A scenario is a board that a game only has after hours of play, for testing the screens
+(`ti4-view/src/scenario.rs`). It is not a stored state: it is a function over the state of a new
+game of a fixed seed, so a game that starts from one is saved, played again and taken back like
+any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet lists them.
+
+- `late-game`: round 4, seat `a` (Sol) has the turn with ten fleets, every ship type, every ship
+  upgrade and Gravity Drive. Around them are a gravity rift, a nebula, a supernova, an asteroid
+  field (the map of eight seats has none, so one tile is replaced), a wormhole pair, fleets of
+  other seats, cargo on planets and in space on the way, and a system with a command token of
+  the seat. The other seats have command tokens on the board; one system has seven.
+- `late-game-deflectors`: the same, with Light/Wave Deflector and Antimass Deflectors.
+- The tests of `scenario.rs` ask the facts of a tactical action for each case (a move that needs
+  Gravity Drive, a rift roll, the move of 1 out of the nebula, the way around the supernova, the
+  wormhole, a pickup on the way, three places to load, the command token, out of range). A new
+  case is added there with its test.
+- Found with it: the engine gives Antimass Deflectors no effect
+  (`MovementRules::asteroid_fields_open` is only set in a test), so the asteroid field is closed
+  in both scenarios. A test pins that, and fails when the engine changes.
+- The save of a scenario is kept under `ti4.local.scenario.<id>.<humans>`, and names the
+  scenario.
 
 ### The saved game
 

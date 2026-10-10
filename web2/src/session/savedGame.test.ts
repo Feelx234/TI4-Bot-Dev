@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import {
   type SavedGame,
   clearSavedGame,
+  gameAddress,
   loadSavedGame,
   parseSavedGame,
   saveKey,
@@ -51,4 +52,16 @@ it("says which part of a saved game is wrong", () => {
 
 it("makes the key from the game alone", () => {
   expect(saveKey(save)).toBe(saveKey(game));
+});
+
+it("keeps a scenario apart from the game of the same seed", () => {
+  const scenario = { ...game, scenario: "late-game" };
+  expect(saveKey(scenario)).toBe("ti4.local.scenario.late-game.1");
+  expect(gameAddress(scenario)).toBe("?scenario=late-game&humans=1");
+  expect(gameAddress(game)).toBe("?local=3&players=8&humans=1");
+  const store = storage();
+  storeSavedGame(store, { ...save, scenario: "late-game" });
+  expect(loadSavedGame(store, game)).toBeNull();
+  expect(loadSavedGame(store, scenario)).toEqual({ ...save, scenario: "late-game" });
+  expect(() => parseSavedGame(JSON.stringify({ ...save, scenario: 3 }))).toThrow(/"scenario"/);
 });

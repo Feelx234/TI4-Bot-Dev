@@ -13,16 +13,14 @@ test("phone: a game of eight is played through the decision list", async ({ page
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
   const pane = (name: string) =>
     page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
-  // On a phone, Settings is an item of "Reference and more", not a button of the header.
+  // On a phone, Dev is an item of "Reference and more", not a button of the header.
   const savedLine = async () => {
     await page.getByRole("button", { name: "Reference and more" }).click();
-    await page.getByRole("menuitem", { name: "Settings" }).click();
-    const line = page
-      .getByRole("complementary", { name: "Settings" })
-      .getByText(/^Local game · seed/);
+    await page.getByRole("menuitem", { name: "Dev" }).click();
+    const line = page.getByRole("complementary", { name: "Dev" }).getByText(/^Local game · seed/);
     const text = (await line.textContent()) ?? "";
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("complementary", { name: "Settings" })).toBeHidden();
+    await expect(page.getByRole("complementary", { name: "Dev" })).toBeHidden();
     return text;
   };
   await expect(send).toBeDisabled();

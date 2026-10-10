@@ -14,10 +14,8 @@ test("the bare address is the local game: seed 42, eight seats", async ({ page }
   test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
   test.setTimeout(120_000);
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await expect(page.getByRole("complementary", { name: "Settings" })).toContainText(
-    "seed 42 · 8 seats",
-  );
+  await page.getByRole("button", { name: "Dev", exact: true }).click();
+  await expect(page.getByRole("complementary", { name: "Dev" })).toContainText("seed 42 · 8 seats");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Demo", exact: true })).toBeVisible();
 });

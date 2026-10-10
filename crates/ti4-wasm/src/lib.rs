@@ -68,11 +68,13 @@ fn setup(error: impl fmt::Display) -> Failure {
     Failure::Setup(error.to_string())
 }
 
-/// A seeded game for `players` seats on the recommended map template for that count.
+/// A seeded game for `players` seats on the recommended map template for that count. With a
+/// scenario, the board of that scenario is set up on it (`ti4_view::scenario`).
 fn new_game(
     content: &'static ContentStore,
     seed: u64,
     players: usize,
+    scenario: Option<&str>,
 ) -> Result<Game<'static>, Failure> {
     let seats = SEATS
         .get(..players)
@@ -87,8 +89,12 @@ fn new_game(
     let loader = TemplateLoader::load().map_err(setup)?;
     let template = default_template_for(content, &loader, players, POK)
         .ok_or_else(|| setup(format_args!("no map template builds for {players} players")))?;
-    let (state, galaxy) =
+    let (mut state, mut galaxy) =
         create_game_with_template(content, &ids, seed, Some(&template)).map_err(setup)?;
+    if let Some(scenario) = scenario {
+        ti4_view::scenario::apply(scenario, &mut state, &mut galaxy, content, POK)
+            .map_err(setup)?;
+    }
     Ok(Game::with_seeded_random(state, content, seed)
         .with_sources(POK)
         .with_galaxy(galaxy))
@@ -136,7 +142,7 @@ struct Report<'a> {
     view: Option<GameView>,
 }
 
-fn respond(what: &'static str, report: &Report<'_>) -> Result<usize, Failure> {
+fn respond(what: &'static str, report: &impl Serialize) -> Result<usize, Failure> {
     let mut response = RESPONSE.lock().expect("response lock");
     Ok(store(&mut response, what, "RESPONSE_CAPACITY", report)?)
 }
@@ -145,7 +151,7 @@ fn respond(what: &'static str, report: &Report<'_>) -> Result<usize, Failure> {
 /// is the state reached and the number of decisions taken.
 fn run_seeded(seed: u64, players: usize, max_steps: usize) -> Result<usize, Failure> {
     let content = ContentStore::embedded();
-    let mut game = new_game(content, seed, players)?;
+    let mut game = new_game(content, seed, players, None)?;
     match game.run(ROUNDS, max_steps) {
         Ok(_) | Err(RunError::StepLimit { .. }) => {}
         Err(error) => return Err(Failure::Run(error)),
@@ -524,9 +530,14 @@ fn host_ask() -> i32 {
 
 /// Play a seeded game of `players` seats to its end. A seat whose bit is set in `human_mask`
 /// (bit 0 is seat `a`) is answered by the host; the other seats decide at random.
-fn play(seed: u64, players: usize, human_mask: u32) -> Result<usize, Failure> {
+fn play(
+    seed: u64,
+    players: usize,
+    human_mask: u32,
+    scenario: Option<&str>,
+) -> Result<usize, Failure> {
     let content = ContentStore::embedded();
-    let mut game = new_game(content, seed, players)?;
+    let mut game = new_game(content, seed, players, scenario)?;
     game.table = host_table(players, human_mask);
     *RANDOM.lock().expect("random lock") = Some(SeededRandom::new(seed));
     *host() = Host {
@@ -769,7 +780,48 @@ pub extern "C" fn ti4_run_seeded(seed: u32, players: u32, max_steps: u32) -> i32
 /// wrapped in `WebAssembly.promising` and the import `host.ask` in `WebAssembly.Suspending`.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_play(seed: u32, players: u32, human_mask: u32) -> i32 {
-    status(play(u64::from(seed), players as usize, human_mask))
+    status(play(u64::from(seed), players as usize, human_mask, None))
+}
+
+/// Play a scenario of `ti4_view::scenario` as [`ti4_play`] plays a new game: the request buffer
+/// holds its id in `id_len` bytes. The seed and the number of seats are those of the scenario.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_play_scenario(human_mask: u32, id_len: u32) -> i32 {
+    // The id is copied: a draft writes its request into the same buffer while the game waits.
+    let id = {
+        let mut request = REQUEST.lock().expect("request lock");
+        request
+            .filled(id_len as usize)
+            .then(|| String::from_utf8_lossy(request.as_bytes()).into_owned())
+    };
+    let scenario = id.as_deref().and_then(ti4_view::scenario::find);
+    let Some(scenario) = scenario else {
+        let known: Vec<&str> = ti4_view::scenario::SCENARIOS
+            .iter()
+            .map(|scenario| scenario.id)
+            .collect();
+        return status(Err(setup(format_args!(
+            "no scenario '{}': the scenarios are {}",
+            id.as_deref()
+                .unwrap_or("(an id longer than the request buffer)"),
+            known.join(", ")
+        ))));
+    };
+    status(play(
+        scenario.seed,
+        scenario.players,
+        human_mask,
+        Some(scenario.id),
+    ))
+}
+
+/// The scenarios that [`ti4_play_scenario`] plays, as a JSON list in the response buffer.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_scenarios() -> i32 {
+    status(respond(
+        "the list of scenarios",
+        &ti4_view::scenario::SCENARIOS,
+    ))
 }
 
 /// Ask the host before each decision of a random seat (1), or let these seats play on (0). The
@@ -870,6 +922,18 @@ pub fn draft_native(request: &str) -> Result<String, String> {
     Ok(String::from_utf8_lossy(DRAFT.lock().expect("draft lock").as_bytes()).into_owned())
 }
 
+/// Play a scenario as [`ti4_play_scenario`] does, for callers on the native side.
+#[must_use]
+pub fn play_scenario_native(id: &str, human_mask: u32) -> i32 {
+    let fits = {
+        let mut buffer = REQUEST.lock().expect("request lock");
+        buffer.clear();
+        std::io::Write::write_all(&mut *buffer, id.as_bytes()).is_ok()
+    };
+    let length = if fits { id.len() } else { usize::MAX };
+    ti4_play_scenario(human_mask, u32::try_from(length).unwrap_or(u32::MAX))
+}
+
 /// The response of the last export, for callers on the native side.
 ///
 /// # Errors
@@ -887,13 +951,31 @@ mod tests {
     #[test]
     fn an_eight_player_game_runs_with_random_deciders() {
         let content = ContentStore::embedded();
-        let mut game = new_game(content, 3, 8).unwrap();
+        let mut game = new_game(content, 3, 8, None).unwrap();
         assert_eq!(game.state.players.len(), 8);
         match game.run(ROUNDS, 2000) {
             Ok(_) | Err(RunError::StepLimit { .. }) => {}
             Err(error) => panic!("{error}"),
         }
         assert!(game.state.round > 1, "the game left its first round");
+    }
+
+    #[test]
+    fn the_scenarios_run_with_random_deciders() {
+        let content = ContentStore::embedded();
+        for scenario in ti4_view::scenario::SCENARIOS {
+            let mut game =
+                new_game(content, scenario.seed, scenario.players, Some(scenario.id)).unwrap();
+            match game.run(ROUNDS, 400) {
+                Ok(_) | Err(RunError::StepLimit { .. }) => {}
+                Err(error) => panic!("{}: {error}", scenario.id),
+            }
+            assert!(
+                game.table.log.records.len() > 100,
+                "{}: the seats decided",
+                scenario.id
+            );
+        }
     }
 
     /// A seat that draws from a stream which a checkpoint can copy.
@@ -946,7 +1028,7 @@ mod tests {
         };
 
         for seed in [3] {
-            let mut game = new_game(content, seed, 8).unwrap();
+            let mut game = new_game(content, seed, 8, None).unwrap();
             let stream = Arc::new(Mutex::new(SeededRandom::new(seed)));
             game.table = Table::with_default(Box::new(Shared(stream.clone())));
             let table = || {
@@ -1391,5 +1473,41 @@ mod tests {
         assert!(stepped.pauses > 0);
         assert!(stepped.again, "the undo opened the last choice again");
         assert_eq!(stepped.reached, reached);
+        drop(stepped);
+
+        // A scenario starts at the turn menu of seat a, and its board is in the facts.
+        let scenarios: serde_json::Value =
+            serde_json::from_str(&response(ti4_scenarios()).unwrap()).unwrap();
+        assert_eq!(scenarios[0]["id"], ti4_view::scenario::LATE_GAME);
+        assert_eq!(scenarios[0]["players"], 8);
+        let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink = seen.clone();
+        set_native_host(move |update| {
+            let value: serde_json::Value = serde_json::from_str(update).unwrap();
+            let mut seen = sink.lock().unwrap();
+            let index = seen
+                .is_empty()
+                .then(|| options(&value).iter().position(|have| have == "tactical"))
+                .flatten();
+            seen.push(value);
+            index.map_or(-1, |index| i32::try_from(index).unwrap())
+        });
+        let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 1);
+        assert!(response(status).unwrap().contains(LEFT));
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0]["pending_choice"]["nonce"], "1");
+        assert_eq!(seen[0]["view"]["round"], 4);
+        let activation = &seen[1]["tactical"];
+        assert_eq!(activation["kind"], "activation");
+        assert_eq!(activation["tactic_tokens"], 7);
+        let reach = activation["systems"].as_array().unwrap();
+        let in_range = reach.iter().filter(|fact| fact["ships"] != 0).count();
+        assert!(in_range >= 20, "{in_range} systems in range");
+        drop(seen);
+
+        let status = play_scenario_native("nope", 1);
+        let error = response(status).unwrap_err();
+        assert!(error.contains("late-game"), "{error}");
     }
 }

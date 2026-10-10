@@ -7,6 +7,7 @@ import {
   STEPPING_KEY,
   clearSavedGame,
   draftKey,
+  gameAddress,
   loadSavedGame,
   parseSavedGame,
   planKey,
@@ -32,8 +33,9 @@ type Start =
 
 /**
  * A game of the engine in this page. `?local=3&players=8&humans=1`: the seed, the number of
- * seats, and which seats are played here (bit 0 is seat A). The answers are kept in
- * localStorage, so a reload goes on where the game was.
+ * seats, and which seats are played here (bit 0 is seat A). `?scenario=late-game` starts from a
+ * prepared board of the engine. The answers are kept in localStorage, so a reload goes on where
+ * the game was.
  */
 export function LocalApp({ game }: { game: LocalGame }) {
   const [start, setStart] = useState<Start>({ kind: "loading" });
@@ -43,12 +45,18 @@ export function LocalApp({ game }: { game: LocalGame }) {
   const [importError, setImportError] = useState<string | null>(null);
   const [transport, setTransport] = useState<Transport | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // A scenario names its seed and its seats, and the engine knows them.
+  const scenarios = start.kind === "ready" ? start.engine.scenarios : null;
+  const played = useMemo(() => {
+    const scenario = scenarios?.find((item) => item.id === game.scenario);
+    return scenario ? { ...game, seed: scenario.seed, players: scenario.players } : game;
+  }, [game, scenarios]);
   /** The other seats wait for "Step" before each decision. A setting of the page. */
   const [stepping, setStepping] = useState(() => localStorage.getItem(STEPPING_KEY) === "1");
   // The game that is played is told, and the next one starts with it.
   const steps = useRef(stepping);
   steps.current = stepping;
-  // Without the shell nothing else closes the Settings sheet: Esc does, as in the shell.
+  // Without the shell nothing else closes the Dev sheet: Esc does, as in the shell.
   useEffect(() => {
     if (!settingsOpen) {
       return;
@@ -85,14 +93,14 @@ export function LocalApp({ game }: { game: LocalGame }) {
     }
     const { engine, saved } = start;
     setAnswers(saved?.answers.length ?? 0);
-    const made = createWasmTransport(engine, game, {
+    const made = createWasmTransport(engine, played, {
       answers: saved?.answers,
       stepping: steps.current,
       onAnswers(list) {
         storeSavedGame(localStorage, {
           format: 1,
           engine: engine.hash,
-          ...game,
+          ...played,
           answers: [...list],
         });
         setAnswers(list.length);
@@ -103,7 +111,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
       made.close();
       setTransport(null);
     };
-  }, [start, waits, game]);
+  }, [start, waits, played]);
 
   const drafts = useMemo(
     () => ({ storage: localStorage, key: draftKey(game), planKey: planKey(game) }),
@@ -115,7 +123,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
     transport?.setStepping(on);
   };
   const { session, error, replaying } = useLiveSession(transport, drafts);
-  // The shell takes an open Settings sheet over. A page without the shell starts with it closed.
+  // The shell takes an open Dev sheet over. A page without the shell starts with it closed.
   const shown = !waits && !!session;
   useEffect(() => {
     if (shown) {
@@ -136,7 +144,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
     }
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-    link.download = `ti4-seed${game.seed}-${answers}answers.json`;
+    link.download = `ti4-${game.scenario ?? `seed${game.seed}`}-${answers}answers.json`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -150,18 +158,46 @@ export function LocalApp({ game }: { game: LocalGame }) {
       const saved = parseSavedGame(await file.text());
       storeSavedGame(localStorage, saved);
       // The file says which game it is. Its address opens it.
-      window.location.search = `?local=${saved.seed}&players=${saved.players}&humans=${saved.humans}`;
+      window.location.search = gameAddress(saved);
     } catch (failure) {
       setImportError(message(failure));
     }
   };
   const file = useRef<HTMLInputElement>(null);
 
-  // The Settings sheet. The shell shows it in its sheet slot; a page without the shell shows it below.
+  // A game that starts from a scenario, or from round 1, is another game with its own saved
+  // answers: its address opens it, as Import does.
+  const startRow = (id: string | undefined, title: string, description: string) => (
+    <div
+      key={id ?? ""}
+      className="row flex min-h-9 items-center gap-2 pr-2.5 [.row+&]:border-t [.row+&]:border-line/50"
+    >
+      <button
+        type="button"
+        className="flex min-h-9 flex-1 cursor-pointer items-center gap-2.5 px-3.5 text-left text-base hover:bg-cyan/[.06]"
+        aria-current={game.scenario === id}
+        onClick={() => {
+          if (game.scenario !== id) {
+            window.location.search = gameAddress(
+              id === undefined
+                ? { seed: game.seed, players: game.players, humans: game.humans }
+                : { ...game, scenario: id },
+            );
+          }
+        }}
+      >
+        <strong className="font-mid">{title}</strong>
+        {game.scenario === id && <small className="text-xs text-muted">✓ Selected</small>}
+      </button>
+      <Hint label={`About ${title}`}>{description}</Hint>
+    </div>
+  );
+
+  // The Dev sheet. The shell shows it in its sheet slot; a page without the shell shows it below.
   const settingsView = (close: () => void) => (
     <>
       <p className="text-muted">
-        {`Local game · seed ${game.seed} · ${game.players} seats · ${answers} answers saved`}
+        {`Local game · ${game.scenario === undefined ? "" : `scenario ${game.scenario} · `}seed ${played.seed} · ${played.players} seats · ${answers} answers saved`}
       </p>
       {importError && (
         <p role="alert" className="mt-3 text-red">
@@ -184,6 +220,17 @@ export function LocalApp({ game }: { game: LocalGame }) {
           and the Step button of the action panel lets the seat decide.
         </Hint>
       </div>
+      {scenarios && (
+        <section aria-label="Start from" className="mt-4">
+          <h3 className="text-sm text-muted">Start from</h3>
+          <div className="mt-1.5 rounded border border-line">
+            {startRow(undefined, "Round 1", "A new game from its setup, on the seed of this page.")}
+            {scenarios.map((scenario) =>
+              startRow(scenario.id, scenario.title, scenario.description),
+            )}
+          </div>
+        </section>
+      )}
       <div className="mt-4 flex flex-wrap gap-2">
         <Button
           tone="quiet"
@@ -243,7 +290,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
     );
   }
 
-  // The shell has the toolbar, and the toolbar has the Settings entry. Without the shell the page
+  // The shell has the toolbar, and the toolbar has the Dev entry. Without the shell the page
   // has a row of its own, so Import and New game stay in reach.
   const inShell = shown;
   return (
@@ -252,14 +299,14 @@ export function LocalApp({ game }: { game: LocalGame }) {
         <header className="flex min-h-12 items-center gap-3.5 border-b border-line bg-surface px-4 pt-[max(6px,env(safe-area-inset-top))] pb-1.5">
           <strong className="mr-auto text-sm font-semibold">Local game</strong>
           <Button tone="quiet" size="sm" onClick={() => setSettingsOpen(true)}>
-            Settings
+            Dev
           </Button>
         </header>
       )}
       <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]">
         {body}
         {!inShell && settingsOpen && (
-          <Drawer title="Settings" onClose={() => setSettingsOpen(false)}>
+          <Drawer title="Dev" onClose={() => setSettingsOpen(false)}>
             {settingsView(() => setSettingsOpen(false))}
           </Drawer>
         )}
@@ -289,15 +336,20 @@ export const DEFAULT_GAME: LocalGame = { seed: 42, players: 8, humans: 1 };
 
 /**
  * The game that the address asks for. Without `local`, the bare address gets DEFAULT_GAME, and
- * the demo (`example`) and the gallery have their own addresses, so they get none.
+ * the demo (`example`) and the gallery have their own addresses, so they get none. With
+ * `scenario`, the engine says which seed and how many seats the game has.
  */
 export function localGame(params: URLSearchParams): LocalGame | null {
-  if (!params.has("local")) {
-    return params.has("example") || params.has("gallery") ? null : DEFAULT_GAME;
-  }
   const number = (name: string, otherwise: number) => {
     const value = Number(params.get(name) || otherwise);
     return Number.isInteger(value) && value >= 0 ? value : otherwise;
   };
+  const scenario = params.get("scenario");
+  if (scenario) {
+    return { ...DEFAULT_GAME, humans: number("humans", 1), scenario };
+  }
+  if (!params.has("local")) {
+    return params.has("example") || params.has("gallery") ? null : DEFAULT_GAME;
+  }
   return { seed: number("local", 3), players: number("players", 8), humans: number("humans", 1) };
 }

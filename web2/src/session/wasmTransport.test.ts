@@ -5,7 +5,8 @@ import { setLoad, setShip } from "./movementDraft";
 import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
 import { type MovementStep, draftOf, stepsOf } from "./movementPlan";
 import type { TransportEvent } from "./transport";
-import { type Engine, createWasmTransport } from "./wasmTransport";
+import type { LocalGame } from "./savedGame";
+import { type Engine, createWasmTransport, scenariosOf } from "./wasmTransport";
 import type { MovementFacts, SessionUpdate } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
@@ -15,14 +16,17 @@ const built = existsSync(WASM);
 type Update = Extract<TransportEvent, { kind: "update" }>;
 
 /** A game of seed 3 with seat a on this side, and the updates of it, one after the other. */
-async function play(stepping = false) {
-  const engine: Engine = { module: await WebAssembly.compile(readFileSync(WASM)), hash: "test" };
+async function play(stepping = false, game: LocalGame = { seed: 3, players: 8, humans: 1 }) {
+  const engine: Engine = {
+    module: await WebAssembly.compile(readFileSync(WASM)),
+    hash: "test",
+    scenarios: [],
+  };
   let answers: readonly string[] = [];
-  const transport = createWasmTransport(
-    engine,
-    { seed: 3, players: 8, humans: 1 },
-    { onAnswers: (all) => (answers = [...all]), stepping },
-  );
+  const transport = createWasmTransport(engine, game, {
+    onAnswers: (all) => (answers = [...all]),
+    stepping,
+  });
   const seen: Update[] = [];
   let wake: (() => void) | null = null;
   transport.subscribe((event) => {
@@ -175,7 +179,11 @@ it.skipIf(!built)(
     expect(saved.slice(4)).toEqual(["move|01|0", "done_loading", "move|01|1", "done_moving"]);
 
     // A new visit: the page does not know which answers were one plan.
-    const engine: Engine = { module: await WebAssembly.compile(readFileSync(WASM)), hash: "test" };
+    const engine: Engine = {
+      module: await WebAssembly.compile(readFileSync(WASM)),
+      hash: "test",
+      scenarios: [],
+    };
     let answers: readonly string[] = saved;
     const transport = createWasmTransport(
       engine,
@@ -352,3 +360,32 @@ it.skipIf(!built)(
   },
   60_000,
 );
+
+it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", async () => {
+  const scenarios = await scenariosOf(await WebAssembly.compile(readFileSync(WASM)));
+  const late = scenarios.find((scenario) => scenario.id === "late-game")!;
+  expect(late).toMatchObject({ seed: 42, players: 8 });
+  const { transport, next, nonce } = await play(false, {
+    seed: late.seed,
+    players: late.players,
+    humans: 1,
+    scenario: late.id,
+  });
+  const menu = await next();
+  expect(nonce(menu)).toBe("1");
+  expect(menu.update.view.round).toBe(4);
+  // The fleet in the gravity rift, with its upgrades and the ground forces in its space area.
+  expect(shipsIn(menu.update, "41")).toEqual([
+    "cruiser2",
+    "fighter2",
+    "fighter2",
+    "sol_carrier2",
+    "sol_infantry",
+    "sol_infantry",
+  ]);
+  transport.submitChoice(nonce(menu), "tactical");
+  const activation = await next();
+  const facts = activation.update.tactical;
+  expect(facts?.kind).toBe("activation");
+  transport.close();
+});

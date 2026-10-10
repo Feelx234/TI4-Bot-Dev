@@ -8,6 +8,11 @@ export interface LocalGame {
   players: number;
   /** Bit 0 is the first seat. A seat whose bit is set is played here; the others decide at random. */
   humans: number;
+  /**
+   * The prepared board that the game starts from (`ti4_view::scenario`). The seed and the number
+   * of seats are then those of the scenario.
+   */
+  scenario?: string;
 }
 
 export interface SavedGame extends LocalGame {
@@ -22,7 +27,15 @@ export interface SavedGame extends LocalGame {
 export type SaveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export const saveKey = (game: LocalGame): string =>
-  `ti4.local.${game.seed}.${game.players}.${game.humans}`;
+  game.scenario === undefined
+    ? `ti4.local.${game.seed}.${game.players}.${game.humans}`
+    : `ti4.local.scenario.${game.scenario}.${game.humans}`;
+
+/** The address of a game: what `localGame` in `dev/LocalApp.tsx` reads. */
+export const gameAddress = (game: LocalGame): string =>
+  game.scenario === undefined
+    ? `?local=${game.seed}&players=${game.players}&humans=${game.humans}`
+    : `?scenario=${encodeURIComponent(game.scenario)}&humans=${game.humans}`;
 
 /** Where the staged movement of the open movement step is kept: it is not an answer yet. */
 export const draftKey = (game: LocalGame): string => `${saveKey(game)}.movement`;
@@ -62,6 +75,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value.engine !== "string") {
     throw new Error('The saved game has no text in "engine".');
   }
+  if (value.scenario !== undefined && typeof value.scenario !== "string") {
+    throw new Error('The saved game has no text in "scenario".');
+  }
   const { answers } = value;
   if (!Array.isArray(answers) || !answers.every((answer) => typeof answer === "string")) {
     throw new Error('The saved game has no list of option ids in "answers".');
@@ -72,6 +88,7 @@ export function parseSavedGame(text: string): SavedGame {
     seed: value.seed as number,
     players: value.players as number,
     humans: value.humans as number,
+    ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
     answers,
   };
 }

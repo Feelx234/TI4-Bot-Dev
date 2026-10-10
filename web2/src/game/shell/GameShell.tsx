@@ -55,9 +55,9 @@ export function GameShell({
 }: {
   session: GameSession;
   other?: OtherGame;
-  /** The content of the Settings sheet. `close` shuts the sheet, for an action that ends it. */
+  /** The content of the Dev sheet. `close` shuts the sheet, for an action that ends it. */
   settings?: (close: () => void) => ReactNode;
-  /** The Settings sheet was open before the shell was there: it stays open. */
+  /** The Dev sheet was open before the shell was there: it stays open. */
   settingsOpen?: boolean;
 }) {
   const { view } = session;
@@ -153,11 +153,11 @@ export function GameShell({
     />
   );
   const close = () => setDrawer(null);
-  // Settings is a sheet like the reference sheets, in the same place.
+  // Dev is a sheet like the reference sheets, in the same place.
   const sheet =
     drawer === "settings"
       ? settings && (
-          <Drawer title="Settings" onClose={close}>
+          <Drawer title="Dev" onClose={close}>
             {settings(close)}
           </Drawer>
         )
