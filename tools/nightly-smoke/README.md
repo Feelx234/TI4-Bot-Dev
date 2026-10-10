@@ -265,9 +265,22 @@ POST /batches round trip). `TI4_E2E_SERVER_BIN=<path>` runs an already built ser
 `cargo run` (a debug build, as always). A 150-decision techs game on 3 seats measured: `commit` 58 %,
 `prep` 22 %, Playwright `click` 11 %, everything else under 10 %.
 
+## Optimized dependencies and the pre-warm
+
+The dev profile compiles third-party crates with `opt-level = 3` and no debug info
+(`[profile.dev.package."*"]` in Cargo.toml); the workspace crates stay plain debug builds (opt-level 0,
+debug assertions and overflow checks on). Changing the profile invalidates every existing cargo target
+dir, so the first build in each (`target-slot-K`, `target-fixer`, the checkout's `target/`) recompiles
+all dependencies: about 2.5 min at `-j2` instead of 1.3 min. The sweep builds before every game
+(`BUILD_CMD`, no timeout), so Playwright's backend start (180 s) only ever sees an up-to-date target.
+To take that cost out of the night, run `tools/nightly-smoke/prewarm.sh` (add `--fixer` for the fix
+rounds' `cargo test` target) before 20:30; `PREWARM_DRY_RUN=1` prints the commands. It refuses to run
+while a sweep or fix round is running.
+
 ## Tests
 
     tools/nightly-smoke/test_schedule.sh
+    tools/nightly-smoke/test_prewarm.sh     # prewarm.sh with a stub cargo
     tools/nightly-smoke/test_resources.sh   # the host-resource helpers of config.sh
 
 test_schedule.sh runs in a temp directory with stub `claude` binaries and a fake clock: window maths on both sides

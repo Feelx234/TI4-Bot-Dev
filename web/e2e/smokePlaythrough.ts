@@ -610,7 +610,9 @@ export async function randomUiPlaythrough(
         }
         browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
       });
-      if (timingOn)
+      // (Not `timingOn`: that const is declared further down, so reading it here threw a
+      // ReferenceError at the start of every TI4_SMOKE_TIMING=1 run.)
+      if (process.env.TI4_SMOKE_TIMING === "1")
         page.on("requestfinished", (request) => {
           // The server's share of a committing click: request sent until the response was complete.
           if (!request.url().includes("/batches")) return;
