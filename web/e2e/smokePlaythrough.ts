@@ -35,6 +35,7 @@ import {
   steerWeight as policySteerWeight,
   strongUnselected,
   classifyControl,
+  classifyCandidate,
   isBarControl,
   turnBarPool,
   pausedBatch,
@@ -274,6 +275,7 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
         full: string;
         resume: boolean;
         checked: boolean;
+        staged: boolean;
       }[] = [];
       let idx = 0;
       for (const el of found) {
@@ -298,6 +300,8 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
             testId.startsWith("resume-") ||
             el.closest('[data-testid="choice-minimized-pill"]') !== null,
           checked: el instanceof HTMLInputElement && el.checked,
+          // A selected technology card: clicking it again takes the pick back.
+          staged: el.matches('[data-testid^="tech-card-"][data-selected="true"]'),
         });
         idx++;
       }
@@ -305,8 +309,8 @@ export async function collectCandidates(page: Page): Promise<Candidate[]> {
     },
     { containers: DECISION_CONTAINERS, excluded: EXCLUDED.source },
   );
-  return raw.map((c) => {
-    return { ...c, ...classifyControl(c.desc) };
+  return raw.map(({ staged, ...c }) => {
+    return { ...c, ...classifyCandidate(c.desc, staged) };
   });
 }
 

@@ -537,4 +537,89 @@ describe("TechnologyModal", () => {
     expect(glsCard).toHaveAttribute("data-researchable", "false");
     expect(screen.queryByTestId("first-tech-prereq-bonus")).not.toBeInTheDocument();
   });
+
+  describe("Technology primary: the second technology costs 6 resources", () => {
+    const primaryChoice = (ids: string[]): PendingChoiceDto => ({
+      actor: "player1",
+      nonce: "dec-tech-primary-afford",
+      prompt: "Research a technology",
+      context: {
+        subtype: "research_technology",
+        source: { StrategyCard: { card: "Technology", secondary: false } },
+      },
+      options: ids.map((id) => ({ id, label: id, kind: "research" })),
+    });
+    const renderPrimary = (tradeGoods: number, owned: string[], ids: string[]) =>
+      renderWithIdentity(
+        <TechnologyModal
+          isOpen={true}
+          onClose={vi.fn()}
+          players={[
+            { ...mockPlayers[0], faction: "sol", trade_goods: tradeGoods, technologies: owned },
+            mockPlayers[1],
+          ]}
+          viewerSeat="player1"
+          choice={primaryChoice(ids)}
+          onSubmit={vi.fn().mockResolvedValue(undefined)}
+          isResearchMode={true}
+        />,
+      );
+
+    it("with 4 resources no other card can be the second pick, and Confirm stays enabled for the single pick", () => {
+      renderPrimary(4, [], ["amd", "ps", "nm"]);
+      fireEvent.click(screen.getByTestId("tech-card-amd"));
+      expect(screen.getByTestId("tech-card-amd")).toHaveAttribute("data-selected", "true");
+      for (const id of ["ps", "nm", "st"]) {
+        const card = screen.getByTestId(`tech-card-${id}`);
+        expect(card).toHaveAttribute("data-selectable", "false");
+        expect(card).toHaveAttribute(
+          "data-blocked-reason",
+          "Second technology costs 6 resources, you have 4",
+        );
+      }
+      // Clicking a blocked card changes nothing.
+      fireEvent.click(screen.getByTestId("tech-card-ps"));
+      expect(screen.getByText(/Selected:/)).toHaveTextContent("1 / 2");
+      expect(screen.getByTestId("tech-second-pick-hint")).toHaveTextContent(
+        "A second technology costs 6 (you have 4). Pick one technology or gain resources.",
+      );
+      expect(screen.getByTestId("confirm-research-btn")).not.toBeDisabled();
+      expect(screen.queryByTestId("tech-clear-second")).not.toBeInTheDocument();
+    });
+
+    it("with 6 resources two picks are allowed, no hint shows, and the second pick can be cleared", () => {
+      renderPrimary(6, [], ["amd", "ps", "nm"]);
+      fireEvent.click(screen.getByTestId("tech-card-amd"));
+      expect(screen.getByTestId("tech-card-ps")).toHaveAttribute("data-selectable", "true");
+      expect(screen.queryByTestId("tech-second-pick-hint")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("tech-card-ps"));
+      expect(screen.getByText(/Selected:/)).toHaveTextContent("2 / 2");
+      expect(screen.getByTestId("confirm-research-btn")).not.toBeDisabled();
+      fireEvent.click(screen.getByTestId("tech-clear-second"));
+      expect(screen.getByText(/Selected:/)).toHaveTextContent("1 / 2");
+      expect(screen.getByTestId("tech-card-amd")).toHaveAttribute("data-selected", "true");
+      // Clicking the selected second card also takes it back.
+      fireEvent.click(screen.getByTestId("tech-card-ps"));
+      fireEvent.click(screen.getByTestId("tech-card-ps"));
+      expect(screen.getByText(/Selected:/)).toHaveTextContent("1 / 2");
+    });
+
+    it("Hyper Metabolism becomes a valid second pick through the first pick's track, though it is not offered", () => {
+      renderPrimary(6, ["nm"], ["pa", "amd"]);
+      const hm = screen.getByTestId("tech-card-hm");
+      expect(hm).toHaveAttribute("data-selectable", "false");
+      fireEvent.click(screen.getByTestId("tech-card-pa"));
+      expect(hm).toHaveAttribute("data-selectable", "true");
+      fireEvent.click(hm);
+      expect(hm).toHaveAttribute("data-selected", "true");
+    });
+
+    it("a technology left out of the engine's list that was already valid is not a second pick", () => {
+      renderPrimary(6, [], ["amd"]);
+      fireEvent.click(screen.getByTestId("tech-card-amd"));
+      const ps = screen.getByTestId("tech-card-ps");
+      expect(ps).toHaveAttribute("data-selectable", "false");
+      expect(ps).toHaveAttribute("data-blocked-reason", "Not available to research");
+    });
+  });
 });

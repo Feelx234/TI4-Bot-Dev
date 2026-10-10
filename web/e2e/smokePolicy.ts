@@ -191,7 +191,7 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   [/finish-movement-btn|done committing/i, 0.05],
 ];
 
-const UNSTAGE = /reset|remove|rally-dec|decrement/i;
+const UNSTAGE = /reset|remove|rally-dec|decrement|clear-second/i;
 // The invasion overlay renders the custodians options as bare buttons (no test id), so the
 // description is just the label.
 const CUSTODIANS_YES = /remove it for a victory point/i;
@@ -240,6 +240,18 @@ export function classifyControl(desc: string): { unstage: boolean; commit: boole
   if (isBarControl(desc)) return { unstage: false, commit: isBarSubmit(desc) };
   const unstage = isUnstage(desc);
   return { unstage, commit: !unstage && COMMIT.test(desc) };
+}
+
+/**
+ * `classifyControl` for a control that may be a staged technology card (`data-selected="true"`).
+ * Clicking a staged card again takes the pick back, so it is a take-back control and never a
+ * submit: without this the Technology primary's second pick could only be undone by chance.
+ */
+export function classifyCandidate(
+  desc: string,
+  stagedCard: boolean,
+): { unstage: boolean; commit: boolean } {
+  return stagedCard ? { unstage: true, commit: false } : classifyControl(desc);
 }
 
 /** Weight at which an option is worth choosing before anything is submitted. */

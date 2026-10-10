@@ -10,6 +10,7 @@ import {
   strongUnselected,
   isUnstage,
   classifyControl,
+  classifyCandidate,
   turnBarPool,
   isBarControl,
   pausedBatch,
@@ -162,6 +163,19 @@ describe("isUnstage (smoke harness)", () => {
     expect(isUnstage("rally-dec-18-carrier | −")).toBe(true);
     expect(isUnstage("produce-dec | Remove Fighter (0.5 cost)")).toBe(true);
     expect(isUnstage("reset-selection-btn | Reset selection")).toBe(true);
+  });
+});
+
+describe("classifyCandidate (staged technology cards)", () => {
+  it("treats a selected technology card as a take-back control, not a submit", () => {
+    const desc = "tech-card-gls | Graviton Laser System";
+    expect(classifyCandidate(desc, true)).toEqual({ unstage: true, commit: false });
+    expect(classifyCandidate(desc, false)).toEqual({ unstage: false, commit: false });
+  });
+
+  it("treats the clear-second-pick control as take-back", () => {
+    expect(isUnstage("tech-clear-second | Clear second pick")).toBe(true);
+    expect(classifyCandidate("tech-clear-second | Clear second pick", false).unstage).toBe(true);
   });
 });
 

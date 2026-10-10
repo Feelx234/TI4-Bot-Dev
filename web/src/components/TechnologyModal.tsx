@@ -48,6 +48,9 @@ const TRACK_ACCENTS: Record<string, string> = {
   WARFARE: "#f87171",
 };
 
+/** Resources the Technology primary charges for its second technology (engine: TECHNOLOGY_PRIMARY_SECOND_COST). */
+const TECHNOLOGY_PRIMARY_SECOND_COST = 6;
+
 export const TechnologyModal: React.FC<TechnologyModalProps> = ({
   isOpen,
   onClose,
@@ -218,29 +221,6 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     [legalOptionIds, ownedTrackCounts, toggledSkipCounts, viewerPlayer],
   );
 
-  const isTechResearchable = (tech: HydratedTech): boolean => {
-    if (!activeResearchMode) return true;
-    if (viewerPlayer && hasResearchedTech(viewerPlayer, tech.id)) return false;
-    if (!isTechAllowedForFaction(tech, viewerPlayer?.faction)) return false;
-
-    // In 2-tech selection mode when a 1st tech is selected:
-    if (maxSelectable === 2 && selectedTechs.length >= 1) {
-      // The currently selected 1st tech was valid alone
-      if (techMatches(tech.id, selectedTechs[0])) {
-        return true;
-      }
-      // Candidate 2nd tech uses effectiveTrackCounts (includes +1 from 1st tech)
-      return checkTechPrerequisites(
-        tech,
-        effectiveTrackCounts,
-        toggledSkipCounts,
-        viewerPlayer?.faction,
-      );
-    }
-
-    return canResearchAlone(tech);
-  };
-
   // Resources calculation
   const availableResources = useMemo(() => {
     if (!viewerPlayer) return { planet: 0, tradeGoods: 0, total: 0 };
@@ -250,14 +230,74 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     return { planet, tradeGoods, total: planet + tradeGoods };
   }, [viewerPlayer, board]);
 
+  // The Technology primary researches its first technology free and a second for this many
+  // resources (the engine asks for the second one in a separate decision, so the price is not on
+  // the first decision's options).
+  const secondPickCost = TECHNOLOGY_PRIMARY_SECOND_COST;
+  const secondPickAffordable = availableResources.total >= secondPickCost;
+  const secondPickOpen = maxSelectable === 2 && selectedTechs.length >= 1;
+
+  /** Why a card other than the first pick cannot be the second pick (null: it can). */
+  const secondPickBlockReason = (tech: HydratedTech): string | null => {
+    if (!secondPickAffordable) {
+      return `Second technology costs ${secondPickCost} resources, you have ${availableResources.total}`;
+    }
+    if (
+      !checkTechPrerequisites(tech, effectiveTrackCounts, toggledSkipCounts, viewerPlayer?.faction)
+    ) {
+      return "Prerequisites not met";
+    }
+    // The engine's list holds what is researchable before the first pick. A technology that only
+    // becomes valid through the first pick's track is not in it, but one that was valid already
+    // and is still missing was left out on purpose.
+    if (
+      legalOptionIds &&
+      !legalOptionIds.some((optId) => techMatches(optId, tech.id)) &&
+      checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer?.faction)
+    ) {
+      return "Not available to research";
+    }
+    return null;
+  };
+
+  const isTechResearchable = (tech: HydratedTech): boolean => {
+    if (!activeResearchMode) return true;
+    if (viewerPlayer && hasResearchedTech(viewerPlayer, tech.id)) return false;
+    if (!isTechAllowedForFaction(tech, viewerPlayer?.faction)) return false;
+
+    // In 2-tech selection mode when a 1st tech is selected:
+    if (secondPickOpen) {
+      // The currently selected 1st tech was valid alone
+      if (techMatches(tech.id, selectedTechs[0])) {
+        return true;
+      }
+      // A selected 2nd pick stays clickable so it can be taken back.
+      if (selectedTechs.includes(tech.id)) return true;
+      return secondPickBlockReason(tech) === null;
+    }
+
+    return canResearchAlone(tech);
+  };
+
+  /** The reason shown on a card that is dimmed because of the second pick's price or legality. */
+  const blockedReasonFor = (tech: HydratedTech): string | undefined => {
+    if (!activeResearchMode || !secondPickOpen) return undefined;
+    if (techMatches(tech.id, selectedTechs[0]) || selectedTechs.includes(tech.id)) return undefined;
+    if (viewerPlayer && hasResearchedTech(viewerPlayer, tech.id)) return undefined;
+    if (!isTechAllowedForFaction(tech, viewerPlayer?.faction)) return undefined;
+    return secondPickBlockReason(tech) ?? undefined;
+  };
+
   // Cost calculation
+  const optionCost = choice?.options?.find((o) => o.kind === "research")?.payload?.cost;
+  const secondaryCost = typeof optionCost === "number" && optionCost > 0 ? optionCost : 4;
   const researchCost = useMemo(() => {
     if (isPrimaryTechnology) {
       // 1st tech is Free, 2nd tech costs 6 resources
-      return selectedTechs.length === 2 ? 6 : 0;
+      return selectedTechs.length === 2 ? secondPickCost : 0;
     }
     if (isSecondaryTechnology) {
-      return 4;
+      return secondaryCost;
     }
     if (selectedTechs.length > 0 && choice?.options) {
       const match = choice.options.find((o) => o.id === selectedTechs[0]);
@@ -266,18 +306,19 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
       }
     }
     return 0;
-  }, [isPrimaryTechnology, isSecondaryTechnology, selectedTechs, choice?.options]);
+  }, [isPrimaryTechnology, isSecondaryTechnology, selectedTechs, choice?.options, secondPickCost, secondaryCost]);
 
-  const canConfirm = useMemo(() => {
-    if (selectedTechs.length === 0) return false;
-    if (isPrimaryTechnology && selectedTechs.length === 2 && availableResources.total < 6) {
-      return false;
+  const confirmBlockReason = useMemo((): string | null => {
+    if (selectedTechs.length === 0) return "Select a technology to research.";
+    if (isPrimaryTechnology && selectedTechs.length === 2 && availableResources.total < secondPickCost) {
+      return `Two technologies cost ${secondPickCost} resources and you have ${availableResources.total}. Clear the second pick or gain resources.`;
     }
-    if (isSecondaryTechnology && availableResources.total < 4) {
-      return false;
+    if (isSecondaryTechnology && availableResources.total < secondaryCost) {
+      return `This research costs ${secondaryCost} resources and you have ${availableResources.total}.`;
     }
-    return true;
-  }, [selectedTechs.length, isPrimaryTechnology, isSecondaryTechnology, availableResources.total]);
+    return null;
+  }, [selectedTechs.length, isPrimaryTechnology, isSecondaryTechnology, availableResources.total, secondPickCost, secondaryCost]);
+  const canConfirm = confirmBlockReason === null;
 
   // Two-step submission pipeline for Option B
   const pendingPipelineRef = useRef<{
@@ -397,11 +438,11 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
             toggledSkipCounts,
             viewerPlayer?.faction,
           );
-        if (!secondValid) return [prev[0]];
+        if (!secondValid || !secondPickAffordable) return [prev[0]];
       }
       return prev;
     });
-  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer]);
+  }, [toggledSkipCounts, ownedTrackCounts, canResearchAlone, viewerPlayer, secondPickAffordable]);
 
   const factionTechs = useMemo<HydratedTech[]>(() => {
     if (!viewerPlayer?.faction) return [];
@@ -607,7 +648,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       Selected: <strong>{selectedTechs.length} / 2</strong>
                       {selectedTechs.length === 2 ? (
                         <span className="tech-cost-badge tech-cost-badge--paid">
-                          Cost: <PlanetValue kind="resources" value={6} />
+                          Cost: <PlanetValue kind="resources" value={secondPickCost} />
                         </span>
                       ) : (
                         <span className="tech-cost-badge tech-cost-badge--free">Cost: Free</span>
@@ -627,7 +668,39 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                   )}
                 </div>
 
+                {secondPickOpen && selectedTechs.length === 1 && !secondPickAffordable && (
+                  <div
+                    className="technology-modal__second-hint"
+                    data-testid="tech-second-pick-hint"
+                    role="status"
+                  >
+                    <ValueText
+                      text={`A second technology costs ${secondPickCost} (you have ${availableResources.total}). Pick one technology or gain resources.`}
+                    />
+                  </div>
+                )}
+                {confirmBlockReason && selectedTechs.length > 0 && (
+                  <div
+                    id="tech-confirm-reason"
+                    className="technology-modal__second-hint"
+                    data-testid="tech-confirm-reason"
+                  >
+                    {confirmBlockReason}
+                  </div>
+                )}
+
                 <div className="technology-modal__actions">
+                  {isPrimaryTechnology && selectedTechs.length === 2 && (
+                    <button
+                      type="button"
+                      className="button button--secondary technology-modal__clear-second"
+                      onClick={() => setSelectedTechs((prev) => prev.slice(0, 1))}
+                      disabled={isSubmitting}
+                      data-testid="tech-clear-second"
+                    >
+                      Clear second pick
+                    </button>
+                  )}
                   {choice?.options?.some((o) => o.id === "decline") && (
                     <button
                       type="button"
@@ -644,6 +717,11 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                     className="button button--primary"
                     onClick={handleConfirm}
                     disabled={!canConfirm || isSubmitting}
+                    aria-describedby={
+                      confirmBlockReason && selectedTechs.length > 0
+                        ? "tech-confirm-reason"
+                        : undefined
+                    }
                     data-testid="confirm-research-btn"
                   >
                     {isSubmitting
@@ -652,7 +730,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         ? "Select Technology"
                         : isPrimaryTechnology
                           ? selectedTechs.length === 2
-                            ? <ValueText text="Confirm Research (2 Techs - 6 resources)" />
+                            ? <ValueText text={`Confirm Research (2 Techs - ${secondPickCost} resources)`} />
                             : "Confirm Research (1 Tech - Free)"
                           : researchCost > 0
                             ? <ValueText text={`Confirm Research (${researchCost} resources)`} />
@@ -696,6 +774,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         players={playerList}
                         isResearchMode={activeResearchMode}
                         isResearchable={isTechResearchable(tech)}
+ blockedReason={blockedReasonFor(tech)}
                         isSelected={selectedTechs.includes(tech.id)}
                         onSelectTech={() => handleSelectCard(tech.id)}
                       />
@@ -758,6 +837,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                                   players={playerList}
                                   isResearchMode={activeResearchMode}
                                   isResearchable={isTechResearchable(tech)}
+ blockedReason={blockedReasonFor(tech)}
                                   isSelected={selectedTechs.includes(tech.id)}
                                   onSelectTech={() => handleSelectCard(tech.id)}
                                 />
@@ -786,6 +866,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       players={playerList}
                       isResearchMode={activeResearchMode}
                       isResearchable={isTechResearchable(tech)}
+ blockedReason={blockedReasonFor(tech)}
                       isSelected={selectedTechs.includes(tech.id)}
                       onSelectTech={() => handleSelectCard(tech.id)}
                     />
@@ -808,6 +889,8 @@ interface TechCardProps {
   players: PlayerView[];
   isResearchMode?: boolean;
   isResearchable?: boolean;
+  /** Why a card is dimmed even though it could be picked first (tooltip and aria). */
+  blockedReason?: string;
   isSelected?: boolean;
   onSelectTech?: () => void;
 }
@@ -819,6 +902,7 @@ const TechCard: React.FC<TechCardProps> = ({
   players,
   isResearchMode = false,
   isResearchable = true,
+  blockedReason,
   isSelected = false,
   onSelectTech,
 }) => {
@@ -857,6 +941,9 @@ const TechCard: React.FC<TechCardProps> = ({
       data-selectable={isSelectable}
       data-selected={isSelected}
       data-researchable={isResearchMode ? isResearchable : undefined}
+      data-blocked-reason={blockedReason}
+      title={blockedReason}
+      aria-description={blockedReason}
       tabIndex={isSelectable ? 0 : undefined}
       role={isSelectable ? "button" : undefined}
       aria-selected={isSelectable ? isSelected : undefined}

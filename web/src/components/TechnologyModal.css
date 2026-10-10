@@ -542,6 +542,17 @@
   border: 1px solid rgba(250, 204, 21, 0.4);
 }
 
+.technology-modal__second-hint {
+  flex: 1 1 100%;
+  font-size: 13px;
+  color: #fbbf24;
+  line-height: 1.35;
+}
+
+.technology-modal__clear-second {
+  min-height: 44px;
+}
+
 .technology-modal__actions {
   display: flex;
   align-items: center;
