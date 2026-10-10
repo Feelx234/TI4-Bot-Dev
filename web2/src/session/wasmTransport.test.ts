@@ -5,7 +5,7 @@ import { setLoad, setShip } from "./movementDraft";
 import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
 import { type MovementStep, draftOf, stepsOf } from "./movementPlan";
 import type { TransportEvent } from "./transport";
-import type { LocalGame } from "./savedGame";
+import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, createWasmTransport, scenariosOf } from "./wasmTransport";
 import type { MovementFacts, SessionUpdate } from "./wire";
 
@@ -16,15 +16,24 @@ const built = existsSync(WASM);
 type Update = Extract<TransportEvent, { kind: "update" }>;
 
 /** A game of seed 3 with seat a on this side, and the updates of it, one after the other. */
-async function play(stepping = false, game: LocalGame = { seed: 3, players: 8, humans: 1 }) {
+async function play(
+  stepping = false,
+  game: LocalGame = { seed: 3, players: 8, humans: 1 },
+  saved: { answers?: readonly string[]; switches?: readonly SeatSwitch[] } = {},
+) {
   const engine: Engine = {
     module: await WebAssembly.compile(readFileSync(WASM)),
     hash: "test",
     scenarios: [],
   };
-  let answers: readonly string[] = [];
+  let answers: readonly string[] = saved.answers ?? [];
+  let switches: readonly SeatSwitch[] = saved.switches ?? [];
   const transport = createWasmTransport(engine, game, {
-    onAnswers: (all) => (answers = [...all]),
+    ...saved,
+    onAnswers: (all, changes) => {
+      answers = [...all];
+      switches = [...changes];
+    },
     stepping,
   });
   const seen: Update[] = [];
@@ -46,7 +55,7 @@ async function play(stepping = false, game: LocalGame = { seed: 3, players: 8, h
     return seen[read++];
   };
   const nonce = (event: Update) => event.update.pending_choice!.nonce;
-  return { transport, next, nonce, answers: () => answers };
+  return { transport, next, nonce, answers: () => answers, switches: () => switches };
 }
 
 const shipsIn = (update: SessionUpdate, system: string) =>
@@ -389,3 +398,107 @@ it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", 
   expect(facts?.kind).toBe("activation");
   transport.close();
 });
+
+it.skipIf(!built)(
+  "plays another seat from a decision on, several times, and a replay is the same game",
+  async () => {
+    const { transport, next, nonce, answers, switches } = await play();
+    const seatOf = (event: Update) => {
+      const { viewer, pending_choice } = event.update;
+      expect(pending_choice?.choice.player).toBe(viewer.role === "player" ? viewer.seat : null);
+      return pending_choice?.choice.player;
+    };
+    /** Answers the open choice by a fixed rule, and gives the update after it. */
+    const answer = async (event: Update) => {
+      const { options } = event.update.pending_choice!.choice;
+      transport.submitChoice(nonce(event), options[(answers().length * 7) % options.length].id);
+      return next();
+    };
+    let open = await next();
+    for (let count = 0; count < 3; count += 1) {
+      expect(seatOf(open)).toBe("a");
+      open = await answer(open);
+    }
+
+    // Seat c is played here. The open decision of seat a is not an answer of the page.
+    transport.switchSeat("c");
+    const first = await next();
+    expect(seatOf(first)).toBe("c");
+    expect(answers()).toHaveLength(3);
+    // An undo does not give seat a back.
+    expect(first.canUndo).toBe(false);
+    transport.undo();
+    expect(answers()).toHaveLength(3);
+    open = await answer(first);
+    expect(seatOf(open)).toBe("c");
+    expect(open.canUndo).toBe(true);
+    transport.undo();
+    const again = await next();
+    expect(again.update).toEqual(first.update);
+    expect(again.canUndo).toBe(false);
+    open = await answer(again);
+
+    // Two changes with no answer between them, then back to the seat of the start.
+    transport.switchSeat("e");
+    expect(seatOf(await next())).toBe("e");
+    transport.switchSeat("b");
+    open = await next();
+    expect(seatOf(open)).toBe("b");
+    expect(open.canUndo).toBe(false);
+    open = await answer(open);
+    expect(seatOf(open)).toBe("b");
+    // A seat that is played here already is no change.
+    transport.switchSeat("b");
+    expect(switches()).toHaveLength(3);
+    transport.switchSeat("a");
+    open = await next();
+    expect(seatOf(open)).toBe("a");
+    const reached = await answer(open);
+    expect(seatOf(reached)).toBe("a");
+    expect(switches().map((item) => [item.humans, item.answers])).toEqual([
+      [0b100, 3],
+      [0b10000, 4],
+      [0b10, 4],
+      [0b1, 5],
+    ]);
+    transport.close();
+
+    // A new visit: the answers and the seat changes play the same game.
+    const visit = await play(false, undefined, { answers: answers(), switches: switches() });
+    const resumed = await visit.next();
+    expect(resumed.update).toEqual(reached.update);
+    expect(resumed.canUndo).toBe(true);
+    // The undo of a new visit plays the game again, with its seat changes.
+    visit.transport.undo();
+    const back = await visit.next();
+    expect(back.update).toEqual(open.update);
+    expect(back.canUndo).toBe(false);
+    visit.transport.close();
+  },
+);
+
+it.skipIf(!built)(
+  "takes the seat that the game waits for, while the seats are stepped",
+  async () => {
+    const { transport, next, nonce, answers, switches } = await play(true);
+    const menu = await next();
+    transport.submitChoice(nonce(menu), menu.update.pending_choice!.choice.options[0].id);
+    const paused = await next();
+    const seat = paused.stepping!.seat;
+    expect(seat).not.toBe("a");
+    expect(paused.update.pending_choice).toBeUndefined();
+    // The decision that the game waited to draw is asked here.
+    transport.switchSeat(seat);
+    const asked = await next();
+    expect(asked.stepping).toBeUndefined();
+    expect(asked.update.viewer).toEqual({ role: "player", seat });
+    expect(asked.update.pending_choice?.choice.player).toBe(seat);
+    expect(asked.canUndo).toBe(false);
+    transport.close();
+
+    // Played again without steps, the change is at the same decision.
+    const visit = await play(false, undefined, { answers: answers(), switches: switches() });
+    expect((await visit.next()).update).toEqual(asked.update);
+    visit.transport.close();
+  },
+);

@@ -50,6 +50,15 @@ it("says which part of a saved game is wrong", () => {
   );
 });
 
+it("keeps the seat changes of a game, and says when they are not a list of them", () => {
+  const switched = { ...save, switches: [{ decision: 12, humans: 4, answers: 3 }] };
+  expect(parseSavedGame(JSON.stringify(switched))).toEqual(switched);
+  expect(parseSavedGame(JSON.stringify({ ...save, switches: [] }))).toEqual(save);
+  expect(() => parseSavedGame(JSON.stringify({ ...save, switches: [{ decision: 12 }] }))).toThrow(
+    'The saved game has no list of seat changes in "switches".',
+  );
+});
+
 it("makes the key from the game alone", () => {
   expect(saveKey(save)).toBe(saveKey(game));
 });

@@ -1,5 +1,5 @@
 // The engine in this page: `crates/ti4-wasm`, built by `scripts/build-wasm.sh`.
-import type { LocalGame } from "./savedGame";
+import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type MovementStep, type PlanAnswer, planAnswer, stepOf } from "./movementPlan";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import type { Choice, ChoiceOption, SessionUpdate } from "./wire";
@@ -14,6 +14,8 @@ interface Exports {
   ti4_update_ptr(): number;
   ti4_update_len(): number;
   ti4_set_stepping(on: number): void;
+  ti4_decided(): number;
+  ti4_switch_seats(decision: number, humans: number): void;
   ti4_request_ptr(): number;
   ti4_draft(length: number): number;
   ti4_draft_ptr(): number;
@@ -34,6 +36,8 @@ const LEAVE = -1;
 const UNDO = -2;
 /** Lets a seat decide that the engine waits for while it is stepped. */
 const GO = -3;
+/** After `ti4_switch_seats`: the engine asks the decision again, of the new decider of its seat. */
+const SWITCH = -4;
 
 /** A replay gives the page a turn this often, so it can show how far the replay is. */
 const REPLAY_SLICE_MS = 50;
@@ -96,8 +100,10 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
 export interface LocalPlay {
   /** Answers of an earlier visit. The game is played again with them before the first update. */
   answers?: readonly string[];
-  /** Told the whole list after each answer and each undo, to keep it. */
-  onAnswers?(answers: readonly string[]): void;
+  /** The seat changes of an earlier visit. The game is played again with them. */
+  switches?: readonly SeatSwitch[];
+  /** Told the whole lists after each answer, each undo and each seat change, to keep them. */
+  onAnswers?(answers: readonly string[], switches: readonly SeatSwitch[]): void;
   /** The game waits before each decision of a seat that is not played here. */
   stepping?: boolean;
 }
@@ -121,6 +127,9 @@ export function createWasmTransport(
 ): Transport {
   const listeners = new Set<(event: TransportEvent) => void>();
   const answers = [...(play.answers ?? [])];
+  const switches = [...(play.switches ?? [])];
+  /** How many answers are of seats that were played here before the last seat change: they stay. */
+  const kept = () => switches.at(-1)?.answers ?? 0;
   /**
    * What each answer of this run chose, as far as the run has given it: an id alone does not say
    * that. Compare `RecordedDecision` of the server. A game that is played again fills it again.
@@ -139,6 +148,8 @@ export function createWasmTransport(
     paused: boolean;
     /** Runs a draft script on the instance that waits here. */
     draft: Transport["runDraft"];
+    /** Tells the instance that waits here the seats of the page. Returns the number of the decision. */
+    switchTo: (humans: number) => number;
   } | null = null;
   let stepping = play.stepping ?? false;
   /** Tells the engine of the run that is the game whether it waits for each seat. */
@@ -180,7 +191,7 @@ export function createWasmTransport(
     tell({
       kind: "update",
       update,
-      canUndo: answers.length > 0,
+      canUndo: answers.length > kept(),
       plan: planStopped ?? undefined,
       undone: steps.length ? steps : undefined,
       stepping: seat === undefined ? undefined : { seat },
@@ -212,6 +223,11 @@ export function createWasmTransport(
       }
       return JSON.parse(text(exports.ti4_draft_ptr(), status));
     };
+    const switchTo = (humans: number) => {
+      const decision = exports.ti4_decided();
+      exports.ti4_switch_seats(decision, humans);
+      return decision;
+    };
     const ask = new jspi.Suspending(async () => {
       const update = readUpdate();
       if (id !== current || !update) {
@@ -235,7 +251,16 @@ export function createWasmTransport(
           return GO;
         }
         return new Promise<number>((answer) => {
-          pending = { nonce: "", update, options: [], answer, canGoBack, paused: true, draft };
+          pending = {
+            nonce: "",
+            update,
+            options: [],
+            answer,
+            canGoBack,
+            paused: true,
+            draft,
+            switchTo,
+          };
           show(update, seat);
         });
       }
@@ -266,7 +291,7 @@ export function createWasmTransport(
         return index;
       }
       return new Promise<number>((answer) => {
-        pending = { nonce, update, options, answer, canGoBack, paused: false, draft };
+        pending = { nonce, update, options, answer, canGoBack, paused: false, draft, switchTo };
         show(update);
       });
     });
@@ -274,6 +299,9 @@ export function createWasmTransport(
     exports = instance.exports as unknown as Exports;
     exports.ti4_set_stepping(stepping ? 1 : 0);
     tellStepping = (on) => id === current && exports.ti4_set_stepping(on ? 1 : 0);
+    for (const item of switches) {
+      exports.ti4_switch_seats(item.decision, item.humans);
+    }
     // A status of 0 or more is the length of a result; below 0, the negated length of an error.
     let status: number;
     if (game.scenario === undefined) {
@@ -296,7 +324,7 @@ export function createWasmTransport(
     }
     const last = readUpdate();
     if (last) {
-      tell({ kind: "update", update: last, canUndo: answers.length > 0 });
+      tell({ kind: "update", update: last, canUndo: answers.length > kept() });
     }
     const stopped: string | null = JSON.parse(result).stopped;
     if (stopped) {
@@ -328,7 +356,7 @@ export function createWasmTransport(
       if (undoing) {
         undone = [...gone, ...undone];
       }
-      play.onAnswers?.(answers);
+      play.onAnswers?.(answers, switches);
     };
     if (canGoBack) {
       drop(answers.length - 1);
@@ -386,7 +414,7 @@ export function createWasmTransport(
         sent.next = result.next;
         answers.push(choice.options[result.index].id);
         recorded.push(choice.options[result.index]);
-        play.onAnswers?.(answers);
+        play.onAnswers?.(answers, switches);
         return result.index;
       }
       if (result.kind === "mismatch") {
@@ -432,7 +460,7 @@ export function createWasmTransport(
       return index;
     }
     if (undoing) {
-      if (answers.length > 0 && insideMovement(update)) {
+      if (answers.length > kept() && insideMovement(update)) {
         return back(canGoBack);
       }
       undoing = false;
@@ -467,7 +495,7 @@ export function createWasmTransport(
       pending = null;
       answers.push(optionId);
       recorded.push(update.pending_choice!.choice.options[index]);
-      play.onAnswers?.(answers);
+      play.onAnswers?.(answers, switches);
       answer(index);
     },
     submitPlan(nonce, sent) {
@@ -513,8 +541,27 @@ export function createWasmTransport(
         answer(GO);
       }
     },
+    switchSeat(seat) {
+      const viewer = pending?.update.viewer;
+      if (!pending || plan || viewer?.role !== "player") {
+        return;
+      }
+      // Bit 0 is seat a.
+      const bit = (id: string) => 1 << (id.charCodeAt(0) - 97);
+      const now = switches.at(-1)?.humans ?? game.humans;
+      if (now & bit(seat)) {
+        return;
+      }
+      const humans = (now & ~bit(viewer.seat)) | bit(seat);
+      const { answer, switchTo } = pending;
+      pending = null;
+      undoing = false;
+      switches.push({ decision: switchTo(humans), humans, answers: answers.length });
+      play.onAnswers?.(answers, switches);
+      answer(SWITCH);
+    },
     undo() {
-      if (answers.length === 0) {
+      if (answers.length <= kept()) {
         return;
       }
       undoing = true;

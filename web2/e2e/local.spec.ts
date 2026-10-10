@@ -476,3 +476,72 @@ test("a scenario is chosen in the Dev sheet and starts at the turn menu of its b
   await expect(heading(page)).toHaveText("Movement");
   expect(errors).toEqual([]);
 });
+
+test("the Dev sheet plays another seat, several times, and undo stays with the seat", async ({
+  page,
+}) => {
+  await page.goto("/?local=3&players=8&humans=1");
+  await expect(send(page)).toBeDisabled();
+  const seats = settings(page).getByRole("region", { name: "Play as" });
+  const seat = (letter: string) => seats.getByRole("button", { name: `Seat ${letter}` });
+  /** The seat that the page is asked as: in the strategy phase it is the active player. */
+  const asked = page
+    .getByRole("region", { name: "Players" })
+    .locator('tbody tr:has([title="Active player"]) th');
+  const playAs = async (letter: string) => {
+    await openSettings(page);
+    await seat(letter).click();
+    await expect(settings(page)).toBeHidden();
+  };
+  /** The rows of the seats that are played here. */
+  const playing = async () => {
+    await openSettings(page);
+    const rows = await seats.locator('button[aria-current="true"]').allTextContents();
+    await page.keyboard.press("Escape");
+    await expect(settings(page)).toBeHidden();
+    return rows.join();
+  };
+
+  await openSettings(page);
+  await expect(seats.getByRole("button", { name: /^Seat / })).toHaveCount(8);
+  await expect(seat("A")).toBeDisabled();
+  await expect(seat("A")).toContainText("✓ Playing");
+  await expect(seat("C")).toContainText("Random");
+  await page.screenshot({ path: "shots/local/dev-play-as.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+
+  // Seat A chooses its strategy card at random, and seat C is asked for its own.
+  await playAs("C");
+  await expect(asked.first()).toContainText("Seat C");
+  await expect(send(page)).toBeDisabled();
+  expect(await playing()).toMatch(/^Seat C.*✓ Playing$/);
+  expect(await savedLine(page)).toContain("0 answers saved");
+  // Nothing of seat C can be taken back yet, and the choice of seat A stays.
+  await expect(undo(page)).toHaveCount(0);
+  const first = await heading(page).textContent();
+  await answer(page);
+  await undo(page).click();
+  await expect.poll(() => savedLine(page)).toContain("0 answers saved");
+  await expect(heading(page)).toHaveText(first ?? "");
+  await expect(undo(page)).toHaveCount(0);
+  expect(await playing()).toMatch(/^Seat C/);
+  await answer(page);
+
+  // On to seat E, and a reload plays the game again with both changes.
+  await playAs("E");
+  await expect.poll(playing).toMatch(/^Seat E/);
+  await expect(send(page)).toBeVisible();
+  const open = await heading(page).textContent();
+  await page.reload();
+  await expect(send(page)).toBeVisible();
+  await expect(heading(page)).toHaveText(open ?? "");
+  expect(await playing()).toMatch(/^Seat E/);
+  expect(await savedLine(page)).toContain("1 answers saved");
+  await expect(undo(page)).toHaveCount(0);
+
+  // Back to the seat of the start, which was a random seat in between.
+  await playAs("A");
+  await expect.poll(playing).toMatch(/^Seat A/);
+  await answer(page);
+  await expect(undo(page)).toBeVisible();
+});

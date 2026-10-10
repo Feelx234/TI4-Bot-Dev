@@ -15,12 +15,24 @@ export interface LocalGame {
   scenario?: string;
 }
 
+/** The seats that are played here changed during the game (Dev, "Play as"). */
+export interface SeatSwitch {
+  /** The number of the decision of the game from which the mask holds (`ti4_decided`). */
+  decision: number;
+  /** The seats that are played here from then on, as `LocalGame.humans`. */
+  humans: number;
+  /** How many answers this page had given. An undo does not go back before them. */
+  answers: number;
+}
+
 export interface SavedGame extends LocalGame {
   format: 1;
   /** SHA-256 of the engine file that played it. Another engine may play the answers differently. */
   engine: string;
   /** The option id of each answer of this page, in order. */
   answers: string[];
+  /** In order. Left out when the seats did not change. */
+  switches?: SeatSwitch[];
 }
 
 /** The part of `Storage` that is used, so a test can pass a map. */
@@ -82,6 +94,23 @@ export function parseSavedGame(text: string): SavedGame {
   if (!Array.isArray(answers) || !answers.every((answer) => typeof answer === "string")) {
     throw new Error('The saved game has no list of option ids in "answers".');
   }
+  const { switches } = value;
+  if (
+    switches !== undefined &&
+    !(
+      Array.isArray(switches) &&
+      switches.every(
+        (item) =>
+          typeof item === "object" &&
+          item !== null &&
+          isCount(item.decision) &&
+          isCount(item.humans) &&
+          isCount(item.answers),
+      )
+    )
+  ) {
+    throw new Error('The saved game has no list of seat changes in "switches".');
+  }
   return {
     format: 1,
     engine: value.engine,
@@ -90,6 +119,15 @@ export function parseSavedGame(text: string): SavedGame {
     humans: value.humans as number,
     ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
     answers,
+    ...(switches?.length
+      ? {
+          switches: switches.map(({ decision, humans, answers }: SeatSwitch) => ({
+            decision,
+            humans,
+            answers,
+          })),
+        }
+      : {}),
   };
 }
 

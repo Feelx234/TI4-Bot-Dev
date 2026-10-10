@@ -66,8 +66,15 @@ export interface Transport {
   /** Lets the seat decide that the game waits for (`stepping` of the last update). */
   step(): void;
   /**
+   * Plays this seat here from now on, in place of the seat that the game is shown as: that seat
+   * decides at random from its open decision on. Does nothing while the game does not wait for
+   * this side, or when the seat is played here already.
+   */
+  switchSeat(seat: string): void;
+  /**
    * Takes back the last answer of this side; a movement is taken back whole, and the next update
-   * tells its steps. Does nothing when there is none.
+   * tells its steps. Does nothing when there is none. An answer from before the last
+   * `switchSeat` stays.
    */
   undo(): void;
   /** Ends the game on this side. */

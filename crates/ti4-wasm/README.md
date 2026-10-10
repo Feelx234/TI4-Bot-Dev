@@ -152,6 +152,8 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
 | `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
+| `ti4_decided() -> count` | How many decisions the seats made, the random seats included. See "Switching seats". |
+| `ti4_switch_seats(decision, human_mask)` | From the decision with this number on, the host answers the seats of the mask. See "Switching seats". |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
 | `ti4_draft(request_len) -> status` | Runs a draft script on a copy of the game. See "A draft". |
 | `ti4_draft_ptr()` | The address of the outcome of the last `ti4_draft` (`DRAFT_CAPACITY`, 1 MiB). |
@@ -185,6 +187,28 @@ when `ti4_can_undo` returns 1. Any other answer leaves the game.
 - A step is not a choice: it has no number, makes no checkpoint, and is not in a saved game. The
   game with steps is the same game.
 - The export only sets a flag, so the host calls it at any time.
+
+### Switching seats
+
+The seats of the host can change during a game: the Dev sheet of web2 has "Play as". Every seat
+has the same decider, which asks at each decision whether the host answers the seat now.
+
+- A switch is `(decision, mask)`: from the decision with this number on, the host answers the
+  seats of the mask. The number counts every decision of the game, also of the random seats.
+- While the game waits (in a choice, or before a step), the host calls
+  `ti4_switch_seats(ti4_decided(), mask)` and answers `-4`. The decision is asked again, of the
+  seat's new decider: a choice of a seat that the host gave up is drawn from the seeded stream,
+  and a seat that the host took is asked. A choice that was not answered keeps its number for
+  the next choice of the host.
+- The answers from before a switch are not taken back: `ti4_can_undo` is 0 at the first choice
+  after it. A checkpoint keeps the count of the decisions, so an undo from a checkpoint that
+  is older than the switch plays through it as the game did.
+- A saved game names its switches. For a game that is played again, the host calls
+  `ti4_switch_seats` for each of them before `ti4_play`. They end with that game.
+- The view is of the seat that was asked last while the host still answers it, else of the
+  first seat of the mask.
+- The base of a draft is played with random seats only: a seat of the host may have been a
+  random seat in the steps since the checkpoint, and those steps never asked the host.
 
 ## Decisions with JSPI
 
@@ -343,8 +367,9 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
 
 A game is not kept as its state. It is kept as what plays it again
 (`web2/src/session/savedGame.ts`): the seed, the number of seats, the human seats, the SHA-256 of
-the engine file, and the option id of each answer of the page. The random seats and the dice
-follow the seed, so the answers are the only input that is missing. The server keeps a game the
+the engine file, the option id of each answer of the page, and the switches of its seats
+(`switches`: the decision, the mask, and how many answers the page had given). The random seats
+and the dice follow the seed, so these are the only input that is missing. The server keeps a game the
 same way: an init record and the decision log.
 
 - Where: `localStorage`, key `ti4.local.<seed>.<players>.<humans>`, written whole after each

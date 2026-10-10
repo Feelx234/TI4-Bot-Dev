@@ -145,3 +145,26 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   await expect(system("23")).toHaveAttribute("aria-label", /1 Sol ship/);
   await fits();
 });
+
+test("phone: the Dev sheet plays another seat", async ({ page }) => {
+  await page.goto("/?local=3&players=8&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  await expect(send).toBeDisabled();
+  const sheet = page.getByRole("complementary", { name: "Dev" });
+  const seats = sheet.getByRole("region", { name: "Play as" });
+  const open = async () => {
+    await page.getByRole("button", { name: "Reference and more" }).click();
+    await page.getByRole("menuitem", { name: "Dev" }).click();
+    await expect(seats).toBeVisible();
+  };
+  await open();
+  await expect(seats.getByRole("button", { name: "Seat A" })).toContainText("✓ Playing");
+  // Nothing of the sheet is cut at the side.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
+  await page.screenshot({ path: "shots/phone/local/dev-play-as.png", animations: "disabled" });
+  await seats.getByRole("button", { name: "Seat C" }).click();
+  await expect(sheet).toBeHidden();
+  await open();
+  await expect(seats.getByRole("button", { name: "Seat C" })).toContainText("✓ Playing");
+  await expect(seats.getByRole("button", { name: "Seat A" })).toContainText("Random");
+});

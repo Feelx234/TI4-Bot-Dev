@@ -1,9 +1,11 @@
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { SeatShape } from "../game/context";
 import { GameShell } from "../game/shell/GameShell";
 import { DemoApp } from "./DemoApp";
 import {
   type LocalGame,
   type SavedGame,
+  type SeatSwitch,
   STEPPING_KEY,
   clearSavedGame,
   draftKey,
@@ -42,6 +44,10 @@ export function LocalApp({ game }: { game: LocalGame }) {
   /** The saved game was played by another engine, and the player said to play it anyway. */
   const [anyway, setAnyway] = useState(false);
   const [answers, setAnswers] = useState(0);
+  /** The seat changes of the game ("Play as"). The last one says which seats are played here. */
+  const [switches, setSwitches] = useState<readonly SeatSwitch[]>([]);
+  /** Counts the seat changes of this visit: what was staged for the seat before is dropped. */
+  const [seatChanges, setSeatChanges] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [transport, setTransport] = useState<Transport | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -93,17 +99,21 @@ export function LocalApp({ game }: { game: LocalGame }) {
     }
     const { engine, saved } = start;
     setAnswers(saved?.answers.length ?? 0);
+    setSwitches(saved?.switches ?? []);
     const made = createWasmTransport(engine, played, {
       answers: saved?.answers,
+      switches: saved?.switches,
       stepping: steps.current,
-      onAnswers(list) {
+      onAnswers(list, changes) {
         storeSavedGame(localStorage, {
           format: 1,
           engine: engine.hash,
           ...played,
           answers: [...list],
+          ...(changes.length ? { switches: [...changes] } : {}),
         });
         setAnswers(list.length);
+        setSwitches([...changes]);
       },
     });
     setTransport(made);
@@ -113,9 +123,11 @@ export function LocalApp({ game }: { game: LocalGame }) {
     };
   }, [start, waits, played]);
 
+  // A new object after a seat change: the session then starts with nothing staged.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: seatChanges is the reason to make it again
   const drafts = useMemo(
     () => ({ storage: localStorage, key: draftKey(game), planKey: planKey(game) }),
-    [game],
+    [game, seatChanges],
   );
   const stepSeats = (on: boolean) => {
     setStepping(on);
@@ -131,6 +143,16 @@ export function LocalApp({ game }: { game: LocalGame }) {
     }
   }, [shown]);
 
+  /** The seats that are played here (bit 0 is seat A). */
+  const humans = switches.at(-1)?.humans ?? game.humans;
+  const playsHere = (seat: string) => (humans >> (seat.charCodeAt(0) - 97)) & 1;
+  /** Plays `seat` here in place of the seat that is shown. The draft of that seat is dropped. */
+  const playAs = (seat: string) => {
+    localStorage.removeItem(draftKey(game));
+    localStorage.removeItem(planKey(game));
+    setSeatChanges((count) => count + 1);
+    transport?.switchSeat(seat);
+  };
   const newGame = () => {
     clearSavedGame(localStorage, game);
     setAnyway(false);
@@ -220,6 +242,41 @@ export function LocalApp({ game }: { game: LocalGame }) {
           and the Step button of the action panel lets the seat decide.
         </Hint>
       </div>
+      {session && (
+        <section aria-label="Play as" className="mt-4">
+          <h3 className="flex items-center gap-2 text-sm text-muted">
+            Play as
+            <Hint label="About Play as">
+              You play the chosen seat from now on. The seat that you leave decides at random, from
+              its open decision on. Undo does not go back before the change.
+            </Hint>
+          </h3>
+          <div className="mt-1.5 rounded border border-line">
+            {Object.values(session.view.seats).map((seat) => (
+              <button
+                key={seat.id}
+                type="button"
+                className="row flex min-h-9 w-full cursor-pointer items-center gap-2.5 px-3.5 text-left text-base hover:bg-cyan/[.06] disabled:cursor-default disabled:hover:bg-transparent [.row+&]:border-t [.row+&]:border-line/50"
+                aria-current={!!playsHere(seat.id)}
+                disabled={!!playsHere(seat.id) || !!error || !!replaying}
+                onClick={() => {
+                  playAs(seat.id);
+                  close();
+                }}
+              >
+                <svg viewBox="-6 -6 12 12" className="size-[1em] shrink-0" aria-hidden="true">
+                  <SeatShape symbol={seat.symbol} x={0} y={0} size={11.2} color={seat.color} />
+                </svg>
+                <strong className="font-mid">{seat.name}</strong>
+                <span className="min-w-0 flex-1 truncate text-muted">{seat.faction}</span>
+                <small className="text-xs text-muted">
+                  {playsHere(seat.id) ? "✓ Playing" : "Random"}
+                </small>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {scenarios && (
         <section aria-label="Start from" className="mt-4">
           <h3 className="text-sm text-muted">Start from</h3>
