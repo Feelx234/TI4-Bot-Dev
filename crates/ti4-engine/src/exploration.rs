@@ -234,23 +234,13 @@ fn place_on_planet(
     let Some(system) = system_of(state, planet) else {
         return false;
     };
-    let faction = state
-        .player(player)
-        .map(|seat| seat.faction.to_string())
-        .unwrap_or_default();
-    // A faction's own version first — a Sol infantry is not the generic one — then the plain
-    // unit when the seat has no faction record. A base type with neither is not placed at all,
-    // which is right for a mech: a factionless seat has no mech to place.
-    let generic = ti4_content::units::catalogue(content, sources)
-        .get(base_type)
-        .map(|unit| unit.id().to_owned());
-    let Some(id) = ti4_content::units::faction_unit(content, &faction, base_type, sources)
-        .map(|unit| unit.id().to_owned())
-        .or(generic)
+    // The seat's own form of the unit: its upgrade, else its faction's version, else the plain
+    // one. A base type with none is not placed (a factionless seat has no mech).
+    let Some(type_id) =
+        crate::action_cards::placed_unit_id(state, content, sources, player, base_type)
     else {
         return false;
     };
-    let type_id = ti4_model::id::UnitTypeId::new(id);
     // 31.4, through the one door: a mech is plastic and may have none left, while infantry is
     // cardboard and always passes.
     if crate::supply::allowed(state, content, sources, player, &type_id, 1) == 0 {

@@ -4914,22 +4914,15 @@ pub fn place_units(
     base_type: &str,
     count: usize,
 ) {
-    let faction = context
-        .state
-        .player(player)
-        .map(|seat| seat.faction.to_string())
-        .unwrap_or_default();
-    let generic = ti4_content::units::catalogue(context.content, context.sources)
-        .get(base_type)
-        .map(|unit| unit.id().to_owned());
-    let Some(id) =
-        ti4_content::units::faction_unit(context.content, &faction, base_type, context.sources)
-            .map(|unit| unit.id().to_owned())
-            .or(generic)
-    else {
+    let Some(type_id) = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    ) else {
         return;
     };
-    let type_id = ti4_model::id::UnitTypeId::new(id);
     if crate::factions::hooks_economy::effect_placement_forbidden(
         context.state,
         context.content,

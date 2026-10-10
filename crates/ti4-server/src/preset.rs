@@ -436,6 +436,11 @@ pub fn apply(
         return Err(format!("unknown start_preset {preset:?}"));
     };
     apply_base(content, state, galaxy, players, seed, parts.base)?;
+    // A seat's units are its own faction's and its upgraded versions (LRR 90): the fleets above
+    // are written with generic ids, and the techs a preset grants replace them at once.
+    for player in players {
+        ti4_engine::technology::apply_unit_upgrades(state, content, POK, player);
+    }
     if parts.short {
         short_game(state, players, seed);
     }
@@ -1448,6 +1453,35 @@ mod tests {
         assert_ne!(build(7), build(8));
     }
 
+    /// The base type of a unit id: a preset seat holds its upgraded or faction form.
+    fn base_of(id: &str) -> &'static str {
+        units::unit_type(content(), id, POK).map_or("", |kind| kind.base_type())
+    }
+
+    #[test]
+    fn no_preset_leaves_a_seat_with_a_unit_in_a_form_it_does_not_own() {
+        let presets = [
+            COMBAT, INVASION, TECHS, SIEGE, BOMBARD, CAPTURE, WORLD, EXPLORE, NOTES, LEADERS,
+            CARDS, RELICS, AGENDA, ENDGAME,
+        ];
+        for preset in presets {
+            for n in 3..=6 {
+                for seed in 0..4 {
+                    let Ok((state, _)) =
+                        create_game_with_preset(content(), &players(n), seed, None, Some(preset))
+                    else {
+                        continue;
+                    };
+                    assert_eq!(
+                        ti4_engine::technology::unit_form_violations(&state, content(), POK),
+                        Vec::<String>::new(),
+                        "{preset} {n}p seed {seed}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn every_player_count_gets_legal_fleets_within_supply_capacity_and_pools() {
         for n in 3..=6 {
@@ -1780,7 +1814,7 @@ mod tests {
                     let board = &state.board[colony];
                     assert!(board.planet_control.values().any(|c| c == owner));
                     assert!(board.planet_units.values().flatten().any(|u| {
-                        u.type_id.as_str() == "infantry" && &u.owner == owner
+                        base_of(u.type_id.as_str()) == "infantry" && &u.owner == owner
                     }));
                     // The attacker waits in the colony's space area with a dreadnought and four
                     // infantry, and nobody else is there.
@@ -1792,7 +1826,7 @@ mod tests {
                     let infantry = board
                         .units
                         .iter()
-                        .filter(|u| &u.owner == player && u.type_id.as_str() == "infantry")
+                        .filter(|u| &u.owner == player && base_of(u.type_id.as_str()) == "infantry")
                         .count();
                     assert_eq!(infantry, 4);
                 }
@@ -1926,7 +1960,7 @@ mod tests {
                 let mut garrisoned = 0;
                 for board in state.board.values() {
                     let owners: BTreeSet<&PlayerId> = board.units.iter().map(|u| &u.owner).collect();
-                    if owners.len() != 2 || board.planet_units.values().flatten().all(|u| u.type_id.as_str() != "pds") {
+                    if owners.len() != 2 || board.planet_units.values().flatten().all(|u| base_of(u.type_id.as_str()) != "pds") {
                         continue;
                     }
                     garrisoned += 1;
@@ -1935,11 +1969,11 @@ mod tests {
                             .units
                             .iter()
                             .filter(|u| &u.owner == owner)
-                            .map(|u| u.type_id.as_str())
-                            .filter(|t| ["carrier", "cruiser", "destroyer"].contains(t) || t.contains("dread"))
+                            .map(|u| base_of(u.type_id.as_str()))
+                            .filter(|t| ["carrier", "cruiser", "destroyer", "dreadnought"].contains(t))
                             .collect();
                         assert!(kinds.len() >= 3, "{n}p seed {seed}: {owner} has {kinds:?}");
-                        assert!(board.units.iter().any(|u| &u.owner == owner && u.type_id.as_str() == "fighter"));
+                        assert!(board.units.iter().any(|u| &u.owner == owner && base_of(u.type_id.as_str()) == "fighter"));
                     }
                 }
                 assert_eq!(garrisoned, n, "{n}p seed {seed}: one contested colony per seat");
@@ -1965,7 +1999,7 @@ mod tests {
                     continue;
                 }
                 contested += 1;
-                assert!(board.planet_units.values().flatten().all(|u| u.type_id.as_str() != "pds"));
+                assert!(board.planet_units.values().flatten().all(|u| base_of(u.type_id.as_str()) != "pds"));
                 let owners: BTreeSet<&PlayerId> =
                     board.planet_units.values().flatten().map(|u| &u.owner).collect();
                 assert_eq!(owners.len(), 2, "{n}p: the planet is shared by two seats");

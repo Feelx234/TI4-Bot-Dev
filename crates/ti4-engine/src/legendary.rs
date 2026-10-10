@@ -712,17 +712,7 @@ fn unit_of(
     player: &PlayerId,
     base: &str,
 ) -> Option<ti4_model::id::UnitTypeId> {
-    let faction = state
-        .player(player)
-        .map(|seat| seat.faction.to_string())
-        .unwrap_or_default();
-    let generic = ti4_content::units::catalogue(content, sources)
-        .get(base)
-        .map(|unit| unit.id().to_owned());
-    ti4_content::units::faction_unit(content, &faction, base, sources)
-        .map(|unit| unit.id().to_owned())
-        .or(generic)
-        .map(ti4_model::id::UnitTypeId::new)
+    crate::action_cards::placed_unit_id(state, content, sources, player, base)
 }
 
 /// Ask which of this seat's planets to place on, then put `count` of `base` there.
