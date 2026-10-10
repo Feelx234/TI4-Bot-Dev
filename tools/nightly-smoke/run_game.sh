@@ -89,6 +89,10 @@ start)
   [ "$(shuf -i 1-100 -n 1)" -le "$RECAP_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_RECAP=1 "
   [ "$(shuf -i 1-100 -n 1)" -le "$REDO_PROBABILITY" ] && exercise_env="${exercise_env}TI4_SMOKE_REDO=1 "
   exercises=$(echo "$exercise_env" | sed -e 's/TI4_SMOKE_//g' -e 's/=1//g' | tr 'A-Z_' 'a-z-' | xargs)
+  web=dev
+  [ "$WEB_BUILD_SHARE" -gt 0 ] && [ "$(shuf -i 1-100 -n 1)" -le "$WEB_BUILD_SHARE" ] && web=build
+  web_env=""
+  [ "$web" = dev ] || web_env="TI4_E2E_WEB=build "
   # The backend takes <port>, the frontend <port>+1. Skip ports that are bound right now or that a
   # run still in progress (another slot, possibly still building) has picked.
   port=""
@@ -133,6 +137,7 @@ PY
   "policy": "$policy",
   "preset": "$preset",
   "card_set": "$card_set",
+  "web": "$web",
   "map_template": "$map_template",
   "exercises": "$exercises",
   "prep_probability": "$PREP_PROBABILITY",
@@ -144,13 +149,13 @@ PY
   "server_data_dir": "/tmp/ti4-playwright-games-$port",
   "started_at": "$(TZ="$NIGHTLY_TZ" date '+%F %T %Z')",
   "deadline": "$(TZ="$NIGHTLY_TZ" date -d "@$deadline" '+%F %T %Z')",
-  "repro": "cd web && TI4_SMOKE=1 ${preset_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
+  "repro": "cd web && ${web_env}TI4_SMOKE=1 ${preset_env}${card_env}${map_env}${exercise_env}TI4_SMOKE_PREP_PROBABILITY=$PREP_PROBABILITY TI4_SMOKE_PREP_AUTO_PROBABILITY=$PREP_AUTO_PROBABILITY TI4_SMOKE_PLAYERS=$players TI4_SMOKE_GAME_SEED=$game_seed TI4_SMOKE_CLICK_SEED=$click_seed TI4_SMOKE_POLICY=$policy TI4_SMOKE_ROUND=$STOP_ROUND TI4_SMOKE_DECISIONS=$MAX_DECISIONS npm run test:e2e:smoke"
 }
 EOF
   # A new session makes the run its own process group, so `stop` can kill browsers and the
   # Playwright web servers (cargo/vite) together.
   setsid "$NIGHTLY_DIR/_run_inner.sh" "$run_dir" "$players" "$game_seed" "$click_seed" \
-    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" </dev/null >/dev/null 2>&1 &
+    "$policy" "$port" "$budget" "$preset" "$card_set" "$exercise_env" "$map_template" "$web" </dev/null >/dev/null 2>&1 &
   echo $! > "$run_dir/run.pid"
   echo "started run in $run_dir"
   cat "$run_dir/meta.json"

@@ -223,3 +223,18 @@ mkfake "$rr/2026-10-05" 3 0
 [ "$(agenda_pick 2026-10-05)" = techs ] || fail "3 runs without votes are too few to force it"
 [ "$(agenda_pick 2026-10-01)" = techs ] || fail "the first night has nothing to learn from"
 echo "ok: +agenda suffix and coverage-aware pick (+agenda on cards $agenda/60)"
+
+# Web build share: default 0 keeps every run on the dev server; 100 puts every run on the build.
+web_pick() { # web_pick <share> <run-dir>
+  NIGHTLY_WEB_BUILD_SHARE="$1" start 0 "$2"
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['web'])" "$2/meta.json"
+}
+[ "$(web_pick 0 "$tmp/web0")" = dev ] || fail "share 0 must keep the dev server"
+grep -q 'TI4_E2E_WEB' "$tmp/web0/meta.json" && fail "dev runs must not mention TI4_E2E_WEB in the repro"
+[ "$(web_pick 100 "$tmp/web100")" = build ] || fail "share 100 must pick the production build"
+grep -q 'cd web && TI4_E2E_WEB=build TI4_SMOKE=1' "$tmp/web100/meta.json" || fail "a build run's repro must carry TI4_E2E_WEB=build"
+python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$tmp/web100/meta.json" || fail "meta.json must stay valid JSON"
+builds=0
+for i in $(seq 1 60); do [ "$(web_pick 30 "$tmp/web30-$i")" = build ] && builds=$((builds + 1)); done
+[ "$builds" -ge 5 ] && [ "$builds" -le 35 ] || fail "share 30 picked $builds/60 build runs"
+echo "ok: web build share (30% picked $builds/60)"

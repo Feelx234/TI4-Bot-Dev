@@ -124,6 +124,8 @@ export interface PlaythroughReport {
    * staging click, `prep` and `tour` the optional exercises.
    */
   timing?: Record<string, { ms: number; calls: number }>;
+  /** Per seat, with TI4_SMOKE_TIMING=1: requests the page made until the status bar showed, and how long that took. */
+  pageLoads?: { seat: number; ms: number; requests: number; scripts: number }[];
 }
 
 // Containers that render a decision for the acting seat.
@@ -541,6 +543,8 @@ export async function randomUiPlaythrough(
   let redo: RedoExercise | undefined;
   const browserErrors: string[] = [];
   const pages: Page[] = [];
+  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
+  const pageLoads: NonNullable<PlaythroughReport["pageLoads"]> = [];
   // The last websocket frames each seat received, so a stuck decision can show whether the tab
   // was ever sent it, or had it cleared afterwards.
   const wsFrames: string[][] = [];
@@ -610,6 +614,15 @@ export async function randomUiPlaythrough(
         }
         browserErrors.push(`[seat ${index + 1}] console: ${msg.text()}${url ? ` (${url})` : ""}`);
       });
+      // TI4_SMOKE_TIMING=1: what loading this seat's page cost (dev server: hundreds of module requests).
+      const loadStats = { requests: 0, scripts: 0, done: false };
+      const loadStarted = Date.now();
+      if (timingOn)
+        page.on("request", (request) => {
+          if (loadStats.done) return;
+          loadStats.requests++;
+          if (request.resourceType() === "script") loadStats.scripts++;
+        });
       if (timingOn)
         page.on("requestfinished", (request) => {
           // The server's share of a committing click: request sent until the response was complete.
@@ -668,6 +681,9 @@ export async function randomUiPlaythrough(
           `seat ${index + 1} never showed the status bar (game ${gameId}). Page text: ${text.slice(0, 600)}\nBrowser errors so far: ${browserErrors.join(" | ").slice(0, 800)}\n${err instanceof Error ? err.message.split("\n")[0] : err}`,
         );
       }
+      loadStats.done = true;
+      if (timingOn)
+        pageLoads.push({ seat: index + 1, ms: Date.now() - loadStarted, requests: loadStats.requests, scripts: loadStats.scripts });
       pages.push(page);
       break;
     }
@@ -695,10 +711,10 @@ export async function randomUiPlaythrough(
     exercises: {},
     prep: emptyPrepReport(),
     findings,
+    pageLoads: pageLoads.length ? pageLoads : undefined,
     shots: { taken: 0, cap: shotCap, names: [] },
   };
 
-  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
   const timed = async <T>(key: string, work: () => Promise<T>): Promise<T> => {
     if (!timingOn) return work();
     const started = Date.now();
