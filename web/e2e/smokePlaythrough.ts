@@ -493,6 +493,27 @@ function pick(
   return weightedPick(pool, (c) => steerWeight(c.full, hexWeights), rng);
 }
 
+/**
+ * When a rejected batch was a plan the UI staged (the engine says a planned step is not among the
+ * offered options), name the step and the offered ids: the control let the player stage a move
+ * the engine never offered, so the bug is in the staging UI rather than the engine.
+ */
+function stagedPlanNote(rejection: string): string {
+  const json = rejection.slice(rejection.indexOf("{"));
+  try {
+    const body = JSON.parse(json) as {
+      failed_step?: number;
+      reason?: string;
+      expected?: string;
+      offered?: { option_ids?: string[] };
+    };
+    if (body.reason !== "option unavailable" || body.failed_step === undefined) return "";
+    return `\nUI-staged invalid plan: plan step ${body.failed_step} not offered by the engine (${body.expected ?? "?"}): offered ${(body.offered?.option_ids ?? []).join(", ")}`;
+  } catch {
+    return "";
+  }
+}
+
 async function uiVersion(page: Page): Promise<number> {
   const text = await page
     .getByTestId("game-version")
@@ -1210,7 +1231,7 @@ export async function randomUiPlaythrough(
         );
         if (batchRejection) {
           report.rejections.push(`${subtype}: ${batchRejection}`);
-          await fail(page, `batch rejected: ${batchRejection}`);
+          await fail(page, `batch rejected: ${batchRejection}${stagedPlanNote(batchRejection)}`);
         }
         const errors = await visibleErrors(page);
         for (const error of errors) {

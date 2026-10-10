@@ -980,4 +980,62 @@ describe("TacticalMovementOverlay Component", () => {
     fireEvent.click(cruiser);
     expect(screen.getByTestId("rally-count-17-cruiser")).toHaveTextContent("0");
   });
+
+  // The engine offers one option per distinct (type, damage, origin), so the count of a row is the
+  // number of board units of that exact type: a variant ship must not borrow its base ship's count.
+  describe.each([
+    ["carrier", "sol_carrier"],
+    ["carrier", "carrier2"],
+    ["destroyer", "destroyer2"],
+    ["dreadnought", "dreadnought2"],
+    ["cruiser", "cruiser2"],
+    ["flagship", "letnev_flagship"],
+    ["destroyer", "argent_strike_wing_alpha"],
+  ])("variant ships %s next to %s", (base, variant) => {
+    it("counts each type separately and disables + at the true count", () => {
+      const choice: PendingChoiceDto = {
+        prompt: "movement",
+        actor: "p1",
+        nonce: "nonce_variant",
+        context: { subtype: "movement_step", target: { System: "18" } },
+        options: [
+          { id: "move|20|0", label: base, kind: "move", payload: { origin: "20", unit: base, capacity: 1 } },
+          { id: "move|20|1", label: variant, kind: "move", payload: { origin: "20", unit: variant, capacity: 1 } },
+          { id: "done_moving", label: "Finish Movement", kind: "decline" },
+        ],
+      };
+      render(
+        <TacticalMovementOverlay
+          choice={choice}
+          board={
+            {
+              systems: {
+                "20": {
+                  system_id: "20",
+                  command_tokens: [],
+                  planets: {},
+                  units: [
+                    { owner: "p1", unit_type: base, damaged: false },
+                    { owner: "p1", unit_type: variant, damaged: false },
+                  ],
+                },
+              },
+            } as any
+          }
+          activeSystemId="18"
+          player={mockPlayer}
+          onSubmit={vi.fn()}
+          isOpen
+          onClose={vi.fn()}
+        />,
+      );
+      for (const type of [base, variant]) {
+        const inc = screen.getByTestId(`rally-inc-20-${type}`);
+        expect(inc).toBeEnabled();
+        fireEvent.click(inc);
+        expect(screen.getByTestId(`rally-count-20-${type}`)).toHaveTextContent("1");
+        expect(inc).toBeDisabled();
+      }
+    });
+  });
 });
