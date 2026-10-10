@@ -547,7 +547,6 @@ export async function randomUiPlaythrough(
   let redo: RedoExercise | undefined;
   const browserErrors: string[] = [];
   const pages: Page[] = [];
-  const timingOn = process.env.TI4_SMOKE_TIMING === "1";
   const pageLoads: NonNullable<PlaythroughReport["pageLoads"]> = [];
   // The last websocket frames each seat received, so a stuck decision can show whether the tab
   // was ever sent it, or had it cleared afterwards.
