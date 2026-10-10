@@ -12,11 +12,12 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::units::catalogue;
 use ti4_engine::choice::Choice;
+use ti4_engine::invasion::COMMIT_KIND;
 use ti4_engine::movement::{Board, MovementRules};
 use ti4_engine::tactical::{ACTIVATE_KIND, Movable, effective_move_value_for_ship, movable_into};
 use ti4_engine::transit::{CargoWindow, LOAD_KIND, rifts_exited};
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{PlayerId, SystemId};
+use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::state::GameState;
 use ti4_model::units::Unit;
 
@@ -24,6 +25,8 @@ use ti4_model::units::Unit;
 pub const ACTIVATION_SUBTYPE: &str = "activate_system";
 /// The subtype of the choice of a ship to move.
 pub const MOVEMENT_SUBTYPE: &str = "movement_step";
+/// The subtype of the choice of a ground force to land.
+pub const INVASION_SUBTYPE: &str = "commit_ground_forces";
 
 /// How many ships of the seat can move to one system, if it is activated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,15 +144,51 @@ pub struct MovementFacts {
     pub moved: u32,
 }
 
+/// Ground forces of one kind in one place that the seat can land.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LandingPool {
+    pub unit: String,
+    pub damaged: bool,
+    /// Where the units are, when it is not the space area of the active system: a faction lets
+    /// them land from a planet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_system: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_planet: Option<String>,
+    pub count: usize,
+}
+
+/// One planet of the active system.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LandingPlanet {
+    pub planet: String,
+    /// What can land here: places in [`InvasionFacts::forces`]. Empty when nothing can.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lands: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InvasionFacts {
+    pub active: String,
+    pub forces: Vec<LandingPool>,
+    /// Every planet of the active system, in the order of the system.
+    pub planets: Vec<LandingPlanet>,
+}
+
 /// The facts of the pending choice of a tactical action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TacticalFacts {
     Activation(ActivationFacts),
     Movement(MovementFacts),
+    Invasion(InvasionFacts),
 }
 
-/// The facts for `choice`, when it is the choice of a system to activate or of a ship to move.
+/// The facts for `choice`, when it is the choice of a system to activate, of a ship to move or of
+/// a ground force to land.
 #[must_use]
 pub fn project_tactical_facts(
     state: &GameState,
@@ -165,6 +204,9 @@ pub fn project_tactical_facts(
         ))),
         MOVEMENT_SUBTYPE => {
             movement(state, content, sources, galaxy, player).map(TacticalFacts::Movement)
+        }
+        INVASION_SUBTYPE => {
+            invasion(state, content, sources, player, choice).map(TacticalFacts::Invasion)
         }
         _ => None,
     }
@@ -437,6 +479,103 @@ fn movement(
     })
 }
 
+/// What the seat can land in the active system: the `commit` options of the choice, by the kind
+/// of unit and the place where it is, with how many units of the seat are there.
+fn invasion(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    choice: &Choice,
+) -> Option<InvasionFacts> {
+    let active = state.active_system.clone()?;
+    let mut forces: Vec<LandingPool> = Vec::new();
+    let mut planets: Vec<LandingPlanet> =
+        ti4_engine::planets::in_system(state, content, sources, &active)
+            .into_iter()
+            .map(|planet| LandingPlanet {
+                planet: planet.to_string(),
+                lands: Vec::new(),
+            })
+            .collect();
+    for option in &choice.options {
+        if option.kind != COMMIT_KIND {
+            continue;
+        }
+        let text = |key: &str| option.payload.get(key).and_then(serde_json::Value::as_str);
+        let (Some(planet), Some(unit)) = (text("planet"), text("unit")) else {
+            continue;
+        };
+        let damaged = option
+            .payload
+            .get("damaged")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let from = text("from_system").zip(text("from_planet"));
+        let same = |candidate: &&Unit| {
+            &candidate.owner == player
+                && candidate.type_id.as_str() == unit
+                && candidate.sustained_damage == damaged
+        };
+        let pool = LandingPool {
+            unit: unit.to_owned(),
+            damaged,
+            from_system: from.map(|(system, _)| system.to_owned()),
+            from_planet: from.map(|(_, planet)| planet.to_owned()),
+            count: match from {
+                None => state
+                    .system_state(&active)
+                    .units
+                    .iter()
+                    .filter(same)
+                    .count(),
+                Some((system, planet)) => state
+                    .system_state(&SystemId::new(system))
+                    .on_planet(&PlanetId::new(planet))
+                    .iter()
+                    .filter(same)
+                    .count(),
+            },
+        };
+        let place = forces
+            .iter()
+            .position(|known| {
+                (
+                    &known.unit,
+                    known.damaged,
+                    &known.from_system,
+                    &known.from_planet,
+                ) == (
+                    &pool.unit,
+                    pool.damaged,
+                    &pool.from_system,
+                    &pool.from_planet,
+                )
+            })
+            .unwrap_or_else(|| {
+                forces.push(pool);
+                forces.len() - 1
+            });
+        // A planet that was placed during play may be missing from the list of the system.
+        let at = planets
+            .iter()
+            .position(|known| known.planet == planet)
+            .unwrap_or_else(|| {
+                planets.push(LandingPlanet {
+                    planet: planet.to_owned(),
+                    lands: Vec::new(),
+                });
+                planets.len() - 1
+            });
+        planets[at].lands.push(place);
+    }
+    Some(InvasionFacts {
+        active: active.to_string(),
+        forces,
+        planets,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -505,7 +644,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_two_choices_of_a_tactical_action_have_facts() {
+    fn only_the_choices_of_a_tactical_action_have_facts() {
         let (state, galaxy) = game();
         let content = ContentStore::embedded();
         let other = Choice::new(seat(), "action phase", vec![ChoiceOption::decline()])

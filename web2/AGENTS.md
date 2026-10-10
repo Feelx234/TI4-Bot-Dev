@@ -51,7 +51,7 @@ There are two layouts, and no others.
 
 - The shell shows one pane at a time: **Map · Players · Action**, with a tab bar at the bottom. The toolbar stays on top.
 - The footer of the action (note, payment line, main button) is under every pane, so the main button is always in reach. This is how pattern 2 holds on a phone: the choice and the button that sends it are on one screen, the rest is one tap away.
-- Exception (owner, 2026-10-10): while the fleet of a system is open on the map, the footer is not shown. The sheet has its room. The "✓" of the sheet closes it, and the footer is back.
+- Exception (owner, 2026-10-10): while the fleet of a system is open on the map, the footer is not shown. The sheet has its room. The "✓" of the sheet closes it, and the footer is back. The landings of an invasion are such a sheet too.
 - The pane follows the choice (pattern 1): a choice on the board opens Map, a choice of a player opens Players, everything else opens Action. The player can switch at any time. An undo opens the pane of the choice that is open again, also when it is of the same kind as the one before.
 - A pane may scroll down. Pattern 9 and "the open step must not need vertical scroll" are desktop rules. Nothing may be cut at the side: `e2e/phone.spec.ts` checks every example for this.
 - The player table keeps the names in view and scrolls the values sideways. A tap on a row opens the sheet of the player; there is no hover sheet.
@@ -177,6 +177,19 @@ The owner chose this design on 2026-10-10, from three that were compared.
 - The sheet has a small "Reset": it takes back what leaves that system, and its check mark, also one that the player set.
 - The read-only view of a movement (a recorded step in Live, History) is the same tokens in the panel, one band for each system.
 
+## Invasion
+
+The owner chose this design on 2026-10-10, from three that were compared.
+
+- The landings are staged on the map, in one sheet at the active system. It opens when the step opens. The panel says what lands on each planet and what stays in space; it has no controls. A row of it opens the sheet.
+- The ground forces that can land are one row of the sheet, the same chips as the load row of the movement: a chip for each kind with the count that is left, grouped by place, one chip chosen (▸).
+- Each planet of the system is one row: its name, `res/inf`, who controls it, the units that are there by seat, then one token for each unit that lands and one free slot ("+"). A tap on the slot lands the chosen kind; a tap on a token takes it back. A planet where nothing can land stays in its place and says so.
+- A tap on a planet of the active system on the map lands one more unit of the chosen kind there. The planets that can be landed on stand out, as in a payment, and a planet with a staged landing has the check mark.
+- Every map view shows the ground forces of a planet after the staged landings.
+- "Reset" of the sheet takes every staged landing back. The "✓" closes the sheet and sets no mark: there is one system. A tap on the active system opens it again. On a phone the open sheet has the room of the footer, as the fleet of a system has.
+- The footer has "Commit ground forces", or "Land nothing" when nothing is staged, and "Reset selection".
+- What follows the landings (space cannon defense, ground combat, control, exploration) is not on this screen yet: these are decisions in the list.
+
 ## Battle table
 
 - The headers of the attacker and the defender have the same lines, so the unit rows start at the same height.
@@ -203,6 +216,7 @@ The owner chose this design on 2026-10-10, from three that were compared.
 - `src/session/` turns an update of the game into the view models. It imports `model` only, and it decides no rule: a value that needs a rule comes from the engine.
 - A decision without a dedicated screen is one list in the action panel.
 - The activation and the movement of a tactical action use the screens of these steps. In the movement the systems that ships can leave are the choice on the board, as in the demo, so a phone stays on the map. The facts come from the engine with the update (`tactical`), and "Move fleet" sends the staged movement as one plan (`Transport.submitPlan`). A plan that the game refuses is taken back whole; one undo takes a movement back whole, and it is staged again as it was sent, so the player can change a part of it. The check marks that the player set by hand are not kept.
+- The landings of an invasion use the screen of that step too (the Invasion section), in Live only. The facts are the third kind of `tactical`, and "Commit ground forces" sends the staged landings as one plan, with the rules of a movement plan: refused whole, stopped by another decision with the rest staged again, and taken back whole by one undo. The staged landings are kept for a reload as the staged movement is. After the last unit the game does not ask for the end of the landings, so the plan needs no answer for it.
 - The Draft tab opens the private draft of a tactical action: its activation and its movement, on the screens of these steps (pattern 10). A draft is a script (`src/session/draft.ts`): the tactical action, its system, the steps of its movement. The engine plays the script as the next turn of the seat on a copy of the game, each time the draft or the game changes (`Transport.runDraft`), and the screens are made from where that run ended. Nothing of it is in the game or in its saved answers.
 - The draft opens whenever the page waits in the strategy phase or the action phase and the seat has not passed; the tab says why when it does not. In the strategy phase it is the draft of the turn that comes (owner, 2026-10-10). The action menu stays a list: a tactical action chosen there is played live.
 - In the draft, "Activate system" records the system, and every change of the movement is recorded at once (the Movement section). Undo and Redo of the toolbar go through the states of the draft; "Start over" and "Discard draft" are in its menu. The draft and its history are kept in `localStorage` (`planKey`), so a reload keeps them.

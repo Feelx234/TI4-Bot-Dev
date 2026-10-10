@@ -175,6 +175,7 @@ function combat(state: State): CombatView {
 function invasion(state: State): InvasionView {
   const base = {
     kind: "invasion" as const,
+    landing: null,
     skipped: null,
     planets: [],
     gauges: [],

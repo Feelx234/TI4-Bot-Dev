@@ -210,8 +210,9 @@ export function GameShell({
                 </div>
                 {sheet}
               </div>
-              {/* An open fleet has the room of the footer. Its check mark gives the footer back. */}
-              {!(pane === "map" && view.board.origin) && (
+              {/* An open fleet has the room of the footer, and so have the open landings. The
+                  check mark of the sheet gives the footer back. */}
+              {!(pane === "map" && (view.board.origin || view.board.landing)) && (
                 <ActionFooter view={footerOf(view.action)} />
               )}
               <nav

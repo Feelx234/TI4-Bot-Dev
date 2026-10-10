@@ -1,6 +1,10 @@
 Also look for UX ideas on how to integrate this: in web/, and in the demo of web2 (`?example=…`, the code in `web2/src/mock/`), which shows screens that are not wired to the engine yet.
 
-- the draft covers the activation and the movement only: space combat, invasion and production are next (the server's planning already audits invasion and production offers, `ti4-view/src/planning/audit.rs`)
+- **important: the draft must go on to the invasion and the production wherever nothing random lies between** (no dice, no decision of another seat). Today the draft ends with the movement: the run does not answer "done moving" (`ti4-view/src/planning/draft.rs`). The server already plans these steps, so most of the code is there: its planning runner (`ti4-server/src/planning/runner.rs`) and the audit of the `commit_ground_forces` and production offers (`ti4-view/src/planning/audit.rs`). The landings have their screen in Live (2026-10-10); the draft should use the same screen.
+- the invasion screen covers the landings only: space cannon defense, ground combat, control and exploration after them are still lists, and so are bombardment before them and the space combat. The Invasion tab shows the steps before it as done, also when the game skipped them.
+- the production step is still a list
+- a step of the landings is matched to an option in TypeScript only (`planAnswer`); the server's batch has no landing step yet
+- on a phone a row of the panel summary (movement, landings) opens the sheet but does not open the Map pane
 - a question of the seat before its turn menu (a start-of-turn ability) stops the draft at its first step; the server's runner shows such a question
 - the draft has no way to change the system but Undo and Start over: the activation step of a draft should open for an edit, as in the demo
 - the action picker of the demo, so that a tactical action opens as the draft

@@ -1,5 +1,5 @@
 // How ids of the wire protocol are shown. Presentation only: no rule is decided here.
-import type { TechColor, UnitType } from "../../model";
+import type { Force, TechColor, UnitType } from "../../model";
 
 const SYMBOLS = ["●", "◆", "▲", "■", "✚", "✖", "♣", "★"];
 const COLORS = [
@@ -70,6 +70,24 @@ export const UNIT_ORDER: UnitType[] = UNITS.map(([, unit]) => unit);
 export function unitType(id: string): UnitType | null {
   const base = id.replace(/2$/, "");
   return UNITS.find(([suffix]) => base === suffix || base.endsWith(`_${suffix}`))?.[1] ?? null;
+}
+
+/** Units counted by type, in display order. */
+export function forceOf(units: { unit_type: string; damaged: boolean }[]): Force {
+  const counts = new Map<UnitType, { count: number; damaged: number }>();
+  for (const unit of units) {
+    const type = unitType(unit.unit_type);
+    if (type) {
+      const entry = counts.get(type) ?? { count: 0, damaged: 0 };
+      entry.count++;
+      entry.damaged += unit.damaged ? 1 : 0;
+      counts.set(type, entry);
+    }
+  }
+  return UNIT_ORDER.flatMap((unit) => {
+    const entry = counts.get(unit);
+    return entry ? [{ unit, ...entry }] : [];
+  });
 }
 
 const SHIPS = new Set<UnitType>([

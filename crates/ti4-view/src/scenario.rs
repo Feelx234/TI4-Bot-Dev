@@ -98,6 +98,8 @@ mod at {
     /// Replaced by `ASTEROIDS`: the map of eight seats has no asteroid field.
     pub const REPLACED: &str = "31";
     pub const ASTEROIDS: &str = "44";
+    /// Two planets and no units, next to `NORTH`: its carrier lands there without a fight.
+    pub const FREE: &str = "38";
     /// The other beta wormhole, on the far side of the map.
     pub const FAR: &str = "25";
     /// Ships of seat C, with ground forces and a PDS.
@@ -106,9 +108,9 @@ mod at {
     pub const ENEMY_B: &str = "75";
     /// Every other seat has a command token here.
     pub const CROWDED: &str = "60";
-    pub const ALL: [&str; 14] = [
+    pub const ALL: [&str; 15] = [
         HOME, RIFT, NEBULA, SUPERNOVA, DOCK, DEPOT, NORTH, TOKEN, WEST, SOUTH, REPLACED, FAR,
-        ENEMY_C, ENEMY_B,
+        ENEMY_C, ENEMY_B, FREE,
     ];
 }
 
@@ -362,7 +364,8 @@ fn place(
 mod tests {
     use super::*;
     use crate::tactical::{
-        Blocked, MOVEMENT_SUBTYPE, MovementFacts, ShipFact, TacticalFacts, project_tactical_facts,
+        Blocked, INVASION_SUBTYPE, MOVEMENT_SUBTYPE, MovementFacts, ShipFact, TacticalFacts,
+        project_tactical_facts,
     };
     use ti4_engine::choice::{Choice, ChoiceOption};
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
@@ -608,6 +611,85 @@ mod tests {
         for ship in ships(&facts, at::FAR) {
             let route = ship.r#move.as_ref().expect("the far fleet arrives");
             assert_eq!(route.path.len(), 3, "{ship:?}");
+        }
+    }
+
+    #[test]
+    fn the_carrier_of_the_north_lands_on_two_free_planets() {
+        let (state, galaxy) = game(LATE_GAME);
+        let content = ContentStore::embedded();
+        let free = SystemId::new(at::FREE);
+        let planets = ti4_engine::planets::in_system(&state, content, POK, &free);
+        assert_eq!(planets.len(), 2);
+        let there = state.system_state(&free);
+        assert!(there.units.is_empty() && there.planet_units.values().all(Vec::is_empty));
+
+        // The carrier arrives with no roll on its way, and loads on the planet that it leaves.
+        let moving = facts(&state, &galaxy, at::FREE);
+        let carrier = ship(&moving, at::NORTH, "sol_carrier2");
+        let route = carrier.r#move.as_ref().expect("the carrier arrives");
+        assert_eq!(route.path, [at::NORTH, at::FREE]);
+        assert!(route.rifts.is_empty());
+        let loads: Vec<&str> = carrier
+            .loads
+            .iter()
+            .map(|index| moving.cargo[*index].unit.as_str())
+            .collect();
+        assert!(
+            loads.contains(&"sol_infantry") && loads.contains(&"sol_mech"),
+            "{loads:?}"
+        );
+
+        // In space of the free system, each kind can land on each planet.
+        let mut state = state;
+        state.active_system = Some(free.clone());
+        let kinds = [("sol_infantry", 2), ("sol_mech", 1)];
+        for (kind, count) in kinds {
+            for _ in 0..count {
+                state
+                    .system_mut(&free)
+                    .units
+                    .push(Unit::new(UnitTypeId::new(kind), seat()));
+            }
+        }
+        let mut options = Vec::new();
+        for (index, (kind, _)) in kinds.iter().enumerate() {
+            for planet in &planets {
+                options.push(
+                    ChoiceOption::labelled(
+                        format!("commit|{index}|{planet}"),
+                        ti4_engine::invasion::COMMIT_KIND,
+                        "land",
+                    )
+                    .with("planet", planet.to_string())
+                    .with("unit", (*kind).to_owned())
+                    .with("damaged", false),
+                );
+            }
+        }
+        options.push(ChoiceOption::decline());
+        let choice = Choice::new(seat(), "commit", options).contextualized(DecisionContext::new(
+            seat(),
+            DecisionSource::Rule("49".to_owned()),
+            INVASION_SUBTYPE,
+            Phase::Action,
+            4,
+        ));
+        let Some(TacticalFacts::Invasion(landing)) =
+            project_tactical_facts(&state, content, POK, &galaxy, &choice)
+        else {
+            panic!("no invasion facts");
+        };
+        assert_eq!(landing.active, at::FREE);
+        let forces: Vec<(&str, usize)> = landing
+            .forces
+            .iter()
+            .map(|force| (force.unit.as_str(), force.count))
+            .collect();
+        assert_eq!(forces, kinds);
+        assert_eq!(landing.planets.len(), 2);
+        for planet in &landing.planets {
+            assert_eq!(planet.lands, [0, 1], "{planet:?}");
         }
     }
 

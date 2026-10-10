@@ -1,4 +1,4 @@
-import type { OriginView, PaymentView } from "./action";
+import type { LandingView, OriginView, PaymentView } from "./action";
 import type { Force, PlanetId, SeatId, SystemId } from "./core";
 
 export type Anomaly = "asteroid" | "supernova" | "nebula" | "rift";
@@ -123,6 +123,8 @@ export interface BoardView {
   inspector: InspectorView | null;
   /** The fleet of the inspected system, with its controls, while the movement is staged on the board. */
   origin: OriginView | null;
+  /** The landings of the active system, with their controls, while they are staged and open. */
+  landing: LandingView | null;
   /** The systems of the open task, for "Fit task". */
   taskSystems: SystemId[];
   /** Changes when the board must be framed again, for example for a new action. */

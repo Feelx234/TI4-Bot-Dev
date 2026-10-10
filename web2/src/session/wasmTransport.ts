@@ -1,6 +1,6 @@
 // The engine in this page: `crates/ti4-wasm`, built by `scripts/build-wasm.sh`.
 import type { LocalGame, SeatSwitch } from "./savedGame";
-import { type MovementStep, type PlanAnswer, planAnswer, stepOf } from "./movementPlan";
+import { type PlanAnswer, type PlanStep, planAnswer, stepOf } from "./movementPlan";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import type { Choice, ChoiceOption, SessionUpdate } from "./wire";
 
@@ -159,7 +159,7 @@ export function createWasmTransport(
     destination: string;
     /** The ids of the options that answer the choices before the movement. */
     choices: string[];
-    steps: MovementStep[];
+    steps: PlanStep[];
     next: number;
     actor: string;
     /** How many answers the game had before the plan. */
@@ -373,14 +373,18 @@ export function createWasmTransport(
     start();
     return LEAVE;
   };
-  /** A choice in the middle of a movement: a ship has moved, or a hold is open. */
+  /**
+   * A choice in the middle of a movement (a ship has moved, or a hold is open) or of the
+   * landings (the answer before it landed a unit).
+   */
   const insideMovement = (update: SessionUpdate) => {
     const subtype = update.pending_choice?.choice.context?.subtype;
     return (
       subtype === "load_cargo" ||
       (subtype === "movement_step" &&
         update.tactical?.kind === "movement" &&
-        update.tactical.moved > 0)
+        update.tactical.moved > 0) ||
+      (subtype === "commit_ground_forces" && recorded.at(-1)?.kind === "commit")
     );
   };
   /** What a plan answers to a choice: first the options of its `choices`, then its steps. */

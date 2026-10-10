@@ -3,27 +3,28 @@ import type {
   Anomaly,
   BoardTaskView,
   BoardView,
-  Force,
   InspectorRowView,
   InspectorView,
   SeatId,
   TileView,
-  UnitType,
 } from "../../model";
+import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type {
   BoardTileView,
+  InvasionFacts,
   MovementFacts,
   PlacedUnitView,
   SessionUpdate,
   SystemView,
 } from "../wire";
+import { landingTask, selectLanding, withLandings } from "./invasion";
 import { selectArrival, selectMovementBoard, selectOrigin, withMovement } from "./movement";
 import {
   ANOMALIES,
   TECH_COLORS,
-  UNIT_ORDER,
   WORMHOLES,
+  forceOf as force,
   isGroundForce,
   isShip,
   unitType,
@@ -31,24 +32,6 @@ import {
 
 const viewerSeat = (update: SessionUpdate) =>
   update.viewer.role === "player" ? update.viewer.seat : null;
-
-/** The units of one owner in one place, counted by type, in display order. */
-function force(units: PlacedUnitView[]): Force {
-  const counts = new Map<UnitType, { count: number; damaged: number }>();
-  for (const unit of units) {
-    const type = unitType(unit.unit_type);
-    if (type) {
-      const entry = counts.get(type) ?? { count: 0, damaged: 0 };
-      entry.count++;
-      entry.damaged += unit.damaged ? 1 : 0;
-      counts.set(type, entry);
-    }
-  }
-  return UNIT_ORDER.flatMap((unit) => {
-    const entry = counts.get(unit);
-    return entry ? [{ unit, ...entry }] : [];
-  });
-}
 
 const seatsOf = (units: PlacedUnitView[]): SeatId[] => [...new Set(units.map((u) => u.owner))];
 const shipsIn = (system: SystemView | undefined) =>
@@ -151,6 +134,8 @@ export function selectBoard(
   task: BoardTaskView | null,
   /** The open movement step: the board shows what is staged, and a system opens its fleet. */
   movement: { facts: MovementFacts; draft: MovementDraft; handled: string[] } | null = null,
+  /** The open landings: the planets of the active system are the choice, and it opens them. */
+  landing: { facts: InvasionFacts; draft: LandingDraft; chosen: number | null } | null = null,
 ): BoardView {
   const viewer = viewerSeat(update);
   const board = update.view.board;
@@ -172,8 +157,17 @@ export function selectBoard(
     movement &&
     selectOrigin(update, movement.facts, movement.draft, open?.system_id ?? null, movement.handled);
   const tiles = map.map((tile) => tileView(tile, board.systems[tile.system_id], viewer));
+  // The landings with their controls take the place of the inspector of the active system.
+  const sheet =
+    landing && open?.system_id === landing.facts.active
+      ? selectLanding(update, landing.facts, landing.draft, landing.chosen)
+      : null;
   return {
-    tiles: move ? tiles.map((tile) => withMovement(tile, move)) : tiles,
+    tiles: move
+      ? tiles.map((tile) => withMovement(tile, move))
+      : landing
+        ? tiles.map((tile) => withLandings(tile, landing.facts, landing.draft))
+        : tiles,
     wormholes: marks.flatMap(([kind, id]) =>
       marks
         .filter(([other, otherId]) => other === kind && otherId > id)
@@ -195,10 +189,12 @@ export function selectBoard(
           verb: "Move from",
           unit: "system",
         }
-      : task,
+      : landing
+        ? landingTask(landing.facts, landing.draft)
+        : task,
     // The fleet with its controls takes the place of the inspector of that system.
     inspector:
-      open && !origin
+      open && !origin && !sheet
         ? {
             ...inspector(open, board.systems[open.system_id], viewer),
             ...(movement && open.system_id === movement.facts.active
@@ -207,8 +203,20 @@ export function selectBoard(
           }
         : null,
     origin: origin ?? null,
-    taskSystems: move ? move.systems : task ? (task.highlight ?? Object.keys(task.values)) : [],
-    // The board is framed again for each movement: its systems are the task.
-    fitKey: movement ? `movement:${movement.facts.active}` : "local",
+    landing: sheet,
+    taskSystems: move
+      ? move.systems
+      : landing
+        ? [landing.facts.active]
+        : task
+          ? (task.highlight ?? Object.keys(task.values))
+          : [],
+    // The board is framed again for each movement: its systems are the task. The landings are
+    // in the active system, which the movement had in view: the board stays as it is.
+    fitKey: movement
+      ? `movement:${movement.facts.active}`
+      : landing
+        ? `movement:${landing.facts.active}`
+        : "local",
   };
 }

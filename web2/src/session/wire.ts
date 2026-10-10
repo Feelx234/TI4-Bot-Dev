@@ -223,8 +223,27 @@ export interface MovementFacts {
   moved: number;
 }
 
+/** `ti4_view::tactical::LandingPool` */
+export interface LandingPool {
+  unit: string;
+  damaged: boolean;
+  /** Where the units are, when it is not the space area of the active system. */
+  from_system?: string;
+  from_planet?: string;
+  count: number;
+}
+
+/** `ti4_view::tactical::InvasionFacts` */
+export interface InvasionFacts {
+  kind: "invasion";
+  active: string;
+  forces: LandingPool[];
+  /** Every planet of the active system. `lands`: what can land there, places in `forces`. */
+  planets: { planet: string; lands?: number[] }[];
+}
+
 /** `ti4_view::tactical::TacticalFacts` */
-export type TacticalFacts = ActivationFacts | MovementFacts;
+export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts;
 
 /** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
 export type DraftStep =

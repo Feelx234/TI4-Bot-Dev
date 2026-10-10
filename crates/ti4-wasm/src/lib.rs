@@ -1454,6 +1454,74 @@ mod tests {
         let live_movement = seen[4].clone();
         drop(seen);
 
+        // The landings: the carrier takes two infantry along, and the facts of each landing say
+        // what the engine offers, with the count of the units that are still in space.
+        let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let sink = seen.clone();
+        set_native_host(move |update| {
+            let value: serde_json::Value = serde_json::from_str(update).unwrap();
+            let mut seen = sink.lock().unwrap();
+            let ids = options(&value);
+            let infantry = value["pending_choice"]["choice"]["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .position(|option| {
+                    option["kind"] == "load" && option["payload"]["unit"] == "sol_infantry"
+                });
+            let pick = |id: &str| ids.iter().position(|have| have == id);
+            let index = match seen.len() {
+                0 => pick("pok8imperial"),
+                1 => pick("no"),
+                2 => pick("tactical"),
+                3 => pick("23"),
+                4 => pick("move|01|0"),
+                5 | 6 => infantry,
+                7 => pick("done_loading"),
+                8 => pick("done_moving"),
+                9 => pick("commit|0|saudor"),
+                _ => None,
+            };
+            seen.push(value);
+            index.map_or(-1, |index| i32::try_from(index).unwrap())
+        });
+        let status = ti4_play(3, 8, 1);
+        assert!(response(status).unwrap().contains(LEFT));
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 11);
+        for (update, left) in [(&seen[9], 2), (&seen[10], 1)] {
+            let facts = &update["tactical"];
+            assert_eq!(facts["kind"], "invasion");
+            assert_eq!(facts["active"], "23");
+            assert_eq!(
+                facts["forces"],
+                serde_json::json!([{ "unit": "sol_infantry", "damaged": false, "count": left }])
+            );
+            // Each landing that the engine offers is one force at one planet of the facts.
+            let mut named = Vec::new();
+            for planet in facts["planets"].as_array().unwrap() {
+                for place in planet["lands"].as_array().unwrap() {
+                    let force = &facts["forces"][usize::try_from(place.as_u64().unwrap()).unwrap()];
+                    named.push((planet["planet"].clone(), force["unit"].clone()));
+                }
+            }
+            let offered: Vec<_> = update["pending_choice"]["choice"]["options"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|option| option["kind"] == "commit")
+                .map(|option| {
+                    (
+                        option["payload"]["planet"].clone(),
+                        option["payload"]["unit"].clone(),
+                    )
+                })
+                .collect();
+            assert!(!offered.is_empty());
+            assert_eq!(named, offered);
+        }
+        drop(seen);
+
         // A draft at the turn menu plays the same tactical action on a copy: it shows the
         // movement that the game then shows, and the game is as it was.
         let drafted = Arc::new(Mutex::new((0, Vec::<serde_json::Value>::new())));

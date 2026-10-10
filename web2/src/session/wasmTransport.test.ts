@@ -3,11 +3,12 @@ import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { setLoad, setShip } from "./movementDraft";
 import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
-import { type MovementStep, draftOf, stepsOf } from "./movementPlan";
+import { draftOf as landingOf, stepsOf as landingSteps, setLanding } from "./landingDraft";
+import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, createWasmTransport, scenariosOf } from "./wasmTransport";
-import type { MovementFacts, SessionUpdate } from "./wire";
+import type { InvasionFacts, MovementFacts, SessionUpdate } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
@@ -165,6 +166,88 @@ it.skipIf(!built)(
     expect(subtype(activation)).toBe("activate_system");
     expect(activation.undone).toBeUndefined();
     expect(answers()).toHaveLength(3);
+    transport.close();
+  },
+  60_000,
+);
+
+it.skipIf(!built)(
+  "sends the landings as one plan, takes a refused plan back, and undoes the landings whole",
+  async () => {
+    const { transport, next, nonce, answers } = await play();
+    for (const answer of ["pok8imperial", "no", "tactical", "23"]) {
+      transport.submitChoice(nonce(await next()), answer);
+    }
+    // A carrier moves with two infantry to the system next to the home, which has one planet.
+    const moving = await next();
+    const ships = moving.update.tactical as MovementFacts;
+    const infantry = ships.cargo.findIndex((pool) => pool.unit === "sol_infantry");
+    transport.submitPlan(nonce(moving), {
+      destination: "23",
+      steps: stepsOf(ships, setLoad(ships, setShip(ships, {}, "01|0", true), "01|0", infantry, 2)),
+    });
+    const open = await next();
+    expect(subtype(open)).toBe("commit_ground_forces");
+    const facts = open.update.tactical as InvasionFacts;
+    expect(facts.forces).toEqual([{ unit: "sol_infantry", damaged: false, count: 2 }]);
+    const before = answers().length;
+    const onPlanet = (update: SessionUpdate) =>
+      (update.view.board.systems["23"]?.units ?? []).filter((unit) => unit.planet === "saudor");
+
+    // A plan with a unit that the game does not offer, after one that it does offer.
+    const good = landingSteps(facts, setLanding(facts, {}, "saudor", 0, 2));
+    const mech: PlanStep = { ...(good[0] as PlanStep & { kind: "land" }), unit: "sol_mech" };
+    const bad = [good[0], mech, good.at(-1)!];
+    transport.submitPlan(nonce(open), { destination: "23", steps: bad });
+    const refused = await next();
+    expect(refused.plan).toEqual({
+      destination: "23",
+      applied: 0,
+      remaining: bad,
+      interrupted: false,
+      reason: "The game does not offer to land sol_mech on saudor.",
+    });
+    expect(nonce(refused)).toBe(nonce(open));
+    expect(answers()).toHaveLength(before);
+    expect(onPlanet(refused.update)).toEqual([]);
+    expect(refused.update.tactical).toEqual(facts);
+
+    // The plan that fits. After the last unit the game does not ask for the end of the landings.
+    transport.submitPlan(nonce(refused), { destination: "23", steps: good });
+    const after = await next();
+    expect(after.plan).toBeUndefined();
+    expect(subtype(after)).not.toBe("commit_ground_forces");
+    expect(answers().slice(before)).toEqual(["commit|0|saudor", "commit|0|saudor"]);
+    expect(onPlanet(after.update).map((unit) => unit.unit_type)).toEqual([
+      "sol_infantry",
+      "sol_infantry",
+    ]);
+
+    // One undo takes the landings back whole, and tells them: they are staged again.
+    transport.undo();
+    const again = await next();
+    expect(subtype(again)).toBe("commit_ground_forces");
+    expect(nonce(again)).toBe(nonce(open));
+    expect(answers()).toHaveLength(before);
+    expect(again.undone).toEqual(good.slice(0, 2));
+    expect(landingOf(again.update.tactical as InvasionFacts, again.undone!)).toEqual({
+      saudor: { 0: 2 },
+    });
+
+    // One unit lands and one stays: the game is told the end of the landings.
+    const one = landingSteps(facts, setLanding(facts, {}, "saudor", 0, 1));
+    transport.submitPlan(nonce(again), { destination: "23", steps: one });
+    const done = await next();
+    expect(done.plan).toBeUndefined();
+    expect(answers().slice(before)).toEqual(["commit|0|saudor", "done_committing"]);
+
+    // One more undo after the landings takes the movement back whole.
+    transport.undo();
+    expect(subtype(await next())).toBe("commit_ground_forces");
+    transport.undo();
+    const movement = await next();
+    expect(subtype(movement)).toBe("movement_step");
+    expect(nonce(movement)).toBe(nonce(moving));
     transport.close();
   },
   60_000,

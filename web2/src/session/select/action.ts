@@ -1,6 +1,7 @@
 // The action panel: every decision as one list. A dedicated screen later takes one kind of
 // decision out of this list; the list stays for every kind that has none.
 import type { ApplyView, BoardTaskView, FlowActionView, MenuRowView } from "../../model";
+import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type { MovementPlan } from "../movementPlan";
 import type { Choice, SessionUpdate } from "../wire";
@@ -36,9 +37,13 @@ export interface LocalState {
   movement: MovementDraft;
   /** The systems of the open movement that the player marked as done. */
   handled: string[];
+  /** The staged landings of the open invasion step. */
+  landing: LandingDraft;
+  /** The force of the invasion facts that a tap lands: a choice of the hand. */
+  landingKind: number | null;
   /** The step of the tactical action that is in view, when it is not the open one. */
   step: number | null;
-  /** The steps of a movement that another decision stopped. They are staged again when the movement goes on. */
+  /** The steps of a movement or of the landings that another decision stopped. They are staged again when that step goes on. */
   remaining: MovementPlan | null;
   /** What the last movement that was sent came to, when it did not reach its end. */
   planNote: { text: string; error: boolean } | null;

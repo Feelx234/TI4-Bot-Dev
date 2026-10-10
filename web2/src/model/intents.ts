@@ -32,9 +32,12 @@ export type Intent =
   | { type: "fillHold"; key: string; source?: string }
   /** Gives Gravity Drive to one ship of the action, or takes it back. The path follows. */
   | { type: "setBoost"; ship: string | null }
-  /** Takes back everything that leaves with the ships of one system. */
+  /** Takes back everything that leaves with the ships of one system, or its staged landings. */
   | { type: "resetOrigin"; system: SystemId }
-  /** The player is done with one system of the movement: it gets its mark, and its fleet closes. */
+  /**
+   * The player is done with one system of the movement: it gets its mark, and its fleet closes.
+   * In an invasion it closes the landings of the active system.
+   */
   | { type: "markOrigin"; system: SystemId }
   | { type: "setPlacement"; unit: UnitType; place: string }
   | { type: "setPayment"; source: string; value: number }
@@ -69,7 +72,10 @@ export type Intent =
   | { type: "flowCount"; key: string; value: number }
   // Decisions: the staged choice. The main button of the footer sends it.
   | { type: "pickSeat"; seat: SeatId }
-  /** `group` names the list when a screen has more than one. */
+  /**
+   * `group` names the list when a screen has more than one. "landing" is the kind of ground
+   * force that a tap lands: a choice of the hand, which the game is not told.
+   */
   | { type: "chooseOption"; option: string; group?: string }
   | { type: "pickTech"; tech: string }
   | { type: "clearChoice" }

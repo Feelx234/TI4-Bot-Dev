@@ -4,6 +4,7 @@ import { forceText } from "../../model";
 import { Button, CloseButton, Hint, Icon, Segmented, cx, usePhone, type IconName } from "../../ui";
 import { OwnerLabel, useDispatch } from "../context";
 import { GalaxyMap, type MapViewId } from "./GalaxyMap";
+import { LandingSheet } from "../steps/invasion/LandingSheet";
 import { OriginSheet } from "../steps/movement/OriginSheet";
 import { OriginTokens } from "../steps/movement/Tokens";
 import { PaymentBar } from "./PaymentBar";
@@ -220,6 +221,7 @@ export function Board({ view, children }: { view: BoardView; children?: ReactNod
       </div>
       {view.inspector && <SystemInspector view={view.inspector} />}
       {view.origin && <OriginSheet key={view.origin.system} view={view.origin} />}
+      {view.landing && <LandingSheet view={view.landing} />}
       {children}
     </section>
   );

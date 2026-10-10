@@ -17,7 +17,7 @@ test("phone: a game of eight is played through the decision list", async ({ page
   const savedLine = async () => {
     await page.getByRole("button", { name: "Reference and more" }).click();
     await page.getByRole("menuitem", { name: "Dev" }).click();
-    const line = page.getByRole("complementary", { name: "Dev" }).getByText(/^Local game · seed/);
+    const line = page.getByRole("complementary", { name: "Dev" }).getByText(/^Local game · /);
     const text = (await line.textContent()) ?? "";
     await page.keyboard.press("Escape");
     await expect(page.getByRole("complementary", { name: "Dev" })).toBeHidden();
@@ -167,4 +167,56 @@ test("phone: the Dev sheet plays another seat", async ({ page }) => {
   await open();
   await expect(seats.getByRole("button", { name: "Seat C" })).toContainText("✓ Playing");
   await expect(seats.getByRole("button", { name: "Seat A" })).toContainText("Random");
+});
+
+test("phone: the landings are staged in a sheet over the map", async ({ page }) => {
+  await page.goto("/?scenario=late-game&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.locator("#step-panel").getByRole("button", { name: "Take a tactical action" }).click();
+  await send.click();
+  await system("38").click();
+  await send.click();
+  await system("63").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Carrier 1 of 1" }).click();
+  await fleet.getByRole("button", { name: /^Load Infantry, Planet Vorhal/ }).click();
+  await fleet.getByRole("button", { name: "Load Infantry on Carrier 1 of 1" }).first().click();
+  await fleet.getByRole("button", { name: "Load Infantry on Carrier 1 of 1" }).first().click();
+  await fleet.getByRole("button", { name: "Done with this system" }).click();
+  await send.click();
+
+  // The map stays open, and the landings are a sheet over it, with the room of the footer.
+  const sheet = page.getByRole("group", { name: /^Land in / });
+  await expect(sheet).toBeVisible();
+  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  await expect(send).toBeHidden();
+  await sheet.getByRole("button", { name: "Land Infantry on Abyz" }).click();
+  await sheet.getByRole("button", { name: "Land Infantry on Fria" }).click();
+  await expect(sheet.getByText("2 units land")).toBeVisible();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/invasion.png", animations: "disabled" });
+  // The check of the sheet closes it: the main button is back, in view.
+  await sheet.getByRole("button", { name: "Done with the landings" }).click();
+  await expect(send).toHaveText(/Commit ground forces/);
+  await expect(send).toBeInViewport({ ratio: 1 });
+  // The panel says what lands, and a row of it opens the sheet again, on the map.
+  await pane("Action").click();
+  await page.screenshot({ path: "shots/phone/local/invasion-panel.png", animations: "disabled" });
+  await fits();
+  await page
+    .locator("#step-panel")
+    .getByRole("button", { name: /^Abyz 1 Infantry$/ })
+    .click();
+  await pane("Map").click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole("button", { name: "Done with the landings" }).click();
+  await send.click();
+  await expect(send).not.toHaveText(/Commit/);
+  await fits();
 });

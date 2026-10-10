@@ -36,16 +36,22 @@ function status(update: SessionUpdate, local: LocalState): string {
 }
 
 export function selectShell(update: SessionUpdate, local: LocalState): ShellView {
-  // The activation and the movement have their own screens; every other decision is a list.
+  // The activation, the movement and the landings have their own screens; every other decision
+  // is a list.
   const facts = tacticalFacts(update, local);
   const movement =
     facts?.kind === "movement" && local.step === null
       ? { facts, draft: local.movement, handled: local.handled }
       : null;
+  const landing =
+    facts?.kind === "invasion" ? { facts, draft: local.landing, chosen: local.landingKind } : null;
   return {
     seats: selectSeats(update),
     accent:
-      local.draft || local.staged || (movement && Object.keys(local.movement).length)
+      local.draft ||
+      local.staged ||
+      (movement && Object.keys(local.movement).length) ||
+      (landing && Object.keys(local.landing).length)
         ? "draft"
         : "live",
     toolbar: {
@@ -63,7 +69,7 @@ export function selectShell(update: SessionUpdate, local: LocalState): ShellView
       },
     },
     players: selectPlayers(update),
-    board: selectBoard(update, local.inspected, boardTask(update, local), movement),
+    board: selectBoard(update, local.inspected, boardTask(update, local), movement, landing),
     action: facts ? selectTactical(update, local, facts) : selectAction(update, local),
     reference: { objectives: [], technology: [], cards: [], offerCards: [], log: [] },
     apply: local.draft?.apply ?? null,

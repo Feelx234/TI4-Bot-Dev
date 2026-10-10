@@ -14,24 +14,32 @@ export const loadSource = (origin: OriginView, chosen: string | null) => {
   );
 };
 
-function SourceChip({
+/** One kind of unit in one place, with the count that is left. The chosen one has "▸". */
+export function SourceChip({
   source,
   pressed,
   onSelect,
+  verb = "Load",
 }: {
   source: CargoSourceView;
   pressed: boolean;
   onSelect: () => void;
+  /** What a tap does with the kind: the ships load it, or it lands. */
+  verb?: "Load" | "Land";
 }) {
   // A pickup lights its system on the map while the pointer or the focus is on it.
   const { props } = useLink(source.site ? [`sys:${source.site.system}`] : undefined);
-  const where = source.site ? `picked up on the way at ${source.site.label}` : source.place;
+  const where = source.site
+    ? verb === "Load"
+      ? `picked up on the way at ${source.site.label}`
+      : `${source.place}, ${source.site.label}`
+    : source.place;
   return (
     <button
       type="button"
       aria-pressed={pressed}
       disabled={!!source.reason || source.left === 0}
-      aria-label={`Load ${source.name}, ${where}, ${source.left} left`}
+      aria-label={`${verb} ${source.name}, ${where}, ${source.left} left`}
       title={`${source.name} · ${where}${source.reason ? ` · ${source.reason}` : ""}`}
       className={cx(
         "inline-flex min-h-[26px] flex-none items-center gap-1 rounded-md border px-1.5 text-xs whitespace-nowrap disabled:opacity-45 touch:min-h-9 touch:px-2",

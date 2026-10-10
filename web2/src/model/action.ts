@@ -333,8 +333,48 @@ export interface InvasionPlanetView {
   preview: BattleTableView | null;
 }
 
+/** One planet of the active system while the landings are staged. */
+export interface LandingPlanetView {
+  id: PlanetId;
+  name: string;
+  resources: number;
+  influence: number;
+  owner: SeatId | null;
+  /** The units that are on the planet now, by seat. */
+  there: { seat: SeatId; force: Force }[];
+  /** One for each staged unit. `value` is the count that takes this unit back. */
+  tokens: { key: string; unit: UnitType; name: string; value: number }[];
+  /** What a tap on the free slot lands: the id of a force, and the staged value with one more. */
+  accepts: Record<string, { key: string; value: number }>;
+  /** What lands: "2 Infantry, 1 Mech". Empty when nothing is staged. */
+  lands: string;
+  /** Why nothing can land here. */
+  reason: string | null;
+}
+
+/**
+ * The landings of an invasion, staged at the active system: the ground forces that can land,
+ * and each planet with what lands there. The sheet on the board has the controls; the panel
+ * says what lands.
+ */
+export interface LandingView {
+  system: SystemId;
+  label: string;
+  /** The ground forces that can land, by kind and place, with the count that is left. */
+  forces: CargoSourceView[];
+  /** The force that a tap lands. Null when nothing is left. */
+  chosen: string | null;
+  planets: LandingPlanetView[];
+  /** How many units land. */
+  landed: number;
+  /** What does not land: "1 Infantry". Empty when everything lands. */
+  stays: string;
+}
+
 export interface InvasionView {
   kind: "invasion";
+  /** The landings while they are staged. Null in every other state of the step. */
+  landing: LandingView | null;
   skipped: string | null;
   planets: InvasionPlanetView[];
   gauges: GaugeView[];

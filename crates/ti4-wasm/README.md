@@ -240,11 +240,11 @@ played in the page.
 - `web2/src/session/` is the client side: `Transport` (updates in, `submitChoice` out),
   `wasmTransport.ts` (the JSPI glue), the selectors from an update to the view models of web2,
   and `useLiveSession`. A websocket transport for the server needs the same two things.
-- The activation and the movement of a tactical action have their screens (see "A tactical
-  action" below). Every other decision is one list in the action panel.
+- The activation, the movement and the landings of a tactical action have their screens (see
+  "A tactical action" below). Every other decision is one list in the action panel.
 - `cargo run -p ti4-wasm --example record -- <seed> <players> <mask> <choice number> [option id ...]`
   writes the update of one choice. The option ids answer the first choices, so that the game
-  reaches the choice that is wanted. The tests of web2 use four such files
+  reaches the choice that is wanted. The tests of web2 use five such files
   (`web2/src/session/fixtures/`).
 
 ### A tactical action
@@ -253,11 +253,14 @@ The engine asks for one ship at a time (`move|<system>|<index>`), then for each 
 ship loads, and it moves the ship before it asks for the next one. The screen of web2 stages the
 whole movement first. Two things connect them.
 
-**Facts.** For the choice of a system to activate and for the choice of a ship to move, the
-update has one more field, `tactical` (`ti4-view/src/tactical.rs`). It says what the choice
-itself does not: for the activation, how many ships are in range of each system; for the
-movement, each ship of the seat with its path, the gravity rifts on it, why it cannot move (a
-command token, or the range), and the units that it can load, also on its way. `ti4-wasm` fills
+**Facts.** For the choice of a system to activate, for the choice of a ship to move and for the
+choice of a ground force to land, the update has one more field, `tactical`
+(`ti4-view/src/tactical.rs`). It says what the choice itself does not: for the activation, how
+many ships are in range of each system; for the movement, each ship of the seat with its path,
+the gravity rifts on it, why it cannot move (a command token, or the range), and the units that
+it can load, also on its way; for the landings (`kind: "invasion"`), the ground forces by kind
+and place with their counts, and every planet of the active system with the forces that can
+land there. The landing facts are read from the `commit` options of the choice itself. `ti4-wasm` fills
 the field when it offers a choice to a seat of the page; the random seats do not pay for it.
 
 - Nothing in `ti4-engine` was changed for this. Every fact is the answer of a public function
@@ -287,6 +290,17 @@ staged again when the movement goes on.
   undo tells the steps of the movement that were taken back (`undone`), and the page stages
   them again as the draft.
 
+**The landings.** The engine asks for one ground force at a time (`commit|<n>|<planet>`) and
+then for the end (`done_committing`). "Commit ground forces" sends the staged landings through
+the same `submitPlan`, as steps `land` (planet, unit, damaged, and the place of a unit that is
+not in the space area) and `done_committing`.
+
+- When the last ground force has landed, the engine does not ask for the end. A plan whose
+  only step left is `done_committing` is done at any other question.
+- One undo takes the landings back whole: the transport goes on while the open choice is a
+  landing and the answer before it landed a unit.
+- The server's batch has no landing step yet.
+
 Limits:
 
 - The engine uses Gravity Drive only for a ship that cannot arrive without it, and it chooses
@@ -296,7 +310,8 @@ Limits:
 - Not shown yet, because they need the event history: the roll at a gravity rift, units that
   are removed after the movement, space cannon, and the read-only view of a past movement.
   Units that stay behind with no ship that carries them get no warning.
-- The later steps (space cannon, combat, invasion, production) are still lists.
+- The other steps (space cannon, combat, bombardment, what follows the landings, production)
+  are still lists.
 
 ### A draft
 
@@ -351,7 +366,9 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
   upgrade and Gravity Drive. Around them are a gravity rift, a nebula, a supernova, an asteroid
   field (the map of eight seats has none, so one tile is replaced), a wormhole pair, fleets of
   other seats, cargo on planets and in space on the way, and a system with a command token of
-  the seat. The other seats have command tokens on the board; one system has seven.
+  the seat. The other seats have command tokens on the board; one system has seven. Next to
+  the fleet in the north is a system with two planets and no units (38), for landings without
+  a fight.
 - `late-game-deflectors`: the same, with Light/Wave Deflector and Antimass Deflectors.
 - The tests of `scenario.rs` ask the facts of a tactical action for each case (a move that needs
   Gravity Drive, a rift roll, the move of 1 out of the nebula, the way around the supernova, the

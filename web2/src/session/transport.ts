@@ -1,4 +1,4 @@
-import type { MovementPlan, MovementStep } from "./movementPlan";
+import type { MovementPlan, PlanStep } from "./movementPlan";
 import type { DraftOutcome, DraftStep, SessionUpdate } from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
@@ -8,7 +8,7 @@ export interface PlanStopped {
   /** How many steps are in the game. 0 when the plan was refused: the game is as before. */
   applied: number;
   /** The steps that are not in the game. */
-  remaining: MovementStep[];
+  remaining: PlanStep[];
   /** True when the game asked something else first; false when it refused a step. */
   interrupted: boolean;
   reason: string;
@@ -22,8 +22,8 @@ export type TransportEvent =
       /** The last answer can be taken back. */ canUndo: boolean;
       /** The plan that was sent before this update stopped here. */
       plan?: PlanStopped;
-      /** The steps of the movement that the undo before this update took back, in order. */
-      undone?: MovementStep[];
+      /** The steps of the movement or of the landings that the undo before this update took back, in order. */
+      undone?: PlanStep[];
       /** The game waits before a decision of this seat, which is not played here: `step` goes on. */
       stepping?: { seat: string };
     }
@@ -42,8 +42,8 @@ export interface Transport {
   /** Answers the pending choice that has this nonce. Any other nonce is ignored. */
   submitChoice(nonce: string, optionId: string): void;
   /**
-   * Answers the pending choice and the choices after it with the steps of a movement, as one
-   * request. A step that the game refuses takes the whole plan back. A question of the game that
+   * Answers the pending choice and the choices after it with the steps of a movement or of the
+   * landings, as one request. A step that the game refuses takes the whole plan back. A question of the game that
    * is not of the movement stops the plan there. Either is told with the next update.
    */
   submitPlan(nonce: string, plan: MovementPlan): void;
@@ -72,8 +72,8 @@ export interface Transport {
    */
   switchSeat(seat: string): void;
   /**
-   * Takes back the last answer of this side; a movement is taken back whole, and the next update
-   * tells its steps. Does nothing when there is none. An answer from before the last
+   * Takes back the last answer of this side; a movement is taken back whole, and so are the
+   * landings, and the next update tells the steps. Does nothing when there is none. An answer from before the last
    * `switchSeat` stays.
    */
   undo(): void;

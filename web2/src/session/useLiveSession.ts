@@ -17,8 +17,17 @@ import {
   storeDraft as storePlan,
   undo,
 } from "./draft";
+import {
+  type LandingDraft,
+  chosenForce,
+  forceOfId,
+  draftOf as landingOf,
+  stepsOf as landingSteps,
+  setCount as setLandingCount,
+  setLanding,
+} from "./landingDraft";
 import { type MovementDraft, fill, poolOfSource, resetOrigin, setCount } from "./movementDraft";
-import { type MovementStep, draftOf, stepsOf } from "./movementPlan";
+import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
 import type { SaveStorage } from "./savedGame";
 import type { DraftInfo, LocalState } from "./select/action";
 import { systemLabel } from "./select/movement";
@@ -35,6 +44,8 @@ const NOTHING: LocalState = {
   replaying: null,
   canUndo: false,
   movement: {},
+  landing: {},
+  landingKind: null,
   handled: [],
   step: null,
   remaining: null,
@@ -180,11 +191,14 @@ function draftView(
   };
 }
 
-/** The staged movement of one movement step, as the steps that "Move fleet" would send. */
+/**
+ * The staged movement of one movement step, as the steps that "Move fleet" would send, or the
+ * staged landings of one invasion step.
+ */
 interface SavedDraft {
   nonce: string;
   destination: string;
-  steps: MovementStep[];
+  steps: PlanStep[];
 }
 
 function readDraft(store: DraftStore | undefined): SavedDraft | null {
@@ -219,6 +233,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     setUpdate(null);
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
+    /** The active system whose landings were open with the last update. */
+    let landingAt: string | null = null;
+    /** What the inspector showed before the landings opened. */
+    let inspectedBefore: string | null = null;
     return transport?.subscribe((event) => {
       if (event.kind === "error") {
         setLocal((now) => ({ ...now, staged: null, replaying: null, error: event.message }));
@@ -236,6 +254,12 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return;
       }
       setUpdate(event.update);
+      // The landings open at the active system when their step opens.
+      const landings = event.update.tactical?.kind === "invasion" ? event.update.tactical : null;
+      const opens = landings !== null && landingAt !== landings.active;
+      // When their step is over (sent, or taken back), the board is where the player left it.
+      const closes = landings === null ? landingAt : null;
+      landingAt = landings?.active ?? null;
       // A new choice starts with nothing staged. The inspector stays where the player left it.
       setLocal((now) => {
         const facts = event.update.tactical;
@@ -254,39 +278,56 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           remaining = { destination: active, steps: [...undone, ...rest] };
         }
         let movement = {};
+        let landing: LandingDraft = {};
         let planNote =
           stopped && !stopped.interrupted ? { text: stopped.reason, error: true } : null;
-        if (facts?.kind === "movement") {
+        if (facts?.kind === "movement" || facts?.kind === "invasion") {
           const again = stopped && !stopped.interrupted ? stopped.remaining : remaining?.steps;
-          if (again && (stopped?.destination ?? remaining?.destination) === facts.active) {
-            movement = draftOf(facts, again);
-            if (!undone) {
-              planNote ??= {
-                text: "Another decision stopped the movement. What did not move is staged again.",
-                error: false,
-              };
-            }
-          }
-          // The movement that was staged for this choice before a reload.
+          // The steps that were staged for this choice before a reload.
           const saved = again ? null : readDraft(drafts);
-          if (
-            saved?.nonce === event.update.pending_choice?.nonce &&
-            saved?.destination === facts.active
-          ) {
-            movement = draftOf(facts, saved.steps);
+          const steps =
+            again && (stopped?.destination ?? remaining?.destination) === facts.active
+              ? again
+              : saved?.nonce === event.update.pending_choice?.nonce &&
+                  saved?.destination === facts.active
+                ? saved.steps
+                : null;
+          if (steps && facts.kind === "movement") {
+            movement = draftOf(facts, steps);
+          } else if (steps && facts.kind === "invasion") {
+            landing = landingOf(facts, steps);
+          }
+          if (steps && steps === again && !undone) {
+            planNote ??= {
+              text:
+                facts.kind === "movement"
+                  ? "Another decision stopped the movement. What did not move is staged again."
+                  : "Another decision stopped the landings. What did not land is staged again.",
+              error: false,
+            };
           }
           remaining = null;
         } else if (facts?.kind === "activation") {
           remaining = null;
         }
+        if (opens) {
+          inspectedBefore = now.inspected;
+        }
         return {
           ...now,
+          inspected: opens
+            ? landingAt
+            : closes !== null && now.inspected === closes
+              ? inspectedBefore
+              : now.inspected,
           staged: null,
           sent: null,
           error: null,
           replaying: null,
           canUndo: event.canUndo,
           movement,
+          landing,
+          landingKind: null,
           handled: [],
           step: null,
           remaining,
@@ -297,24 +338,27 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     });
   }, [transport, drafts]);
 
-  // The staged movement is kept for a reload, with the choice that it belongs to.
+  // The staged movement is kept for a reload, with the choice that it belongs to. So are the
+  // staged landings.
   useEffect(() => {
     const facts = update?.tactical;
     const nonce = update?.pending_choice?.nonce;
     if (!update || !drafts) {
       return;
     }
-    if (facts?.kind === "movement" && nonce && Object.keys(local.movement).length) {
-      const saved: SavedDraft = {
-        nonce,
-        destination: facts.active,
-        steps: stepsOf(facts, local.movement),
-      };
+    const steps =
+      facts?.kind === "movement" && Object.keys(local.movement).length
+        ? stepsOf(facts, local.movement)
+        : facts?.kind === "invasion" && Object.keys(local.landing).length
+          ? landingSteps(facts, local.landing)
+          : null;
+    if (facts && facts.kind !== "activation" && nonce && steps) {
+      const saved: SavedDraft = { nonce, destination: facts.active, steps };
       drafts.storage.setItem(drafts.key, JSON.stringify(saved));
     } else {
       drafts.storage.removeItem(drafts.key);
     }
-  }, [update, local.movement, drafts]);
+  }, [update, local.movement, local.landing, drafts]);
 
   // The private draft is kept for a reload, with its undo history.
   useEffect(() => {
@@ -365,6 +409,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     };
     const facts = tacticalFacts(shown, state);
     const moving = facts?.kind === "movement" ? facts : null;
+    const landing = facts?.kind === "invasion" && !drafted ? facts : null;
+    /** A change of the staged landings. It clears the note of the last plan. */
+    const land = (change: (now: LandingDraft) => LandingDraft) =>
+      setLocal((now) => ({ ...now, landing: change(now.landing), planNote: null }));
     /**
      * A change of the staged movement. Live, it clears the note of the last plan. A draft
      * records it at once, as the steps that the game is asked for.
@@ -395,11 +443,13 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         }
         return;
       }
-      if (moving) {
-        transport.submitPlan(pending.nonce, {
-          destination: moving.active,
-          steps: stepsOf(moving, local.movement),
-        });
+      if (moving || landing) {
+        transport.submitPlan(
+          pending.nonce,
+          moving
+            ? { destination: moving.active, steps: stepsOf(moving, local.movement) }
+            : { destination: landing!.active, steps: landingSteps(landing!, local.landing) },
+        );
         return setLocal((now) => ({ ...now, sent: pending.nonce, planNote: null }));
       }
       if (local.staged) {
@@ -444,8 +494,26 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           return setLocal((now) => ({ ...now, inspected: intent.system }));
         case "closeInspector":
           return setLocal((now) => ({ ...now, inspected: null }));
-        case "chooseOption":
-          return stage(intent.option);
+        case "chooseOption": {
+          // The kind of ground force that a tap lands is a choice of the hand.
+          const force = intent.group === "landing" ? forceOfId(intent.option) : null;
+          return landing && force !== null
+            ? setLocal((now) => ({ ...now, landingKind: force }))
+            : stage(intent.option);
+        }
+        case "togglePlanet": {
+          // A planet of the active system: one more unit of the chosen kind lands there.
+          const { planet } = intent;
+          return (
+            landing &&
+            land((now) => {
+              const force = chosenForce(landing, now, local.landingKind, planet);
+              return force === null
+                ? now
+                : setLanding(landing, now, planet, force, (now[planet]?.[force] ?? 0) + 1);
+            })
+          );
+        }
         case "toggleSystem":
           // In a movement the fleet of a system opens at the system, and closes there.
           return moving
@@ -475,6 +543,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "returnToCurrent":
           return setLocal((now) => ({ ...now, step: null }));
         case "setCount":
+          if (landing) {
+            return land((now) => setLandingCount(landing, now, intent.key, intent.value));
+          }
           return moving && draft((now) => setCount(moving, now, intent.key, intent.value));
         case "fillHold": {
           const pool = poolOfSource(intent.source);
@@ -487,9 +558,15 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           );
         }
         case "resetOrigin":
+          if (landing) {
+            return land(() => ({}));
+          }
           unmark((system) => system !== intent.system);
           return moving && draft((now) => resetOrigin(now, intent.system));
         case "markOrigin":
+          if (landing) {
+            return setLocal((now) => ({ ...now, inspected: null }));
+          }
           return (
             moving &&
             setLocal((now) => ({
@@ -499,6 +576,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
             }))
           );
         case "cancelEdit":
+          if (landing) {
+            return land(() => ({}));
+          }
           unmark(() => false);
           return moving && draft(() => ({}));
         default:

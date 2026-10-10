@@ -21,6 +21,8 @@ const local = (change: Partial<LocalState> = {}): LocalState => ({
   replaying: null,
   canUndo: false,
   movement: {},
+  landing: {},
+  landingKind: null,
   handled: [],
   step: null,
   remaining: null,

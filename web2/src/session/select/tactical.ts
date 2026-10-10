@@ -1,5 +1,5 @@
-// The activation and the movement of a tactical action, on the screens of these two steps. The
-// later steps of the action are still decisions in the list (`selectAction`).
+// The activation, the movement and the landings of a tactical action, on the screens of these
+// steps. The other steps of the action are still decisions in the list (`selectAction`).
 import type {
   ActionButtonView,
   ActivationView,
@@ -9,19 +9,28 @@ import type {
   TacticalActionView,
 } from "../../model";
 import { plural } from "../../model";
-import type { ActivationFacts, MovementFacts, SessionUpdate, TacticalFacts } from "../wire";
+import { landed } from "../landingDraft";
+import type {
+  ActivationFacts,
+  InvasionFacts,
+  MovementFacts,
+  SessionUpdate,
+  TacticalFacts,
+} from "../wire";
 import { type LocalState, openChoice } from "./action";
+import { selectInvasion } from "./invasion";
 import { selectMovement, systemLabel } from "./movement";
 import { ANOMALIES, WORMHOLES, factionName } from "./names";
 
 const STEPS = ["Activation", "Movement", "Space combat", "Invasion", "Production"];
 
-/** The facts of the open choice, when it is the activation or the movement of the viewer. */
+/** The facts of the open choice, when it is the activation, the movement or the landings of the viewer. */
 export function tacticalFacts(update: SessionUpdate, local: LocalState): TacticalFacts | null {
   const subtype = openChoice(update, local)?.context?.subtype;
   const facts = update.tactical;
   return (facts?.kind === "activation" && subtype === "activate_system") ||
-    (facts?.kind === "movement" && subtype === "movement_step")
+    (facts?.kind === "movement" && subtype === "movement_step") ||
+    (facts?.kind === "invasion" && subtype === "commit_ground_forces")
     ? facts
     : null;
 }
@@ -183,15 +192,57 @@ function movement(
   };
 }
 
+function invasion(
+  update: SessionUpdate,
+  local: LocalState,
+  facts: InvasionFacts,
+): { content: StepContentView; footer: FooterView; target: string } {
+  const nothing = landed(local.landing) === 0;
+  return {
+    target: systemLabel(tilesOf(update), facts.active),
+    content: selectInvasion(update, facts, local.landing, local.landingKind),
+    footer: {
+      note: local.planNote?.text ?? "This commits to the live game.",
+      error: !!local.planNote?.error,
+      actions: [
+        ...(local.canUndo ? [UNDO] : []),
+        ...(nothing
+          ? []
+          : [
+              {
+                label: "Reset selection",
+                key: "Escape",
+                intent: { type: "cancelEdit" as const },
+              },
+            ]),
+        {
+          label: nothing ? "Land nothing" : "Commit ground forces",
+          tone: "primary",
+          key: "Enter",
+          arrow: true,
+          intent: { type: "commitEdit" },
+        },
+      ],
+    },
+  };
+}
+
+const CURRENT = { activation: 0, movement: 1, invasion: 3 };
+
 export function selectTactical(
   update: SessionUpdate,
   local: LocalState,
   facts: TacticalFacts,
 ): TacticalActionView {
-  const current = facts.kind === "activation" ? 0 : 1;
+  const current = CURRENT[facts.kind];
   const selected = facts.kind === "movement" && local.step === 0 ? 0 : current;
   const view =
-    facts.kind === "activation" ? activation(update, local, facts) : movement(update, local, facts);
+    facts.kind === "activation"
+      ? activation(update, local, facts)
+      : facts.kind === "movement"
+        ? movement(update, local, facts)
+        : invasion(update, local, facts);
+  const units = landed(local.landing);
   const seat = update.pending_choice?.choice.player ?? "";
   const faction = factionName(
     update.view.players.find((player) => player.id === seat)?.faction ?? seat,
@@ -203,11 +254,13 @@ export function selectTactical(
       name,
       status,
       caption:
-        step === 0 && facts.kind === "movement"
+        step === 0 && facts.kind !== "activation"
           ? `#${facts.active}`
           : step === 1 && current === 1 && ships
             ? plural(ships, "ship")
-            : "",
+            : step === 3 && current === 3 && units
+              ? plural(units, "unit")
+              : "",
     };
   });
   return {
@@ -235,7 +288,10 @@ export function selectTactical(
         : selected !== current
           ? { tone: "done", label: "Resolved" }
           : local.remaining === null && local.planNote && !local.planNote.error
-            ? { tone: "live", label: "Your decision · movement goes on" }
+            ? {
+                tone: "live",
+                label: `Your decision · ${facts.kind === "invasion" ? "landings go" : "movement goes"} on`,
+              }
             : { tone: "live", label: "Your decision" },
       trail: [],
       edit: null,

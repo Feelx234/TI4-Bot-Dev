@@ -435,6 +435,7 @@ export function selectBoard(world: World, state: State): BoardView {
     // The fleet with its controls takes the place of the inspector of that system.
     inspector: origin ? null : inspected,
     origin,
+    landing: null,
     taskSystems,
     fitKey: `${world.fit}`,
   };

@@ -28,7 +28,7 @@ async function savedLine(page: Page) {
   await openSettings(page);
   const line =
     (await settings(page)
-      .getByText(/^Local game · seed/)
+      .getByText(/^Local game · /)
       .textContent()) ?? "";
   await page.keyboard.press("Escape");
   await expect(settings(page)).toBeHidden();
@@ -544,4 +544,107 @@ test("the Dev sheet plays another seat, several times, and undo stays with the s
   await expect.poll(playing).toMatch(/^Seat A/);
   await answer(page);
   await expect(undo(page)).toBeVisible();
+});
+
+test("an invasion: the landings are staged on the map and sent as one plan", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const row = (name: string) => panel(page).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  await row("Take a tactical action").click();
+  await send(page).click();
+  // The carrier of the north takes two infantry and a mech to a system with two free planets.
+  await expect(heading(page)).toHaveText("Activation");
+  await system("38").click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  await system("63").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Carrier 1 of 1" }).click();
+  await fleet.getByRole("button", { name: /^Load Infantry, Planet Vorhal, 2 left/ }).click();
+  await fleet.getByRole("button", { name: "Load Infantry on Carrier 1 of 1" }).first().click();
+  await fleet.getByRole("button", { name: "Load Infantry on Carrier 1 of 1" }).first().click();
+  await fleet.getByRole("button", { name: /^Load Mech, Planet Vorhal, 1 left/ }).click();
+  await fleet.getByRole("button", { name: "Load Mech on Carrier 1 of 1" }).first().click();
+  await expect(fleet.getByText("1 ship · 3 cargo")).toBeVisible();
+  await send(page).click();
+
+  // Invasion: the landings open at the active system, and the panel has no controls.
+  await expect(heading(page)).toHaveText("Invasion");
+  await expect(send(page)).toHaveText(/Land nothing/);
+  const sheet = page.getByRole("group", { name: /^Land in / });
+  await expect(sheet).toBeVisible();
+  await expect(
+    sheet.getByRole("button", { name: "Land Infantry, Space area, 2 left" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(sheet.getByRole("button", { name: "Land Mech, Space area, 1 left" })).toBeVisible();
+  await expect(panel(page).getByText("2 Infantry, 1 Mech · not landed")).toBeVisible();
+  await expect(panel(page).getByRole("spinbutton")).toHaveCount(0);
+  const planet = (name: string) => page.locator("g.planet").filter({ hasText: name });
+  await expect(page.locator("g.planet.payable")).toHaveCount(2);
+  await page.screenshot({ path: "shots/local/invasion-open.png", animations: "disabled" });
+  const saved = await savedLine(page);
+
+  // A slot of the sheet lands the chosen kind; a tap on a planet of the map lands one more.
+  await sheet.getByRole("button", { name: "Land Infantry on Abyz" }).click();
+  await planet("Abyz").click();
+  await sheet.getByRole("button", { name: "Land Mech, Space area, 1 left" }).click();
+  await sheet.getByRole("button", { name: "Land Mech on Fria" }).click();
+  await expect(sheet.getByText("3 units land")).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Abyz 2 Infantry$/ })).toBeVisible();
+  await expect(panel(page).getByRole("button", { name: /^Fria 1 Mech$/ })).toBeVisible();
+  await expect(panel(page).getByText("Every ground force lands")).toBeVisible();
+  await expect(page.locator("g.planet.chosen")).toHaveCount(2);
+  await expect(send(page)).toHaveText(/Commit ground forces/);
+  await page.screenshot({ path: "shots/local/invasion.png", animations: "disabled" });
+  // A token takes its unit back, and Reset everything.
+  await sheet.getByRole("button", { name: "Take back Infantry from Abyz" }).first().click();
+  await expect(
+    sheet.getByRole("button", { name: "Land Infantry, Space area, 1 left" }),
+  ).toBeVisible();
+  await sheet.getByRole("button", { name: "Land Infantry, Space area, 1 left" }).click();
+  await sheet.getByRole("button", { name: "Land Infantry on Fria" }).click();
+  await expect(
+    panel(page).getByRole("button", { name: /^Fria 1 Infantry, 1 Mech$/ }),
+  ).toBeVisible();
+  // Nothing was sent yet, and a reload keeps what is staged.
+  expect(await savedLine(page)).toBe(saved);
+  await page.reload();
+  await expect(send(page)).toHaveText(/Commit ground forces/);
+  await expect(sheet.getByText("3 units land")).toBeVisible();
+
+  // The main button sends every landing, and the game goes on: the planets are Sol's.
+  await send(page).click();
+  await expect(heading(page)).not.toHaveText("Invasion");
+  await expect(sheet).toBeHidden();
+  await system("38").click();
+  const inspector = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ hasText: "Abyz" });
+  await expect(inspector.getByText("1 Infantry").first()).toBeVisible();
+  await expect(inspector.getByText("1 Mech · 1 Infantry")).toBeVisible();
+  await page.screenshot({ path: "shots/local/after-invasion.png", animations: "disabled" });
+
+  // One undo takes the landings back whole, and they are staged again.
+  await undo(page).click();
+  await expect(heading(page)).toHaveText("Invasion");
+  await expect(send(page)).toHaveText(/Commit ground forces/);
+  expect(await savedLine(page)).toBe(saved);
+  await expect(
+    panel(page).getByRole("button", { name: /^Fria 1 Infantry, 1 Mech$/ }),
+  ).toBeVisible();
+  // The check mark closes the sheet; the active system opens it again.
+  await system("38").click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole("button", { name: "Reset" }).click();
+  await expect(send(page)).toHaveText(/Land nothing/);
+  await sheet.getByRole("button", { name: "Done with the landings" }).click();
+  await expect(sheet).toBeHidden();
+  await panel(page)
+    .getByRole("button", { name: /^Abyz Nothing lands$/ })
+    .click();
+  await expect(sheet).toBeVisible();
+  expect(errors).toEqual([]);
 });
