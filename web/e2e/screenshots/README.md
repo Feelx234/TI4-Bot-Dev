@@ -52,3 +52,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Technology second pick (BT-tech-second-pick)
 
 `BT-tech-second-pick` shows the Technology primary with 4 and with 6 resources (desktop and 390x844): with 4, the other cards are dimmed with a reason, a hint sits next to "Selected" and Confirm stays enabled for the single free pick; with 6, two picks and a Clear second pick button. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the fix; `npm run screenshots -- BT` regenerates the `after-*` PNGs and asserts the behaviour (data-selectable, reason, hint, 44 px targets on the phone). `TI4_SHOT_OUT` moves Playwright's scratch directory off /tmp.
+
+## Movement variant ships (BU-movement-variant-ships)
+
+`BU-movement-variant-ships` shows the tactical movement dialog for a system holding a carrier and a sol_carrier: each row now counts only ships of its exact type (Available: 1, + disabled after one click). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the fix; `npm run screenshots -- BU` regenerates the `after-*` PNGs and asserts the counts. `TI4_SHOT_OUT` moves Playwright's scratch directory off /tmp.
