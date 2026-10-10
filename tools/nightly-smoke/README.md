@@ -157,7 +157,7 @@ but with several slots nobody plays in it: it is the base the slot worktrees and
   `digest.py`, `coverage.py`, the fixer and the summary read run directories and do not care about
   the names. `coverage.py` skips worktrees (`slot-*/repo`, `fixer-*`) in the reports directory.
 - **Memory gate.** A new game needs `NIGHTLY_MEM_BASE_MB + NIGHTLY_MEM_PER_PLAYER_MB * (largest table
-  in NIGHTLY_PLAYER_COUNTS)` of `MemAvailable` (default 1500 + 1200 * 4 = 6300 MB, for a measured
+  in NIGHTLY_PLAYER_COUNTS)` of `MemAvailable` (default 1500 + 1200 * 6 = 8700 MB; measured
   peak of about 4 GB for four players and 3 GB for three), but only while another slot has a run
   active: a slot that is alone starts as before, so two slots are never slower than one. Starts are
   one at a time (`.admit.lock`): the slot that launches a game keeps the others waiting for

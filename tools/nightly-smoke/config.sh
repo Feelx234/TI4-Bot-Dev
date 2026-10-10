@@ -36,7 +36,7 @@ BUILD_CMD="${NIGHTLY_BUILD_CMD:-cargo build --quiet -p ti4-server --bin server}"
 # round 10, which only a runaway game reaches: runs normally stop on game over.
 STOP_ROUND="${NIGHTLY_STOP_ROUND:-10}"
 MAX_DECISIONS="${NIGHTLY_MAX_DECISIONS:-20000}"
-PLAYER_COUNTS="${NIGHTLY_PLAYER_COUNTS:-3 4}"
+PLAYER_COUNTS="${NIGHTLY_PLAYER_COUNTS:-3 4 6}"
 POLICIES="${NIGHTLY_POLICIES:-steer random}"
 # Share of runs (percent) that start from a prepared state with fleets beside home systems and
 # Mecatol Rex, so combat, casualties and the agenda phase show up early (see ti4-server preset.rs).

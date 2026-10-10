@@ -266,7 +266,7 @@ export NIGHTLY_SLOTS=2 STUB_RUN_SECONDS=34000 STUB_SLEEP=8
   sleep 3; date +%s.%N > "$E/raised"; echo 99999 > "$E/mem" ) &
 run_loop loop
 wait
-check "exactly one slot waited for memory" "$(grep -c '^## Slot [12] waiting for memory: 1000 MB available, a new game needs 6300 MB' "$ND/report.md")" 1
+check "exactly one slot waited for memory" "$(grep -c '^## Slot [12] waiting for memory: 1000 MB available, a new game needs 8700 MB' "$ND/report.md")" 1
 check "both slots played once" "$(ls "$ND/runs" | wc -l)" 2
 check_true "the waiting slot started only after the memory came back, while the other game still ran" python3 - "$STUB_LOG" "$E/raised" <<'PY'
 import sys
@@ -279,7 +279,7 @@ for line in open(sys.argv[1]):
 first, second = sorted(iv.values())
 sys.exit(0 if second[0] >= raised and second[0] < first[1] else 1)
 PY
-check "memory need: base + per-player share for the largest table" "$(bash "$NIGHTLY_SH" mem-needed) $(NIGHTLY_PLAYER_COUNTS="3 5" NIGHTLY_MEM_BASE_MB=1000 NIGHTLY_MEM_PER_PLAYER_MB=100 bash "$NIGHTLY_SH" mem-needed)" "6300 1500"
+check "memory need: base + per-player share for the largest table" "$(bash "$NIGHTLY_SH" mem-needed) $(NIGHTLY_PLAYER_COUNTS="3 5" NIGHTLY_MEM_BASE_MB=1000 NIGHTLY_MEM_PER_PLAYER_MB=100 bash "$NIGHTLY_SH" mem-needed)" "8700 1500"
 check "no stray processes after the memory test" "$(stray)" 0
 unset STUB_SLEEP STUB_RUN_SECONDS
 
