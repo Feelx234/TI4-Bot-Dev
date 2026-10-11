@@ -451,3 +451,32 @@ test("phone: the sheet of a player has its cards, and nothing is cut at the side
   );
   await page.screenshot({ path: "shots/local/phone-player-sheet.png", animations: "disabled" });
 });
+
+test("phone: the Agendas sheet has the laws and the open groups in its width", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await page.getByRole("menuitem", { name: "Agendas" }).click();
+  const sheet = page.getByRole("complementary", { name: "Agendas" });
+  await expect(
+    sheet.getByRole("region", { name: "Laws in play" }).getByRole("article"),
+  ).toHaveCount(2);
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/agendas.png", animations: "disabled" });
+  // Every group is opened: a closed one is gone from this list when it is clicked.
+  const closed = sheet.getByRole("button", { expanded: false });
+  for (let left = await closed.count(); left > 0; left--) {
+    await closed.first().click();
+  }
+  await expect(sheet.getByText("Minister of War")).toBeVisible();
+  await fits();
+  await sheet.getByText("Colonial Redistribution").scrollIntoViewIfNeeded();
+  await page.screenshot({ path: "shots/phone/local/agendas-deck.png", animations: "disabled" });
+  await sheet.getByRole("button", { name: "Close Agendas" }).click();
+  await expect(sheet).toBeHidden();
+  expect(errors).toEqual([]);
+});

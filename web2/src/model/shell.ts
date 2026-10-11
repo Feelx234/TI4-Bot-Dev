@@ -192,6 +192,33 @@ export interface SecretsView {
   reference: { group: string; unseen: number; cards: DeckSecretView[] }[];
 }
 
+/** One agenda as printed. */
+export interface AgendaView {
+  name: string;
+  /** "Law" or "Directive", and what the vote is about: "Law · Elect Player". */
+  kind: string;
+  /** The printed text: the outcomes one line each, or of a law in play the outcome that passed. */
+  text: string;
+}
+
+/** A law in play, with the outcome that passed. */
+export interface LawView extends AgendaView {
+  /** The elected seat, or the outcome in words: "For", "Against", the name of what was elected. */
+  outcome: { seat: SeatId } | { text: string };
+}
+
+/** The laws in play and the rest of the agenda deck. */
+export interface AgendasView {
+  /** The laws in play, by name. */
+  laws: LawView[];
+  /** How many agendas of the deck that a game begins with are not in play. */
+  rest: number;
+  /** How many cards the deck still holds. Null when the game does not say. */
+  deck: number | null;
+  /** Every agenda that is not in play, in groups by what an agenda affects. */
+  reference: { group: string; cards: AgendaView[] }[];
+}
+
 /** What one seat has from one source of points. */
 export type ScoreCellView =
   | { kind: "none" }
@@ -248,6 +275,8 @@ export interface ReferenceView {
   actionCards: ActionCardsView | null;
   /** The secret objectives: those of the viewer and the deck. Null for a viewer with no hand. */
   secrets: SecretsView | null;
+  /** The laws in play and the agenda deck. */
+  agendas: AgendasView;
   /** The exploration decks, in the order cultural, hazardous, industrial, frontier. */
   exploration: ExplorationDeckView[];
   /** `current` is the round in play: the log shows it open. */

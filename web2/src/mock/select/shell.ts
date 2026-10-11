@@ -17,6 +17,8 @@ import type {
 } from "../../model";
 import {
   ACTION_CARDS,
+  AGENDA_GROUPS,
+  AGENDAS,
   CARD_GROUPS,
   CARDS,
   DISCARDED_CARDS,
@@ -477,6 +479,33 @@ function reference(world: World, state: State): ReferenceView {
         const cards = secrets.filter((item) => item.group === group);
         return { group, unseen: cards.filter((item) => item.state === "unseen").length, cards };
       }),
+    },
+    agendas: {
+      laws: AGENDAS.flatMap(({ name, kind, text, against, passed }) =>
+        passed
+          ? [
+              {
+                name,
+                kind,
+                text: passed === "Against" ? (against ?? "") : text,
+                outcome: seats.includes(passed) ? { seat: passed } : { text: passed },
+              },
+            ]
+          : [],
+      ),
+      // The demo has a short deck: every agenda of it is listed.
+      rest: AGENDAS.filter((item) => !item.passed).length,
+      deck: 4,
+      reference: AGENDA_GROUPS.map((group) => ({
+        group,
+        cards: AGENDAS.filter((item) => item.group === group && !item.passed).map(
+          ({ name, kind, text, against }) => ({
+            name,
+            kind,
+            text: [text, against].filter(Boolean).join("\n"),
+          }),
+        ),
+      })).filter((group) => group.cards.length > 0),
     },
     exploration: EXPLORATION.map((deck) => ({
       ...deck,

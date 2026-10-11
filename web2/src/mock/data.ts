@@ -1176,6 +1176,82 @@ export const SCORE: {
     { name: "Action card · Imperial Rider", points: { naalu: 1 } },
   ],
 };
+/** What the agendas affect, in the order of the sheet. */
+export const AGENDA_GROUPS = [
+  "Victory points and objectives",
+  "Ministers and offices",
+  "Units and combat",
+  "Map and movement",
+  "Laws and votes",
+];
+/**
+ * The agendas of the demo, a short deck. `passed` is the outcome of a law in play: a seat, "For"
+ * or "Against". The demo follows its points: Political Censure is with Xxcha.
+ */
+export const AGENDAS: {
+  name: string;
+  group: string;
+  kind: string;
+  text: string;
+  against?: string;
+  passed?: string;
+}[] = [
+  {
+    name: "Political Censure",
+    group: "Victory points and objectives",
+    kind: "Law · Elect Player",
+    text: "The elected player gains this card and 1 victory point. The elected player cannot play action cards. If the owner of this card loses this card, they lose 1 victory point.",
+    passed: "xxcha",
+  },
+  {
+    name: "Fleet Regulations",
+    group: "Units and combat",
+    kind: "Law · For/Against",
+    text: "For: Each player cannot have more than 4 tokens in their fleet pool.",
+    against:
+      "Against: Each player places 1 command token from their reinforcements in their fleet pool.",
+    passed: "For",
+  },
+  {
+    name: "Seed of an Empire",
+    group: "Victory points and objectives",
+    kind: "Directive · For/Against",
+    text: "For: The player with the most victory points gains 1 victory point.",
+    against: "Against: The player with the fewest victory points gains 1 victory point.",
+  },
+  {
+    name: "Minister of War",
+    group: "Ministers and offices",
+    kind: "Law · Elect Player",
+    text: "The elected player gains this card. The owner of this card may discard this card after performing an action to remove 1 of their command tokens from the game board and return it to their reinforcements; then they may perform 1 additional action.",
+  },
+  {
+    name: "Imperial Arbiter",
+    group: "Ministers and offices",
+    kind: "Law · Elect Player",
+    text: "The elected player gains this card. At the end of the strategy phase, the owner of this card may discard this card to swap 1 of their strategy cards with 1 of another player's strategy cards.",
+  },
+  {
+    name: "Articles of War",
+    group: "Units and combat",
+    kind: "Law · For/Against",
+    text: "For: All mechs lose their printed abilities except for SUSTAIN DAMAGE.",
+    against: 'Against: Each player that voted "For" gains 3 trade goods.',
+  },
+  {
+    name: "Enforced Travel Ban",
+    group: "Map and movement",
+    kind: "Law · For/Against",
+    text: "For: Alpha and beta wormholes have no effect during movement.",
+    against: "Against: Destroy each PDS in or adjacent to a system that contains a wormhole.",
+  },
+  {
+    name: "Judicial Abolishment",
+    group: "Laws and votes",
+    kind: "Directive · Elect Law",
+    text: "(When this agenda is revealed, if there are no laws in play, discard this card and reveal another agenda from the top of the deck.) Discard the elected law from play.",
+  },
+];
 /** What the secret objectives ask for, in the order of the sheet. */
 export const SECRET_GROUPS = [
   "Planets you control",

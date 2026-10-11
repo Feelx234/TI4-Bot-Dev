@@ -153,6 +153,19 @@ The owner asked for this on 2026-10-11: the Secrets sheet has the secret objecti
 - The facts come from the engine: the hand (`held_secret_objectives`), and the deck count, what each seat has scored and the limit (`secret_objectives` of the update). The printed objectives and the deck that a game begins with are the catalogue (`components.secret_objectives`). The "Secrets" column of the player table counts the scored objectives from the same fact.
 - Not there yet: how far a seat is with an objective, and the sheet for another seat sorted by that.
 
+### Agendas sheet
+
+The sheet answers: which laws hold now, and what can an agenda phase still bring? The owner asked for it on 2026-10-11. It is a reference sheet of its own, after Secrets, and every viewer has it.
+
+- "Laws in play" has the count ("2 laws") and one card for each law, by name, in the frame of the cards of the other sheets: the name, "Law" with what the vote is about ("Law · Elect Player"), and the text of the outcome that passed only ("For: …" or "Against: …"). What passed is at the right of the name: the elected seat as a tag, or a word ("For", "Against", the name of what was elected). With no law it says "None".
+- The agenda under vote is not on the sheet: it is in the action panel (owner, 2026-10-11).
+- "Agenda deck" says how many agendas are not in play and how many cards the deck holds ("48 not in play · 47 in the deck"), then the agendas in groups by what an agenda affects ("Victory points and objectives", "Ministers and offices", "Planets", "Units and combat", "Map and movement", "Technology", "Command tokens, trade goods and cards", "Laws and votes"). A group is closed until the player opens it, and its heading has the number of its agendas. The groups and their order come from the catalogue (`agenda_groups`, written by hand in `ti4-content/src/agendas.rs`).
+- Every agenda is in the deck once, so a row has no count. A row has the name, "Law" or "Directive" with what the vote is about, and the printed text of both outcomes, one line each. A law in play is not listed again.
+- A row has no state (owner, 2026-10-11): the engine keeps no discard pile for agendas, so an agenda that was voted on and is gone stays in the list. The two numbers of the heading say how many are gone.
+- Exception to "rule text is behind hover": the sheet shows the printed text of each agenda, as the Secrets sheet does.
+- The facts come from the engine: the laws with their outcome (`table.laws` of the view) and the deck count (`agendas` of the update). The printed agendas and the deck that a game begins with are the catalogue (`components.agendas`). A note that a card prints with what is elected ("When this agenda is revealed, …") is with its text.
+- Not there yet: which agendas are discarded; a law that is blank for a turn (Keleres) is shown as in play.
+
 ### Objectives sheet
 
 The owner asked for this on 2026-10-11. The two sheets have two goals. The Objectives sheet is about what comes: the points that a seat can still score or lose. The sheet of a player is about what was: every point of the seat with its reason (the Player sheet section).

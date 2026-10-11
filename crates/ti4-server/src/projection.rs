@@ -98,6 +98,7 @@ pub fn project_state_update_with_map(
         action_cards: _,
         secret_objectives: _,
         score: _,
+        agendas: _,
     } = project_session_update(state, viewer, pending_choice, map_tiles);
     StateUpdateMsg {
         history: crate::protocol::server::HistoryStatus::default(),

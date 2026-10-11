@@ -29,6 +29,7 @@ import {
 } from "./productionDraft";
 import { selectActionCards } from "./select/cards";
 import { selectScore } from "./select/score";
+import { selectAgendas } from "./select/agendas";
 import { selectSecrets } from "./select/secrets";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
@@ -797,6 +798,47 @@ it.skipIf(!built)(
     const groups = view.reference.map((group) => group.group);
     expect(groups).toEqual(
       catalog.components.secret_objective_groups.filter((group) => groups.includes(group)),
+    );
+  },
+);
+
+it.skipIf(!built)(
+  "has the printed agendas, and an update says which laws are in play",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const deck = catalog.components.agendas!;
+    expect(deck).toHaveLength(50);
+    // Every agenda is in the deck once.
+    expect(new Set(deck.map((card) => card.name)).size).toBe(50);
+    for (const card of deck) {
+      expect(card.text).not.toBe("");
+      expect(["Law", "Directive"]).toContain(card.kind);
+      expect(catalog.components.agenda_groups).toContain(card.group);
+      expect(card.group).not.toBe("Other");
+    }
+    const { transport, next } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const { update } = await next();
+    transport.close();
+    expect(update.view.table.laws).toEqual({ censure: "c", defense_act: "for" });
+    // The two laws and Mutiny are not in the deck.
+    expect(update.agendas).toEqual({ deck: 47 });
+    const view = selectAgendas(update, catalog);
+    expect(view.laws).toMatchObject([
+      { name: "Homeland Defense Act", kind: "Law · For/Against", outcome: { text: "For" } },
+      { name: "Political Censure", kind: "Law · Elect Player", outcome: { seat: "c" } },
+    ]);
+    expect(view.laws[0].text).toMatch(/^For: /);
+    expect(view.rest).toBe(48);
+    expect(view.reference.flatMap((group) => group.cards)).toHaveLength(48);
+    // The groups are the ones of the catalogue, in its order.
+    const groups = view.reference.map((group) => group.group);
+    expect(groups).toEqual(
+      catalog.components.agenda_groups!.filter((group) => groups.includes(group)),
     );
   },
 );

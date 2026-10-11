@@ -9,6 +9,7 @@ import { factionName, phaseName } from "./names";
 import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
 import { selectScore } from "./score";
+import { selectAgendas } from "./agendas";
 import { selectSecrets } from "./secrets";
 import { selectTactical, tacticalFacts } from "./tactical";
 
@@ -110,6 +111,7 @@ export function selectShell(
       cards: [],
       actionCards: selectActionCards(update, printed, cards),
       secrets: selectSecrets(update, printed),
+      agendas: selectAgendas(update, printed),
       exploration: selectExploration(update, catalog),
       log: [],
     },

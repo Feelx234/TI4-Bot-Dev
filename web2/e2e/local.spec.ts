@@ -1184,3 +1184,38 @@ test("the sheet of a player has its abilities, leaders and used cards as printed
   const other = page.getByRole("complementary", { name: /^Seat B · / });
   await expect(other.getByRole("region", { name: "Leaders" }).getByRole("article")).toHaveCount(3);
 });
+
+test("the Agendas sheet of the late game has the laws in play and the deck in groups", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  await expect(heading(page)).toBeVisible();
+  await page.getByRole("button", { name: "Agendas", exact: true }).click();
+  const agendas = page.getByRole("complementary", { name: "Agendas" });
+  // A law with an elected seat and a law that passed "For", each with the text of its outcome.
+  const laws = agendas.getByRole("region", { name: "Laws in play" });
+  await expect(laws.getByText("2 laws")).toBeVisible();
+  await expect(laws.getByRole("article")).toHaveCount(2);
+  const act = laws.getByRole("article", { name: "Homeland Defense Act" });
+  await expect(act).toContainText("Law · For/Against");
+  await expect(act).toContainText("For: Each player can have any number of PDS units");
+  await expect(act).not.toContainText("Against:");
+  const censure = laws.getByRole("article", { name: "Political Censure" });
+  await expect(censure).toContainText("Law · Elect Player");
+  await expect(censure).toContainText("The elected player gains this card and 1 victory point.");
+  // The two laws and Mutiny are gone from the deck of fifty.
+  const deck = agendas.getByRole("region", { name: "Agenda deck" });
+  await expect(deck.getByText("48 not in play · 47 in the deck")).toBeVisible();
+  await expect(deck.getByRole("heading", { level: 4 })).toHaveCount(8);
+  await expect(deck.getByText("Minister of War")).toBeHidden();
+  await deck.getByRole("button", { name: /^Ministers and offices/ }).click();
+  await expect(deck.getByText("Minister of War")).toBeVisible();
+  // A law in play is not listed again.
+  await deck.getByRole("button", { name: /^Victory points and objectives/ }).click();
+  await expect(deck.getByText("Mutiny", { exact: true })).toBeVisible();
+  await expect(deck.getByText("Political Censure")).toHaveCount(0);
+  await page.screenshot({ path: "shots/local/agendas-late-game.png", animations: "disabled" });
+  expect(errors).toEqual([]);
+});

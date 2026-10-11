@@ -9,8 +9,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use ti4_content::{
-    ActionCardTiming, ContentStore, PublicObjectiveGroup, Record, SecretObjectiveGroup,
-    action_card_timing, public_objective_group, secret_objective_group,
+    ActionCardTiming, AgendaGroup, ContentStore, PublicObjectiveGroup, Record,
+    SecretObjectiveGroup, action_card_timing, agenda_group, public_objective_group,
+    secret_objective_group,
 };
 use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
@@ -101,6 +102,28 @@ pub struct PublicObjectiveCard {
     pub text: String,
 }
 
+/// One agenda as printed. Every agenda is in the deck once.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgendaCard {
+    pub id: String,
+    pub name: String,
+    /// `Law` or `Directive`.
+    pub kind: String,
+    /// What the vote is about, as printed: `For/Against`, `Elect Player`, `Elect Planet`. Empty
+    /// for an agenda that has no outcomes of its own (Covert Legislation).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub elect: String,
+    /// The text of the outcome "For", or of the election. A note that the card prints with what
+    /// is elected is before it, in its brackets.
+    pub text: String,
+    /// The text of the outcome "Against". Empty for an election.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub against: String,
+    /// What the agenda affects, one of [`ComponentCatalog::agenda_groups`].
+    pub group: String,
+}
+
 /// The printed cards of the play areas. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -128,6 +151,10 @@ pub struct ComponentCatalog {
     /// The groups of what the public objectives ask for, in the order in which a reader is shown
     /// them.
     pub public_objective_groups: Vec<String>,
+    /// The agenda deck as a game begins with it, sorted by id.
+    pub agendas: Vec<AgendaCard>,
+    /// The groups of what the agendas affect, in the order in which a reader is shown them.
+    pub agenda_groups: Vec<String>,
 }
 
 /// Everything printed that a client is handed once.
@@ -324,6 +351,49 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
             .chain([OTHER_GROUP])
             .map(ToOwned::to_owned)
             .collect(),
+        agendas: {
+            let mut deck = build_starting_decks(content, sources, 0).agendas;
+            deck.sort();
+            deck.iter()
+                .map(|id| agenda_card(id, content.get(ContentType::Agendas, id)))
+                .collect()
+        },
+        agenda_groups: AgendaGroup::ALL
+            .iter()
+            .map(|group| group.label())
+            .chain([OTHER_GROUP])
+            .map(ToOwned::to_owned)
+            .collect(),
+    }
+}
+
+/// The agenda `id` as printed. The corpus has what is elected and a note of the card in one
+/// field ("Elect Law (When this agenda is revealed, …)"), and for an agenda with no outcomes of
+/// its own the whole text there.
+fn agenda_card(id: &str, record: Option<&Record>) -> AgendaCard {
+    let printed = |key: &str| record.map(|record| text(record, key)).unwrap_or_default();
+    let (target, text1, against) = (printed("target"), printed("text1"), printed("text2"));
+    let (elect, text) = if text1.is_empty() && against.is_empty() {
+        (String::new(), target)
+    } else {
+        match target.split_once(" (") {
+            Some((elect, note)) => (elect.to_owned(), format!("({note} {text1}")),
+            None => (target, text1),
+        }
+    };
+    AgendaCard {
+        id: id.to_owned(),
+        name: record
+            .and_then(|record| record.text("name"))
+            .unwrap_or(id)
+            .to_owned(),
+        kind: printed("type"),
+        elect,
+        text,
+        against,
+        group: agenda_group(id)
+            .map_or(OTHER_GROUP, AgendaGroup::label)
+            .to_owned(),
     }
 }
 
@@ -450,6 +520,60 @@ mod tests {
         assert_eq!(gatekeeper.name, "Become the Gatekeeper");
         assert_eq!(gatekeeper.phase, "Status");
         assert_eq!(gatekeeper.group, "Ships on the board");
+    }
+
+    #[test]
+    fn the_agendas_are_as_printed_and_have_their_group() {
+        let catalog = component_catalog(ContentStore::embedded(), POK);
+        assert_eq!(catalog.agendas.len(), 50);
+        let names: std::collections::BTreeSet<&str> = catalog
+            .agendas
+            .iter()
+            .map(|card| card.name.as_str())
+            .collect();
+        assert_eq!(names.len(), 50, "every agenda is in the deck once");
+        for card in &catalog.agendas {
+            assert!(!card.text.is_empty(), "{} has its text", card.id);
+            assert!(["Law", "Directive"].contains(&card.kind.as_str()));
+            assert!(
+                catalog.agenda_groups.contains(&card.group) && card.group != OTHER_GROUP,
+                "{} has its group",
+                card.id
+            );
+        }
+        let agenda = |id: &str| {
+            catalog
+                .agendas
+                .iter()
+                .find(|card| card.id == id)
+                .unwrap_or_else(|| panic!("{id}"))
+        };
+        let mutiny = agenda("mutiny");
+        assert_eq!(
+            (mutiny.kind.as_str(), mutiny.elect.as_str()),
+            ("Directive", "For/Against")
+        );
+        assert!(mutiny.text.starts_with("For: "));
+        assert!(mutiny.against.starts_with("Against: "));
+        assert_eq!(mutiny.group, "Victory points and objectives");
+        // A note of the card is with the text, not with what is elected.
+        let abolishment = agenda("abolishment");
+        assert_eq!(abolishment.elect, "Elect Law");
+        assert!(
+            abolishment
+                .text
+                .starts_with("(When this agenda is revealed")
+        );
+        assert!(
+            abolishment
+                .text
+                .ends_with("Discard the elected law from play.")
+        );
+        // Covert Legislation has no outcomes of its own.
+        let covert = agenda("covert");
+        assert_eq!(covert.elect, "");
+        assert!(covert.text.starts_with("When this agenda is revealed"));
+        assert_eq!(covert.against, "");
     }
 
     #[test]

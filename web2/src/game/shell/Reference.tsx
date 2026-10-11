@@ -10,6 +10,7 @@ import type {
   ScoreCellView,
   ScoreView,
   SecretsView,
+  AgendasView,
 } from "../../model";
 import { plural } from "../../model";
 import { Button, Drawer, Eyebrow, Icon, Peek, cx } from "../../ui";
@@ -431,6 +432,78 @@ function Secrets({ view }: { view: SecretsView }) {
   );
 }
 
+/**
+ * The agendas: the laws in play with the outcome that passed, and every other agenda of the deck,
+ * in groups by what an agenda affects that open with a click. Every agenda is in the deck once.
+ */
+function Agendas({ view }: { view: AgendasView }) {
+  const seats = useSeats();
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (group: string) => setOpen((now) => ({ ...now, [group]: !now[group] }));
+  return (
+    <>
+      <section aria-label="Laws in play">
+        <h3 className="mt-3.5 flex items-baseline justify-between gap-3 text-muted">
+          <Eyebrow>Laws in play</Eyebrow>
+          <span className="text-text tabular-nums">
+            {view.laws.length} {view.laws.length === 1 ? "law" : "laws"}
+          </span>
+        </h3>
+        {view.laws.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
+        {view.laws.map((law) => (
+          <article key={law.name} aria-label={law.name}>
+            <PrintedCard
+              name={law.name}
+              kind={law.kind}
+              text={law.text}
+              aside={
+                "seat" in law.outcome ? (
+                  <span className="flex items-baseline gap-1">
+                    <SeatSymbol seat={law.outcome.seat} />
+                    {seats[law.outcome.seat]?.faction}
+                  </span>
+                ) : (
+                  law.outcome.text
+                )
+              }
+            />
+          </article>
+        ))}
+      </section>
+      <section aria-label="Agenda deck">
+        <h3 className="mt-5 flex flex-wrap items-baseline justify-between gap-x-3 text-muted">
+          <Eyebrow>Agenda deck</Eyebrow>
+          <span
+            className="tabular-nums"
+            title="Agendas that are not a law in play: in the deck or discarded"
+          >
+            {view.rest} not in play
+            {view.deck !== null && ` · ${view.deck} in the deck`}
+          </span>
+        </h3>
+        {view.reference.map((group) => (
+          <section key={group.group} aria-label={group.group}>
+            <GroupHeading
+              open={!!open[group.group]}
+              onToggle={() => toggle(group.group)}
+              name={group.group}
+              count={group.cards.length}
+            />
+            {open[group.group] &&
+              group.cards.map((card) => (
+                <div key={card.name} className="mt-2 border-t border-line/50 pt-1.5">
+                  <strong className="font-mid">{card.name}</strong>
+                  <div className="text-xs text-faint">{card.kind}</div>
+                  <div className="mt-0.5 text-xs whitespace-pre-line text-muted">{card.text}</div>
+                </div>
+              ))}
+          </section>
+        ))}
+      </section>
+    </>
+  );
+}
+
 /** What a cell of the Objectives sheet says, in words: "scored", "2 points", "1 point from Hacan". */
 function cellWords(cell: ScoreCellView, faction: (seat: string) => string): string {
   if (cell.kind === "none") {
@@ -793,6 +866,7 @@ const TITLES = {
   technology: "Technology",
   cards: "Cards",
   secrets: "Secrets",
+  agendas: "Agendas",
   exploration: "Exploration",
   log: "Log",
 } as const;
@@ -838,6 +912,8 @@ export function ReferenceDrawer({
         ))
       ) : key === "secrets" ? (
         view.secrets && <Secrets view={view.secrets} />
+      ) : key === "agendas" ? (
+        <Agendas view={view.agendas} />
       ) : key === "objectives" ? (
         view.objectives && <Score view={view.objectives} />
       ) : (

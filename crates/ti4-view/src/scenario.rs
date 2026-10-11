@@ -549,6 +549,12 @@ fn deal_points(state: &mut GameState, content: &ContentStore) -> Result<(), Stri
     for seat in [&f, &h] {
         adjust_victory_points(state, seat, -1, "agenda:mutiny");
     }
+    // A law of each kind of outcome that the deck has: an elected player, and "For". Homeland
+    // Defense Act changes no screen of the scenario.
+    state.enact_law("defense_act", "for");
+    state
+        .agenda_deck
+        .retain(|agenda| !["censure", "defense_act", "mutiny"].contains(&agenda.as_str()));
     let shard = RelicId::new(ti4_engine::relics::SHARD);
     state.relic_deck.retain(|held| held != &shard);
     state
@@ -903,6 +909,24 @@ mod tests {
                 assert_eq!(ledger, player.victory_points, "{}", player.id);
             }
         }
+    }
+
+    #[test]
+    fn the_late_game_has_two_laws_and_a_thinner_agenda_deck() {
+        let (state, _) = game("late-game");
+        assert_eq!(
+            state.laws,
+            BTreeMap::from([
+                ("censure".to_owned(), "c".to_owned()),
+                ("defense_act".to_owned(), "for".to_owned()),
+            ])
+        );
+        let printed = crate::components::component_catalog(ContentStore::embedded(), POK).agendas;
+        assert_eq!(
+            crate::agendas::project_agenda_facts(&state).deck,
+            printed.len() - 3,
+            "the two laws and Mutiny are not in the deck"
+        );
     }
 
     #[test]

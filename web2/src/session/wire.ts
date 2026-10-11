@@ -396,6 +396,23 @@ export interface ComponentCatalog {
   public_objective_groups?: string[];
   /** The groups of what the secret objectives ask for, in the order in which they are shown. */
   secret_objective_groups: string[];
+  /** The agenda deck as a game begins with it. Every agenda is in it once. */
+  agendas?: {
+    id: string;
+    name: string;
+    /** "Law" or "Directive". */
+    kind: string;
+    /** What the vote is about: "For/Against", "Elect Player". Absent for Covert Legislation. */
+    elect?: string;
+    /** The text of the outcome "For", or of the election. */
+    text: string;
+    /** The text of the outcome "Against". Absent for an election. */
+    against?: string;
+    /** What the agenda affects, one of `agenda_groups`. */
+    group: string;
+  }[];
+  /** The groups of what the agendas affect, in the order in which they are shown. */
+  agenda_groups?: string[];
 }
 
 /** `ti4_view::score::PointSource`: a source of points that is not a public objective. */
@@ -440,6 +457,12 @@ export interface SecretObjectiveFacts {
   scored: Record<string, string[]>;
   /** How many secret objectives a seat may have, scored and unscored together. */
   hand_limit: number;
+}
+
+/** `ti4_view::agendas::AgendaFacts` */
+export interface AgendaFacts {
+  /** How many cards the deck still holds. */
+  deck: number;
 }
 
 /** `ti4_view::action_cards::ActionCardFacts` */
@@ -509,4 +532,6 @@ export interface SessionUpdate {
   secret_objectives?: SecretObjectiveFacts;
   /** Where the victory points of every seat come from. The wasm host fills it. */
   score?: ScoreFacts;
+  /** The agenda deck. The laws in play are in the table of the view. The wasm host fills it. */
+  agendas?: AgendaFacts;
 }

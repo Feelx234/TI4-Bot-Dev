@@ -7,6 +7,7 @@ export const REFERENCES = [
   ["technology", "Technology"],
   ["cards", "Cards"],
   ["secrets", "Secrets"],
+  ["agendas", "Agendas"],
   ["exploration", "Exploration"],
   ["log", "Log"],
 ] as const;
