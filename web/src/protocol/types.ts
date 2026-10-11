@@ -19,9 +19,15 @@ export interface LobbySlot {
   ready: boolean;
   connected: boolean;
   can_take_over: boolean;
-  /** `"random"` for an in-process random bot; absent for a person (and for an MLP bot). */
+  /**
+   * `"random"` for an in-process random bot, `"smart"` for an in-process smart bot; absent for a
+   * person (and for an MLP bot).
+   */
   bot?: string;
 }
+
+/** The bots a server plays itself: uniformly random, or random with simple board heuristics. */
+export type InProcessBotKind = "random" | "smart";
 
 export interface LobbyDto {
   game_id: string;
@@ -31,7 +37,7 @@ export interface LobbyDto {
   slots: LobbySlot[];
   bot_service_enabled?: boolean;
   /**
-   * Bot kinds the host can add: `random` (in-process, no password) and `mlp` (needs the bot
+   * Bot kinds the host can add: `random` and `smart` (in-process, no password) and `mlp` (needs the bot
    * password). Absent from servers that predate random bots, which offer neither random bot.
    */
   bot_kinds?: string[];

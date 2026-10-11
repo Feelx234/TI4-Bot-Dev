@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   CreateGameResponse,
+  InProcessBotKind,
   LobbyDto,
   LobbySlot,
   MapChoice,
@@ -162,8 +163,15 @@ interface LobbyStatusProps {
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
-  /** Host only: seat in-process random bots (one, or every open seat with `fill`). */
-  onAddRandomBots?: (options: { fill?: boolean; count?: number }) => Promise<boolean | void>;
+  /**
+   * Host only: seat in-process bots (one, or every open seat with `fill`) of `kind` (random when
+   * absent).
+   */
+  onAddRandomBots?: (options: {
+    fill?: boolean;
+    count?: number;
+    kind?: InProcessBotKind;
+  }) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
   onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
@@ -241,12 +249,13 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     previousMap.current = now;
   }, [lobby.map_revision, lobby.map, isHost]);
   // An older server lists no bot kinds: it has no random bots, so offer none.
-  const canAddRandomBots =
+  const canAddInProcessBots =
     isHost &&
     lobby.phase === "lobby" &&
     !!onAddRandomBots &&
-    !!lobby.bot_kinds?.includes("random") &&
     lobby.slots.some((slot) => !slot.occupant);
+  const canAddRandomBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("random");
+  const canAddSmartBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("smart");
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
   const handleAddBot = async (event: React.FormEvent) => {
@@ -363,29 +372,57 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             onClose={closePicker}
           />
         )}
-        {canAddRandomBots && (
+        {(canAddRandomBots || canAddSmartBots) && (
           <div className="lobby-bot-actions" data-testid="random-bot-actions">
-            <button
-              type="button"
-              className="button button--outline"
-              data-testid="add-random-bot-button"
-              disabled={!!pendingAction}
-              onClick={() => void onAddRandomBots?.({ count: 1 })}
-            >
-              {pendingAction === "add_random_bots" ? "Adding…" : "Add random bot"}
-            </button>
-            <button
-              type="button"
-              className="button button--outline"
-              data-testid="fill-random-bots-button"
-              disabled={!!pendingAction}
-              onClick={() => void onAddRandomBots?.({ fill: true })}
-            >
-              Fill empty seats with random bots
-            </button>
+            {canAddRandomBots && (
+              <>
+                <button
+                  type="button"
+                  className="button button--outline"
+                  data-testid="add-random-bot-button"
+                  disabled={!!pendingAction}
+                  onClick={() => void onAddRandomBots?.({ count: 1 })}
+                >
+                  {pendingAction === "add_random_bots" ? "Adding…" : "Add random bot"}
+                </button>
+                <button
+                  type="button"
+                  className="button button--outline"
+                  data-testid="fill-random-bots-button"
+                  disabled={!!pendingAction}
+                  onClick={() => void onAddRandomBots?.({ fill: true })}
+                >
+                  Fill empty seats with random bots
+                </button>
+              </>
+            )}
+            {canAddSmartBots && (
+              <>
+                <button
+                  type="button"
+                  className="button button--outline"
+                  data-testid="add-smart-bot-button"
+                  disabled={!!pendingAction}
+                  onClick={() => void onAddRandomBots?.({ count: 1, kind: "smart" })}
+                >
+                  Add smart bot
+                </button>
+                <button
+                  type="button"
+                  className="button button--outline"
+                  data-testid="fill-smart-bots-button"
+                  disabled={!!pendingAction}
+                  onClick={() => void onAddRandomBots?.({ fill: true, kind: "smart" })}
+                >
+                  Fill empty seats with smart bots
+                </button>
+              </>
+            )}
             <p className="text-faint lobby-bot-actions__hint">
-              Random bots play legal moves at random. They need no password and cannot be taken
-              over.
+              {canAddRandomBots && "Random bots play legal moves at random. "}
+              {canAddSmartBots &&
+                "Smart bots claim nearby planets, invade Mecatol Rex when they can, only take fights they expect to win, build when short of units and accept only trades in their favour; the rest they play at random. "}
+              They need no password and cannot be taken over.
             </p>
           </div>
         )}
@@ -400,9 +437,12 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                 <SeatBadge position={slot.position} /> Position {slot.position}:{" "}
                 {slot.occupant ? playerLabel(slot) : "Open"}
                 {slot.occupant === lobby.host_player_id ? " (Host)" : ""}
-                {slot.bot === "random" && (
-                  <span className="lobby-bot-badge" data-testid={`bot-badge-${slot.position}`}>
-                    Random bot
+                {(slot.bot === "random" || slot.bot === "smart") && (
+                  <span
+                    className={`lobby-bot-badge lobby-bot-badge--${slot.bot}`}
+                    data-testid={`bot-badge-${slot.position}`}
+                  >
+                    {slot.bot === "smart" ? "Smart bot" : "Random bot"}
                   </span>
                 )}
               </strong>

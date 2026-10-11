@@ -946,6 +946,16 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         worker_shared.clone(),
                     ))
                 }
+                SeatController::BotSmart => Box::new(
+                    crate::session::random_bot::RandomBotDecider::new(
+                        seat.clone(),
+                        config.seed.unwrap_or_default(),
+                        decision_counter.clone(),
+                        random_bot_delay,
+                        worker_shared.clone(),
+                    )
+                    .smart(),
+                ),
             };
 
             // A human seat's "never offer" choices are applied here, below the replay layer: a

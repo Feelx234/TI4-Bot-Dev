@@ -105,7 +105,7 @@ async fn the_host_adds_one_random_bot_with_its_own_credential_and_no_password() 
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host, _) = server.lobby(4).await;
     let view = server.view(&game).await;
-    assert_eq!(view["bot_kinds"], json!(["random"]));
+    assert_eq!(view["bot_kinds"], json!(["random", "smart"]));
     assert_eq!(view["bot_service_enabled"], false);
 
     let (status, body) = server
@@ -239,7 +239,7 @@ async fn mlp_bots_stay_listed_when_the_service_is_configured() {
     });
     let server = serve(Arc::new(registry)).await;
     let (game, host, _) = server.lobby(3).await;
-    assert_eq!(server.view(&game).await["bot_kinds"], json!(["random", "mlp"]));
+    assert_eq!(server.view(&game).await["bot_kinds"], json!(["random", "smart", "mlp"]));
     // Random bots do not count against the MLP child-process limit (0 here) and need no password.
     let (status, body) = server
         .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
@@ -250,6 +250,50 @@ async fn mlp_bots_stay_listed_when_the_service_is_configured() {
         .post(&game, "add-bot", Some(&host), json!({"password": "wrong"}))
         .await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn smart_bots_are_added_named_and_started_as_smart_seats() {
+    let server = serve(Arc::new(GameRegistry::new())).await;
+    let (game, host, host_id) = server.lobby(4).await;
+    let (status, body) = server
+        .post(&game, "bots", Some(&host), json!({"kind": "smart", "count": 2}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["slots"][1]["nickname"], "Smart bot 1");
+    assert_eq!(body["slots"][2]["nickname"], "Smart bot 2");
+    assert_eq!(body["slots"][1]["bot"], "smart");
+    assert_eq!(body["slots"][1]["can_take_over"], false);
+    let (status, body) = server
+        .post(&game, "bots", Some(&host), json!({"kind": "random"}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["slots"][3]["nickname"], "Random bot 1");
+    let (status, _) = server
+        .post(&game, "bots", Some(&host), json!({"kind": "genius"}))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (status, _) = server.post(&game, "ready", Some(&host), json!({"ready": true})).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, started) = server.post(&game, "start", Some(&host), json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{started}");
+    let session = server.registry.get_game(&game).expect("session");
+    let seats = session.lobby_details().1;
+    let count = |kind: SeatController| seats.values().filter(|c| **c == kind).count();
+    assert_eq!(count(SeatController::BotSmart), 2);
+    assert_eq!(count(SeatController::BotRandom), 1);
+    // The bots play on their own until the host is asked.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Some((seat, _, _)) = session.current_pending_decision() {
+            assert_eq!(seat.as_str(), host_id, "a bot seat waited for a person");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the host was never asked");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(session.error().is_none());
 }
 
 #[tokio::test]

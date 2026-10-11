@@ -375,6 +375,43 @@ describe("lobby UI", () => {
       expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
     });
 
+    it("offers smart bots beside random ones when the server lists them, with their kind", () => {
+      const onAddRandomBots = vi.fn().mockResolvedValue(true);
+      const { rerender } = render(
+        <LobbyStatus lobby={withBots} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+      );
+      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
+      rerender(
+        <LobbyStatus
+          lobby={{ ...lobby, bot_kinds: ["random", "smart"] }}
+          playerId="player_a"
+          onAddRandomBots={onAddRandomBots}
+          {...props}
+        />,
+      );
+      fireEvent.click(screen.getByTestId("add-smart-bot-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1, kind: "smart" });
+      fireEvent.click(screen.getByTestId("fill-smart-bots-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true, kind: "smart" });
+      fireEvent.click(screen.getByTestId("add-random-bot-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1 });
+      expect(screen.getByTestId("random-bot-actions")).toHaveTextContent("Smart bots claim nearby planets");
+    });
+
+    it("labels a smart bot seat as a smart bot", () => {
+      const botLobby: LobbyDto = {
+        ...withBots,
+        slots: withBots.slots.map((slot) =>
+          slot.position === 2
+            ? { ...slot, nickname: "Smart bot 1", ready: true, connected: true, can_take_over: false, bot: "smart" }
+            : slot,
+        ),
+      };
+      render(<LobbyStatus lobby={botLobby} playerId="player_a" {...props} />);
+      expect(screen.getByTestId("bot-badge-2")).toHaveTextContent("Smart bot");
+      expect(screen.getByText("● Plays itself")).toBeInTheDocument();
+    });
+
     it("labels a bot seat, says it plays itself, and lets the host remove it", () => {
       const onRemoveBot = vi.fn().mockResolvedValue(true);
       const botLobby: LobbyDto = {
