@@ -648,10 +648,36 @@ fn bombardment_target_question(
     planet: &PlanetId,
     hits: usize,
     present: &std::collections::BTreeSet<PlayerId>,
+    on_planet: &[Unit],
 ) -> Option<Choice> {
     if present.is_empty() {
         return None;
     }
+    // Display only: what each answer would put at risk ("2 infantry, 1 mech").
+    let forces = |player: &PlayerId| -> String {
+        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        for unit in on_planet.iter().filter(|unit| &unit.owner == player) {
+            *counts.entry(unit.type_id.to_string().replace('_', " ")).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .map(|(unit, n)| format!("{n} {unit}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let captions: Vec<(&str, serde_json::Value)> = present
+        .iter()
+        .map(|player| {
+            (
+                player.as_str(),
+                crate::choice::offer_caption_for_seat(
+                    "Hit their ground forces",
+                    Some(&format!("{} on {planet}", forces(player))),
+                    player.as_str(),
+                ),
+            )
+        })
+        .collect();
     Some(Choice::new(
         invader.clone(),
         format!("whose units on {planet} take the bombardment's next hits ({hits} hits)"),
@@ -672,6 +698,22 @@ fn bombardment_target_question(
                 .with("planet", planet.to_string())
             })
             .collect(),
+    )
+    .offered(
+        crate::choice::offer_card(
+            "Bombardment hits",
+            "bombardment",
+            Some("Invasion, step 1: bombardment"),
+            Some(
+                "Hits only destroy ground forces (never structures); a Mech may sustain damage to cancel one. Several players have ground forces on this planet: choose whose take these hits.",
+            ),
+        ),
+        vec![
+            crate::choice::offer_fact_planet("Planet", planet.as_str(), system.as_str()),
+            crate::choice::offer_fact_seat("Bombarding", invader.as_str()),
+            crate::choice::offer_fact("Hits to assign", hits.to_string()),
+        ],
+        &captions,
     ))
 }
 
@@ -727,6 +769,7 @@ fn apply_bombard_plan(
                     &entry.planet,
                     *produced,
                     &present,
+                    state.system_state(system).on_planet(&entry.planet),
                 )
                 .map(|question| {
                     question.contextualized(
@@ -4075,6 +4118,7 @@ impl Window for InvasionWindow {
                     planet,
                     groups[next],
                     &present,
+                    state.system_state(&self.system).on_planet(planet),
                 )
                 .map(|question| {
                     question.contextualized(
@@ -5727,6 +5771,38 @@ mod tests {
         assert_eq!(dice.count(), 3, "one roll per bombarding ship");
     }
 
+    /// The bombardment question is an offer card: planet, hits and, per answer, what that
+    /// player has on the planet. Display only, so option ids and kinds are as before.
+    #[test]
+    fn bombardment_target_question_is_an_offer_card_naming_each_players_forces() {
+        let system = SystemId::new("18");
+        let planet = PlanetId::new("mecatolrex");
+        let present: std::collections::BTreeSet<PlayerId> =
+            [PlayerId::new("b"), PlayerId::new("c")].into_iter().collect();
+        let units = vec![
+            Unit::new(UnitTypeId::new("infantry"), PlayerId::new("b")),
+            Unit::new(UnitTypeId::new("infantry"), PlayerId::new("b")),
+            Unit::new(UnitTypeId::new("mech"), PlayerId::new("b")),
+            Unit::new(UnitTypeId::new("infantry"), PlayerId::new("c")),
+        ];
+        let choice = bombardment_target_question(
+            &PlayerId::new("a"),
+            &system,
+            &planet,
+            2,
+            &present,
+            &units,
+        )
+        .expect("two seats present");
+        assert_eq!(choice.ids(), vec!["b", "c"]);
+        assert_eq!(choice.details.get("kind").and_then(serde_json::Value::as_str), Some("offer"));
+        let captions = choice.details.get("captions").expect("captions");
+        assert_eq!(captions["b"]["hint"], "2 infantry, 1 mech on mecatolrex");
+        assert_eq!(captions["c"]["seat"], "c");
+        let facts = choice.details.get("facts").and_then(serde_json::Value::as_array).expect("facts");
+        assert!(facts.iter().any(|f| f["label"] == "Hits to assign" && f["value"] == "2"));
+    }
+
     /// OBS-008b5: a bombardment-target option names the system and planet it concerns, board
     /// context it previously carried none of at all.
     #[test]
@@ -5739,7 +5815,7 @@ mod tests {
                 .collect();
 
         let choice =
-            bombardment_target_question(&PlayerId::new("a"), &system, &planet, 2, &present)
+            bombardment_target_question(&PlayerId::new("a"), &system, &planet, 2, &present, &[])
                 .expect("two seats present");
 
         for option in &choice.options {
