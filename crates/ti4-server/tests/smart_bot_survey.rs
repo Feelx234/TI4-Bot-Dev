@@ -2,7 +2,8 @@
 //! smart_bot_survey -- --ignored --nocapture`. Plays a fixed set of tables (all-smart 3, 4 and 6
 //! seats, and smart against random) and prints per-round standings and a summary per seat kind.
 //! Set `SURVEY_DUMP=<dir>` to also write each game's decision log as JSON lines, and
-//! `SURVEY_SEEDS=1,2,3` to play all-smart 3, 4 and 6-seat tables on those seeds instead.
+//! `SURVEY_SEEDS=1,2,3` to play all-smart 3, 4 and 6-seat tables on those seeds instead, and
+//! `SURVEY_MIXED_SEEDS=1,2,3` to choose the smart-against-random tables' seeds.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -47,13 +48,25 @@ fn line(state: &GameState) -> String {
             .flat_map(|s| s.units.iter())
             .filter(|u| u.owner == seat.id)
             .count();
+        // Ground forces anywhere (space and planets), by id: infantry and mechs of every faction.
+        let ground = state
+            .board
+            .values()
+            .flat_map(|s| s.units.iter().chain(s.planet_units.values().flatten()))
+            .filter(|u| u.owner == seat.id)
+            .filter(|u| {
+                let id = u.type_id.as_str();
+                id.contains("infantry") || id.contains("mech")
+            })
+            .count();
         let _ = write!(
             out,
-            " {}[{}vp {}pl {}u tg{} t{}/f{}/s{} sc{:?}]",
+            " {}[{}vp {}pl {}u {}g tg{} t{}/f{}/s{} sc{:?}]",
             seat.id,
             seat.victory_points,
             planets,
             ships,
+            ground,
             seat.trade_goods,
             seat.tactic_tokens,
             seat.fleet_tokens,
@@ -147,8 +160,21 @@ fn survey_smart_bot_games() {
     for (n, seed) in all_smart {
         tables.push((format!("smart{n}_{seed}"), seed, vec![smart.clone(); n]));
     }
-    let mixed_seeds: &[u64] = if seeds.is_some() { &[] } else { &[3, 17, 29] };
-    for &seed in mixed_seeds {
+    let mixed_seeds: Vec<u64> = std::env::var("SURVEY_MIXED_SEEDS").ok().map_or_else(
+        || {
+            if seeds.is_some() {
+                vec![]
+            } else {
+                vec![3, 17, 29]
+            }
+        },
+        |list| {
+            list.split(',')
+                .filter_map(|s| s.trim().parse().ok())
+                .collect()
+        },
+    );
+    for seed in mixed_seeds {
         for swap in [false, true] {
             let seats: Vec<SeatController> = (0..4)
                 .map(|i| {
