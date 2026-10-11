@@ -401,6 +401,88 @@ fn a_new_turn_then_autoplay_keeps_the_round_and_a_second_redo_keeps_the_first_or
     assert_eq!(json_of(&t.session().event_log()), json_of(&events0));
 }
 
+/// p1 is in the middle of a turn (its action is under way, the turn not ended yet).
+fn p1_mid_turn(log: &[ti4_engine::choice::DecisionRecord]) -> bool {
+    let spans = find_turns(log);
+    spans
+        .iter()
+        .filter(|t| t.seat.as_str() == "p1" && t.complete)
+        .count()
+        >= 1
+        && spans
+            .last()
+            .is_some_and(|t| t.seat.as_str() == "p1" && !t.complete && log.len() > t.start + 1)
+}
+
+#[test]
+fn redoing_the_turn_in_progress_finishes_without_replacing_the_live_game() {
+    let t = table("redo_mid_turn", SeatController::BotFirstOption, None);
+    t.play_until(p1_mid_turn);
+    t.settle();
+    let log0 = t.session().decision_log();
+    t.request(&t.host_token, None, None)
+        .expect("redo of the turn still being played");
+    let status = t.status(&t.host_token).unwrap();
+    assert_eq!(status.rewound_to, find_turns(&log0).last().unwrap().start);
+    // Nothing was recorded after it, but auto-play still waits for the new turn to end.
+    assert!(matches!(
+        t.registry
+            .turn_redo_autoplay(&t.id, &t.host_token, t.version()),
+        Err(HistoryError::InvalidTarget(_))
+    ));
+    for _ in 0..200 {
+        if t.status(&t.host_token).unwrap().turn_complete {
+            break;
+        }
+        assert!(t.answer(|_| 0));
+    }
+    assert!(t.status(&t.host_token).unwrap().turn_complete);
+    // The game goes on live before the client gets round to asking for the auto-play.
+    assert!(t.answer(|_| 0));
+    t.settle();
+    let session = t.session();
+    let live = json_of(&session.decision_log());
+    let live_len = session.decision_log().len();
+    let generation = session.history_status().generation;
+    let version = session.game_version();
+
+    let reply = t
+        .registry
+        .turn_redo_autoplay(&t.id, &t.host_token, version)
+        .expect("auto-play with nothing to replay");
+    assert_eq!(reply.game_version, version);
+    // The same session goes on: no replacement (sockets stay open, nothing in flight is lost)
+    // and nothing decided since the new turn ended is cut off.
+    assert!(
+        Arc::ptr_eq(&session, &t.session()),
+        "the live session was replaced"
+    );
+    assert_eq!(t.session().history_status().generation, generation);
+    assert_eq!(t.session().game_version(), version);
+    assert_eq!(json_of(&t.session().decision_log()), live);
+
+    let status = t
+        .status(&t.host_token)
+        .expect("restorable until the next decision");
+    assert_eq!(status.stage, TurnRedoStage::AutoPlayed);
+    assert_eq!(status.handoff_len, Some(live_len));
+    let outcome = status.outcome.expect("an outcome");
+    assert_eq!((outcome.kept, outcome.tail_total), (0, 0));
+    assert_eq!(outcome.stop, TurnRedoStop::TailExhausted);
+    // A second tab asking again gets the same live game back.
+    t.registry
+        .turn_redo_autoplay(&t.id, &t.host_token, version)
+        .expect("a repeated auto-play is a no-op");
+    assert!(Arc::ptr_eq(&session, &t.session()));
+
+    // The original turn can still be brought back exactly.
+    t.registry
+        .turn_redo_restore(&t.id, &t.host_token, t.version())
+        .expect("restore");
+    assert_eq!(json_of(&t.session().decision_log()), json_of(&log0));
+    assert!(t.status(&t.host_token).is_none());
+}
+
 #[test]
 fn the_original_is_dropped_on_keep_and_once_a_live_decision_passes_the_handoff() {
     // Keep: explicit.

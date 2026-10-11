@@ -346,6 +346,9 @@ impl GameRegistry {
         if record.stage != TurnRedoStage::NewTurn {
             return Ok(current.session.get_snapshot(&ViewerRole::Player(actor)));
         }
+        if record.source.decisions.is_empty() {
+            return self.finish_without_tail(game_id, &current, record, actor);
+        }
         let state = self.state.lock().expect("registry lock");
         let snap = self.snapshot(&state, game_id, Some(expected_version))?;
         drop(state);
@@ -418,6 +421,46 @@ impl GameRegistry {
             self.revert_record(game_id, &snap.config, Some(&record));
         }
         published
+    }
+
+    /// Auto-play of a redo with nothing recorded after the redone turn (the seat redid the turn it
+    /// was still playing): there is nothing to replay, so the live game is not replaced. Replacing
+    /// it anyway cost a full replay, closed every socket (an answer in flight was lost with an
+    /// error) and cut off whatever had been decided live since the new turn ended.
+    fn finish_without_tail(
+        &self,
+        game_id: &str,
+        current: &Snapshot,
+        record: TurnRedoRecord,
+        actor: PlayerId,
+    ) -> Result<InitialSnapshotMsg, HistoryError> {
+        let finished = find_turns(&current.decisions)
+            .iter()
+            .any(|t| t.seat == record.seat && t.start == record.rewound_to && t.complete);
+        if !finished {
+            let missing = !find_turns(&current.decisions)
+                .iter()
+                .any(|t| t.seat == record.seat && t.start == record.rewound_to);
+            return Err(invalid(&if missing {
+                TurnRedoError::NewTurnMissing
+            } else {
+                TurnRedoError::NewTurnNotComplete
+            }));
+        }
+        let mut next = record;
+        next.stage = TurnRedoStage::AutoPlayed;
+        next.handoff_len = Some(current.decisions.len());
+        next.outcome = Some(TurnRedoOutcome {
+            kept: 0,
+            tail_total: 0,
+            stop: crate::protocol::turn_redo::TurnRedoStop::TailExhausted,
+            asking_seat: current
+                .session
+                .pending_prompt()
+                .map(|(seat, _)| seat.to_string()),
+        });
+        self.write_record(game_id, &current.config, &next)?;
+        Ok(current.session.get_snapshot(&ViewerRole::Player(actor)))
     }
 
     /// Bring the timeline from before the redo back, exactly.

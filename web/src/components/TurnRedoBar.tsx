@@ -184,6 +184,14 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
     pill = title;
     detail = `${plural(outcome.kept, "recorded decision", "recorded decisions")} ${outcome.kept === 1 ? "was" : "were"} replayed and kept, including that seat's own reactions and votes. Nothing more is replayed; the rest of the original stays in the saved timeline.`;
     actions = "decide";
+  } else if (outcome && outcome.tail_total === 0) {
+    // The seat redid the turn it was still playing: nothing followed it, so nothing was replayed.
+    state = "complete";
+    title = `${name(status.seat)}'s new turn is done`;
+    pill = title;
+    detail =
+      "Nothing had happened after the redone turn, so there was nothing to replay. Keep the new turn, or restore the original one.";
+    actions = "decide";
   } else {
     state = "complete";
     title = "The recorded round was replayed";

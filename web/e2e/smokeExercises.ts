@@ -7,6 +7,8 @@ import type { APIRequestContext, Page } from "@playwright/test";
  * - TI4_SMOKE_RECAP=1     one random non-host seat turns the "Recap" toggle on; the toasts are counted.
  * - TI4_SMOKE_REDO=1      one guarded "Redo my last turn" round trip (rewind, new turn, auto-play,
  *                         then restore or keep).
+ * - TI4_SMOKE_REDO_MIDTURN=1  with TI4_SMOKE_REDO: redo the turn the seat is still playing (at its
+ *                         "end your turn" question), and log every error text any tab shows meanwhile.
  *
  * Every exercise records what it saw in the report (`exercises`, `findings`) and never fails the
  * run by itself: a problem becomes a finding and the run continues (or ends cleanly).
@@ -237,6 +239,8 @@ export interface RedoDeps {
   shot: (page: Page, key: string, name: string) => Promise<void>;
 }
 
+/** TI4_SMOKE_REDO_MIDTURN=1: redo the turn the seat is still playing (at "end your turn"). */
+const REDO_MIDTURN = on("TI4_SMOKE_REDO_MIDTURN");
 const REQUEST_TIMEOUT_MS = 30_000;
 const NEW_TURN_TIMEOUT_MS = 300_000;
 const HANDOFF_TIMEOUT_MS = 150_000;
@@ -264,6 +268,7 @@ export class RedoExercise {
    */
   private pickSeat(): string | null {
     if (this.order.length < this.triggerAfter) return null;
+    if (REDO_MIDTURN) return "any";
     const last = this.order[this.order.length - 1];
     for (let i = this.order.length - 2; i >= 0; i--) if (this.order[i] !== last) return this.order[i];
     return null;
@@ -326,6 +331,33 @@ export class RedoExercise {
     }
   }
   private httpFailure: string | null = null;
+  /** Every error text any tab showed while the redo ran (TI4_SMOKE_REDO_MIDTURN diagnostics). */
+  readonly uiErrors: string[] = [];
+  private startErrorSampler() {
+    const sample = async () => {
+      if (this.phase === "done" || this.phase === "stuck") return;
+      for (const [i, page] of this.d.pages.entries()) {
+        const texts = await page
+          .evaluate(() =>
+            [...document.querySelectorAll('[data-testid*="error"], .text-danger, [role="alert"]')]
+              .filter((el) => (el as HTMLElement).offsetParent !== null)
+              .map((el) => `${el.getAttribute("data-testid") ?? el.className}: ${(el.textContent ?? "").trim().slice(0, 300)}`)
+              .filter((t) => !t.endsWith(": ")),
+          )
+          .catch(() => [] as string[]);
+        for (const t of texts) {
+          const line = `[seat ${i + 1}] ${t}`;
+          if (!this.uiErrors.includes(line)) {
+            this.uiErrors.push(line);
+            this.report.notes.push(`UI ERROR ${line}`);
+            this.d.log(`  redo: UI ERROR ${line}`);
+          }
+        }
+      }
+      setTimeout(() => void sample(), 250);
+    };
+    void sample();
+  }
   private httpKinds = new Set<string>();
 
   private async abort(why: string): Promise<void> {
@@ -423,9 +455,13 @@ export class RedoExercise {
     calm: { seat: string; prompt: string | undefined; phase: string } | null,
     decisions: number,
   ): Promise<"go" | "retry"> {
-    const seat = this.pickSeat();
+    let seat = this.pickSeat();
     if (!calm || !seat) return "go";
-    if (calm.phase !== "action" || calm.prompt !== "action phase" || calm.seat === seat) return "go";
+    if (REDO_MIDTURN) {
+      // The seat redoes the turn it is still playing, at its "end your turn" question.
+      if (calm.phase !== "action" || !/^end your turn/i.test(calm.prompt ?? "")) return "go";
+      seat = calm.seat;
+    } else if (calm.phase !== "action" || calm.prompt !== "action phase" || calm.seat === seat) return "go";
     // Not in the first few decisions of a quiet moment; and only once per run (phase leaves idle).
     this.seatIndex = this.d.seatIds.indexOf(seat);
     if (this.seatIndex < 0) return "go";
@@ -452,6 +488,7 @@ export class RedoExercise {
     await this.d.shot(page, "redo-log", `redo-event-log-controls`);
     this.d.log(`  redo: requesting redo of seat ${this.seatIndex + 1}'s last turn at v${before}`);
     this.phase = "requested";
+    this.startErrorSampler();
     await btn.click({ timeout: 5_000 });
     return "retry";
   }

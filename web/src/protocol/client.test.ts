@@ -1049,6 +1049,56 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("leaves the live connection and an answer in flight alone when an auto-play replaced nothing", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const pending = {
+      nonce: "nonce-4",
+      choice: { player: "player_a", prompt: "Choose", options: [{ id: "opt-4", label: "Choose" }] },
+    };
+    send({
+      ...snapshot,
+      type: "initial_snapshot",
+      viewer: { role: "player", seat: "player_a" },
+      history: { cursor: 3, redo_count: 0, generation: 3 },
+      pending_choice: pending,
+    });
+    expect(client.getState().history.generation).toBe(3);
+    // The player answers while the redoing tab asks for the auto-play of a turn redone mid-turn:
+    // nothing was recorded after it, so the server answers with the live game (same generation).
+    let settled: string | null = null;
+    const submitted = client.submitChoice("opt-4").then(
+      () => (settled = "accepted"),
+      (error: Error) => (settled = error.message),
+    );
+    const request = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...snapshot,
+        game_version: 4,
+        viewer: { role: "player", seat: "player_a" },
+        history: { cursor: 3, redo_count: 0, generation: 3 },
+        pending_choice: pending,
+      }),
+    });
+    vi.stubGlobal("fetch", request);
+    await client.turnRedoCommand({ action: "autoplay" });
+    expect(FakeWebSocket.latest).toBe(socket);
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
+    expect(client.getState().lastError).toBeNull();
+    // The answer still goes through on the same socket.
+    send({ type: "action_accepted", game_version: 4, option_id: "opt-4" });
+    send({
+      ...snapshot,
+      type: "state_update",
+      game_version: 5,
+      viewer: { role: "player", seat: "player_a" },
+      pending_choice: null,
+    });
+    await submitted;
+    expect(settled).toBe("accepted");
+    client.stop();
+  });
+
   it("keeps the new timeline without replacing the session", async () => {
     const { client } = await connectedPlayer();
     const request = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ kept: true }) });

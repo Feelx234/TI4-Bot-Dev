@@ -35,6 +35,10 @@ export interface UseTurnRedoResult {
   keep: () => void;
 }
 
+/** One redo of a chain: a new request (or a second redo of the chain) is a new key. */
+const redoKey = (status: TurnRedoStatus) =>
+  `${status.seat}:${status.rewound_to}:${status.redo_count}:${status.original_decisions}`;
+
 /** A refusal that only means the game moved on while the request was in flight: try again later. */
 const isStale = (error: unknown) =>
   error instanceof Error && /Game advanced|decision is in flight|\(409\)/.test(error.message);
@@ -91,19 +95,31 @@ export function useTurnRedo({
     if (inFlight.current) void refresh();
   }, [refresh, gameVersion]);
 
+  // The redo whose auto-play already went through. A status read that started before it landed can
+  // still say "new turn, complete" at a newer game version; asking again then only made the server
+  // answer a no-op (and, before the client knew that, reconnect every socket for nothing).
+  const autoplayedRedo = useRef<string | null>(null);
+  useEffect(() => {
+    if (status === null) autoplayedRedo.current = null;
+  }, [status]);
+
   const run = useCallback(
-    async (kind: Exclude<TurnRedoBusy, null>, cmd: TurnRedoCommand, quiet = false) => {
-      if (busyRef.current) return;
+    async (kind: Exclude<TurnRedoBusy, null>, cmd: TurnRedoCommand, quiet = false): Promise<boolean> => {
+      if (busyRef.current) return false;
       setBusy(kind);
       busyRef.current = kind;
       setError(null);
       try {
         await command(cmd);
+        // A new redo (or the original back) starts over: its auto-play is still to come.
+        if (kind === "request" || kind === "restore") autoplayedRedo.current = null;
         onTimelineChanged?.();
         await refresh();
+        return true;
       } catch (cause) {
         if (!(quiet && isStale(cause)))
           setError(cause instanceof Error ? cause.message : String(cause));
+        return false;
       } finally {
         busyRef.current = null;
         setBusy(null);
@@ -136,8 +152,12 @@ export function useTurnRedo({
         autoplayedAt.current === gameVersionRef.current
       )
         return;
+      const redo = redoKey(current);
+      if (autoplayedRedo.current === redo) return;
       autoplayedAt.current = gameVersionRef.current;
-      void run("autoplay", { action: "autoplay" }, true);
+      void run("autoplay", { action: "autoplay" }, true).then((done) => {
+        if (done) autoplayedRedo.current = redo;
+      });
     };
     if (mine) {
       ask();
