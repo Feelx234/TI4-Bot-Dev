@@ -19,6 +19,8 @@ import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
 import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
 import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
+import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
+import { secretProgressOf } from "../presentation/secretProgress.ts";
 
 
 export interface VPBreakdown {
@@ -891,6 +893,10 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 >
                                   {meta.description}
                                 </div>
+                                <SecretObjectiveProgress
+                                  alias={objId}
+                                  progress={secretProgressOf(player, objId)}
+                                />
                               </div>
                             </button>
                           </li>

@@ -18,6 +18,8 @@ import {
   isBoughtObjective,
 } from "../presentation/boughtObjective.ts";
 import { ValueUnit } from "./PlanetValueIcons.tsx";
+import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
+import { secretProgressOf } from "../presentation/secretProgress.ts";
 import "./ObjectivesModal.css";
 
 /**
@@ -164,8 +166,14 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
 
   // The asked seat's other secrets, shown beside the scoreable ones so the hand reads whole. Only
   // the seat's own view carries its hand, so this is empty for anybody else.
+  // Outside a scoring window the viewer's own hand is listed too, with its progress.
   const heldSecretRows = useMemo(() => {
-    if (!activeScoringMode || !choice?.actor || (viewerSeat && viewerSeat !== choice.actor)) {
+    if (!activeScoringMode) {
+      if (!viewerSeat) return [];
+      const own = playerList.find((player) => player.id === viewerSeat);
+      return own?.held_secret_objectives ?? [];
+    }
+    if (!choice?.actor || (viewerSeat && viewerSeat !== choice.actor)) {
       return [];
     }
     const seat = playerList.find((player) => player.id === choice.actor);
@@ -429,6 +437,9 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
     const meta = readSecretScoringOption(optionId ?? secretId)?.meta ?? scoringObjectiveMeta(secretId);
     const isScoreable = optionId !== null;
     const isSelected = isScoreable && selectedOptionId === optionId;
+    // Only the viewer's own view carries progress, so reading it from the holder is safe.
+    const holderId = activeScoringMode ? (choice?.actor ?? viewerSeat) : viewerSeat;
+    const holder = playerList.find((player) => player.id === holderId);
     const select = isScoreable ? () => setSelectedOptionId(optionId) : undefined;
     return (
       <tr
@@ -485,6 +496,11 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
             <div className="objectives-matrix__card-desc" data-testid="secret-desc">
               {meta.description}
             </div>
+            {/* In the card, not the status column: on a phone the matrix scrolls sideways and the
+                status column starts off screen. */}
+            {!isScoreable && (
+              <SecretObjectiveProgress alias={secretId} progress={secretProgressOf(holder, secretId)} />
+            )}
             {plotToken && (
               <div className="objectives-matrix__plot-note" data-testid="secret-plot-note">
                 Plots Within Plots: scored by {display(plotToken).label}; it becomes a plot with
@@ -512,9 +528,11 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               </span>
             </div>
           ) : (
-            <span className="objectives-matrix__status-empty" data-testid={`secret-held-${key}`}>
-              In your hand · not scoreable now
-            </span>
+            <div className="objectives-matrix__secret-held" data-testid={`secret-held-${key}`}>
+              <span className="objectives-matrix__status-empty">
+                {activeScoringMode ? "In your hand · not scoreable now" : "In your hand"}
+              </span>
+            </div>
           )}
         </td>
       </tr>

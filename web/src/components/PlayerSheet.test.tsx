@@ -96,6 +96,25 @@ describe("PlayerSheet Component & Human Readable Metadata", () => {
     expect(p2Card.querySelector('[data-testid="private-hand-section"]')).toBeNull();
   });
 
+  it("shows progress toward the viewer's own countable secrets", () => {
+    const players: PlayerView[] = [
+      {
+        ...mockPlayers[0],
+        held_secret_objectives: ["ctr", "pe"],
+        secret_objective_progress: { ctr: { have: 4, threshold: 6, satisfied: false } },
+      },
+      mockPlayers[1],
+    ];
+    render(<PlayerSheet players={players} userSeat="p1" />);
+    const ctr = screen.getByTestId("secret-objective-item-ctr");
+    expect(ctr).toHaveTextContent("4 / 6 systems with at least one of your ships");
+    expect(ctr.querySelector(".secret-progress__fill")).toHaveStyle({ width: "67%" });
+    // Prove Endurance is met by an event: no bar, a note instead.
+    const pe = screen.getByTestId("secret-objective-item-pe");
+    expect(pe.querySelector('[data-testid="secret-progress-pe"]')).toBeNull();
+    expect(pe).toHaveTextContent("offered the moment it happens");
+  });
+
   it("renders zero private cards when viewer is spectator", () => {
     // Viewer is spectator (no seat)
     const { container } = render(<PlayerSheet players={mockPlayers} />);

@@ -40,6 +40,11 @@ pub struct PlayerView {
     /// Publicly scored secret objectives.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scored_secret_objectives: Vec<SecretObjectiveId>,
+    /// Exact progress toward this seat's own held secrets with a countable requirement.
+    /// Display-only, and present only in the view of the seat that holds them: opponents and
+    /// spectators never receive it, not even for secrets a law has turned face up.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_objective_progress: BTreeMap<SecretObjectiveId, ObjectiveProgressView>,
     pub leaders: BTreeMap<LeaderId, LeaderStatus>,
 }
 

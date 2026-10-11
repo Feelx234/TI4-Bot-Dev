@@ -474,3 +474,75 @@ fn event_history_is_projected_to_its_explicit_audience() {
             .contains("hidden_test")
     );
 }
+
+#[test]
+fn secret_objective_progress_reaches_only_the_holding_seat() {
+    use ti4_model::id::SecretObjectiveId;
+
+    let mut game = create_sample_game();
+    // seat_a holds a countable secret and a feat secret; seat_b holds a countable one whose
+    // identity Search Warrant turns face up for everybody.
+    game.player_mut(&PlayerId::new("seat_a"))
+        .unwrap()
+        .secret_objectives = vec![
+        SecretObjectiveId::new("ctr"),
+        SecretObjectiveId::new("dtgs"),
+    ];
+    game.player_mut(&PlayerId::new("seat_b"))
+        .unwrap()
+        .secret_objectives = vec![SecretObjectiveId::new("eap")];
+    game.laws.insert("warrant".to_owned(), "seat_b".to_owned());
+
+    let progress_of = |viewer: ViewerRole, seat: &str| {
+        let snapshot = project_initial_snapshot("test_game", 1, &game, &viewer, None);
+        snapshot
+            .view
+            .players
+            .iter()
+            .find(|player| player.id == PlayerId::new(seat))
+            .unwrap()
+            .secret_objective_progress
+            .clone()
+    };
+
+    let own_a = progress_of(ViewerRole::Player(PlayerId::new("seat_a")), "seat_a");
+    let ctr = own_a
+        .get(&SecretObjectiveId::new("ctr"))
+        .expect("own countable secret has progress");
+    assert_eq!(ctr.threshold, 6);
+    assert_eq!(ctr.satisfied, ctr.have >= 6);
+    assert!(
+        !own_a.contains_key(&SecretObjectiveId::new("dtgs")),
+        "event-conditioned secrets have no running count"
+    );
+
+    let own_b = progress_of(ViewerRole::Player(PlayerId::new("seat_b")), "seat_b");
+    assert_eq!(own_b[&SecretObjectiveId::new("eap")].threshold, 4);
+
+    // Nobody else learns either seat's progress, not even for a law-revealed secret.
+    for (viewer, seat) in [
+        (ViewerRole::Player(PlayerId::new("seat_b")), "seat_a"),
+        (ViewerRole::Player(PlayerId::new("seat_c")), "seat_a"),
+        (ViewerRole::Spectator, "seat_a"),
+        (ViewerRole::Player(PlayerId::new("seat_a")), "seat_b"),
+        (ViewerRole::Player(PlayerId::new("seat_c")), "seat_b"),
+        (ViewerRole::Spectator, "seat_b"),
+    ] {
+        assert!(
+            progress_of(viewer.clone(), seat).is_empty(),
+            "{viewer:?} must not see {seat}'s secret progress"
+        );
+    }
+    for viewer in [
+        ViewerRole::Player(PlayerId::new("seat_b")),
+        ViewerRole::Player(PlayerId::new("seat_c")),
+        ViewerRole::Spectator,
+    ] {
+        let snapshot = project_initial_snapshot("test_game", 1, &game, &viewer, None);
+        let json = serde_json::to_string(&snapshot.view).expect("serialize");
+        assert!(
+            !json.contains("\"ctr\""),
+            "{viewer:?} learned seat_a's secret"
+        );
+    }
+}
