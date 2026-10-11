@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeJoinResponse, decodeLobby } from "../protocol/decode.ts";
-import { LobbyDto, MapChoice } from "../protocol/types.ts";
+import { InProcessBotKind, LobbyDto, MapChoice } from "../protocol/types.ts";
 import { rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { describeError, onResume } from "../protocol/resilience.ts";
 
@@ -257,7 +257,9 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
   );
 
   const addRandomBots = useCallback(
-    async (options: { fill?: boolean; count?: number; nickname?: string } = {}): Promise<boolean> => {
+    async (
+      options: { fill?: boolean; count?: number; nickname?: string; kind?: InProcessBotKind } = {},
+    ): Promise<boolean> => {
       if (!playerSession) return false;
       return run(
         "add_random_bots",
@@ -266,7 +268,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
             method: "POST",
             headers: { "Content-Type": "application/json", ...headers },
             body: JSON.stringify({
-              kind: "random",
+              kind: options.kind ?? "random",
               ...(options.fill ? { fill: true } : {}),
               ...(options.count !== undefined && !options.fill ? { count: options.count } : {}),
               ...(options.nickname ? { nickname: options.nickname } : {}),
@@ -274,7 +276,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
           });
           if (!response.ok) {
             const msg = await response.text();
-            throw new Error(`Add random bot failed (${response.status}): ${msg}`);
+            throw new Error(`Add ${options.kind ?? "random"} bot failed (${response.status}): ${msg}`);
           }
           const updated = decodeLobby(await response.json(), gameId);
           setLobby(updated);

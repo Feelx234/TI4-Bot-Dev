@@ -5,6 +5,7 @@ pub mod reaction_modes;
 pub mod decider;
 pub mod preview;
 pub mod random_bot;
+pub mod smart_bot;
 pub mod registry;
 pub mod replay;
 pub mod rng_force;
@@ -85,6 +86,20 @@ pub enum SeatController {
     /// (game seed, seat, decision index) with a think delay between decisions. See
     /// [`random_bot`].
     BotRandom,
+    /// In-process bot like [`SeatController::BotRandom`] that answers the board questions it has
+    /// an opinion on with simple heuristics (claim nearby planets, fight battles it expects to
+    /// win, build when short of units, take favourable trades) and the rest at random. See
+    /// [`smart_bot`].
+    BotSmart,
+}
+
+impl SeatController {
+    /// Whether the seat is answered inside the game worker (a random or smart bot): no
+    /// credential, no connection, never taken over.
+    #[must_use]
+    pub const fn is_in_process_bot(&self) -> bool {
+        matches!(self, Self::BotRandom | Self::BotSmart)
+    }
 }
 
 /// Configuration used to spawn an authoritative game session.
@@ -453,7 +468,8 @@ impl GameSession {
         let lock = self.shared.lock().expect("shared lock");
         lock.seat_tokens.iter().find_map(|(seat, candidate)| {
             // A bot seat has no usable credential, whatever its record holds.
-            (candidate == token && !matches!(lock.seats.get(seat), Some(SeatController::BotRandom)))
+            (candidate == token
+                && !lock.seats.get(seat).is_some_and(SeatController::is_in_process_bot))
                 .then(|| ViewerRole::Player(seat.clone()))
         })
     }

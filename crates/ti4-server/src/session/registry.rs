@@ -497,6 +497,13 @@ use crate::storage::{
     PlayerLobbySlot, PlayerSession, PlayerSessionsRecord, generate_player_id,
 };
 
+/// The in-process bot that picks uniformly among the legal options.
+pub const RANDOM_BOT_KIND: &str = "random";
+/// The in-process bot that plays the board heuristically and the rest at random.
+pub const SMART_BOT_KIND: &str = "smart";
+/// Bot kinds answered inside the game worker, in the order a lobby offers them.
+pub const IN_PROCESS_BOT_KINDS: [&str; 2] = [RANDOM_BOT_KIND, SMART_BOT_KIND];
+
 /// Public projection; deliberately cannot serialize the private persistence record.
 #[derive(Debug, Clone, Serialize)]
 pub struct PlayerLobbyView {
@@ -506,8 +513,8 @@ pub struct PlayerLobbyView {
     pub slots: Vec<PlayerSlotView>,
     pub lobby_version: u64,
     pub bot_service_enabled: bool,
-    /// The bot kinds the host can add to this lobby: always `random` (in-process, no password),
-    /// plus `mlp` when the MLP bot service is configured. A client that does not know the field
+    /// The bot kinds the host can add to this lobby: always `random` and `smart` (in-process, no
+    /// password), plus `mlp` when the MLP bot service is configured. A client that does not know the field
     /// falls back to `bot_service_enabled`.
     pub bot_kinds: Vec<String>,
     /// What the table will play on; never the seed.
@@ -543,7 +550,7 @@ pub struct PlayerSlotView {
     pub ready: bool,
     pub connected: bool,
     pub can_take_over: bool,
-    /// The kind of bot occupying the seat (`random`), absent for a person or an MLP bot (which
+    /// The kind of bot occupying the seat (`random` or `smart`), absent for a person or an MLP bot (which
     /// connects like a person).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bot: Option<String>,
@@ -634,7 +641,10 @@ impl PlayerLobbyRecord {
                 .collect(),
             lobby_version: self.lobby_version,
             bot_service_enabled: false,
-            bot_kinds: vec!["random".to_owned()],
+            bot_kinds: IN_PROCESS_BOT_KINDS
+                .iter()
+                .map(|kind| (*kind).to_owned())
+                .collect(),
             map: crate::maps::catalog::describe(
                 &crate::maps::MapChoice::from_stored(self.map_template.as_deref()),
                 self.slots.len(),
@@ -1562,10 +1572,9 @@ impl GameRegistry {
         let target = if target < current.len() {
             let seats = session.lobby_details().1;
             let is_bot = |index: usize| {
-                matches!(
-                    seats.get(&current[index].player),
-                    Some(SeatController::BotRandom)
-                )
+                seats
+                    .get(&current[index].player)
+                    .is_some_and(SeatController::is_in_process_bot)
             };
             if is_bot(target) {
                 (0..=target).rev().find(|&index| !is_bot(index)).ok_or_else(|| {
@@ -2696,10 +2705,10 @@ impl GameRegistry {
         config.seats = players
             .iter()
             .map(|p| {
-                let controller = if lobby.players[p].bot.is_some() {
-                    SeatController::BotRandom
-                } else {
-                    SeatController::Human
+                let controller = match lobby.players[p].bot.as_deref() {
+                    Some(SMART_BOT_KIND) => SeatController::BotSmart,
+                    Some(_) => SeatController::BotRandom,
+                    None => SeatController::Human,
                 };
                 (p.clone(), controller)
             })
@@ -2875,6 +2884,31 @@ impl GameRegistry {
         nickname: Option<String>,
         count: Option<usize>,
     ) -> Result<PlayerLobbyView, LobbyError> {
+        self.add_in_process_bots(game_id, host_credential, RANDOM_BOT_KIND, nickname, count)
+    }
+
+    /// [`Self::add_random_bots`] for any in-process bot kind ([`IN_PROCESS_BOT_KINDS`]): `random`
+    /// seats are named "Random bot N", `smart` seats "Smart bot N".
+    ///
+    /// # Errors
+    /// As [`Self::add_random_bots`]; an unknown `kind` is [`LobbyError::InvalidCapability`]
+    /// (the HTTP layer rejects it first).
+    pub fn add_in_process_bots(
+        &self,
+        game_id: &str,
+        host_credential: &str,
+        kind: &str,
+        nickname: Option<String>,
+        count: Option<usize>,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        if !IN_PROCESS_BOT_KINDS.contains(&kind) {
+            return Err(LobbyError::InvalidCapability);
+        }
+        let name_stem = if kind == SMART_BOT_KIND {
+            "Smart bot"
+        } else {
+            "Random bot"
+        };
         if let Some(name) = &nickname {
             check_nickname(name)?;
         }
@@ -2920,7 +2954,7 @@ impl GameRegistry {
             let name = nickname.clone().unwrap_or_else(|| {
                 // First unused "Random bot N", so removing and re-adding never doubles a name.
                 loop {
-                    let candidate = format!("Random bot {next_number}");
+                    let candidate = format!("{name_stem} {next_number}");
                     next_number += 1;
                     if updated.players.values().all(|m| m.nickname != candidate) {
                         break candidate;
@@ -2931,7 +2965,7 @@ impl GameRegistry {
             updated.players.insert(
                 player,
                 PlayerLobbyMember {
-                    bot: Some("random".to_owned()),
+                    bot: Some(kind.to_owned()),
                     ready: true,
                     session,
                     nickname: name,
@@ -3067,7 +3101,7 @@ impl GameRegistry {
                 .seats
                 .iter()
                 .find_map(|(seat, lobby_seat)| {
-                    (lobby_seat.controller != SeatController::BotRandom
+                    (!lobby_seat.controller.is_in_process_bot()
                 && lobby_seat.seat_token.as_deref() == Some(token))
             .then(|| seat.clone())
                 })
@@ -3647,7 +3681,7 @@ fn authenticated_seat(lobby: &LobbyState, token: &str) -> Result<PlayerId, Lobby
         .seats
         .iter()
         .find_map(|(seat, lobby_seat)| {
-            (lobby_seat.controller != SeatController::BotRandom
+            (!lobby_seat.controller.is_in_process_bot()
                 && lobby_seat.seat_token.as_deref() == Some(token))
             .then(|| seat.clone())
         })

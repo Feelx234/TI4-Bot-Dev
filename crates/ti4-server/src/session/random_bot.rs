@@ -136,13 +136,16 @@ impl Decider for CountingDecider {
     }
 }
 
-/// The decider of a `BotRandom` seat.
+/// The decider of a `BotRandom` seat, and (with [`RandomBotDecider::smart`]) of a `BotSmart`
+/// seat, which consults [`crate::session::smart_bot::pick`] before falling back to the random
+/// pick.
 pub struct RandomBotDecider {
     seat: PlayerId,
     game_seed: u64,
     counter: DecisionCounter,
     delay_ms: u64,
     shared: Arc<Mutex<SessionShared>>,
+    smart: bool,
 }
 
 impl RandomBotDecider {
@@ -160,7 +163,15 @@ impl RandomBotDecider {
             counter,
             delay_ms,
             shared,
+            smart: false,
         }
+    }
+
+    /// The same seat played by the smart bot: heuristics where it has an opinion, else random.
+    #[must_use]
+    pub const fn smart(mut self) -> Self {
+        self.smart = true;
+        self
     }
 
     /// Wait while a history change is running, then hand the answer over. `Err` when stopped.
@@ -202,8 +213,12 @@ impl RandomBotDecider {
     }
 }
 
-impl Decider for RandomBotDecider {
-    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+impl RandomBotDecider {
+    fn answer(
+        &self,
+        choice: &Choice,
+        seen: Option<&SeatObservation<'_>>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
         if choice.options.is_empty() {
             return Err(IllegalChoice::NoOptions {
                 player: choice.player.clone(),
@@ -212,7 +227,15 @@ impl Decider for RandomBotDecider {
         }
         let index = self.counter.load(Ordering::SeqCst);
         let mut rng = decision_rng(self.game_seed, &self.seat, index);
-        let picked = pick_index(choice, &mut rng);
+        // The random pick is always drawn first, so the RNG stream (and the think jitter after
+        // it) is the same whether or not the heuristic overrides it.
+        let random_pick = pick_index(choice, &mut rng);
+        let picked = match (self.smart, seen) {
+            (true, Some(seen)) => crate::session::smart_bot::pick(choice, seen, &mut rng)
+                .filter(|&smart| smart < choice.options.len())
+                .unwrap_or(random_pick),
+            _ => random_pick,
+        };
         self.shared.lock().expect("shared lock").bot_deciding = true;
         // `release` clears `bot_deciding` under the same lock that checks the pause, so a
         // history change sees either a bot still holding its answer or the answer in the game.
@@ -230,5 +253,19 @@ impl Decider for RandomBotDecider {
             });
         }
         Ok(choice.options[picked].clone())
+    }
+}
+
+impl Decider for RandomBotDecider {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.answer(choice, None)
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        self.answer(choice, Some(seen))
     }
 }

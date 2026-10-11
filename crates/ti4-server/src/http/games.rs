@@ -466,7 +466,7 @@ pub struct RemoveBotRequest {
 
 /// Body of `POST /api/games/{game_id}/lobby/bots`.
 ///
-/// `kind` is `random` (in-process, authorized by the host's own credential, no password). With
+/// `kind` is `random` or `smart` (in-process, authorized by the host's own credential, no password). With
 /// `fill: true` every open slot gets a bot; otherwise `count` bots (default 1) are added.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -486,11 +486,11 @@ pub async fn add_bots_to_lobby(
     Json(payload): Json<AddBotsRequest>,
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
-    if payload.kind != "random" {
+    if !crate::session::registry::IN_PROCESS_BOT_KINDS.contains(&payload.kind.as_str()) {
         return Err((
             StatusCode::BAD_REQUEST,
             format!(
-                "Unknown bot kind '{}': only 'random' can be added here (MLP bots use /lobby/add-bot)",
+                "Unknown bot kind '{}': only 'random' or 'smart' can be added here (MLP bots use /lobby/add-bot)",
                 payload.kind
             ),
         ));
@@ -508,7 +508,7 @@ pub async fn add_bots_to_lobby(
     };
     Ok(Json(
         registry
-            .add_random_bots(&game_id, token, payload.nickname, count)
+            .add_in_process_bots(&game_id, token, &payload.kind, payload.nickname, count)
             .map_err(lobby_error)?,
     ))
 }
