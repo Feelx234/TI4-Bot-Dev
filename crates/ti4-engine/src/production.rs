@@ -2511,8 +2511,8 @@ impl ProductionWindow {
             // discounted bill: a unit Sarween Tools or Harrugh Gefhara brings within reach must
             // not be withheld for a price nobody would actually charge. A unit bought with a
             // captured model is not withheld at all, because no resource is being asked for it.
-            let affordable =
-                cost <= available(state, content, sources, &self.player, Spend::Resources) + self.credit;
+            let affordable = cost
+                <= available(state, content, sources, &self.player, Spend::Resources) + self.credit;
             if !affordable && !exchange {
                 continue;
             }
@@ -2669,8 +2669,11 @@ impl ProductionWindow {
                 if let [only] = spots.as_slice() {
                     let after = self.standing_after(&types, state, content, *kind, only, 1);
                     deltas.extend(limit_deltas(&before, &after));
-                    exchange =
-                        placement_facts(exchange.with("destination", only.clone()), &before, &after);
+                    exchange = placement_facts(
+                        exchange.with("destination", only.clone()),
+                        &before,
+                        &after,
+                    );
                 } else {
                     exchange =
                         exchange.with("placement_pending", i64::try_from(spots.len()).unwrap_or(2));
@@ -2724,7 +2727,12 @@ impl ProductionWindow {
                     .or_default()
                     .push(unit);
             }
-            crate::supply::stage_naaz_mech_placed(state, &self.player, &target, &UnitTypeId::new(id));
+            crate::supply::stage_naaz_mech_placed(
+                state,
+                &self.player,
+                &target,
+                &UnitTypeId::new(id),
+            );
             self.report
                 .produced
                 .push((UnitTypeId::new(id), where_to.to_owned()));
@@ -2917,7 +2925,12 @@ impl Window for ProductionWindow {
                     // same way a bill the player cannot pay ends the stage instead of becoming a
                     // partial purchase.
                     if !crate::factions::hooks_economy::perform_production_unit_exchange(
-                        state, content, sources, &self.player, &self.system, id,
+                        state,
+                        content,
+                        sources,
+                        &self.player,
+                        &self.system,
+                        id,
                     ) {
                         self.stage = Stage::Done;
                         return Ok(());
@@ -3387,8 +3400,9 @@ pub fn produce_unit_by_ability(
     unit: &str,
 ) -> Result<ProductionReport, IllegalChoice> {
     let (content, sources) = (ctx.content, ctx.sources);
-    let mut window = ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
-        .with_only_unit(Some(unit.to_owned()));
+    let mut window =
+        ProductionWindow::for_ability(state, content, sources, player, system, Some(1))
+            .with_only_unit(Some(unit.to_owned()));
     while let Some(choice) = window.pending_choice(state, content, sources) {
         ctx.table
             .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
@@ -3786,11 +3800,29 @@ mod tests {
         let (mut state, _, _) = seated();
         state.player_mut(&player()).unwrap().trade_goods = 2;
         let mut table = Table::new();
-        assert!(pay(&mut state, ContentStore::embedded(), POK, &mut table, &player(), 2, Spend::Resources).unwrap());
-        assert!(table.log.is_empty(), "a skipped ask must not enter the journal");
+        assert!(
+            pay(
+                &mut state,
+                ContentStore::embedded(),
+                POK,
+                &mut table,
+                &player(),
+                2,
+                Spend::Resources
+            )
+            .unwrap()
+        );
+        assert!(
+            table.log.is_empty(),
+            "a skipped ask must not enter the journal"
+        );
         let notes = table.take_auto_resolved();
         assert!(!notes.is_empty());
-        assert!(notes.iter().all(|n| n.player == player() && n.prompt.starts_with("pay ")));
+        assert!(
+            notes
+                .iter()
+                .all(|n| n.player == player() && n.prompt.starts_with("pay "))
+        );
     }
 
     #[test]
@@ -5286,10 +5318,17 @@ mod tests {
             .pending_choice(&state, content, POK)
             .expect("production choice");
         let standing = crate::fleet::standing(&state, content, POK, &player(), &system, None);
-        let supply = choice.details.get("fleet_supply").expect("fleet_supply detail");
+        let supply = choice
+            .details
+            .get("fleet_supply")
+            .expect("fleet_supply detail");
         assert_eq!(supply["used"].as_i64(), Some(standing.fleet_charged));
         assert_eq!(supply["limit"].as_i64(), Some(standing.fleet_limit));
-        assert_eq!(supply["used"].as_i64(), Some(2), "two cruisers, no fighters");
+        assert_eq!(
+            supply["used"].as_i64(),
+            Some(2),
+            "two cruisers, no fighters"
+        );
         assert_eq!(
             supply["limit"].as_i64(),
             Some(i64::from(crate::fleet::limit(&state, content, &player())))

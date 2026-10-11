@@ -8,6 +8,8 @@ import {
 } from "../presentation/ReadyPlanetsDraftContext.tsx";
 import { canConfirmReady, readyPlan, type ReadyPlanet } from "../presentation/readyPlanets.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { readReadyHints } from "../presentation/readyHints.ts";
+import { ReadyHintsPanel } from "./ReadyHintsPanel.tsx";
 import "./ReadyPlanetsBar.css";
 
 export interface ReadyPlanetsBarProps {
@@ -71,6 +73,7 @@ export const ReadyPlanetsBar: React.FC<ReadyPlanetsBarProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   if (!view) return null;
+  const hints = readReadyHints(choice.details);
   const isActor = Boolean(viewerSeat && choice.actor === viewerSeat);
   const ready = canConfirmReady(view, selected) && !busy && isActor;
   const left = view.required - selected.length;
@@ -146,6 +149,7 @@ export const ReadyPlanetsBar: React.FC<ReadyPlanetsBarProps> = ({
             <ValueUnit kind="resources" /> <ValueUnit kind="influence" />
           </div>
         )}
+        {!collapsed && hints && <ReadyHintsPanel hints={hints} showPlanets={false} />}
         <div className="system-activation-bar__actions ready-bar__actions">
           <button
             type="button"

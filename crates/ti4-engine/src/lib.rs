@@ -57,6 +57,8 @@ pub mod legendary;
 pub mod movement;
 pub mod neutral_units;
 pub mod objectives;
+#[cfg(test)]
+mod objectives_monument_tests;
 pub mod opening;
 pub mod payment;
 pub mod phase;
@@ -82,13 +84,11 @@ pub mod tactical;
 pub mod technology;
 pub mod thunders_edge;
 pub mod timing;
-pub mod trigger;
 pub mod tokens;
 pub mod transactions;
 pub mod transit;
+pub mod trigger;
 pub mod vote;
-#[cfg(test)]
-mod objectives_monument_tests;
 #[cfg(test)]
 mod wiring;
 
@@ -125,9 +125,9 @@ pub use status::{
     resolve_status_phase,
 };
 pub use strategy::{
-    ACTION_KIND, FOLLOW_SECONDARY_ID, STRATEGIC_ACTION_ID, STRATEGY_KIND, SecondaryResolution,
-    SecondaryBlocker, StrategyActionError, StrategySecondaryError, StrategySecondaryWindow, begin_strategic_action,
-    strategic_action_options, take_strategic_action,
+    ACTION_KIND, FOLLOW_SECONDARY_ID, STRATEGIC_ACTION_ID, STRATEGY_KIND, SecondaryBlocker,
+    SecondaryResolution, StrategyActionError, StrategySecondaryError, StrategySecondaryWindow,
+    begin_strategic_action, strategic_action_options, take_strategic_action,
 };
 pub use tactical::{TacticalError, activatable, activate, movable, movement_options};
 pub use timing::{

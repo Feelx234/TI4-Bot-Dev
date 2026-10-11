@@ -194,7 +194,9 @@ pub fn seeded_faction_assignments(
     for candidate in candidates {
         // Nocturne: "This faction cannot be chosen during setup."
         if crate::factions::obsidian::NOT_CHOOSABLE_DURING_SETUP.contains(candidate) {
-            return Err(FactionAssignmentError::NotChoosable((*candidate).to_owned()));
+            return Err(FactionAssignmentError::NotChoosable(
+                (*candidate).to_owned(),
+            ));
         }
         if !seen_candidates.insert(*candidate) {
             return Err(FactionAssignmentError::DuplicateCandidate(
@@ -273,7 +275,10 @@ pub fn tribuni_variants_available<'a>(
         .into_iter()
         .filter(|variant| {
             let base = tribuni_base(variant);
-            !others.clone().into_iter().any(|played| Some(played) == base)
+            !others
+                .clone()
+                .into_iter()
+                .any(|played| Some(played) == base)
         })
         .collect()
 }
@@ -465,7 +470,12 @@ pub fn build_board(
     filler: &[&str],
     sources: SourceSet,
 ) -> Result<Galaxy, SeatingError> {
-    validate_tribuni(assignments.values().map(FactionId::as_str).collect::<Vec<_>>())?;
+    validate_tribuni(
+        assignments
+            .values()
+            .map(FactionId::as_str)
+            .collect::<Vec<_>>(),
+    )?;
     let homes = home_systems(content, assignments)?;
     let outer = RING_SIZES[3];
     // Evenly spaced: with six homes on an eighteen-tile ring that is every third slot. With

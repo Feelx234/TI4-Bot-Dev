@@ -133,7 +133,10 @@ fn threshold_exactly_eight_scores_and_seven_does_not() {
     assert!(!offered(&seven));
     let before = seven.clone();
     assert!(!score(&mut seven), "7 resources cannot buy it");
-    assert!(seven.identical(&before), "a failed purchase changes nothing");
+    assert!(
+        seven.identical(&before),
+        "a failed purchase changes nothing"
+    );
 
     assert!(score(&mut state));
     assert!(
@@ -278,7 +281,11 @@ fn scoring_is_once_per_game_and_progress_is_not_a_sticky_total() {
     // Round boundary: readying restores capacity to 8/8, but the card is already scored, so it is
     // never offered (nor charged) again.
     state.ready_all_planets();
-    assert_eq!(have(&state), 8, "recomputed from readied planets each query");
+    assert_eq!(
+        have(&state),
+        8,
+        "recomputed from readied planets each query"
+    );
     assert!(!offered(&state), "already scored: not offered again (61.8)");
 }
 
@@ -330,6 +337,10 @@ fn eight_one_resource_planets_can_pay_eight() {
     for planet in planets_with(1, None, 8) {
         give(&mut state, &planet);
     }
-    assert_eq!(have(&state), 8, "8 planets x 1 resource = 8 resources are readied");
+    assert_eq!(
+        have(&state),
+        8,
+        "8 planets x 1 resource = 8 resources are readied"
+    );
     assert!(offered(&state));
 }

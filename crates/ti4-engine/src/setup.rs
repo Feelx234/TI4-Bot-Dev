@@ -80,7 +80,6 @@ fn card_setup_from_record(
     content: &ContentStore,
     chosen: &ti4_content::Record,
 ) -> Result<(Vec<StrategyCardId>, BTreeMap<StrategyCardId, i32>), SetupError> {
-
     let mut ids = Vec::new();
     let mut initiative = BTreeMap::new();
     for card_id in chosen.strings("scIDs") {
@@ -252,7 +251,9 @@ mod tests {
                 .collect()
         };
         let te = ids("te");
-        assert!(te.contains(&"te4construction".to_owned()) && te.contains(&"te6warfare".to_owned()));
+        assert!(
+            te.contains(&"te4construction".to_owned()) && te.contains(&"te6warfare".to_owned())
+        );
         let pok = ids("pok");
         assert!(
             pok.contains(&"pok4construction".to_owned()) && pok.contains(&"pok6warfare".to_owned())
@@ -261,7 +262,10 @@ mod tests {
         assert!(codex.contains(&"base4".to_owned()) && codex.contains(&"pok2diplomacy".to_owned()));
         // The scope-derived `pok` set is the named `pok` set; FULL derives `te`.
         let (scoped, _) = strategy_card_setup(content(), POK).unwrap();
-        assert_eq!(scoped.iter().map(ToString::to_string).collect::<Vec<_>>(), pok);
+        assert_eq!(
+            scoped.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            pok
+        );
         assert_eq!(
             strategy_card_setup(content(), FULL)
                 .unwrap()
@@ -282,12 +286,24 @@ mod tests {
         let g = start_game_seeded_with_card_set(content(), &players(4), POK, None, 3, Some("te"))
             .unwrap();
         assert_eq!(g.unclaimed_strategy_cards.len(), 8);
-        assert!(g.unclaimed_strategy_cards.iter().any(|c| c.as_str() == "te6warfare"));
+        assert!(
+            g.unclaimed_strategy_cards
+                .iter()
+                .any(|c| c.as_str() == "te6warfare")
+        );
         let legacy = start_game_seeded(content(), &players(4), POK, None, 3).unwrap();
         let none =
             start_game_seeded_with_card_set(content(), &players(4), POK, None, 3, None).unwrap();
-        assert_eq!(legacy.unclaimed_strategy_cards, none.unclaimed_strategy_cards);
-        assert!(legacy.unclaimed_strategy_cards.iter().any(|c| c.as_str() == "pok6warfare"));
+        assert_eq!(
+            legacy.unclaimed_strategy_cards,
+            none.unclaimed_strategy_cards
+        );
+        assert!(
+            legacy
+                .unclaimed_strategy_cards
+                .iter()
+                .any(|c| c.as_str() == "pok6warfare")
+        );
     }
 
     #[test]

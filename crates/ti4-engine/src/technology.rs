@@ -1325,7 +1325,11 @@ pub fn unit_form_violations(
     let catalogue = ti4_content::units::catalogue(content, sources);
     let mut found = std::collections::BTreeSet::new();
     for (system, board) in &state.board {
-        for unit in board.units.iter().chain(board.planet_units.values().flatten()) {
+        for unit in board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+        {
             let Some(kind) = catalogue.get(unit.type_id.as_str()) else {
                 continue;
             };
@@ -1407,7 +1411,6 @@ fn exhaust_specialties_for_research(
         state.exhaust_planet(planet);
     }
 }
-
 
 /// Research `alias` by taking a selected module waiver and paying its selected legal cost.
 ///
@@ -1959,7 +1962,12 @@ mod tests {
         assert_eq!(choice.details["mode"], "restack");
         assert_eq!(choice.details["total"], 9);
         assert_eq!(choice.details["pools"]["fleet"], 4);
-        assert!(choice.options.iter().any(|option| option.id == "fleet|tactic"));
+        assert!(
+            choice
+                .options
+                .iter()
+                .any(|option| option.id == "fleet|tactic")
+        );
     }
 
     /// OBS-003e: `start_turn`/`end_turn`'s remaining reactive asks -- Chaos Mapping and
@@ -2384,13 +2392,24 @@ mod tests {
         let content = ContentStore::embedded();
         let pok = active_aliases(content, POK);
         let full = active_aliases(content, ti4_model::content_types::DEFAULT);
-        for alias in ["proxima", "helios2", "hydrothermal", "nanomachines", "linkship2"] {
-            assert!(!pok.contains(&TechnologyId::new(alias)), "{alias} under PoK");
+        for alias in [
+            "proxima",
+            "helios2",
+            "hydrothermal",
+            "nanomachines",
+            "linkship2",
+        ] {
+            assert!(
+                !pok.contains(&TechnologyId::new(alias)),
+                "{alias} under PoK"
+            );
             assert!(full.contains(&TechnologyId::new(alias)), "{alias} under TE");
         }
         // The PoK-only set is exactly the deck, and TE only adds to it.
         assert!(pok.is_subset(&full));
-        assert!(pok.contains(&TechnologyId::new("md")) && !full.contains(&TechnologyId::new("md_base")));
+        assert!(
+            pok.contains(&TechnologyId::new("md")) && !full.contains(&TechnologyId::new("md_base"))
+        );
         assert!(pok.len() < full.len());
     }
 
@@ -2485,7 +2504,6 @@ mod tests {
         }
     }
 
-
     /// Table-driven over the corpus: for every faction and every unit upgrade it could own
     /// (generic or its own), researching it converts the plain and the faction base unit, and
     /// every placement door then yields only the owned form.
@@ -2540,7 +2558,11 @@ mod tests {
                 let placed =
                     crate::action_cards::placed_unit_id(&state, content, sources, &player, base)
                         .map(|id| id.to_string());
-                assert_eq!(placed.as_deref(), Some(upgrade.id()), "{faction} {tech} placement");
+                assert_eq!(
+                    placed.as_deref(),
+                    Some(upgrade.id()),
+                    "{faction} {tech} placement"
+                );
                 assert!(
                     state
                         .system_state(&plain)

@@ -3736,12 +3736,8 @@ pub fn retreat_to(
         if leaving.contains(unit) {
             remove_combat_ship(state, system, unit);
             // Leaving is not destroying: forget the galvanized-loss note the removal made.
-            let _ = crate::factions::bastion::take_ship_lost(
-                state,
-                system,
-                &unit.owner,
-                &unit.type_id,
-            );
+            let _ =
+                crate::factions::bastion::take_ship_lost(state, system, &unit.owner, &unit.type_id);
         }
     }
     let ships_leaving: Vec<Unit> = leaving
@@ -6409,8 +6405,7 @@ mod tests {
         put(&mut state, &system, "cruiser", &player, 2);
         put(&mut state, &system, "fighter", &player, 2);
 
-        let (capturing, seen) =
-            crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
         let mut table = Table::with_default(Box::new(capturing));
         let mut dice = Dice::new();
         let mut rng = GameRng::new(1);
@@ -7411,7 +7406,10 @@ mod tests {
             .expect("the cannon asked the victim which ship goes");
         let hit = cannon.hit.as_ref().expect("the kind of hit is stated");
         assert_eq!(hit.cause, HitCause::AssaultCannon);
-        assert!(hit.destroy, "a destroy, not a hit that sustain could cancel");
+        assert!(
+            hit.destroy,
+            "a destroy, not a hit that sustain could cancel"
+        );
         assert_eq!(hit.restriction, HitRestriction::NonFighter);
         assert_eq!(hit.producer, Some(attacker()));
         assert_eq!(cannon.actor, defender(), "the victim chooses the ship");

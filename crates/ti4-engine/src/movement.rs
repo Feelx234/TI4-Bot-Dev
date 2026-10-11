@@ -596,11 +596,12 @@ impl<'a> MovementRules<'a> {
     ) -> Option<Vec<String>> {
         // Myru Vos: an unladen ship may also go through other players' ships, but only when no
         // route avoids them, so a ship that can sail clear is never denied its cargo for it.
-        self.search_path(origin, move_value, ship_type, false).or_else(|| {
-            self.unladen_pass
-                .then(|| self.search_path(origin, move_value, ship_type, true))
-                .flatten()
-        })
+        self.search_path(origin, move_value, ship_type, false)
+            .or_else(|| {
+                self.unladen_pass
+                    .then(|| self.search_path(origin, move_value, ship_type, true))
+                    .flatten()
+            })
     }
 
     fn search_path(
@@ -1119,7 +1120,10 @@ mod tests {
         let rules = movement_rules(&hub, &lane, Board::default());
 
         assert!(!rules.can_enter(&lane));
-        assert!(!rules.can_reach(&origin, 3), "a hyperlane is no destination at any range");
+        assert!(
+            !rules.can_reach(&origin, 3),
+            "a hyperlane is no destination at any range"
+        );
         assert!(rules.path_from(&origin, 3).is_none());
         // Not even with every anomaly ignored.
         let mut ignoring = movement_rules(&hub, &lane, Board::default());

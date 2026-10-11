@@ -1832,11 +1832,12 @@ mod tests {
         let mut dice = crate::dice::Dice::from_faces([10, 10]);
         let mut rng = crate::rng::GameRng::new(0);
         let mut sequence = crate::event::EventSequence::new();
-        let (decider, offered) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new(
-                ["1", "sustain", "2", "sustain"].iter().map(|s| (*s).to_owned()),
-            ),
-        ));
+        let (decider, offered) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(
+                ["1", "sustain", "2", "sustain"]
+                    .iter()
+                    .map(|s| (*s).to_owned()),
+            )));
         let mut table = crate::choice::Table::with_default(Box::new(decider));
         let mut resolving = crate::choice::Resolving {
             content,
@@ -1871,9 +1872,16 @@ mod tests {
         assert_eq!(sustain.details["card"]["title"], "Sustain damage");
         assert_eq!(sustain.details["facts"][0]["unit"], "mech");
         assert_eq!(sustain.details["facts"][1]["planet"], planet.as_str());
-        assert_eq!(sustain.details["captions"]["sustain"]["label"], "Sustain damage");
         assert_eq!(
-            sustain.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            sustain.details["captions"]["sustain"]["label"],
+            "Sustain damage"
+        );
+        assert_eq!(
+            sustain
+                .options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>(),
             ["sustain", "decline"]
         );
         drop(asked);

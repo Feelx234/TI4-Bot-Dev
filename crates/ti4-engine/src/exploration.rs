@@ -717,7 +717,11 @@ fn resolve_instant(
                 .map_or((0, 0), |seat| (seat.trade_goods, seat.commodities));
             let mut options = vec![("gain", "gain 1 commodity")];
             let forbidden = crate::factions::hooks_economy::effect_placement_forbidden(
-                state, content, sources, player, &ti4_model::id::UnitTypeId::new("mech"),
+                state,
+                content,
+                sources,
+                player,
+                &ti4_model::id::UnitTypeId::new("mech"),
             );
             if goods_held >= 1 && !forbidden {
                 options.push(("spend_tg", "spend 1 trade good to place a mech"));
@@ -2371,15 +2375,33 @@ mod bf_f3_tests {
         let mut table = crate::choice::Table::with_default(Box::new(decider));
         let mut dice = crate::dice::Dice::new();
         let mut rng = crate::rng::GameRng::new(0);
-        let mut ctx = crate::choice::Resolving {content, sources, table: &mut table,
-            dice: &mut dice, rng: &mut rng, timing: None};
-        assert!(resolve_instant(&mut state, &mut ctx, &a, Some(&planet), "lf1"));
+        let mut ctx = crate::choice::Resolving {
+            content,
+            sources,
+            table: &mut table,
+            dice: &mut dice,
+            rng: &mut rng,
+            timing: None,
+        };
+        assert!(resolve_instant(
+            &mut state,
+            &mut ctx,
+            &a,
+            Some(&planet),
+            "lf1"
+        ));
         assert_eq!(state.board, board);
         assert_eq!(state.player(&a).unwrap().trade_goods, 2);
         assert_eq!(state.player(&a).unwrap().commodities, 2);
         let seen = seen.borrow();
         assert_eq!(seen.len(), 1);
-        assert_eq!(seen[0].options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(), vec!["gain"]);
+        assert_eq!(
+            seen[0]
+                .options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["gain"]
+        );
     }
-
 }

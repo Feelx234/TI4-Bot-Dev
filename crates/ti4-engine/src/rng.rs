@@ -136,7 +136,10 @@ impl RngSync {
 
     fn take_due(&self) -> (Option<RngPositions>, Vec<usize>) {
         let mut inner = self.inner.lock().expect("rng sync lock");
-        (inner.restore.take(), std::mem::take(&mut inner.pending_marks))
+        (
+            inner.restore.take(),
+            std::mem::take(&mut inner.pending_marks),
+        )
     }
 
     fn record(&self, tags: Vec<usize>, positions: &RngPositions) {
@@ -189,7 +192,8 @@ impl GameRng {
     /// Put the streams at `positions`. A domain missing from `positions` goes back to its start
     /// (it is created again, at position zero, on its next draw). The seed never changes.
     pub fn set_positions(&mut self, positions: &RngPositions) {
-        self.streams.retain(|domain, _| positions.contains_key(domain));
+        self.streams
+            .retain(|domain, _| positions.contains_key(domain));
         for (domain, position) in positions {
             let seed = self.seed;
             let stream = self
@@ -321,7 +325,11 @@ mod tests {
         sync.mark_at_next_draw(11);
         let got: Vec<u32> = (0..5).map(|_| a.die(domain::DICE, 6)).collect();
         assert_eq!(got, expected);
-        assert_eq!(sync.marks().get(&11), Some(&at3), "mark sees the forced position");
+        assert_eq!(
+            sync.marks().get(&11),
+            Some(&at3),
+            "mark sees the forced position"
+        );
         assert!(sync.pending_marks().is_empty());
         sync.mark_at_next_draw(12);
         sync.resolve_pending(&a.positions());

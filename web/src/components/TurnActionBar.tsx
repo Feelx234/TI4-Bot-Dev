@@ -428,6 +428,38 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
           <h3>{info.title}</h3>
           {info.text && <p>{info.text}</p>}
           {info.secondary && <p className="turn-bar__info-secondary">{info.secondary}</p>}
+          {info.planets && (
+            <div className="turn-bar__planets" data-testid="turn-bar-info-planets">
+              <div className="turn-bar__planets-title">
+                Cultural planets you control (readied by this card)
+              </div>
+              {info.planets.length === 0 ? (
+                <div className="turn-bar__planets-empty">None: the card would do nothing</div>
+              ) : (
+                <ul>
+                  {info.planets.map((planet) => (
+                    <li
+                      key={planet.id}
+                      data-testid={`turn-bar-info-planet-${planet.id}`}
+                      data-exhausted={planet.exhausted}
+                    >
+                      <span>{planet.name}</span>
+                      <span className="turn-bar__planet-trait">{planet.trait}</span>
+                      <span
+                        className={
+                          planet.exhausted
+                            ? "turn-bar__planet-state turn-bar__planet-state--changes"
+                            : "turn-bar__planet-state"
+                        }
+                      >
+                        {planet.exhausted ? "exhausted, will ready" : "already ready"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           {info.chips.length > 0 && (
             <div className="turn-bar__chips">
               {info.chips.map((chip) => (

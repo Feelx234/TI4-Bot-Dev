@@ -187,7 +187,11 @@ impl Decider for Previewer {
             // The engine takes a lone payment option without asking (the real batch skips those
             // steps the same way): payment answers are dropped once the flow moves past payments.
             if !subtype.starts_with("pay_") {
-                while self.scripted.front().is_some_and(|id| is_payment_answer(id)) {
+                while self
+                    .scripted
+                    .front()
+                    .is_some_and(|id| is_payment_answer(id))
+                {
                     self.scripted.pop_front();
                     out.consumed += 1;
                 }

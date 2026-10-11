@@ -597,7 +597,10 @@ fn resolve_research(
             Some("A faction ability lets you research this technology without its prerequisites"),
             Some("Choose how, and pay its cost on the next step. Declining researches nothing."),
         ),
-        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        vec![crate::choice::offer_fact_technology(
+            "Technology",
+            technology.as_str(),
+        )],
         &[(
             "decline",
             crate::choice::offer_caption("Don't use a waiver", Some("Nothing is researched")),
@@ -647,7 +650,10 @@ fn resolve_research(
             Some(&waiver.label),
             Some("Choose what pays for it. Declining researches nothing and pays nothing."),
         ),
-        vec![crate::choice::offer_fact_technology("Technology", technology.as_str())],
+        vec![crate::choice::offer_fact_technology(
+            "Technology",
+            technology.as_str(),
+        )],
         &[(
             "decline",
             crate::choice::offer_caption("Don't pay", Some("Nothing is researched or paid")),
@@ -1431,6 +1437,64 @@ fn paid_research(
     }
 }
 
+/// Display only: what a seat weighing Diplomacy's "ready planets" needs in front of it. The
+/// exhausted planets it could ready (with their values), and, for the other strategy cards that
+/// spend resources or influence (Leadership, Technology, Warfare), whether each has been played
+/// this round, is still held unplayed by some seat, or is not in this game's round at all. Only
+/// public facts: strategy-card holdings and their exhausted state are on the table for everyone.
+/// Never read by the engine.
+#[must_use]
+pub fn ready_hints(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> serde_json::Value {
+    let planets: Vec<serde_json::Value> = state
+        .controlled_planets(player)
+        .into_iter()
+        .map(|(_, planet)| planet)
+        .filter(|planet| state.exhausted_planets.contains(*planet))
+        .map(|planet| {
+            let record = ti4_content::galaxy::planet(content, planet.as_str(), sources);
+            serde_json::json!({
+                "id": planet.as_str(),
+                "name": record.as_ref().and_then(|r| r.name()).unwrap_or(planet.as_str()),
+                "resources": record.as_ref().map(|r| r.resources()),
+                "influence": record.as_ref().map(|r| r.influence()),
+            })
+        })
+        .collect();
+    let spenders: Vec<serde_json::Value> = [
+        ("Leadership", "influence"),
+        ("Technology", "resources"),
+        ("Warfare", "resources"),
+    ]
+    .iter()
+    .map(|(name, spends)| {
+        let mut held = false;
+        let mut played = false;
+        for seat in &state.players {
+            for card in &seat.strategy_cards {
+                if card_name(content, card.as_str()).as_deref() == Some(*name) {
+                    held = true;
+                    played |= seat.exhausted_strategy_cards.contains(card);
+                }
+            }
+        }
+        let status = if !held {
+            "not_in_play"
+        } else if played {
+            "played"
+        } else {
+            "to_come"
+        };
+        serde_json::json!({ "card": name, "spends": spends, "status": status })
+    })
+    .collect();
+    serde_json::json!({ "planets": planets, "spenders": spenders })
+}
+
 fn ready_planets(
     state: &mut GameState,
     content: &ContentStore,
@@ -1470,7 +1534,8 @@ fn ready_planets(
             "ready_planet",
             state.phase,
             state.round,
-        ));
+        ))
+        .detailed("ready_hints", ready_hints(state, content, sources, player));
         let answer = ask(state, content, sources, galaxy, table, &choice)?;
         state.ready_planet(&PlanetId::new(answer.id));
     }
@@ -2835,15 +2900,27 @@ mod tests {
             .technologies
             .insert(technology.clone());
         put(&mut state, &SystemId::new("18"), "infantry", &player, 1);
-        let (decider, seen) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new(["waiver|0", "decline"]),
-        ));
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "waiver|0", "decline",
+            ])));
         let mut table = Table::with_default(Box::new(decider));
-        resolve_research(&mut state, content, POK, None, &mut table, &player, &technology)
-            .expect("declining the payment");
+        resolve_research(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &player,
+            &technology,
+        )
+        .expect("declining the payment");
         let asked = seen.borrow();
         assert_eq!(asked.len(), 2);
-        for (choice, title) in [(&asked[0], "Research without prerequisites"), (&asked[1], "Pay for the waiver")] {
+        for (choice, title) in [
+            (&asked[0], "Research without prerequisites"),
+            (&asked[1], "Pay for the waiver"),
+        ] {
             assert_eq!(choice.details["kind"], "offer");
             assert_eq!(choice.details["card"]["title"], title);
             assert_eq!(choice.details["facts"][0]["technology"], "ws");
@@ -3508,11 +3585,16 @@ mod tests {
             .next()
             .expect("a PDS spot")
             .id;
-        let (decider, seen) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new([first.as_str(), "pds"]),
-        ));
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                first.as_str(),
+                "pds",
+            ])));
         let mut table = Table::with_default(Box::new(decider));
-        place_structure(&mut state, content, sources, None, &mut table, &player, true).unwrap();
+        place_structure(
+            &mut state, content, sources, None, &mut table, &player, true,
+        )
+        .unwrap();
         let asked = seen.borrow();
         let offer = asked
             .iter()
@@ -3528,7 +3610,11 @@ mod tests {
         assert!(offer.details["facts"][0]["planet"].is_string());
         assert_eq!(offer.details["captions"]["pds"]["label"], "Place the PDS");
         assert_eq!(
-            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            offer
+                .options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>(),
             ["pds", hecatoncheires::ID]
         );
     }
@@ -3703,9 +3789,10 @@ mod tests {
             &b,
             "deepwroughtcommander"
         ));
-        let (decider, seen) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new(["reduce", "gain"]),
-        ));
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "reduce", "gain",
+            ])));
         let mut table = Table::with_default(Box::new(decider));
         deepwrought_commander(&mut state, content, POK, None, &mut table, &a, 3).unwrap();
         let asked = seen.borrow();
@@ -3739,9 +3826,16 @@ mod tests {
         assert_eq!(reduce.details["card"]["title"], "Aello");
         assert_eq!(reduce.details["facts"][0]["from"], 3);
         assert_eq!(reduce.details["facts"][0]["to"], 2);
-        assert_eq!(reduce.details["captions"]["decline"]["label"], "Pay in full");
         assert_eq!(
-            offer.options.iter().map(|o| o.id.as_str()).collect::<Vec<_>>(),
+            reduce.details["captions"]["decline"]["label"],
+            "Pay in full"
+        );
+        assert_eq!(
+            offer
+                .options
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect::<Vec<_>>(),
             ["gain", "convert"]
         );
     }
@@ -4346,7 +4440,9 @@ mod tests {
         let mut state = game(&["a"]);
         let player = PlayerId::new("a");
         let (system, planet) = a_placed_planet();
-        state.system_mut(&system).set_control(planet, player.clone());
+        state
+            .system_mut(&system)
+            .set_control(planet, player.clone());
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
         let mut table = Table::with_default(Box::new(capturing));
 
@@ -4385,7 +4481,8 @@ mod tests {
         state.player_mut(&other).unwrap().faction = ti4_model::id::FactionId::new("hacan");
         let limit = commodity_limit(&state, content, &other);
         state.player_mut(&other).unwrap().commodities = 1;
-        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
         let mut table = Table::with_default(Box::new(capturing));
 
         trade_primary(&mut state, content, POK, None, &mut table, &player).unwrap();
@@ -4429,7 +4526,16 @@ mod tests {
             let (capturing, seen) =
                 crate::choice::Capturing::new(Box::new(crate::choice::AlwaysDecline));
             let mut table = Table::with_default(Box::new(capturing));
-            primary(&mut state, content, POK, None, &mut table, &player, &card("Imperial")).unwrap();
+            primary(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut table,
+                &player,
+                &card("Imperial"),
+            )
+            .unwrap();
             let asked = seen.borrow();
             asked
                 .iter()
@@ -4653,9 +4759,10 @@ mod tests {
         };
         let system = hub.galaxy.system_ids()[0].to_owned();
         let moved = format!("0|{fleet}|{}", strategic + tactic);
-        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(
-            vec![moved, system],
-        )));
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(vec![
+                moved, system,
+            ])));
 
         let result = primary(
             &mut state,
@@ -4684,6 +4791,27 @@ mod tests {
             asked[1].context.as_ref().unwrap().subtype,
             "warfare_free_tactical"
         );
+    }
+
+    #[test]
+    fn ready_hints_report_which_spending_cards_were_played() {
+        let store = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let player = PlayerId::new("a");
+        let leadership = ti4_model::id::StrategyCardId::new("pok1leadership");
+        assert_eq!(
+            card_name(store, "pok1leadership").as_deref(),
+            Some("Leadership")
+        );
+        state.players[1].strategy_cards = vec![leadership.clone()];
+        let hints = ready_hints(&state, store, POK, &player);
+        assert_eq!(hints["spenders"][0]["card"], "Leadership");
+        assert_eq!(hints["spenders"][0]["status"], "to_come");
+        assert_eq!(hints["spenders"][1]["status"], "not_in_play");
+        state.players[1].exhausted_strategy_cards.insert(leadership);
+        let hints = ready_hints(&state, store, POK, &player);
+        assert_eq!(hints["spenders"][0]["status"], "played");
+        assert!(hints["planets"].as_array().unwrap().is_empty());
     }
 
     /// The PoK card is unchanged: it still recalls a token and redistributes once, and never asks
