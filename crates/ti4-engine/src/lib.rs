@@ -54,6 +54,7 @@ pub mod invasion;
 pub mod laws;
 pub mod leaders;
 pub mod legendary;
+pub mod map_feasibility;
 pub mod movement;
 pub mod neutral_units;
 pub mod objectives;

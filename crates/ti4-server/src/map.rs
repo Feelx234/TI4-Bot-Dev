@@ -331,6 +331,8 @@ pub fn create_game_with_map_seated(
         })
         .collect();
     let galaxy = seating::build_board(content, &by_seat, &filler_refs, POK)?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
 
     Ok((state, galaxy))
 }
@@ -438,6 +440,8 @@ pub fn create_game_with_template_seated(
         .map_err(|e| e.to_string())?;
     let galaxy = crate::maps::build_template_galaxy(content, template, &homes, seed, POK)
         .map_err(|e| e.to_string())?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
     Ok((state, galaxy))
 }
 
@@ -622,5 +626,41 @@ mod template_tests {
             }
         }
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// Setup rule: no generated game deals, reveals or holds an objective its own map cannot
+    /// satisfy (generated boards have no empty systems, wormholes or anomalies).
+    #[test]
+    fn a_new_game_never_holds_an_objective_its_map_rules_out() {
+        let content = ContentStore::embedded();
+        let loader = crate::maps::TemplateLoader::load().unwrap();
+        for n in 3..=6usize {
+            let list: Vec<PlayerId> = (0..n).map(|i| PlayerId::new(format!("p{i}"))).collect();
+            let default = crate::maps::default_template_for(content, &loader, n, POK);
+            for template in [None, default.as_deref()] {
+                for seed in 0..6 {
+                    let (state, galaxy) =
+                        create_game_with_template(content, &list, seed, template).unwrap();
+                    let homes: Vec<SystemId> =
+                        state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+                    let census = ti4_engine::map_feasibility::census(content, POK, &galaxy, &homes);
+                    let public = ti4_engine::map_feasibility::unsatisfiable_public(&census);
+                    let secret = ti4_engine::map_feasibility::unsatisfiable_secret(&census);
+                    assert!(public.contains(&"deep_space") && secret.contains(&"btgk"));
+                    for id in state.revealed_objectives.iter().chain(&state.objective_deck) {
+                        assert!(!public.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                    }
+                    for id in state
+                        .secret_deck
+                        .iter()
+                        .chain(state.players.iter().flat_map(|p| &p.secret_objectives))
+                    {
+                        assert!(!secret.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                    }
+                    assert_eq!(state.revealed_objectives.len(), 2);
+                    assert!(state.players.iter().all(|p| p.secret_objectives.len() == 1));
+                }
+            }
+        }
     }
 }
