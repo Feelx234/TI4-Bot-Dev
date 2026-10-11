@@ -167,7 +167,8 @@
 }
 
 /* An invasion result: one line per fact, the text in the reading colour (it is a report, not a status). */
-.auto-resolve-toast--invasion {
+.auto-resolve-toast--invasion,
+.auto-resolve-toast--agenda {
   max-height: 40vh;
   overflow-y: auto;
 }
@@ -179,6 +180,12 @@
   color: #e5e7eb;
 }
 
-.auto-resolve-toast-container:has(.auto-resolve-toast--invasion) {
+.auto-resolve-toast-container:has(.auto-resolve-toast--invasion),
+.auto-resolve-toast-container:has(.auto-resolve-toast--agenda) {
   width: min(340px, calc(100vw - 24px));
+}
+
+/* An agenda result: the politics gold, so it reads as the table's news rather than one player's. */
+.auto-resolve-toast.auto-resolve-toast--agenda {
+  border-left-color: #eab308;
 }

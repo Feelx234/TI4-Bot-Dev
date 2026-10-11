@@ -1204,6 +1204,10 @@ pub struct GameState {
     /// no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exploration_log: Vec<ExplorationRecord>,
+    /// Every agenda vote that finished, in order, and how it came out. History for viewers (the
+    /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda_log: Vec<AgendaRecord>,
     pub relic_deck: Vec<RelicId>,
     pub agenda_deck: Vec<String>,
     pub action_card_deck: Vec<ActionCardId>,
@@ -1742,6 +1746,7 @@ impl GameState {
             exploration_decks: BTreeMap::new(),
             planet_attachments: BTreeMap::new(),
             exploration_log: Vec::new(),
+            agenda_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
             action_card_deck: Vec::new(),
@@ -3018,6 +3023,38 @@ pub struct ExplorationRecord {
     /// did nothing). Display only: no rule reads it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub result: String,
+}
+
+/// One finished agenda vote: which agenda, the outcome, and the votes each outcome received.
+/// Display only: no rule reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaRecord {
+    pub round: u32,
+    /// The agenda's alias.
+    pub agenda: String,
+    /// The printed name ("Minister of Peace").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The winning outcome (`for`, `against`, a player, a planet, ...); `None` when the agenda
+    /// had nothing to vote on.
+    pub outcome: Option<String>,
+    /// Votes per outcome, as cast.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub votes: BTreeMap<String, i64>,
+    /// The speaker decided it: the vote was tied, or nobody cast a vote (8.19).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub speaker_decided: bool,
+    /// The agenda is a law (8.20); `enacted` says whether it entered play.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub law: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enacted: bool,
+    /// Deadly Plot: the agenda was discarded with no effect.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discarded: bool,
+    /// Confusing / Confounding Legal Text: who the agenda's effect went to instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirected_to: Option<String>,
 }
 
 /// Negotiations one player may initiate during one action (operator limit, 2026-09-22).

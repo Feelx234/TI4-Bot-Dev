@@ -71,3 +71,6 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Transit Diodes on a phone (CR-transit-diodes-phone)
 
 `CR-transit-diodes-phone` shows Transit Diodes with 13 controlled planets and ground forces on 7 places (options generated like the engine's `transit_options`), before and after the stepwise panel (what moves, where to, Confirm), at 390x844, 360x740 and desktop. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit before the change; `npm run screenshots -- CR` regenerates the `after-*` PNGs and asserts the panel stays inside the viewport without horizontal scroll, the list scrolls inside it, 44 px targets, the move summary and the submitted option id.
+## Agenda result toast (CS-agenda-result-toast)
+
+`CS-agenda-result-toast` shows the corner toast every seat (the voter included) gets when an agenda vote finishes: For wins (a law enters play), Against wins (a directive resolved), an election, a tie and a silent table decided by the speaker, desktop and 390x844. `npm run screenshots -- CS` feeds the engine's `agenda_log` through a mocked state update and asserts the texts, the gold accent, that a later state with the same log does not toast again, and that the toast stays inside the viewport.

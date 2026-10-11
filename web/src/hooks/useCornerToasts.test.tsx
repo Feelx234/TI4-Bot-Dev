@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import type { AutoResolvedNote, GameEvent } from "../protocol/types.ts";
 import { useCornerToasts } from "./useCornerToasts.ts";
+import type { AgendaRecordDto } from "../presentation/agendaToasts.ts";
 import { TOAST_MUTE_KEY } from "./useToastMute.ts";
 
 const ev = (id: string, actor: string, detail: string): GameEvent =>
@@ -37,6 +38,34 @@ describe("useCornerToasts", () => {
     expect(result.current.notifications).toHaveLength(1);
     expect(result.current.notifications[0]).toMatchObject({ kind: "action", actor: "p2" });
     expect(result.current.notifications[0].text).toContain("gained 1 trade good");
+  });
+
+  it("toasts a finished agenda vote once, for every seat including the voters", () => {
+    const first: AgendaRecordDto = { round: 3, agenda: "mutiny", name: "Mutiny", outcome: "for", votes: { for: 7, against: 3 } };
+    const second: AgendaRecordDto = { round: 3, agenda: "minister_peace", name: "Minister of Peace", outcome: "p1", votes: { p1: 5, p2: 2 } };
+    // The viewer p1 voted on both and is the one elected: the toast is still news to them.
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, agendas: [first] },
+    });
+    expect(result.current.notifications).toHaveLength(0);
+    rerender({ ...base, agendas: [first, second] });
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.notifications[0]).toMatchObject({ kind: "agenda", tag: "Agenda" });
+    expect(result.current.notifications[0].text).toContain("Minister of Peace:");
+    expect(result.current.notifications[0].text).toContain("elected");
+    // A new state with the same log does not toast again.
+    rerender({ ...base, agendas: [first, second] });
+    expect(result.current.notifications).toHaveLength(1);
+    // Undo/redo gives a new history generation: what reappears is history.
+    rerender({ ...base, agendas: [first], historyGeneration: 1 });
+    rerender({ ...base, agendas: [first, second], historyGeneration: 2 });
+    expect(result.current.notifications).toHaveLength(1);
+    // A spectator sees it too.
+    const spectator = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, viewerSeat: null, agendas: [] as AgendaRecordDto[] },
+    });
+    spectator.rerender({ ...base, viewerSeat: null, agendas: [first] });
+    expect(spectator.result.current.notifications[0].text).toContain("Mutiny: For wins");
   });
 
   it("waits for the first snapshot before treating the log as history", () => {

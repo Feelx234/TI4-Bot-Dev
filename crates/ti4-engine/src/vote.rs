@@ -474,6 +474,12 @@ impl VoteWindow {
         &self.alias
     }
 
+    /// The outcomes this agenda offered.
+    #[must_use]
+    pub fn choices(&self) -> &[String] {
+        &self.choices
+    }
+
     #[must_use]
     pub const fn is_complete(&self) -> bool {
         matches!(self.stage, Stage::Done(_))

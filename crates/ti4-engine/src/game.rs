@@ -5156,6 +5156,7 @@ impl<'a> Game<'a> {
                         .is_some_and(|target| target.starts_with("Elect Player"));
                     if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
                         self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
+                        self.push_agenda_record(&alias, Some(&chosen), BTreeMap::new(), false, false);
                         if is_law(self.content, &alias) {
                             self.state.enact_law(&alias, &chosen);
                             self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
@@ -6005,6 +6006,58 @@ impl<'a> Game<'a> {
         self.emit(&format!("STRATEGY_CARDS_SWAPPED:{owner}:{holder}"));
     }
 
+    /// The public record of a finished vote, for viewers only (no rule reads it). Written once
+    /// the outcome and a Deadly Plot discard are settled, before the agenda's effect is asked.
+    fn log_agenda(&mut self, window: &crate::vote::VoteWindow, outcome: Option<&str>, discarded: bool) {
+        let ballot = window.ballot();
+        let speaker_decided =
+            outcome.is_some() && crate::vote::undisputed_winner(ballot, window.choices()).is_none();
+        self.push_agenda_record(
+            window.alias(),
+            outcome,
+            ballot.counts.clone(),
+            speaker_decided,
+            discarded,
+        );
+    }
+
+    fn push_agenda_record(
+        &mut self,
+        alias: &str,
+        outcome: Option<&str>,
+        votes: BTreeMap<String, i64>,
+        speaker_decided: bool,
+        discarded: bool,
+    ) {
+        let law = is_law(self.content, alias);
+        let record = ti4_model::state::AgendaRecord {
+            round: self.state.round,
+            agenda: alias.to_owned(),
+            name: self
+                .content
+                .get(ti4_model::content_types::ContentType::Agendas, alias)
+                .and_then(|record| record.text("name"))
+                .unwrap_or_default()
+                .to_owned(),
+            outcome: outcome.map(str::to_owned),
+            votes,
+            speaker_decided,
+            law,
+            enacted: law && !discarded && outcome.is_some_and(|o| o != AGAINST),
+            discarded,
+            redirected_to: if discarded {
+                None
+            } else {
+                self.state
+                    .agenda_elected_override
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .filter(|to| Some(to.as_str()) != outcome)
+            },
+        };
+        self.state.agenda_log.push(record);
+    }
+
     fn close_vote(&mut self) -> StepResult {
         let Some((window, queue)) = self.voting.take() else {
             unreachable!("a vote was open");
@@ -6012,6 +6065,7 @@ impl<'a> Game<'a> {
         let alias = window.alias().to_owned();
         self.state.agenda_choices.clear();
         if window.winner().is_none() {
+            self.log_agenda(&window, None, false);
             // No outcome, so nobody predicted correctly — but the cards were still spent, and a
             // prediction left behind would pay out on the next agenda.
             self.state.agenda_predictions.clear();
@@ -6062,6 +6116,7 @@ impl<'a> Game<'a> {
                 .transient_flags
                 .clear(TransientFlags::AGENDA_DISCARDED);
 
+            self.log_agenda(&window, Some(&outcome), discarded);
             let elected_player: Option<ti4_model::id::PlayerId> = if discarded {
                 // Deadly Plot: "discard the agenda instead. The agenda is resolved with no
                 // effect and it is not replaced." The vote still happened, so the
@@ -12374,6 +12429,70 @@ mod tests {
                 .any(|id| id.starts_with("diplomacy|promise|{\"vote\"")),
             "a contact before a vote can promise votes on it"
         );
+    }
+
+    #[test]
+    fn every_finished_agenda_vote_is_logged_once_for_viewers() {
+        let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let content = ContentStore::embedded();
+        for seed in [11, 12, 13, 14] {
+            let mut state = start_game(content, &players, POK, None).unwrap();
+            state.phase = Phase::Agenda;
+            state.custodians_removed = true;
+            state.agenda_deck = content
+                .records(ti4_model::content_types::ContentType::Agendas)
+                .iter()
+                .filter_map(|record| record.text("alias"))
+                .take(2)
+                .map(ToOwned::to_owned)
+                .collect();
+            let round = state.round;
+            let mut game = Game::with_seeded_random(state, content, seed);
+            let mut guard = 0;
+            while game.state.phase == Phase::Agenda && guard < 200 {
+                assert_eq!(game.step().error, None);
+                guard += 1;
+            }
+            let resolved: Vec<String> = game
+                .events
+                .iter()
+                .filter_map(|event| event.strip_prefix("AGENDA_RESOLVED:"))
+                .map(ToOwned::to_owned)
+                .collect();
+            assert!(!resolved.is_empty(), "seed {seed} resolves an agenda");
+            let logged: Vec<String> = game
+                .state
+                .agenda_log
+                .iter()
+                .map(|record| {
+                    format!("{}:{}", record.agenda, record.outcome.as_deref().unwrap_or(""))
+                })
+                .collect();
+            assert_eq!(logged, resolved, "one record per resolved agenda, in order");
+            for record in &game.state.agenda_log {
+                let outcome = record.outcome.as_deref().unwrap();
+                assert_eq!(record.round, round);
+                assert_eq!(record.law, is_law(content, &record.agenda));
+                assert!(!record.name.is_empty(), "the printed name travels with it");
+                assert_eq!(record.enacted, record.law && outcome != AGAINST);
+                let best = record.votes.values().copied().max().unwrap_or(0);
+                let leaders = record.votes.values().filter(|v| **v == best && best > 0).count();
+                assert_eq!(
+                    record.speaker_decided,
+                    leaders != 1,
+                    "the speaker decides exactly a tie or a silent table: {record:?}"
+                );
+                if !record.speaker_decided {
+                    assert_eq!(record.votes.get(outcome), Some(&best), "{record:?}");
+                }
+            }
+            // Display only: the record travels in the state JSON but nothing reads it back.
+            let json = serde_json::to_value(&game.state).unwrap();
+            assert!(json.get("agenda_log").is_some_and(serde_json::Value::is_array));
+        }
+        let fresh = start_game(content, &players, POK, None).unwrap();
+        let json = serde_json::to_value(&fresh).unwrap();
+        assert!(json.get("agenda_log").is_none(), "an empty log is not serialised");
     }
 
     #[test]
