@@ -7,10 +7,12 @@ export interface CounterProps {
   max: number;
   /** Names the thing counted, for assistive technology: "Carrier from Jord". */
   label: string;
+  /** The number that is shown, when one step is more than one: fighters come two at a time. */
+  shown?: number;
   onChange: (value: number) => void;
 }
 
-export function Counter({ value, max, label, onChange }: CounterProps) {
+export function Counter({ value, max, label, shown = value, onChange }: CounterProps) {
   const button =
     "size-7 text-lg text-muted enabled:hover:bg-raised enabled:hover:text-text disabled:opacity-30 touch:size-10";
   return (
@@ -25,7 +27,7 @@ export function Counter({ value, max, label, onChange }: CounterProps) {
         −
       </button>
       <output className="min-w-7 text-center tabular-nums" aria-label={`${label} quantity`}>
-        {value}
+        {shown}
       </output>
       <button
         type="button"
@@ -106,9 +108,11 @@ export function Gauge({ label, used, total }: { label: string; used: number; tot
   const width = Math.min(100, total ? (used / total) * 100 : used ? 100 : 0);
   return (
     <div>
-      <div className="flex justify-between text-xs text-muted">
+      <div className="flex justify-between gap-2 text-xs text-muted">
         <span>{label}</span>
-        <strong className={cx("font-mid tabular-nums", over ? "text-red" : "text-text")}>
+        <strong
+          className={cx("font-mid whitespace-nowrap tabular-nums", over ? "text-red" : "text-text")}
+        >
           {used} / {total}
         </strong>
       </div>

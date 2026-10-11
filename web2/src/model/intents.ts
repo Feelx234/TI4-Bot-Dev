@@ -33,11 +33,15 @@ export type Intent =
   | { type: "fillHold"; key: string; source?: string }
   /** Gives Gravity Drive to one ship of the action, or takes it back. The path follows. */
   | { type: "setBoost"; ship: string | null }
-  /** Takes back everything that leaves with the ships of one system, or its staged landings. */
+  /**
+   * Takes back everything that leaves with the ships of one system, its staged landings, or
+   * its staged production.
+   */
   | { type: "resetOrigin"; system: SystemId }
   /**
    * The player is done with one system of the movement: it gets its mark, and its fleet closes.
-   * In an invasion it closes the landings of the active system.
+   * In an invasion it closes the landings of the active system. In a production it closes the
+   * build: the payment is next.
    */
   | { type: "markOrigin"; system: SystemId }
   | { type: "setPlacement"; unit: UnitType; place: string }

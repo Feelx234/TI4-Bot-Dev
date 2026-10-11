@@ -4,6 +4,7 @@ import type { ApplyView, BoardTaskView, FlowActionView, MenuRowView } from "../.
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type { MovementPlan } from "../movementPlan";
+import type { ProductionDraft } from "../productionDraft";
 import type { Choice, ExplorationCatalog, SessionUpdate } from "../wire";
 import { exploringCard } from "./exploration";
 import { factionName, sentence } from "./names";
@@ -42,9 +43,16 @@ export interface LocalState {
   landing: LandingDraft;
   /** The force of the invasion facts that a tap lands: a choice of the hand. */
   landingKind: number | null;
+  /** The staged production of the open production step: what is built, and what pays. */
+  production: ProductionDraft;
+  /** The build is chosen first; then the map is the payment. */
+  productionStage: "build" | "pay";
   /** The step of the tactical action that is in view, when it is not the open one. */
   step: number | null;
-  /** The steps of a movement or of the landings that another decision stopped. They are staged again when that step goes on. */
+  /**
+   * The steps of a movement, of the landings or of a production that another decision stopped.
+   * They are staged again when that step goes on.
+   */
   remaining: MovementPlan | null;
   /** What the last movement that was sent came to, when it did not reach its end. */
   planNote: { text: string; error: boolean } | null;

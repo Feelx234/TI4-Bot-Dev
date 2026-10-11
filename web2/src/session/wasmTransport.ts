@@ -396,14 +396,32 @@ export function createWasmTransport(
       (subtype === "movement_step" &&
         update.tactical?.kind === "movement" &&
         update.tactical.moved > 0) ||
-      (subtype === "commit_ground_forces" && recorded.at(-1)?.kind === "commit")
+      (subtype === "commit_ground_forces" && recorded.at(-1)?.kind === "commit") ||
+      ((subtype === "produce_unit" || subtype === "pay_resources" || subtype === "place_unit") &&
+        afterPurchase())
     );
+  };
+  /** The answers before the open choice are of a production: a purchase, then what paid and placed it. */
+  const afterPurchase = () => {
+    for (let at = recorded.length - 1; at >= 0; at--) {
+      const { kind } = recorded[at];
+      if (kind === "produce") {
+        return true;
+      }
+      if (kind !== "pay" && kind !== "place") {
+        return false;
+      }
+    }
+    return false;
   };
   /** What a plan answers to a choice: first the options of its `choices`, then its steps. */
   const answerOf = (sent: NonNullable<typeof plan>, choice: Choice): PlanAnswer => {
     const wanted = sent.choices[sent.next];
     if (wanted === undefined) {
       const result = planAnswer(sent.steps, sent.next - sent.choices.length, choice, sent.actor);
+      if (result.kind === "answer" && result.steps) {
+        sent.steps = result.steps;
+      }
       return result.kind === "answer"
         ? { ...result, next: result.next + sent.choices.length }
         : result;

@@ -1,6 +1,6 @@
 //! What a client needs to stage a tactical action and the pending choice does not say: the ships
-//! in range of a system, and for the movement the path of each ship, the rifts on it, and what the
-//! ship can load.
+//! in range of a system, for the movement the path of each ship, the rifts on it, and what the
+//! ship can load, and for the production what a whole build costs and what can pay for it.
 //!
 //! Nothing here decides a rule. Every fact is the answer of a public function of the engine, asked
 //! the way the engine asks it when it applies the move (`Game::begin_one_move`).
@@ -12,8 +12,10 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::units::catalogue;
 use ti4_engine::choice::Choice;
+use ti4_engine::decision_context::{ConstraintKind, DecisionTarget};
 use ti4_engine::invasion::COMMIT_KIND;
 use ti4_engine::movement::{Board, MovementRules};
+use ti4_engine::production::{PRODUCE_KIND, Spend};
 use ti4_engine::tactical::{ACTIVATE_KIND, Movable, effective_move_value_for_ship, movable_into};
 use ti4_engine::transit::{CargoWindow, LOAD_KIND, rifts_exited};
 use ti4_model::content_types::SourceSet;
@@ -27,6 +29,8 @@ pub const ACTIVATION_SUBTYPE: &str = "activate_system";
 pub const MOVEMENT_SUBTYPE: &str = "movement_step";
 /// The subtype of the choice of a ground force to land.
 pub const INVASION_SUBTYPE: &str = "commit_ground_forces";
+/// The subtype of the choice of a unit to produce.
+pub const PRODUCTION_SUBTYPE: &str = "produce_unit";
 
 /// How many ships of the seat can move to one system, if it is activated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +182,108 @@ pub struct InvasionFacts {
     pub planets: Vec<LandingPlanet>,
 }
 
+/// One kind of unit that the seat can produce now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BuildFact {
+    pub unit: String,
+    /// The printed cost of one purchase, before a discount.
+    pub cost: i64,
+    /// How many units one purchase makes: 2 for fighters and infantry.
+    pub per: i64,
+    /// How many units of this kind are left in the reinforcements. `None`: there is no limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub supply: Option<i64>,
+    /// The unit is a ship that counts against the fleet pool.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fleet: bool,
+    /// The unit uses capacity while it is in a space area: a fighter, a ground force.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cargo: bool,
+    /// Where the unit can be placed: `space`, or a planet of the system.
+    pub places: Vec<String>,
+    /// What the unit hits on in a combat, and with how many dice. `None`: it does not fight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub combat: Option<CombatFact>,
+    /// The move value. 0: the unit does not move by itself.
+    #[serde(default)]
+    pub move_value: i64,
+    /// What the unit carries.
+    #[serde(default)]
+    pub capacity: i64,
+    /// The unit abilities as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5 (x1)".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub abilities: Vec<String>,
+    /// Why the seat cannot produce the unit here now. `None`: it can.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable: Option<Unavailable>,
+}
+
+/// The combat value of a unit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CombatFact {
+    pub hits_on: i64,
+    pub dice: i64,
+}
+
+/// Why a unit cannot be produced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Unavailable {
+    /// The seat does not have the technology that the unit needs.
+    Technology,
+    /// None is left in the reinforcements.
+    Supply,
+    /// Ships of another player are in the system.
+    Blockade,
+    /// The system has no place for the unit.
+    NoPlace,
+    /// The game does not offer the unit, for a reason that these facts do not know.
+    NotOffered,
+}
+
+/// A planet that can pay resources, with what it is worth to the seat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PayingPlanet {
+    pub planet: String,
+    pub worth: i64,
+}
+
+/// A limit and what already counts against it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LimitFact {
+    pub limit: i64,
+    pub used: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductionFacts {
+    /// The system that produces.
+    pub system: String,
+    /// The production limit of this use, and the units that it already made.
+    pub capacity: LimitFact,
+    pub units: Vec<BuildFact>,
+    /// What the combined cost of this use is still reduced by (Sarween Tools).
+    pub discount: i64,
+    /// Resources that are paid and not used yet.
+    pub credit: i64,
+    /// Every unit of this use costs nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub free: bool,
+    /// The ready planets of the seat that pay resources.
+    pub planets: Vec<PayingPlanet>,
+    pub trade_goods: i64,
+    /// What one trade good pays.
+    pub trade_good_worth: i64,
+    pub fleet_supply: FleetSupplyFact,
+    /// The capacity of the ships of the seat in the system, and what uses it.
+    pub transport: LimitFact,
+}
+
 /// The facts of the pending choice of a tactical action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -185,10 +291,11 @@ pub enum TacticalFacts {
     Activation(ActivationFacts),
     Movement(MovementFacts),
     Invasion(InvasionFacts),
+    Production(ProductionFacts),
 }
 
-/// The facts for `choice`, when it is the choice of a system to activate, of a ship to move or of
-/// a ground force to land.
+/// The facts for `choice`, when it is the choice of a system to activate, of a ship to move, of
+/// a ground force to land or of a unit to produce.
 #[must_use]
 pub fn project_tactical_facts(
     state: &GameState,
@@ -207,6 +314,9 @@ pub fn project_tactical_facts(
         }
         INVASION_SUBTYPE => {
             invasion(state, content, sources, player, choice).map(TacticalFacts::Invasion)
+        }
+        PRODUCTION_SUBTYPE => {
+            production(state, content, sources, player, choice).map(TacticalFacts::Production)
         }
         _ => None,
     }
@@ -573,6 +683,262 @@ fn invasion(
         active: active.to_string(),
         forces,
         planets,
+    })
+}
+
+/// The order of the units of a production on a sheet.
+const SHEET_ORDER: [&str; 9] = [
+    "carrier",
+    "cruiser",
+    "destroyer",
+    "dreadnought",
+    "flagship",
+    "warsun",
+    "fighter",
+    "infantry",
+    "mech",
+];
+
+/// One unit of a production: its price, its places and what is printed on it.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the game, the seat, and what the caller already knows of the unit"
+)]
+fn build_fact(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    kind: &ti4_content::units::UnitType<'_>,
+    (cost, per): (i64, i64),
+    places: Vec<String>,
+    unavailable: Option<Unavailable>,
+) -> BuildFact {
+    let rolls = |name: &str, hits_on: Option<i64>, dice: i64| {
+        hits_on.map(|value| format!("{name} {value} (x{dice})"))
+    };
+    let abilities = [
+        kind.sustain_damage().then(|| "SUSTAIN DAMAGE".to_owned()),
+        rolls("ANTI-FIGHTER BARRAGE", kind.afb_hits_on(), kind.afb_dice()),
+        rolls("BOMBARDMENT", kind.bombard_hits_on(), kind.bombard_dice()),
+        rolls(
+            "SPACE CANNON",
+            kind.space_cannon_hits_on(),
+            kind.space_cannon_dice(),
+        ),
+        kind.planetary_shield()
+            .then(|| "PLANETARY SHIELD".to_owned()),
+    ];
+    BuildFact {
+        unit: kind.id().to_owned(),
+        cost,
+        per,
+        supply: ti4_engine::supply::plastic(kind.base_type()).map(|_| {
+            ti4_engine::supply::remaining(
+                state,
+                content,
+                sources,
+                player,
+                &ti4_model::id::UnitTypeId::new(kind.id()),
+            )
+        }),
+        fleet: kind.is_ship() && !kind.is_fighter(),
+        cargo: kind.consumes_capacity(),
+        places,
+        combat: kind.combat_hits_on().map(|hits_on| CombatFact {
+            hits_on,
+            dice: kind.combat_dice().max(1),
+        }),
+        move_value: kind.move_value(),
+        capacity: kind.capacity(),
+        abilities: abilities.into_iter().flatten().collect(),
+        unavailable,
+    }
+}
+
+/// What the seat can produce in the system of the choice: the `produce` options, with what a
+/// client needs to stage several of them and their payment before it sends any. `None` when a
+/// unit has places that this function does not know (a production by an ability).
+fn production(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    choice: &Choice,
+) -> Option<ProductionFacts> {
+    let context = choice.context.as_ref()?;
+    let Some(DecisionTarget::System(system)) = &context.target else {
+        return None;
+    };
+    let limit = context
+        .outstanding
+        .iter()
+        .find(|owed| owed.kind == ConstraintKind::ProductionCapacity)?;
+    let types = catalogue(content, sources);
+    let builds: Vec<_> = choice
+        .options
+        .iter()
+        .filter(|option| option.kind == PRODUCE_KIND && option.payload.get("exchange").is_none())
+        .collect();
+    let number = |option: &ti4_engine::choice::ChoiceOption, key: &str| {
+        option.payload.get(key).and_then(serde_json::Value::as_i64)
+    };
+    let mut units = Vec::new();
+    for option in &builds {
+        let unit = option.payload.get("unit")?.as_str()?;
+        let kind = types.get(unit)?;
+        let places = match option.payload.get("destination") {
+            Some(only) => vec![only.as_str()?.to_owned()],
+            None => {
+                let places = ti4_engine::production::placements(
+                    state, content, sources, player, system, kind,
+                );
+                let pending = usize::try_from(number(option, "placement_pending")?).ok()?;
+                if places.len() != pending {
+                    return None;
+                }
+                places
+            }
+        };
+        units.push(build_fact(
+            state,
+            content,
+            sources,
+            player,
+            kind,
+            (number(option, "printed_cost")?, number(option, "yield")?),
+            places,
+            None,
+        ));
+    }
+    // Before the first unit the discount of this use is what the game keeps for it. After that
+    // the options say what is left of it for one more purchase.
+    let discount = if limit.paid == 0 {
+        i64::from(state.production_discount_remaining)
+            + ti4_engine::factions::hooks_economy::production_cost_reduction(state, player, system)
+    } else {
+        builds
+            .iter()
+            .filter_map(|option| number(option, "discount"))
+            .max()
+            .unwrap_or(0)
+    };
+    let credit = builds
+        .first()
+        .and_then(|option| number(option, "credit"))
+        .unwrap_or(0);
+    // Every other unit that a production makes, with why the game does not offer it. A unit that
+    // the seat only cannot afford has no reason: the resources are a limit that the client shows.
+    let buildable = ti4_engine::production::buildable_for(state, content, sources, player);
+    let funds =
+        ti4_engine::production::available(state, content, sources, player, Spend::Resources)
+            + credit;
+    for base in ti4_engine::production::BUILDABLE {
+        let listed = |unit: &BuildFact| {
+            types
+                .get(unit.unit.as_str())
+                .is_some_and(|kind| kind.base_type() == base)
+        };
+        if units.iter().any(listed) {
+            continue;
+        }
+        let owned = buildable
+            .iter()
+            .filter_map(|id| types.get(id.as_str()))
+            .find(|kind| kind.base_type() == base);
+        // A unit behind a technology is shown as its printed generic form.
+        let Some(kind) = owned.or_else(|| types.get(base)) else {
+            continue;
+        };
+        let (cost, per) = ti4_engine::production::price_of_under(Some(state), kind);
+        let places =
+            ti4_engine::production::placements(state, content, sources, player, system, kind);
+        let left = ti4_engine::supply::remaining(
+            state,
+            content,
+            sources,
+            player,
+            &ti4_model::id::UnitTypeId::new(kind.id()),
+        );
+        let unavailable = if owned.is_none() {
+            Some(Unavailable::Technology)
+        } else if places.is_empty() {
+            Some(if kind.is_ship() {
+                Unavailable::Blockade
+            } else {
+                Unavailable::NoPlace
+            })
+        } else if left == 0 {
+            Some(Unavailable::Supply)
+        } else if cost - discount > funds || limit.paid >= limit.amount {
+            None
+        } else {
+            Some(Unavailable::NotOffered)
+        };
+        units.push(build_fact(
+            state,
+            content,
+            sources,
+            player,
+            kind,
+            (cost, i64::try_from(per).unwrap_or(1)),
+            places,
+            unavailable,
+        ));
+    }
+    // The ships, then the fighters, then the ground forces.
+    let rank = |unit: &BuildFact| {
+        let base = types
+            .get(unit.unit.as_str())
+            .map_or("", ti4_content::units::UnitType::base_type);
+        SHEET_ORDER
+            .iter()
+            .position(|kind| *kind == base)
+            .unwrap_or(SHEET_ORDER.len())
+    };
+    units.sort_by_key(rank);
+    let standing = ti4_engine::fleet::standing(state, content, sources, player, system, None);
+    Some(ProductionFacts {
+        system: system.to_string(),
+        capacity: LimitFact {
+            limit: limit.amount,
+            used: limit.paid,
+        },
+        units,
+        discount,
+        credit,
+        free: builds.iter().any(|option| {
+            option
+                .payload
+                .get("free_this_use")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+        }),
+        planets: ti4_engine::production::native_payment_planets(
+            state,
+            content,
+            sources,
+            player,
+            Spend::Resources,
+        )
+        .into_iter()
+        .map(|(planet, worth)| PayingPlanet {
+            planet: planet.to_string(),
+            worth,
+        })
+        .collect(),
+        trade_goods: state
+            .player(player)
+            .map_or(0, |seat| i64::from(seat.trade_goods)),
+        trade_good_worth: ti4_engine::production::trade_good_worth(state, player),
+        fleet_supply: FleetSupplyFact {
+            limit: standing.fleet_limit,
+            charged: standing.fleet_charged,
+        },
+        transport: LimitFact {
+            limit: standing.transport,
+            used: standing.consumed,
+        },
     })
 }
 

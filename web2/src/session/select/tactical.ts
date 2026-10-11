@@ -1,5 +1,6 @@
-// The activation, the movement and the landings of a tactical action, on the screens of these
-// steps. The other steps of the action are still decisions in the list (`selectAction`).
+// The activation, the movement, the landings and the production of a tactical action, on the
+// screens of these steps. The other steps of the action are still decisions in the list
+// (`selectAction`).
 import type {
   ActionButtonView,
   ActivationView,
@@ -10,28 +11,35 @@ import type {
 } from "../../model";
 import { plural } from "../../model";
 import { landed } from "../landingDraft";
+import { isEmpty, totals } from "../productionDraft";
 import type {
   ActivationFacts,
   ExplorationCatalog,
   InvasionFacts,
   MovementFacts,
+  ProductionFacts,
   SessionUpdate,
   TacticalFacts,
 } from "../wire";
 import { type LocalState, openChoice } from "./action";
 import { selectInvasion } from "./invasion";
+import { selectProduction } from "./production";
 import { selectMovement, systemLabel } from "./movement";
 import { ANOMALIES, WORMHOLES, factionName } from "./names";
 
 const STEPS = ["Activation", "Movement", "Space combat", "Invasion", "Production"];
 
-/** The facts of the open choice, when it is the activation, the movement or the landings of the viewer. */
+/**
+ * The facts of the open choice, when it is the activation, the movement, the landings or the
+ * production of the viewer.
+ */
 export function tacticalFacts(update: SessionUpdate, local: LocalState): TacticalFacts | null {
   const subtype = openChoice(update, local)?.context?.subtype;
   const facts = update.tactical;
   return (facts?.kind === "activation" && subtype === "activate_system") ||
     (facts?.kind === "movement" && subtype === "movement_step") ||
-    (facts?.kind === "invasion" && subtype === "commit_ground_forces")
+    (facts?.kind === "invasion" && subtype === "commit_ground_forces") ||
+    (facts?.kind === "production" && subtype === "produce_unit")
     ? facts
     : null;
 }
@@ -229,7 +237,66 @@ function invasion(
   };
 }
 
-const CURRENT = { activation: 0, movement: 1, invasion: 3 };
+function production(
+  update: SessionUpdate,
+  local: LocalState,
+  facts: ProductionFacts,
+): { content: StepContentView; footer: FooterView; target: string } {
+  const stage = local.productionStage;
+  const content = selectProduction(update, facts, local.production, stage);
+  const { units, cost, paid, available } = totals(facts, local.production);
+  // Short blocks the main button, as in every payment: the seat cannot pay this build.
+  const short = units > 0 ? Math.max(0, cost - available) : 0;
+  const main = (label: string, disabled = false): ActionButtonView => ({
+    label,
+    tone: "primary",
+    key: "Enter",
+    arrow: true,
+    disabled,
+    intent: { type: "commitEdit" },
+  });
+  const reset: ActionButtonView[] = isEmpty(local.production)
+    ? []
+    : [{ label: "Reset selection", intent: { type: "cancelEdit" } }];
+  const paying = stage === "pay" && units > 0 && cost > 0;
+  return {
+    target: systemLabel(tilesOf(update), facts.system),
+    content,
+    footer: {
+      note:
+        local.planNote?.text ??
+        (short > 0 ? `${plural(short, "resource")} short` : "This commits to the live game."),
+      error: !!local.planNote?.error || short > 0,
+      // The open payment, as one line. Its controls are on the board.
+      payment: paying ? content.payment : undefined,
+      actions: [
+        ...(local.canUndo ? [UNDO] : []),
+        ...reset,
+        ...(paying
+          ? [
+              {
+                label: "Back to build",
+                key: "Escape",
+                intent: { type: "clearChoice" as const },
+              },
+              main("Produce units", paid < cost),
+            ]
+          : [
+              main(
+                units === 0
+                  ? "Produce nothing"
+                  : cost > 0
+                    ? `Pay ${plural(cost, "resource")}`
+                    : "Produce units",
+                short > 0,
+              ),
+            ]),
+      ],
+    },
+  };
+}
+
+const CURRENT = { activation: 0, movement: 1, invasion: 3, production: 4 };
 
 export function selectTactical(
   update: SessionUpdate,
@@ -244,8 +311,12 @@ export function selectTactical(
       ? activation(update, local, facts)
       : facts.kind === "movement"
         ? movement(update, local, facts)
-        : invasion(update, local, facts, catalog);
+        : facts.kind === "invasion"
+          ? invasion(update, local, facts, catalog)
+          : production(update, local, facts);
   const units = landed(local.landing);
+  const built = facts.kind === "production" ? totals(facts, local.production).units : 0;
+  const active = facts.kind === "production" ? facts.system : "active" in facts ? facts.active : "";
   const seat = update.pending_choice?.choice.player ?? "";
   const faction = factionName(
     update.view.players.find((player) => player.id === seat)?.faction ?? seat,
@@ -258,12 +329,14 @@ export function selectTactical(
       status,
       caption:
         step === 0 && facts.kind !== "activation"
-          ? `#${facts.active}`
+          ? `#${active}`
           : step === 1 && current === 1 && ships
             ? plural(ships, "ship")
             : step === 3 && current === 3 && units
               ? plural(units, "unit")
-              : "",
+              : step === 4 && current === 4 && built
+                ? plural(built, "unit")
+                : "",
     };
   });
   return {
@@ -293,7 +366,7 @@ export function selectTactical(
           : local.remaining === null && local.planNote && !local.planNote.error
             ? {
                 tone: "live",
-                label: `Your decision · ${facts.kind === "invasion" ? "landings go" : "movement goes"} on`,
+                label: `Your decision · ${facts.kind === "invasion" ? "landings go" : facts.kind === "production" ? "production goes" : "movement goes"} on`,
               }
             : { tone: "live", label: "Your decision" },
       trail: [],

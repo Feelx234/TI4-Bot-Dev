@@ -41,9 +41,22 @@ export type LandingStep =
     }
   | { kind: "done_committing" };
 
-export type PlanStep = MovementStep | LandingStep;
+/**
+ * One use of PRODUCTION. The game asks for a unit, then for what pays it, then for its place
+ * when it has more than one, and then for the next unit.
+ */
+export type ProductionStep =
+  /** One purchase of a unit: two fighters or infantry, one of any other unit. */
+  | { kind: "produce"; unit: string }
+  /** Where the units of the purchase before it go: `space`, or a planet. */
+  | { kind: "place"; destination: string }
+  /** The id of the option that pays: "exhaust|<planet>" or "trade_good". */
+  | { kind: "pay"; source: string }
+  | { kind: "done_producing" };
 
-/** The steps of one step of a tactical action: its movement, or its landings. */
+export type PlanStep = MovementStep | LandingStep | ProductionStep;
+
+/** The steps of one step of a tactical action: its movement, its landings, or its production. */
 export interface MovementPlan {
   /** The active system. */
   destination: string;
@@ -164,6 +177,14 @@ export function matches(step: PlanStep, option: ChoiceOption): boolean {
       );
     case "done_committing":
       return option.id === "done_committing";
+    case "produce":
+      return option.kind === "produce" && payload.unit === step.unit && payload.exchange !== true;
+    case "place":
+      return option.kind === "place" && payload.destination === step.destination;
+    case "pay":
+      return option.kind === "pay" && option.id === step.source;
+    case "done_producing":
+      return option.id === "done_producing";
   }
 }
 
@@ -203,9 +224,19 @@ export function stepOf(option: Pick<ChoiceOption, "id" | "kind" | "payload">): P
       from_planet: place("from_planet"),
     };
   }
+  if (option.kind === "produce" && payload.exchange !== true) {
+    return { kind: "produce", unit: String(payload.unit) };
+  }
+  if (option.kind === "place" && typeof payload.destination === "string") {
+    return { kind: "place", destination: payload.destination };
+  }
+  if (option.kind === "pay") {
+    return { kind: "pay", source: option.id };
+  }
   return option.id === "done_loading" ||
     option.id === "done_moving" ||
-    option.id === "done_committing"
+    option.id === "done_committing" ||
+    option.id === "done_producing"
     ? { kind: option.id }
     : null;
 }
@@ -221,7 +252,15 @@ const describe = (step: PlanStep) =>
           ? "finish the movement"
           : step.kind === "land"
             ? `land ${step.unit} on ${step.planet}`
-            : "finish the landings";
+            : step.kind === "done_committing"
+              ? "finish the landings"
+              : step.kind === "produce"
+                ? `produce ${step.unit}`
+                : step.kind === "place"
+                  ? `place the units on ${step.destination}`
+                  : step.kind === "pay"
+                    ? `pay with ${step.source}`
+                    : "finish the production";
 
 const SUBTYPES: Record<PlanStep["kind"], string> = {
   move: "movement_step",
@@ -230,11 +269,22 @@ const SUBTYPES: Record<PlanStep["kind"], string> = {
   done_loading: "load_cargo",
   land: "commit_ground_forces",
   done_committing: "commit_ground_forces",
+  produce: "produce_unit",
+  done_producing: "produce_unit",
+  place: "place_unit",
+  pay: "pay_resources",
 };
 
+/** The steps that only follow a purchase: the game may need none of them. */
+const follows = (step: PlanStep | undefined) =>
+  step?.kind === "pay" || step?.kind === "place" || step?.kind === "done_producing";
+
 export type PlanAnswer =
-  /** Answer the choice with this option. `next` is the first step that is still to do. */
-  | { kind: "answer"; index: number; next: number }
+  /**
+   * Answer the choice with this option. `next` is the first step that is still to do. With
+   * `steps` the plan goes on in this order: the step that answered was not the next one.
+   */
+  | { kind: "answer"; index: number; next: number; steps?: PlanStep[] }
   /** Every step is done: the choice is not of the plan. */
   | { kind: "done" }
   /** The game asks something else first (a reaction window, another seat). */
@@ -248,6 +298,10 @@ export type PlanAnswer =
  * `done_loading`; a hold that the plan does not load is declined; any other question stops the plan.
  * The landings have the first rule too: when the last ground force has landed, the game does not
  * ask for `done_committing`.
+ * A production has rules of its own. The game asks for a payment after a purchase, as often as
+ * the purchase needs: the answer is the first payment of the plan that is offered, wherever it is
+ * in the plan. A place that the game settled, a payment that it did not need and an end that it
+ * did not ask for are left out.
  */
 export function planAnswer(
   steps: PlanStep[],
@@ -274,6 +328,45 @@ export function planAnswer(
   if (!own || subtype !== "commit_ground_forces") {
     while (steps[next]?.kind === "done_committing") {
       next += 1;
+    }
+  }
+  // The bill of a purchase of the plan: the step before is that purchase, or a part of its payment.
+  const bill = steps[next - 1]?.kind === "produce" || steps[next - 1]?.kind === "pay";
+  if (own && subtype === "pay_resources" && bill) {
+    const at = steps.findIndex(
+      (step, index) =>
+        index >= next && step.kind === "pay" && choice.options.some((item) => matches(step, item)),
+    );
+    if (at < 0) {
+      return { kind: "mismatch", reason: "The staged payment does not cover the cost." };
+    }
+    const answer = pick(steps[at], next + 1);
+    return answer.kind === "answer"
+      ? {
+          ...answer,
+          steps: [
+            ...steps.slice(0, next),
+            steps[at],
+            ...steps.slice(next, at),
+            ...steps.slice(at + 1),
+          ],
+        }
+      : answer;
+  }
+  if (own && subtype === "produce_unit") {
+    // The game placed the units of the last purchase itself, and needs no more payment for it.
+    while (steps[next]?.kind === "place") {
+      next += 1;
+    }
+    if (steps[next]?.kind === "pay") {
+      while (steps[next]?.kind === "pay") {
+        next += 1;
+      }
+    }
+  } else if (!(own && (subtype === "pay_resources" || subtype === "place_unit"))) {
+    // The game ended the production itself: the limit is used.
+    if (steps.slice(next).every(follows)) {
+      next = steps.length;
     }
   }
   const step = steps[next];

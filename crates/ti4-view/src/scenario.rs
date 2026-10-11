@@ -34,8 +34,10 @@ pub const SCENARIOS: &[Scenario] = &[
         id: LATE_GAME,
         title: "Late game",
         description: "Round 4, seat A (Sol) has the turn. Ten fleets with every ship type and \
-            every ship upgrade, Gravity Drive, cargo on planets and in space on the way. Around \
-            them: a gravity rift, a nebula, a supernova, an asteroid field, a wormhole pair, \
+            every ship upgrade, Gravity Drive, cargo on planets and in space on the way. Two \
+            space docks with Space Dock II, and for what they produce: War Sun, Spec Ops II, \
+            Sarween Tools, AI Development Algorithm, 6 trade goods and one exhausted planet. \
+            Around them: a gravity rift, a nebula, a supernova, an asteroid field, a wormhole pair, \
             fleets of other seats and a system with Sol's command token. Asteroid fields and \
             the ships of other seats block.",
         seed: 42,
@@ -87,7 +89,7 @@ mod at {
     pub const RIFT: &str = "41";
     pub const NEBULA: &str = "42";
     pub const SUPERNOVA: &str = "43";
-    /// Two planets and a space dock, between the home, the nebula and the middle.
+    /// Two planets with a space dock each, between the home, the nebula and the middle.
     pub const DOCK: &str = "72";
     /// No ships of seat A, only cargo: every path from the home to the middle crosses it.
     pub const DEPOT: &str = "74";
@@ -108,6 +110,8 @@ mod at {
     pub const ENEMY_C: &str = "32";
     /// Ships of seat B, three planets.
     pub const ENEMY_B: &str = "75";
+    /// A planet of seat A that is exhausted, in `FAR`.
+    pub const SPENT: &str = "quann";
     /// Every other seat has a command token here.
     pub const CROWDED: &str = "60";
     pub const ALL: [&str; 15] = [
@@ -166,7 +170,10 @@ fn late_game(
         phase::begin_action_turn(state, a);
     }
 
-    let mut technologies = vec!["gd", "cr2", "dd2", "dn2", "ff2", "ac2", "ws"];
+    let mut technologies = vec![
+        "gd", "cr2", "dd2", "dn2", "ff2", "ac2", "ws", // What a production uses.
+        "st", "aida", "sd2", "so2",
+    ];
     if deflectors {
         technologies.extend(["amd", "lwd"]);
     }
@@ -212,7 +219,7 @@ fn late_game(
             ],
             planets: &[
                 ("lisis", &[("infantry", 2), ("spacedock", 1)]),
-                ("velnor", &[("mech", 1), ("infantry", 1)]),
+                ("velnor", &[("mech", 1), ("infantry", 1), ("spacedock", 1)]),
             ],
         },
         Placement {
@@ -376,6 +383,8 @@ fn late_game(
             .relics
             .push(relic);
     }
+    // One planet of seat A is spent: it cannot pay.
+    state.exhaust_planet(PlanetId::new(at::SPENT));
     let sol = state.player_mut(a).ok_or("seat A is not seated")?;
     sol.exhausted_technologies.insert(TechnologyId::new("bs"));
     sol.exhausted_relics.insert(RelicId::new("prophetstears"));
@@ -437,11 +446,13 @@ fn place(
 mod tests {
     use super::*;
     use crate::tactical::{
-        Blocked, INVASION_SUBTYPE, MOVEMENT_SUBTYPE, MovementFacts, ShipFact, TacticalFacts,
-        project_tactical_facts,
+        Blocked, CombatFact, INVASION_SUBTYPE, MOVEMENT_SUBTYPE, MovementFacts, ProductionFacts,
+        ShipFact, TacticalFacts, Unavailable, project_tactical_facts,
     };
+    use ti4_engine::choice::Window;
     use ti4_engine::choice::{Choice, ChoiceOption};
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_engine::production::{PRODUCE_KIND, ProductionWindow};
     use ti4_model::content_types::POK;
 
     fn seat() -> PlayerId {
@@ -709,14 +720,14 @@ mod tests {
             .map(|index| moving.cargo[*index].unit.as_str())
             .collect();
         assert!(
-            loads.contains(&"sol_infantry") && loads.contains(&"sol_mech"),
+            loads.contains(&"sol_infantry2") && loads.contains(&"sol_mech"),
             "{loads:?}"
         );
 
         // In space of the free system, each kind can land on each planet.
         let mut state = state;
         state.active_system = Some(free.clone());
-        let kinds = [("sol_infantry", 2), ("sol_mech", 1)];
+        let kinds = [("sol_infantry2", 2), ("sol_mech", 1)];
         for (kind, count) in kinds {
             for _ in 0..count {
                 state
@@ -764,6 +775,203 @@ mod tests {
         for planet in &landing.planets {
             assert_eq!(planet.lands, [0, 1], "{planet:?}");
         }
+    }
+
+    /// The first choice of a production of seat A in `system`, and its facts.
+    fn production(state: &GameState, galaxy: &Galaxy, system: &str) -> (Choice, ProductionFacts) {
+        let content = ContentStore::embedded();
+        let mut state = state.clone();
+        let system = SystemId::new(system);
+        state.active_system = Some(system.clone());
+        // Sarween Tools, as the game sets it when the units use PRODUCTION.
+        state.production_discount_remaining = 1;
+        let mut window = ProductionWindow::new(&state, content, POK, &seat(), &system);
+        window.refresh(&state, content, POK);
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("the seat can produce");
+        match project_tactical_facts(&state, content, POK, galaxy, &choice) {
+            Some(TacticalFacts::Production(facts)) => (choice, facts),
+            other => panic!("no production facts: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_docks_produce_every_unit_with_its_price_and_its_places() {
+        let (state, galaxy) = game(LATE_GAME);
+        for system in [at::DOCK, at::HOME] {
+            let (choice, facts) = production(&state, &galaxy, system);
+            assert_eq!(facts.system, system);
+            assert_eq!(facts.capacity.used, 0);
+            assert_eq!(facts.discount, 1, "Sarween Tools");
+            assert_eq!((facts.credit, facts.free), (0, false));
+            assert_eq!((facts.trade_goods, facts.trade_good_worth), (6, 1));
+            assert_eq!(facts.fleet_supply.limit, 5);
+
+            // One fact for each unit that the game offers, with the price of the offer.
+            let offered: Vec<&ChoiceOption> = choice
+                .options
+                .iter()
+                .filter(|option| option.kind == PRODUCE_KIND)
+                .collect();
+            let open: Vec<_> = facts
+                .units
+                .iter()
+                .filter(|unit| unit.unavailable.is_none())
+                .collect();
+            assert_eq!(open.len(), offered.len());
+            for option in offered {
+                let unit = open
+                    .iter()
+                    .find(|unit| option.payload["unit"] == unit.unit.as_str())
+                    .unwrap_or_else(|| panic!("no fact for {:?}", option.payload["unit"]));
+                assert_eq!(option.payload["printed_cost"], unit.cost);
+                assert_eq!(option.payload["yield"], unit.per);
+                assert!(unit.supply.is_none_or(|left| left > 0), "{unit:?}");
+                assert!(!unit.places.is_empty(), "{unit:?}");
+            }
+            // Every unit of a production has a row: the one flagship is on the board.
+            assert_eq!(facts.units.len(), 9);
+            let flagship = facts
+                .units
+                .iter()
+                .find(|unit| unit.fleet && unit.supply == Some(0))
+                .expect("the flagship");
+            assert_eq!(flagship.unavailable, Some(Unavailable::Supply));
+            let unit = |id: &str| {
+                facts
+                    .units
+                    .iter()
+                    .find(|unit| unit.unit == id)
+                    .unwrap_or_else(|| panic!("no {id} in {:?}", facts.units))
+            };
+            // The war sun needs its technology, and the upgrades are what is produced.
+            assert_eq!(unit("warsun").cost, 12);
+            assert!(unit("warsun").fleet && !unit("warsun").cargo);
+            assert_eq!(unit("warsun").places, ["space"]);
+            let fighter = unit("fighter2");
+            assert_eq!((fighter.cost, fighter.per), (1, 2));
+            assert!(!fighter.fleet && fighter.cargo);
+            let infantry = unit("sol_infantry2");
+            assert_eq!((infantry.cost, infantry.per), (1, 2));
+            assert!(infantry.cargo);
+            // Fighters and infantry have no limit in the box.
+            assert_eq!((fighter.supply, infantry.supply), (None, None));
+            assert!(unit("warsun").supply.is_some());
+            // A ground force goes to a planet with a dock: the dock system has two.
+            let docks: &[&str] = if system == at::DOCK {
+                &["lisis", "velnor"]
+            } else {
+                &["jord"]
+            };
+            assert_eq!(infantry.places, docks);
+
+            // Every ready planet of the seat pays, and the spent one does not.
+            let pays: Vec<&str> = facts
+                .planets
+                .iter()
+                .map(|planet| planet.planet.as_str())
+                .collect();
+            assert!(
+                pays.contains(&"jord") && pays.contains(&"lisis"),
+                "{pays:?}"
+            );
+            assert!(!pays.contains(&at::SPENT), "{pays:?}");
+            assert!(facts.planets.iter().all(|planet| planet.worth > 0));
+        }
+        // Space Dock II: the resources of the planet and 4.
+        assert_eq!(production(&state, &galaxy, at::HOME).1.capacity.limit, 8);
+    }
+
+    #[test]
+    fn a_unit_that_cannot_be_produced_stays_listed_and_says_why() {
+        let (state, galaxy) = game(LATE_GAME);
+        let find = |facts: &ProductionFacts, id: &str| {
+            facts
+                .units
+                .iter()
+                .find(|unit| unit.unit == id)
+                .unwrap_or_else(|| panic!("no {id} in {:?}", facts.units))
+                .clone()
+        };
+        // What is printed on the unit.
+        let (_, facts) = production(&state, &galaxy, at::DOCK);
+        let cruiser = find(&facts, "cruiser2");
+        assert_eq!(
+            cruiser.combat,
+            Some(CombatFact {
+                hits_on: 6,
+                dice: 1
+            })
+        );
+        assert_eq!((cruiser.move_value, cruiser.capacity), (3, 1));
+        let sun = find(&facts, "warsun");
+        assert_eq!(sun.combat.map(|combat| combat.dice), Some(3));
+        assert!(
+            sun.abilities.iter().any(|text| text == "SUSTAIN DAMAGE"),
+            "{sun:?}"
+        );
+        assert!(
+            sun.abilities
+                .iter()
+                .any(|text| text.starts_with("BOMBARDMENT 3")),
+            "{sun:?}"
+        );
+
+        // Without its technology the war sun is the printed one, and it is not produced.
+        let mut plain = state.clone();
+        plain
+            .player_mut(&seat())
+            .expect("seat A")
+            .technologies
+            .retain(|technology| technology.as_str() != "ws");
+        let (_, facts) = production(&plain, &galaxy, at::DOCK);
+        let sun = find(&facts, "warsun");
+        assert_eq!(sun.unavailable, Some(Unavailable::Technology));
+        assert_eq!(sun.cost, 12);
+
+        // Ships of another player: no ship is produced, the ground forces are.
+        let mut blockaded = state.clone();
+        blockaded
+            .system_mut(&SystemId::new(at::DOCK))
+            .units
+            .iter_mut()
+            .for_each(|unit| unit.owner = PlayerId::new("b"));
+        let (_, facts) = production(&blockaded, &galaxy, at::DOCK);
+        assert_eq!(
+            find(&facts, "cruiser2").unavailable,
+            Some(Unavailable::Blockade)
+        );
+        assert_eq!(find(&facts, "sol_infantry2").unavailable, None);
+
+        // A unit that the seat only cannot pay for has no reason: the client shows the resources.
+        let mut poor = state.clone();
+        poor.player_mut(&seat()).expect("seat A").trade_goods = 0;
+        let (_, rich) = production(&state, &galaxy, at::DOCK);
+        for planet in &rich.planets {
+            poor.exhaust_planet(ti4_model::id::PlanetId::new(planet.planet.as_str()));
+        }
+        let (choice, facts) = production(&poor, &galaxy, at::DOCK);
+        assert!(facts.planets.is_empty());
+        assert!(!choice.options.iter().any(|option| {
+            option
+                .payload
+                .get("unit")
+                .is_some_and(|unit| unit == "warsun")
+        }));
+        assert_eq!(find(&facts, "warsun").unavailable, None);
+    }
+
+    #[test]
+    fn the_production_facts_are_tagged_on_the_wire() {
+        let (state, galaxy) = game(LATE_GAME);
+        let (_, facts) = production(&state, &galaxy, at::DOCK);
+        let value =
+            serde_json::to_value(TacticalFacts::Production(facts.clone())).expect("it serializes");
+        assert_eq!(value["kind"], "production");
+        assert_eq!(value["system"], at::DOCK);
+        let back: TacticalFacts = serde_json::from_value(value).expect("it reads back");
+        assert_eq!(back, TacticalFacts::Production(facts));
     }
 
     #[test]

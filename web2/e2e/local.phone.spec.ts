@@ -233,6 +233,71 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
   await fits();
 });
 
+test("phone: a production is a sheet on the map, then the map is the payment", async ({ page }) => {
+  await page.goto("/?scenario=late-game&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  const row = (name: string | RegExp) => page.locator("#step-panel").getByRole("button", { name });
+  await row("Take a tactical action").click();
+  await send.click();
+  await system("72").click();
+  await send.click();
+  // Nothing moves, and AI Development Algorithm is kept.
+  await send.click();
+  await row(/^Decline/i).click();
+  await send.click();
+
+  // The map stays open, and the build is a sheet over it, with the room of the footer.
+  const sheet = page.getByRole("group", { name: /^Produce in / });
+  await expect(sheet).toBeVisible();
+  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  await expect(send).toBeHidden();
+  await sheet.getByRole("button", { name: "Add Fighter" }).click();
+  await sheet.getByRole("button", { name: "Add Cruiser" }).click();
+  await sheet.getByRole("button", { name: "Add Infantry, Planet Velnor" }).click();
+  // On a phone each value of a unit has its word.
+  await expect(sheet.getByText("Capacity 6")).toBeVisible();
+  await expect(sheet.getByRole("status").first()).toContainText("5 units · 3 resources");
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/production-build.png", animations: "disabled" });
+
+  // The check of the sheet closes it: the map is the payment, and the main button is in view.
+  await sheet.getByRole("button", { name: "Done with the build" }).click();
+  await expect(sheet).toBeHidden();
+  const bar = page.getByRole("group", { name: "Payment" });
+  await expect(bar).toBeVisible();
+  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  await expect(send).toHaveText(/Produce units/);
+  await expect(send).toBeDisabled();
+  await expect(send).toBeInViewport({ ratio: 1 });
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/production-pay.png", animations: "disabled" });
+  // A planet pays by a tap, and the trade goods pay the rest.
+  await page.locator("g.planet.payable").filter({ hasText: "Lisis" }).click();
+  await expect(bar.getByRole("status").first()).toContainText("1 more");
+  await bar.getByRole("button", { name: "Pay rest" }).click();
+  await expect(bar.getByRole("status").first()).toContainText("✓ Paid");
+  await expect(send).toBeEnabled();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/production-paid.png", animations: "disabled" });
+  // The panel says what is produced, and a row of it opens the build again.
+  await pane("Action").click();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/production-panel.png", animations: "disabled" });
+  await row(/^Planet Velnor 2 Infantry$/).click();
+  await pane("Map").click();
+  await expect(sheet).toBeVisible();
+  await sheet.getByRole("button", { name: "Done with the build" }).click();
+  await send.click();
+  await expect(send).not.toHaveText(/Produce/);
+  await fits();
+});
+
 test("phone: the sheet of a player has its cards, and nothing is cut at the side", async ({
   page,
 }) => {

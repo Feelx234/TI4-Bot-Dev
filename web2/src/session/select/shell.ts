@@ -5,6 +5,7 @@ import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
 import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
+import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
 import { selectTactical, tacticalFacts } from "./tactical";
 
@@ -43,8 +44,8 @@ export function selectShell(
   printed: Catalog | null = null,
 ): ShellView {
   const catalog = printed?.exploration ?? null;
-  // The activation, the movement and the landings have their own screens; every other decision
-  // is a list.
+  // The activation, the movement, the landings and the production have their own screens;
+  // every other decision is a list.
   const facts = tacticalFacts(update, local);
   const movement =
     facts?.kind === "movement" && local.step === null
@@ -52,13 +53,22 @@ export function selectShell(
       : null;
   const landing =
     facts?.kind === "invasion" ? { facts, draft: local.landing, chosen: local.landingKind } : null;
+  const production =
+    facts?.kind === "production"
+      ? {
+          facts,
+          draft: local.production,
+          stage: local.productionStage,
+        }
+      : null;
   return {
     seats: selectSeats(update),
     accent:
       local.draft ||
       local.staged ||
       (movement && Object.keys(local.movement).length) ||
-      (landing && Object.keys(local.landing).length)
+      (landing && Object.keys(local.landing).length) ||
+      (production && !isEmpty(local.production))
         ? "draft"
         : "live",
     toolbar: {
@@ -83,6 +93,7 @@ export function selectShell(
       movement,
       landing,
       catalog,
+      production,
     ),
     action: facts
       ? selectTactical(update, local, facts, catalog)

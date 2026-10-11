@@ -5,11 +5,20 @@ import { setLoad, setShip } from "./movementDraft";
 import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
 import { draftOf as landingOf, stepsOf as landingSteps, setLanding } from "./landingDraft";
 import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
+import {
+  EMPTY,
+  addBuild,
+  draftOf as productionOf,
+  stepsOf as productionSteps,
+  setGoods,
+  togglePlanet,
+  totals,
+} from "./productionDraft";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
-import type { InvasionFacts, MovementFacts, SessionUpdate } from "./wire";
+import type { InvasionFacts, MovementFacts, ProductionFacts, SessionUpdate } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
@@ -475,8 +484,8 @@ it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", 
     "fighter2",
     "fighter2",
     "sol_carrier2",
-    "sol_infantry",
-    "sol_infantry",
+    "sol_infantry2",
+    "sol_infantry2",
   ]);
   transport.submitChoice(nonce(menu), "tactical");
   const activation = await next();
@@ -484,6 +493,75 @@ it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", 
   expect(facts?.kind).toBe("activation");
   transport.close();
 });
+
+it.skipIf(!built)(
+  "sends a production as one plan, takes a refused plan back, and undoes a production whole",
+  async () => {
+    const { transport, next, nonce } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    // Seat a activates the system with its two space docks, moves nothing, and keeps AI
+    // Development Algorithm.
+    for (const answer of ["tactical", "72", "done_moving", "decline"]) {
+      transport.submitChoice(nonce(await next()), answer);
+    }
+    const open = await next();
+    expect(subtype(open)).toBe("produce_unit");
+    const facts = open.update.tactical as ProductionFacts;
+    expect(facts.kind).toBe("production");
+    const unit = (id: string) => facts.units.findIndex((item) => item.unit === id);
+    const seat = (update: SessionUpdate) => update.view.players.find((item) => item.id === "a")!;
+    const before = shipsIn(open.update, "72");
+
+    // A cruiser, two fighters and two infantry on Velnor: 4 resources, 3 with Sarween Tools.
+    let draft = addBuild(facts, EMPTY, unit("cruiser2"), "space");
+    draft = addBuild(facts, draft, unit("fighter2"), "space");
+    draft = addBuild(facts, draft, unit("sol_infantry2"), "velnor");
+    expect(totals(facts, draft)).toMatchObject({ units: 5, cost: 3, paid: 0 });
+
+    // With nothing to pay it, the game refuses the plan, and nothing of it is in the game.
+    transport.submitPlan(nonce(open), { destination: "72", steps: productionSteps(facts, draft) });
+    const refused = await next();
+    expect(refused.plan).toMatchObject({ applied: 0, interrupted: false });
+    expect(refused.plan?.reason).toMatch(/payment/);
+    expect(subtype(refused)).toBe("produce_unit");
+    expect(shipsIn(refused.update, "72")).toEqual(before);
+    expect(productionOf(facts, refused.plan!.remaining)).toEqual(draft);
+
+    // Lisis pays 2 and a trade good the rest.
+    draft = setGoods(facts, togglePlanet(facts, draft, "lisis"), 1);
+    expect(totals(facts, draft)).toMatchObject({ cost: 3, paid: 3 });
+    const steps = productionSteps(facts, draft);
+    transport.submitPlan(nonce(refused), { destination: "72", steps });
+    const done = await next();
+    expect(done.plan).toBeUndefined();
+    expect(subtype(done)).not.toBe("produce_unit");
+    expect(shipsIn(done.update, "72")).toEqual(
+      [...before, "cruiser2", "fighter2", "fighter2", "sol_infantry2", "sol_infantry2"].sort(),
+    );
+    const velnor = done.update.view.board.systems["72"].units.filter(
+      (item) => item.planet === "velnor" && item.unit_type === "sol_infantry2",
+    );
+    expect(velnor).toHaveLength(3);
+    expect(done.update.view.board.systems["72"].planets.lisis.exhausted).toBe(true);
+    expect(done.update.view.board.systems["72"].planets.velnor.exhausted).toBe(false);
+    expect(seat(done.update).trade_goods).toBe(seat(open.update).trade_goods - 1);
+
+    // One undo takes the whole production back, and tells its steps: it is staged again.
+    transport.undo();
+    const undone = await next();
+    expect(subtype(undone)).toBe("produce_unit");
+    expect(shipsIn(undone.update, "72")).toEqual(before);
+    expect(undone.update.view.board.systems["72"].planets.lisis.exhausted).toBe(false);
+    expect(productionOf(undone.update.tactical as ProductionFacts, undone.undone ?? [])).toEqual(
+      draft,
+    );
+    transport.close();
+  },
+);
 
 it.skipIf(!built)(
   "has the printed exploration cards, and an update says what the decks hold",
@@ -554,6 +632,7 @@ it.skipIf(!built)(
     expect(sol.leaders[2].unlock).toBe("Have 3 scored objectives.");
     // Gravity Drive and the unit upgrades always hold: they are not cards of the sheet.
     expect(sol.components.map((card) => [card.name, card.kind, card.state])).toEqual([
+      ["AI Development Algorithm", "Technology", "ready"],
       ["Bio-Stims", "Technology", "exhausted"],
       ["Dynamis Core", "Relic", "ready"],
       ["The Prophet's Tears", "Relic", "exhausted"],

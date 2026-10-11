@@ -10,18 +10,27 @@ import type {
 } from "../../model";
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
+import type { ProductionDraft } from "../productionDraft";
 import type {
   BoardTileView,
   ExplorationCatalog,
   InvasionFacts,
   MovementFacts,
   PlacedUnitView,
+  ProductionFacts,
   SessionUpdate,
   SystemView,
 } from "../wire";
 import { planetTraits } from "./exploration";
 import { landingTask, selectLanding, withLandings } from "./invasion";
 import { selectArrival, selectMovementBoard, selectOrigin, withMovement } from "./movement";
+import {
+  type Stage,
+  paymentSystems,
+  productionTask,
+  selectBuild,
+  withProduction,
+} from "./production";
 import {
   ANOMALIES,
   TECH_COLORS,
@@ -150,6 +159,12 @@ export function selectBoard(
   landing: { facts: InvasionFacts; draft: LandingDraft; chosen: number | null } | null = null,
   /** The printed names and texts of the attachments. */
   catalog: ExplorationCatalog | null = null,
+  /** The open production: the active system opens the build, then the planets pay. */
+  production: {
+    facts: ProductionFacts;
+    draft: ProductionDraft;
+    stage: Stage;
+  } | null = null,
 ): BoardView {
   const traits = planetTraits(update, catalog);
   const viewer = viewerSeat(update);
@@ -177,12 +192,19 @@ export function selectBoard(
     landing && open?.system_id === landing.facts.active
       ? selectLanding(update, landing.facts, landing.draft, landing.chosen, catalog)
       : null;
+  // The build with its controls takes the place of the inspector too, while it is chosen.
+  const build =
+    production && production.stage === "build" && open?.system_id === production.facts.system
+      ? selectBuild(update, production.facts, production.draft, "build")
+      : null;
   return {
     tiles: move
       ? tiles.map((tile) => withMovement(tile, move))
       : landing
         ? tiles.map((tile) => withLandings(tile, landing.facts, landing.draft))
-        : tiles,
+        : production
+          ? tiles.map((tile) => withProduction(tile, production.facts, production.draft, viewer))
+          : tiles,
     wormholes: marks.flatMap(([kind, id]) =>
       marks
         .filter(([other, otherId]) => other === kind && otherId > id)
@@ -206,10 +228,12 @@ export function selectBoard(
         }
       : landing
         ? landingTask(landing.facts, landing.draft)
-        : task,
+        : production
+          ? productionTask(update, production.facts, production.draft, production.stage, !!build)
+          : task,
     // The fleet with its controls takes the place of the inspector of that system.
     inspector:
-      open && !origin && !sheet
+      open && !origin && !sheet && !build
         ? {
             ...inspector(open, board.systems[open.system_id], viewer, traits),
             ...(movement && open.system_id === movement.facts.active
@@ -219,19 +243,29 @@ export function selectBoard(
         : null,
     origin: origin ?? null,
     landing: sheet,
+    production: build,
     taskSystems: move
       ? move.systems
       : landing
         ? [landing.facts.active]
-        : task
-          ? (task.highlight ?? Object.keys(task.values))
-          : [],
+        : production
+          ? production.stage === "build"
+            ? [production.facts.system]
+            : paymentSystems(update, production.facts)
+          : task
+            ? (task.highlight ?? Object.keys(task.values))
+            : [],
     // The board is framed again for each movement: its systems are the task. The landings are
     // in the active system, which the movement had in view: the board stays as it is.
     fitKey: movement
       ? `movement:${movement.facts.active}`
       : landing
         ? `movement:${landing.facts.active}`
-        : "local",
+        : production
+          ? // The build is in the active system, where the board is. The payment is anywhere.
+            production.stage === "build"
+            ? `movement:${production.facts.system}`
+            : `payment:${production.facts.system}`
+          : "local",
   };
 }

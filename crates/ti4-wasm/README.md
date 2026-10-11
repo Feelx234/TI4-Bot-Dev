@@ -261,7 +261,14 @@ many ships are in range of each system; for the movement, each ship of the seat 
 the gravity rifts on it, why it cannot move (a command token, or the range), and the units that
 it can load, also on its way; for the landings (`kind: "invasion"`), the ground forces by kind
 and place with their counts, and every planet of the active system with the forces that can
-land there. The landing facts are read from the `commit` options of the choice itself. `ti4-wasm` fills
+land there; for the production (`kind: "production"`, the choice `produce_unit`), each unit of a
+production with its printed cost and values, how many one purchase makes, what is left in the
+supply and its places, and why the seat cannot produce it when the game does not offer it (a
+unit that the seat only cannot pay for has no reason), the production limit, the discount of this use, the ready planets that pay
+resources with their worth, the trade goods, and the fleet pool and the capacity of the system.
+The landing facts and the offered units of the production are read from the options of the
+choice itself. A production whose places the facts do not know (by an ability, or in another system)
+has no facts and stays a list. `ti4-wasm` fills
 the field when it offers a choice to a seat of the page; the random seats do not pay for it.
 
 - Nothing in `ti4-engine` was changed for this. Every fact is the answer of a public function
@@ -302,6 +309,28 @@ not in the space area) and `done_committing`.
   landing and the answer before it landed a unit.
 - The server's batch has no landing step yet.
 
+**The production.** The engine asks for one purchase (`build|<unit>|<count>`), then for what
+pays it, one planet or trade good at a time (`pay_resources`; what is paid over is kept for the
+next purchase), then for the place when there are two or more (`place_unit`), then for the next
+purchase, and at last for the end (`done_producing`). "Produce units" sends the staged build
+and its payment through `submitPlan`, as steps `produce` (unit), `place` (destination), `pay`
+(the id of the option) and `done_producing`. The purchases are in the order that the player
+staged them, each with its place; the payments follow them.
+
+- A payment is not in the place of the plan where the game asks for it. `planAnswer` answers a
+  `pay_resources` question after a purchase of the plan with the first payment of the plan that
+  the game offers, and moves that step to where the plan is. With none, the plan is refused
+  whole: the staged payment does not cover the cost.
+- What the game settles itself is left out: a place when there is one only, a payment that it
+  did not need or took without a question (one option), the end when the limit is used.
+- One undo takes a production back whole: the transport goes on while the answers before the
+  open choice are a purchase and what paid and placed it.
+- The cost and the limits of a staged build are sums in TypeScript over the facts
+  (`productionDraft.ts`): the purchases at their printed cost, less the discount and the credit.
+  The fleet pool and the capacity are plain sums, so they do not know what a rule excuses.
+- The record example plays a scenario when its first argument is the id of one:
+  `cargo run -p ti4-wasm --example record -- late-game 8 1 5 tactical 72 done_moving decline`.
+
 Limits:
 
 - The engine uses Gravity Drive only for a ship that cannot arrive without it, and it chooses
@@ -311,8 +340,8 @@ Limits:
 - Not shown yet, because they need the event history: the roll at a gravity rift, units that
   are removed after the movement, space cannon, and the read-only view of a past movement.
   Units that stay behind with no ship that carries them get no warning.
-- The other steps (space cannon, combat, bombardment, what follows the landings, production)
-  are still lists.
+- The other steps (space cannon, combat, bombardment, what follows the landings) are still
+  lists.
 
 ### The exploration
 
@@ -398,7 +427,10 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
   other seats, cargo on planets and in space on the way, and a system with a command token of
   the seat. The other seats have command tokens on the board; one system has seven. Next to
   the fleet in the north is a system with two planets and no units (38), for landings without
-  a fight. The exploration left its marks: seat `a` has a Dyson Sphere on Vega Major, two
+  a fight. For a production, system 72 has a space dock on each of its two planets (a ground
+  force has a choice of places) and the home has one; the seat has Space Dock II, War Sun, Spec
+  Ops II, Sarween Tools and AI Development Algorithm, 6 trade goods, and one exhausted planet
+  (Quann). The exploration left its marks: seat `a` has a Dyson Sphere on Vega Major, two
   research facilities (Velnor, which has a technology specialty, and Lisis, which has none) and
   three cultural relic fragments and one hazardous; seat `b` has a Paradise World on Loki and a frontier fragment. These
   nine cards are out of their decks. Planets of each type are free.

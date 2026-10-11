@@ -403,8 +403,85 @@ export interface PaymentView {
   actions: ActionButtonView[];
 }
 
+/** The staged purchases of one unit in one place, with their counter. */
+export interface BuildCountView {
+  /** "Space area", "Planet Jord". */
+  place: string;
+  /** Counts purchases: `id` goes back in a `setCount` intent. Fighters come two for a purchase. */
+  counter: CounterView;
+  /** The units that the staged purchases make here. */
+  made: number;
+  /** Why no more of it can be staged. */
+  reason: string | null;
+}
+
+/** One kind of unit of a production, as printed. */
+export interface BuildUnitView {
+  id: string;
+  unit: UnitType;
+  name: string;
+  /** What one purchase costs: "2", or "1 for 2". */
+  price: string;
+  /** "9", "3 ×3". "–" when the unit does not fight. */
+  combat: string;
+  /** "–" when the unit does not move by itself. */
+  move: string;
+  /** "–" when the unit carries nothing. */
+  capacity: string;
+  /** How many are left in the supply after what is staged. Null when there is no limit. */
+  left: number | null;
+  /** The other abilities, as printed: "SUSTAIN DAMAGE · BOMBARDMENT 5 (x1)". */
+  abilities: string;
+  /**
+   * Why the unit cannot be produced in this use at all: a word for its row ("None left"), and
+   * the reason in full. The row has no counter.
+   */
+  unavailable: { word: string; reason: string } | null;
+  /** One for each place that takes the unit. */
+  counts: BuildCountView[];
+}
+
+/** The units of one kind of place: the ships, the ground forces. */
+export interface BuildGroupView {
+  /** "Ships · Space area", "Ground forces". */
+  title: string;
+  /** The units have a line for each place. Else the place is in the title. */
+  byPlace: boolean;
+  units: BuildUnitView[];
+}
+
+/** One place of the active system that takes produced units. */
+export interface BuildPlaceView {
+  id: string;
+  /** "Space area", "Planet Jord". */
+  name: string;
+  /** What is produced here: "2 Fighters, 1 Cruiser". Empty when nothing is staged. */
+  builds: string;
+}
+
+/** The production while it is staged: the sheet at the active system and the summary of the panel. */
+export interface BuildSheetView {
+  system: SystemId;
+  label: string;
+  groups: BuildGroupView[];
+  places: BuildPlaceView[];
+  /** How many units are staged. */
+  made: number;
+  /** What they cost, after a discount. */
+  cost: number;
+  /** What the cost of this use is reduced by. It is already taken off `cost`. */
+  discount: number;
+  /** The resources that the seat does not have for the staged build. 0 when it can pay. */
+  short: number;
+  gauges: GaugeView[];
+  /** The build is chosen first; then the map is the payment. */
+  stage: "build" | "pay";
+}
+
 export interface ProductionView {
   kind: "production";
+  /** The production while it is staged on the map. Absent in every other state of the step. */
+  sheet?: BuildSheetView;
   skipped: string | null;
   title: string;
   subtitle: string;

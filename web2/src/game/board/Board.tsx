@@ -5,6 +5,7 @@ import { Button, CloseButton, Hint, Icon, Segmented, cx, usePhone, type IconName
 import { OwnerLabel, useDispatch } from "../context";
 import { GalaxyMap, type MapViewId } from "./GalaxyMap";
 import { LandingSheet } from "../steps/invasion/LandingSheet";
+import { ProductionSheet } from "../steps/production/ProductionSheet";
 import { OriginSheet } from "../steps/movement/OriginSheet";
 import { OriginTokens } from "../steps/movement/Tokens";
 import { PaymentBar } from "./PaymentBar";
@@ -234,6 +235,7 @@ export function Board({ view, children }: { view: BoardView; children?: ReactNod
       {view.inspector && <SystemInspector view={view.inspector} />}
       {view.origin && <OriginSheet key={view.origin.system} view={view.origin} />}
       {view.landing && <LandingSheet view={view.landing} />}
+      {view.production && <ProductionSheet view={view.production} />}
       {children}
     </section>
   );

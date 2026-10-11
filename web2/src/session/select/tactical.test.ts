@@ -23,6 +23,8 @@ const local = (change: Partial<LocalState> = {}): LocalState => ({
   movement: {},
   landing: {},
   landingKind: null,
+  production: { builds: [], planets: [], goods: 0 },
+  productionStage: "build",
   handled: [],
   step: null,
   remaining: null,

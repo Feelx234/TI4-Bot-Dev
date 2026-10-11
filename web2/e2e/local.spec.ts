@@ -699,6 +699,161 @@ test("an invasion: the landings are staged on the map and sent as one plan", asy
   expect(errors).toEqual([]);
 });
 
+test("a production: the build is staged on the map, then paid on the map, and sent as one plan", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const row = (name: string | RegExp) => panel(page).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const planet = (name: string) => page.locator("g.planet").filter({ hasText: name });
+  await row("Take a tactical action").click();
+  await send(page).click();
+  // The system with two space docks. The destroyer of the nebula moves there.
+  await expect(heading(page)).toHaveText("Activation");
+  await system("72").click();
+  await expect(panel(page).getByText("Production 13")).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  await system("42").click();
+  await page
+    .getByRole("group", { name: /^Move from / })
+    .getByRole("button", { name: "Destroyer 1 of 1" })
+    .click();
+  await send(page).click();
+  // AI Development Algorithm asks before the production: a decision in the list.
+  await row(/^Decline/i).click();
+  await send(page).click();
+
+  // Production: the build opens at the system that produces, and the panel has no controls.
+  await expect(heading(page)).toHaveText("Production");
+  await expect(send(page)).toHaveText(/Produce nothing/);
+  const sheet = page.getByRole("group", { name: /^Produce in / });
+  await expect(sheet).toBeVisible();
+  await expect(sheet.getByRole("status").first()).toHaveText("Nothing is produced");
+  // Every kind of unit has its row, as printed. One that is not produced here says why.
+  const ships = sheet.getByRole("group", { name: "Ships · Space area" });
+  const forces = sheet.getByRole("group", { name: "Ground forces" });
+  for (const name of ["Carrier", "Cruiser", "Destroyer", "Dreadnought", "Flagship", "War sun"]) {
+    await expect(ships.getByText(name, { exact: true })).toBeVisible();
+  }
+  await expect(forces.getByText("Mech", { exact: true })).toBeVisible();
+  await expect(sheet.getByText("None left")).toHaveCount(3);
+  await expect(ships.getByRole("button", { name: "Add Carrier" })).toHaveCount(0);
+  await expect(ships.getByRole("button", { name: "Add War sun" })).toBeEnabled();
+  // The limits, with the resources that the seat has.
+  for (const limit of [
+    "Production capacity",
+    "Resources",
+    "Fleet supply after",
+    "Fighters and cargo in space",
+  ]) {
+    await expect(sheet.getByText(limit, { exact: true })).toBeVisible();
+  }
+  const gauge = (label: string) =>
+    sheet.getByText(label, { exact: true }).locator("xpath=following-sibling::strong");
+  await expect(gauge("Resources")).toHaveText("0 / 26");
+  const cargo = Number((await gauge("Fighters and cargo in space").innerText()).split("/")[1]);
+  expect(await sheet.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
+  await expect(panel(page).getByRole("spinbutton")).toHaveCount(0);
+  // No planet pays while the build is chosen, and there is no payment bar.
+  await expect(page.locator("g.planet.payable")).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Payment" })).toHaveCount(0);
+  await page.screenshot({ path: "shots/local/production-open.png", animations: "disabled" });
+  const saved = await savedLine(page);
+
+  // A counter buys in its place: two fighters, a cruiser, infantry on each planet.
+  await ships.getByRole("button", { name: "Add Fighter" }).click();
+  await expect(ships.getByLabel("Fighter quantity")).toHaveText("2");
+  await ships.getByRole("button", { name: "Add Cruiser" }).click();
+  await forces.getByRole("button", { name: "Add Infantry, Planet Velnor" }).click();
+  await forces.getByRole("button", { name: "Add Infantry, Planet Lisis" }).click();
+  await expect(sheet.getByRole("status").first()).toHaveText("7 units · 4 resources · discount 1");
+  await expect(gauge("Resources")).toHaveText("4 / 26");
+  await expect(row(/^Space area 1 Cruiser, 2 Fighters$/)).toBeVisible();
+  await expect(row(/^Planet Velnor 2 Infantry$/)).toBeVisible();
+  // A staged ship adds its capacity to the limit of the cargo, and takes it back with it.
+  await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 1}$`));
+  await ships.getByRole("button", { name: "Add War sun" }).click();
+  await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 7}$`));
+  await expect(ships.getByRole("button", { name: "Add War sun" })).toBeDisabled();
+  await ships.getByRole("button", { name: "Remove War sun" }).click();
+  await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 1}$`));
+  // The "−" of a counter takes a purchase back.
+  await forces.getByRole("button", { name: "Remove Infantry, Planet Lisis" }).click();
+  await expect(sheet.getByRole("status").first()).toHaveText("5 units · 3 resources · discount 1");
+  await expect(row(/^Planet Lisis Nothing is produced$/)).toBeVisible();
+  await expect(send(page)).toHaveText(/Pay 3 resources/);
+  await page.screenshot({ path: "shots/local/production-build.png", animations: "disabled" });
+
+  // Then the payment, on the map: the sheet closes, the bar opens, the ready planets pay.
+  await send(page).click();
+  await expect(sheet).toBeHidden();
+  const bar = page.getByRole("group", { name: "Payment" });
+  await expect(bar.getByRole("status").first()).toHaveText(/Paying\s*0 \/ 3\s*resources\s*3 more/);
+  await expect(send(page)).toHaveText(/Produce units/);
+  await expect(send(page)).toBeDisabled();
+  await expect(page.locator("g.planet.payable")).toHaveCount(8);
+  await planet("Lisis").click();
+  await expect(bar.getByRole("status").first()).toHaveText(/2 \/ 3\s*resources\s*1 more/);
+  await bar.getByRole("button", { name: "Pay rest" }).click();
+  await expect(bar.getByRole("status").first()).toHaveText(/3 \/ 3\s*resources\s*✓ Paid/);
+  await expect(page.locator("footer").getByText("Lisis 2 + 1 trade good")).toBeVisible();
+  await expect(send(page)).toBeEnabled();
+  await page.screenshot({ path: "shots/local/production-pay.png", animations: "disabled" });
+  // Auto-pay finds the payment with the least waste: one planet of 3.
+  await bar.getByRole("button", { name: "Clear payment" }).click();
+  await expect(send(page)).toBeDisabled();
+  await bar.getByRole("button", { name: "Auto-pay" }).click();
+  await expect(bar.getByRole("status").first()).toHaveText(/3 \/ 3\s*resources\s*✓ Paid/);
+  await expect(page.locator("g.planet.chosen")).toHaveCount(1);
+  // Esc goes back to the build, with the payment still staged; the main button pays again.
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeVisible();
+  await expect(bar).toHaveCount(0);
+  await send(page).click();
+  await bar.getByRole("button", { name: "Clear payment" }).click();
+  await planet("Lisis").click();
+  await bar.getByRole("button", { name: "Pay rest" }).click();
+  // Nothing was sent yet, and a reload keeps what is staged.
+  expect(await savedLine(page)).toBe(saved);
+  await page.reload();
+  await expect(sheet.getByRole("status").first()).toHaveText("5 units · 3 resources · discount 1");
+  await send(page).click();
+  await expect(bar.getByRole("status").first()).toHaveText(/3 \/ 3\s*resources\s*✓ Paid/);
+
+  // The main button sends the build and its payment, and the game goes on.
+  await send(page).click();
+  await expect(heading(page)).not.toHaveText("Production");
+  await expect(bar).toHaveCount(0);
+  await system("72").click();
+  const inspector = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ hasText: "Velnor" });
+  await expect(inspector.getByText(/2 Cruisers/)).toBeVisible();
+  await expect(inspector.getByText(/4 Fighters/)).toBeVisible();
+  await expect(inspector.getByText("Exhausted")).toHaveCount(1);
+  await page.screenshot({ path: "shots/local/after-production.png", animations: "disabled" });
+
+  // One undo takes the production back whole, and it is staged again.
+  await undo(page).click();
+  await expect(heading(page)).toHaveText("Production");
+  expect(await savedLine(page)).toBe(saved);
+  await expect(sheet.getByRole("status").first()).toHaveText("5 units · 3 resources · discount 1");
+  await expect(send(page)).toHaveText(/Pay 3 resources/);
+  // Reset takes the build back; the check mark closes the sheet, and the system opens it again.
+  await sheet.getByRole("button", { name: "Reset" }).click();
+  await expect(sheet.getByRole("status").first()).toHaveText("Nothing is produced");
+  await sheet.getByRole("button", { name: "Done with the build" }).click();
+  await expect(sheet).toBeHidden();
+  await expect(send(page)).toHaveText(/Produce nothing/);
+  await system("72").click();
+  await expect(sheet).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("the sheet of a player has its abilities, leaders and used cards as printed", async ({
   page,
 }) => {
@@ -717,7 +872,8 @@ test("the sheet of a player has its abilities, leaders and used cards as printed
   await expect(card("Jace X, 4th Air Legion")).toContainText("Locked");
   await expect(card("Jace X, 4th Air Legion")).toContainText("Unlock: Have 3 scored objectives.");
   // Only the cards that are used: Gravity Drive always holds, so it stays a line of the list.
-  await expect(cards("Action components").getByRole("article")).toHaveCount(3);
+  await expect(cards("Action components").getByRole("article")).toHaveCount(4);
+  await expect(card("AI Development Algorithm")).toContainText("Ready");
   await expect(card("Bio-Stims")).toContainText("Exhausted");
   await expect(card("Dynamis Core")).toContainText("Ready");
   await expect(card("The Prophet's Tears")).toContainText("Exhausted");

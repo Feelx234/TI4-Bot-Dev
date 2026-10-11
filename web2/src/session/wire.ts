@@ -247,6 +247,55 @@ export interface InvasionFacts {
   planets: { planet: string; lands?: number[] }[];
 }
 
+/** `ti4_view::tactical::BuildFact`: one kind of unit of a production, also one that the seat cannot produce now. */
+export interface BuildFact {
+  unit: string;
+  /** The printed cost of one purchase, before a discount. */
+  cost: number;
+  /** How many units one purchase makes: 2 for fighters and infantry. */
+  per: number;
+  /** How many are left in the reinforcements. Absent when there is no limit. */
+  supply?: number;
+  /** The unit is a ship that counts against the fleet pool. */
+  fleet?: boolean;
+  /** The unit uses capacity while it is in a space area. */
+  cargo?: boolean;
+  /** Where the unit can be placed: "space", or a planet of the system. */
+  places: string[];
+  /** What the unit hits on in a combat, and with how many dice. Absent: it does not fight. */
+  combat?: { hits_on: number; dice: number };
+  /** The move value. 0: the unit does not move by itself. */
+  move_value: number;
+  /** What the unit carries. */
+  capacity: number;
+  /** The unit abilities as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5 (x1)". */
+  abilities?: string[];
+  /** Why the seat cannot produce the unit here now. Absent: it can. */
+  unavailable?: "technology" | "supply" | "blockade" | "no_place" | "not_offered";
+}
+
+/** `ti4_view::tactical::ProductionFacts` */
+export interface ProductionFacts {
+  kind: "production";
+  /** The system that produces. */
+  system: string;
+  /** The production limit of this use, and the units that it already made. */
+  capacity: { limit: number; used: number };
+  units: BuildFact[];
+  /** What the combined cost of this use is still reduced by. */
+  discount: number;
+  /** Resources that are paid and not used yet. */
+  credit: number;
+  free?: boolean;
+  /** The ready planets of the seat that pay resources, with what each is worth. */
+  planets: { planet: string; worth: number }[];
+  trade_goods: number;
+  trade_good_worth: number;
+  fleet_supply: { limit: number; charged: number };
+  /** The capacity of the ships of the seat in the system, and what uses it. */
+  transport: { limit: number; used: number };
+}
+
 /** `ti4_model::state::ExplorationRecord`: one card that was drawn. */
 export interface ExplorationRecord {
   round: number;
@@ -321,7 +370,7 @@ export interface Catalog {
 }
 
 /** `ti4_view::tactical::TacticalFacts` */
-export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts;
+export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts | ProductionFacts;
 
 /** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
 export type DraftStep =

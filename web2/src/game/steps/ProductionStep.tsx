@@ -14,12 +14,17 @@ import {
 import { useDispatch } from "../context";
 import { Skipped } from "./BattleSteps";
 import { PaymentList } from "./PaymentList";
+import { ProductionSummary } from "./production/ProductionSheet";
 
 /** Step 5: build a cart, pay, and place. Limits are gauges, so an over-limit build is visible at once. */
 export function ProductionStep({ view }: { view: ProductionView }) {
   const dispatch = useDispatch();
   if (view.skipped) {
     return <Skipped step="Production" reason={view.skipped} />;
+  }
+  if (view.sheet) {
+    // The build and its payment are staged on the board. The footer has the payment line.
+    return <ProductionSummary view={view.sheet} />;
   }
   return (
     <>

@@ -438,6 +438,7 @@ export function selectBoard(world: World, state: State): BoardView {
     inspector: origin ? null : inspected,
     origin,
     landing: null,
+    production: null,
     taskSystems,
     fitKey: `${world.fit}`,
   };

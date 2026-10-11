@@ -28,6 +28,20 @@ import {
 } from "./landingDraft";
 import { type MovementDraft, fill, poolOfSource, resetOrigin, setCount } from "./movementDraft";
 import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
+import {
+  GOODS,
+  EMPTY as NO_PRODUCTION,
+  type ProductionDraft,
+  autoPay,
+  clearPayment,
+  isEmpty,
+  draftOf as productionOf,
+  stepsOf as productionSteps,
+  setGoods,
+  setCount as setProductionCount,
+  togglePlanet,
+  totals,
+} from "./productionDraft";
 import type { SaveStorage } from "./savedGame";
 import type { DraftInfo, LocalState } from "./select/action";
 import { systemLabel } from "./select/movement";
@@ -46,6 +60,8 @@ const NOTHING: LocalState = {
   movement: {},
   landing: {},
   landingKind: null,
+  production: NO_PRODUCTION,
+  productionStage: "build",
   handled: [],
   step: null,
   remaining: null,
@@ -233,8 +249,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     setUpdate(null);
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
-    /** The active system whose landings were open with the last update. */
-    let landingAt: string | null = null;
+    /** The step and the system whose sheet (the landings, the build) opened with the last update. */
+    let sheetAt: { key: string; system: string } | null = null;
     /** What the inspector showed before the landings opened. */
     let inspectedBefore: string | null = null;
     return transport?.subscribe((event) => {
@@ -254,12 +270,19 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return;
       }
       setUpdate(event.update);
-      // The landings open at the active system when their step opens.
-      const landings = event.update.tactical?.kind === "invasion" ? event.update.tactical : null;
-      const opens = landings !== null && landingAt !== landings.active;
+      // The landings open at the active system when their step opens, and so does the build of
+      // a production.
+      const tactical = event.update.tactical;
+      const sheet =
+        tactical?.kind === "invasion"
+          ? { key: `invasion:${tactical.active}`, system: tactical.active }
+          : tactical?.kind === "production"
+            ? { key: `production:${tactical.system}`, system: tactical.system }
+            : null;
+      const opens = sheet !== null && sheetAt?.key !== sheet.key;
       // When their step is over (sent, or taken back), the board is where the player left it.
-      const closes = landings === null ? landingAt : null;
-      landingAt = landings?.active ?? null;
+      const closes = sheet === null ? (sheetAt?.system ?? null) : null;
+      sheetAt = sheet;
       // A new choice starts with nothing staged. The inspector stays where the player left it.
       setLocal((now) => {
         const facts = event.update.tactical;
@@ -279,30 +302,35 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         }
         let movement = {};
         let landing: LandingDraft = {};
+        let production: ProductionDraft = NO_PRODUCTION;
         let planNote =
           stopped && !stopped.interrupted ? { text: stopped.reason, error: true } : null;
-        if (facts?.kind === "movement" || facts?.kind === "invasion") {
+        if (facts && facts.kind !== "activation") {
+          const place = facts.kind === "production" ? facts.system : facts.active;
           const again = stopped && !stopped.interrupted ? stopped.remaining : remaining?.steps;
           // The steps that were staged for this choice before a reload.
           const saved = again ? null : readDraft(drafts);
           const steps =
-            again && (stopped?.destination ?? remaining?.destination) === facts.active
+            again && (stopped?.destination ?? remaining?.destination) === place
               ? again
-              : saved?.nonce === event.update.pending_choice?.nonce &&
-                  saved?.destination === facts.active
+              : saved?.nonce === event.update.pending_choice?.nonce && saved?.destination === place
                 ? saved.steps
                 : null;
           if (steps && facts.kind === "movement") {
             movement = draftOf(facts, steps);
           } else if (steps && facts.kind === "invasion") {
             landing = landingOf(facts, steps);
+          } else if (steps && facts.kind === "production") {
+            production = productionOf(facts, steps);
           }
           if (steps && steps === again && !undone) {
             planNote ??= {
               text:
                 facts.kind === "movement"
                   ? "Another decision stopped the movement. What did not move is staged again."
-                  : "Another decision stopped the landings. What did not land is staged again.",
+                  : facts.kind === "invasion"
+                    ? "Another decision stopped the landings. What did not land is staged again."
+                    : "Another decision stopped the production. What was not produced is staged again.",
               error: false,
             };
           }
@@ -316,7 +344,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return {
           ...now,
           inspected: opens
-            ? landingAt
+            ? (sheet?.system ?? null)
             : closes !== null && now.inspected === closes
               ? inspectedBefore
               : now.inspected,
@@ -328,6 +356,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           movement,
           landing,
           landingKind: null,
+          production,
+          productionStage: "build",
           handled: [],
           step: null,
           remaining,
@@ -351,14 +381,17 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         ? stepsOf(facts, local.movement)
         : facts?.kind === "invasion" && Object.keys(local.landing).length
           ? landingSteps(facts, local.landing)
-          : null;
+          : facts?.kind === "production" && !isEmpty(local.production)
+            ? productionSteps(facts, local.production)
+            : null;
     if (facts && facts.kind !== "activation" && nonce && steps) {
-      const saved: SavedDraft = { nonce, destination: facts.active, steps };
+      const destination = facts.kind === "production" ? facts.system : facts.active;
+      const saved: SavedDraft = { nonce, destination, steps };
       drafts.storage.setItem(drafts.key, JSON.stringify(saved));
     } else {
       drafts.storage.removeItem(drafts.key);
     }
-  }, [update, local.movement, local.landing, drafts]);
+  }, [update, local.movement, local.landing, local.production, drafts]);
 
   // The private draft is kept for a reload, with its undo history.
   useEffect(() => {
@@ -410,6 +443,26 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     const facts = tacticalFacts(shown, state);
     const moving = facts?.kind === "movement" ? facts : null;
     const landing = facts?.kind === "invasion" && !drafted ? facts : null;
+    const producing = facts?.kind === "production" && !drafted ? facts : null;
+    /** A change of the staged production. It clears the note of the last plan. */
+    const produce = (change: (now: ProductionDraft) => ProductionDraft) =>
+      setLocal((now) => ({ ...now, production: change(now.production), planNote: null }));
+    /** The build is chosen: the payment is next, when there is something to pay. */
+    const toPayment = () => {
+      const { units, cost, available } = producing
+        ? totals(producing, local.production)
+        : { units: 0, cost: 0, available: 0 };
+      // A build that the seat cannot pay stays open: the gauge and the footer say what is short.
+      if (units > 0 && cost > available) {
+        return true;
+      }
+      const pays = units > 0 && cost > 0;
+      setLocal((now) => ({ ...now, inspected: null, productionStage: pays ? "pay" : "build" }));
+      return pays;
+    };
+    /** Back to the build of the system that produces: its sheet opens. */
+    const toBuild = (system: string) =>
+      setLocal((now) => ({ ...now, inspected: system, productionStage: "build" }));
     /** A change of the staged landings. It clears the note of the last plan. */
     const land = (change: (now: LandingDraft) => LandingDraft) =>
       setLocal((now) => ({ ...now, landing: change(now.landing), planNote: null }));
@@ -442,6 +495,27 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           setLocal((now) => ({ ...now, staged: null, inspected: null }));
         }
         return;
+      }
+      if (producing) {
+        const { units, cost, paid } = totals(producing, local.production);
+        if (local.productionStage === "build" && toPayment()) {
+          return;
+        }
+        if (units > 0 && paid < cost) {
+          return;
+        }
+        // Nothing is paid for nothing: a payment that is still staged is not sent.
+        const staged =
+          units === 0
+            ? NO_PRODUCTION
+            : cost === 0
+              ? clearPayment(local.production)
+              : local.production;
+        transport.submitPlan(pending.nonce, {
+          destination: producing.system,
+          steps: productionSteps(producing, staged),
+        });
+        return setLocal((now) => ({ ...now, sent: pending.nonce, planNote: null }));
       }
       if (moving || landing) {
         transport.submitPlan(
@@ -491,7 +565,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "simulate":
           return transport.step();
         case "inspectSystem":
-          return setLocal((now) => ({ ...now, inspected: intent.system }));
+          // The system that produces opens its build, also from the payment.
+          return producing?.system === intent.system
+            ? toBuild(intent.system)
+            : setLocal((now) => ({ ...now, inspected: intent.system }));
         case "closeInspector":
           return setLocal((now) => ({ ...now, inspected: null }));
         case "chooseOption": {
@@ -504,6 +581,13 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "togglePlanet": {
           // A planet of the active system: one more unit of the chosen kind lands there.
           const { planet } = intent;
+          if (producing) {
+            // A planet pays, once the build is chosen.
+            return (
+              local.productionStage === "pay" &&
+              produce((now) => togglePlanet(producing, now, planet))
+            );
+          }
           return (
             landing &&
             land((now) => {
@@ -514,9 +598,23 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
             })
           );
         }
+        case "setPayment":
+          return (
+            producing &&
+            intent.source === GOODS &&
+            produce((now) => setGoods(producing, now, intent.value))
+          );
+        case "payment":
+          return (
+            producing &&
+            produce((now) =>
+              intent.action === "auto" ? autoPay(producing, now) : clearPayment(now),
+            )
+          );
         case "toggleSystem":
-          // In a movement the fleet of a system opens at the system, and closes there.
-          return moving
+          // In a movement the fleet of a system opens at the system, and closes there. So does
+          // the build of a production.
+          return moving || producing
             ? setLocal((now) => ({
                 ...now,
                 inspected: now.inspected === intent.system ? null : intent.system,
@@ -530,7 +628,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           return;
         }
         case "clearChoice":
-          return setLocal((now) => ({ ...now, staged: null }));
+          // Esc in the payment of a production goes back to its build.
+          return producing && local.productionStage === "pay"
+            ? toBuild(producing.system)
+            : setLocal((now) => ({ ...now, staged: null }));
         case "undo":
           return drafted ? redraft(undo) : transport.undo();
         case "flow":
@@ -543,6 +644,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "returnToCurrent":
           return setLocal((now) => ({ ...now, step: null }));
         case "setCount":
+          if (producing) {
+            return produce((now) => setProductionCount(producing, now, intent.key, intent.value));
+          }
           if (landing) {
             return land((now) => setLandingCount(landing, now, intent.key, intent.value));
           }
@@ -558,12 +662,18 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           );
         }
         case "resetOrigin":
+          if (producing) {
+            return produce(() => NO_PRODUCTION);
+          }
           if (landing) {
             return land(() => ({}));
           }
           unmark((system) => system !== intent.system);
           return moving && draft((now) => resetOrigin(now, intent.system));
         case "markOrigin":
+          if (producing) {
+            return void toPayment();
+          }
           if (landing) {
             return setLocal((now) => ({ ...now, inspected: null }));
           }
@@ -576,6 +686,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
             }))
           );
         case "cancelEdit":
+          if (producing) {
+            produce(() => NO_PRODUCTION);
+            return setLocal((now) => ({ ...now, productionStage: "build" }));
+          }
           if (landing) {
             return land(() => ({}));
           }
