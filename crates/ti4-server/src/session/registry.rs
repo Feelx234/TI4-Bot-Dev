@@ -524,6 +524,8 @@ pub struct PlayerLobbyView {
     /// The strategy card set this table plays (`te`, `pok`, `base_game_codex1`); `pok` for a
     /// game created before the option existed.
     pub strategy_card_set: String,
+    /// Who opens as speaker: `random` (drawn from the seed) or `seat` (the first seat).
+    pub speaker_order: String,
 }
 
 /// Configuration for running bot agents on this server.
@@ -598,6 +600,7 @@ impl PlayerLobbyRecord {
             map_template: None,
             start_preset: None,
             strategy_card_set: Some(crate::card_set::DEFAULT.to_owned()),
+            speaker_order: None,
             map_revision: 0,
             lobby_version: 1,
         };
@@ -651,6 +654,9 @@ impl PlayerLobbyRecord {
             ),
             map_revision: self.map_revision,
             strategy_card_set: crate::card_set::resolve(self.strategy_card_set.as_deref())
+                .to_owned(),
+            speaker_order: crate::map::SpeakerOrder::from_stored(self.speaker_order.as_deref())
+                .as_str()
                 .to_owned(),
         }
     }
@@ -2230,6 +2236,35 @@ impl GameRegistry {
         start_preset: Option<String>,
         strategy_card_set: &str,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        self.create_player_lobby_with_speaker(
+            game_id,
+            count,
+            seed,
+            nickname,
+            map_template,
+            start_preset,
+            strategy_card_set,
+            crate::map::SpeakerOrder::default(),
+        )
+    }
+
+    /// As [`Self::create_player_lobby_with_card_set`], also choosing who opens as speaker: a
+    /// seat drawn from the seed (the default) or the first seat.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per creation option"
+    )]
+    pub fn create_player_lobby_with_speaker(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+        strategy_card_set: &str,
+        speaker_order: crate::map::SpeakerOrder,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         crate::card_set::validate(strategy_card_set)
             .map_err(|error| LobbyError::Storage(error.to_string()))?;
         check_nickname(nickname)?;
@@ -2250,6 +2285,7 @@ impl GameRegistry {
         record.map_template = map_template;
         record.start_preset = start_preset;
         record.strategy_card_set = Some(strategy_card_set.to_owned());
+        record.speaker_order = Some(speaker_order.as_str().to_owned());
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -2735,13 +2771,16 @@ impl GameRegistry {
             .map(|slot| slot.occupant.clone().expect("full lobby"))
             .collect();
         let content = ContentStore::embedded();
-        let (initial_state, galaxy) = crate::map::create_game_with_options(
+        // The drawn speaker is part of `initial_state`, which the init record stores, so replay
+        // and recovery start from the same speaker without re-deriving it.
+        let (initial_state, galaxy) = crate::map::create_game_with_speaker(
             content,
             &players,
             lobby.seed,
             lobby.map_template.as_deref(),
             lobby.start_preset.as_deref(),
             Some(crate::card_set::resolve(lobby.strategy_card_set.as_deref())),
+            crate::map::SpeakerOrder::from_stored(lobby.speaker_order.as_deref()),
         )
         .map_err(LobbyError::Map)?;
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);

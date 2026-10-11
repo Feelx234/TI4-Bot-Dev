@@ -1160,6 +1160,7 @@ fn setup_base_3p_game(
         map_template: None,
         start_preset: None,
         strategy_card_set: None,
+        speaker_order: None,
         map_revision: 0,
         lobby_version: 1,
     };

@@ -51,6 +51,8 @@ pub mod domain {
     pub const EXPLORATION: &str = "deck:exploration";
     /// Selecting map tiles.
     pub const MAP: &str = "map";
+    /// Choosing the opening speaker (and so the first strategy-phase pick order).
+    pub const SPEAKER: &str = "setup:speaker";
 }
 
 /// Where every stream of a game stands: domain name to `ChaCha8` word position.
