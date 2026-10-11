@@ -1,4 +1,9 @@
 //! Map template loading and management.
+//!
+//! Two sources: the upstream AsyncTI4 templates mirrored in `ti4-content` (slot layouts whose open
+//! slots are filled from seeded filler), and `community_maps.json` next to this file: complete,
+//! fixed community layouts with their origin recorded per entry (`source`, `sourceEntry`). See
+//! `crates/ti4-server/docs/COMMUNITY_MAPS.md` for how they were converted and checked.
 
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
@@ -13,6 +18,20 @@ pub struct MapTemplate {
     pub player_count: usize,
     #[serde(rename = "tilesPerPlayer", default)]
     pub tiles_per_player: usize,
+    /// Display name; upstream templates have none and are titled from their alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descr: Option<String>,
+    /// Where a community layout was taken from (a URL), and the entry's name there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(
+        rename = "sourceEntry",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub source_entry: Option<String>,
     #[serde(rename = "templateTiles")]
     pub template_tiles: Vec<TemplateTile>,
 }
@@ -34,6 +53,9 @@ pub struct TemplateTile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MapTemplateSummary {
     pub alias: String,
+    /// Display name, when the template has one (community layouts do).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub author: String,
     pub player_count: usize,
     /// Whether the template builds under the shipped content (always filled in by the server).
@@ -64,8 +86,18 @@ impl TemplateLoader {
                 // Try to load from the relative path to the content directory
                 // The path is relative to the workspace root when building
                 let json_str = include_str!("../../../ti4-content/content/map_templates.json");
-                serde_json::from_str(json_str)
-                    .map_err(|e| format!("Failed to parse map templates: {}", e))
+                let mut all: Vec<MapTemplate> = serde_json::from_str(json_str)
+                    .map_err(|e| format!("Failed to parse map templates: {}", e))?;
+                let community: Vec<MapTemplate> =
+                    serde_json::from_str(include_str!("community_maps.json"))
+                        .map_err(|e| format!("Failed to parse community maps: {}", e))?;
+                for map in community {
+                    if all.iter().any(|t| t.alias == map.alias) {
+                        return Err(format!("community map alias {:?} is taken", map.alias));
+                    }
+                    all.push(map);
+                }
+                Ok(all)
             })
             .clone()?;
 
@@ -78,6 +110,7 @@ impl TemplateLoader {
             .iter()
             .map(|t| MapTemplateSummary {
                 alias: t.alias.clone(),
+                name: t.name.clone(),
                 author: t.author.clone(),
                 player_count: t.player_count,
                 buildable: false,

@@ -77,7 +77,7 @@ export function mapCards(
     return {
       key: t.alias,
       choice,
-      title: templateTitle(t.alias),
+      title: t.name ?? templateTitle(t.alias),
       detail: `${t.systems} systems${t.author ? ` · ${t.author}` : ""}`,
       badges: templateBadges(t.alias, t),
       recommended: t.recommended,
@@ -101,7 +101,10 @@ export function mapCards(
 export function mapSummaryLine(map: MapChoiceDto): string {
   const count = map.kind === "random" ? null : /^(\d+)p/.exec(map.alias ?? "")?.[1];
   const players = count ? `${count} players · ` : "";
-  const name = map.kind === "random" ? "Random map" : map.alias ? templateTitle(map.alias) : "Map";
+  const name =
+    map.kind === "random"
+      ? "Random map"
+      : (map.name ?? (map.alias ? templateTitle(map.alias) : "Map"));
   const by = map.author ? ` by ${map.author}` : "";
   const systems = map.systems > 0 ? ` · ${map.systems} systems` : "";
   return `${players}${name}${by}${systems} · ${map.hyperlanes ? "with hyperlanes" : "no hyperlanes"}`;
@@ -109,7 +112,7 @@ export function mapSummaryLine(map: MapChoiceDto): string {
 
 /** The short name for the lobby row. */
 export function mapName(map: MapChoiceDto): string {
-  return map.kind === "random" ? "Random" : (map.alias ?? "Map");
+  return map.kind === "random" ? "Random" : (map.name ?? map.alias ?? "Map");
 }
 
 export type TileKind =

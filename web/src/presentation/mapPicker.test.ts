@@ -60,6 +60,29 @@ describe("map picker model", () => {
     });
   });
 
+  it("titles a community layout by the name the server sends", () => {
+    const community = {
+      ...fixtureTemplates(6)[0],
+      alias: "6pWontYouBeMyNeighbor",
+      name: "Won't You Be My Neighbor?",
+      author: "Chart the Galaxy entry",
+      recommended: false,
+    };
+    const card = mapCards([community], undefined)[0];
+    expect(card.title).toBe("Won't You Be My Neighbor?");
+    expect(card.detail).toContain("Chart the Galaxy entry");
+    const choice = {
+      ...fixtureMapChoice("6pScpt2021Final"),
+      name: "SCPT 2021 Final",
+      author: "SCPT",
+    };
+    expect(mapSummaryLine(choice)).toBe(
+      "6 players · SCPT 2021 Final by SCPT · 37 systems · no hyperlanes",
+    );
+    expect(mapName(choice)).toBe("SCPT 2021 Final");
+    expect(mapName(fixtureMapChoice("6pStandard"))).toBe("6pStandard");
+  });
+
   it("classifies tiles for the pictures", () => {
     const preview = fixturePreview(6);
     const homes = homeIdSet(preview.seats);

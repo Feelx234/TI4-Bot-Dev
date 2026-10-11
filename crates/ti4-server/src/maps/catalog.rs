@@ -52,6 +52,9 @@ pub struct MapChoiceView {
     pub kind: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<String>,
+    /// Display name of a template that has one (community layouts).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
     pub systems: usize,
@@ -232,20 +235,22 @@ pub fn describe(choice: &MapChoice, player_count: usize) -> MapChoiceView {
         MapChoice::Random => MapChoiceView {
             kind: "random",
             alias: None,
+            name: None,
             author: None,
             systems,
             hyperlanes,
             recommended: false,
         },
         MapChoice::Template { alias } => {
-            let author = TemplateLoader::load()
-                .ok()
-                .and_then(|l| l.get(alias).map(|t| t.author.clone()))
-                .filter(|a| !a.is_empty());
+            let loader = TemplateLoader::load().ok();
+            let template = loader.as_ref().and_then(|l| l.get(alias));
+            let author = template.map(|t| t.author.clone()).filter(|a| !a.is_empty());
+            let name = template.and_then(|t| t.name.clone());
             let recommended = recommended_for(player_count).as_deref() == Some(alias.as_str());
             MapChoiceView {
                 kind: "template",
                 alias: Some(alias.clone()),
+                name,
                 author,
                 systems,
                 hyperlanes,

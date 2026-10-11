@@ -14,6 +14,27 @@ describe("map protocol decoding", () => {
     expect(() => decodeMapList({})).toThrow(/map list/);
   });
 
+  it("keeps a template's display name and rejects a blank one", () => {
+    const entry = {
+      ...fixtureTemplates(6)[0],
+      alias: "6pBalancedSpiral",
+      name: "Balanced Spiral",
+    };
+    expect(decodeMapList([entry])[0].name).toBe("Balanced Spiral");
+    expect(decodeMapList([fixtureTemplates(6)[0]])[0]).not.toHaveProperty("name");
+    expect(() => decodeMapList([{ ...entry, name: "" }])).toThrow(/map list entry/);
+    const choice = {
+      kind: "template",
+      alias: "6pBalancedSpiral",
+      name: "Balanced Spiral",
+      systems: 31,
+      hyperlanes: false,
+      recommended: false,
+    };
+    expect(decodeMapChoice(choice).name).toBe("Balanced Spiral");
+    expect(() => decodeMapChoice({ ...choice, name: 3 })).toThrow(/map choice/);
+  });
+
   it("round-trips a preview and rejects a broken one", () => {
     const preview = fixturePreview(4);
     expect(decodeMapPreview(JSON.parse(JSON.stringify(preview)))).toEqual(preview);

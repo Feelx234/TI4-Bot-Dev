@@ -58,6 +58,8 @@ export type MapChoice = { kind: "template"; alias: string } | { kind: "random" }
 export interface MapChoiceDto {
   kind: "template" | "random";
   alias?: string;
+  /** Display name of a template that has one (the community layouts). */
+  name?: string;
   author?: string;
   systems: number;
   hyperlanes: boolean;
@@ -66,6 +68,8 @@ export interface MapChoiceDto {
 
 export interface MapTemplateSummary {
   alias: string;
+  /** Display name of a template that has one (the community layouts); else titled from the alias. */
+  name?: string;
   author: string;
   player_count: number;
   buildable: boolean;
