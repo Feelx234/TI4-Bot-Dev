@@ -12,7 +12,9 @@ import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { InfoPopover } from "./InfoPopover.tsx";
 import {
+  formatDefenderUnits,
   planDefaultLanding,
+  planetDefense,
   planetInvasionInfo,
   planetStanding,
   sameDraft,
@@ -349,6 +351,7 @@ export const InvasionLandingTray: React.FC<{
                 const info = planetInfo(name);
                 const isCurrentSelected = planet === name;
                 const planetOptions = options.filter(({ landing }) => landing.planet === name);
+                const defense = planetDefense(board, system, name, choice.actor, players);
 
                 return (
                   <div
@@ -388,6 +391,60 @@ export const InvasionLandingTray: React.FC<{
                           Already on planet: {planetUnitsAlready} · Staged: {planetDraftCount}
                         </span>
                       </div>
+
+                      {defense.forces.length > 0 && (
+                        <div className="invasion-defenders" data-testid="invasion-defenders">
+                          {defense.forces.map((force) => (
+                            <div
+                              key={force.owner}
+                              className="invasion-defenders__row"
+                              data-testid="invasion-defender-force"
+                            >
+                              <span className="invasion-defenders__owner">
+                                {players?.[force.owner]?.faction ?? force.owner}:
+                              </span>
+                              {force.ground.map((entry) => (
+                                <span
+                                  key={entry.unit}
+                                  className="invasion-defenders__unit invasion-defenders__unit--ground"
+                                >
+                                  <UnitIcon type={entry.unit} size={14} aria-hidden="true" />
+                                  {formatDefenderUnits([entry])}
+                                </span>
+                              ))}
+                              {force.groundTotal === 0 && (
+                                <span className="invasion-defenders__unit invasion-defenders__none">
+                                  no ground forces
+                                </span>
+                              )}
+                              {force.pds > 0 && (
+                                <span className="invasion-defenders__unit invasion-defenders__unit--pds">
+                                  <UnitIcon type="pds" size={14} aria-hidden="true" />
+                                  {force.pds} PDS
+                                </span>
+                              )}
+                              {force.otherStructures.length > 0 && (
+                                <span className="invasion-defenders__unit invasion-defenders__unit--structure">
+                                  {formatDefenderUnits(force.otherStructures)}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                          {defense.spaceCannonDefense && (
+                            <p
+                              className={`invasion-defenders__scd${defense.spaceCannonDefense.silencedBy ? " invasion-defenders__scd--silenced" : ""}`}
+                              data-testid="invasion-scd"
+                            >
+                              {defense.spaceCannonDefense.silencedBy
+                                ? `Space Cannon Defense silenced by your ${defense.spaceCannonDefense.silencedBy}`
+                                : `Space Cannon Defense: ${defense.spaceCannonDefense.dice} ${defense.spaceCannonDefense.dice === 1 ? "die" : "dice"} (${defense.forces
+                                    .flatMap((force) => force.guns)
+                                    .map((gun) => `${gun.count > 1 ? `${gun.count}× ` : ""}${getUnitDisplayName(gun.unit)} hits on ${gun.hitsOn}`)
+                                    .join(", ")}) ${defense.spaceCannonDefense.dice === 1 ? "fires" : "fire"} at forces you land here, ~${defense.spaceCannonDefense.expectedHits} hits`}
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       <div
                         className="invasion-planet-landing-card__values"

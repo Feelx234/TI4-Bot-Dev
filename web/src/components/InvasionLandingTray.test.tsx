@@ -237,3 +237,62 @@ it("shows each planet's resources, influence, trait and attachment-modified valu
   expect(rows[1].querySelector('[aria-label="1 resource"]')).not.toBeNull();
   expect(rows[1].querySelector('[aria-label="1 influence"]')).not.toBeNull();
 });
+
+it("shows the defender's ground forces, PDS and Space Cannon Defense beside the planet being landed on", () => {
+  const board = {
+    ...galleryBoard,
+    invasion: undefined,
+    active_system: "18",
+    systems: {
+      ...galleryBoard.systems,
+      "18": {
+        ...galleryBoard.systems["18"],
+        units: [
+          { owner: actor, unit_type: "infantry", damaged: false },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
+          { owner: "defender", unit_type: "mech", damaged: false, planet: "jord" },
+          { owner: "defender", unit_type: "pds", damaged: false, planet: "jord" },
+          { owner: "defender", unit_type: "space_dock", damaged: false, planet: "jord" },
+        ],
+      },
+    },
+  };
+  const players = {
+    [actor]: galleryPlayers[0],
+    defender: { ...galleryPlayers[1], id: "defender", faction: "letnev" },
+  };
+  render(
+    <InvasionLandingTray
+      choice={choice}
+      board={board}
+      players={players}
+      viewerSeat={actor}
+      onSubmit={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  const defenders = screen.getByTestId("invasion-defenders");
+  expect(defenders).toHaveTextContent("letnev:");
+  expect(defenders).toHaveTextContent("1 Mech");
+  expect(defenders).toHaveTextContent("3 Infantry");
+  expect(defenders).toHaveTextContent("1 PDS");
+  expect(defenders).toHaveTextContent("1 Space Dock");
+  expect(screen.getByTestId("invasion-scd")).toHaveTextContent(
+    "Space Cannon Defense: 1 die (PDS hits on 6) fires at forces you land here, ~0.5 hits",
+  );
+});
+
+it("shows no defender block for a planet nobody else has units on", () => {
+  render(
+    <InvasionLandingTray
+      choice={choice}
+      board={galleryBoard}
+      viewerSeat={actor}
+      onSubmit={vi.fn()}
+      onClose={vi.fn()}
+    />,
+  );
+  expect(screen.queryByTestId("invasion-defenders")).toBeNull();
+});
