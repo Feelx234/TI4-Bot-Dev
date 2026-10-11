@@ -826,4 +826,20 @@ describe("Board payment mode", () => {
     expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "Staged: 4 resources");
     expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("✓ 4");
   });
+
+  it("pinch with two pointers zooms the map group and the viewport opts out of page zoom", () => {
+    render(<Board board={mockBoard} seatingOrder={["p1", "p2"]} />);
+    const viewport = screen.getByTestId("board-viewport");
+    expect(viewport.style.touchAction).toBe("none");
+    const group = () => viewport.querySelector("svg > g")!.getAttribute("transform")!;
+    const before = group();
+    const ev = (id: number, x: number) => ({ pointerId: id, pointerType: "touch", clientX: x, clientY: 100, button: 0 });
+    fireEvent.pointerDown(viewport, ev(1, 100));
+    fireEvent.pointerDown(viewport, ev(2, 200));
+    fireEvent.pointerMove(viewport, ev(2, 300));
+    expect(group()).not.toBe(before);
+    expect(group()).toMatch(/scale\(2(\.\d+)?\)/);
+    fireEvent.pointerUp(viewport, ev(2, 300));
+    fireEvent.pointerUp(viewport, ev(1, 100));
+  });
 });

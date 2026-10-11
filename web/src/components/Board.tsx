@@ -159,14 +159,37 @@ export const Board: React.FC<BoardProps> = ({
     [presentation.targets.targetMode, pendingChoice, sharedDraft?.draft, tokenPayment, readyMarks],
   );
 
+  // Touch: one finger pans, two fingers pinch-zoom the map only (touch-action: none keeps the
+  // browser from zooming the whole page, dialogs included). Pointers are tracked by id.
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
+  const pinchDistance = () => {
+    const [a, b] = [...pointersRef.current.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.button === 0) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      setIsPanning(false);
+      pinchRef.current = { distance: pinchDistance() || 1, scale: viewTransform.scale };
+    } else if (pointersRef.current.size === 1) {
       setIsPanning(true);
       startPanRef.current = { x: e.clientX - viewTransform.x, y: e.clientY - viewTransform.y };
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const { distance, scale } = pinchRef.current;
+      const next = Math.min(2.5, Math.max(0.5, (scale * pinchDistance()) / distance));
+      setViewTransform((prev) => ({ ...prev, scale: next }));
+      return;
+    }
     if (isPanning) {
       setViewTransform((prev) => ({
         ...prev,
@@ -176,7 +199,18 @@ export const Board: React.FC<BoardProps> = ({
     }
   };
 
-  const handlePointerUp = () => setIsPanning(false);
+  const handlePointerUp = (e: React.PointerEvent) => {
+    pointersRef.current.delete(e.pointerId);
+    pinchRef.current = null;
+    // The finger left over after a pinch starts a fresh pan from where it is.
+    const rest = [...pointersRef.current.values()][0];
+    if (rest) {
+      setIsPanning(true);
+      startPanRef.current = { x: rest.x - viewTransform.x, y: rest.y - viewTransform.y };
+    } else {
+      setIsPanning(false);
+    }
+  };
 
   const zoomIn = () =>
     setViewTransform((prev) => ({ ...prev, scale: Math.min(prev.scale * 1.25, 2.5) }));
@@ -249,6 +283,7 @@ export const Board: React.FC<BoardProps> = ({
         overflow: "hidden",
         background: "#090d16",
         userSelect: "none",
+        touchAction: "none",
         display: "flex",
         flexDirection: "column",
       }}
@@ -295,7 +330,7 @@ export const Board: React.FC<BoardProps> = ({
 
       <div className="board-stage" data-testid="board-stage" style={boardStageStyle(pendingChoice != null)}>
         <p id={helpId} className="visually-hidden">
-          Drag the map to pan it. Use the zoom buttons to zoom in and out, and the reset button to
+          Drag the map to pan it, pinch with two fingers to zoom it. You can also use the zoom buttons to zoom in and out, and the reset button to
           return to the full view.
         </p>
       <svg
