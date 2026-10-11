@@ -186,6 +186,16 @@ describe("command token panel (planet first: gain and buy)", () => {
     expect(onSubmitBatch).not.toHaveBeenCalled();
   });
 
+  it("the suggestion tap scrolls down to the assignment part", async () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderModal(gainBuyChoice());
+    expect(scroll).not.toHaveBeenCalled();
+    await click("token-payment-auto");
+    expect(scroll).toHaveBeenCalledTimes(1);
+    expect(scroll.mock.instances[0]).toBe(screen.getByTestId("token-assign-heading"));
+  });
+
   it("one tap on the suggestion stages the planets and trade goods for the most that can be bought", async () => {
     const onSubmitBatch = renderModal(gainBuyChoice());
     await click("token-payment-auto");

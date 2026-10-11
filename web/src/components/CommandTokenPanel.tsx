@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { PlanetValue, ValueText, ValueUnit } from "./PlanetValueIcons.tsx";
 import {
   useSharedTokenDraft,
@@ -97,6 +97,14 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
   // suggestion for `bought` tokens (nothing when 0).
   const override = draft.override;
   const setPurchase = (next: PurchaseState) => update((d) => withPurchase(view, d, next));
+  // "Use suggested planets" fills the payment above; on a phone the assignment is below the fold.
+  const assignHeading = useRef<HTMLHeadingElement>(null);
+  const scrollToAssign = useRef(false);
+  useEffect(() => {
+    if (!scrollToAssign.current || !assignHeading.current) return;
+    scrollToAssign.current = false;
+    assignHeading.current.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const locked = disabled || submitting;
@@ -270,7 +278,10 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
                 className="button button--primary button--sm token-panel__action"
                 data-testid="token-payment-auto"
                 disabled={locked || suggestedNow}
-                onClick={() => setPurchase(suggestedPurchase(view, state))}
+                onClick={() => {
+                  scrollToAssign.current = true;
+                  setPurchase(suggestedPurchase(view, state));
+                }}
               >
                 Use suggested planets (buys {suggestCount})
               </button>
@@ -349,7 +360,7 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
         </div>
       )}
       {purchase && (
-        <h3 className="token-panel__step" data-testid="token-assign-heading">
+        <h3 className="token-panel__step" data-testid="token-assign-heading" ref={assignHeading}>
           2 · Assign the {total} token{total === 1 ? "" : "s"}
           <span className="token-panel__purpose">
             {view.total > 0 ? `${view.total} free + ${bought} bought` : `${bought} bought`}
