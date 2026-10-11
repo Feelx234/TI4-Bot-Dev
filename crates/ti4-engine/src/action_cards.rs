@@ -479,6 +479,106 @@ pub fn is_playable(
     true
 }
 
+/// 22.3 for reaction cards: whether this card's effect could act on anything in the window
+/// `event` opened, for `player`.
+///
+/// The window table decides whether a card speaks to an event at all; several cards share one
+/// printed window ("At the start of an invasion" is both Bunker's and Blitz's), so what each
+/// card needs beyond the window is answered here, per card. A card not listed has no further
+/// requirement.
+#[must_use]
+pub fn reaction_can_matter(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    event: &crate::event::Event,
+) -> bool {
+    let unit_kind = |unit: &Unit| {
+        content
+            .get(ContentType::Units, unit.type_id.as_str())
+            .map(UnitType::new)
+    };
+    let actor = event.text("player");
+    let is_actor = actor == Some(player.as_str());
+    let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
+        return true;
+    };
+    let board = state.system_state(&system);
+    let has_own_ship = board
+        .units_of(player)
+        .into_iter()
+        .any(|unit| unit_kind(unit).is_some_and(|kind| kind.is_ship()));
+    match alias.as_str() {
+        // Bunker: "-4 to each BOMBARDMENT roll against planets you control". Only the invader
+        // bombards, so the holder must not be the invader and must control a planet here.
+        "bunker" => actor.is_some() && !is_actor && board.controls_a_planet(player),
+        // Blitz: "Each of your non-fighter ships in the active system that do not have
+        // BOMBARDMENT gain BOMBARDMENT 6". Only the invader bombards, and only a ship that
+        // lacks BOMBARDMENT gains anything.
+        "blitz" => {
+            is_actor
+                && board.units_of(player).into_iter().any(|unit| {
+                    unit_kind(unit).is_some_and(|kind| {
+                        kind.is_ship() && !kind.is_fighter() && kind.bombard_hits_on().is_none()
+                    })
+                })
+        }
+        // Disable: "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during
+        // this invasion" -- the printed window promises opponents' PDS in the system, and it
+        // only helps the invader.
+        "disable" => {
+            is_actor
+                && board
+                    .planet_units
+                    .values()
+                    .flatten()
+                    .chain(&board.units)
+                    .any(|unit| {
+                        &unit.owner != player
+                            && unit_kind(unit).is_some_and(|kind| kind.base_type() == "pds")
+                    })
+        }
+        // Fighter Prototype: "+2 to each of your fighters' combat rolls" -- a combatant with
+        // fighters in the combat.
+        "f_prototype" => board
+            .units_of(player)
+            .into_iter()
+            .any(|unit| unit_kind(unit).is_some_and(|kind| kind.is_fighter())),
+        // Upgrade: "replace 1 of your cruisers in that system with 1 dreadnought".
+        "upgrade" => board
+            .units_of(player)
+            .into_iter()
+            .any(|unit| unit_kind(unit).is_some_and(|kind| kind.base_type() == "cruiser")),
+        // Rally: the printed window needs another player's ships in the activated system.
+        "rally" => board.units.iter().any(|unit| {
+            &unit.owner != player && unit_kind(unit).is_some_and(|kind| kind.is_ship())
+        }),
+        // Harness Energy: "After you activate an anomaly".
+        "harness" => {
+            ti4_content::galaxy::system(content, system.as_str(), ti4_model::content_types::FULL)
+                .is_some_and(|tile| tile.is_anomaly())
+                || crate::factions::hooks_movement::extra_gravity_rifts(state)
+                    .contains(system.as_str())
+        }
+        // Rescue: "After a player moves ships into a system that contains your ships" -- another
+        // player's move (the effect refuses the holder's own), into a system holding the
+        // holder's ships.
+        "rescue" => !is_actor && has_own_ship,
+        // Intercept: "After your opponent declares a retreat" -- the holder fights in that
+        // combat, so has ships in the system.
+        "intercept" => !is_actor && has_own_ship,
+        // Emergency Repairs: "Repair all of your units that have SUSTAIN DAMAGE in the active
+        // system" -- only a damaged unit gains anything.
+        "emergency" => board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+            .any(|unit| &unit.owner == player && unit.sustained_damage),
+        _ => true,
+    }
+}
+
 /// Component actions this player could take with the cards in hand (22.1).
 ///
 /// Indexed by hand position rather than by alias, because a hand may hold two copies of the

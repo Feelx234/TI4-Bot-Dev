@@ -1337,24 +1337,40 @@ fn a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards() {
     // play and more), so the action card deck is exactly what a changed number of draws shifts.
     let (state1, galaxy1) = setup(1);
     let full = play(&state1, &galaxy1, Box::new(Lcg(1, true)), 700);
+    // The turn is found rather than named by index: which options the engine offers shifts the
+    // seeded game, and any later turn whose recorded tail draws 2 or more action cards serves.
+    // (It was p3's turn at 515 until reaction cards stopped being offered where they cannot
+    // matter.)
     let spans = find_turns(&full);
-    let n = spans.iter().position(|t| t.start == 515).unwrap();
-    let seat = spans[n].seat.clone();
-    let next = spans[n + 1..]
-        .iter()
-        .find(|t| t.seat == seat)
-        .map_or(full.len(), |t| t.start);
-    let hh = full[..next].to_vec();
-    let window = redo_window(&hh, &seat, 1).unwrap();
-    assert_eq!(window.start, 515);
-    let base = baseline(&state1, &galaxy1, &hh);
-    let source = base.tail(&window).unwrap();
+    let found = spans.iter().enumerate().find_map(|(n, turn)| {
+        if turn.start < 400 {
+            return None;
+        }
+        let seat = turn.seat.clone();
+        let next = spans[n + 1..]
+            .iter()
+            .find(|t| t.seat == seat)
+            .map_or(full.len(), |t| t.start);
+        let hh = full[..next].to_vec();
+        let window = redo_window(&hh, &seat, 1).ok()?;
+        if window.start != turn.start {
+            return None;
+        }
+        let base = baseline(&state1, &galaxy1, &hh);
+        let source = base.tail(&window).ok()?;
+        let action_card_draws = source
+            .reserved
+            .iter()
+            .filter(|d| d.deck == "action_card")
+            .count();
+        (action_card_draws >= 2).then_some((hh, window, source))
+    });
+    let (hh, window, source) = found.expect("some turn's tail draws 2 or more action cards");
     let tail_ac: Vec<_> = source
         .reserved
         .iter()
         .filter(|d| d.deck == "action_card")
         .collect();
-    assert!(tail_ac.len() >= 2, "the tail draws action cards: {tail_ac:?}");
 
     let plan_for = |reserved: &[ReservedDraw]| {
         let mut marks = RngMarks::new();
