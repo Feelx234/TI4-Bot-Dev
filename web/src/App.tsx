@@ -609,6 +609,7 @@ const GameViewContainer: React.FC<{
       )}
       <CornerToastLayer
         events={events}
+        board={snapshot?.view.board}
         players={snapshot?.view.players}
         viewerSeat={userSeat}
         pendingChoice={realPendingChoice}

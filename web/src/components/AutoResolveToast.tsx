@@ -6,8 +6,8 @@ import "./AutoResolveToast.css";
 
 export interface AutoResolveNotification {
   id: string;
-  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. "recap": a summary of another player's finished turn. */
-  kind?: "auto-resolve" | "action" | "recap";
+  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. "recap": a summary of another player's finished turn. "invasion": the result of a bombardment, Space Cannon Defense or a whole invasion. */
+  kind?: "auto-resolve" | "action" | "recap" | "invasion";
   decisionType: string;
   selectedValue: string;
   /** Auto-resolve toasts: why there was only one choice (default "the only legal option"). */
@@ -15,12 +15,14 @@ export interface AutoResolveNotification {
   /** Action toasts: the acting seat and what they did, without their name. */
   actor?: string;
   text?: string;
+  /** Invasion toasts: the small heading ("Bombardment", "Invasion"). */
+  tag?: string;
   /** Bumped when a toast absorbs another action, so its timer starts over. */
   revision?: number;
 }
 
 /** How long a toast stays, in ms. */
-export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000, recap: 8000 } as const;
+export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000, recap: 8000, invasion: 10000 } as const;
 
 interface AutoResolveToastProps {
   notification: AutoResolveNotification;
@@ -62,7 +64,14 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
       style={actor ? ({ "--toast-accent": actor.color } as React.CSSProperties) : undefined}
       onClick={() => setIsDismissing(true)}
     >
-      {(kind === "action" || kind === "recap") && actor ? (
+      {kind === "invasion" ? (
+        <>
+          <span className="toast-recap-tag" data-testid="toast-invasion-tag">
+            {notification.tag ?? "Invasion"}
+          </span>
+          <span className="toast-value toast-value--lines">{present(notification.text ?? "")}</span>
+        </>
+      ) : (kind === "action" || kind === "recap") && actor ? (
         <>
           {kind === "recap" && <span className="toast-recap-tag">Turn</span>}
           <span className="toast-actor" data-testid="toast-actor">

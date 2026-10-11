@@ -20,6 +20,10 @@ import { GroundCombatResultSummary } from "./GroundCombatResultSummary.tsx";
 import { summarizeGroundCombat } from "../presentation/groundCombatSummary.ts";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
+import { InvasionStepCard } from "./InvasionStepCard.tsx";
+import { isDefenseStep } from "../presentation/invasionSteps.ts";
+import { describeOfferCard } from "../presentation/offerCard.ts";
+import { OfferCardPanel } from "./OfferCardPanel.tsx";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 
 export interface InvasionEffectInfo {
@@ -133,6 +137,24 @@ export const InvasionEffectCard: React.FC<{
   waitingFor,
 }) => {
   const info = getInvasionEffectInfo(choice, currentPlanet, groundRound);
+  // The engine presented this decision as an offer card (bombardment target): facts and a caption
+  // per answer instead of raw option labels.
+  const offer = describeOfferCard(choice);
+  if (offer && !waitingFor) {
+    return (
+      <div
+        className={`invasion-effect-card invasion-effect-card--${info.typeClass}`}
+        data-testid="invasion-effect-card"
+      >
+        <OfferCardPanel
+          view={offer}
+          disabled={Boolean(isDirectSubmitting)}
+          onChoose={(id) => void onSubmit?.(id)}
+        />
+      </div>
+    );
+  }
+  if (offer && waitingFor) info.description = offer.text ?? info.description;
 
   return (
     <div
@@ -260,7 +282,7 @@ export const InvasionOverlay: React.FC<{
     units
       .map(
         (unit) =>
-          `${unit.owner} ${unit.unit_type}${unit.damaged ? " (damaged)" : ""}`,
+          `${display(unit.owner).label} ${getUnitDisplayName(unit.unit_type)}${unit.damaged ? " (damaged)" : ""}`,
       )
       .join(", ") || "None";
 
@@ -377,7 +399,9 @@ export const InvasionOverlay: React.FC<{
 
       {groundSummary && <GroundCombatResultSummary summary={groundSummary} />}
 
-      {step && (
+      {step && isDefenseStep(step.kind) && <InvasionStepCard step={step} invader={invasion.invader} />}
+
+      {step && !isDefenseStep(step.kind) && (
         <section
           aria-label={`${step.planet} ${step.kind} result`}
           data-testid="invasion-step"
@@ -417,7 +441,7 @@ export const InvasionOverlay: React.FC<{
                       {die.hit ? "💥" : "⚪"}
                     </span>
                     <span className="invasion-die-chip__text">
-                      {die.player} · {die.group}: {die.face} / {die.target}{" "}
+                      {display(die.player).label} · {die.group}: {die.face} / {die.target}{" "}
                       {die.hit ? "hit" : "miss"}
                     </span>
                   </span>

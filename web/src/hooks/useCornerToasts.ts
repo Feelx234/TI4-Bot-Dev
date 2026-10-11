@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AutoResolveNotification } from "../components/AutoResolveToast.tsx";
-import type { AutoResolvedNote, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import type { AutoResolvedNote, BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import {
   ActionToast,
   actionToastFromEvent,
@@ -11,6 +11,8 @@ import {
 } from "../presentation/actionToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
+import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
+import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { useTurnRecapSetting } from "./useTurnRecapSetting.ts";
 import { useAutoResolveToasts } from "./useAutoResolveToasts.ts";
 import { useToastMute } from "./useToastMute.ts";
@@ -28,11 +30,20 @@ export interface CornerToastsInput {
   historyGeneration?: number;
   /** Decisions this client answered for the viewer (lone strategic action / activation). */
   localNotes?: readonly { id: string; text: string; prompt?: string }[];
+  /** The board of the latest snapshot: bombardment, Space Cannon Defense and invasion results are read from it. */
+  board?: BoardView | null;
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
 
 const MAX_RECAPS = 2;
+const MAX_INVASION_TOASTS = 3;
+
+const INVASION_TAGS: Record<InvasionToast["kind"], string> = {
+  bombardment: "Bombardment",
+  space_cannon_defense: "Space Cannon",
+  summary: "Invasion",
+};
 
 type Shown = ActionToast & { revision: number };
 
@@ -49,9 +60,13 @@ export function useCornerToasts({
   autoResolved,
   historyGeneration,
   localNotes,
+  board,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
+  const display = usePlayerIdentity();
+  const displayRef = useRef(display);
+  displayRef.current = display;
   const { enabled: recapOn } = useTurnRecapSetting();
   const recapRef = useRef(recapOn);
   recapRef.current = recapOn;
@@ -59,6 +74,10 @@ export function useCornerToasts({
   const [recaps, setRecaps] = useState<TurnRecap[]>([]);
   const auto = useAutoResolveToasts();
   const [actions, setActions] = useState<Shown[]>([]);
+  const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
+  const invasionTracker = useRef<InvasionTracker | null>(null);
+  // The first board a client sees (load, undo) shows history, not news.
+  const invasionQuiet = useRef(true);
   const seen = useRef<Set<string> | null>(null);
   const lastVp = useRef<Map<string, number> | null>(null);
   const lastAutoNonce = useRef<string | null>(null);
@@ -94,8 +113,24 @@ export function useCornerToasts({
     if (lastGeneration.current !== historyGeneration) {
       lastGeneration.current = historyGeneration;
       openTurn.current = null;
+      invasionTracker.current = null;
+      invasionQuiet.current = true;
     }
   }, [historyGeneration]);
+
+  // Bombardment, Space Cannon Defense and the whole invasion, from the board's last invasion step.
+  useEffect(() => {
+    if (!ready || !board) return;
+    const quiet = invasionQuiet.current;
+    invasionQuiet.current = false;
+    const result = trackInvasion(invasionTracker.current, board, quiet, (seat) => displayRef.current(seat).label);
+    invasionTracker.current = result.tracker;
+    if (result.toasts.length === 0 || mutedRef.current) return;
+    setInvasionToasts((prev) => [
+      ...prev.filter((t) => !result.toasts.some((n) => n.id === t.id)),
+      ...result.toasts,
+    ].slice(-MAX_INVASION_TOASTS));
+  }, [board, ready]);
 
   useEffect(() => {
     if (!ready) return;
@@ -173,7 +208,10 @@ export function useCornerToasts({
 
   // Muting also clears what is on screen.
   useEffect(() => {
-    if (muted) setActions([]);
+    if (muted) {
+      setActions([]);
+      setInvasionToasts([]);
+    }
   }, [muted]);
   useEffect(() => {
     if (muted || !recapOn) setRecaps([]);
@@ -187,6 +225,7 @@ export function useCornerToasts({
   const dismiss = useCallback(
     (id: string) => {
       setRecaps((prev) => prev.filter((r) => r.id !== id));
+      setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
       dismissAction(id);
       dismissToast(id);
     },
@@ -206,6 +245,17 @@ export function useCornerToasts({
           text: r.text,
         }),
       ),
+      ...invasionToasts.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "invasion",
+          decisionType: "",
+          selectedValue: "",
+          actor: t.actor,
+          text: t.text,
+          tag: INVASION_TAGS[t.kind],
+        }),
+      ),
       ...actions.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -218,7 +268,7 @@ export function useCornerToasts({
         }),
       ),
     ],
-    [auto.toasts, actions, recaps],
+    [auto.toasts, actions, recaps, invasionToasts],
   );
 
   return { notifications, dismiss, muted };

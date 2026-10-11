@@ -165,3 +165,20 @@
   text-transform: uppercase;
   opacity: 0.75;
 }
+
+/* An invasion result: one line per fact, the text in the reading colour (it is a report, not a status). */
+.auto-resolve-toast--invasion {
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.toast-value--lines {
+  display: block;
+  margin-top: 4px;
+  white-space: pre-line;
+  color: #e5e7eb;
+}
+
+.auto-resolve-toast-container:has(.auto-resolve-toast--invasion) {
+  width: min(340px, calc(100vw - 24px));
+}
