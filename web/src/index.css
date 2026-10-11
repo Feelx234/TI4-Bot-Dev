@@ -3803,14 +3803,31 @@ select:focus-visible,
 }
 .origin-system-group__header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 6px 10px;
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 .origin-system-group__title {
   font-weight: 600;
   font-size: 0.95rem;
+}
+.origin-system-group__header .origin-system-group__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.origin-system-group__all {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  min-height: 32px;
+}
+.origin-system-group__header .fleet-rally-tray__status {
+  flex: 1 0 100%;
+  font-size: 0.8rem;
 }
 .origin-system-group__section-title {
   font-size: 0.75rem;
