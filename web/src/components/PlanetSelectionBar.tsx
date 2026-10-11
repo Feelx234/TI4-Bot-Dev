@@ -22,6 +22,8 @@ import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { StructureInfo } from "./SystemFactsView.tsx";
 import { UnitAbilityOptionNote } from "./UnitAbilityParts.tsx";
 import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts";
+import { isTransitDiodesChoice } from "../presentation/transitDiodes.ts";
+import { TransitDiodesPanel } from "./TransitDiodesPanel.tsx";
 import "./SystemFacts.css";
 
 export interface PlanetSelectionBarProps {
@@ -118,6 +120,21 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
           </span>
         </div>
       </aside>
+    );
+  }
+
+  // Transit Diodes offers source x ground force x destination: its own stepwise panel.
+  if (isTransitDiodesChoice(choice)) {
+    return (
+      <TransitDiodesPanel
+        choice={choice}
+        boardView={boardView}
+        selectedOptionId={selectedOptionId}
+        selectedPlanetId={selectedPlanetId}
+        onSelectOption={onSelectOption}
+        onSubmit={onSubmit}
+        lastError={lastError}
+      />
     );
   }
 
