@@ -66,6 +66,32 @@ describe("ReactionStatusBar", () => {
     expect(onSubmit).toHaveBeenCalledWith("decline");
   });
 
+  it("the card-pick step of a multi-card window shows a Back button that declines without playing", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "43",
+      prompt: "play an action card (when HITS_TO_ASSIGN)",
+      context: { subtype: "play_reaction_when_HITS_TO_ASSIGN", optional: true },
+      options: [
+        { id: "sh1", label: "play Shields Holding", kind: "action_card", payload: { card: "sh1", card_name: "Shields Holding" } },
+        { id: "dh1", label: "play Direct Hit", kind: "action_card", payload: { card: "dh1", card_name: "Direct Hit" } },
+        { id: "decline", label: "Decline", kind: "decline" },
+      ],
+    };
+    render(<ReactionStatusBar isOpen={true} choice={choice} viewerSeat="seat_1" onSubmit={onSubmit} />);
+    expect(screen.getByTestId("play-reaction-btn-sh1")).toBeInTheDocument();
+    expect(screen.getByTestId("play-reaction-btn-dh1")).toBeInTheDocument();
+    const back = screen.getByTestId("pass-reaction-btn");
+    expect(back).toHaveTextContent(/Back/);
+    expect(screen.queryByTestId("play-reaction-btn-decline")).toBeNull();
+    await act(async () => {
+      fireEvent.click(back);
+    });
+    expect(onSubmit).toHaveBeenCalledWith("decline");
+    expect(onSubmit).not.toHaveBeenCalledWith("sh1");
+  });
+
   it("handles pass button click", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
