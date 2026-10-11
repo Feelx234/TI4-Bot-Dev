@@ -7,6 +7,7 @@ import {
   addBuild,
   autoPay,
   blocked,
+  overrun,
   draftOf,
   removeBuild,
   setCount,
@@ -106,19 +107,23 @@ it("adds up the staged purchases: units, cost after the discount, fleet and carg
   ]);
 });
 
-it("stops at the supply and at the production limit, where a pair makes one unit", () => {
+it("stops at the supply, and stages past the production limit, where a pair makes one unit", () => {
   const sun = built([WARSUN, "space"]);
   expect(blocked(facts, sun, WARSUN)).toBe("None left in supply");
   expect(addBuild(facts, sun, WARSUN, "space")).toBe(sun);
-  // Six pairs of fighters are 12 units of 13: the next pair makes one, and then nothing fits.
+  // Six pairs of fighters are 12 units of 13: the next pair makes one, which is not over.
   let draft = EMPTY;
   for (let pair = 0; pair < 7; pair++) {
     draft = addBuild(facts, draft, FIGHTER, "space");
   }
   expect(sizes(facts, draft)).toEqual([2, 2, 2, 2, 2, 2, 1]);
   expect(totals(facts, draft)).toMatchObject({ units: 13, cost: 6 });
-  expect(blocked(facts, draft, CRUISER)).toBe("The production limit is used");
-  expect(addBuild(facts, draft, CRUISER, "space")).toBe(draft);
+  expect(overrun(facts, draft).capacity).toBe(0);
+  // The production limit is soft: one more cruiser is staged, and the build is one unit over.
+  draft = addBuild(facts, draft, CRUISER, "space");
+  expect(blocked(facts, draft, CRUISER)).toBeNull();
+  expect(sizes(facts, draft).at(-1)).toBe(1);
+  expect(overrun(facts, draft).capacity).toBe(1);
   // A unit that the game does not offer is never staged.
   expect(blocked(facts, EMPTY, CARRIER)).toBe("None left in supply");
   expect(addBuild(facts, EMPTY, CARRIER, "space")).toBe(EMPTY);

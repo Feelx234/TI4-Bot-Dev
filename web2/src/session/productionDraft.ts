@@ -23,12 +23,17 @@ const room = (facts: ProductionFacts) => Math.max(0, facts.capacity.limit - fact
 
 /**
  * How many units each staged purchase makes. A purchase of two makes one when the production
- * limit has room for one only, at the same price.
+ * limit has room for one only, at the same price. The limit is soft: a purchase after the room
+ * is used makes all its units, and `overrun` says that the build is over.
  */
 export function sizes(facts: ProductionFacts, draft: ProductionDraft): number[] {
   let left = room(facts);
   return draft.builds.map((build) => {
-    const made = Math.max(0, Math.min(facts.units[build.unit]?.per ?? 0, left));
+    const per = facts.units[build.unit]?.per ?? 0;
+    if (left <= 0) {
+      return per;
+    }
+    const made = Math.min(per, left);
     left -= made;
     return made;
   });
@@ -104,8 +109,9 @@ export const UNAVAILABLE: Record<
 };
 
 /**
- * Why one more purchase of a unit cannot be staged. Null when it can. The resources are not a
- * reason: a build that costs too much is staged, and the gauge says so.
+ * Why one more purchase of a unit cannot be staged. Null when it can. The supply of the units
+ * (the plastic) is a hard limit. The resources and the production limit are soft: a build over
+ * them is staged, the gauges say so, and the main button waits (`overrun`).
  */
 export function blocked(
   facts: ProductionFacts,
@@ -120,13 +126,32 @@ export function blocked(
   if (kind.unavailable) {
     return UNAVAILABLE[kind.unavailable];
   }
-  if (total.units >= total.capacity) {
-    return "The production limit is used";
-  }
   if (kind.supply !== undefined && total.made[unit] >= kind.supply) {
     return "None left in supply";
   }
   return null;
+}
+
+/** What the staged build asks beyond its soft limits. None of it can be sent. */
+export interface Overrun {
+  /** The resources that the seat does not have. */
+  short: number;
+  /** The units beyond the production limit. */
+  capacity: number;
+}
+
+export function overrun(facts: ProductionFacts, draft: ProductionDraft): Overrun {
+  const total = totals(facts, draft);
+  return {
+    short: total.units > 0 ? Math.max(0, total.cost - total.available) : 0,
+    capacity: Math.max(0, total.units - total.capacity),
+  };
+}
+
+/** Whether the build is over any limit, as one number: the main button waits while it is above 0. */
+export function overrunOf(facts: ProductionFacts, draft: ProductionDraft): number {
+  const over = overrun(facts, draft);
+  return over.short + over.capacity;
 }
 
 /** One more purchase of a unit, at one of its places. */

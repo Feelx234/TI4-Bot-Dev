@@ -11,7 +11,7 @@ import type {
 } from "../../model";
 import { plural } from "../../model";
 import { landed } from "../landingDraft";
-import { isEmpty, totals } from "../productionDraft";
+import { isEmpty, overrun, totals } from "../productionDraft";
 import type {
   ActivationFacts,
   ExplorationCatalog,
@@ -244,9 +244,15 @@ function production(
 ): { content: StepContentView; footer: FooterView; target: string } {
   const stage = local.productionStage;
   const content = selectProduction(update, facts, local.production, stage);
-  const { units, cost, paid, available } = totals(facts, local.production);
-  // Short blocks the main button, as in every payment: the seat cannot pay this build.
-  const short = units > 0 ? Math.max(0, cost - available) : 0;
+  const { units, cost, paid } = totals(facts, local.production);
+  // The limits are soft in the sheet. A build over one blocks the main button, as a payment
+  // that is short does: the game would refuse it.
+  const over = overrun(facts, local.production);
+  const problems = [
+    over.short > 0 ? `${plural(over.short, "resource")} short` : null,
+    over.capacity > 0 ? `${plural(over.capacity, "unit")} over the production limit` : null,
+  ].filter((text) => text !== null);
+  const blocked = problems.length > 0;
   const main = (label: string, disabled = false): ActionButtonView => ({
     label,
     tone: "primary",
@@ -265,8 +271,8 @@ function production(
     footer: {
       note:
         local.planNote?.text ??
-        (short > 0 ? `${plural(short, "resource")} short` : "This commits to the live game."),
-      error: !!local.planNote?.error || short > 0,
+        (blocked ? problems.join(" · ") : "This commits to the live game."),
+      error: !!local.planNote?.error || blocked,
       // The open payment, as one line. Its controls are on the board.
       payment: paying ? content.payment : undefined,
       actions: [
@@ -288,7 +294,7 @@ function production(
                   : cost > 0
                     ? `Pay ${plural(cost, "resource")}`
                     : "Produce units",
-                short > 0,
+                blocked,
               ),
             ]),
       ],

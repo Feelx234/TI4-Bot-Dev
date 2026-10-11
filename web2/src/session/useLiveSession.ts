@@ -35,6 +35,7 @@ import {
   autoPay,
   clearPayment,
   isEmpty,
+  overrunOf,
   draftOf as productionOf,
   stepsOf as productionSteps,
   setGoods,
@@ -449,11 +450,11 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       setLocal((now) => ({ ...now, production: change(now.production), planNote: null }));
     /** The build is chosen: the payment is next, when there is something to pay. */
     const toPayment = () => {
-      const { units, cost, available } = producing
+      const { units, cost } = producing
         ? totals(producing, local.production)
-        : { units: 0, cost: 0, available: 0 };
-      // A build that the seat cannot pay stays open: the gauge and the footer say what is short.
-      if (units > 0 && cost > available) {
+        : { units: 0, cost: 0 };
+      // A build over a limit stays open: the gauges and the footer say what is over.
+      if (producing && overrunOf(producing, local.production) > 0) {
         return true;
       }
       const pays = units > 0 && cost > 0;
@@ -501,7 +502,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         if (local.productionStage === "build" && toPayment()) {
           return;
         }
-        if (units > 0 && paid < cost) {
+        if ((units > 0 && paid < cost) || overrunOf(producing, local.production) > 0) {
           return;
         }
         // Nothing is paid for nothing: a payment that is still staged is not sent.

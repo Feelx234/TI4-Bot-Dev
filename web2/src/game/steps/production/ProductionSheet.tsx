@@ -1,77 +1,121 @@
 import type { BuildCountView, BuildGroupView, BuildSheetView, BuildUnitView } from "../../../model";
 import { plural } from "../../../model";
-import { Button, Counter, Gauge, Icon, cx } from "../../../ui";
+import { Button, Gauge, Icon, cx } from "../../../ui";
 import { useDispatch } from "../../context";
 
-// The columns of a unit row: name, cost, combat, move, capacity, left in supply, counter. On a
-// phone the values are a second line with their words, so nothing is cut at the side.
+// The columns of a unit row: name, cost, what is left in supply, then what is staged. Every row
+// is its own grid, so the widths are fixed and the numbers line up over the rows.
 const COLUMNS =
-  "grid grid-cols-[minmax(0,1fr)_52px_50px_36px_58px_30px_92px] items-center gap-x-1.5 px-3 phone:grid-cols-[minmax(0,1fr)_auto] phone:px-2.5";
-const STATS = ["Cost", "Combat", "Move", "Capacity", "Left"];
+  "grid grid-cols-[7.5rem_2.75rem_2.25rem_minmax(0,1fr)] items-center gap-x-1.5 px-3 phone:grid-cols-[7rem_2.5rem_2rem_minmax(0,1fr)] phone:px-2.5";
 
-/** The counter of one unit in one place. One step is one purchase; it shows the units. */
-function BuildCounter({ count }: { count: BuildCountView }) {
-  const dispatch = useDispatch();
+/** What one purchase makes: one unit, or two for fighters and infantry ("1 for 2"). */
+function perPurchase(unit: BuildUnitView) {
+  const match = / for (\d+)$/.exec(unit.price);
+  return match ? Number(match[1]) : 1;
+}
+
+/** The units staged of one kind, in a fixed place: zero is dimmed, so a glance finds the others. */
+function Staged({ units }: { units: number }) {
   return (
-    <span className="justify-self-end" title={count.reason ?? undefined}>
-      <Counter
-        {...count.counter}
-        shown={count.made}
-        onChange={(value) => dispatch({ type: "setCount", key: count.counter.id, value })}
-      />
+    <span
+      className={cx(
+        "w-6 flex-none text-right text-sm tabular-nums",
+        units > 0 ? "font-mid text-accent" : "text-muted opacity-50",
+      )}
+    >
+      {units}
     </span>
   );
 }
 
-/** One kind of unit as printed, with its counter. A unit that is not produced here is dimmed. */
-function UnitRow({ unit, byPlace }: { unit: BuildUnitView; byPlace: boolean }) {
+/**
+ * What is staged of one unit in one place: the units, then a token for each purchase with the
+ * icon of every unit it makes. A tap on a token takes one purchase back. The dashed slot adds
+ * one and shows the units that it makes. It is not shown when nothing more can be added.
+ */
+function BuildTokens({ unit, count }: { unit: BuildUnitView; count: BuildCountView }) {
+  const dispatch = useDispatch();
+  const per = perPurchase(unit);
+  const { id, value, max, label } = count.counter;
+  const set = (next: number) => dispatch({ type: "setCount", key: id, value: next });
+  const icons = (n: number, className?: string) =>
+    Array.from({ length: n }, (_, index) => (
+      <Icon key={index} name={unit.unit} className={cx("size-4 flex-none", className)} />
+    ));
+  return (
+    <span className="flex items-center gap-1.5 py-0.5">
+      <Staged units={count.made} />
+      <span className="flex min-w-0 flex-wrap items-center gap-1">
+        {Array.from({ length: value }, (_, step) => (
+          <button
+            key={step}
+            type="button"
+            aria-label={`Remove ${label}`}
+            className="inline-flex h-7 items-center gap-0.5 rounded-md border border-line-strong bg-raised px-1.5 text-icon hover:border-text touch:h-9"
+            onClick={() => set(value - 1)}
+          >
+            {icons(Math.max(1, Math.min(per, count.made - step * per)))}
+          </button>
+        ))}
+        {value < max && (
+          <button
+            type="button"
+            aria-label={`Add ${label}`}
+            className="inline-flex h-7 items-center gap-0.5 rounded-md border border-dashed border-line px-1.5 text-icon hover:bg-raised touch:h-9"
+            onClick={() => set(value + 1)}
+          >
+            <span className="text-sm leading-none text-muted">+</span>
+            {icons(per, "opacity-50")}
+          </button>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * One kind of unit as printed, with what is staged. A unit that is not produced here is dimmed.
+ * `inline`: its tokens are in its own row. Else it has a line for each place.
+ */
+function UnitRow({ unit, inline }: { unit: BuildUnitView; inline: boolean }) {
   const off = !!unit.unavailable;
-  const values = [unit.price, unit.combat, unit.move, unit.capacity, unit.left ?? "–"];
+  const dim = off && "opacity-45";
   return (
     <>
       <div className={cx(COLUMNS, "min-h-8 border-t border-line/50 touch:min-h-10")}>
         <span
-          className={cx("flex min-w-0 items-center gap-1.5", off && "opacity-45")}
+          className={cx("flex min-w-0 items-center gap-1.5", dim)}
           title={[unit.name, unit.abilities].filter(Boolean).join(" · ")}
         >
           <Icon name={unit.unit} className="size-4 flex-none text-icon" />
-          <strong className="truncate font-mid">{unit.name}</strong>
+          <strong className="min-w-0 truncate font-mid">{unit.name}</strong>
         </span>
-        <span
-          className={cx(
-            "contents text-xs tabular-nums phone:order-last phone:col-span-2 phone:flex phone:flex-wrap phone:gap-x-3 phone:pb-1",
-            off && "*:opacity-45",
-          )}
-        >
-          {values.map((value, index) => (
-            <span key={STATS[index]} className="whitespace-nowrap">
-              <span className="hidden text-muted phone:inline">{STATS[index]} </span>
-              {value}
-            </span>
-          ))}
-        </span>
+        <span className={cx("justify-self-end text-xs tabular-nums", dim)}>{unit.price}</span>
+        <span className={cx("justify-self-end text-xs tabular-nums", dim)}>{unit.left ?? "–"}</span>
         {/* A word, not only the dimmed row: why the unit is not produced here. */}
         {unit.unavailable ? (
           <span
-            className="justify-self-end text-xs whitespace-nowrap text-muted"
+            className="truncate text-xs whitespace-nowrap text-muted"
             title={unit.unavailable.reason}
           >
             {unit.unavailable.word}
           </span>
-        ) : byPlace ? (
-          <span />
+        ) : inline ? (
+          <span className="flex flex-wrap gap-1">
+            {unit.counts.map((count) => (
+              <BuildTokens key={count.counter.id} unit={unit} count={count} />
+            ))}
+          </span>
         ) : (
-          unit.counts.map((count) => <BuildCounter key={count.counter.id} count={count} />)
+          // A unit with a line for each place: the total here, the places below.
+          <Staged units={unit.counts.reduce((sum, count) => sum + count.made, 0)} />
         )}
       </div>
-      {byPlace &&
+      {!inline &&
         unit.counts.map((count) => (
-          <div
-            key={count.counter.id}
-            className="flex min-h-8 items-center justify-between gap-2 pr-3 pl-[38px] text-xs text-muted touch:min-h-10 phone:pr-2.5"
-          >
-            {count.place}
-            <BuildCounter count={count} />
+          <div key={count.counter.id} className={cx(COLUMNS, "min-h-8 touch:min-h-10")}>
+            <span className="col-span-3 truncate pl-[22px] text-xs text-muted">{count.place}</span>
+            <BuildTokens unit={unit} count={count} />
           </div>
         ))}
     </>
@@ -80,6 +124,10 @@ function UnitRow({ unit, byPlace }: { unit: BuildUnitView; byPlace: boolean }) {
 
 /** The ships, or the ground forces: a heading and one row for each kind of unit. */
 function Group({ group, first }: { group: BuildGroupView; first: boolean }) {
+  // Units that all go to one place say it once, in the heading, as the ships do.
+  const places = new Set(group.units.flatMap((unit) => unit.counts.map((count) => count.place)));
+  const inline = !group.byPlace || places.size <= 1;
+  const place = group.byPlace && places.size === 1 ? ([...places][0] ?? null) : null;
   return (
     <div role="group" aria-label={group.title}>
       <div
@@ -90,17 +138,12 @@ function Group({ group, first }: { group: BuildGroupView; first: boolean }) {
         )}
       >
         <span className="truncate">{group.title}</span>
-        {/* The words of the columns are said once. On a phone each value has its word. */}
-        {first && (
-          <span className="contents phone:hidden">
-            {STATS.map((word) => (
-              <span key={word}>{word}</span>
-            ))}
-          </span>
-        )}
+        <span className="justify-self-end">Cost</span>
+        <span className="justify-self-end">Left</span>
+        <span className="truncate">{place}</span>
       </div>
       {group.units.map((unit) => (
-        <UnitRow key={unit.id} unit={unit} byPlace={group.byPlace} />
+        <UnitRow key={unit.id} unit={unit} inline={inline} />
       ))}
     </div>
   );
@@ -135,7 +178,7 @@ export function ProductionSheet({ view }: { view: BuildSheetView }) {
     >
       <div className="sticky top-0 z-1 bg-surface">
         <div className="flex items-center gap-2 border-b border-line py-0.5 pr-1 pl-3 phone:pl-2.5">
-          <h3 className="truncate text-base font-semibold" title={view.label}>
+          <h3 className="truncate text-base font-semibold phone:text-sm" title={view.label}>
             {view.label}
           </h3>
           <span role="status" className="min-w-0 flex-1 truncate text-xs text-muted">
@@ -158,7 +201,7 @@ export function ProductionSheet({ view }: { view: BuildSheetView }) {
                 ? "Done with the build · the payment is next"
                 : "Done with the build · closes the sheet"
             }
-            className="grid size-7 flex-none place-items-center rounded-md border border-line-strong text-icon hover:bg-raised touch:size-9"
+            className="grid size-7 flex-none place-items-center rounded-md text-icon hover:bg-raised touch:size-9"
             onClick={() => dispatch({ type: "markOrigin", system: view.system })}
           >
             <Icon name="check" />
