@@ -9,6 +9,8 @@ use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash
 use ti4_engine::game::Game;
 use ti4_model::state::GameState;
 
+use crate::session::step_snapshot::StepSnapshot;
+
 #[derive(Debug, Error)]
 pub enum ReplayError {
     #[error("Engine error during replay: {0}")]
@@ -111,6 +113,33 @@ pub fn replay_session_forced(
     records: &[DecisionRecord],
     marks: &crate::session::RngMarks,
 ) -> Result<ReplayReport, ReplayError> {
+    replay(initial_state, galaxy, records, marks, None).map(|(report, _)| report)
+}
+
+/// [`replay_session_forced`], also copying the game at a step boundary near the end of the
+/// replay (`None` when no boundary close enough was copyable). A replacement session started on
+/// the same decisions forks the copy (`SessionConfig::resume`) instead of replaying them all again.
+///
+/// # Errors
+///
+/// Returns [`ReplayError`] if the engine fails or decisions diverge.
+pub fn replay_session_with_copy(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+    generation: u64,
+) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
+    replay(initial_state, galaxy, records, marks, Some(generation))
+}
+
+fn replay(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+    copy_generation: Option<u64>,
+) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
     let original_hashes: Vec<CanonicalHash> = records
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
@@ -136,7 +165,20 @@ pub fn replay_session_forced(
     }
 
     // Step until all recorded decisions are replayed
+    let mut copy: Option<StepSnapshot> = None;
     while game.table.log.records.len() < records.len() {
+        if let Some(generation) = copy_generation {
+            // Between steps: copy the game once the script is nearly used up.
+            let answered = answered.lock().expect("replay answers lock").len();
+            if records.len().saturating_sub(answered) <= crate::session::batch::TAIL_COPY_WINDOW
+                && copy
+                    .as_ref()
+                    .is_none_or(|copy| copy.log_len < game.table.log.records.len())
+                && let Some(taken) = StepSnapshot::capture(&mut game, generation)
+            {
+                copy = Some(taken);
+            }
+        }
         let result = game.step();
         if let Some(err) = result.error {
             let err_str = err.to_string();
@@ -167,11 +209,14 @@ pub fn replay_session_forced(
 
     let hashes_match = replayed_hashes == original_hashes;
 
-    Ok(ReplayReport {
-        decision_count: replayed.len(),
-        original_hashes,
-        replayed_hashes,
-        hashes_match,
-        final_state: game.state,
-    })
+    Ok((
+        ReplayReport {
+            decision_count: replayed.len(),
+            original_hashes,
+            replayed_hashes,
+            hashes_match,
+            final_state: game.state,
+        },
+        copy,
+    ))
 }

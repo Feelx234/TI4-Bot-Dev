@@ -585,6 +585,9 @@ pub struct Simulation {
     pub transitions: Vec<(usize, Phase, u32)>,
     pub winner: Option<Option<PlayerId>>,
     pub boundary_state: GameState,
+    /// A copy of the game at the last step boundary near the end of the prefix, when asked for
+    /// (see [`replay_boundary`]).
+    pub tail_copy: Option<StepSnapshot>,
 }
 
 impl Decider for PrivateDecider {
@@ -1025,12 +1028,26 @@ pub fn simulate_with(
     match (mode, usable) {
         (SimulationMode::Auto, Some(copy)) => {
             FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            finish(simulate_script(config, prefix, actor, plan, Some(copy)))
+            finish(simulate_script(
+                config,
+                prefix,
+                actor,
+                plan,
+                Some(copy),
+                None,
+            ))
         }
         (SimulationMode::Verify, Some(copy)) => {
             FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let forked = finish(simulate_script(config, prefix, actor, plan, Some(copy)));
-            let full = finish(simulate_script(config, prefix, actor, plan, None));
+            let forked = finish(simulate_script(
+                config,
+                prefix,
+                actor,
+                plan,
+                Some(copy),
+                None,
+            ));
+            let full = finish(simulate_script(config, prefix, actor, plan, None, None));
             if let Some(difference) = simulation_difference(&forked, &full) {
                 panic!(
                     "batch check from a step-boundary copy (log {} of {}) disagrees with the full replay: {difference}",
@@ -1040,7 +1057,7 @@ pub fn simulate_with(
             }
             forked
         }
-        _ => finish(simulate_script(config, prefix, actor, plan, None)),
+        _ => finish(simulate_script(config, prefix, actor, plan, None, None)),
     }
 }
 
@@ -1214,7 +1231,40 @@ pub fn replay_boundary_state(
         .last()
         .map(|record| record.player.clone())
         .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
-    simulate_script(config, prefix, &actor, &plan, None).map(|simulation| simulation.boundary_state)
+    simulate_script(config, prefix, &actor, &plan, None, None)
+        .map(|simulation| simulation.boundary_state)
+}
+
+/// How close to the end of the prefix the replays copy the game at step boundaries
+/// ([`replay_boundary`], `replay::replay_session_with_copy`). A copy costs about as much as a step,
+/// so only the last few boundaries are copied; a final step that answers more recorded decisions
+/// than this leaves an earlier copy (or none, and the worker replays the whole prefix as before).
+pub(crate) const TAIL_COPY_WINDOW: usize = 64;
+
+/// [`replay_boundary_state`], replaying only what `from` (a copy of the game at an earlier step
+/// boundary of this same prefix) does not cover, and also returning a copy of the game at the last
+/// step boundary of the replay when `generation` is given: a new session worker forks it
+/// (`SessionConfig::resume`) instead of replaying the whole prefix a second time.
+///
+/// # Errors
+/// As [`replay_boundary_state`].
+pub fn replay_boundary(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+    from: Option<&StepSnapshot>,
+    generation: Option<u64>,
+) -> Result<(GameState, Option<StepSnapshot>), BatchFailure> {
+    let plan = MovementPlan {
+        kind: BatchKind::TacticalMovement,
+        destination: String::new(),
+        steps: Vec::new(),
+    };
+    let actor = prefix
+        .last()
+        .map(|record| record.player.clone())
+        .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
+    simulate_script(config, prefix, &actor, &plan, from, generation)
+        .map(|simulation| (simulation.boundary_state, simulation.tail_copy))
 }
 
 /// Wall-clock budget for replaying `decisions` recorded choices from the opening state.
@@ -1233,6 +1283,7 @@ fn simulate_script(
     actor: &PlayerId,
     plan: &MovementPlan,
     from: Option<&StepSnapshot>,
+    copy_generation: Option<u64>,
 ) -> Result<Simulation, BatchFailure> {
     let force = crate::session::RngForce::new(&config.rng_marks);
     // Decisions the copy already covers are not replayed; the rest of the prefix is.
@@ -1276,6 +1327,7 @@ fn simulate_script(
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
+    let mut tail_copy: Option<StepSnapshot> = None;
     for _ in 0..(replayed
         .saturating_add(plan.steps.len())
         .saturating_mul(8)
@@ -1287,6 +1339,19 @@ fn simulate_script(
                 "simulation timed out",
                 "next engine choice",
             ));
+        }
+        if let Some(generation) = copy_generation {
+            // Between steps: copy the game once the prefix is nearly answered (each boundary
+            // that recorded something since the last copy).
+            let remaining = script.lock().expect("script").prefix.len();
+            if remaining <= TAIL_COPY_WINDOW
+                && tail_copy
+                    .as_ref()
+                    .is_none_or(|copy| copy.log_len < game.table.log.records.len())
+                && let Some(copy) = StepSnapshot::capture(&mut game, generation)
+            {
+                tail_copy = Some(copy);
+            }
         }
         let result = game.step();
         if game.state.phase != phase || game.state.round != round {
@@ -1355,6 +1420,7 @@ fn simulate_script(
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
                 boundary_state: game.state.clone(),
+                tail_copy,
             });
         }
         if let Some(err) = result.error {
@@ -1440,7 +1506,8 @@ mod tests {
             destination: String::new(),
             steps: Vec::new(),
         };
-        let simulation = simulate_script(&config, &prefix, &players[0], &plan, None).unwrap();
+        let simulation =
+            simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
         assert!(simulation.boundary_state.finished);
         assert!(
             simulation

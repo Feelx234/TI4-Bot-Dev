@@ -1594,11 +1594,12 @@ impl GameRegistry {
         let all: Vec<_> = current.into_iter().chain(redo).collect();
         let config = session.restart_config();
         drop(state);
-        let report = crate::session::replay::replay_session_forced(
+        let (report, copy) = crate::session::replay::replay_session_with_copy(
             &config.state,
             config.galaxy.as_ref(),
             &all[..target],
             &config.rng_marks,
+            session.history_status().generation.saturating_add(1),
         )
         .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
         if !report.hashes_match || report.decision_count != target {
@@ -1635,7 +1636,16 @@ impl GameRegistry {
             batches: session.batches(),
             rng_marks: config.rng_marks.clone(),
         };
-        self.publish_history(game_id, &session, config, history, expected_version, original_count, host)
+        self.publish_history(
+            game_id,
+            &session,
+            config,
+            history,
+            expected_version,
+            original_count,
+            host,
+            copy,
+        )
     }
 
     /// Replace the live session by one that replays `history`, the shared tail of every history
@@ -1658,8 +1668,22 @@ impl GameRegistry {
         expected_version: u64,
         original_count: usize,
         host: PlayerId,
+        copy: Option<super::step_snapshot::StepSnapshot>,
     ) -> Result<InitialSnapshotMsg, HistoryError> {
         let revision = history.revision;
+        let mut next = config.clone();
+        next.prior_decisions.clone_from(&history.decisions);
+        next.prior_events.clone_from(&history.events);
+        next.redo_decisions.clone_from(&history.redo);
+        next.rng_marks.clone_from(&history.rng_marks);
+        next.redo_events.clone_from(&history.redo_events);
+        next.event_counter = history.event_counter;
+        next.initial_version = revision;
+        next.history_active = true;
+        next.history_generation = history.generation;
+        next.batches.clone_from(&history.batches);
+        // The replacement's private replay runs here, before the registry lock is taken.
+        Self::prepare_replacement(&mut next, copy);
         // A live worker must be quiescent before publishing the new authoritative branch.
         let mut state = self.state.lock().expect("registry lock");
         if !state
@@ -1698,17 +1722,6 @@ impl GameRegistry {
             state.sessions.insert(game_id.to_owned(), replacement);
             return Err(HistoryError::Storage(error.to_string()));
         }
-        let mut next = config;
-        next.prior_decisions.clone_from(&history.decisions);
-        next.prior_events.clone_from(&history.events);
-        next.redo_decisions = history.redo;
-        next.rng_marks = history.rng_marks;
-        next.redo_events = history.redo_events;
-        next.event_counter = history.event_counter;
-        next.initial_version = revision;
-        next.history_active = true;
-        next.history_generation = history.generation;
-        next.batches = history.batches;
         let replacement = Arc::new(GameSession::start(next));
         let replay = replacement.wait_replayed();
         state
@@ -1720,6 +1733,40 @@ impl GameRegistry {
             ))
         })?;
         Ok(replacement.get_snapshot(&ViewerRole::Player(host)))
+    }
+
+    /// Do the replacement worker's private replay up front: the position at its first live
+    /// question and a copy of the game near the end of its decisions, which the worker forks
+    /// instead of replaying them all (`spawn_session_worker` would otherwise do the same replay,
+    /// with the registry locked). `copy` is a copy the caller's own replay of these decisions
+    /// already took; then only what it does not cover is replayed. When the replay fails nothing
+    /// is prepared and the worker's own replay reports the failure, as before.
+    fn prepare_replacement(
+        next: &mut SessionConfig,
+        copy: Option<super::step_snapshot::StepSnapshot>,
+    ) {
+        next.replay_boundary_state = None;
+        next.resume = None;
+        if next.prior_decisions.is_empty() {
+            return;
+        }
+        let copy =
+            copy.filter(|copy| next.step_snapshots && copy.is_prefix_of(&next.prior_decisions));
+        let generation = (next.step_snapshots && copy.is_none()).then_some(next.history_generation);
+        match crate::session::batch::replay_boundary(
+            next,
+            &next.prior_decisions,
+            copy.as_ref(),
+            generation,
+        ) {
+            Ok((boundary, taken)) => {
+                next.replay_boundary_state = Some(boundary);
+                next.resume = copy
+                    .or_else(|| taken.filter(|taken| taken.is_prefix_of(&next.prior_decisions)))
+                    .map(Arc::new);
+            }
+            Err(_) => next.resume = copy.map(Arc::new),
+        }
     }
     #[must_use]
     pub fn new() -> Self {
