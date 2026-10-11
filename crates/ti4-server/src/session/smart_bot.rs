@@ -14,19 +14,22 @@
 //!
 //! - **Score** an objective whenever the engine offers one.
 //! - **Action phase**: take a tactical action when some system is worth activating (below),
-//!   sometimes the strategic action instead so the card still gets played. With nothing worth a
+//!   always when a decent planet is there for the taking, otherwise sometimes the strategic
+//!   action instead so the card still gets played. With nothing worth a
 //!   command token, play the card or pass.
 //! - **Activation**: value each system as the planets it can take (resources + influence, Mecatol
 //!   Rex extra while the custodians point is there to win), counting only the planets its
 //!   reachable carriers can bring enough ground forces to; a hostile fleet must be beaten clearly
 //!   (fleet-strength matchup, [`ti4_policy::fleet_strength`]) or the system is avoided. A system
 //!   with its space dock is worth activating to build when the seat is short of units it could
-//!   build there.
+//!   build there, or to fetch an empty transport for the ground forces waiting there.
 //! - **Movement**: into a fight, move the strongest ships until the matchup is clearly won; move a
-//!   carrier while the target's planets still need ground forces; then stop. Never move into a
+//!   carrier while the target's planets still need ground forces (to a dock: an empty one for
+//!   the ground forces waiting there); then stop. Never move into a
 //!   fight it cannot win. **Loading**: ground forces while planets need them, fighters for a fight.
-//! - **Landing**: commit ground forces to the most valuable planet still short of a winning
-//!   force, never to a planet it cannot outnumber; stop when every planet is covered.
+//! - **Landing**: commit ground forces to the planet still short of a winning force with the best
+//!   worth per troop (so every free planet gets one), never to a planet it cannot outnumber;
+//!   stop when every planet is covered.
 //! - **Retreat** from a space combat it is clearly losing, otherwise stay.
 //! - **Production**: buy the most useful unit per resource it can pay for (per production slot
 //!   when resources are plentiful): ground forces and a carrier when it lacks them, warships
@@ -37,7 +40,8 @@
 //! - **Command tokens**: a new token goes to the fleet pool until it holds three (or enough for
 //!   its biggest ship stack), then to the smaller of the tactic and strategy pools; a
 //!   redistribution aims at the same arrangement. Buy Leadership tokens with spare influence
-//!   (keeping six for the custodians while they stand). Always follow Technology and Imperial.
+//!   (keeping six for the custodians only while its units are in or next to Mecatol Rex's system,
+//!   or could move there this turn). Always follow Technology and Imperial.
 //! - **Payment**: exhaust the planet that wastes least.
 //! - **Trades**: accept an offer only when its engine-estimated value to the bot is slightly
 //!   positive; propose only offers that gain for both sides; never counter.
@@ -68,6 +72,9 @@ pub const RETREAT_MARGIN: f64 = -0.5;
 pub const MECATOL_BONUS: f64 = 6.0;
 /// A system must be worth at least this to steer the action and activation choice.
 pub const ACTIVATION_THRESHOLD: f64 = 1.0;
+/// A system worth this much (a decent planet to take) is always activated before the strategic
+/// action is played.
+pub const EAGER_WORTH: f64 = 3.0;
 /// An accepted trade must be worth at least this much to the bot (engine `net` estimate).
 pub const ACCEPT_NET: f64 = 0.25;
 /// Ground forces kept waiting at its docks even when no ship could carry them yet.
@@ -242,6 +249,39 @@ fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
     worth
 }
 
+/// Mecatol Rex's system on this map.
+fn mecatol_system(seen: &Observed<'_>) -> Option<SystemId> {
+    ti4_content::galaxy::planet(seen.content(), MECATOL, seen.sources())?
+        .system_id()
+        .map(SystemId::new)
+}
+
+/// Whether the seat could invade Mecatol Rex this turn or next, so six influence for the
+/// custodians are worth keeping back: the custodians still stand and it has units in Mecatol's
+/// system or next to it, or ships that could move there now. Without a map, assume it can.
+fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    if seen.custodians_removed() {
+        return false;
+    }
+    let (Some(galaxy), Some(mr)) = (seen.galaxy(), mecatol_system(seen)) else {
+        return true;
+    };
+    let has_units = |system: &SystemId| {
+        let board = seen.system(system);
+        board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+            .any(|u| &u.owner == me)
+    };
+    has_units(&mr)
+        || galaxy
+            .adjacent(mr.as_str())
+            .into_iter()
+            .any(|system| has_units(&SystemId::new(system)))
+        || !seen.movable_into(me, &mr).is_empty()
+}
+
 /// Ground forces needed to take `planet`: one more than the hit points defending it.
 fn ground_needed(
     seen: &Observed<'_>,
@@ -265,7 +305,8 @@ fn ground_needed(
     defenders + 1
 }
 
-/// Planets in `system` worth invading, best first: (planet, worth, ground needed). Planets the
+/// Planets in `system` worth invading, best value per ground force first: (planet, worth, ground
+/// needed). Planets the
 /// seat already holds, and Mecatol Rex while it cannot pay to lift the custodians, are left out.
 fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(PlanetId, f64, usize)> {
     let board = seen.system(system);
@@ -285,11 +326,22 @@ fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(Planet
                 (planet, worth, need)
             })
             .collect();
-    out.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out.sort_by(|a, b| {
+        per_troop(b)
+            .total_cmp(&per_troop(a))
+            .then_with(|| a.0.cmp(&b.0))
+    });
     out
 }
 
-/// The value of taking as many of `targets` as `ground` ground forces can, greedily by worth.
+/// A target's worth per ground force it takes to win it: free planets first, then the richest.
+#[expect(clippy::cast_precision_loss, reason = "small counts")]
+fn per_troop(target: &(PlanetId, f64, usize)) -> f64 {
+    target.1 / target.2.max(1) as f64
+}
+
+/// The value of taking as many of `targets` as `ground` ground forces can, greedily by
+/// [`per_troop`] (the order [`targets`] returns).
 fn takeable_value(targets: &[(PlanetId, f64, usize)], mut ground: usize) -> f64 {
     let mut value = 0.0;
     for (_, worth, need) in targets {
@@ -420,13 +472,22 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
         value += takeable_value(&planets, ground);
     }
 
-    // Production at home when short of units and able to pay.
-    if !contested
-        && has_own_production(seen, me, system)
-        && seen.available_spend(me, Spend::Resources) >= 3
-        && wants_to_build(seen, me, system)
-    {
-        value = value.max(2.0);
+    // Production at home when short of units and able to pay, or an empty transport to fetch the
+    // ground forces waiting there.
+    if !contested && has_own_production(seen, me, system) {
+        let build =
+            seen.available_spend(me, Spend::Resources) >= 3 && wants_to_build(seen, me, system);
+        let ferry = needs_transport(seen, me, system)
+            && movable.iter().any(|m| {
+                m.capacity > 0
+                    && !seen
+                        .loadable(me, &m.origin)
+                        .iter()
+                        .any(|cargo| is_ground(seen, &cargo.unit))
+            });
+        if build || ferry {
+            value = value.max(2.0);
+        }
     }
     value
 }
@@ -487,8 +548,10 @@ fn pick_action(
         // Nothing worth a command token: play the card or pass rather than waste one.
         return strategic.or_else(|| choice.options.iter().position(|o| o.id == "pass"));
     }
+    // A planet worth having is there for the taking: always go (the card waits for a quieter
+    // turn). Otherwise now and then play the card first.
     match strategic {
-        Some(index) if rng.random_bool(0.25) => Some(index),
+        Some(index) if worth < EAGER_WORTH && rng.random_bool(0.25) => Some(index),
         _ => Some(tactical),
     }
 }
@@ -566,7 +629,9 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     }
 
     if has_own_production(seen, me, &active) && targets(seen, me, &active).is_empty() {
-        return Some(done); // a build activation: keep the fleet where it is
+        // A build activation: keep the fleet where it is, but fetch an empty transport for the
+        // ground forces waiting here.
+        return empty_transport_home(&moves, seen, me, &active).or(Some(done));
     }
     if let Some(index) = carrier_for_ground(&moves, seen, me, &active) {
         return Some(index);
@@ -602,6 +667,58 @@ fn carrier_for_ground(
             t.capacity() > 0
                 && payload_str(o, "origin").is_some_and(|origin| {
                     seen.loadable(me, &SystemId::new(origin))
+                        .iter()
+                        .any(|cargo| is_ground(seen, &cargo.unit))
+                })
+        })
+        .max_by_key(|(i, _, t)| (t.capacity(), std::cmp::Reverse(*i)))
+        .map(|(i, _, _)| *i)
+}
+
+/// Own ground forces waiting on the planets of `system`, and own capacity in its space area.
+fn waiting_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (usize, i64) {
+    let board = seen.system(system);
+    let waiting = board
+        .planet_units
+        .values()
+        .flatten()
+        .filter(|u| &u.owner == me && is_ground(seen, u))
+        .count();
+    let lift = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me)
+        .filter_map(|u| unit_type(seen, u.type_id.as_str()))
+        .map(|t| t.capacity())
+        .sum();
+    (waiting, lift)
+}
+
+/// Whether ground forces wait at `system` with no ship there to carry them.
+fn needs_transport(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+    let (waiting, lift) = waiting_and_lift(seen, me, system);
+    waiting >= 2 && lift == 0
+}
+
+/// A ship with capacity and nothing to load where it stands, sent to a dock where ground forces
+/// wait without a ride.
+fn empty_transport_home(
+    moves: &[(usize, &ChoiceOption, UnitType<'_>)],
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    active: &SystemId,
+) -> Option<usize> {
+    let (waiting, lift) = waiting_and_lift(seen, me, active);
+    if waiting < 2 || lift >= i64::try_from(waiting).unwrap_or(i64::MAX) {
+        return None;
+    }
+    moves
+        .iter()
+        .filter(|(_, o, t)| {
+            t.capacity() > 0
+                && payload_str(o, "origin").is_some_and(|origin| {
+                    !seen
+                        .loadable(me, &SystemId::new(origin))
                         .iter()
                         .any(|cargo| is_ground(seen, &cargo.unit))
                 })
@@ -652,21 +769,28 @@ fn pick_load(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     Some(done)
 }
 
-/// Landing: the most valuable planet still short of a winning force that can still be reached.
+/// Landing: the planet still short of a winning force with the best worth per troop it still
+/// needs, never one the troops in space cannot win; stop when every planet is covered.
 fn pick_commit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let done = choice.options.iter().position(ChoiceOption::is_decline)?;
     let system = seen
         .active_system()
         .cloned()
         .or_else(|| seen.invasion().map(|invasion| invasion.system))?;
+    // Identical units are offered once, so count the troops from the options and from space.
     let troops: BTreeSet<&str> = choice
         .options
         .iter()
         .filter(|o| o.kind == "commit")
         .filter_map(|o| o.id.split('|').nth(1))
         .collect();
-    let available = troops.len();
     let board = seen.system(&system);
+    let in_space = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && is_ground(seen, u))
+        .count();
+    let available = troops.len().max(in_space);
     let mut best: Option<(usize, f64)> = None;
     for (index, option) in choice.options.iter().enumerate() {
         if option.kind != "commit" {
@@ -688,7 +812,9 @@ fn pick_commit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<us
         if held || mine >= need || mine + available < need {
             continue;
         }
-        let worth = planet_worth(seen, planet.as_str());
+        // Value per troop still to land: every free planet gets one before a defended one.
+        #[expect(clippy::cast_precision_loss, reason = "small counts")]
+        let worth = planet_worth(seen, planet.as_str()) / (need - mine) as f64;
         if best.is_none_or(|(_, b)| worth > b) {
             best = Some((index, worth));
         }
@@ -936,10 +1062,10 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         return Some(yes);
     }
     if choice.prompt.contains("influence for a command token") {
-        // Keep the six influence for the custodians while they still stand.
+        // Keep six influence for the custodians only while Mecatol Rex is within reach.
         let spare = seen.available_spend(me, Spend::Influence)
             - ti4_engine::strategy_cards::INFLUENCE_PER_TOKEN;
-        return Some(if seen.custodians_removed() || spare >= 6 {
+        return Some(if !mecatol_in_reach(seen, me) || spare >= 6 {
             yes
         } else {
             no
@@ -982,7 +1108,9 @@ mod tests {
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
-    use ti4_engine::fixtures::{Hub, game, hub_from, plain_systems, put, put_on_planet};
+    use ti4_engine::fixtures::{
+        Hub, game, hub_from, hub_with_centre, plain_systems, put, put_on_planet,
+    };
     use ti4_model::POK;
     use ti4_model::state::GameState;
 
@@ -1566,8 +1694,8 @@ mod tests {
     }
 
     #[test]
-    fn research_and_secret_objectives_are_always_followed_and_leadership_spares_the_custodians() {
-        let (mut state, hub, _, _) = board();
+    fn research_and_secret_objectives_are_always_followed() {
+        let (state, hub, _, _) = board();
         let yes_no = |prompt: &str| {
             Choice::new(
                 me(),
@@ -1593,14 +1721,217 @@ mod tests {
             None,
             "no opinion"
         );
-        let leadership = yes_no("spend 3 influence for a command token");
+    }
+
+    fn leadership() -> Choice {
+        Choice::new(
+            me(),
+            "spend 3 influence for a command token",
+            vec![
+                ChoiceOption::labelled("no", "strategy", "no"),
+                ChoiceOption::labelled("yes", "strategy", "yes"),
+            ],
+        )
+    }
+
+    #[test]
+    fn leadership_keeps_six_influence_back_only_while_mecatol_rex_is_in_reach() {
+        let mut state = game(&["a", "b"]);
+        let hub = hub_with_centre("18");
+        let mr = SystemId::new("18");
+        state.player_mut(&me()).expect("seat").trade_goods = 4;
+        assert_eq!(
+            picked(&state, &hub, &leadership()),
+            Some(1),
+            "nothing near Mecatol Rex: spend freely"
+        );
+
+        put(&mut state, &outer(&hub, 0), "destroyer", &me(), 1);
+        let seen = observe(&state, &hub);
+        assert!(mecatol_in_reach(&seen, &me()));
         state.player_mut(&me()).expect("seat").trade_goods = 8;
-        assert_eq!(picked(&state, &hub, &leadership), Some(0), "six kept back");
+        assert_eq!(
+            picked(&state, &hub, &leadership()),
+            Some(0),
+            "six kept back"
+        );
         state.player_mut(&me()).expect("seat").trade_goods = 9;
-        assert_eq!(picked(&state, &hub, &leadership), Some(1));
-        state.player_mut(&me()).expect("seat").trade_goods = 3;
+        assert_eq!(picked(&state, &hub, &leadership()), Some(1));
+
+        // Ground forces already on Mecatol Rex count too; once the custodians are gone, spend.
+        let (mut state, hub) = (game(&["a", "b"]), hub_with_centre("18"));
+        put_on_planet(
+            &mut state,
+            &mr,
+            &PlanetId::new(MECATOL),
+            "infantry",
+            &me(),
+            1,
+        );
+        state.player_mut(&me()).expect("seat").trade_goods = 4;
+        assert_eq!(picked(&state, &hub, &leadership()), Some(0));
         state.custodians_removed = true;
-        assert_eq!(picked(&state, &hub, &leadership), Some(1));
+        assert_eq!(picked(&state, &hub, &leadership()), Some(1));
+    }
+
+    #[test]
+    fn mecatol_rex_out_of_reach_keeps_no_reserve() {
+        // A ship too far from Mecatol Rex to arrive this turn or next leaves it out of reach.
+        let plain: Vec<String> = plain_systems(60)
+            .into_iter()
+            .filter(|id| planets(id).is_empty())
+            .take(6)
+            .collect();
+        let mut ids = vec![plain[0].clone(), "18".to_owned()];
+        ids.extend(plain[1..].iter().cloned());
+        let hub = hub_from(&ids);
+        let mut state = game(&["a", "b"]);
+        // The Mecatol tile sits on the ring; the seat's ship is across the board from it.
+        let far = SystemId::new(hub.across("18"));
+        put(&mut state, &far, "dreadnought", &me(), 1);
+        let seen = observe(&state, &hub);
+        assert!(
+            !mecatol_in_reach(&seen, &me()),
+            "dreadnoughts move 1, two hexes away"
+        );
+        put(&mut state, &far, "cruiser", &me(), 1);
+        let seen = observe(&state, &hub);
+        assert!(mecatol_in_reach(&seen, &me()), "a cruiser moves 2");
+    }
+
+    #[test]
+    fn a_free_planet_is_taken_eagerly_and_every_free_planet_gets_a_troop() {
+        // A system with two planets, neither a homeworld nor Mecatol Rex.
+        let two = plain_systems(80)
+            .into_iter()
+            .find(|id| {
+                let p = planets(id);
+                p.len() == 2
+                    && p.iter().all(|planet| {
+                        ti4_content::galaxy::planet(ContentStore::embedded(), planet, POK)
+                            .is_some_and(|r| r.homeworld_of().is_none())
+                    })
+            })
+            .expect("a two-planet system");
+        let mut ids = vec![two.clone()];
+        ids.extend(
+            plain_systems(60)
+                .into_iter()
+                .filter(|id| planets(id).is_empty())
+                .take(6),
+        );
+        let hub = hub_from(&ids);
+        let system = SystemId::new(two.clone());
+        let (p0, p1) = {
+            let p = planets(&two);
+            (PlanetId::new(p[0].clone()), PlanetId::new(p[1].clone()))
+        };
+        let mut state = game(&["a", "b"]);
+        let home = outer(&hub, 0);
+        put(&mut state, &home, "carrier", &me(), 1);
+        put(&mut state, &home, "infantry", &me(), 2);
+        let seen = observe(&state, &hub);
+        assert!(activation_value(&seen, &me(), &system) >= EAGER_WORTH);
+        let mut rng = ChaCha8Rng::seed_from_u64(3);
+        let action = Choice::new(
+            me(),
+            "action phase",
+            vec![
+                ChoiceOption::labelled("strategic", "action", "strategic"),
+                ChoiceOption::labelled("tactical", "action", "tactical"),
+            ],
+        );
+        for _ in 0..20 {
+            assert_eq!(
+                pick_action(&action, &seen, &me(), &mut rng),
+                Some(1),
+                "a planet to take beats the card"
+            );
+        }
+
+        // Landing: identical infantry are offered once per planet; both planets get one.
+        state.system_mut(&home).units.clear();
+        put(&mut state, &system, "carrier", &me(), 1);
+        put(&mut state, &system, "infantry", &me(), 2);
+        state.active_system = Some(system.clone());
+        let landing = |planets: &[&PlanetId]| {
+            let mut options: Vec<ChoiceOption> = planets
+                .iter()
+                .map(|planet| {
+                    ChoiceOption::labelled(format!("commit|0|{planet}"), "commit", "land infantry")
+                        .with("planet", planet.to_string())
+                        .with("unit", "infantry")
+                })
+                .collect();
+            options.push(ChoiceOption::labelled("done_committing", "decline", "done"));
+            Choice::new(me(), "commit ground forces", options)
+        };
+        let seen = observe(&state, &hub);
+        let first = pick_commit(&landing(&[&p0, &p1]), &seen, &me()).expect("an answer");
+        assert!(first < 2, "lands");
+        let (landed, other) = if first == 0 { (&p0, &p1) } else { (&p1, &p0) };
+        let space = &mut state.system_mut(&system).units;
+        let at = space
+            .iter()
+            .position(|u| u.type_id.as_str() == "infantry")
+            .expect("one");
+        space.remove(at);
+        put_on_planet(&mut state, &system, landed, "infantry", &me(), 1);
+        let seen = observe(&state, &hub);
+        let choice = landing(&[&p0, &p1]);
+        let second = pick_commit(&choice, &seen, &me()).expect("an answer");
+        assert_eq!(
+            choice.options[second]
+                .payload
+                .get("planet")
+                .and_then(Value::as_str),
+            Some(other.as_str()),
+            "the other free planet"
+        );
+    }
+
+    #[test]
+    fn landing_counts_identical_troops_offered_once() {
+        // Three infantry in space are one option; the defended planet needs two and gets them.
+        let (mut state, hub, centre, planet) = board();
+        state.active_system = Some(centre.clone());
+        put_on_planet(&mut state, &centre, &planet, "infantry", &foe(), 1);
+        put(&mut state, &centre, "carrier", &me(), 1);
+        put(&mut state, &centre, "infantry", &me(), 3);
+        let seen = observe(&state, &hub);
+        assert_eq!(
+            pick_commit(&commit_choice(&planet, 1), &seen, &me()),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_dock_with_ground_forces_waiting_fetches_an_empty_transport() {
+        let (mut state, hub, centre, planet) = board();
+        put_on_planet(&mut state, &centre, &planet, "spacedock", &me(), 1);
+        put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 4);
+        state
+            .system_mut(&centre)
+            .planet_control
+            .insert(planet.clone(), me());
+        put(&mut state, &centre, "destroyer", &me(), 3);
+        state.player_mut(&me()).expect("seat").fleet_tokens = 3;
+        let away = outer(&hub, 0);
+        put(&mut state, &away, "carrier", &me(), 1);
+        let seen = observe(&state, &hub);
+        assert!(activation_value(&seen, &me(), &centre) >= ACTIVATION_THRESHOLD);
+        state.active_system = Some(centre.clone());
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&away, &[("carrier", 4)]);
+        assert_eq!(
+            pick_move(&choice, &seen, &me()),
+            Some(0),
+            "the carrier comes home"
+        );
+        // With the transport there, nothing more.
+        put(&mut state, &centre, "carrier", &me(), 1);
+        let seen = observe(&state, &hub);
+        assert_eq!(pick_move(&choice, &seen, &me()), Some(1));
     }
 
     #[test]
