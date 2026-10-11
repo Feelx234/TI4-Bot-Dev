@@ -526,3 +526,11 @@
   font-size: 12px;
   color: #fbbf24;
 }
+
+.objectives-matrix__secret-held .objectives-matrix__status-empty {
+  font-size: 12px;
+}
+
+.objectives-matrix__card-content .secret-progress {
+  max-width: 420px;
+}

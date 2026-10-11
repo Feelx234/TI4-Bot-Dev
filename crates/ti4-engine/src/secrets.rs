@@ -885,6 +885,22 @@ pub fn remaining_position_progress(
     })
 }
 
+/// Exact progress toward any secret whose requirement is a countable position.
+///
+/// The union of [`counting_progress`] and [`remaining_position_progress`] — the same helpers the
+/// requirements themselves are built from, so a bar that reads full is a card that is legal to
+/// score (timing aside). Event-conditioned secrets ([`feat_for`]) have no running count and
+/// answer `None`, as do position secrets whose count needs the map when `position` has none.
+///
+/// Display-only: callers project it for the holder's own hand and nothing else.
+#[must_use]
+pub fn progress(
+    alias: &SecretObjectiveId,
+    position: &Position<'_>,
+) -> Option<crate::objectives::RequirementProgress> {
+    counting_progress(alias, position).or_else(|| remaining_position_progress(alias, position))
+}
+
 fn remaining_position_satisfied(alias: &str, position: &Position<'_>) -> bool {
     remaining_position_progress(&SecretObjectiveId::new(alias), position)
         .is_some_and(|progress| progress.satisfied())
@@ -1957,6 +1973,89 @@ mod tests {
             .unwrap()
             .satisfied()
         );
+    }
+
+    fn on<'a>(state: &'a GameState, seat: &'a PlayerId) -> Position<'a> {
+        Position {
+            state,
+            content: ContentStore::embedded(),
+            sources: POK,
+            player: seat,
+            galaxy: None,
+            imagined: crate::objectives::Imagined::NONE,
+        }
+    }
+
+    #[test]
+    fn combined_progress_counts_the_holders_position_and_skips_feats() {
+        let mut state = game(&["a", "b"]);
+        let seat = player();
+        let at = |state: &GameState| -> (usize, usize, bool) {
+            let position = on(state, &seat);
+            let p = progress(&SecretObjectiveId::new("ctr"), &position).expect("ctr counts");
+            (p.have, p.threshold, p.satisfied())
+        };
+        let (base, threshold, _) = at(&state);
+        assert_eq!(threshold, 6, "Control the Region asks for 6 systems");
+        let plain = crate::fixtures::plain_systems(12);
+        let mut added = 0;
+        for system in plain
+            .iter()
+            .map(|id| ti4_model::id::SystemId::new(id.as_str()))
+        {
+            if added == 3 {
+                break;
+            }
+            if state.system_state(&system).units_of(&seat).is_empty() {
+                put(&mut state, &system, "cruiser", &seat, 1);
+                // A rival's ship in a system does not count for us.
+                put(&mut state, &system, "destroyer", &PlayerId::new("b"), 1);
+                added += 1;
+            }
+        }
+        let (have, _, _) = at(&state);
+        assert_eq!(
+            have,
+            base + 3,
+            "each new system with one of our ships counts once"
+        );
+
+        // Ground forces are not ships.
+        let before = at(&state).0;
+        let system = ti4_model::id::SystemId::new(plain.last().unwrap().as_str());
+        if state.system_state(&system).units_of(&seat).is_empty() {
+            put(&mut state, &system, "infantry", &seat, 1);
+        }
+        assert_eq!(at(&state).0, before);
+
+        // Hand-sized counts read the holder's own seat.
+        let position = on(&state, &seat);
+        let fsn = progress(&SecretObjectiveId::new("fsn"), &position).expect("fsn counts");
+        assert_eq!(fsn.threshold, 5);
+        assert_eq!(
+            fsn.have,
+            state.player(&seat).unwrap().action_cards.len(),
+            "Form a Spy Network counts action cards in hand"
+        );
+
+        // Event secrets have no running count; every counted alias agrees with legality.
+        for alias in registered_aliases() {
+            let id = SecretObjectiveId::new(alias);
+            match progress(&id, &position) {
+                Some(p) => assert_eq!(
+                    p.satisfied(),
+                    requirement_for(&id).unwrap()(&position),
+                    "{alias}"
+                ),
+                None => assert!(
+                    feat_for(alias).is_some() || ["lsc", "te", "fc"].contains(&alias),
+                    "{alias} is neither a feat nor map-bound, so it must have progress"
+                ),
+            }
+        }
+        for alias in ["dtgs", "pe", "bam", "dtd", "sar"] {
+            assert!(progress(&SecretObjectiveId::new(alias), &position).is_none());
+        }
     }
 
     #[test]

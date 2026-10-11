@@ -54,6 +54,7 @@ pub fn project_player_view(player: &Player) -> PlayerView {
             .cloned()
             .collect(),
         scored_secret_objectives: player.plot_objectives.iter().cloned().collect(),
+        secret_objective_progress: BTreeMap::new(),
         leaders: player.leaders.clone(),
     }
 }
@@ -449,25 +450,70 @@ fn canonical_objective_alias<'a>(content: &'a ContentStore, raw: &'a str) -> Opt
     None
 }
 
+/// The placed galaxy the static map tiles describe, for map-shaped objective counts.
+fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
+    if map_tiles.is_empty() {
+        return None;
+    }
+    let tiles: Vec<_> = map_tiles
+        .iter()
+        .map(|tile| {
+            (
+                tile.system_id.as_str(),
+                ti4_model::hex::Hex::new(tile.q, tile.r),
+            )
+        })
+        .collect();
+    Galaxy::placed(ContentStore::embedded(), &tiles, POK).ok()
+}
+
+/// Exact progress toward `seat`'s own held secrets, by the engine helper that backs their
+/// requirements. Event-conditioned secrets and redacted placeholders get no entry.
+///
+/// Privacy: callers pass only the viewing seat, and `state` is already that seat's redacted
+/// view, so nothing here reads another seat's hidden hand.
+#[must_use]
+pub fn project_secret_progress(
+    state: &GameState,
+    seat: &PlayerId,
+    map_tiles: &[BoardTileView],
+) -> BTreeMap<ti4_model::id::SecretObjectiveId, ObjectiveProgressView> {
+    let Some(player) = state.player(seat) else {
+        return BTreeMap::new();
+    };
+    let galaxy = placed_galaxy(map_tiles);
+    let position = ti4_engine::secrets::Position {
+        state,
+        content: ContentStore::embedded(),
+        sources: POK,
+        player: seat,
+        galaxy: galaxy.as_ref(),
+        imagined: ti4_engine::objectives::Imagined::NONE,
+    };
+    player
+        .secret_objectives
+        .iter()
+        .filter(|alias| alias.as_str() != HIDDEN)
+        .filter_map(|alias| {
+            let prog = ti4_engine::secrets::progress(alias, &position)?;
+            Some((
+                alias.clone(),
+                ObjectiveProgressView {
+                    have: u32::try_from(prog.have).unwrap_or(0),
+                    threshold: u32::try_from(prog.threshold).unwrap_or(0),
+                    satisfied: prog.satisfied(),
+                },
+            ))
+        })
+        .collect()
+}
+
 /// Projects table-level public objectives, laws, strategy cards, and objective progress.
 #[must_use]
 pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> TableView {
     let content = ContentStore::embedded();
     let sources = POK;
-    let galaxy_opt = if !map_tiles.is_empty() {
-        let tiles: Vec<_> = map_tiles
-            .iter()
-            .map(|tile| {
-                (
-                    tile.system_id.as_str(),
-                    ti4_model::hex::Hex::new(tile.q, tile.r),
-                )
-            })
-            .collect();
-        Galaxy::placed(content, &tiles, sources).ok()
-    } else {
-        None
-    };
+    let galaxy_opt = placed_galaxy(map_tiles);
 
     let mut objective_progress = BTreeMap::new();
     for player in &state.players {
@@ -549,7 +595,21 @@ pub fn project_game_view_full(
     dice_rolls: &[crate::protocol::view::CombatDieRoll],
 ) -> GameView {
     let redacted = redacted_state(state, viewer);
-    let players = redacted.players.iter().map(project_player_view).collect();
+    let players = redacted
+        .players
+        .iter()
+        .map(|player| {
+            let mut view = project_player_view(player);
+            // Only the viewing seat's own hand: a law-revealed rival secret stays bare.
+            if let ViewerRole::Player(seat) = viewer
+                && *seat == player.id
+            {
+                view.secret_objective_progress =
+                    project_secret_progress(&redacted, seat, map_tiles);
+            }
+            view
+        })
+        .collect();
 
     GameView {
         round: redacted.round,

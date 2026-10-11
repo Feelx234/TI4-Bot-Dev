@@ -542,4 +542,76 @@ describe("ObjectivesModal", () => {
       expect(screen.queryByTestId("secret-objectives-header")).toBeNull();
     });
   });
+  describe("secret objective progress", () => {
+    const owner: PlayerView = {
+      ...mockPlayers[0],
+      held_secret_objectives: ["ctr", "dtgs", "eap"],
+      secret_objective_progress: {
+        ctr: { have: 4, threshold: 6, satisfied: false },
+        eap: { have: 4, threshold: 4, satisfied: true },
+      },
+    };
+
+    it("lists the viewer's own secrets with progress outside a scoring window", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={[owner, mockPlayers[1]]}
+          viewerSeat="p1"
+        />,
+      );
+      expect(screen.getByTestId("secret-objectives-header")).toBeInTheDocument();
+      const ctr = screen.getByTestId("secret-progress-ctr");
+      expect(ctr).toHaveTextContent("4 / 6 systems with at least one of your ships");
+      expect(ctr).toHaveAttribute("data-satisfied", "false");
+      expect(screen.getByTestId("secret-progress-eap")).toHaveAttribute("data-satisfied", "true");
+      expect(screen.getByTestId("secret-progress-eap")).toHaveTextContent("met");
+      // An event secret has no count, only a note.
+      expect(screen.queryByTestId("secret-progress-dtgs")).toBeNull();
+      expect(screen.getByTestId("secret-progress-note-dtgs")).toBeInTheDocument();
+      expect(screen.getByTestId("secret-held-held-ctr")).toHaveTextContent("In your hand");
+      expect(screen.getByTestId("secret-held-held-ctr")).not.toHaveTextContent("not scoreable");
+    });
+
+    it("shows progress beside held secrets in the scoring window", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={[owner, mockPlayers[1]]}
+          viewerSeat="p1"
+          choice={{
+            actor: "p1",
+            nonce: "n",
+            prompt: "score",
+            context: { subtype: "score_objective" },
+            options: [
+              { id: "eap", label: "eap" },
+              { id: "decline", label: "decline" },
+            ],
+          } as never}
+          isScoringMode={true}
+        />,
+      );
+      expect(screen.getByTestId("secret-held-held-ctr")).toHaveTextContent("not scoreable now");
+      expect(screen.getByTestId("secret-progress-ctr")).toHaveTextContent("4 / 6");
+    });
+
+    it("shows no secret section to a viewer who is not the holder", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={[owner, mockPlayers[1]]}
+          viewerSeat="p2"
+        />,
+      );
+      expect(screen.queryByTestId("secret-objectives-header")).toBeNull();
+      expect(screen.queryByTestId("secret-progress-ctr")).toBeNull();
+    });
+  });
 });

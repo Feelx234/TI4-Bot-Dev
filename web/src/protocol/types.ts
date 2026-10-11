@@ -316,6 +316,8 @@ export interface PlayerView {
   held_action_cards?: string[];
   held_secret_objectives?: string[];
   scored_secret_objectives?: string[];
+  /** Progress toward this seat's own countable secrets; only ever sent to that seat. */
+  secret_objective_progress?: Record<string, ObjectiveProgressView>;
   leaders: Record<string, string>;
 }
 
