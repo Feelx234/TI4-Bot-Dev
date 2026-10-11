@@ -9298,6 +9298,85 @@ mod ground_routes {
         });
     }
 
+    /// Lifting the custodians token pays its six influence through the ordinary payment question:
+    /// typed `pay_influence` with the whole bill outstanding, one `pay` option per planet (`exhaust|<planet>`)
+    /// with its worth, so the client renders it with the payment panel (both printed
+    /// values beside every planet) instead of a bare list of "exhaust" buttons.
+    #[test]
+    fn the_custodians_payment_is_an_ordinary_influence_payment_question() {
+        let content = ContentStore::embedded();
+        let mecatol = SystemId::new(crate::seating::MECATOL);
+        let mut state = start_game(content, &[a(), b()], POK, None).unwrap();
+        state.board.entry(mecatol.clone()).or_default();
+        crate::fixtures::put(&mut state, &mecatol, "infantry", &a(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 0;
+        // Planets worth 2+ influence each, until there are at least six: several planets, so the
+        // payment is a real question.
+        let mut influence = 0;
+        for (id, planet) in ti4_content::galaxy::all_planets(content, POK) {
+            if influence >= 7 {
+                break;
+            }
+            if planet.homeworld_of().is_some()
+                || planet.is_placed_during_play()
+                || planet.influence() < 2
+                || id == "mr"
+            {
+                continue;
+            }
+            let system = SystemId::new(planet.system_id().unwrap());
+            state
+                .system_mut(&system)
+                .set_control(PlanetId::new(id), a());
+            influence += planet.influence();
+        }
+        assert!(custodians_removable(&state, content, POK, &a(), &mecatol));
+
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(["yes"]),
+        ));
+        let mut table = Table::with_default(Box::new(capturing));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(7);
+        let mut window = InvasionWindow::at_commit_step(&mut state, &a(), &mecatol);
+        {
+            let mut ctx = Resolving {
+                content,
+                sources: POK,
+                dice: &mut dice,
+                rng: &mut rng,
+                table: &mut table,
+                timing: None,
+            };
+            let first = window.pending_choice(&state, content, POK).expect("asked");
+            assert_eq!(first.context.as_ref().unwrap().subtype, "remove_custodians");
+            let answer = ctx.ask_seeing(&state, &first).unwrap();
+            window.resolve(&mut state, &mut ctx, answer).unwrap();
+        }
+        assert!(state.custodians_removed);
+        let seen = seen.borrow();
+        let pay = seen
+            .iter()
+            .find(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype == "pay_influence")
+            })
+            .expect("the six influence were asked for");
+        let owed = &pay.context.as_ref().unwrap().outstanding[0];
+        assert_eq!((owed.amount, owed.paid), (CUSTODIANS_COST, 0));
+        assert!(pay.options.len() > 1, "{:?}", pay.ids());
+        for option in &pay.options {
+            assert_eq!(option.kind, crate::production::PAY_KIND);
+            assert!(
+                option.id.starts_with("exhaust|") || option.id == "trade_good",
+                "{option:?}"
+            );
+            assert!(option.payload.get("worth").is_some(), "{option:?}");
+        }
+    }
+
     #[test]
     fn a_timing_effect_can_assign_ordinary_hits_and_the_events_follow() {
         let (mut state, system, planet) = arena();
