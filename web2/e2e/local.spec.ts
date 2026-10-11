@@ -87,11 +87,40 @@ test("a game of eight is played through the decision list", async ({ page }) => 
   const cards = page.getByRole("complementary", { name: "Cards" });
   await expect(cards.getByText(/^Hand \d+ \/ 7$/)).toBeVisible();
   await expect(cards.getByText(/of 122 cards left/)).toBeVisible();
-  await cards.getByRole("button", { name: /^Fake / }).first().click();
+  // The deck is in groups by when a card is played. A card with "ACTION:" has nothing to fake.
+  const action = cards.getByRole("region", { name: "Action", exact: true });
+  // A group is closed until the player opens it.
+  await expect(action.getByText(/unseen$/)).toHaveCount(0);
+  await action.getByRole("button", { name: /^Action/ }).click();
+  await expect(action.getByText(/unseen$/).first()).toBeVisible();
+  await expect(action.getByRole("button")).toHaveCount(1);
+  await cards.getByRole("region", { name: "Agenda phase" }).getByRole("button").click();
+  await cards
+    .getByRole("button", { name: /^Fake / })
+    .first()
+    .click();
   await expect(cards.getByRole("button", { name: "Stop faking" })).toBeVisible();
   await page.screenshot({ path: "shots/local/cards.png", animations: "disabled" });
   await page.keyboard.press("Escape");
   await expect(cards).toBeHidden();
+
+  // The Secrets sheet: the objectives of the viewer, and the deck in groups by what is asked.
+  await page.getByRole("button", { name: "Secrets", exact: true }).click();
+  const secrets = page.getByRole("complementary", { name: "Secrets" });
+  const mine = secrets.getByRole("region", { name: "Your secret objectives" });
+  await expect(mine.getByText(/^\d scored · \d \/ 3$/)).toBeVisible();
+  await expect(mine.getByRole("article").first()).toContainText("Not scored");
+  await expect(secrets.getByText(/^\d+ of 40 unseen · \d+ in the deck$/)).toBeVisible();
+  const ships = secrets.getByRole("region", { name: "Ships on the board" });
+  // A group is closed until the player opens it.
+  await expect(ships.getByText("Unseen", { exact: true })).toHaveCount(0);
+  await ships.getByRole("button").click();
+  // Each objective says where it is: unseen, in the hand of the viewer, or scored by a seat.
+  await expect(ships.getByText(/^(Unseen|In your hand|✓ Scored by.*)$/)).toHaveCount(6);
+  await expect(ships.getByText("Unseen", { exact: true }).first()).toBeVisible();
+  await page.screenshot({ path: "shots/local/secrets.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(secrets).toBeHidden();
   expect(errors).toEqual([]);
 });
 
@@ -443,7 +472,11 @@ test("a draft goes on to the landings and the production, and ends at a draw", a
   await page.screenshot({ path: "shots/local/draft-invasion.png", animations: "disabled" });
   // A unit on a planet that nobody explored: the card that it draws ends the draft.
   await planet("Abyz").click();
-  await expect(panel(page).getByText(/^Abyz.*1 Infantry/).first()).toBeVisible();
+  await expect(
+    panel(page)
+      .getByText(/^Abyz.*1 Infantry/)
+      .first(),
+  ).toBeVisible();
   await expect(footer.getByText("The draft ends at a roll or a draw.")).toBeVisible();
   await expect(send(page)).toHaveCount(0);
   await expect(apply).toBeEnabled();
@@ -454,7 +487,11 @@ test("a draft goes on to the landings and the production, and ends at a draw", a
   await expect(system("38")).toHaveAttribute("aria-label", /1 Sol ship/);
   await send(page).click();
   await expect(heading(page)).toHaveText("Invasion");
-  await expect(panel(page).getByText(/^Abyz.*1 Infantry/).first()).toBeVisible();
+  await expect(
+    panel(page)
+      .getByText(/^Abyz.*1 Infantry/)
+      .first(),
+  ).toBeVisible();
   // Undo takes the landing back: with nothing landed, the action ends here.
   await undo(page).click();
   await expect(send(page)).toHaveText(/Land nothing/);
@@ -1002,6 +1039,44 @@ test("a production: the build is staged on the map, then paid on the map, and se
   await expect(send(page)).toHaveText(/Produce nothing/);
   await system("72").click();
   await expect(sheet).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("the Secrets sheet of the late game has scored and unscored objectives of every seat", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  await expect(heading(page)).toBeVisible();
+  await page.getByRole("button", { name: "Secrets", exact: true }).click();
+  const secrets = page.getByRole("complementary", { name: "Secrets" });
+  // Seat A has three: the hand first, one of the action phase and one of the agenda phase.
+  const mine = secrets.getByRole("region", { name: "Your secret objectives" });
+  await expect(mine.getByText("1 scored · 3 / 3")).toBeVisible();
+  await expect(mine.getByRole("article")).toHaveCount(3);
+  await expect(mine.getByRole("article").nth(0)).toContainText("Not scored");
+  await expect(mine.getByRole("article").nth(0)).toContainText("Action phase");
+  await expect(mine.getByRole("article").nth(1)).toContainText("Agenda phase");
+  await expect(mine.getByRole("article").nth(2)).toContainText("✓ Scored");
+  await expect(mine.getByRole("article").nth(2)).toContainText("Status phase");
+  // Twelve are scored at the table and two are in the hand of seat A.
+  const deck = secrets.getByRole("region", { name: "Secret objective deck" });
+  await expect(deck.getByText("26 of 40 unseen · 16 in the deck")).toBeVisible();
+  // Every group is opened: a closed one is gone from this list when it is clicked.
+  const closed = deck.getByRole("button", { expanded: false });
+  for (let left = await closed.count(); left > 0; left--) {
+    await closed.first().click();
+  }
+  await expect(deck.getByText("Unseen", { exact: true })).toHaveCount(26);
+  await expect(deck.getByText("In your hand")).toHaveCount(2);
+  await expect(deck.getByText("✓ Scored by you")).toHaveCount(1);
+  await expect(deck.getByText(/^✓ Scored by(?! you)/)).toHaveCount(11);
+  // The player table counts the same: scored / held.
+  const row = page.getByRole("region", { name: "Players" }).locator("tbody tr");
+  await expect(row.nth(0)).toContainText("1/2");
+  await expect(row.nth(1)).toContainText("2/1");
+  await page.screenshot({ path: "shots/local/secrets-late-game.png", animations: "disabled" });
   expect(errors).toEqual([]);
 });
 

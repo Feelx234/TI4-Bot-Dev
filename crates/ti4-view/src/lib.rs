@@ -13,6 +13,7 @@ pub mod maps;
 pub mod planning;
 pub mod projection;
 pub mod scenario;
+pub mod secret_objectives;
 pub mod status;
 pub mod tactical;
 pub mod view;

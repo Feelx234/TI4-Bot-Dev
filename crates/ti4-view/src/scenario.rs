@@ -4,13 +4,16 @@
 //! A scenario is not a saved state. It is a function over the state of a new game, so a game
 //! that starts from one is played again from its seed and its answers like any other.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
-use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
+use ti4_content::{ActionCardTiming, ContentStore};
 use ti4_engine::{phase, technology};
-use ti4_model::content_types::SourceSet;
+use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{
-    LeaderId, PlanetId, PlayerId, RelicId, StrategyCardId, SystemId, TechnologyId, UnitTypeId,
+    ActionCardId, LeaderId, ObjectiveId, PlanetId, PlayerId, RelicId, SecretObjectiveId,
+    StrategyCardId, SystemId, TechnologyId, UnitTypeId,
 };
 use ti4_model::state::{GameState, LeaderStatus, Phase};
 use ti4_model::units::Unit;
@@ -39,7 +42,10 @@ pub const SCENARIOS: &[Scenario] = &[
             Sarween Tools, AI Development Algorithm, 6 trade goods and one exhausted planet. \
             Around them: a gravity rift, a nebula, a supernova, an asteroid field, a wormhole pair, \
             fleets of other seats and a system with Sol's command token. Asteroid fields and \
-            the ships of other seats block.",
+            the ships of other seats block. Every seat holds seven action cards, 56 different \
+            cards in all, and 17 cards are discarded; the other cards of the deck are in the \
+            hands of \"Late game with deflectors\". Every seat has three secret objectives, of \
+            the action phase and of the other phases: one or two are scored.",
         seed: 42,
         players: 8,
     },
@@ -48,7 +54,8 @@ pub const SCENARIOS: &[Scenario] = &[
         title: "Late game with deflectors",
         description: "The late game, and seat A also has Light/Wave Deflector and Antimass \
             Deflectors: its ships move through the ships of other seats. The engine does not \
-            open asteroid fields for Antimass Deflectors yet.",
+            open asteroid fields for Antimass Deflectors yet. The seats hold the action cards \
+            that no seat of \"Late game\" holds, and 23 cards are discarded.",
         seed: 42,
         players: 8,
     },
@@ -390,6 +397,141 @@ fn late_game(
     sol.exhausted_relics.insert(RelicId::new("prophetstears"));
     sol.leaders
         .insert(LeaderId::new("solagent"), LeaderStatus::Exhausted);
+
+    deal_action_cards(state, content, !deflectors)?;
+    deal_secret_objectives(state, content)
+}
+
+/// How many secret objectives a seat of the late game has, scored and unscored: the limit.
+const SECRETS: usize = ti4_engine::secrets::HAND_LIMIT;
+
+/// Gives every seat three secret objectives: one that is scored in the action phase, one of the
+/// status phase, and a third of the agenda phase for the first seats and of the status phase for
+/// the others. One of the three is scored for a seat with an even place at the table and two for
+/// an odd one, a different one from seat to seat; a scored objective is one victory point. Seat A
+/// has scored its objective of the status phase and holds one of the action phase and one of the
+/// agenda phase.
+///
+/// The objectives that the seats had go back under the deck first, and the deck is taken in the
+/// order of the ids, so the hands do not depend on the shuffle.
+fn deal_secret_objectives(state: &mut GameState, content: &ContentStore) -> Result<(), String> {
+    for seat in 0..state.players.len() {
+        let hand = std::mem::take(&mut state.players[seat].secret_objectives);
+        state.secret_deck.extend(hand);
+    }
+    let mut ids = state.secret_deck.clone();
+    ids.sort();
+    let of_phase = |phase: &str| -> Vec<SecretObjectiveId> {
+        ids.iter()
+            .filter(|id| {
+                content
+                    .get(ContentType::SecretObjectives, id.as_str())
+                    .and_then(|record| record.text("phase"))
+                    .is_some_and(|printed| printed.eq_ignore_ascii_case(phase))
+            })
+            .cloned()
+            .collect()
+    };
+    let (action, status, agenda) = (of_phase("action"), of_phase("status"), of_phase("agenda"));
+    let seats = state.players.len();
+    if action.len() < seats || status.len() + agenda.len() < 2 * seats {
+        return Err(format!(
+            "the late game needs {seats} secret objectives of the action phase and {} others, \
+             the deck has {} and {}",
+            2 * seats,
+            action.len(),
+            status.len() + agenda.len()
+        ));
+    }
+    // The third objective: the agenda phase while it has one, then the rest of the status phase.
+    let third = agenda.iter().chain(status.iter().skip(seats));
+    for (seat, third) in (0..seats).zip(third) {
+        let hand = [action[seat].clone(), status[seat].clone(), third.clone()];
+        debug_assert_eq!(hand.len(), SECRETS);
+        state.secret_deck.retain(|held| !hand.contains(held));
+        let scored = 1 + seat % 2;
+        let player = state.players[seat].id.clone();
+        for (index, id) in hand.into_iter().enumerate() {
+            // The scored ones begin at another place of the hand from seat to seat.
+            if (index + SECRETS - (seat + 1) % SECRETS) % SECRETS < scored {
+                state.record_score(&player, ObjectiveId::new(id.as_str()));
+                state.note_vp(&player, 1, "a secret objective of the scenario");
+                state.players[seat].victory_points += 1;
+            } else {
+                state.players[seat].secret_objectives.push(id);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// How many action cards a seat of the late game holds: the hand limit.
+const HAND: usize = 7;
+
+/// Gives every seat a hand of action cards with no card twice at the table, so that the two
+/// late games together have every card of the deck in a hand.
+///
+/// The printed names of the deck are put in the order of their groups
+/// ([`ti4_content::ActionCardTiming`]), and every name goes to one of the two games, spread
+/// evenly over that order: `HAND` names for each seat to the first game, the rest to the second.
+/// The names of a game are dealt around the table one by one, so a seat has cards of many
+/// groups. The hands that the seats had go back under the deck first. Then some cards of the
+/// deck are the discard pile: 17 in the first game and 23 in the second.
+fn deal_action_cards(
+    state: &mut GameState,
+    content: &ContentStore,
+    first: bool,
+) -> Result<(), String> {
+    for seat in 0..state.players.len() {
+        let hand = std::mem::take(&mut state.players[seat].action_cards);
+        state.action_card_deck.extend(hand);
+    }
+    // One id for each printed name: the smallest of its copies.
+    let mut names: BTreeMap<(Option<ActionCardTiming>, String), ActionCardId> = BTreeMap::new();
+    let mut ids = state.action_card_deck.clone();
+    ids.sort();
+    for id in ids {
+        let record = content.get(ContentType::ActionCards, id.as_str());
+        let printed = |key: &str| {
+            record
+                .and_then(|record| record.text(key))
+                .unwrap_or_default()
+        };
+        let timing = ti4_content::action_card_timing(printed("phase"), printed("window"));
+        names
+            .entry((timing, printed("name").to_owned()))
+            .or_insert(id);
+    }
+    let seats = state.players.len();
+    let in_first = HAND * seats;
+    if names.len() < in_first {
+        return Err(format!(
+            "the late game needs {in_first} action cards of different names, the deck has {}",
+            names.len()
+        ));
+    }
+    let total = names.len();
+    let mut dealt = 0;
+    for (index, id) in names.into_values().enumerate() {
+        // The name is of the first game when the share of the first game moves on with it.
+        let of_first = (index + 1) * in_first / total > index * in_first / total;
+        if of_first != first {
+            continue;
+        }
+        state.action_card_deck.retain(|held| *held != id);
+        state.players[dealt % seats].action_cards.push(id);
+        dealt += 1;
+    }
+    // Cards that were played: the top of what is left of the deck is the discard pile.
+    let discarded = if first { 17 } else { 23 };
+    if state.action_card_deck.len() < discarded {
+        return Err(format!(
+            "the late game discards {discarded} action cards, the deck has {}",
+            state.action_card_deck.len()
+        ));
+    }
+    let pile = state.action_card_deck.drain(..discarded);
+    state.discarded_action_cards.extend(pile);
     Ok(())
 }
 
@@ -524,6 +666,126 @@ mod tests {
         )
         .expect_err("no such scenario");
         assert!(error.contains(LATE_GAME), "{error}");
+    }
+
+    /// The printed names of the action cards in the hands, seat by seat.
+    fn hands(state: &GameState) -> Vec<Vec<String>> {
+        let content = ContentStore::embedded();
+        state
+            .players
+            .iter()
+            .map(|seat| {
+                seat.action_cards
+                    .iter()
+                    .map(|id| {
+                        content
+                            .get(ContentType::ActionCards, id.as_str())
+                            .and_then(|record| record.text("name"))
+                            .expect("a printed card")
+                            .to_owned()
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_seat_has_three_secret_objectives_scored_and_not_of_several_phases() {
+        use std::collections::BTreeSet;
+
+        let content = ContentStore::embedded();
+        let (state, _) = game(LATE_GAME);
+        let facts = crate::secret_objectives::project_secret_objective_facts(&state, content);
+        let phase = |id: &ti4_model::id::SecretObjectiveId| {
+            content
+                .get(ContentType::SecretObjectives, id.as_str())
+                .and_then(|record| record.text("phase"))
+                .expect("a printed objective")
+        };
+        let mut seen = BTreeSet::new();
+        let mut held_phases = BTreeSet::new();
+        for (place, seat) in state.players.iter().enumerate() {
+            let scored = facts.scored.get(&seat.id).cloned().unwrap_or_default();
+            assert_eq!(scored.len(), 1 + place % 2, "{} scored", seat.id);
+            assert_eq!(
+                seat.secret_objectives.len() + scored.len(),
+                3,
+                "{}",
+                seat.id
+            );
+            // One of the action phase and two of the others, in the hand or scored.
+            let phases: Vec<&str> = seat
+                .secret_objectives
+                .iter()
+                .chain(&scored)
+                .map(phase)
+                .collect();
+            assert_eq!(phases.iter().filter(|phase| **phase == "Action").count(), 1);
+            held_phases.extend(seat.secret_objectives.iter().map(phase));
+            seen.extend(seat.secret_objectives.iter().chain(&scored).cloned());
+        }
+        // No objective twice, and the rest is the deck.
+        assert_eq!(seen.len(), 24);
+        assert_eq!(facts.deck, 16);
+        assert!(state.secret_deck.iter().all(|id| !seen.contains(id)));
+        assert_eq!(held_phases, BTreeSet::from(["Action", "Agenda", "Status"]));
+        // Seat A has scored its objective of the status phase and holds the two others.
+        let a = &state.players[0];
+        assert_eq!(
+            facts.scored[&a.id].iter().map(phase).collect::<Vec<_>>(),
+            ["Status"]
+        );
+        let held: Vec<&str> = a.secret_objectives.iter().map(phase).collect();
+        assert_eq!(held, ["Action", "Agenda"]);
+        assert_eq!(a.victory_points, 1);
+    }
+
+    #[test]
+    fn the_two_late_games_have_every_action_card_in_a_hand_once() {
+        use std::collections::BTreeSet;
+
+        let (first, _) = game(LATE_GAME);
+        let (second, _) = game(LATE_GAME_DEFLECTORS);
+        let names = |state: &GameState| -> BTreeSet<String> {
+            hands(state).into_iter().flatten().collect()
+        };
+        // Seven cards for each seat, and no name twice at the table.
+        assert!(hands(&first).iter().all(|hand| hand.len() == 7));
+        assert_eq!(names(&first).len(), 56);
+        // The other game has the names that are left, and no seat has more than seven.
+        let printed: BTreeSet<String> =
+            crate::components::component_catalog(ContentStore::embedded(), POK)
+                .action_cards
+                .into_iter()
+                .map(|card| card.name)
+                .collect();
+        assert!(names(&first).is_disjoint(&names(&second)));
+        let both: BTreeSet<String> = names(&first).union(&names(&second)).cloned().collect();
+        assert_eq!(both, printed);
+        let held: usize = hands(&second).iter().map(Vec::len).sum();
+        assert_eq!(held, printed.len() - 56);
+        assert!(
+            hands(&second)
+                .iter()
+                .all(|hand| (1..=7).contains(&hand.len()))
+        );
+        // Nothing is lost: a card is in a hand, in the deck or in the discard pile.
+        assert_eq!(first.discarded_action_cards.len(), 17);
+        assert_eq!(second.discarded_action_cards.len(), 23);
+        for state in [&first, &second] {
+            let held: usize = state
+                .players
+                .iter()
+                .map(|seat| seat.action_cards.len())
+                .sum();
+            let discarded = state.discarded_action_cards.len();
+            assert_eq!(held + state.action_card_deck.len() + discarded, 122);
+        }
+        // A hand has cards of several groups: seat A can play some at once and some in a window.
+        let seat_a = &hands(&first)[0];
+        for name in ["War Effort", "Skilled Retreat", "Hack Election"] {
+            assert!(seat_a.contains(&name.to_owned()), "no {name} in {seat_a:?}");
+        }
     }
 
     #[test]

@@ -371,8 +371,34 @@ export interface ComponentCatalog {
     phase: string;
     /** When the card is played, as printed: "Action", or a timing. */
     window: string;
+    /** The group of the timing, one of `action_card_groups`. */
+    group: string;
     text: string;
   }[];
+  /** The groups of the timings of the action cards, in the order in which they are shown. */
+  action_card_groups: string[];
+  /** The secret objective deck as a game begins with it. */
+  secret_objectives: {
+    id: string;
+    name: string;
+    /** The phase in which the objective is scored: "Status", "Action" or "Agenda". */
+    phase: string;
+    /** What the objective asks for, one of `secret_objective_groups`. */
+    group: string;
+    text: string;
+  }[];
+  /** The groups of what the secret objectives ask for, in the order in which they are shown. */
+  secret_objective_groups: string[];
+}
+
+/** `ti4_view::secret_objectives::SecretObjectiveFacts` */
+export interface SecretObjectiveFacts {
+  /** How many cards the deck still holds. */
+  deck: number;
+  /** The ids of the secret objectives that each seat has scored. A seat with none is absent. */
+  scored: Record<string, string[]>;
+  /** How many secret objectives a seat may have, scored and unscored together. */
+  hand_limit: number;
 }
 
 /** `ti4_view::action_cards::ActionCardFacts` */
@@ -397,9 +423,7 @@ export interface Catalog {
 export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts | ProductionFacts;
 
 /** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
-export type DraftStep =
-  | import("./movementPlan").PlanStep
-  | { kind: "choose"; option_id: string };
+export type DraftStep = import("./movementPlan").PlanStep | { kind: "choose"; option_id: string };
 
 /** `ti4_view::planning::draft::DraftStop`: why a run of a draft ended. */
 export type DraftStop =
@@ -440,4 +464,6 @@ export interface SessionUpdate {
   exploration?: ExplorationFacts;
   /** The action card deck, its discard pile and the hand limit. The wasm host fills it. */
   action_cards?: ActionCardFacts;
+  /** The secret objective deck and what each seat has scored of it. The wasm host fills it. */
+  secret_objectives?: SecretObjectiveFacts;
 }

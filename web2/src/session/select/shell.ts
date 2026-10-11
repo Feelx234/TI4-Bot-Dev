@@ -8,6 +8,7 @@ import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
 import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
+import { selectSecrets } from "./secrets";
 import { selectTactical, tacticalFacts } from "./tactical";
 
 function status(update: SessionUpdate, local: LocalState): string {
@@ -107,6 +108,7 @@ export function selectShell(
       technology: [],
       cards: [],
       actionCards: selectActionCards(update, printed, cards),
+      secrets: selectSecrets(update, printed),
       exploration: selectExploration(update, catalog),
       log: [],
     },

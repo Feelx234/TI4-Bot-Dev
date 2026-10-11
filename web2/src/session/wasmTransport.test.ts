@@ -28,6 +28,7 @@ import {
   totals,
 } from "./productionDraft";
 import { selectActionCards } from "./select/cards";
+import { selectSecrets } from "./select/secrets";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
@@ -601,8 +602,7 @@ it.skipIf(!built)(
     const menu = await next();
     expect(subtype(menu)).toBe("action_menu");
     const run = (draft: Draft) => transport.runDraft(scriptOf(entryOf(draft)))!;
-    const asks = (outcome: DraftOutcome) =>
-      outcome.update.pending_choice?.choice.context?.subtype;
+    const asks = (outcome: DraftOutcome) => outcome.update.pending_choice?.choice.context?.subtype;
 
     // The system of the two space docks. Nothing moves: the draft goes on.
     let draft = setMovement(activate(newDraft(), "72"), [{ kind: "done_moving" }]);
@@ -661,7 +661,13 @@ it.skipIf(!built)(
     expect(subtype(after)).not.toBe("produce_unit");
     expect(shipsIn(after.update, "72")).toEqual([...before, "cruiser2"].sort());
     expect(after.update.view.board.systems["72"].planets.lisis.exhausted).toBe(true);
-    expect(answers().slice(0, 5)).toEqual(["tactical", "72", "done_moving", "decline", "build|cruiser2|1"]);
+    expect(answers().slice(0, 5)).toEqual([
+      "tactical",
+      "72",
+      "done_moving",
+      "decline",
+      "build|cruiser2|1",
+    ]);
     transport.close();
   },
   60_000,
@@ -736,7 +742,61 @@ it.skipIf(!built)(
       expect(card.text).not.toBe("");
       expect(card.window).toMatch(/:$/);
     }
-    expect(view.reference.reduce((sum, card) => sum + card.total, 0)).toBe(deck.length);
+    const rows = view.reference.flatMap((group) => group.cards);
+    expect(rows.reduce((sum, card) => sum + card.total, 0)).toBe(deck.length);
+    // The groups are the ones of the catalogue, in its order, and "ACTION:" is the first.
+    const groups = view.reference.map((group) => group.group);
+    expect(groups).toEqual(
+      catalog.components.action_card_groups.filter((group) => groups.includes(group)),
+    );
+    expect(groups[0]).toBe("Action");
+    expect(view.reference[0].cards.every((card) => card.action)).toBe(true);
+    expect(rows.find((card) => card.name === "Sabotage")?.group).toBe("Any time");
+  },
+);
+
+it.skipIf(!built)(
+  "has the printed secret objectives, and an update says what each seat has scored",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const deck = catalog.components.secret_objectives;
+    expect(deck).toHaveLength(40);
+    for (const card of deck) {
+      expect(card.text).not.toBe("");
+      expect(catalog.components.secret_objective_groups).toContain(card.group);
+      expect(card.group).not.toBe("Other");
+    }
+    const { transport, next } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const { update } = await next();
+    transport.close();
+    const facts = update.secret_objectives!;
+    expect(facts.hand_limit).toBe(3);
+    // Every objective is in the deck, in a hand or scored.
+    const held = update.view.players.reduce(
+      (sum, player) => sum + player.secret_objectives_count,
+      0,
+    );
+    const scored = Object.values(facts.scored).flat();
+    expect(facts.deck + held + scored.length).toBe(deck.length);
+    const view = selectSecrets(update, catalog)!;
+    expect(view.mine).toHaveLength(view.held + view.scored);
+    for (const card of view.mine) {
+      expect(card.text).not.toBe("");
+      expect(card.phase).toMatch(/ phase$/);
+    }
+    const rows = view.reference.flatMap((group) => group.cards);
+    expect(rows).toHaveLength(deck.length);
+    expect(view.unseen).toBe(deck.length - view.held - scored.length);
+    // The groups are the ones of the catalogue, in its order.
+    const groups = view.reference.map((group) => group.group);
+    expect(groups).toEqual(
+      catalog.components.secret_objective_groups.filter((group) => groups.includes(group)),
+    );
   },
 );
 

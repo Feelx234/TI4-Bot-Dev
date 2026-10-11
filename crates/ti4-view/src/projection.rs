@@ -666,6 +666,10 @@ pub struct SessionUpdate {
     /// leaves it empty: a host that shows them fills it ([`crate::action_cards`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_cards: Option<crate::action_cards::ActionCardFacts>,
+    /// The secret objective deck and what each seat has scored of it. The projection leaves it
+    /// empty: a host that shows them fills it ([`crate::secret_objectives`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_objectives: Option<crate::secret_objectives::SecretObjectiveFacts>,
 }
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
@@ -685,6 +689,7 @@ pub fn project_session_update(
         tactical: None,
         exploration: None,
         action_cards: None,
+        secret_objectives: None,
     }
 }
 

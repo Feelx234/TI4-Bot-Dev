@@ -8,7 +8,10 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use ti4_content::{ContentStore, Record};
+use ti4_content::{
+    ActionCardTiming, ContentStore, Record, SecretObjectiveGroup, action_card_timing,
+    secret_objective_group,
+};
 use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
 
@@ -67,6 +70,21 @@ pub struct ActionCard {
     pub phase: String,
     /// When the card is played, as printed: `Action`, or a timing.
     pub window: String,
+    /// The group of the timing, one of [`ComponentCatalog::action_card_groups`].
+    pub group: String,
+    pub text: String,
+}
+
+/// One secret objective as printed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecretObjective {
+    pub id: String,
+    pub name: String,
+    /// The phase in which the objective is scored, as printed: `Status`, `Action` or `Agenda`.
+    pub phase: String,
+    /// What the objective asks for, one of [`ComponentCatalog::secret_objective_groups`].
+    pub group: String,
     pub text: String,
 }
 
@@ -84,6 +102,13 @@ pub struct ComponentCatalog {
     pub legendary: Vec<PrintedCard>,
     /// The action card deck as a game begins with it, sorted by id.
     pub action_cards: Vec<ActionCard>,
+    /// The groups of the timings of the action cards, in the order in which a reader is shown them.
+    pub action_card_groups: Vec<String>,
+    /// The secret objective deck as a game begins with it, sorted by id.
+    pub secret_objectives: Vec<SecretObjective>,
+    /// The groups of what the secret objectives ask for, in the order in which a reader is shown
+    /// them.
+    pub secret_objective_groups: Vec<String>,
 }
 
 /// Everything printed that a client is handed once.
@@ -102,6 +127,13 @@ pub fn catalog(content: &ContentStore, sources: SourceSet) -> Catalog {
         components: component_catalog(content, sources),
     }
 }
+
+/// The group of a card whose timing `ti4-content` does not know. No card of the corpus has it.
+const OTHER_TIMING: &str = "Other";
+
+/// The group of a secret objective that `ti4-content` does not know. No objective of the corpus
+/// has it.
+const OTHER_SECRET: &str = "Other";
 
 fn text(record: &Record, key: &str) -> String {
     record.text(key).map(ToOwned::to_owned).unwrap_or_default()
@@ -204,16 +236,52 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
                 .map(|id| {
                     let record = content.get(ContentType::ActionCards, id.as_str());
                     let printed = |key: &str| record.map(|record| text(record, key));
+                    let phase = printed("phase").unwrap_or_default();
+                    let window = printed("window").unwrap_or_default();
                     ActionCard {
                         id: id.as_str().to_owned(),
                         name: printed("name").unwrap_or_else(|| id.as_str().to_owned()),
-                        phase: printed("phase").unwrap_or_default(),
-                        window: printed("window").unwrap_or_default(),
+                        group: action_card_timing(&phase, &window)
+                            .map_or(OTHER_TIMING, ActionCardTiming::label)
+                            .to_owned(),
+                        phase,
+                        window,
                         text: printed("text").unwrap_or_default(),
                     }
                 })
                 .collect()
         },
+        action_card_groups: ActionCardTiming::ALL
+            .iter()
+            .map(|timing| timing.label())
+            .chain([OTHER_TIMING])
+            .map(ToOwned::to_owned)
+            .collect(),
+        secret_objectives: {
+            let mut deck = build_starting_decks(content, sources, 0).secrets;
+            deck.sort();
+            deck.iter()
+                .map(|id| {
+                    let record = content.get(ContentType::SecretObjectives, id.as_str());
+                    let printed = |key: &str| record.map(|record| text(record, key));
+                    SecretObjective {
+                        id: id.as_str().to_owned(),
+                        name: printed("name").unwrap_or_else(|| id.as_str().to_owned()),
+                        phase: printed("phase").unwrap_or_default(),
+                        group: secret_objective_group(id.as_str())
+                            .map_or(OTHER_SECRET, SecretObjectiveGroup::label)
+                            .to_owned(),
+                        text: printed("text").unwrap_or_default(),
+                    }
+                })
+                .collect()
+        },
+        secret_objective_groups: SecretObjectiveGroup::ALL
+            .iter()
+            .map(|group| group.label())
+            .chain([OTHER_SECRET])
+            .map(ToOwned::to_owned)
+            .collect(),
     }
 }
 
@@ -289,12 +357,40 @@ mod tests {
     }
 
     #[test]
+    fn the_secret_objectives_are_as_printed_and_have_their_group() {
+        let catalog = component_catalog(ContentStore::embedded(), POK);
+        assert_eq!(catalog.secret_objectives.len(), 40);
+        for objective in &catalog.secret_objectives {
+            assert!(!objective.text.is_empty(), "{} has its text", objective.id);
+            assert!(
+                catalog.secret_objective_groups.contains(&objective.group)
+                    && objective.group != OTHER_SECRET,
+                "{} has its group",
+                objective.id
+            );
+        }
+        let gatekeeper = catalog
+            .secret_objectives
+            .iter()
+            .find(|objective| objective.id == "btgk")
+            .expect("Become the Gatekeeper");
+        assert_eq!(gatekeeper.name, "Become the Gatekeeper");
+        assert_eq!(gatekeeper.phase, "Status");
+        assert_eq!(gatekeeper.group, "Ships on the board");
+    }
+
+    #[test]
     fn the_action_card_deck_has_every_copy_as_printed() {
         let catalog = printed();
         assert!(!catalog.action_cards.is_empty());
         for card in &catalog.action_cards {
             assert!(!card.window.is_empty(), "{} has its window", card.id);
             assert!(!card.text.is_empty(), "{} has its text", card.id);
+            assert!(
+                catalog.action_card_groups.contains(&card.group) && card.group != OTHER_TIMING,
+                "{} has its group",
+                card.id
+            );
         }
         let boosts: Vec<_> = catalog
             .action_cards
@@ -304,6 +400,7 @@ mod tests {
         assert_eq!(boosts.len(), 4);
         assert_eq!(boosts[0].window, "At the start of a combat round");
         assert_eq!(boosts[0].phase, "Action");
+        assert_eq!(boosts[0].group, "Combat");
     }
 
     #[test]

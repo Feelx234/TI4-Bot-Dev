@@ -121,6 +121,8 @@ export interface ActionCardView {
   text: string;
   /** The card is a component action: no window offers it. */
   action: boolean;
+  /** When the card is played, roughly: "Action", "Combat", "Agenda phase". */
+  group: string;
 }
 
 /** One card of the action card deck, with where its copies are. */
@@ -145,10 +147,49 @@ export interface ActionCardsView {
   deck: { left: number; total: number; discarded: number } | null;
   /** `never`: no window offers the card to the viewer. Null for a card that no window offers. */
   hand: (ActionCardView & { copies: number; never: boolean | null })[];
-  /** The cards that the viewer acts as if holding. */
+  /** The cards that the viewer acts as if holding. Never a card that is a component action. */
   faked: ActionCardView[];
-  /** Every card of the deck, by name. */
-  reference: DeckCardView[];
+  /** Every card of the deck, by name, in groups by when a card is played. */
+  reference: { group: string; cards: DeckCardView[] }[];
+}
+
+/** One secret objective as printed. */
+export interface SecretObjectiveView {
+  name: string;
+  /** When it is scored: "Status phase", "Action phase", "Agenda phase". */
+  phase: string;
+  text: string;
+  /** What the objective asks for, roughly: "Ships on the board", "Win a combat". */
+  group: string;
+}
+
+/** One secret objective of the deck, with where it is as far as the viewer knows. */
+export interface DeckSecretView extends SecretObjectiveView {
+  /** `unseen`: in the deck or in the hand of another player. `held`: in a hand that the viewer sees. */
+  state: "unseen" | "held" | "scored";
+  /** The seat that holds or scored it. Null for an unseen objective. */
+  by: SeatId | null;
+  /** `by` is the viewer. */
+  mine: boolean;
+}
+
+/** The secret objectives of the viewer and of the deck. */
+export interface SecretsView {
+  /** In the hand of the viewer, not scored. */
+  held: number;
+  scored: number;
+  /** How many the viewer may have, scored and unscored together. Null when the game does not say. */
+  limit: number | null;
+  /** The objectives of the viewer: the hand, then the scored ones. */
+  mine: (SecretObjectiveView & { scored: boolean })[];
+  /** How many objectives the deck begins a game with. */
+  total: number;
+  /** Not in the hand of the viewer and not scored by anyone. */
+  unseen: number;
+  /** How many cards the deck still holds. Null when the game does not say. */
+  deck: number | null;
+  /** Every objective of the deck, in groups by what an objective asks for. */
+  reference: { group: string; unseen: number; cards: DeckSecretView[] }[];
 }
 
 export interface ReferenceView {
@@ -157,6 +198,8 @@ export interface ReferenceView {
   cards: ListSectionView[];
   /** The action cards: the hand of the viewer and the deck. Null for a viewer with no hand. */
   actionCards: ActionCardsView | null;
+  /** The secret objectives: those of the viewer and the deck. Null for a viewer with no hand. */
+  secrets: SecretsView | null;
   /** The exploration decks, in the order cultural, hazardous, industrial, frontier. */
   exploration: ExplorationDeckView[];
   /** `current` is the round in play: the log shows it open. */

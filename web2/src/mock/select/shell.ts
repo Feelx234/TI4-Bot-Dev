@@ -2,6 +2,7 @@
 import type {
   ActionCardView,
   ComponentCardView,
+  DeckSecretView,
   ExplorationDeck,
   ExplorationDeckView,
   ListSectionView,
@@ -12,7 +13,17 @@ import type {
   ShellView,
   ToolbarView,
 } from "../../model";
-import { ACTION_CARDS, CARDS, DISCARDED_CARDS, HISTORY, REACTION_CARDS, SEATS } from "../data";
+import {
+  ACTION_CARDS,
+  CARD_GROUPS,
+  CARDS,
+  DISCARDED_CARDS,
+  HISTORY,
+  REACTION_CARDS,
+  SEATS,
+  SECRET_GROUPS,
+  SECRETS,
+} from "../data";
 import { E } from "../loose";
 import { OBJECTIVES, strategyEditor } from "../strategy";
 import {
@@ -272,14 +283,38 @@ function reference(world: World, state: State): ReferenceView {
     const reaction = REACTION_CARDS[name];
     const [window, ...rest] = (reaction ?? "").split(": ");
     return reaction
-      ? { name, window: `${window}:`, text: rest.join(": "), action: false }
-      : { name, window: "ACTION:", text: ACTION_CARDS[name] ?? "", action: true };
+      ? {
+          name,
+          window: `${window}:`,
+          text: rest.join(": "),
+          action: false,
+          group: CARD_GROUPS[name] ?? "Other",
+        }
+      : { name, window: "ACTION:", text: ACTION_CARDS[name] ?? "", action: true, group: "Action" };
   };
   const held = [...(E.own() ? world.table.actionCards : []), ...hand];
   const count = (cards: string[], name: string) => cards.filter((card) => card === name).length;
   const names = [...Object.keys(REACTION_CARDS), ...Object.keys(ACTION_CARDS)].sort();
+  const groups = ["Action", ...new Set(Object.values(CARD_GROUPS))];
+  // A card that is held is not faked, and a component action has nothing to fake.
+  const canFake = (name: string) => !held.includes(name) && !printed(name).action;
   const copies = (name: string) => (REACTION_CARDS[name] ? 4 : 1);
   const total = names.reduce((sum, name) => sum + copies(name), 0);
+  // A hand is seen by its holder only; what is scored is seen by everyone.
+  const secret = (item: (typeof SECRETS)[number]): DeckSecretView => {
+    const by = item.scored ?? (item.held === world.viewer ? item.held : null);
+    return {
+      name: item.name,
+      phase: `${item.phase} phase`,
+      text: item.text,
+      group: item.group,
+      state: item.scored ? "scored" : by ? "held" : "unseen",
+      by,
+      mine: by === world.viewer,
+    };
+  };
+  const secrets = SECRETS.map(secret);
+  const mine = secrets.filter((item) => item.mine);
   const live = world.workspaces.live;
   const seats = world.table.seats;
   const entry = (item: (typeof HISTORY)[number]): LogEntryView => {
@@ -315,10 +350,6 @@ function reference(world: World, state: State): ReferenceView {
           ...item.scored.flatMap((seat) => [sym(seat), " "]),
         ]),
       ),
-      section("Your secret objectives", [
-        "Destroy Their Greatest Ship · scored",
-        "Occupy the Seat of the Empire · not scored",
-      ]),
       section(
         "Points",
         seats.map((id) => [
@@ -356,20 +387,47 @@ function reference(world: World, state: State): ReferenceView {
         total,
         discarded: DISCARDED_CARDS.length,
       },
-      hand: [...new Set(held)].sort().map((name) => ({
-        ...printed(name),
-        copies: count(held, name),
-        never: printed(name).action ? null : world.neverOffer.includes(name),
+      hand: [...new Set(held)]
+        .sort(
+          (a, b) =>
+            groups.indexOf(printed(a).group) - groups.indexOf(printed(b).group) ||
+            a.localeCompare(b),
+        )
+        .map((name) => ({
+          ...printed(name),
+          copies: count(held, name),
+          never: printed(name).action ? null : world.neverOffer.includes(name),
+        })),
+      faked: world.fakedCards.filter(canFake).map(printed),
+      reference: groups.map((group) => ({
+        group,
+        cards: names
+          .filter((name) => printed(name).group === group)
+          .map((name) => ({
+            ...printed(name),
+            total: copies(name),
+            discarded: count(DISCARDED_CARDS, name),
+            held: count(held, name),
+            open: Math.max(0, copies(name) - count(DISCARDED_CARDS, name) - count(held, name)),
+            faked: canFake(name) && world.fakedCards.includes(name),
+          })),
       })),
-      faked: world.fakedCards.filter((name) => !held.includes(name)).map(printed),
-      reference: names.map((name) => ({
-        ...printed(name),
-        total: copies(name),
-        discarded: count(DISCARDED_CARDS, name),
-        held: count(held, name),
-        open: Math.max(0, copies(name) - count(DISCARDED_CARDS, name) - count(held, name)),
-        faked: !held.includes(name) && world.fakedCards.includes(name),
-      })),
+    },
+    secrets: {
+      held: mine.filter((item) => item.state === "held").length,
+      scored: mine.filter((item) => item.state === "scored").length,
+      limit: 3,
+      mine: mine
+        .map((item) => ({ ...item, scored: item.state === "scored" }))
+        .sort((a, b) => Number(a.scored) - Number(b.scored)),
+      // The demo has a short deck: every objective of it is listed.
+      total: secrets.length,
+      unseen: secrets.filter((item) => item.state === "unseen").length,
+      deck: 4,
+      reference: SECRET_GROUPS.map((group) => {
+        const cards = secrets.filter((item) => item.group === group);
+        return { group, unseen: cards.filter((item) => item.state === "unseen").length, cards };
+      }),
     },
     exploration: EXPLORATION.map((deck) => ({
       ...deck,

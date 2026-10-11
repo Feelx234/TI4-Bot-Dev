@@ -88,7 +88,12 @@ export function selectPlayers(
       commodities: [player.commodities, commodityValue(player.faction) ?? player.commodities],
       tokens: [player.tactic_tokens, player.fleet_tokens, player.strategic_tokens],
       actionCards: player.action_cards_count,
-      secrets: [player.scored_secret_objectives?.length ?? 0, player.secret_objectives_count],
+      secrets: [
+        // The facts of the host have every scored secret; the view of a player has the plots only.
+        (update.secret_objectives?.scored[player.id] ?? player.scored_secret_objectives ?? [])
+          .length,
+        player.secret_objectives_count,
+      ],
       planets,
       ...componentCards(update, player, catalog),
       // The ids are the short names that players use: AMD, DET, NM.

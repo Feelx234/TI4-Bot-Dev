@@ -17,6 +17,7 @@
 //! assert_eq!(content.factions(POK).count(), 27);
 //! ```
 
+pub mod action_cards;
 pub mod error;
 pub mod factions;
 pub mod galaxy;
@@ -24,9 +25,11 @@ pub mod loader;
 pub mod manifest;
 pub mod provenance;
 pub mod record;
+pub mod secret_objectives;
 pub mod units;
 pub mod validator;
 
+pub use action_cards::{ActionCardTiming, timing_of as action_card_timing};
 pub use error::{ContentError, ReferenceError};
 pub use factions::{Deployment, Faction, FleetError, Placement};
 pub use galaxy::{Galaxy, GalaxyError, Planet, System, all_planets, all_systems};
@@ -34,5 +37,6 @@ pub use loader::ContentStore;
 pub use manifest::{CategoryCounts, Manifest, Totals, Upstream};
 pub use provenance::{CorpusDigest, digest_of, embedded_digest};
 pub use record::Record;
+pub use secret_objectives::{SecretObjectiveGroup, group_of as secret_objective_group};
 pub use units::{UnitType, catalogue as unit_catalogue, faction_unit, unit_type};
 pub use validator::{ValidationReport, validate};

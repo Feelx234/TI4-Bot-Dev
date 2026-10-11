@@ -7,6 +7,7 @@ import type {
   ListSectionView,
   PlayerRowView,
   ReferenceView,
+  SecretsView,
 } from "../../model";
 import { plural } from "../../model";
 import { Button, Drawer, Eyebrow, Icon, cx } from "../../ui";
@@ -147,13 +148,46 @@ function PrintedCard({
   );
 }
 
+/** The heading of a group of a deck. It opens and closes the group, as a round of the log. */
+function GroupHeading({
+  open,
+  onToggle,
+  name,
+  count,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  name: string;
+  /** How many the group has, or how many of them are unseen. */
+  count: ReactNode;
+}) {
+  return (
+    <h4>
+      <button
+        type="button"
+        className="mt-3 flex w-full items-baseline gap-2 border-b border-line py-1.5 text-left font-strong"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+        {name}
+        <span className="text-xs font-normal text-muted tabular-nums">{count}</span>
+      </button>
+    </h4>
+  );
+}
+
 /**
  * The action cards: the hand of the viewer against the limit, as printed, and every card of the
- * deck with where its copies are. "Never offered" and "Fake" are settings of a card.
+ * deck with where its copies are, in groups by when a card is played that open with a click. "Never offered" and "Fake"
+ * are settings of a card that a window offers.
  */
 function ActionCards({ view }: { view: ActionCardsView }) {
   const dispatch = useDispatch();
   const over = view.limit !== null && view.held > view.limit;
+  // The groups of the deck are closed until the player opens one, as the rounds of the log.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (group: string) => setOpen((now) => ({ ...now, [group]: !now[group] }));
   return (
     <>
       <section aria-label="Your action cards">
@@ -232,50 +266,163 @@ function ActionCards({ view }: { view: ActionCardsView }) {
             </span>
           )}
         </h3>
-        {view.reference.map((card) => (
-          <div
-            key={card.name}
-            className={cx("mt-2 border-t border-line/50 pt-1.5", card.open === 0 && "text-muted")}
+        {view.reference.map((group) => (
+          <section key={group.group} aria-label={group.group}>
+            <GroupHeading
+              open={!!open[group.group]}
+              onToggle={() => toggle(group.group)}
+              name={group.group}
+              count={group.cards.length}
+            />
+            {open[group.group] &&
+              group.cards.map((card) => (
+                <div
+                  key={card.name}
+                  className={cx(
+                    "mt-2 border-t border-line/50 pt-1.5",
+                    card.open === 0 && "text-muted",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <strong className="font-mid">{card.name}</strong>
+                    <span className="flex flex-none items-baseline gap-2 text-xs tabular-nums">
+                      <span title="Not discarded and not in your hand: in the deck or in the hand of another player / in the full deck">
+                        {card.open} of {card.total} unseen
+                      </span>
+                      {/* A component action is offered by no window: there is nothing to fake. */}
+                      {!card.action && card.held === 0 && card.open > 0 && (
+                        <Button
+                          size="sm"
+                          tone="quiet"
+                          active={card.faked}
+                          aria-pressed={card.faked}
+                          aria-label={`Fake ${card.name}`}
+                          title="Act as if you hold this card"
+                          onClick={() =>
+                            dispatch({ type: "setCardFake", card: card.name, fake: !card.faked })
+                          }
+                        >
+                          {card.faked ? "Faked" : "Fake"}
+                        </Button>
+                      )}
+                    </span>
+                  </div>
+                  {(card.held > 0 || card.discarded > 0) && (
+                    <div className="text-xs tabular-nums">
+                      {[
+                        card.held > 0 && `${card.held} in your hand`,
+                        card.discarded > 0 && `${card.discarded} discarded`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
+                  <div className="text-xs text-muted">
+                    <span className={card.open === 0 ? undefined : "text-text"}>
+                      {card.window}{" "}
+                    </span>
+                    {card.text}
+                  </div>
+                </div>
+              ))}
+          </section>
+        ))}
+      </section>
+    </>
+  );
+}
+
+/**
+ * The secret objectives: those of the viewer, scored or not, and every objective of the deck with
+ * where it is, in groups by what an objective asks for that open with a click.
+ */
+function Secrets({ view }: { view: SecretsView }) {
+  const seats = useSeats();
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (group: string) => setOpen((now) => ({ ...now, [group]: !now[group] }));
+  const have = view.held + view.scored;
+  return (
+    <>
+      <section aria-label="Your secret objectives">
+        <h3 className="mt-3.5 flex items-baseline justify-between gap-3 text-muted">
+          <Eyebrow>Your secret objectives</Eyebrow>
+          <span
+            className="text-text tabular-nums"
+            title="Secret objectives that you scored · scored and unscored together / the limit"
           >
-            <div className="flex items-baseline justify-between gap-3">
-              <strong className="font-mid">{card.name}</strong>
-              <span className="flex flex-none items-baseline gap-2 text-xs tabular-nums">
-                <span title="Not discarded and not in your hand: in the deck or in the hand of another player / in the full deck">
-                  {card.open === 0 && "– "}
-                  {card.open} of {card.total} unseen
-                </span>
-                {card.held === 0 && card.open > 0 && (
-                  <Button
-                    size="sm"
-                    tone="quiet"
-                    active={card.faked}
-                    aria-pressed={card.faked}
-                    aria-label={`Fake ${card.name}`}
-                    title="Act as if you hold this card"
-                    onClick={() =>
-                      dispatch({ type: "setCardFake", card: card.name, fake: !card.faked })
-                    }
-                  >
-                    {card.faked ? "Faked" : "Fake"}
-                  </Button>
-                )}
-              </span>
-            </div>
-            {(card.held > 0 || card.discarded > 0) && (
-              <div className="text-xs tabular-nums">
-                {[
-                  card.held > 0 && `${card.held} in your hand`,
-                  card.discarded > 0 && `${card.discarded} discarded`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </div>
-            )}
-            <div className="text-xs text-muted">
-              <span className={card.open === 0 ? undefined : "text-text"}>{card.window} </span>
-              {card.text}
-            </div>
-          </div>
+            {view.scored} scored · {have}
+            {view.limit !== null && ` / ${view.limit}`}
+          </span>
+        </h3>
+        {view.mine.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
+        {view.mine.map((card) => (
+          <article key={card.name} aria-label={card.name}>
+            <PrintedCard
+              name={card.name}
+              kind={card.phase}
+              text={card.text}
+              aside={card.scored ? "✓ Scored" : "Not scored"}
+            />
+          </article>
+        ))}
+      </section>
+      <section aria-label="Secret objective deck">
+        <h3 className="mt-5 flex flex-wrap items-baseline justify-between gap-x-3 text-muted">
+          <Eyebrow>Secret objective deck</Eyebrow>
+          <span
+            className="tabular-nums"
+            title="Not in your hand and not scored: in the deck or in the hand of another player"
+          >
+            {view.unseen} of {view.total} unseen
+            {view.deck !== null && ` · ${view.deck} in the deck`}
+          </span>
+        </h3>
+        {view.reference.map((group) => (
+          <section key={group.group} aria-label={group.group}>
+            <GroupHeading
+              open={!!open[group.group]}
+              onToggle={() => toggle(group.group)}
+              name={group.group}
+              count={`${group.unseen} of ${group.cards.length} unseen`}
+            />
+            {open[group.group] &&
+              group.cards.map((card) => (
+                <div
+                  key={card.name}
+                  className={cx(
+                    "mt-2 border-t border-line/50 pt-1.5",
+                    card.state !== "unseen" && "text-muted",
+                  )}
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <strong className="font-mid">{card.name}</strong>
+                    <span className="flex flex-none items-baseline gap-1 text-xs">
+                      {card.state === "unseen" ? (
+                        "Unseen"
+                      ) : card.mine ? (
+                        card.state === "scored" ? (
+                          "✓ Scored by you"
+                        ) : (
+                          "In your hand"
+                        )
+                      ) : (
+                        <>
+                          {card.state === "scored" ? "✓ Scored by" : "In the hand of"}
+                          {card.by && <SeatSymbol seat={card.by} />}
+                          {card.by && seats[card.by]?.faction}
+                        </>
+                      )}
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted">
+                    <span className={card.state === "unseen" ? "text-text" : undefined}>
+                      {card.phase}:{" "}
+                    </span>
+                    {card.text}
+                  </div>
+                </div>
+              ))}
+          </section>
         ))}
       </section>
     </>
@@ -320,7 +467,6 @@ function Deck({ view, focus }: { view: ExplorationDeckView; focus: boolean }) {
           <div className="flex items-baseline justify-between gap-3">
             <strong className="font-mid">{card.name}</strong>
             <span className="flex-none tabular-nums" title="Left in the deck / in the full deck">
-              {card.left === 0 && "– "}
               {card.left} / {card.total}
             </span>
           </div>
@@ -399,6 +545,7 @@ const TITLES = {
   objectives: "Objectives",
   technology: "Technology",
   cards: "Cards",
+  secrets: "Secrets",
   exploration: "Exploration",
   log: "Log",
 } as const;
@@ -441,6 +588,8 @@ export function ReferenceDrawer({
         view.exploration.map((item) => (
           <Deck key={item.deck} view={item} focus={item.deck === deck} />
         ))
+      ) : key === "secrets" ? (
+        view.secrets && <Secrets view={view.secrets} />
       ) : (
         <Sections sections={view[key]} />
       )}

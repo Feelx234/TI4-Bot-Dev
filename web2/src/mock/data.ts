@@ -1118,8 +1118,119 @@ export const ACTION_CARDS: Record<string, string> = {
   Plague:
     "Choose 1 planet that another player controls. Roll 1 die for each infantry on it. Destroy 1 infantry for each result of 6 or greater.",
 };
+/** When a card of a reaction window is played, roughly. The other cards are in "Action". */
+export const CARD_GROUPS: Record<string, string> = {
+  "Direct Hit": "Combat",
+  "Morale Boost": "Combat",
+  Sabotage: "Any time",
+};
 /** The action cards of the demo that are in the discard pile. */
 export const DISCARDED_CARDS = ["Morale Boost", "Sabotage", "Plague"];
+/** What the secret objectives ask for, in the order of the sheet. */
+export const SECRET_GROUPS = [
+  "Planets you control",
+  "Ships on the board",
+  "Units and structures",
+  "Technology and cards",
+  "Win a combat",
+  "Destroy units",
+  "Agenda and table",
+];
+/** The secret objectives of the demo: the group, the phase, and who holds or scored it. */
+export const SECRETS: {
+  name: string;
+  group: string;
+  phase: string;
+  text: string;
+  held?: string;
+  scored?: string;
+}[] = [
+  {
+    name: "Forge an Alliance",
+    group: "Planets you control",
+    phase: "Status",
+    text: "Control 4 cultural planets.",
+    scored: "xxcha",
+  },
+  {
+    name: "Occupy the Seat of the Empire",
+    group: "Planets you control",
+    phase: "Status",
+    text: "Control Mecatol Rex and have 3 or more ships in its system.",
+    held: "sol",
+  },
+  {
+    name: "Seize an Icon",
+    group: "Planets you control",
+    phase: "Status",
+    text: "Control a legendary planet.",
+  },
+  {
+    name: "Become the Gatekeeper",
+    group: "Ships on the board",
+    phase: "Status",
+    text: "Have 1 or more ships in a system that contains an alpha wormhole and 1 or more ships in a system that contains a beta wormhole.",
+  },
+  {
+    name: "Threaten Enemies",
+    group: "Ships on the board",
+    phase: "Status",
+    text: "Have 1 or more ships in a system that is adjacent to another player’s home system.",
+    scored: "hacan",
+  },
+  {
+    name: "Fuel the War Machine",
+    group: "Units and structures",
+    phase: "Status",
+    text: "Have 3 space docks on the game board.",
+    held: "sol",
+  },
+  {
+    name: "Gather a Mighty Fleet",
+    group: "Units and structures",
+    phase: "Status",
+    text: "Have 5 dreadnoughts on the game board.",
+  },
+  {
+    name: "Master the Laws of Physics",
+    group: "Technology and cards",
+    phase: "Status",
+    text: "Own 4 technologies of the same color.",
+    scored: "jolnar",
+  },
+  {
+    name: "Brave the Void",
+    group: "Win a combat",
+    phase: "Action",
+    text: "Win a combat in an anomaly.",
+  },
+  {
+    name: "Unveil Flagship",
+    group: "Win a combat",
+    phase: "Action",
+    text: "Win a space combat in a system that contains your flagship. You cannot score this objective if your flagship is destroyed in the combat.",
+  },
+  {
+    name: "Destroy Their Greatest Ship",
+    group: "Destroy units",
+    phase: "Action",
+    text: "Destroy another player’s war sun or flagship.",
+    scored: "sol",
+  },
+  {
+    name: "Dictate Policy",
+    group: "Agenda and table",
+    phase: "Agenda",
+    text: "There are 3 or more laws in play.",
+  },
+  {
+    name: "Prove Endurance",
+    group: "Agenda and table",
+    phase: "Action",
+    text: "Be the last player to pass during a game round.",
+    scored: "mentak",
+  },
+];
 export const FACES = [
   7, 2, 9, 4, 10, 3, 8, 1, 6, 9, 5, 2, 8, 4, 10, 1, 7, 3, 6, 9, 2, 5, 8, 4, 1, 10, 6, 3, 7, 9,
 ];

@@ -9,11 +9,12 @@ import type { Catalog, SessionUpdate } from "../session/wire";
 
 // The Cards sheet over an update of the real engine: seat a holds `scuttle` and `rally`. The test
 // is here because `dev` is the layer that may import both the session and the components.
-const card = (id: string, name: string, window: string) => ({
+const card = (id: string, name: string, window: string, group: string) => ({
   id,
   name,
   phase: "Action",
   window,
+  group,
   text: `The text of ${name}.`,
 });
 const catalog = {
@@ -26,11 +27,15 @@ const catalog = {
     relics: [],
     legendary: [],
     action_cards: [
-      card("mb1", "Morale Boost", "At the start of a combat round"),
-      card("mb2", "Morale Boost", "At the start of a combat round"),
-      card("rally", "Rally", "Action"),
-      card("scuttle", "Scuttle", "At the start of your turn"),
+      card("mb1", "Morale Boost", "At the start of a combat round", "Combat"),
+      card("mb2", "Morale Boost", "At the start of a combat round", "Combat"),
+      card("mining", "Mining Initiative", "Action", "Action"),
+      card("rally", "Rally", "Action", "Action"),
+      card("scuttle", "Scuttle", "At the start of your turn", "Turns and actions"),
     ],
+    action_card_groups: ["Action", "Combat", "Turns and actions", "Any time"],
+    secret_objectives: [],
+    secret_objective_groups: [],
   },
 } as Catalog;
 const update: SessionUpdate = {
@@ -96,7 +101,12 @@ it("sets a card of the hand to Never offered", () => {
 it("lists the deck with what is unseen, and fakes a card that is not held", () => {
   const dispatch = open();
   const deck = within(screen.getByRole("region", { name: "Action card deck" }));
-  expect(deck.getByText("90 of 4 cards left · 1 discarded")).toBeInTheDocument();
+  expect(deck.getByText("90 of 5 cards left · 1 discarded")).toBeInTheDocument();
+  // A group is closed until the player opens it.
+  expect(deck.queryByText(/unseen$/)).not.toBeInTheDocument();
+  for (const group of deck.getAllByRole("button", { expanded: false })) {
+    fireEvent.click(group);
+  }
   expect(deck.getByText("1 of 2 unseen")).toBeInTheDocument();
   expect(deck.getByText("1 discarded")).toBeInTheDocument();
   expect(deck.getAllByText("1 in your hand")).toHaveLength(2);
@@ -104,6 +114,33 @@ it("lists the deck with what is unseen, and fakes a card that is not held", () =
   expect(deck.queryByRole("button", { name: "Fake Rally" })).not.toBeInTheDocument();
   fireEvent.click(deck.getByRole("button", { name: "Fake Morale Boost" }));
   expect(dispatch).toHaveBeenCalledWith({ type: "setCardFake", card: "Morale Boost", fake: true });
+});
+
+it("has the deck in groups by when a card is played, and no Fake for a component action", () => {
+  open();
+  const deck = within(screen.getByRole("region", { name: "Action card deck" }));
+  // A group with no card ("Any time" here) has no heading.
+  expect(deck.getAllByRole("heading", { level: 4 }).map((item) => item.textContent)).toEqual([
+    "▸Action2",
+    "▸Combat1",
+    "▸Turns and actions1",
+  ]);
+  const action = within(deck.getByRole("region", { name: "Action" }));
+  fireEvent.click(action.getByRole("button", { name: /^Action/ }));
+  // Mining Initiative is not held and is unseen, but no window offers it.
+  expect(action.getByText("1 of 1 unseen")).toBeInTheDocument();
+  // Rally is held: none is unseen, and the count says so with no other sign.
+  expect(action.getByText("0 of 1 unseen")).toBeInTheDocument();
+  expect(action.getAllByRole("button")).toHaveLength(1);
+  // The group closes again.
+  fireEvent.click(action.getByRole("button", { name: /^Action/ }));
+  expect(action.queryByText("1 of 1 unseen")).not.toBeInTheDocument();
+  fireEvent.click(deck.getByRole("button", { name: /^Combat/ }));
+  expect(
+    within(deck.getByRole("region", { name: "Combat" })).getByRole("button", {
+      name: "Fake Morale Boost",
+    }),
+  ).toBeInTheDocument();
 });
 
 it("shows a faked card with the hand, marked, and stops faking it", () => {

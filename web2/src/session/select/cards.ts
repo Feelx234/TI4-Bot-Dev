@@ -17,6 +17,9 @@ export interface CardSettings {
 
 export const NO_CARD_SETTINGS: CardSettings = { never: [], faked: [] };
 
+/** The group of a card that the catalogue does not have. */
+const OTHER = "Other";
+
 /** A card with the window "Action" is a component action: no window ever offers it. */
 const isAction = (window: string) => window.trim().toLowerCase() === "action";
 
@@ -45,6 +48,8 @@ export function selectActionCards(
   };
   const facts = update.action_cards;
   const held = count(me.held_action_cards ?? []);
+  // A card that is held is not faked, and a component action has nothing to fake.
+  const canFake = (name: string) => !held.has(name) && !card(name).action;
   const gone = [...(facts?.discard ?? []), ...(facts?.salvage ?? [])];
   const discarded = count(gone);
   const total = count(deck.map((card) => card.id));
@@ -58,35 +63,52 @@ export function selectActionCards(
         window: action ? "ACTION:" : timing(card.window),
         text: plain(card.text),
         action,
+        group: card.group,
       });
     }
   }
   const card = (name: string): ActionCardView =>
-    byName.get(name) ?? { name, window: "", text: "", action: false };
+    byName.get(name) ?? { name, window: "", text: "", action: false, group: OTHER };
   const names = [...new Set([...byName.keys(), ...held.keys(), ...discarded.keys()])].sort();
+  // The groups in the order of the catalogue. A group that it does not list is after them.
+  const groups = [
+    ...new Set([
+      ...(catalog?.components.action_card_groups ?? []),
+      ...names.map((name) => card(name).group),
+    ]),
+  ];
+  const byGroup = (a: string, b: string) =>
+    groups.indexOf(card(a).group) - groups.indexOf(card(b).group) || a.localeCompare(b);
   return {
     held: me.action_cards_count,
     limit: facts?.hand_limit ?? null,
     deck: facts ? { left: facts.deck, total: deck.length, discarded: gone.length } : null,
-    hand: [...held.keys()].sort().map((name) => ({
+    hand: [...held.keys()].sort(byGroup).map((name) => ({
       ...card(name),
       copies: held.get(name) ?? 0,
       never: card(name).action ? null : settings.never.includes(name),
     })),
-    faked: settings.faked.filter((name) => !held.has(name)).map(card),
-    reference: names.map((name) => {
-      const all = total.get(name) ?? 0;
-      const mine = held.get(name) ?? 0;
-      const out = discarded.get(name) ?? 0;
-      return {
-        ...card(name),
-        total: all,
-        discarded: out,
-        held: mine,
-        open: Math.max(0, all - out - mine),
-        faked: mine === 0 && settings.faked.includes(name),
-      };
-    }),
+    faked: settings.faked.filter(canFake).map(card),
+    reference: groups
+      .map((group) => ({
+        group,
+        cards: names
+          .filter((name) => card(name).group === group)
+          .map((name) => {
+            const all = total.get(name) ?? 0;
+            const mine = held.get(name) ?? 0;
+            const out = discarded.get(name) ?? 0;
+            return {
+              ...card(name),
+              total: all,
+              discarded: out,
+              held: mine,
+              open: Math.max(0, all - out - mine),
+              faked: canFake(name) && settings.faked.includes(name),
+            };
+          }),
+      }))
+      .filter((group) => group.cards.length > 0),
   };
 }
 
