@@ -1128,7 +1128,7 @@ test("the Objectives sheet of the late game says where the points of every seat 
   // stage I.
   const deck = sheet.getByRole("region", { name: "Public objective deck" });
   await expect(deck).toContainText("18 not revealed");
-  await deck.getByRole("button", { name: /^▸ Spend/ }).click();
+  await deck.getByRole("button", { name: /^Spend/ }).click();
   await expect(deck.getByRole("region", { name: "Spend" }).getByText("2 VP")).toHaveCount(5);
   await expect(deck.getByText("1 VP")).toHaveCount(0);
   // The standings stay in view when the sheet scrolls.
