@@ -22,7 +22,8 @@
 //!   reachable carriers can bring enough ground forces to; a hostile fleet must be beaten clearly
 //!   (fleet-strength matchup, [`ti4_policy::fleet_strength`]) or the system is avoided. A system
 //!   with its space dock is worth activating to build when the seat is short of units it could
-//!   build there, or to fetch an empty transport for the ground forces waiting there.
+//!   build there with plenty to spend ([`PLENTY_RESOURCES`]), or to fetch an empty transport for
+//!   the ground forces waiting there.
 //! - **Movement**: into a fight, move the strongest ships until the matchup is clearly won; move a
 //!   carrier while the target's planets still need ground forces (to a dock: an empty one for
 //!   the ground forces waiting there); then stop. Never move into a
@@ -33,8 +34,8 @@
 //! - **Retreat** from a space combat it is clearly losing, otherwise stay.
 //! - **Production**: buy the most useful unit per resource it can pay for (per production slot
 //!   when resources are plentiful): ground forces and a carrier when it lacks them, warships
-//!   otherwise, without exceeding fleet supply or capacity. No more ground forces once more wait
-//!   at its docks than its ships can carry; stop when nothing useful is left.
+//!   otherwise, without exceeding fleet supply or capacity. Ground forces beyond what its ships
+//!   can carry only to fill the dock's production limit, never into a glut.
 //! - **Victory points**: score whenever offered, including Imperial's extra objective, and always
 //!   pay to remove the custodians token.
 //! - **Command tokens**: a new token goes to the fleet pool until it holds three (or enough for
@@ -46,10 +47,21 @@
 //! - **Trades**: accept an offer only when its engine-estimated value to the bot is slightly
 //!   positive; propose only offers that gain for both sides; never counter.
 //! - **Over fleet supply**: remove the cheapest unit.
-//! - **Strategy cards**: Imperial first, else the card with the most trade goods on it.
+//! - **Strategy cards**: in the opening rounds the cards that take systems (Warfare,
+//!   Construction, Leadership, Technology for Gravity Drive, Diplomacy), never Trade unless Hacan
+//!   (who take it first), never Imperial or Politics in round 1; Imperial when Mecatol Rex is held
+//!   or about to be. Later: Imperial when it scores, else the card with most trade goods.
+//! - **The opening** (rounds 1-2, [`EXPANSION_ROUNDS`]): every transport takes a system of its
+//!   own, the best planet first and a system's others only with troops to spare. A token-free
+//!   production at home (Warfare's free tactical action, Construction's production, Warfare's
+//!   secondary) builds troops and then a third transport; otherwise Warfare is played early, so
+//!   the carrier it moves (with two troops extra) can move on from a system without a token.
+//!   Mid-round redistributions shrink the fleet pool to the biggest stack and make tactic tokens.
+//!   Strategy tokens are kept for Warfare's secondary while it is still to come.
+//! - **Research**: Gravity Drive whenever offered.
 //!
-//! Other strategy-card picks, technology choice, agendas, action cards, the other secondaries
-//! and every other window stay random.
+//! Other technology choices, agendas, action cards, the other secondaries and every other window
+//! stay random.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,6 +97,17 @@ pub const RICH_RESOURCES: f64 = 6.0;
 pub const FLEET_TOKENS_WANTED: i32 = 3;
 /// Mecatol Rex's planet id.
 const MECATOL: &str = "mr";
+/// Rounds in which the bot plays for planets above all: strategy cards, tokens and production
+/// serve taking more systems (see [`expanding`]).
+pub const EXPANSION_ROUNDS: u32 = 2;
+/// Spendable resources from which a dock is worth a command token just to build there.
+pub const PLENTY_RESOURCES: i64 = 6;
+/// A carrier's cost: what a new transport at home needs at least.
+const CARRIER_COST: i64 = 3;
+/// Tactic plus strategy tokens beyond which Leadership buys no more.
+pub const ENOUGH_TOKENS: i32 = 7;
+/// Gravity Drive's alias.
+const GRAVITY_DRIVE: &str = "gd";
 
 /// The smart answer to `choice`, or `None` to keep the random pick.
 #[must_use]
@@ -105,8 +128,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("load_cargo") => return pick_load(choice, observed, &me),
         Some("commit_ground_forces") => return pick_commit(choice, observed, &me),
         Some("announce_retreat") => return pick_retreat(choice, observed, &me),
-        Some("draft_strategy_card") => return pick_strategy_card(choice, observed),
+        Some("draft_strategy_card") => return pick_strategy_card(choice, observed, &me),
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
+        Some("research_technology") => return pick_research(choice),
+        Some("warfare_free_tactical") => return pick_free_tactical(choice, observed, &me),
+        Some("construction_choose_ability") => return pick_construction(choice, observed, &me),
         Some("status_redistribute_tokens" | "warfare_redistribute_tokens") => {
             return pick_redistribution(choice, observed, &me);
         }
@@ -282,6 +308,30 @@ fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
         || !seen.movable_into(me, &mr).is_empty()
 }
 
+/// Whether the seat could take Mecatol Rex with its next activation: the custodians still stand,
+/// it has the six influence for them, and carriers that can reach the system bring ground forces
+/// past any defence there (no hostile fleet it cannot clearly beat).
+fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    if seen.custodians_removed() || seen.available_spend(me, Spend::Influence) < 6 {
+        return false;
+    }
+    let Some(mr) = mecatol_system(seen) else {
+        return false;
+    };
+    let planet = PlanetId::new(MECATOL);
+    if seen.system(&mr).planet_control.get(&planet) == Some(me) {
+        return false;
+    }
+    activation_value(seen, me, &mr) >= MECATOL_BONUS
+}
+
+/// Whether the seat holds Mecatol Rex (Imperial's point).
+fn holds_mecatol(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    seen.controlled_planets(me)
+        .into_iter()
+        .any(|(_, planet)| planet.as_str() == MECATOL)
+}
+
 /// Ground forces needed to take `planet`: one more than the hit points defending it.
 fn ground_needed(
     seen: &Observed<'_>,
@@ -446,13 +496,15 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
         value += 1.0 + 0.5 * enemy.cost;
     }
 
-    // Ground: what carriers coming from the reachable origins could bring.
-    let capacity: i64 = movable.iter().map(|m| m.capacity).sum();
-    let origins: BTreeSet<&SystemId> = movable
+    // Ground: what carriers coming from the reachable origins could bring. Only ships: a unit
+    // that moves without being one (the Saar's Floating Factory) cannot hold the space, so the
+    // invasion step never opens for what it carries alone.
+    let carriers: Vec<_> = movable
         .iter()
-        .filter(|m| m.capacity > 0)
-        .map(|m| &m.origin)
+        .filter(|m| m.capacity > 0 && is_ship(seen, &m.unit))
         .collect();
+    let capacity: i64 = carriers.iter().map(|m| m.capacity).sum();
+    let origins: BTreeSet<&SystemId> = carriers.iter().map(|m| &m.origin).collect();
     let mut loadable_ground = 0usize;
     for origin in origins {
         loadable_ground += seen
@@ -475,8 +527,10 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     // Production at home when short of units and able to pay, or an empty transport to fetch the
     // ground forces waiting there.
     if !contested && has_own_production(seen, me, system) {
-        let build =
-            seen.available_spend(me, Spend::Resources) >= 3 && wants_to_build(seen, me, system);
+        // A command token only to build is worth it with plenty to spend; otherwise Warfare's
+        // secondary or Construction builds without one.
+        let build = seen.available_spend(me, Spend::Resources) >= PLENTY_RESOURCES
+            && wants_to_build(seen, me, system);
         let ferry = needs_transport(seen, me, system)
             && movable.iter().any(|m| {
                 m.capacity > 0
@@ -490,6 +544,197 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
         }
     }
     value
+}
+
+// -- the expansion plan --------------------------------------------------------------------------
+
+/// Whether this is one of the opening rounds, when planets come first.
+fn expanding(seen: &Observed<'_>) -> bool {
+    seen.round() <= EXPANSION_ROUNDS
+}
+
+/// The seat's home system: where its home planets are.
+fn home_system(seen: &Observed<'_>, me: &PlayerId) -> Option<SystemId> {
+    seen.controlled_planets(me)
+        .into_iter()
+        .find(|(_, planet)| {
+            ti4_content::galaxy::planet(seen.content(), planet.as_str(), seen.sources())
+                .is_some_and(|record| record.homeworld_of().is_some())
+        })
+        .map(|(system, _)| system.clone())
+}
+
+fn card_is(seen: &Observed<'_>, card: &str, name: &str) -> bool {
+    ti4_engine::strategy_cards::card_name(seen.content(), card).as_deref() == Some(name)
+}
+
+/// The seat's strategy card called `name`, while it is still unplayed.
+fn ready_card(seen: &Observed<'_>, me: &PlayerId, name: &str) -> Option<String> {
+    let seat = seen.seat(me)?;
+    seat.strategy_cards
+        .iter()
+        .find(|card| {
+            !seat.exhausted_strategy_cards.contains(*card) && card_is(seen, card.as_str(), name)
+        })
+        .map(ToString::to_string)
+}
+
+/// Whether another seat holds the card called `name` and has not played it yet: its secondary
+/// is still to come this round.
+fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, name: &str) -> bool {
+    seen.players()
+        .into_iter()
+        .filter(|player| *player != me)
+        .any(|player| ready_card(seen, player, name).is_some())
+}
+
+/// Strategy tokens kept back for a secondary worth more than the one on offer: in the opening
+/// rounds one for Warfare's home production while another seat has Warfare still to play.
+fn strategy_reserve(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+    i32::from(expanding(seen) && secondary_to_come(seen, me, "Warfare"))
+}
+
+/// Own non-fighter ships in `system`'s space area, and their capacity.
+fn ships_and_lift(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (usize, i64) {
+    seen.system(system)
+        .units
+        .iter()
+        .filter(|u| &u.owner == me)
+        .filter_map(|u| unit_type(seen, u.type_id.as_str()))
+        .filter(|t| t.is_ship() && !t.is_fighter())
+        .fold((0, 0), |(n, lift), t| (n + 1, lift + t.capacity()))
+}
+
+/// Whether a planet it could take lies within one move of `origin` (a carrier's reach), with no
+/// hostile fleet in the way.
+fn target_near(seen: &Observed<'_>, me: &PlayerId, origin: &SystemId) -> bool {
+    let Some(galaxy) = seen.galaxy() else {
+        return false;
+    };
+    let tokens = seen.systems_with_token(me);
+    galaxy
+        .system_ids()
+        .into_iter()
+        .map(SystemId::new)
+        .filter(|system| system != origin && !tokens.contains(system))
+        .filter(|system| !has_hostile_ships(seen, me, system))
+        .filter(|system| !targets(seen, me, system).is_empty())
+        .any(|system| seen.can_reach(me, origin, &system, 1))
+}
+
+/// The opening plan's third system: the transports have left home, a planet is still in reach of
+/// it, home is not activated (so a new carrier can leave), a tactic token is left to send it, and
+/// the seat can pay for a carrier (and two infantry when none wait at home). Then a production at
+/// home that places no token there (Warfare, Construction) is worth a planet.
+fn wants_home_transport(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    if !expanding(seen) {
+        return false;
+    }
+    let Some(home) = home_system(seen, me) else {
+        return false;
+    };
+    if seen.systems_with_token(me).contains(&home)
+        || seen.seat(me).is_none_or(|seat| seat.tactic_tokens <= 0)
+    {
+        return false;
+    }
+    let (_, lift) = ships_and_lift(seen, me, &home);
+    if lift >= 2 {
+        return false;
+    }
+    let (waiting, _) = waiting_and_lift(seen, me, &home);
+    let need = CARRIER_COST + if waiting == 0 { 2 } else { 0 };
+    seen.available_spend(me, Spend::Resources) >= need && target_near(seen, me, &home)
+}
+
+/// Whether a token-free production at home (Warfare's free tactical action, Construction's
+/// production) is the seat's best next step in the opening: a new transport once the others have
+/// left ([`wants_home_transport`]), or, before they leave, a transport and troops for a third
+/// system when it has fewer than three transports and can pay for a carrier and two infantry.
+fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    if wants_home_transport(seen, me) {
+        return true;
+    }
+    if !expanding(seen) {
+        return false;
+    }
+    let Some(home) = home_system(seen, me) else {
+        return false;
+    };
+    let (transports, _) = free_transports_and_ground(seen, me);
+    !seen.systems_with_token(me).contains(&home)
+        && transports < 3
+        && seen.available_spend(me, Spend::Resources) >= CARRIER_COST + 2
+        && target_near(seen, me, &home)
+}
+
+/// Own transports (non-fighter ships with capacity for two or more) and ground forces outside the
+/// systems holding its command token: what can still move this round.
+fn free_transports_and_ground(seen: &Observed<'_>, me: &PlayerId) -> (i64, i64) {
+    let tokens = seen.systems_with_token(me);
+    let (mut transports, mut ground) = (0, 0);
+    for (id, system) in seen.board() {
+        if tokens.contains(id) {
+            continue;
+        }
+        for unit in system
+            .units
+            .iter()
+            .chain(system.planet_units.values().flatten())
+            .filter(|u| &u.owner == me)
+        {
+            let Some(kind) = unit_type(seen, unit.type_id.as_str()) else {
+                continue;
+            };
+            if kind.is_ground_force() {
+                ground += 1;
+            } else if kind.is_ship() && !kind.is_fighter() && kind.capacity() >= 2 {
+                transports += 1;
+            }
+        }
+    }
+    (transports, ground)
+}
+
+/// Whether the seat could research Gravity Drive: it needs one propulsion technology.
+fn gravity_drive_open(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    let Some(seat) = seen.seat(me) else {
+        return false;
+    };
+    if seat
+        .technologies
+        .iter()
+        .any(|t| t.as_str() == GRAVITY_DRIVE)
+    {
+        return false;
+    }
+    seat.technologies.iter().any(|tech| {
+        seen.content()
+            .get(
+                ti4_model::content_types::ContentType::Technologies,
+                tech.as_str(),
+            )
+            .is_some_and(|record| record.strings("types").contains(&"PROPULSION"))
+    })
+}
+
+/// The fleet pool the bot needs during the action phase of the opening rounds, once its ships are
+/// spread out: its biggest stack (and room at home for what a planned build adds), at least one.
+/// Every token above that is a tactic token for one more system.
+fn fleet_lean(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+    let stack = biggest_stack(seen, me);
+    let home_need = home_system(seen, me)
+        .filter(|_| home_build_wanted(seen, me))
+        .map_or(0, |home| ships_and_lift(seen, me, &home).0 + 1);
+    i32::try_from(stack.max(home_need).max(1)).unwrap_or(i32::MAX)
+}
+
+fn biggest_stack(seen: &Observed<'_>, me: &PlayerId) -> usize {
+    seen.board()
+        .keys()
+        .map(|system| ships_and_lift(seen, me, system).0)
+        .max()
+        .unwrap_or(0)
 }
 
 // -- the questions -------------------------------------------------------------------------------
@@ -529,9 +774,10 @@ fn pick_action(
 ) -> Option<usize> {
     let galaxy = seen.galaxy()?;
     let tactical = choice.options.iter().position(|o| o.id == "tactical")?;
-    if seen.seat(me).is_some_and(|seat| seat.tactic_tokens <= 0) {
-        return None;
-    }
+    let out_of_tokens = seen.seat(me).is_some_and(|seat| seat.tactic_tokens <= 0);
+    let play = |name: &str| {
+        ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
+    };
     let tokens = seen.systems_with_token(me);
     let worth = galaxy
         .system_ids()
@@ -544,6 +790,26 @@ fn pick_action(
         .options
         .iter()
         .position(|o| o.kind == "action" && o.id.starts_with("strategic"));
+    // A new transport and troops at home without placing a token there (Warfare's free tactical
+    // action, Construction's production): the third system.
+    if home_build_wanted(seen, me) {
+        for name in ["Warfare", "Construction"] {
+            if let Some(index) = play(name) {
+                return Some(index);
+            }
+        }
+    }
+    // Warfare while there is a planet to take (or no tactic token left for it): its tactical
+    // action places no token, so the carrier that lands there can move on again this round.
+    if expanding(seen)
+        && (worth >= EAGER_WORTH || (out_of_tokens && worth >= ACTIVATION_THRESHOLD))
+        && let Some(index) = play("Warfare")
+    {
+        return Some(index);
+    }
+    if out_of_tokens {
+        return None;
+    }
     if worth < ACTIVATION_THRESHOLD {
         // Nothing worth a command token: play the card or pass rather than waste one.
         return strategic.or_else(|| choice.options.iter().position(|o| o.id == "pass"));
@@ -554,6 +820,82 @@ fn pick_action(
         Some(index) if worth < EAGER_WORTH && rng.random_bool(0.25) => Some(index),
         _ => Some(tactical),
     }
+}
+
+/// The action-phase option that plays `card`: `strategic|card`, or the bare `strategic` while it
+/// is the only card left to play.
+fn strategic_option(choice: &Choice, seen: &Observed<'_>, card: &str) -> Option<usize> {
+    choice
+        .options
+        .iter()
+        .position(|o| o.kind == "action" && o.id == format!("strategic|{card}"))
+        .or_else(|| {
+            let bare = choice
+                .options
+                .iter()
+                .position(|o| o.kind == "action" && o.id == "strategic")?;
+            let me = &choice.player;
+            let seat = seen.seat(me)?;
+            let unplayed: Vec<_> = seat
+                .strategy_cards
+                .iter()
+                .filter(|c| !seat.exhausted_strategy_cards.contains(*c))
+                .collect();
+            (unplayed.len() == 1 && unplayed[0].as_str() == card).then_some(bare)
+        })
+}
+
+/// Warfare's free tactical action: home, to build a transport there without a token, when the
+/// opening plan wants one; otherwise the system most worth activating (one with its own token
+/// too, as no token is placed).
+fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    if home_build_wanted(seen, me)
+        && let Some(home) = home_system(seen, me)
+        && let Some(index) = choice.options.iter().position(|o| o.id == home.as_str())
+    {
+        return Some(index);
+    }
+    let home = home_system(seen, me);
+    let scored: Vec<(usize, f64)> = choice
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, o)| {
+            let system = SystemId::new(&o.id);
+            let mut value = activation_value(seen, me, &system);
+            // No token is placed, so building at home costs nothing but resources.
+            if home.as_ref() == Some(&system)
+                && seen.available_spend(me, Spend::Resources) >= CARRIER_COST
+                && wants_to_build(seen, me, &system)
+            {
+                value = value.max(2.0);
+            }
+            (i, value)
+        })
+        .collect();
+    best_above(&scored, ACTIVATION_THRESHOLD)
+}
+
+/// Construction's primary: a production at home when the opening plan wants a new transport there,
+/// else a structure.
+fn pick_construction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let structure = choice.options.iter().position(|o| o.id == "structure");
+    if home_build_wanted(seen, me)
+        && let Some(home) = home_system(seen, me)
+        && let Some(index) = choice
+            .options
+            .iter()
+            .position(|o| o.id == format!("produce|{home}"))
+    {
+        return Some(index);
+    }
+    structure
+}
+
+/// Research: Gravity Drive whenever it is on offer (one more hex for a ship each activation);
+/// otherwise no opinion.
+fn pick_research(choice: &Choice) -> Option<usize> {
+    choice.options.iter().position(|o| o.id == GRAVITY_DRIVE)
 }
 
 fn payload_str<'o>(option: &'o ChoiceOption, key: &str) -> Option<&'o str> {
@@ -574,7 +916,22 @@ fn ground_shortfall(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, extra
         .count()
         + extra;
     // Only the planets worth having count; an unreachable Mecatol is already filtered out.
-    let need: usize = targets(seen, me, system).iter().map(|(_, _, n)| n).sum();
+    let wanted = targets(seen, me, system);
+    let mut need: usize = wanted.iter().map(|(_, _, n)| n).sum();
+    if expanding(seen) && wanted.len() > 1 {
+        // Troops are scarce in the opening: the best planet first, the system's others only with
+        // a troop left over for each other transport, which can take a system of its own.
+        let (transports, ground) = free_transports_and_ground(seen, me);
+        let mut spare = ground - (transports - 1).max(0);
+        need = 0;
+        for (i, (_, _, n)) in wanted.iter().enumerate() {
+            let n = i64::try_from(*n).unwrap_or(i64::MAX);
+            if i == 0 || spare >= n {
+                spare -= n;
+                need += usize::try_from(n).unwrap_or(0);
+            }
+        }
+    }
     need.saturating_sub(carried)
 }
 
@@ -661,10 +1018,22 @@ fn carrier_for_ground(
     if ground_shortfall(seen, me, active, 0) == 0 {
         return None;
     }
+    // In the opening each transport takes a system of its own: one that already brought troops
+    // here is enough.
+    if expanding(seen)
+        && seen
+            .system(active)
+            .units
+            .iter()
+            .any(|u| &u.owner == me && is_ground(seen, u))
+    {
+        return None;
+    }
     moves
         .iter()
         .filter(|(_, o, t)| {
             t.capacity() > 0
+                && t.is_ship()
                 && payload_str(o, "origin").is_some_and(|origin| {
                     seen.loadable(me, &SystemId::new(origin))
                         .iter()
@@ -756,7 +1125,19 @@ fn pick_load(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
                     })
         })
     };
-    if ground_shortfall(seen, me, &active, loaded) > 0
+    // An activation that placed no token (Warfare) leaves the carrier free to move on this round:
+    // bring two more ground forces for the next system.
+    // Not at the cost of the other transports, which want a troop each.
+    let short = ground_shortfall(seen, me, &active, 0);
+    let extra = if expanding(seen) && !seen.systems_with_token(me).contains(&active) {
+        let (transports, ground) = free_transports_and_ground(seen, me);
+        let spare = ground - i64::try_from(short).unwrap_or(i64::MAX) - (transports - 1).max(0);
+        usize::try_from(spare.clamp(0, 2)).unwrap_or(0)
+    } else {
+        0
+    };
+    if short > 0
+        && short + extra > loaded
         && let Some(index) = load_of(true)
     {
         return Some(index);
@@ -889,6 +1270,16 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         .filter(|u| unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.capacity() >= 4))
         .count();
     let mut scored = Vec::new();
+    // Ground forces that only fill the production limit, cheapest first.
+    let mut filler: Vec<(usize, f64)> = Vec::new();
+    let (idle, lift) = idle_ground_and_lift(seen, me);
+    let ground_glut = idle >= usize::try_from(2 * lift.max(MIN_IDLE_GROUND)).unwrap_or(0);
+    // The opening: transports and troops free to move this round (outside activated systems).
+    // Troops first while there are fewer than two per transport, then another transport while
+    // there are fewer than three.
+    let (free_transports, free_ground) = free_transports_and_ground(seen, me);
+    let need_ground = free_ground < 2 * free_transports.max(1);
+    let need_transport = free_transports < 3 && !need_ground;
     for (index, option) in choice.options.iter().enumerate() {
         if option.kind != "produce" {
             continue;
@@ -907,10 +1298,15 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         {
             continue;
         }
+        let count = payload_f64(option, "count").unwrap_or(1.0);
         if kind.is_ground_force() && enough_ground {
+            // Only to fill the dock's production limit when nothing better is left, and never
+            // into a heap no ship could ever lift.
+            if !ground_glut {
+                filler.push((index, -cost));
+            }
             continue;
         }
-        let count = payload_f64(option, "count").unwrap_or(1.0);
         let mut worth =
             count * ti4_policy::valuation::unit_value(seen.content(), seen.sources(), kind.id());
         if kind.is_ground_force() && ground < 6 {
@@ -918,6 +1314,14 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         }
         if kind.capacity() >= 4 && carriers < 2 {
             worth *= 2.0;
+        }
+        // In the opening a dock whose ground forces outnumber the lift there builds a transport.
+        // The opening's needs come first: troops, then a transport.
+        if kind.capacity() >= 2 && kind.is_ship() && expanding(seen) && need_transport {
+            worth *= 10.0;
+        }
+        if kind.is_ground_force() && expanding(seen) && need_ground {
+            worth *= 5.0;
         }
         if kind.is_ship() && !kind.is_fighter() && ships < 6 {
             worth *= 1.3;
@@ -935,6 +1339,9 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
             cost.max(0.5)
         };
         scored.push((index, worth / price));
+    }
+    if scored.is_empty() {
+        scored = filler;
     }
     if scored.is_empty() {
         return choice.options.iter().position(ChoiceOption::is_decline);
@@ -974,31 +1381,93 @@ fn pick_cheapest_removal(choice: &Choice, seen: &Observed<'_>) -> Option<usize> 
         .map(|(i, _)| i)
 }
 
-/// Draft: Imperial (an extra objective, and a point while holding Mecatol Rex), else the card with
-/// the most trade goods on it; with neither, no opinion.
-fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
-    let imperial = choice.options.iter().position(|o| {
-        ti4_engine::strategy_cards::card_name(seen.content(), &o.id).as_deref() == Some("Imperial")
-    });
-    imperial.or_else(|| {
-        let scored: Vec<(usize, f64)> = choice
+/// Draft. In the opening rounds ([`expanding`]) the cards that take more systems: Warfare (a
+/// tactical action without a token, and a token-free production at home), Construction (a
+/// production without activating), Leadership (tokens), Technology (Gravity Drive), then
+/// Diplomacy; never Trade unless the seat is the Hacan (who take it first), and never Imperial or
+/// Politics in round 1 (an agenda peek wins nothing yet). In round 2 Imperial comes first when
+/// Mecatol Rex can be taken this round. Later: Imperial, else the card with most trade goods.
+/// Trade goods on a card add to its score throughout.
+fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    if !expanding(seen) {
+        // Imperial when it scores: Mecatol Rex held or about to be.
+        let imperial = choice
             .options
             .iter()
-            .enumerate()
-            .map(|(i, o)| {
-                let goods = seen.strategy_card_goods(&ti4_model::id::StrategyCardId::new(&o.id));
-                (i, f64::from(goods))
-            })
-            .collect();
-        best_above(&scored, 1.0)
-    })
+            .position(|o| card_is(seen, &o.id, "Imperial"))
+            .filter(|_| holds_mecatol(seen, me) || mecatol_takeable(seen, me));
+        return imperial.or_else(|| {
+            let scored: Vec<(usize, f64)> = choice
+                .options
+                .iter()
+                .enumerate()
+                .map(|(i, o)| (i, f64::from(card_goods(seen, &o.id))))
+                .collect();
+            best_above(&scored, 1.0)
+        });
+    }
+    let scored: Vec<(usize, f64)> = choice
+        .options
+        .iter()
+        .enumerate()
+        .map(|(i, o)| (i, opening_card_score(seen, me, &o.id)))
+        .collect();
+    best_above(&scored, f64::NEG_INFINITY)
+}
+
+fn card_goods(seen: &Observed<'_>, card: &str) -> i32 {
+    seen.strategy_card_goods(&ti4_model::id::StrategyCardId::new(card))
+}
+
+/// What a strategy card is worth to the seat in the opening rounds (see [`pick_strategy_card`]).
+fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
+    let hacan = faction(seen, me) == "hacan";
+    let first_round = seen.round() <= 1;
+    let holds = |name: &str| {
+        seen.seat(me).is_some_and(|seat| {
+            seat.strategy_cards
+                .iter()
+                .any(|held| card_is(seen, held.as_str(), name))
+        })
+    };
+    let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
+    let base = match name.as_str() {
+        "Trade" if hacan => 20.0,
+        "Trade" if first_round => -10.0,
+        "Trade" => 4.0,
+        "Imperial" if first_round => -20.0,
+        "Imperial" if holds_mecatol(seen, me) || mecatol_takeable(seen, me) => 30.0,
+        "Imperial" => 3.0,
+        "Warfare" => 10.0,
+        "Construction" => 8.0,
+        "Leadership" => 7.0,
+        // Gravity Drive; with Warfare it is the way to Mecatol Rex.
+        "Technology" if gravity_drive_open(seen, me) && holds("Warfare") => 9.0,
+        "Technology" if gravity_drive_open(seen, me) => 6.5,
+        "Technology" => 5.0,
+        // Readies planets: the influence for the custodians after paying for research.
+        "Diplomacy" if holds("Warfare") && holds("Technology") => 7.5,
+        "Diplomacy" => 4.5,
+        "Politics" if first_round => -5.0,
+        "Politics" => 2.0,
+        _ => 0.0,
+    };
+    base + f64::from(card_goods(seen, card))
 }
 
 /// A new command token: the fleet pool until it holds a few, then whichever of the tactic and
 /// strategy pools is smaller (tactic on a tie, as tactical actions are what the bot mostly takes).
 fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let seat = seen.seat(me)?;
-    let pool = if seat.fleet_tokens < fleet_wanted(seen, me) {
+    let opening_action = expanding(seen) && seen.phase() == ti4_model::state::Phase::Action;
+    let pool = if opening_action {
+        // Mid-round in the opening: a tactic token is one more system.
+        if seat.fleet_tokens < fleet_lean(seen, me) {
+            "fleet_tokens"
+        } else {
+            "tactic_tokens"
+        }
+    } else if seat.fleet_tokens < fleet_wanted(seen, me) {
         "fleet_tokens"
     } else if seat.tactic_tokens <= seat.strategic_tokens {
         "tactic_tokens"
@@ -1032,8 +1501,17 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 
 /// Redistribution ("tactic|fleet|strategy"): the fleet pool at [`fleet_wanted`], the rest split
 /// evenly between tactic and strategy, an odd token to tactic.
+///
+/// During the action phase of the opening rounds the fleet is spread out, so the pool shrinks to
+/// what it holds now ([`fleet_lean`]) and every spare token goes to tactic, one kept for strategy:
+/// each tactic token is another system.
 fn pick_redistribution(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    let fleet = fleet_wanted(seen, me);
+    let lean = expanding(seen) && seen.phase() == ti4_model::state::Phase::Action;
+    let fleet = if lean {
+        fleet_lean(seen, me)
+    } else {
+        fleet_wanted(seen, me)
+    };
     choice
         .options
         .iter()
@@ -1041,7 +1519,12 @@ fn pick_redistribution(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> O
         .filter_map(|(i, o)| {
             let mut parts = o.id.split('|').map(|p| p.parse::<i32>().ok());
             let (t, f, s) = (parts.next()??, parts.next()??, parts.next()??);
-            Some((i, 10 * (f - fleet).abs() + (t - s - 1).abs()))
+            let rest = if lean {
+                3 * (s - 1).abs() - t
+            } else {
+                (t - s - 1).abs()
+            };
+            Some((i, 10 * (f - fleet).abs() + rest))
         })
         .min_by_key(|&(i, cost)| (cost, i))
         .map(|(i, _)| i)
@@ -1052,26 +1535,82 @@ fn pick_redistribution(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> O
 fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let yes = choice.options.iter().position(|o| o.id == "yes")?;
     let no = choice.options.iter().position(|o| o.id == "no")?;
-    if choice
-        .prompt
-        .starts_with("spend a strategy token and 4 resources to research")
-        || choice
-            .prompt
-            .starts_with("spend a strategy token to draw a secret objective")
-    {
-        return Some(yes);
+    let prompt = choice.prompt.as_str();
+    let tokens = seen.seat(me).map_or(0, |seat| seat.strategic_tokens);
+    // A strategy token spent here would be missed by a better secondary still to come.
+    let spare_token = tokens > strategy_reserve(seen, me);
+    let answer = |follow: bool| Some(if follow { yes } else { no });
+    if prompt.starts_with("spend a strategy token to produce at home") {
+        // Warfare: a production at home without a token there, the opening plan's new transport.
+        let resources = seen.available_spend(me, Spend::Resources);
+        // In the opening any token-free production at home is another transport or more
+        // ground forces for the planets still in reach.
+        let useful = wants_home_transport(seen, me)
+            || home_system(seen, me).is_some_and(|home| {
+                wants_to_build(seen, me, &home) || (expanding(seen) && target_near(seen, me, &home))
+            });
+        return answer(resources >= CARRIER_COST && useful);
     }
-    if choice.prompt.contains("influence for a command token") {
-        // Keep six influence for the custodians only while Mecatol Rex is within reach.
-        let spare = seen.available_spend(me, Spend::Influence)
-            - ti4_engine::strategy_cards::INFLUENCE_PER_TOKEN;
-        return Some(if !mecatol_in_reach(seen, me) || spare >= 6 {
-            yes
+    if prompt.starts_with("spend a strategy token and 4 resources to research") {
+        // In the opening only for Gravity Drive (the resources build transports otherwise).
+        return answer(if expanding(seen) {
+            spare_token && gravity_drive_open(seen, me)
         } else {
-            no
+            true
         });
     }
+    if prompt.starts_with("spend a strategy token to ready two planets") {
+        // Diplomacy: the influence back for the custodians when Mecatol Rex is in reach.
+        if mecatol_in_reach(seen, me)
+            && seen.available_spend(me, Spend::Influence) < 6
+            && exhausted_influence(seen, me) > 0
+        {
+            return answer(true);
+        }
+        return if expanding(seen) && !spare_token {
+            answer(false)
+        } else {
+            None
+        };
+    }
+    if prompt.starts_with("spend a strategy token to draw a secret objective") {
+        return answer(!expanding(seen) || spare_token);
+    }
+    if expanding(seen)
+        && (prompt.starts_with("spend a strategy token to draw two action cards")
+            || prompt.starts_with("spend a strategy token to place a structure")
+            || prompt.starts_with("spend a strategy token to build a structure")
+            || prompt.starts_with("spend a strategy token to replenish commodities"))
+        && !spare_token
+    {
+        return answer(false);
+    }
+    if prompt.starts_with("spend a strategy token to draw two action cards") && seen.round() <= 1 {
+        return answer(false);
+    }
+    if prompt.contains("influence for a command token") {
+        // Keep six influence for the custodians only while Mecatol Rex is within reach, and stop
+        // once the pools are full enough to use.
+        let spare = seen.available_spend(me, Spend::Influence)
+            - ti4_engine::strategy_cards::INFLUENCE_PER_TOKEN;
+        let pools = seen
+            .seat(me)
+            .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens);
+        return answer(pools < ENOUGH_TOKENS && (!mecatol_in_reach(seen, me) || spare >= 6));
+    }
     None
+}
+
+/// Influence on the seat's exhausted planets: what readying them could give back.
+fn exhausted_influence(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    seen.controlled_planets(me)
+        .into_iter()
+        .filter(|(_, planet)| !seen.planet_is_ready(planet))
+        .filter_map(|(_, planet)| {
+            ti4_content::galaxy::planet(seen.content(), planet.as_str(), seen.sources())
+        })
+        .map(|record| record.influence())
+        .sum()
 }
 
 /// Accept only a trade that is slightly in the bot's favour; otherwise refuse, never counter.
@@ -1454,6 +1993,7 @@ mod tests {
     #[test]
     fn production_stops_buying_ground_forces_its_ships_cannot_carry() {
         let (mut state, hub, centre, planet) = board();
+        state.round = 3;
         put_on_planet(&mut state, &centre, &planet, "spacedock", &me(), 1);
         put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 2);
         let choice = || {
@@ -1487,11 +2027,12 @@ mod tests {
         let seen = observe(&state, &hub);
         assert_eq!(pick_produce(&choice(), &seen, &me()), Some(0));
 
-        // Nothing but ground forces on offer and enough waiting: stop.
+        // Nothing but ground forces on offer: they fill the dock's production limit, until twice
+        // what any ship could lift waits there.
         let (mut state, hub, centre, planet) = board();
+        state.round = 3;
         put_on_planet(&mut state, &centre, &planet, "spacedock", &me(), 1);
         put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 6);
-        let seen = observe(&state, &hub);
         let only_ground = Choice::new(
             me(),
             "produce",
@@ -1500,7 +2041,11 @@ mod tests {
                 ChoiceOption::labelled("done_producing", "decline", "done"),
             ],
         );
-        assert_eq!(pick_produce(&only_ground, &seen, &me()), Some(1));
+        let seen = observe(&state, &hub);
+        assert_eq!(pick_produce(&only_ground, &seen, &me()), Some(0), "fill");
+        put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 2);
+        let seen = observe(&state, &hub);
+        assert_eq!(pick_produce(&only_ground, &seen, &me()), Some(1), "a glut");
     }
 
     #[test]
@@ -1640,7 +2185,8 @@ mod tests {
         let (mut state, hub, centre, planet) = board();
         put_on_planet(&mut state, &centre, &planet, "spacedock", &me(), 1);
         put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 4);
-        state.player_mut(&me()).expect("seat").trade_goods = 5;
+        // Plenty to spend: a token only to build is worth it.
+        state.player_mut(&me()).expect("seat").trade_goods = 6;
         state.player_mut(&me()).expect("seat").fleet_tokens = 3;
         let seen = observe(&state, &hub);
         assert!(activation_value(&seen, &me(), &centre) >= ACTIVATION_THRESHOLD);
@@ -1650,30 +2196,133 @@ mod tests {
         assert!(activation_value(&seen, &me(), &centre) < ACTIVATION_THRESHOLD);
     }
 
+    fn draft(cards: &[&str]) -> Choice {
+        contextual(
+            Choice::new(
+                me(),
+                "choose a strategy card",
+                cards
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "strategy_card", *id))
+                    .collect(),
+            ),
+            "draft_strategy_card",
+        )
+    }
+
     #[test]
-    fn the_draft_takes_imperial_else_the_card_with_most_trade_goods() {
+    fn later_drafts_take_imperial_only_with_mecatol_rex_else_the_most_trade_goods() {
         let (mut state, hub, _, _) = board();
-        let draft = |cards: &[&str]| {
-            contextual(
-                Choice::new(
-                    me(),
-                    "choose a strategy card",
-                    cards
-                        .iter()
-                        .map(|id| ChoiceOption::labelled(*id, "strategy_card", *id))
-                        .collect(),
-                ),
-                "draft_strategy_card",
-            )
-        };
+        state.round = 3;
         let all = draft(&["pok1leadership", "pok5trade", "pok8imperial"]);
-        assert_eq!(picked(&state, &hub, &all), Some(2));
+        assert_eq!(picked(&state, &hub, &all), None, "no Mecatol, no goods");
+        state
+            .system_mut(&SystemId::new("18"))
+            .planet_control
+            .insert(PlanetId::new(MECATOL), me());
+        assert_eq!(picked(&state, &hub, &all), Some(2), "Imperial scores");
         let rest = draft(&["pok1leadership", "pok5trade", "pok7technology"]);
         assert_eq!(picked(&state, &hub, &rest), None, "no goods: no opinion");
         state
             .strategy_card_goods
             .insert(ti4_model::id::StrategyCardId::new("pok5trade"), 2);
         assert_eq!(picked(&state, &hub, &rest), Some(1));
+    }
+
+    #[test]
+    fn the_first_draft_takes_expansion_cards_never_trade_imperial_or_politics() {
+        let (mut state, hub, _, _) = board();
+        assert_eq!(state.round, 1);
+        let all = [
+            "pok1leadership",
+            "pok3politics",
+            "te4construction",
+            "pok5trade",
+            "te6warfare",
+            "pok7technology",
+            "pok8imperial",
+        ];
+        assert_eq!(picked(&state, &hub, &draft(&all)), Some(4), "Warfare");
+        assert_eq!(
+            picked(&state, &hub, &draft(&all[..4])),
+            Some(2),
+            "Construction"
+        );
+        // Trade goods on Trade do not make it worth taking in round 1 ...
+        state
+            .strategy_card_goods
+            .insert(ti4_model::id::StrategyCardId::new("pok5trade"), 3);
+        let poor = draft(&["pok1leadership", "pok5trade", "pok8imperial"]);
+        assert_eq!(picked(&state, &hub, &poor), Some(0));
+        let left = draft(&["pok3politics", "pok5trade", "pok8imperial"]);
+        assert_eq!(
+            picked(&state, &hub, &left),
+            Some(0),
+            "even Politics (whose primary is then not played for its agenda peek) before Trade"
+        );
+        // ... unless the seat is the Hacan, who take it first.
+        state.player_mut(&me()).expect("seat").faction = ti4_model::id::FactionId::new("hacan");
+        assert_eq!(picked(&state, &hub, &draft(&all)), Some(3), "Hacan: Trade");
+    }
+
+    #[test]
+    fn with_warfare_held_technology_for_gravity_drive_comes_before_construction() {
+        let (mut state, hub, _, _) = board();
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.strategy_cards
+            .push(ti4_model::id::StrategyCardId::new("te6warfare"));
+        seat.technologies.clear();
+        let choice = draft(&["te4construction", "pok7technology"]);
+        assert_eq!(picked(&state, &hub, &choice), Some(0), "no propulsion yet");
+        state
+            .player_mut(&me())
+            .expect("seat")
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("amd"));
+        assert_eq!(
+            picked(&state, &hub, &choice),
+            Some(1),
+            "Gravity Drive opens"
+        );
+    }
+
+    #[test]
+    fn research_takes_gravity_drive_when_offered() {
+        let research = |ids: &[&str]| {
+            Choice::new(
+                me(),
+                "research a technology",
+                ids.iter()
+                    .map(|id| ChoiceOption::labelled(*id, "research", *id))
+                    .collect(),
+            )
+        };
+        assert_eq!(pick_research(&research(&["amd", "gd", "sar"])), Some(1));
+        assert_eq!(pick_research(&research(&["amd", "sar"])), None);
+    }
+
+    #[test]
+    fn mid_round_in_the_opening_the_spread_fleet_gives_its_tokens_to_tactics() {
+        let (mut state, hub, _, _) = board();
+        state.phase = ti4_model::state::Phase::Action;
+        // Two ships in two systems: one fleet token is all the fleet needs now.
+        put(&mut state, &outer(&hub, 0), "carrier", &me(), 1);
+        put(&mut state, &outer(&hub, 1), "destroyer", &me(), 1);
+        let ids = ["3|3|2", "4|2|2", "5|1|2", "6|1|1", "7|1|0", "4|1|3"];
+        let choice = contextual(
+            Choice::new(
+                me(),
+                "Warfare: redistribute your command tokens",
+                ids.iter()
+                    .map(|id| ChoiceOption::labelled(*id, "redistribute", *id))
+                    .collect(),
+            ),
+            "warfare_redistribute_tokens",
+        );
+        assert_eq!(picked(&state, &hub, &choice), Some(3), "6|1|1");
+        // Outside the action phase the fleet keeps its usual three.
+        state.phase = ti4_model::state::Phase::Status;
+        assert_eq!(picked(&state, &hub, &choice), Some(0), "3|3|2");
     }
 
     #[test]
@@ -1695,7 +2344,8 @@ mod tests {
 
     #[test]
     fn research_and_secret_objectives_are_always_followed() {
-        let (state, hub, _, _) = board();
+        let (mut state, hub, _, _) = board();
+        state.round = 3;
         let yes_no = |prompt: &str| {
             Choice::new(
                 me(),

@@ -5,6 +5,7 @@
 //! `SURVEY_SEEDS=1,2,3` to play all-smart 3, 4 and 6-seat tables on those seeds instead, and
 //! `SURVEY_MIXED_SEEDS=1,2,3` to choose the smart-against-random tables' seeds.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
@@ -223,4 +224,237 @@ fn survey_smart_bot_games() {
     eprintln!(
         "SUMMARY smart {smart_vp} VP over {smart_seats} seats ({smart_wins} mixed wins); random {random_vp} VP over {random_seats} seats ({random_wins} wins)"
     );
+}
+
+/// Per seat after round 1's action phase: (faction, strategy cards, new planets, new systems).
+/// The last field notes the draft position (`pos1` is the speaker), tactic tokens left and
+/// activations (`a`, `w` for Warfare's free one).
+type TurnOne = Vec<(String, String, usize, usize, String)>;
+
+/// One all-smart table played through round 1, then replayed up to the first decision after the
+/// round's action phase, so the board is exactly the one round 1 left behind.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one table, set up, played and read back"
+)]
+fn turn_one(seats: usize, seed: u64, roster: bool) -> TurnOne {
+    let ids: Vec<PlayerId> = (1..=seats)
+        .map(|i| PlayerId::new(format!("p{i}")))
+        .collect();
+    // Factions from the whole roster by seed (`+fac`), or the default in-scope seating.
+    let (mut initial, galaxy) = match ti4_server::preset::roster("explore+fac", seed, &ids) {
+        Some(assignments) if roster => ti4_server::map::create_game_with_template_seated(
+            ContentStore::embedded(),
+            &ids,
+            seed,
+            None,
+            &assignments,
+            Some("te"),
+        ),
+        _ => ti4_server::map::create_game_with_options(
+            ContentStore::embedded(),
+            &ids,
+            seed,
+            None,
+            None,
+            Some("te"),
+        ),
+    }
+    .expect("create game");
+    // The speaker (first draft pick) rotates with the seed, so no seat always drafts first; only
+    // this survey's tables, not the game setup.
+    let speaker = usize::try_from(seed).unwrap_or(0) % seats;
+    initial.speaker = ids[speaker].clone();
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let mut config = SessionConfig::new(format!("turn_one_{seats}_{seed}"), initial.clone())
+        .with_seed(seed)
+        .with_player_ids(ids.clone())
+        .with_galaxy(galaxy.clone(), tiles)
+        .with_random_bot_delay_ms(0);
+    for id in &ids {
+        config = config.with_seat(id.clone(), SeatController::BotSmart);
+    }
+    let session = GameSession::start(config);
+    let start = Instant::now();
+    loop {
+        let state = session.current_state();
+        if session.is_finished()
+            || session.error().is_some()
+            || state.round > 1
+            || start.elapsed() > Duration::from_secs(120)
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    session.stop();
+    let log = session.decision_log();
+    let end = log
+        .iter()
+        .position(|r| {
+            r.context.as_ref().is_some_and(|c| {
+                c.round > 1
+                    || !matches!(
+                        c.phase,
+                        ti4_model::state::Phase::Strategy | ti4_model::state::Phase::Action
+                    )
+            })
+        })
+        .unwrap_or(log.len());
+    if let Ok(dir) = std::env::var("SURVEY_DUMP") {
+        let mut text = String::new();
+        for record in &log[..end] {
+            text.push_str(&serde_json::to_string(record).expect("json"));
+            text.push('\n');
+        }
+        std::fs::write(format!("{dir}/turn_one_{seats}_{seed}.jsonl"), text).expect("write dump");
+    }
+    let report = ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
+        .expect("replay round 1");
+    let state = report.final_state;
+    if let Ok(system) = std::env::var("SURVEY_SHOW_SYSTEM") {
+        eprintln!(
+            "SYSTEM {system}: {}",
+            serde_json::to_string(&state.board.get(&ti4_model::id::SystemId::new(&system)))
+                .expect("json")
+        );
+    }
+    state
+        .players
+        .iter()
+        .map(|seat| {
+            let home: BTreeSet<_> = initial
+                .controlled_planets(&seat.id)
+                .into_iter()
+                .map(|(s, p)| (s.clone(), p.clone()))
+                .collect();
+            let gained: Vec<_> = state
+                .controlled_planets(&seat.id)
+                .into_iter()
+                .filter(|(s, p)| !home.contains(&((*s).clone(), (*p).clone())))
+                .collect();
+            let systems: BTreeSet<_> = gained.iter().map(|(s, _)| (*s).clone()).collect();
+            (
+                seat.faction.as_str().to_owned(),
+                seat.strategy_cards
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("+"),
+                gained.len(),
+                systems.len(),
+                {
+                    let asked = |subtype: &str| {
+                        log[..end]
+                            .iter()
+                            .filter(|r| r.player == seat.id)
+                            .filter(|r| r.context.as_ref().is_some_and(|c| c.subtype == subtype))
+                            .count()
+                    };
+                    let index = ids.iter().position(|id| id == &seat.id).unwrap_or(0);
+                    format!(
+                        "pos{} t{} a{} w{}",
+                        (index + seats - speaker) % seats + 1,
+                        seat.tactic_tokens,
+                        asked("activate_system"),
+                        asked("warfare_free_tactical")
+                    )
+                },
+            )
+        })
+        .collect()
+}
+
+/// How many planets and systems each smart seat takes in round 1 of a 4-player game:
+/// `SURVEY_TURN_ONE=1-40 cargo test --test smart_bot_survey turn_one -- --ignored --nocapture`
+/// (`SURVEY_TURN_ONE_SEATS` for another table size; factions come from the whole roster by seed,
+/// `SURVEY_TURN_ONE_FACTIONS=base` seats the default ones). Prints one line per seat and the
+/// distribution of new systems.
+#[test]
+#[ignore = "a survey for tuning, not a check"]
+#[expect(clippy::cast_precision_loss, reason = "small counts")]
+fn survey_turn_one() {
+    let spec = std::env::var("SURVEY_TURN_ONE").unwrap_or_else(|_| "1-40".to_owned());
+    let seats: usize = std::env::var("SURVEY_TURN_ONE_SEATS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let roster = std::env::var("SURVEY_TURN_ONE_FACTIONS").as_deref() != Ok("base");
+    let seeds: Vec<u64> = spec
+        .split(',')
+        .flat_map(|part| match part.split_once('-') {
+            Some((a, b)) => {
+                let (a, b): (u64, u64) = (
+                    a.trim().parse().expect("seed"),
+                    b.trim().parse().expect("seed"),
+                );
+                (a..=b).collect::<Vec<_>>()
+            }
+            None => vec![part.trim().parse().expect("seed")],
+        })
+        .collect();
+    let results: Vec<(u64, TurnOne)> = std::thread::scope(|scope| {
+        let chunks: Vec<Vec<u64>> = seeds
+            .chunks(seeds.len().div_ceil(6).max(1))
+            .map(<[u64]>::to_vec)
+            .collect();
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| {
+                scope.spawn(move || {
+                    chunk
+                        .into_iter()
+                        .map(|seed| (seed, turn_one(seats, seed, roster)))
+                        .collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("survey thread"))
+            .collect()
+    });
+    let mut systems_hist = [0usize; 6];
+    let mut planets_hist = [0usize; 7];
+    let mut by_faction: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut by_card: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut by_position: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (seed, seats) in &results {
+        let mut row = format!("seed {seed:3}:");
+        for (faction, cards, planets, systems, note) in seats {
+            let _ = write!(row, " {faction}[{cards}] {systems}s/{planets}p ({note});");
+            systems_hist[(*systems).min(5)] += 1;
+            planets_hist[(*planets).min(6)] += 1;
+            by_faction
+                .entry(faction.clone())
+                .or_default()
+                .push(*systems);
+            by_card.entry(cards.clone()).or_default().push(*systems);
+            let position = note.split(' ').next().unwrap_or_default().to_owned();
+            by_position.entry(position).or_default().push(*systems);
+        }
+        eprintln!("TURN1 {row}");
+    }
+    let total: usize = systems_hist.iter().sum();
+    let at_least = |n: usize| systems_hist[n..].iter().sum::<usize>();
+    eprintln!(
+        "SYSTEMS histogram 0..5+: {systems_hist:?} over {total} seats; >=3: {} ({:.0}%)",
+        at_least(3),
+        100.0 * at_least(3) as f64 / total.max(1) as f64
+    );
+    eprintln!("PLANETS histogram 0..6+: {planets_hist:?}");
+    for (label, map) in [
+        ("POSITION", &by_position),
+        ("FACTION", &by_faction),
+        ("CARD", &by_card),
+    ] {
+        for (key, list) in map {
+            let mean = list.iter().sum::<usize>() as f64 / list.len() as f64;
+            let three = list.iter().filter(|&&s| s >= 3).count();
+            eprintln!(
+                "{label} {key:24} n={:2} mean systems {mean:.2} >=3: {three}",
+                list.len()
+            );
+        }
+    }
 }
