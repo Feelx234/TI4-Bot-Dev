@@ -76,20 +76,19 @@ it("uses the engine's classified defender, all standing guns and legal Harrow in
       onClose={vi.fn()}
     />,
   );
-  // M20: Auto-populates draft (spec_ops), which triggers odds calculation
-  await waitFor(() => expect(fetch).toHaveBeenCalled());
-  const callCount = fetch.mock.calls.length;
+  // The default plan stages the spec ops already on the planet first, then the loose infantry
+  // from space; each staging is one odds request keyed to the draft.
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
   const first = JSON.parse(fetch.mock.calls[0][1].body);
   expect(first.attacker.units).toEqual({ spec_ops: 1 });
   expect(first.defender.guns).toEqual({ pds: 1 });
   expect(first.harrow).toEqual({ dreadnought: 1 });
-  fireEvent.click(screen.getByRole("button", { name: /Land infantry on Jord/ }));
-  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(callCount + 1));
-  const lastCall = fetch.mock.calls[fetch.mock.calls.length - 1][1].body;
-  expect(JSON.parse(lastCall).attacker.units).toEqual({
-    spec_ops: 1,
-    infantry: 1,
-  });
+  const staged = JSON.parse(fetch.mock.calls[1][1].body);
+  expect(staged.attacker.units).toEqual({ spec_ops: 1, infantry: 1 });
+  expect(staged.defender.guns).toEqual({ pds: 1 });
+  expect(staged.harrow).toEqual({ dreadnought: 1 });
+  // Everything available is staged, so there is nothing left to add.
+  expect(screen.getByRole("button", { name: /Land infantry on Jord/ })).toBeDisabled();
   expect(screen.getByTestId("invasion-odds")).toHaveTextContent("defender: 40%");
 });
 
