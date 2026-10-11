@@ -101,8 +101,11 @@ fn play_with(
 
 fn base_history() -> (GameState, Galaxy, Vec<DecisionRecord>) {
     let (state, galaxy) = setup(7);
-    let (h, _) = play_with(&state, &galaxy, Box::new(Lcg(1, false)), 400);
-    assert_eq!(h.len(), 400, "the fixture game should reach 400 decisions");
+    let (mut h, _) = play_with(&state, &galaxy, Box::new(Lcg(1, false)), 400);
+    // One step can log several decisions, so the game may run a little past 400; the history
+    // is the first 400 either way.
+    assert!(h.len() >= 400, "the fixture game should reach 400 decisions");
+    h.truncate(400);
     (state, galaxy, h)
 }
 
@@ -368,9 +371,10 @@ fn a_neutral_segment_is_reported_neutral() {
 #[test]
 fn dice_rolled_around_a_decision_are_counted() {
     // The aggressive policy reaches a roll on seed 2; a removal at or just before the step
-    // that rolled must report consumed dice.
+    // that rolled must report consumed dice. The budget is generous so that a shift in the
+    // seeded game (e.g. a card no longer offered) does not push the first roll out of reach.
     let (state, galaxy) = setup(2);
-    let (h, first_roll) = play_with(&state, &galaxy, Box::new(Lcg(2, true)), 520);
+    let (h, first_roll) = play_with(&state, &galaxy, Box::new(Lcg(2, true)), 900);
     let k = first_roll.expect("the fixture game rolls dice");
     let base = SpliceBaseline::new(&state, Some(&galaxy), &h);
     let flagged = (k.saturating_sub(3)..(k + 2).min(h.len()))

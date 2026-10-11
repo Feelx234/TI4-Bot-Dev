@@ -14962,9 +14962,9 @@ mod tests {
     #[test]
     fn reparations_do_nothing_when_the_holder_never_controlled_the_planet() {
         // The no-op branch: b holds Reparations but the planet a captures was owned by
-        // nobody, so it was never a planet b controlled. The card still plays (the window
-        // is coarse) and the effect verifies and declines: nothing is exhausted or
-        // readied beyond the capture's own LRR 42.3 exhaustion.
+        // nobody, so it was never a planet b controlled. The window names the former holder
+        // (`previous_owner`), so the card is not even offered: it stays in hand and nothing is
+        // exhausted or readied beyond the capture's own LRR 42.3 exhaustion.
         let (mut state, galaxy, system, planet) = invasion_fixture();
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
@@ -15009,9 +15009,10 @@ mod tests {
             state.exhausted_planets.contains(&b_planet),
             "the no-op effect readied nothing; log {events:?}"
         );
-        assert!(
-            state.player(&b).unwrap().action_cards.is_empty(),
-            "the card was spent even though the effect declined; log {events:?}"
+        assert_eq!(
+            state.player(&b).unwrap().action_cards,
+            vec![ti4_model::id::ActionCardId::new("reparations")],
+            "the card is not offered for a planet b never controlled; log {events:?}"
         );
     }
 
