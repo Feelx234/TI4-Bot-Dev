@@ -156,8 +156,8 @@ export function useCornerToasts({
     if (mutedRef.current) return;
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
     const live = recapRef.current ? fresh.filter((e) => !turns.tracked.has(e.id)) : fresh;
-    push(live.flatMap((e) => actionToastFromEvent(e, viewerSeat) ?? []));
-  }, [events, ready, viewerSeat, push, emitRecap]);
+    push(live.flatMap((e) => actionToastFromEvent(e, viewerSeat, board) ?? []));
+  }, [events, ready, viewerSeat, push, emitRecap, board]);
 
   // The viewer's own action menu means the previous player's turn is over.
   useEffect(() => {

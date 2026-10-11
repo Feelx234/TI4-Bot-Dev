@@ -1,5 +1,6 @@
 import { isPublicEvent } from "../protocol/eventVisibility.ts";
-import type { GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import type { BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import { systemTag } from "./systemFacts.ts";
 
 /** What another player did, as a short corner notification. */
 export type ActionToastCategory =
@@ -35,7 +36,7 @@ interface Rule {
   re: RegExp;
   category: ActionToastCategory;
   /** The phrase shown for one action. */
-  phrase: (m: RegExpExecArray) => string;
+  phrase: (m: RegExpExecArray, board?: BoardView | null) => string;
   count?: (m: RegExpExecArray) => number;
 }
 
@@ -44,7 +45,7 @@ interface Rule {
 // bookkeeping for the actor and stays in the event log.
 const RULES: Rule[] = [
   { re: /^played (.+)$/, category: "card", phrase: (m) => `played ${m[1]}` },
-  { re: /^activated #(\S+)$/, category: "activate", phrase: (m) => `activated system ${m[1]}` },
+  { re: /^activated #(\S+)$/, category: "activate", phrase: (m, board) => `activated system ${systemTag(m[1], board)}` },
   { re: /^picked (.+)$/, category: "strategy", phrase: (m) => `picked ${m[1]}` },
   { re: /^researched (.+)$/, category: "tech", phrase: (m) => `researched ${m[1]}` },
   { re: /^scored (.+)$/, category: "score", phrase: (m) => `scored ${m[1]}` },
@@ -59,7 +60,7 @@ const RULES: Rule[] = [
   {
     re: /^moved (.+) from #(\S+) to #(\S+)$/,
     category: "move",
-    phrase: (m) => `moved ${m[1]} from #${m[2]} to #${m[3]}`,
+    phrase: (m, board) => `moved ${m[1]} from ${systemTag(m[2], board)} to ${systemTag(m[3], board)}`,
   },
   {
     re: /^(accepted|refused) the transaction$/,
@@ -84,6 +85,7 @@ const TURN_PHRASES: Record<string, string> = {
 export function actionToastFromEvent(
   entry: GameEvent,
   viewerSeat?: string | null,
+  board?: BoardView | null,
 ): ActionToast | null {
   if (!isPublicEvent(entry) || entry.event.kind !== "decision_resolved") return null;
   const actor = entry.actor;
@@ -107,7 +109,7 @@ export function actionToastFromEvent(
         id: entry.id,
         actor,
         category: rule.category,
-        parts: [rule.phrase(m)],
+        parts: [rule.phrase(m, board)],
         count: rule.count ? rule.count(m) : 1,
       };
   }

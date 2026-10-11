@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { GameEvent } from "../protocol/types.ts";
+import type { BoardView, GameEvent } from "../protocol/types.ts";
 import {
   actionToastFromEvent,
   actionToastText,
@@ -26,7 +26,7 @@ describe("actionToastFromEvent", () => {
       parts: ["played Sabotage"],
     });
     expect(actionToastFromEvent(entry({ detail: "p2 activated #22" }), "p1")?.parts).toEqual([
-      "activated system 22",
+      "activated system #22",
     ]);
     expect(actionToastFromEvent(entry({ detail: "p2 researched Neural Motivator" }), "p1")?.category).toBe(
       "tech",
@@ -35,6 +35,21 @@ describe("actionToastFromEvent", () => {
       actionToastFromEvent(entry({ detail: "p2 scored public objective Corner the Market with Imperial" }), "p1")
         ?.category,
     ).toBe("score");
+  });
+
+  it("names activated and moved-between systems with tile number and name when the board knows them", () => {
+    const board = {
+      map_tiles: [
+        { system_id: "1", label: "Jord - Sol", q: 0, r: 0, planets: [{ id: "jord" }] },
+        { system_id: "18", label: "Mecatol Rex", q: 1, r: 0, planets: [{ id: "mecatol_rex" }] },
+      ],
+    } as unknown as BoardView;
+    expect(actionToastFromEvent(entry({ detail: "p2 activated #18" }), "p1", board)?.parts).toEqual([
+      "activated system #18 [Mecatol Rex]",
+    ]);
+    expect(
+      actionToastFromEvent(entry({ detail: "p2 moved cruiser from #1 to #18" }), "p1", board)?.parts,
+    ).toEqual(["moved cruiser from #01 [Sol home system] to #18 [Mecatol Rex]"]);
   });
 
   it("maps the action selection to a turn toast", () => {

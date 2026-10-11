@@ -47,7 +47,7 @@ describe("useCornerToasts", () => {
     expect(result.current.notifications).toHaveLength(0);
     rerender({ ...base, ready: true, events: [ev("a", "p2", "played Sabotage"), ev("b", "p3", "activated #22")] });
     expect(result.current.notifications).toHaveLength(1);
-    expect(result.current.notifications[0]).toMatchObject({ kind: "action", actor: "p3", text: "activated system 22" });
+    expect(result.current.notifications[0]).toMatchObject({ kind: "action", actor: "p3", text: "activated system #22" });
   });
 
   it("toasts other players only, merges a burst and bounds the stack", () => {
