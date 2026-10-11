@@ -39,6 +39,8 @@ export interface MockGameOptions {
   /** Pending decision; omit for a game that is just waiting. */
   choice?: MockChoice | null;
   events?: GameEvent[];
+  /** Engine `GameState` fields the page reads (e.g. `exploration_log`); default `{}`. */
+  state?: Record<string, unknown>;
   /** Undo/redo position; with log entries that carry decision_count it enables the log Undo buttons. */
   history?: { cursor: number; redo_count: number; generation?: number };
   turnStatus?: PublicTurnStatus;
@@ -71,7 +73,7 @@ export function buildSnapshot(options: MockGameOptions = {}) {
     game_id: GAME_ID,
     game_version: options.version ?? 40,
     viewer: options.spectator ? { role: "spectator" } : { role: "player", seat },
-    state: {},
+    state: options.state ?? {},
     galaxy_layout: { version: 1, active_sources: [], placements: [] },
     view: {
       round,

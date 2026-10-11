@@ -27,6 +27,18 @@ describe("useCornerToasts", () => {
     expect(result.current.notifications).toHaveLength(0);
   });
 
+  it("toasts a finished exploration for the viewer too, but not the ones present at load", () => {
+    const done = { player: "p1", deck: "HAZARDOUS", card: "cm1", planet: "mehar_xull", outcome: "resolved", result: "gained 1 trade good" };
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, explorations: [done] },
+    });
+    expect(result.current.notifications).toHaveLength(0);
+    rerender({ ...base, explorations: [done, { ...done, player: "p2", card: "cm2" }] });
+    expect(result.current.notifications).toHaveLength(1);
+    expect(result.current.notifications[0]).toMatchObject({ kind: "action", actor: "p2" });
+    expect(result.current.notifications[0].text).toContain("gained 1 trade good");
+  });
+
   it("waits for the first snapshot before treating the log as history", () => {
     const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
       initialProps: { ...base, ready: false },

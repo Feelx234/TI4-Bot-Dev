@@ -3011,6 +3011,13 @@ pub struct ExplorationRecord {
     pub planet: Option<PlanetId>,
     /// `fragment`, `attached:<attachment>`, `resolved`, `unresolved` (no handler) or `discarded`.
     pub outcome: String,
+    /// The system a frontier token was explored in (`None` for a planet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    /// What the card did for the player, in plain words ("gained 1 trade good"; empty when it
+    /// did nothing). Display only: no rule reads it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub result: String,
 }
 
 /// Negotiations one player may initiate during one action (operator limit, 2026-09-22).
