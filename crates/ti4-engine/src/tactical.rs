@@ -944,8 +944,13 @@ mod tests {
         ids.push(lane.clone());
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
         let galaxy = Galaxy::build(ContentStore::embedded(), &refs, POK, 1).unwrap();
-        let state = start_game(ContentStore::embedded(), &[player(), PlayerId::new("b")], POK, None)
-            .unwrap();
+        let state = start_game(
+            ContentStore::embedded(),
+            &[player(), PlayerId::new("b")],
+            POK,
+            None,
+        )
+        .unwrap();
 
         let options = activatable(&state, &galaxy, &player());
 

@@ -1969,7 +1969,33 @@ impl<'a> Game<'a> {
                 }))
             })
             .collect();
+        // Display only: what a card's play would touch, keyed by the option that plays it.
+        let mut card_effects = serde_json::Map::new();
+        for option in &choice.options {
+            let Some(alias) = option
+                .id
+                .strip_prefix(crate::action_cards::PLAY_PREFIX)
+                .and_then(|index| index.parse::<usize>().ok())
+                .and_then(|index| seat.action_cards.get(index))
+            else {
+                continue;
+            };
+            if alias.as_str() == "economic_initiative" {
+                card_effects.insert(
+                    option.id.clone(),
+                    json!({
+                        "kind": "ready_cultural",
+                        "planets": crate::action_cards::cultural_planets_preview(
+                            &self.state, self.content, self.sources, &player),
+                    }),
+                );
+            }
+        }
         choice
+            .detailed(
+                "action_card_effects",
+                serde_json::Value::Object(card_effects),
+            )
             .detailed("kind", "turn_menu")
             .detailed("closing", closing)
             .detailed("actions_taken", self.actions_this_turn)
@@ -4372,16 +4398,19 @@ impl<'a> Game<'a> {
             ["sardakkagent", "nomadagentmercer"].iter().any(|agent| {
                 seat.leaders.get(&ti4_model::id::LeaderId::new(*agent))
                     == Some(&ti4_model::state::LeaderStatus::Readied)
-            })
-                || crate::factions::hooks_cards::borrowable_agents(
-                    &self.state,
-                    self.content,
-                    &seat.id,
-                )
-                .iter()
-                .any(|(_, agent)| agent.as_str() == "sardakkagent")
+            }) || crate::factions::hooks_cards::borrowable_agents(
+                &self.state,
+                self.content,
+                &seat.id,
+            )
+            .iter()
+            .any(|(_, agent)| agent.as_str() == "sardakkagent")
         }) || crate::factions::obsidian::listens_for_tactical_end(&self.state)
-            || crate::factions::ralnel::listens_for_tactical_end(&self.state, self.content, self.sources);
+            || crate::factions::ralnel::listens_for_tactical_end(
+                &self.state,
+                self.content,
+                self.sources,
+            );
         if tro_window
             && let (Some(player), Some(system)) =
                 (self.state.active.clone(), self.state.active_system.clone())
@@ -5871,8 +5900,8 @@ impl<'a> Game<'a> {
         reason = "two seat-bound asks, each spelling out the position it shows"
     )]
     fn imperial_arbiter(&mut self) {
-        let Some(owner) = crate::laws::elected(&self.state, "arbiter")
-            .map(|held| PlayerId::new(held.clone()))
+        let Some(owner) =
+            crate::laws::elected(&self.state, "arbiter").map(|held| PlayerId::new(held.clone()))
         else {
             return;
         };
@@ -6917,7 +6946,11 @@ mod tests {
         assert_eq!(fork.rng_positions(), game.rng_positions());
         let fork_roll = fork.dice.roll(&mut fork.rng, 12, "after fork", Some(5));
         let fork_deck = fork.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
-        assert_eq!(game.rolls(), history, "fork rolls leave the original untouched");
+        assert_eq!(
+            game.rolls(),
+            history,
+            "fork rolls leave the original untouched"
+        );
         assert_eq!(
             game.dice.roll(&mut game.rng, 12, "after fork", Some(5)),
             fork_roll
@@ -6946,7 +6979,10 @@ mod tests {
         sync.restore_at_next_draw(at.clone());
         assert!(game.rng_sync_pending());
         let mut fork = game.fork();
-        assert!(!fork.rng_sync_pending(), "the fork must not carry the original's channel");
+        assert!(
+            !fork.rng_sync_pending(),
+            "the fork must not carry the original's channel"
+        );
         // Flushing applies the forced position now; the next draw is what it would have been.
         let mut reference = GameRng::new(9);
         let _ = reference.shuffled(crate::rng::domain::AGENDAS, &deck);
@@ -7442,7 +7478,9 @@ mod tests {
             .technologies
             .insert(ti4_model::id::TechnologyId::new("cm"));
         let (system, planet) = crate::fixtures::a_placed_planet();
-        state.system_mut(&system).set_control(planet.clone(), a.clone());
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), a.clone());
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
             ["decline", "decline", "decline"].map(str::to_owned),
@@ -7467,7 +7505,11 @@ mod tests {
             })
             .map(|choice| choice.prompt.clone())
             .collect();
-        assert_eq!(chaos.len(), 1, "one Chaos Mapping offer per turn: {chaos:?}");
+        assert_eq!(
+            chaos.len(),
+            1,
+            "one Chaos Mapping offer per turn: {chaos:?}"
+        );
     }
 
     /// OP-08 with Fleet Logistics: after the first action the seat may take a second one or end
@@ -7783,7 +7825,11 @@ mod tests {
         assert_eq!(tokens["tactic"], seat.tactic_tokens);
         assert_eq!(tokens["strategy"], seat.strategic_tokens);
         let partners = choice.details["partners"].as_array().unwrap();
-        assert_eq!(partners.len(), 1, "every other seat is listed: {partners:?}");
+        assert_eq!(
+            partners.len(),
+            1,
+            "every other seat is listed: {partners:?}"
+        );
         assert_eq!(partners[0]["seat"], "b");
         assert!(partners[0]["trade_goods"].is_number());
         let offered = choice
@@ -7792,7 +7838,10 @@ mod tests {
             .any(|option| option.kind == crate::transactions::OPEN_KIND);
         assert_eq!(partners[0]["available"], offered);
         if !offered {
-            assert!(partners[0]["reason"].is_string(), "a missing partner says why");
+            assert!(
+                partners[0]["reason"].is_string(),
+                "a missing partner says why"
+            );
         }
     }
 
@@ -7907,7 +7956,9 @@ mod tests {
             }
         }
         assert!(
-            game.events.iter().any(|e| e == "TURN_ENDED_BY_STARLANCER:b"),
+            game.events
+                .iter()
+                .any(|e| e == "TURN_ENDED_BY_STARLANCER:b"),
             "{:?}",
             game.events
         );
@@ -7953,7 +8004,7 @@ mod tests {
             "the hero is a component action"
         );
         let table = Table::with_default(Box::new(Scripted::new([
-            "component|leader|mahacthero".to_owned(),
+            "component|leader|mahacthero".to_owned()
         ])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table)
             .with_sources(ti4_model::content_types::DEFAULT)
@@ -8551,8 +8602,12 @@ mod tests {
             "the redistribution after the action applied"
         );
         let prompts: Vec<String> = seen.borrow().iter().map(|c| c.prompt.clone()).collect();
-        let before_at = prompts.iter().position(|p| p.contains("before the tactical action"));
-        let after_at = prompts.iter().position(|p| p.contains("after the tactical action"));
+        let before_at = prompts
+            .iter()
+            .position(|p| p.contains("before the tactical action"));
+        let after_at = prompts
+            .iter()
+            .position(|p| p.contains("after the tactical action"));
         assert!(
             before_at.is_some() && after_at > before_at,
             "before, then after: {prompts:?}"
@@ -8711,7 +8766,9 @@ mod tests {
         state.active = Some(a.clone());
         state.deal_strategy_card(&a, StrategyCardId::new("leadership"));
         state.deal_strategy_card(&b, StrategyCardId::new("imperial"));
-        let table = Table::with_default(Box::new(TurnDecider::new(&[]).taking_the_strategic_action()));
+        let table = Table::with_default(Box::new(
+            TurnDecider::new(&[]).taking_the_strategic_action(),
+        ));
         let mut game = Game::with_table(state, ContentStore::embedded(), table);
         let mut guard = 0;
         while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_BEGAN") && guard < 100 {
@@ -12890,12 +12947,17 @@ mod tests {
             self.0.lock().unwrap().push((
                 choice.player.to_string(),
                 choice.prompt.clone(),
-                choice.details.get("costs_token").and_then(serde_json::Value::as_bool),
+                choice
+                    .details
+                    .get("costs_token")
+                    .and_then(serde_json::Value::as_bool),
             ));
             choice
                 .options
                 .iter()
-                .find(|o| o.id == "strategic" || o.id == "yes" || o.id.starts_with("component|trade|"))
+                .find(|o| {
+                    o.id == "strategic" || o.id == "yes" || o.id.starts_with("component|trade|")
+                })
                 .or_else(|| choice.options.iter().find(|o| o.is_decline()))
                 .or_else(|| choice.options.first())
                 .cloned()
@@ -12921,10 +12983,13 @@ mod tests {
         }
         state.phase = Phase::Action;
         state.active = Some(PlayerId::new(holder));
-        state.player_mut(&PlayerId::new(holder)).unwrap().strategy_cards =
-            vec![ti4_model::id::StrategyCardId::new("pok5trade")];
+        state
+            .player_mut(&PlayerId::new(holder))
+            .unwrap()
+            .strategy_cards = vec![ti4_model::id::StrategyCardId::new("pok5trade")];
         let seen = TradeSeats::default();
-        let mut game = Game::with_table(state, content, Table::with_default(Box::new(seen.clone())));
+        let mut game =
+            Game::with_table(state, content, Table::with_default(Box::new(seen.clone())));
         let mut guard = 0;
         while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE") && guard < 60 {
             assert_eq!(game.step().error, None, "log {:?}", game.events);
@@ -12948,7 +13013,10 @@ mod tests {
         );
         // The followers pay their strategy token, as the secondary always costs one.
         for seat in ["a", "c"] {
-            assert_eq!(state.player(&PlayerId::new(seat)).unwrap().strategic_tokens, 1);
+            assert_eq!(
+                state.player(&PlayerId::new(seat)).unwrap().strategic_tokens,
+                1
+            );
         }
         assert_eq!(hacan.strategic_tokens, 2, "the primary costs no token");
     }
@@ -12962,7 +13030,9 @@ mod tests {
             asked
                 .iter()
                 .find(|(who, prompt, _)| {
-                    who == seat && prompt.contains("replenish commodities") && !prompt.contains("another")
+                    who == seat
+                        && prompt.contains("replenish commodities")
+                        && !prompt.contains("another")
                 })
                 .unwrap_or_else(|| panic!("{seat} was not asked the Trade secondary: {asked:?}"))
                 .2
@@ -12971,7 +13041,10 @@ mod tests {
         assert_eq!(question("c"), Some(true));
         let hacan = state.player(&PlayerId::new("b")).unwrap();
         assert_eq!((hacan.commodities, hacan.strategic_tokens), (6, 1));
-        assert_eq!(state.player(&PlayerId::new("c")).unwrap().strategic_tokens, 0);
+        assert_eq!(
+            state.player(&PlayerId::new("c")).unwrap().strategic_tokens,
+            0
+        );
 
         let (asked, _) = trade_table("a", 0);
         assert!(
@@ -12993,7 +13066,9 @@ mod tests {
         let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
         state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("sol");
         state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("hacan");
-        assert!(!crate::transactions::are_neighbours(&state, &galaxy, &a, &b));
+        assert!(!crate::transactions::are_neighbours(
+            &state, &galaxy, &a, &b
+        ));
         for seat in [&a, &b] {
             let seat = state.player_mut(seat).unwrap();
             seat.trade_goods = 2;
@@ -13003,21 +13078,31 @@ mod tests {
             state.active = Some(active.clone());
             let seen = TradeSeats::default();
             let table = Table::with_default(Box::new(seen.clone()));
-            let mut game = Game::with_table(state.clone(), content, table).with_galaxy(galaxy.clone());
+            let mut game =
+                Game::with_table(state.clone(), content, table).with_galaxy(galaxy.clone());
             let menu = game.legal_options().expect("the turn menu");
             assert!(
-                menu.ids().contains(&format!("component|trade|{partner}").as_str()),
+                menu.ids()
+                    .contains(&format!("component|trade|{partner}").as_str()),
                 "{active} may open a transaction with {partner}: {:?}",
                 menu.ids()
             );
-            let partners = menu.details.get("partners").and_then(|p| p.as_array()).expect("partners");
+            let partners = menu
+                .details
+                .get("partners")
+                .and_then(|p| p.as_array())
+                .expect("partners");
             assert_eq!(partners[0]["available"], true, "{partners:?}");
             assert_eq!(partners[0]["in_contact"], true, "{partners:?}");
             for _ in 0..2 {
                 assert_eq!(game.step().error, None, "log {:?}", game.events);
             }
             let asked = seen.0.lock().unwrap().clone();
-            assert_eq!(asked[1].1, format!("transaction with {partner}"), "{asked:?}");
+            assert_eq!(
+                asked[1].1,
+                format!("transaction with {partner}"),
+                "{asked:?}"
+            );
         }
     }
 
@@ -15195,7 +15280,12 @@ mod tests {
             .count();
         let notes = game.table.take_auto_resolved();
         // Every pick happened, asked or not.
-        let dealt: usize = game.state.players.iter().map(|p| p.strategy_cards.len()).sum();
+        let dealt: usize = game
+            .state
+            .players
+            .iter()
+            .map(|p| p.strategy_cards.len())
+            .sum();
         assert_eq!(asked + notes.len(), dealt, "{count} players, {picks} steps");
         (asked, notes, game.state)
     }
@@ -15208,12 +15298,20 @@ mod tests {
         assert_eq!((asked, notes.len()), (7, 1));
         assert_eq!(notes[0].reason, "only one strategy card left");
         assert_eq!(notes[0].prompt, "choose a strategy card");
-        assert!(notes[0].label.contains(". "), "the card is named: {}", notes[0].label);
+        assert!(
+            notes[0].label.contains(". "),
+            "the card is named: {}",
+            notes[0].label
+        );
         assert!(state.unclaimed_strategy_cards.is_empty());
         let taker = state
             .players
             .iter()
-            .find(|p| p.strategy_cards.iter().any(|c| c.as_str() == notes[0].option_id))
+            .find(|p| {
+                p.strategy_cards
+                    .iter()
+                    .any(|c| c.as_str() == notes[0].option_id)
+            })
             .expect("someone holds the card");
         assert_eq!(taker.id, notes[0].player);
     }

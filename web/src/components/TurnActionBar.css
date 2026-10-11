@@ -473,3 +473,44 @@
     font-weight: 600;
   }
 }
+
+/* Planets a hovered action card would touch (Economic Initiative's cultural planets). */
+.turn-bar__planets {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.turn-bar__planets-title {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.turn-bar__planets ul {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+}
+.turn-bar__planets li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: center;
+  padding: 2px 0;
+}
+.turn-bar__planets li > span:first-child {
+  font-weight: 600;
+}
+.turn-bar__planet-trait {
+  font-size: 11px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(56, 189, 248, 0.6);
+  color: #7dd3fc;
+}
+.turn-bar__planet-state {
+  opacity: 0.75;
+}
+.turn-bar__planet-state--changes {
+  color: #fbbf24;
+  opacity: 1;
+}

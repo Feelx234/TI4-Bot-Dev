@@ -22,6 +22,8 @@ export interface BarInfo {
   text: string;
   secondary: string | null;
   chips: { label: string; tone: BarTone }[];
+  /** Planets a card's play would touch (Economic Initiative: the cultural ones), when known. */
+  planets?: { id: string; name: string; trait: string; exhausted: boolean }[];
 }
 
 export interface BarAction {
@@ -179,21 +181,61 @@ function costChip(label: string): { label: string; tone: BarTone } | null {
   return null;
 }
 
-function itemFor(option: ChoiceOptionDto): BarItem {
+/** `details.action_card_effects[optionId]`: the planets a card readies, with their state. */
+function readEffectPlanets(
+  details: Record<string, unknown> | undefined,
+  optionId: string,
+): NonNullable<BarInfo["planets"]> | undefined {
+  const effects = details?.action_card_effects;
+  if (!effects || typeof effects !== "object") return undefined;
+  const effect = (effects as Record<string, unknown>)[optionId];
+  if (!effect || typeof effect !== "object") return undefined;
+  const planets = (effect as Record<string, unknown>).planets;
+  if (!Array.isArray(planets)) return undefined;
+  const out: NonNullable<BarInfo["planets"]> = [];
+  for (const entry of planets) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.id !== "string") continue;
+    out.push({
+      id: e.id,
+      name: typeof e.name === "string" ? e.name : e.id,
+      trait: typeof e.trait === "string" ? e.trait : "cultural",
+      exhausted: e.exhausted === true,
+    });
+  }
+  return out;
+}
+
+/** One line under the menu row: which cultural planets the card readies and how many change. */
+export function planetsSummary(planets: NonNullable<BarInfo["planets"]>): string {
+  if (planets.length === 0) return "No cultural planets: nothing to ready";
+  const names = planets.map((p) => (p.exhausted ? p.name : `${p.name} (ready)`)).join(", ");
+  const changing = planets.filter((p) => p.exhausted).length;
+  return `Cultural: ${names}; readies ${changing} of ${planets.length}`;
+}
+
+function itemFor(option: ChoiceOptionDto, details?: Record<string, unknown>): BarItem {
   const label = option.label;
   if (isActionCard(option)) {
     const name = playedName(label);
+    const planets = readEffectPlanets(details, option.id);
     const meta = findActionCardByName(name);
     return {
       optionId: option.id,
       label: name,
-      detail: meta?.description ? firstSentence(meta.description, 120) : null,
+      detail: planets
+        ? planetsSummary(planets)
+        : meta?.description
+          ? firstSentence(meta.description, 120)
+          : null,
       info: {
         kind: "Action card",
         title: name,
         text: meta?.description ?? "",
         secondary: null,
         chips: [{ label: `Window: ${meta?.phase ?? "Action"}`, tone: "neutral" }],
+        ...(planets ? { planets } : {}),
       },
     };
   }
@@ -464,7 +506,7 @@ export function deriveTurnBar(
   const rest = options.filter(
     (o) => !isEnd(o) && !isPass(o) && !isTactical(o) && !isStrategic(o) && !isTrade(o),
   );
-  const cardItems = rest.filter(isActionCard).map(itemFor);
+  const cardItems = rest.filter(isActionCard).map((o) => itemFor(o, details));
   const grouped = new Map<string, BarItem[]>();
   for (const option of rest.filter((o) => !isActionCard(o))) {
     const title = componentGroupTitle(option.id);

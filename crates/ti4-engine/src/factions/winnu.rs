@@ -2533,7 +2533,13 @@ mod tests {
         let hub = crate::fixtures::hub_with_centre("18");
         let system = SystemId::new(hub.galaxy.system_ids().into_iter().next().unwrap());
         let keep = keep_tokens(&state, &a());
-        let mut table = scripted(&["te6warfare", keep.as_str(), system.as_str(), "yes|b", "no|c"]);
+        let mut table = scripted(&[
+            "te6warfare",
+            keep.as_str(),
+            system.as_str(),
+            "yes|b",
+            "no|c",
+        ]);
         let result = crate::fixtures::with_context(
             &mut state,
             DEFAULT,

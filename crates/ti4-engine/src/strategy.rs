@@ -108,6 +108,12 @@ fn secondary_choice(
                 .detailed("purchase", purchase);
         }
     }
+    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Diplomacy") {
+        question = question.detailed(
+            "ready_hints",
+            crate::strategy_cards::ready_hints(state, content, sources, player),
+        );
+    }
     question
         .detailed("kind", "strategy_secondary")
         .detailed("card", card.as_str())

@@ -521,10 +521,11 @@ impl VoteWindow {
         content: &ContentStore,
         sources: SourceSet,
     ) -> Option<Choice> {
-        self.pending_choice_bare(state, content, sources).map(|choice| {
-            let agenda = crate::strategy_cards::agenda_details(content, &self.alias);
-            choice.detailed(AGENDA_DETAIL, agenda)
-        })
+        self.pending_choice_bare(state, content, sources)
+            .map(|choice| {
+                let agenda = crate::strategy_cards::agenda_details(content, &self.alias);
+                choice.detailed(AGENDA_DETAIL, agenda)
+            })
     }
 
     fn pending_choice_bare(

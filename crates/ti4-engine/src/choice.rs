@@ -2121,8 +2121,13 @@ pub struct Table {
 /// presentation only: it gets no way to change the game, answer a choice, or draw from any random
 /// stream, and nothing it does is journaled.
 pub type WindowObserver = Box<
-    dyn FnMut(&PlayerId, &str, crate::timing::Relation, &ti4_model::state::GameState, &mut dyn FnMut())
-        + Send,
+    dyn FnMut(
+            &PlayerId,
+            &str,
+            crate::timing::Relation,
+            &ti4_model::state::GameState,
+            &mut dyn FnMut(),
+        ) + Send,
 >;
 
 /// A decision the engine settled itself because exactly one option was legal.
@@ -2190,10 +2195,10 @@ impl Table {
 
     fn state_with(&self, keep_log: bool) -> TableState {
         let Self {
-            deciders: _,              // input wiring: whoever answers is chosen by the caller
-            default: _,               // input wiring
+            deciders: _, // input wiring: whoever answers is chosen by the caller
+            default: _,  // input wiring
             log,
-            observed_offer: _,        // input wiring: session callbacks
+            observed_offer: _,         // input wiring: session callbacks
             auto_resolved_observer: _, // input wiring
             // Bluff hook (skipped-window observer): input wiring, intentionally NOT copied, so a
             // forked batch simulation or a replay never fires bluff holds (AGENTS.md FORK RULE).
@@ -2398,7 +2403,8 @@ impl Table {
 
     pub(crate) fn choice_error_since(&self, checkpoint: u64) -> Option<IllegalChoice> {
         (self.choice_failures != checkpoint)
-            .then(|| self.last_choice_error.clone()).flatten()
+            .then(|| self.last_choice_error.clone())
+            .flatten()
     }
 
     fn remember_choice_error(&mut self, outcome: &Result<ChoiceOption, IllegalChoice>) {
@@ -2718,7 +2724,10 @@ mod tests {
         let two = Choice::new(
             PlayerId::new("a"),
             "p",
-            vec![ChoiceOption::labelled("x", "k", "X"), ChoiceOption::labelled("y", "k", "Y")],
+            vec![
+                ChoiceOption::labelled("x", "k", "X"),
+                ChoiceOption::labelled("y", "k", "Y"),
+            ],
         );
         assert!(table.auto_resolve(&two, "r").is_none());
         assert!(table.take_auto_resolved().is_empty());

@@ -126,17 +126,9 @@ pub fn bombardable(
     }
     // Arc Secundus, the Letnev flagship: "Other player's units in this system lose PLANETARY
     // SHIELD." Its own player's shields are untouched, and the invader is the only one bombarding.
-    let arc_secundus = board
-        .units_of(invader)
-        .into_iter()
-        .any(|unit| {
-            crate::factions::flagship_has_text(
-                state,
-                invader,
-                unit.type_id.as_str(),
-                "letnev_flagship",
-            )
-        });
+    let arc_secundus = board.units_of(invader).into_iter().any(|unit| {
+        crate::factions::flagship_has_text(state, invader, unit.type_id.as_str(), "letnev_flagship")
+    });
     if arc_secundus {
         return true;
     }
@@ -3368,21 +3360,17 @@ impl InvasionWindow {
         // Proxima Targeting VI: "At the start of a round of ground combat, you may resolve
         // BOMBARDMENT 8 (x3) ...". Emitted only while a side holds the technology, so every other
         // game's event stream is unchanged.
-        if crate::factions::bastion_units::watches_ground_round(
-            state,
-            &[&self.invader, &defender],
-        ) {
+        if crate::factions::bastion_units::watches_ground_round(state, &[&self.invader, &defender])
+        {
             let payload = std::collections::BTreeMap::from([
                 ("system".to_owned(), self.system.to_string().into()),
                 ("planet".to_owned(), planet.to_string().into()),
                 ("attacker".to_owned(), self.invader.to_string().into()),
                 ("defender".to_owned(), defender.to_string().into()),
             ]);
-            if let Err(error) = ctx.emit(
-                state,
-                crate::factions::bastion_units::ROUND_BEGAN,
-                payload,
-            ) {
+            if let Err(error) =
+                ctx.emit(state, crate::factions::bastion_units::ROUND_BEGAN, payload)
+            {
                 self.strict_timing_error = Some(error);
                 return;
             }
@@ -6893,10 +6881,9 @@ mod tests {
         nekro
             .technologies
             .insert(ti4_model::id::TechnologyId::new("vax"));
-        nekro.assimilated_technologies.insert(
-            "vax".to_owned(),
-            ti4_model::id::TechnologyId::new("l4"),
-        );
+        nekro
+            .assimilated_technologies
+            .insert("vax".to_owned(), ti4_model::id::TechnologyId::new("l4"));
         let mut table = Table::with_default(Box::new(crate::choice::FirstOption));
         let mut dice = Dice::from_faces([10u32]);
         let mut rng = GameRng::new(7);
@@ -8546,8 +8533,7 @@ mod tests {
         let content = ContentStore::embedded();
         let run = |lent: &[&str]| {
             let (_, system, planet) = arena_off_mecatol();
-            let mut state =
-                crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
+            let mut state = crate::fixtures::nekro_with_z(&[("a", "nekro"), ("b", "sol")], lent);
             on_planet(&mut state, &system, &planet, "pds", &holder(), 1);
             on_planet(&mut state, &system, &planet, "infantry", &holder(), 1);
             in_space(&mut state, &system, "dreadnought", &invader(), 1);

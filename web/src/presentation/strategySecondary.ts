@@ -1,4 +1,5 @@
 import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import { readReadyHints, type ReadyHints } from "./readyHints.ts";
 import { findStrategyCardMeta, humanizeId } from "../protocol/contentCatalog.ts";
 
 export interface StrategySecondaryView {
@@ -15,6 +16,8 @@ export interface StrategySecondaryView {
   /** A button caption that says what happens, e.g. "Spend 1 strategy token to draw two action cards". */
   yesLabel: string;
   noLabel: string;
+  /** Diplomacy: the planets that could be readied and which spending cards were played. */
+  readyHints: ReadyHints | null;
 }
 
 const isNo = (option: ChoiceOptionDto) =>
@@ -59,5 +62,6 @@ export function describeStrategySecondary(
     no,
     yesLabel: secondaryButtonLabel(choice.prompt, yes.label),
     noLabel: "Skip",
+    readyHints: readReadyHints(details),
   };
 }

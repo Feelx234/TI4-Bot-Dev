@@ -2148,7 +2148,8 @@ impl ScoringWindow {
             .into_iter()
             .map(|alias| {
                 // A plot (Plots Within Plots) scores with no victory point.
-                if let Some((secret, token)) = crate::factions::firmament::parse_option(alias.as_str())
+                if let Some((secret, token)) =
+                    crate::factions::firmament::parse_option(alias.as_str())
                 {
                     return ChoiceOption::labelled(
                         alias.as_str(),

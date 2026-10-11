@@ -1162,7 +1162,8 @@ pub(crate) fn fulfils(
         return by_position();
     }
     occurrence.is_some_and(|occurrence| {
-        feat_for(alias.as_str()).is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
+        feat_for(alias.as_str())
+            .is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
     }) || by_position()
 }
 

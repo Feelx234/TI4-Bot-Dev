@@ -354,22 +354,17 @@ fn real_after(state: &GameState, answers: &[String]) -> Option<Choice> {
         .find(|o| o.id == answers[0])
         .cloned()
         .expect("the window offers the first answer");
-    window.take_choice(&mut state, content, POK, wanted).unwrap();
+    window
+        .take_choice(&mut state, content, POK, wanted)
+        .unwrap();
     let card = first.details["card"].as_str().unwrap().to_owned();
     let (decider, seen) = Capturing::new(Box::new(crate::choice::Scripted::with_fallback(
         answers[1..].to_vec(),
         Box::new(Halt),
     )));
     let mut table = Table::with_default(Box::new(decider));
-    let outcome = crate::strategy_cards::follow(
-        &mut state,
-        content,
-        POK,
-        None,
-        &mut table,
-        &pid("b"),
-        &card,
-    );
+    let outcome =
+        crate::strategy_cards::follow(&mut state, content, POK, None, &mut table, &pid("b"), &card);
     let last = seen.borrow().last().cloned();
     // The flow either ended on its own (Ok) or was halted at the first unscripted question.
     match outcome {
@@ -403,14 +398,21 @@ fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
                 guard += 1;
                 assert!(guard < 60, "the flow must end");
                 let real = real_after(&state, &answers);
-                let got = preview(&state, &card, &answers.iter().map(String::as_str).collect::<Vec<_>>());
+                let got = preview(
+                    &state,
+                    &card,
+                    &answers.iter().map(String::as_str).collect::<Vec<_>>(),
+                );
                 match (&real, &got) {
                     (None, SecondaryPreview::Complete { unused_answers, .. }) => {
                         assert_eq!(*unused_answers, 0, "goods {goods}, tokens {tokens}");
                         break;
                     }
                     (Some(real), SecondaryPreview::Question { choice, step, .. }) => {
-                        assert_eq!(choice, real, "goods {goods} tokens {tokens} after {answers:?}");
+                        assert_eq!(
+                            choice, real,
+                            "goods {goods} tokens {tokens} after {answers:?}"
+                        );
                         assert_eq!(*step, answers.len());
                         let subtype = real.context.as_ref().unwrap().subtype.clone();
                         let pick = match subtype.as_str() {
@@ -444,7 +446,9 @@ fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
                         };
                         answers.push(pick);
                     }
-                    other => panic!("goods {goods} tokens {tokens}: real and preview disagree: {other:?}"),
+                    other => panic!(
+                        "goods {goods} tokens {tokens}: real and preview disagree: {other:?}"
+                    ),
                 }
             }
             sizes_seen.insert(bought);
@@ -454,7 +458,10 @@ fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
             assert!(
                 matches!(
                     preview(&state, &card, &refs),
-                    SecondaryPreview::Complete { unused_answers: 0, .. }
+                    SecondaryPreview::Complete {
+                        unused_answers: 0,
+                        ..
+                    }
                 ),
                 "goods {goods}, tokens {tokens}: {answers:?}"
             );
@@ -463,7 +470,10 @@ fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
             assert!(
                 matches!(
                     preview(&state, &card, &extra),
-                    SecondaryPreview::Complete { unused_answers: 1, .. }
+                    SecondaryPreview::Complete {
+                        unused_answers: 1,
+                        ..
+                    }
                 ),
                 "the leftover answer is reported"
             );
@@ -482,9 +492,18 @@ fn leadership_payment_questions_are_the_real_ones_for_several_purchase_sizes() {
             }
         }
     }
-    assert!(payment_questions >= 5, "payments were asked ({payment_questions})");
-    assert!(multi_option_payments >= 1, "a real payment choice was exercised");
-    assert!(sizes_seen.len() >= 2, "several purchase sizes ({sizes_seen:?})");
+    assert!(
+        payment_questions >= 5,
+        "payments were asked ({payment_questions})"
+    );
+    assert!(
+        multi_option_payments >= 1,
+        "a real payment choice was exercised"
+    );
+    assert!(
+        sizes_seen.len() >= 2,
+        "several purchase sizes ({sizes_seen:?})"
+    );
 }
 
 /// A payment answer for a payment the engine settles by itself (a lone option) is skipped, as
@@ -508,9 +527,18 @@ fn a_lone_payment_option_is_settled_by_the_engine_and_its_scripted_answer_skippe
         "gain_command_token",
         "the lone trade-good payments were settled without a question"
     );
-    let planned = ["yes", "trade_good", "trade_good", "trade_good", "tactic_tokens"];
+    let planned = [
+        "yes",
+        "trade_good",
+        "trade_good",
+        "trade_good",
+        "tactic_tokens",
+    ];
     assert!(matches!(
         preview(&state, &card, &planned),
-        SecondaryPreview::Complete { unused_answers: 0, .. }
+        SecondaryPreview::Complete {
+            unused_answers: 0,
+            ..
+        }
     ));
 }
