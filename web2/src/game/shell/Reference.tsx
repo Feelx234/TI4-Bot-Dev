@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  ComponentCardView,
   ExplorationDeck,
   ExplorationDeckView,
   ListSectionView,
@@ -198,18 +199,56 @@ function Deck({ view, focus }: { view: ExplorationDeckView; focus: boolean }) {
   );
 }
 
+const STATES = { ready: "Ready", exhausted: "Exhausted", locked: "Locked", purged: "Purged" };
+
+/** The cards of one kind in the play area of a player, as printed. A card that cannot be used now is dimmed. */
+function ComponentCards({ title, cards }: { title: string; cards: ComponentCardView[] }) {
+  return (
+    <section aria-label={title}>
+      <h3 className="mt-3.5 text-muted">
+        <Eyebrow>{title}</Eyebrow>
+      </h3>
+      {cards.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
+      {cards.map((card, index) => (
+        <article
+          key={index}
+          aria-label={card.name}
+          className={cx(
+            "mt-1.5 rounded border border-line px-2.5 py-1.5",
+            card.state && card.state !== "ready" && "opacity-55",
+          )}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <strong className="font-mid">{card.name}</strong>
+            {card.state && <span className="flex-none text-xs">{STATES[card.state]}</span>}
+          </div>
+          <div className="text-xs text-faint">{card.kind}</div>
+          {(card.window || card.text) && (
+            <div className="mt-0.5 text-xs whitespace-pre-line text-muted">
+              {card.window && <span className="text-text">{card.window} </span>}
+              {card.text}
+            </div>
+          )}
+          {card.unlock && (
+            <div className="mt-0.5 text-xs">
+              <span className="text-muted">Unlock: </span>
+              {card.unlock}
+            </div>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
 function playerSections(row: PlayerRowView): ListSectionView[] {
   return [
-    { title: "Faction abilities", rows: row.abilities.map((text) => [text]) },
     { title: "Technologies", rows: row.technologies.map((text) => [text]) },
-    { title: "Leaders", rows: [[row.leaders]] },
     {
-      title: "Relics and fragments",
-      rows: [
-        ...row.relics.map((name) => [name]),
-        ...row.fragments.map((item) => [`${plural(item.count, `${item.deck} relic fragment`)}`]),
-        ...(row.relics.length || row.fragments.length ? [] : [["None"]]),
-      ],
+      title: "Relic fragments",
+      rows: row.fragments.length
+        ? row.fragments.map((item) => [`${plural(item.count, `${item.deck} relic fragment`)}`])
+        : [["None"]],
     },
     {
       title: "Economy",
@@ -255,6 +294,9 @@ export function ReferenceDrawer({
   if (player) {
     return (
       <Drawer title={`${seat.name} · ${seat.faction}`} onClose={onClose}>
+        <ComponentCards title="Faction abilities" cards={player.abilities} />
+        <ComponentCards title="Leaders" cards={player.leaders} />
+        <ComponentCards title="Action components" cards={player.components} />
         <Sections sections={playerSections(player)} />
       </Drawer>
     );

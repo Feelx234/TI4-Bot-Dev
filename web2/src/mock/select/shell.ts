@@ -1,5 +1,6 @@
 // The whole screen: toolbar, player table, board, action panel, reference drawers.
 import type {
+  ComponentCardView,
   ExplorationDeck,
   ExplorationDeckView,
   ListSectionView,
@@ -85,6 +86,17 @@ function toolbar(world: World, state: State): ToolbarView {
 }
 
 /** The relic fragments of the demo. */
+/** A card of the demo: no timing, no state, nothing to unlock. */
+const CARD: ComponentCardView = {
+  name: "",
+  kind: "",
+  window: "",
+  text: "",
+  state: null,
+  unlock: "",
+};
+const SHARD =
+  "When you gain this card or lose this card, gain 1 victory point or lose 1 victory point.";
 const FRAGMENTS: Record<string, { deck: ExplorationDeck; count: number }[]> = {
   sol: [
     { deck: "cultural", count: 2 },
@@ -218,10 +230,25 @@ function players(world: World, state: State): PlayerTableView {
         actionCards: player.ac,
         secrets: player.so,
         planets: player.planets,
-        abilities: player.abilities,
+        abilities: (player.abilities as string[]).map((line) => {
+          const [name, text] = line.split(": ");
+          return { ...CARD, name, kind: "Faction ability", text };
+        }),
         technologies: player.tech,
-        leaders: player.leaders,
-        relics: seat === "hacan" ? ["Shard of the Throne"] : [],
+        // "Agent ready · Commander unlocked · Hero locked"
+        leaders: (player.leaders as string).split(" · ").map((leader) => {
+          const [kind, state] = leader.split(" ");
+          return {
+            ...CARD,
+            name: kind,
+            kind,
+            state: state === "unlocked" ? "ready" : (state as ComponentCardView["state"]),
+          };
+        }),
+        components:
+          seat === "hacan"
+            ? [{ ...CARD, name: "Shard of the Throne", kind: "Relic", text: SHARD }]
+            : [],
         fragments: FRAGMENTS[seat] ?? [],
       };
     }),

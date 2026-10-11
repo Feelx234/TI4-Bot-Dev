@@ -1,4 +1,9 @@
-import type { PlayerPickView, PlayerRowView, PlayerTableView } from "../../model";
+import type {
+  ComponentCardView,
+  PlayerPickView,
+  PlayerRowView,
+  PlayerTableView,
+} from "../../model";
 import { cx } from "../../ui";
 import { SeatSymbol, useDispatch, useSeat } from "../context";
 
@@ -20,6 +25,12 @@ const CELL = "px-1.5 py-0.5 text-right whitespace-nowrap tabular-nums phone:px-2
 // On a phone the values scroll sideways and the name stays in view.
 const NAME =
   "w-[99%] max-w-0 pr-[5px] text-left phone:sticky phone:left-[18px] phone:z-1 phone:w-auto phone:max-w-none phone:min-w-[132px] phone:bg-board";
+
+/** "Agent exhausted · Commander locked": the cards by name, with the state of one that is not ready. */
+const cardLine = (cards: ComponentCardView[], name: (card: ComponentCardView) => string) =>
+  cards
+    .map((card) => `${name(card)}${card.state && card.state !== "ready" ? ` ${card.state}` : ""}`)
+    .join(" · ");
 
 function Row({
   row,
@@ -141,13 +152,15 @@ function Row({
           <strong>
             <SeatSymbol seat={row.seat} /> {seat.name} · {seat.faction}
           </strong>
-          {row.abilities.map((text) => (
-            <p key={text} className="mt-[5px]">
-              {text}
-            </p>
-          ))}
+          {/* The names only. The sheet of the player has the printed texts. */}
+          <p className="mt-[5px]">{cardLine(row.abilities, (card) => card.name)}</p>
           <p className="mt-[5px] text-muted">{row.technologies.join(" · ")}</p>
-          <p className="mt-[5px] text-muted">{row.leaders}</p>
+          <p className="mt-[5px] text-muted">
+            {cardLine(row.leaders, (card) => card.kind.split(" · ")[0] || card.name)}
+          </p>
+          {row.components.length > 0 && (
+            <p className="mt-[5px] text-muted">{cardLine(row.components, (card) => card.name)}</p>
+          )}
         </div>
       </th>
       {values.map((value, column) => (

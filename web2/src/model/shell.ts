@@ -18,6 +18,20 @@ export interface ToolbarView {
   draft: { canUndo: boolean; canRedo: boolean; canApply: boolean; applyHint: string } | null;
 }
 
+/** A card in the play area of a player, as printed, with its state. */
+export interface ComponentCardView {
+  name: string;
+  /** "Agent · Master Tactician", "Faction ability", "Technology", "Relic", "Legendary planet · Primor". */
+  kind: string;
+  /** When the card is used, as printed: "ACTION:", "At the start of a ground combat round:". */
+  window: string;
+  text: string;
+  /** Null for a card that has no state: a faction ability, a relic that always holds. */
+  state: "ready" | "exhausted" | "locked" | "purged" | null;
+  /** How a locked leader is unlocked, as printed. */
+  unlock: string;
+}
+
 /** One row of the player table. Compare `PlayerView`. */
 export interface PlayerRowView {
   seat: SeatId;
@@ -36,10 +50,12 @@ export interface PlayerRowView {
   actionCards: number;
   secrets: [scored: number, held: number];
   planets: number;
-  abilities: string[];
+  abilities: ComponentCardView[];
   technologies: string[];
-  leaders: string;
-  relics: string[];
+  /** Agent, commander, hero. */
+  leaders: ComponentCardView[];
+  /** The other cards that the player uses: technologies with an action, relics, legendary planets. */
+  components: ComponentCardView[];
   /** Relic fragments in the play area, by deck. Decks with none are left out. */
   fragments: { deck: ExplorationDeck; count: number }[];
 }

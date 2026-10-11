@@ -9,8 +9,10 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::{phase, technology};
 use ti4_model::content_types::SourceSet;
-use ti4_model::id::{PlanetId, PlayerId, StrategyCardId, SystemId, TechnologyId, UnitTypeId};
-use ti4_model::state::{GameState, Phase};
+use ti4_model::id::{
+    LeaderId, PlanetId, PlayerId, RelicId, StrategyCardId, SystemId, TechnologyId, UnitTypeId,
+};
+use ti4_model::state::{GameState, LeaderStatus, Phase};
 use ti4_model::units::Unit;
 
 /// A prepared game that a host can start.
@@ -362,6 +364,23 @@ fn late_game(
 
     // The upgrades of seat A are on its sheet: its units on the board are the upgraded ones.
     technology::apply_unit_upgrades(state, content, sources, a);
+
+    // Cards that seat A used this round, and two relics: one ready, one exhausted.
+    technology::grant(state, a, &TechnologyId::new("bs"));
+    for relic in ["dynamiscore", "prophetstears"] {
+        let relic = RelicId::new(relic);
+        state.relic_deck.retain(|held| held != &relic);
+        state
+            .player_mut(a)
+            .ok_or("seat A is not seated")?
+            .relics
+            .push(relic);
+    }
+    let sol = state.player_mut(a).ok_or("seat A is not seated")?;
+    sol.exhausted_technologies.insert(TechnologyId::new("bs"));
+    sol.exhausted_relics.insert(RelicId::new("prophetstears"));
+    sol.leaders
+        .insert(LeaderId::new("solagent"), LeaderStatus::Exhausted);
     Ok(())
 }
 
@@ -774,6 +793,26 @@ mod tests {
         let other =
             crate::projection::project_player_view(state.player(&PlayerId::new("b")).unwrap());
         assert_eq!(other.relic_fragments["FRONTIER"], 1);
+
+        // What seat A used, for the cards of its sheet.
+        assert_eq!(
+            view.leaders[&LeaderId::new("solagent")],
+            LeaderStatus::Exhausted
+        );
+        assert_eq!(
+            view.leaders[&LeaderId::new("solhero")],
+            LeaderStatus::Locked
+        );
+        assert!(
+            view.exhausted_technologies
+                .contains(&TechnologyId::new("bs"))
+        );
+        assert_eq!(view.relics.len(), 2);
+        assert!(
+            view.exhausted_relics
+                .contains(&RelicId::new("prophetstears"))
+        );
+        assert!(!state.relic_deck.contains(&RelicId::new("dynamiscore")));
 
         // A planet of each deck is free: the two of the free system, one next to seat B, and
         // the one where every other seat has a token.

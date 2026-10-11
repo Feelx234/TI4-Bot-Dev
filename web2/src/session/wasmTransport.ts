@@ -2,7 +2,7 @@
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type PlanAnswer, type PlanStep, planAnswer, stepOf } from "./movementPlan";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
-import type { Choice, ChoiceOption, ExplorationCatalog, SessionUpdate } from "./wire";
+import type { Catalog, Choice, ChoiceOption, SessionUpdate } from "./wire";
 
 interface Exports {
   memory: WebAssembly.Memory;
@@ -58,8 +58,8 @@ export interface Engine {
   /** SHA-256 of the file, in hex. A saved game names the engine that played it. */
   hash: string;
   scenarios: ScenarioInfo[];
-  /** The printed exploration cards and attachments. Null for an engine that was not asked. */
-  catalog: ExplorationCatalog | null;
+  /** The printed cards. Null for an engine that was not asked. */
+  catalog: Catalog | null;
 }
 
 /** Asks the engine a question that needs no game: the instance is asked nothing. */
@@ -80,9 +80,9 @@ async function ask<T>(module: WebAssembly.Module, question: (exports: Exports) =
 export const scenariosOf = (module: WebAssembly.Module) =>
   ask<ScenarioInfo[]>(module, (exports) => exports.ti4_scenarios());
 
-/** Asks the engine for the printed exploration cards and attachments. */
+/** Asks the engine for the printed cards. */
 export const catalogOf = (module: WebAssembly.Module) =>
-  ask<ExplorationCatalog>(module, (exports) => exports.ti4_catalog());
+  ask<Catalog>(module, (exports) => exports.ti4_catalog());
 
 /** Fetches and compiles `ti4.wasm` from `wasmUrl`. */
 export async function loadEngine(wasmUrl: string): Promise<Engine> {

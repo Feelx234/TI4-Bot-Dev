@@ -36,6 +36,7 @@ pub fn project_player_view(player: &Player) -> PlayerView {
         exhausted_technologies: player.exhausted_technologies.clone(),
         relics: player.relics.clone(),
         exhausted_relics: player.exhausted_relics.clone(),
+        exhausted_legendary: player.exhausted_legendary.clone(),
         relic_fragments: player
             .relic_fragments
             .iter()

@@ -1,8 +1,9 @@
 // The seats and the player table.
 import type { PlayerRowView, PlayerTableView, SeatId, SeatView } from "../../model";
-import type { PlayerView, SessionUpdate } from "../wire";
+import type { Catalog, PlayerView, SessionUpdate } from "../wire";
+import { componentCards } from "./components";
 import { DECKS } from "./exploration";
-import { commodityValue, factionName, seatMark, strategyCard, titleCase } from "./names";
+import { commodityValue, factionName, seatMark, strategyCard } from "./names";
 
 /** The players in seat order. */
 const seated = (update: SessionUpdate): PlayerView[] => {
@@ -35,21 +36,11 @@ export const actingSeat = (update: SessionUpdate): SeatId | null => {
       : null;
 };
 
-const LEADERS: Record<string, string> = { readied: "ready" };
-/** "Agent ready · Commander locked · Hero locked" */
-const leaders = (player: PlayerView) =>
-  ["agent", "commander", "hero"]
-    .flatMap((kind) =>
-      Object.entries(player.leaders)
-        .filter(([id]) => id.endsWith(kind))
-        .map(
-          ([, status]) =>
-            `${kind.charAt(0).toUpperCase()}${kind.slice(1)} ${LEADERS[status] ?? status}`,
-        ),
-    )
-    .join(" · ");
-
-export function selectPlayers(update: SessionUpdate): PlayerTableView {
+export function selectPlayers(
+  update: SessionUpdate,
+  /** The printed cards. Without it a card is shown by its id. */
+  catalog: Catalog | null = null,
+): PlayerTableView {
   const { view, viewer } = update;
   const acting = actingSeat(update);
   // What each seat's planets give: ready and total, from the planets that the seat controls.
@@ -99,11 +90,9 @@ export function selectPlayers(update: SessionUpdate): PlayerTableView {
       actionCards: player.action_cards_count,
       secrets: [player.scored_secret_objectives?.length ?? 0, player.secret_objectives_count],
       planets,
-      abilities: [],
+      ...componentCards(update, player, catalog),
       // The ids are the short names that players use: AMD, DET, NM.
       technologies: player.technologies.map((id) => id.toUpperCase()),
-      leaders: leaders(player),
-      relics: player.relics.map(titleCase),
       fragments: DECKS.flatMap(([key, deck]) => {
         const count = player.relic_fragments?.[key] ?? 0;
         return count > 0 ? [{ deck, count }] : [];

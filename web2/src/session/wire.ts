@@ -62,6 +62,8 @@ export interface PlayerView {
   exhausted_technologies: string[];
   relics: string[];
   exhausted_relics: string[];
+  /** The legendary planets whose ability card is exhausted. */
+  exhausted_legendary?: string[];
   /** Relic fragments by deck: CULTURAL, HAZARDOUS, INDUSTRIAL, FRONTIER. */
   relic_fragments?: Record<string, number>;
   exploration_cards?: string[];
@@ -266,7 +268,7 @@ export interface ExplorationFacts {
   explores: Record<string, string[]>;
 }
 
-/** `ti4_view::exploration::ExplorationCatalog`: the printed cards. The host asks for it once. */
+/** `ti4_view::exploration::ExplorationCatalog`: the printed exploration cards. */
 export interface ExplorationCatalog {
   cards: { id: string; name: string; deck: string; resolution: string; text: string }[];
   /** The cards that each deck begins a game with. */
@@ -279,6 +281,43 @@ export interface ExplorationCatalog {
     tech_specialties?: string[];
     text?: string;
   }[];
+}
+
+/** `ti4_view::components::PrintedCard` */
+export interface PrintedCard {
+  id: string;
+  name: string;
+  text: string;
+  /** The card has an ACTION or exhausts. A card that always holds is not used. */
+  used: boolean;
+}
+
+/** `ti4_view::components::ComponentCatalog`: the printed cards of the play areas. */
+export interface ComponentCatalog {
+  abilities: { id: string; name: string; window?: string; text: string }[];
+  /** The ability ids of each faction, in the order of the faction sheet. */
+  factions: Record<string, string[]>;
+  leaders: {
+    id: string;
+    /** "agent", "commander" or "hero". */
+    kind: string;
+    name: string;
+    title: string;
+    window?: string;
+    text: string;
+    /** How the leader is unlocked. Absent for a leader that is never locked. */
+    unlock?: string;
+  }[];
+  technologies: PrintedCard[];
+  relics: PrintedCard[];
+  /** The ability cards of the legendary planets, by the id of the planet. */
+  legendary: PrintedCard[];
+}
+
+/** `ti4_view::components::Catalog`: everything printed. The host asks for it once. */
+export interface Catalog {
+  exploration: ExplorationCatalog;
+  components: ComponentCatalog;
 }
 
 /** `ti4_view::tactical::TacticalFacts` */

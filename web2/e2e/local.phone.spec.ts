@@ -232,3 +232,24 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
   await expect(send).not.toHaveText(/Commit/);
   await fits();
 });
+
+test("phone: the sheet of a player has its cards, and nothing is cut at the side", async ({
+  page,
+}) => {
+  await page.goto("/?scenario=late-game&humans=1");
+  await page
+    .getByRole("navigation", { name: "Panes" })
+    .getByRole("button", { name: "Players" })
+    .click();
+  await page.getByRole("button", { name: /^Seat A, Sol.*Open player sheet/ }).click();
+  const sheet = page.getByRole("complementary", { name: "Seat A · Sol" });
+  await expect(sheet.getByRole("article", { name: "Evelyn DeLouis" })).toContainText("Exhausted");
+  await expect(sheet.getByRole("article", { name: "Jace X, 4th Air Legion" })).toContainText(
+    "Unlock: Have 3 scored objectives.",
+  );
+  await expect(sheet.getByRole("article", { name: "Bio-Stims" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({ path: "shots/local/phone-player-sheet.png", animations: "disabled" });
+});

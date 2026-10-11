@@ -698,3 +698,35 @@ test("an invasion: the landings are staged on the map and sent as one plan", asy
   await expect(sheet).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test("the sheet of a player has its abilities, leaders and used cards as printed", async ({
+  page,
+}) => {
+  await page.goto("/?scenario=late-game&humans=1");
+  await page.getByRole("button", { name: /^Seat A, Sol.*Open player sheet/ }).click();
+  const sheet = page.getByRole("complementary", { name: "Seat A · Sol" });
+  const cards = (section: string) => sheet.getByRole("region", { name: section });
+  const card = (name: string) => sheet.getByRole("article", { name });
+  await expect(cards("Faction abilities").getByRole("article")).toHaveCount(2);
+  await expect(card("Orbital Drop")).toContainText("ACTION: Spend 1 token from your strategy pool");
+  // A leader says its state in a word, and a locked one how it is unlocked.
+  await expect(cards("Leaders").getByRole("article")).toHaveCount(3);
+  await expect(card("Evelyn DeLouis")).toContainText("Exhausted");
+  await expect(card("Evelyn DeLouis")).toContainText("1 additional die");
+  await expect(card("Claire Gibson")).toContainText("Ready");
+  await expect(card("Jace X, 4th Air Legion")).toContainText("Locked");
+  await expect(card("Jace X, 4th Air Legion")).toContainText("Unlock: Have 3 scored objectives.");
+  // Only the cards that are used: Gravity Drive always holds, so it stays a line of the list.
+  await expect(cards("Action components").getByRole("article")).toHaveCount(3);
+  await expect(card("Bio-Stims")).toContainText("Exhausted");
+  await expect(card("Dynamis Core")).toContainText("Ready");
+  await expect(card("The Prophet's Tears")).toContainText("Exhausted");
+  await expect(sheet.getByRole("article", { name: "Gravity Drive" })).toHaveCount(0);
+  await expect(sheet.getByText("GD", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "shots/local/player-sheet.png", animations: "disabled" });
+  // Another seat: its cards are public too, and nothing of its hand is here.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Seat B, .*Open player sheet/ }).click();
+  const other = page.getByRole("complementary", { name: /^Seat B · / });
+  await expect(other.getByRole("region", { name: "Leaders" }).getByRole("article")).toHaveCount(3);
+});

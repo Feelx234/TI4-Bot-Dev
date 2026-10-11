@@ -150,7 +150,7 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_play(seed, players, human_mask) -> status` | Plays a game to its end. A seat whose bit is set in the mask (bit 0 is seat `a`) is answered by the host through `host.ask`; the others decide at random. |
 | `ti4_play_scenario(human_mask, id_len) -> status` | As `ti4_play`, from a prepared board. The request buffer holds the id of the scenario. See "Scenarios". |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
-| `ti4_catalog() -> status` | The exploration cards and the attachments as printed, as JSON in the response buffer (about 20 KB). See "The exploration". |
+| `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `exploration` (the exploration cards and the attachments) and `components` (abilities, leaders, technologies, relics, legendary planets). See "The exploration". |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
 | `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
 | `ti4_decided() -> count` | How many decisions the seats made, the random seats included. See "Switching seats". |
@@ -326,10 +326,18 @@ Every update has the field `exploration` (`ti4-view/src/exploration.rs`):
 - `explores`: the planets that no player controls, with the decks that they are explored into
   (`ti4_engine::planets::traits_now`). A seat that takes control of one explores it (35.1).
 
-An update names cards and attachments by id. `ti4_catalog` has what is printed on them: the
-name, the deck, the kind and the text of each exploration card, the cards that each deck begins
-with, and for each attachment its name, what it adds to the planet, and the text of the card
-that attaches it. `ti4-content` is compiled into the engine, so this costs no bytes.
+An update names cards and attachments by id. `ti4_catalog` has what is printed on them, in
+`exploration`: the name, the deck, the kind and the text of each exploration card, the cards
+that each deck begins with, and for each attachment its name, what it adds to the planet, and
+the text of the card that attaches it. `ti4-content` is compiled into the engine, so this costs
+no bytes.
+
+Its second part, `components` (`ti4_view::components`), is what is printed on the cards of a
+play area: the abilities of each faction, the leaders with how each is unlocked, the
+technologies, the relics and the ability cards of the legendary planets. A technology, a relic
+or a legendary card has `used`: its text has an `ACTION` or it exhausts. The player view says
+which of them a seat has and which are exhausted (`leaders`, `exhausted_technologies`,
+`exhausted_relics`, `exhausted_legendary`).
 
 The relic fragments of a seat are in its player view (`relic_fragments`, by deck), and the
 attachments of a planet in its planet view. The values of a planet (`resources`, `influence`)

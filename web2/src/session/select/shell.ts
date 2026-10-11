@@ -1,6 +1,6 @@
 // The whole screen from one update of the game and what the player staged in this page.
 import type { ShellView } from "../../model";
-import type { ExplorationCatalog, SessionUpdate } from "../wire";
+import type { Catalog, SessionUpdate } from "../wire";
 import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
 import { selectExploration } from "./exploration";
@@ -39,9 +39,10 @@ function status(update: SessionUpdate, local: LocalState): string {
 export function selectShell(
   update: SessionUpdate,
   local: LocalState,
-  /** The printed exploration cards and attachments. Without it they are shown by id. */
-  catalog: ExplorationCatalog | null = null,
+  /** The printed cards. Without it they are shown by id. */
+  printed: Catalog | null = null,
 ): ShellView {
+  const catalog = printed?.exploration ?? null;
   // The activation, the movement and the landings have their own screens; every other decision
   // is a list.
   const facts = tacticalFacts(update, local);
@@ -74,7 +75,7 @@ export function selectShell(
         applyHint: local.draft.applyHint,
       },
     },
-    players: selectPlayers(update),
+    players: selectPlayers(update, printed),
     board: selectBoard(
       update,
       local.inspected,

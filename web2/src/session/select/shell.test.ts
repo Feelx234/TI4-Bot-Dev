@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import menuUpdate from "../fixtures/update-menu.json";
 import systemsUpdate from "../fixtures/update-load.json";
-import type { SessionUpdate } from "../wire";
+import type { ComponentCatalog, SessionUpdate } from "../wire";
 import type { LocalState } from "./action";
 import { selectShell } from "./shell";
 
@@ -29,6 +29,14 @@ const local = (change: Partial<LocalState> = {}): LocalState => ({
   draft: null,
   ...change,
 });
+const NO_COMPONENTS: ComponentCatalog = {
+  abilities: [],
+  factions: {},
+  leaders: [],
+  technologies: [],
+  relics: [],
+  legendary: [],
+};
 const flow = (update: SessionUpdate, state: LocalState) => {
   const { action } = selectShell(update, state);
   if (action.kind !== "flow") {
@@ -155,8 +163,10 @@ it("names an attachment as printed, with what it changes", () => {
       },
     ],
   };
-  const jord = selectShell(update, local(), catalog).board.tiles.find((tile) => tile.id === "01")!
-    .planets[0];
+  const jord = selectShell(update, local(), {
+    exploration: catalog,
+    components: NO_COMPONENTS,
+  }).board.tiles.find((tile) => tile.id === "01")!.planets[0];
   expect(jord.traits.attachments).toEqual([
     { name: "Dyson Sphere", effect: "+2 / +1", text: "Printed." },
     { name: "Cybernetic Research Facility", effect: "Yellow skip", text: "" },
@@ -196,7 +206,7 @@ it("lists the exploration decks: what is left of each card, who drew it, who has
     decks: { CULTURAL: ["crf1", "crf2", "crf3", "pw"] },
     attachments: [],
   };
-  const view = selectShell(update, local(), catalog);
+  const view = selectShell(update, local(), { exploration: catalog, components: NO_COMPONENTS });
   const [cultural, hazardous] = view.reference.exploration;
   expect(view.reference.exploration.map((deck) => deck.deck)).toEqual([
     "cultural",

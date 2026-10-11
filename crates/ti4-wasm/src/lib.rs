@@ -28,7 +28,8 @@ use ti4_engine::game::{Game, RunError};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_view::exploration::{exploration_catalog, project_exploration_facts};
+use ti4_view::components::catalog;
+use ti4_view::exploration::project_exploration_facts;
 use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
 use ti4_view::planning::draft::{DraftBase, DraftStep, run_draft};
@@ -899,13 +900,14 @@ pub extern "C" fn ti4_scenarios() -> i32 {
     ))
 }
 
-/// The exploration cards and the attachments as printed, as JSON in the response buffer. A host
-/// asks once: an update names cards by id only.
+/// The printed cards as JSON in the response buffer: the exploration cards and the attachments,
+/// and the cards of the play areas (abilities, leaders, technologies, relics). A host asks once:
+/// an update names cards by id only.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_catalog() -> i32 {
     status(respond(
-        "the catalogue of exploration cards",
-        &exploration_catalog(ContentStore::embedded(), POK),
+        "the catalogue of printed cards",
+        &catalog(ContentStore::embedded(), POK),
     ))
 }
 

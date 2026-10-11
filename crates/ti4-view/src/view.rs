@@ -27,6 +27,10 @@ pub struct PlayerView {
     pub exhausted_technologies: BTreeSet<TechnologyId>,
     pub relics: Vec<RelicId>,
     pub exhausted_relics: BTreeSet<RelicId>,
+    /// The legendary planets whose ability card is exhausted. The card exhausts apart from
+    /// the planet.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub exhausted_legendary: BTreeSet<PlanetId>,
     /// Relic fragments by deck, faceup in the play area.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub relic_fragments: BTreeMap<String, i32>,

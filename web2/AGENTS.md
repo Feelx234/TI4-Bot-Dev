@@ -173,6 +173,19 @@ The owner chose on 2026-10-10 where it shows: in the landing sheet and the syste
 - The facts come from the engine: which planets are explored, what the decks hold, what was drawn (`exploration` of the update). The names and texts are the catalogue of the engine (`Transport.catalog`); without it a card is shown by its id.
 - The relic fragments and the relics of a player are in the sheet of that player.
 
+## Player sheet
+
+The owner asked for this on 2026-10-11: the sheet of a player shows what that player can use and what is used.
+
+- The sheet has three groups of cards, as printed: "Faction abilities", "Leaders" (agent, commander, hero) and "Action components". A card has its name, its kind, when it is used ("ACTION:", a timing) and its text.
+- "Action components" are the cards that a player uses: a technology with an ACTION or one that exhausts, the relics, an exploration card that stays in the play area, and the ability card of a legendary planet. A technology that always holds is not a card. Every technology stays in the list "Technologies" of the sheet.
+- The state of a card is one word at its right edge: "Ready", "Exhausted", "Locked", "Purged". A card that cannot be used now is dimmed. A locked leader says how it is unlocked ("Unlock: Have 3 scored objectives."). A card with no state (a faction ability, a relic that always holds) has no word.
+- Exception to "rule text is behind hover": the sheet shows the printed text of each card, as the deck sheet does. The reason: the player opens the sheet to read what a seat can do.
+- The hover sheet of the player table has the names and the states only, with no text.
+- The sheet has public information only. The action cards and the secret objectives of a player get a screen of their own.
+- The facts come from the engine (`leaders`, `exhausted_technologies`, `exhausted_relics`, `exhausted_legendary` of the player). The names, the texts and which cards are used are the catalogue (`Transport.catalog`, `components`); without it a card is shown by its id.
+- A faction ability has no state yet: the engine does not say when one was used.
+
 ## Movement
 
 The owner chose this design on 2026-10-10, from three that were compared.

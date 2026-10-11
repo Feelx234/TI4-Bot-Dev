@@ -1,5 +1,5 @@
 import type { MovementPlan, PlanStep } from "./movementPlan";
-import type { DraftOutcome, DraftStep, ExplorationCatalog, SessionUpdate } from "./wire";
+import type { Catalog, DraftOutcome, DraftStep, SessionUpdate } from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
 export interface PlanStopped {
@@ -37,8 +37,8 @@ export type TransportEvent =
  * server will later, with `StateUpdateMsg` as the update and `SubmitChoice` as the answer.
  */
 export interface Transport {
-  /** The printed exploration cards and attachments. An update names them by id only. */
-  readonly catalog: ExplorationCatalog | null;
+  /** The printed cards. An update names them by id only. */
+  readonly catalog: Catalog | null;
   /** A new listener is told the latest event at once, if there is one. */
   subscribe(listener: (event: TransportEvent) => void): () => void;
   /** Answers the pending choice that has this nonce. Any other nonce is ignored. */

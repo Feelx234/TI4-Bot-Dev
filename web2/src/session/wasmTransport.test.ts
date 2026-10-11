@@ -5,6 +5,7 @@ import { setLoad, setShip } from "./movementDraft";
 import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
 import { draftOf as landingOf, stepsOf as landingSteps, setLanding } from "./landingDraft";
 import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
+import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
@@ -487,7 +488,8 @@ it.skipIf(!built)("starts a scenario at the turn menu of seat a, on its board", 
 it.skipIf(!built)(
   "has the printed exploration cards, and an update says what the decks hold",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const printed = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = printed.exploration;
     expect(Object.keys(catalog.decks).sort()).toEqual([
       "CULTURAL",
       "FRONTIER",
@@ -522,6 +524,49 @@ it.skipIf(!built)(
     for (const id of Object.values(facts.decks).flat()) {
       expect(catalog.cards.some((card) => card.id === id)).toBe(true);
     }
+  },
+);
+
+it.skipIf(!built)(
+  "has the printed cards of a play area, and an update says which are used",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const { transport, next } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const { update } = await next();
+    transport.close();
+    const sol = selectPlayers(update, catalog).rows.find((row) => row.seat === "a")!;
+    expect(sol.abilities.map((card) => [card.name, card.window, card.state])).toEqual([
+      ["Orbital Drop", "ACTION:", null],
+      ["Versatile", "When you gain command tokens during the status phase:", null],
+    ]);
+    expect(sol.abilities[0].text).toContain("2 infantry");
+    expect(sol.leaders.map((card) => [card.name, card.kind, card.state])).toEqual([
+      ["Evelyn DeLouis", "Agent · Master Tactician", "exhausted"],
+      ["Claire Gibson", "Commander · Voice of the People", "ready"],
+      ["Jace X, 4th Air Legion", "Hero · Federation Hero", "locked"],
+    ]);
+    expect(sol.leaders[0].unlock).toBe("");
+    expect(sol.leaders[2].unlock).toBe("Have 3 scored objectives.");
+    // Gravity Drive and the unit upgrades always hold: they are not cards of the sheet.
+    expect(sol.components.map((card) => [card.name, card.kind, card.state])).toEqual([
+      ["Bio-Stims", "Technology", "exhausted"],
+      ["Dynamis Core", "Relic", "ready"],
+      ["The Prophet's Tears", "Relic", "exhausted"],
+    ]);
+    expect(sol.technologies).toContain("GD");
+    // Without the catalogue the leaders keep their kind and their state.
+    const bare = selectPlayers(update).rows.find((row) => row.seat === "a")!;
+    expect(bare.leaders.map((card) => [card.name, card.state])).toEqual([
+      ["Agent", "exhausted"],
+      ["Commander", "ready"],
+      ["Hero", "locked"],
+    ]);
+    expect(bare.abilities).toEqual([]);
   },
 );
 
