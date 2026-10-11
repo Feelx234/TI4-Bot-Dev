@@ -260,6 +260,8 @@ pub fn create_game_with_map(
         })
         .collect();
     let galaxy = seating::build_board(content, &by_seat, &filler_refs, POK)?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
 
     Ok((state, galaxy))
 }
@@ -301,6 +303,8 @@ pub fn create_game_with_template(
         .map_err(|e| e.to_string())?;
     let galaxy = crate::maps::build_template_galaxy(content, template, &homes, seed, POK)
         .map_err(|e| e.to_string())?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
     Ok((state, galaxy))
 }
 
