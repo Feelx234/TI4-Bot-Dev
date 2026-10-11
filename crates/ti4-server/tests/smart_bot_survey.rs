@@ -327,9 +327,15 @@ fn opening(seats: usize, seed: u64, roster: bool, rounds: u32) -> Vec<RoundRow> 
             std::fs::write(format!("{dir}/opening_{seats}_{seed}_r{round}.jsonl"), text)
                 .expect("write dump");
         }
-        let report = ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
-            .expect("replay the round");
-        let state = report.final_state;
+        let state = match ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
+        {
+            Ok(report) => report.final_state,
+            Err(error) => {
+                // A replay that diverges says nothing about the bot: the table is left out.
+                eprintln!("REPLAY seed {seed} round {round} failed: {error}");
+                break;
+            }
+        };
         if let Ok(system) = std::env::var("SURVEY_SHOW_SYSTEM") {
             eprintln!(
                 "SYSTEM r{round} {system}: {}",
