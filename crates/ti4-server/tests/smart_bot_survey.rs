@@ -226,18 +226,31 @@ fn survey_smart_bot_games() {
     );
 }
 
-/// Per seat after round 1's action phase: (faction, strategy cards, new planets, new systems).
-/// The last field notes the draft position (`pos1` is the speaker), tactic tokens left and
-/// activations (`a`, `w` for Warfare's free one).
-type TurnOne = Vec<(String, String, usize, usize, String)>;
+/// One seat after a round's action phase: systems and planets gained since the start of the game,
+/// and a note.
+struct SeatRow {
+    faction: String,
+    cards: String,
+    planets: usize,
+    systems: usize,
+    /// Draft position (`pos1` is the speaker), tactic tokens left and the round's activations
+    /// (`a`, `w` for Warfare's free one).
+    note: String,
+}
 
-/// One all-smart table played through round 1, then replayed up to the first decision after the
-/// round's action phase, so the board is exactly the one round 1 left behind.
+/// A table after each of its opening rounds: the seats, and who held Mecatol Rex.
+struct RoundRow {
+    seats: Vec<SeatRow>,
+    mecatol: Option<String>,
+}
+
+/// One all-smart table played through `rounds` rounds, then replayed up to the end of each round's
+/// action phase, so each board is exactly the one that round left behind.
 #[expect(
     clippy::too_many_lines,
     reason = "one table, set up, played and read back"
 )]
-fn turn_one(seats: usize, seed: u64, roster: bool) -> TurnOne {
+fn opening(seats: usize, seed: u64, roster: bool, rounds: u32) -> Vec<RoundRow> {
     let ids: Vec<PlayerId> = (1..=seats)
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
@@ -266,7 +279,7 @@ fn turn_one(seats: usize, seed: u64, roster: bool) -> TurnOne {
     let speaker = usize::try_from(seed).unwrap_or(0) % seats;
     initial.speaker = ids[speaker].clone();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
-    let mut config = SessionConfig::new(format!("turn_one_{seats}_{seed}"), initial.clone())
+    let mut config = SessionConfig::new(format!("opening_{seats}_{seed}"), initial.clone())
         .with_seed(seed)
         .with_player_ids(ids.clone())
         .with_galaxy(galaxy.clone(), tiles)
@@ -280,8 +293,8 @@ fn turn_one(seats: usize, seed: u64, roster: bool) -> TurnOne {
         let state = session.current_state();
         if session.is_finished()
             || session.error().is_some()
-            || state.round > 1
-            || start.elapsed() > Duration::from_secs(120)
+            || state.round > rounds
+            || start.elapsed() > Duration::from_secs(180)
         {
             break;
         }
@@ -289,96 +302,129 @@ fn turn_one(seats: usize, seed: u64, roster: bool) -> TurnOne {
     }
     session.stop();
     let log = session.decision_log();
-    let end = log
-        .iter()
-        .position(|r| {
-            r.context.as_ref().is_some_and(|c| {
-                c.round > 1
-                    || !matches!(
-                        c.phase,
-                        ti4_model::state::Phase::Strategy | ti4_model::state::Phase::Action
-                    )
+    let mut rows = Vec::new();
+    let mut begin = 0;
+    for round in 1..=rounds {
+        let end = log
+            .iter()
+            .position(|r| {
+                r.context.as_ref().is_some_and(|c| {
+                    c.round > round
+                        || (c.round == round
+                            && !matches!(
+                                c.phase,
+                                ti4_model::state::Phase::Strategy | ti4_model::state::Phase::Action
+                            ))
+                })
             })
-        })
-        .unwrap_or(log.len());
-    if let Ok(dir) = std::env::var("SURVEY_DUMP") {
-        let mut text = String::new();
-        for record in &log[..end] {
-            text.push_str(&serde_json::to_string(record).expect("json"));
-            text.push('\n');
+            .unwrap_or(log.len());
+        if let Ok(dir) = std::env::var("SURVEY_DUMP") {
+            let mut text = String::new();
+            for record in &log[begin..end] {
+                text.push_str(&serde_json::to_string(record).expect("json"));
+                text.push('\n');
+            }
+            std::fs::write(format!("{dir}/opening_{seats}_{seed}_r{round}.jsonl"), text)
+                .expect("write dump");
         }
-        std::fs::write(format!("{dir}/turn_one_{seats}_{seed}.jsonl"), text).expect("write dump");
-    }
-    let report = ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
-        .expect("replay round 1");
-    let state = report.final_state;
-    if let Ok(system) = std::env::var("SURVEY_SHOW_SYSTEM") {
-        eprintln!(
-            "SYSTEM {system}: {}",
-            serde_json::to_string(&state.board.get(&ti4_model::id::SystemId::new(&system)))
-                .expect("json")
-        );
-    }
-    state
-        .players
-        .iter()
-        .map(|seat| {
-            let home: BTreeSet<_> = initial
-                .controlled_planets(&seat.id)
-                .into_iter()
-                .map(|(s, p)| (s.clone(), p.clone()))
-                .collect();
-            let gained: Vec<_> = state
-                .controlled_planets(&seat.id)
-                .into_iter()
-                .filter(|(s, p)| !home.contains(&((*s).clone(), (*p).clone())))
-                .collect();
-            let systems: BTreeSet<_> = gained.iter().map(|(s, _)| (*s).clone()).collect();
-            (
-                seat.faction.as_str().to_owned(),
-                seat.strategy_cards
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("+"),
-                gained.len(),
-                systems.len(),
-                {
-                    let asked = |subtype: &str| {
-                        log[..end]
-                            .iter()
-                            .filter(|r| r.player == seat.id)
-                            .filter(|r| r.context.as_ref().is_some_and(|c| c.subtype == subtype))
-                            .count()
-                    };
-                    let index = ids.iter().position(|id| id == &seat.id).unwrap_or(0);
-                    format!(
-                        "pos{} t{} a{} w{}",
+        let report = ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
+            .expect("replay the round");
+        let state = report.final_state;
+        if let Ok(system) = std::env::var("SURVEY_SHOW_SYSTEM") {
+            eprintln!(
+                "SYSTEM r{round} {system}: {}",
+                serde_json::to_string(&state.board.get(&ti4_model::id::SystemId::new(&system)))
+                    .expect("json")
+            );
+        }
+        let mecatol = state
+            .board
+            .values()
+            .find_map(|system| {
+                system
+                    .planet_control
+                    .get(&ti4_model::id::PlanetId::new("mr"))
+            })
+            .and_then(|owner| state.player(owner))
+            .map(|seat| seat.faction.as_str().to_owned());
+        let window = &log[begin..end];
+        let seats_rows = state
+            .players
+            .iter()
+            .map(|seat| {
+                let home: BTreeSet<_> = initial
+                    .controlled_planets(&seat.id)
+                    .into_iter()
+                    .map(|(s, p)| (s.clone(), p.clone()))
+                    .collect();
+                let gained: Vec<_> = state
+                    .controlled_planets(&seat.id)
+                    .into_iter()
+                    .filter(|(s, p)| !home.contains(&((*s).clone(), (*p).clone())))
+                    .collect();
+                let systems: BTreeSet<_> = gained.iter().map(|(s, _)| (*s).clone()).collect();
+                let asked = |subtype: &str| {
+                    window
+                        .iter()
+                        .filter(|r| r.player == seat.id)
+                        .filter(|r| r.context.as_ref().is_some_and(|c| c.subtype == subtype))
+                        .count()
+                };
+                let index = ids.iter().position(|id| id == &seat.id).unwrap_or(0);
+                SeatRow {
+                    faction: seat.faction.as_str().to_owned(),
+                    cards: seat
+                        .strategy_cards
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("+"),
+                    planets: gained.len(),
+                    systems: systems.len(),
+                    note: format!(
+                        "pos{} vp{} t{} a{} w{}",
                         (index + seats - speaker) % seats + 1,
+                        seat.victory_points,
                         seat.tactic_tokens,
                         asked("activate_system"),
                         asked("warfare_free_tactical")
-                    )
-                },
-            )
-        })
-        .collect()
+                    ),
+                }
+            })
+            .collect();
+        rows.push(RoundRow {
+            seats: seats_rows,
+            mecatol,
+        });
+        begin = end;
+    }
+    rows
 }
 
-/// How many planets and systems each smart seat takes in round 1 of a 4-player game:
-/// `SURVEY_TURN_ONE=1-40 cargo test --test smart_bot_survey turn_one -- --ignored --nocapture`
-/// (`SURVEY_TURN_ONE_SEATS` for another table size; factions come from the whole roster by seed,
-/// `SURVEY_TURN_ONE_FACTIONS=base` seats the default ones). Prints one line per seat and the
-/// distribution of new systems.
+/// How many planets and systems each smart seat holds after the opening rounds of a 4-player game:
+/// `SURVEY_TURN_ONE=1-48 cargo test --release --test smart_bot_survey survey_turn_one --
+/// --ignored --nocapture`. `SURVEY_TURN_ONE_ROUNDS` (default 1) rounds are played; for each the
+/// systems gained since the start (and within the round) are reported per seat, draft position,
+/// faction and cards, with who holds Mecatol Rex. `SURVEY_TURN_ONE_SEATS` for another table size;
+/// factions come from the whole roster by seed, `SURVEY_TURN_ONE_FACTIONS=base` seats the
+/// default ones.
 #[test]
 #[ignore = "a survey for tuning, not a check"]
-#[expect(clippy::cast_precision_loss, reason = "small counts")]
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    reason = "small counts; one report"
+)]
 fn survey_turn_one() {
     let spec = std::env::var("SURVEY_TURN_ONE").unwrap_or_else(|_| "1-40".to_owned());
     let seats: usize = std::env::var("SURVEY_TURN_ONE_SEATS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(4);
+    let rounds: u32 = std::env::var("SURVEY_TURN_ONE_ROUNDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
     let roster = std::env::var("SURVEY_TURN_ONE_FACTIONS").as_deref() != Ok("base");
     let seeds: Vec<u64> = spec
         .split(',')
@@ -393,7 +439,7 @@ fn survey_turn_one() {
             None => vec![part.trim().parse().expect("seed")],
         })
         .collect();
-    let results: Vec<(u64, TurnOne)> = std::thread::scope(|scope| {
+    let results: Vec<(u64, Vec<RoundRow>)> = std::thread::scope(|scope| {
         let chunks: Vec<Vec<u64>> = seeds
             .chunks(seeds.len().div_ceil(6).max(1))
             .map(<[u64]>::to_vec)
@@ -404,7 +450,7 @@ fn survey_turn_one() {
                 scope.spawn(move || {
                     chunk
                         .into_iter()
-                        .map(|seed| (seed, turn_one(seats, seed, roster)))
+                        .map(|seed| (seed, opening(seats, seed, roster, rounds)))
                         .collect::<Vec<_>>()
                 })
             })
@@ -414,47 +460,66 @@ fn survey_turn_one() {
             .flat_map(|h| h.join().expect("survey thread"))
             .collect()
     });
-    let mut systems_hist = [0usize; 6];
-    let mut planets_hist = [0usize; 7];
-    let mut by_faction: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    let mut by_card: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    let mut by_position: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    for (seed, seats) in &results {
-        let mut row = format!("seed {seed:3}:");
-        for (faction, cards, planets, systems, note) in seats {
-            let _ = write!(row, " {faction}[{cards}] {systems}s/{planets}p ({note});");
-            systems_hist[(*systems).min(5)] += 1;
-            planets_hist[(*planets).min(6)] += 1;
-            by_faction
-                .entry(faction.clone())
-                .or_default()
-                .push(*systems);
-            by_card.entry(cards.clone()).or_default().push(*systems);
-            let position = note.split(' ').next().unwrap_or_default().to_owned();
-            by_position.entry(position).or_default().push(*systems);
+    for round in 1..=rounds {
+        let r = usize::try_from(round - 1).unwrap_or(0);
+        let mut systems_hist = [0usize; 8];
+        let mut gained_hist = [0usize; 6];
+        let mut planets_hist = [0usize; 10];
+        let mut by_faction: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut by_card: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut by_position: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        let mut mecatol: BTreeMap<String, usize> = BTreeMap::new();
+        for (seed, rows) in &results {
+            let Some(row) = rows.get(r) else { continue };
+            let previous = r.checked_sub(1).and_then(|p| rows.get(p));
+            let mut line = format!("seed {seed:3}:");
+            for (i, seat) in row.seats.iter().enumerate() {
+                let before = previous.map_or(0, |p| p.seats[i].systems);
+                let new = seat.systems.saturating_sub(before);
+                let _ = write!(
+                    line,
+                    " {}[{}] {}s/{}p +{new}s ({});",
+                    seat.faction, seat.cards, seat.systems, seat.planets, seat.note
+                );
+                systems_hist[seat.systems.min(7)] += 1;
+                gained_hist[new.min(5)] += 1;
+                planets_hist[seat.planets.min(9)] += 1;
+                by_faction
+                    .entry(seat.faction.clone())
+                    .or_default()
+                    .push(new);
+                by_card.entry(seat.cards.clone()).or_default().push(new);
+                let position = seat.note.split(' ').next().unwrap_or_default().to_owned();
+                by_position.entry(position).or_default().push(new);
+            }
+            let holder = row.mecatol.clone().unwrap_or_else(|| "-".to_owned());
+            let _ = write!(line, " MR {holder}");
+            *mecatol.entry(holder).or_default() += 1;
+            eprintln!("R{round} {line}");
         }
-        eprintln!("TURN1 {row}");
-    }
-    let total: usize = systems_hist.iter().sum();
-    let at_least = |n: usize| systems_hist[n..].iter().sum::<usize>();
-    eprintln!(
-        "SYSTEMS histogram 0..5+: {systems_hist:?} over {total} seats; >=3: {} ({:.0}%)",
-        at_least(3),
-        100.0 * at_least(3) as f64 / total.max(1) as f64
-    );
-    eprintln!("PLANETS histogram 0..6+: {planets_hist:?}");
-    for (label, map) in [
-        ("POSITION", &by_position),
-        ("FACTION", &by_faction),
-        ("CARD", &by_card),
-    ] {
-        for (key, list) in map {
-            let mean = list.iter().sum::<usize>() as f64 / list.len() as f64;
-            let three = list.iter().filter(|&&s| s >= 3).count();
-            eprintln!(
-                "{label} {key:24} n={:2} mean systems {mean:.2} >=3: {three}",
-                list.len()
-            );
+        let total: usize = gained_hist.iter().sum();
+        let at_least = |n: usize| gained_hist[n..].iter().sum::<usize>();
+        eprintln!(
+            "R{round} GAINED systems this round 0..5+: {gained_hist:?} over {total} seats; >=3: {} ({:.0}%)",
+            at_least(3),
+            100.0 * at_least(3) as f64 / total.max(1) as f64
+        );
+        eprintln!("R{round} HELD systems since start 0..7+: {systems_hist:?}");
+        eprintln!("R{round} HELD planets since start 0..9+: {planets_hist:?}");
+        eprintln!("R{round} MECATOL holders: {mecatol:?}");
+        for (label, map) in [
+            ("POSITION", &by_position),
+            ("FACTION", &by_faction),
+            ("CARD", &by_card),
+        ] {
+            for (key, list) in map {
+                let mean = list.iter().sum::<usize>() as f64 / list.len() as f64;
+                let three = list.iter().filter(|&&s| s >= 3).count();
+                eprintln!(
+                    "R{round} {label} {key:24} n={:2} mean gained {mean:.2} >=3: {three}",
+                    list.len()
+                );
+            }
         }
     }
 }
