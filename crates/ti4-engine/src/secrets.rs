@@ -475,6 +475,17 @@ fn wormhole_kinds_count(position: &Position<'_>) -> usize {
                     .filter(|wormhole| matches!(*wormhole, "ALPHA" | "BETA")),
             );
         }
+        // Wormholes that arrived as tokens count too: "a system that contains an alpha wormhole"
+        // is true of the opened Wormhole Nexus (alpha and beta are tokens on its locked tile) and
+        // of the ion storm's current face, neither of which the printed record shows.
+        if let Some(galaxy) = position.galaxy {
+            kinds.extend(
+                galaxy
+                    .wormhole_kinds(system.as_str())
+                    .into_iter()
+                    .filter(|wormhole| matches!(*wormhole, "ALPHA" | "BETA")),
+            );
+        }
     }
     kinds.len()
 }
@@ -1762,6 +1773,38 @@ mod tests {
         for alias in ["lsc", "te", "fc"] {
             assert!(remaining_position_progress(&SecretObjectiveId::new(alias), &blind).is_none());
         }
+    }
+
+    #[test]
+    fn the_gatekeeper_counts_wormhole_tokens_too() {
+        // The opened Wormhole Nexus carries alpha and beta as tokens on its locked tile; a ship
+        // there is in a system containing both kinds although the printed tile shows gamma only.
+        let mut galaxy = ti4_content::galaxy::Galaxy::build(
+            ContentStore::embedded(),
+            &["18", "19", "20", "21", "22", "23", "24"],
+            POK,
+            3,
+        )
+        .unwrap();
+        crate::seating::place_wormhole_nexus(&mut galaxy, ContentStore::embedded(), POK).unwrap();
+        let mut state = game(&["a"]);
+        holding(&mut state, "btgk");
+        let seat = player();
+        let nexus = ti4_model::id::SystemId::new(crate::seating::LOCKED_NEXUS);
+        crate::fixtures::put(&mut state, &nexus, "cruiser", &seat, 1);
+        let id = SecretObjectiveId::new("btgk");
+        let kinds = |galaxy: &ti4_content::galaxy::Galaxy| {
+            remaining_position_progress(&id, &on_map(&state, &seat, galaxy)).unwrap().have
+        };
+        assert_eq!(kinds(&galaxy), 0, "the locked nexus is gamma only");
+        for kind in ["ALPHA", "BETA"] {
+            galaxy
+                .token_wormholes
+                .entry(crate::seating::LOCKED_NEXUS.to_owned())
+                .or_default()
+                .insert(kind.to_owned());
+        }
+        assert_eq!(kinds(&galaxy), 2, "the opened nexus holds both kinds");
     }
 
     #[test]
