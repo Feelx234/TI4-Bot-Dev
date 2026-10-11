@@ -21,3 +21,11 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
   - Antimass Deflectors does nothing in the engine. The flag that opens asteroid fields (`MovementRules::asteroid_fields_open`) is only ever set in a test. The asteroid field is closed in both scenario variants, so "Late game with deflectors" really only shows Light/Wave Deflector. A test in `ti4-view/src/scenario.rs` pins this and will fail when the engine implements it. Hacan starts with this tech, so fixing it changes existing seeded games: owner decision.
   - The 8-seat map has no asteroid field, so the scenario replaces tile 31 with tile 44 next to Sol's home.
   - Upgraded units showed as "Cruiser": web2 did not know ids like `sol_carrier2` or `fighter2`. Fixed in `names.ts`; they now show as their base unit, with no "II" marker.
+- production sheet (2026-10-11), open after the iterations with the owner:
+  - the card behind a unit name is the only place of combat, move, capacity and abilities; a header toggle to compare all units in one overview was considered (pattern 2) and not built
+  - many staged fighters or infantry wrap into several lines of tokens, especially on a phone; if it grows too tall, runs of equal tokens can be shown as one with a count
+  - the number of purchases that a hard supply can still make follows the engine's `supply`; a pair with one unit of supply left still makes two (the engine's answer is the last word)
+  - the soft limits are enforced in TypeScript only (`overrun` in `productionDraft.ts`); a plan over a limit is refused by the game, and the main button already waits for it
+  - the printed rule of a unit (`rules`) is shown for the units of a production only. Not checked yet against the rule of AGENTS.md (Text): the units in the battle table, the fleet sheet of a movement, the landing sheet, the technology tree and the player sheet
+  - DEEP SPACE CANNON is not a keyword line: its rule is the printed text of the unit (`rules`)
+  - PRODUCTION is a keyword line with the printed value ("PRODUCTION +2" for a space dock: the resources of the planet plus two); the sheet does not show a produced value for a planet

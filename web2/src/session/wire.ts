@@ -268,8 +268,10 @@ export interface BuildFact {
   move_value: number;
   /** What the unit carries. */
   capacity: number;
-  /** The unit abilities as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5 (x1)". */
+  /** The keyword abilities as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5+", "PRODUCTION +2". */
   abilities?: string[];
+  /** The special rule that is printed on the unit. Absent: it has none. */
+  rules?: string;
   /** Why the seat cannot produce the unit here now. Absent: it can. */
   unavailable?: "technology" | "supply" | "blockade" | "no_place" | "not_offered";
 }

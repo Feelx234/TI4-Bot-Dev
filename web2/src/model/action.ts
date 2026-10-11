@@ -422,7 +422,7 @@ export interface BuildUnitView {
   name: string;
   /** What one purchase costs: "2", or "1 for 2". */
   price: string;
-  /** "9", "3 ×3". "–" when the unit does not fight. */
+  /** "9+", "3+ (x3)". "–" when the unit does not fight. */
   combat: string;
   /** "–" when the unit does not move by itself. */
   move: string;
@@ -430,8 +430,10 @@ export interface BuildUnitView {
   capacity: string;
   /** How many are left in the supply after what is staged. Null when there is no limit. */
   left: number | null;
-  /** The other abilities, as printed: "SUSTAIN DAMAGE · BOMBARDMENT 5 (x1)". */
-  abilities: string;
+  /** The keyword abilities, as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5+". */
+  abilities: string[];
+  /** The special rule that is printed on the unit. Empty when it has none. */
+  rules: string;
   /**
    * Why the unit cannot be produced in this use at all: a word for its row ("None left"), and
    * the reason in full. The row has no counter.

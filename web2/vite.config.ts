@@ -17,5 +17,21 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 3100,
   },
-  test: { include: ["src/**/*.test.ts"] },
+  test: {
+    // Two kinds of test. A `*.test.ts` has no DOM and runs in node, as the engine does. A
+    // `*.test.tsx` renders components in jsdom; the VM pool spares it a process for each file.
+    projects: [
+      { extends: true, test: { name: "unit", include: ["src/**/*.test.ts"] } },
+      {
+        extends: true,
+        test: {
+          name: "dom",
+          include: ["src/**/*.test.tsx"],
+          environment: "jsdom",
+          pool: "vmThreads",
+          setupFiles: "./src/test/setup.ts",
+        },
+      },
+    ],
+  },
 });

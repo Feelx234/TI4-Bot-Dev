@@ -914,8 +914,12 @@ mod tests {
         assert!(
             sun.abilities
                 .iter()
-                .any(|text| text.starts_with("BOMBARDMENT 3")),
+                .any(|text| text == "BOMBARDMENT 3+ (x3)"),
             "{sun:?}"
+        );
+        assert_eq!(
+            sun.rules.as_deref(),
+            Some("Other player's units in this system lose PLANETARY SHIELD.")
         );
 
         // Without its technology the war sun is the printed one, and it is not produced.

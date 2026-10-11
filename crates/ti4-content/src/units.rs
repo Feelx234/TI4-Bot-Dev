@@ -209,6 +209,20 @@ impl<'a> UnitType<'a> {
         self.bombard_hits_on().is_some()
     }
 
+    /// The special rule that is printed on the unit, as on its card. `None`: the unit has no
+    /// rule beyond its values and its keywords.
+    #[must_use]
+    pub fn ability_text(&self) -> Option<&str> {
+        self.record.text("ability")
+    }
+
+    /// The printed production value: "5", or "+2" for the resources of the planet plus two.
+    #[must_use]
+    pub fn production_text(&self) -> Option<String> {
+        let raw = self.record.raw("productionValue")?;
+        Some(raw.as_str().map_or_else(|| raw.to_string(), str::to_owned))
+    }
+
     #[must_use]
     pub fn planetary_shield(&self) -> bool {
         self.record.flag("planetaryShield")

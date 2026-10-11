@@ -77,6 +77,8 @@ There are two layouts, and no others.
 - Visible text states the game state: costs, counts, errors, and who the game waits for.
 - The open step must not need vertical scroll at 1920×1080. `e2e/shots.spec.ts` checks this.
 - Do not abbreviate labels when there is room. The player table uses full column names.
+- **Rules that a player may need to look up are in the UI, behind hover or click** (owner, 2026-10-11). These are: every text that is printed only on a component and is not in the rule book (a unit, a card, a technology, a leader, a faction ability), and special abilities that are not used often. General rules are not in the UI: the flow of the game, and the rules of every game such as combat dice or the unit keywords (SUSTAIN DAMAGE, BOMBARDMENT). A keyword is shown with its values and no explanation. These are examples, not a list: decide by "would an expert look this up?".
+- Rule text is never written in web2. It comes from `ti4-content` through the engine (a fact of the update, or the catalogue).
 
 ## Action picker and shortcuts
 
@@ -223,12 +225,14 @@ The owner chose this design on 2026-10-11: the build first, then the payment, bo
 
 - The step has two stages. Nothing is sent before the last button.
 - **Build.** The units are staged on the map, in one sheet at the system that produces. It opens when the step opens. The panel says what is produced in each place and has the limits; it has no controls. A row of it opens the sheet.
-- Every kind of unit of a production is one row, as printed (owner, 2026-10-11; a row of chips with one chosen kind was tried and was hard to read): the icon, the name, the cost ("2", "1 for 2"), combat ("9", "3 ×3"), move, capacity and how many are left in the supply. The other abilities are the tooltip of the name. On a phone the values are a second line, each with its word.
-- The rows are in two groups. "Ships · Space area" says the place once, and the counter is in the row. "Ground forces" have one line with a counter for each place that takes them ("Planet Lisis"), also when there is one place only.
-- A counter shows units, and one step is one purchase. Fighters and infantry come two at a time, as the game sells them; the last pair makes one unit when the production limit has room for one. "+" is disabled when the production limit or the supply is used; the reason is its tooltip.
-- A unit that cannot be produced in this use keeps its row. It is dimmed and has a word in place of the counter ("No technology", "None left", "Blockaded", "No place"), with the reason in full as tooltip.
+- Every kind of unit of a production is one row (owner, 2026-10-11; a row of chips with one chosen kind and a row with all printed values were tried, and were hard to read): the icon, the name, the cost ("2", "1 for 2"), how many are left in the supply, the units that are staged, and the tokens. The columns have fixed widths, so cost and left line up over the rows; each group heading says "Cost" and "Left" once.
+- The printed values are behind the name (`Peek`): hover shows them, a click or a tap keeps them open, and the card opens above the name when there is no room below. The name has a dotted underline on both layouts. The card is laid out as the printed unit card: the icon and the name, the four values in one row (cost, combat, move, capacity; the number over its word), the keywords with their values, one line each in capitals, and the printed special rule of the unit (`rules`). A section with nothing is not shown. The card has no control, and a keyword is not explained (the Text section).
+- A dice value is read as the game says it: "5+", and "3+ (x3)" with more than one die; the same for BOMBARDMENT, ANTI-FIGHTER BARRAGE and SPACE CANNON. PRODUCTION has the printed value ("PRODUCTION +2").
+- The rows are in two groups. "Ships · Space area" says the place once. "Ground forces" says its place in the heading when there is one place only ("Planet Jord"); with several places each unit has one line for each ("Planet Lisis"), under a row with the total.
+- What is staged is the count of units (zero is dimmed, more than zero in the accent colour), then one token for each purchase, with the icon of every unit that it makes: a pair of fighters is a token with two icons. A tap on a token takes that purchase back. The dashed slot adds one purchase and shows the units that it makes. It is not shown when nothing more can be added. One step is one purchase. Fighters and infantry come two at a time, as the game sells them; the last pair makes one unit when the production limit has room for one only.
+- A unit that cannot be produced in this use keeps its row. It is dimmed and has a word in place of the tokens ("No technology", "None left", "Blockaded", "No place"), with the reason in full as tooltip.
 - The limits are gauges of the sheet and of the panel: "Production capacity", "Resources", "Fleet supply after", "Fighters and cargo in space". The heading of the sheet says what is staged and what it costs after a discount ("5 units · 3 resources · discount 1").
-- "Resources" is the cost of the staged build against what the ready planets and the trade goods of the seat pay. It does not stop a purchase, as the fleet supply does not: the player plans against it. A build that costs more is red in the gauge, the footer says "2 resources short", and the main button is disabled (pattern 5).
+- The limits are soft, except the supply of a unit (the plastic): the player plans against them. A build over a soft limit is staged. The gauge is red, the footer says what is over ("2 resources short · 1 unit over the production limit"), and the main button and the "✓" of the sheet wait (pattern 5). The soft limits are the resources (the cost of the staged build against what the ready planets and the trade goods of the seat pay), the production limit, the fleet supply and the capacity. A purchase after the production limit makes all its units. The supply of a unit is hard: "Left" counts down, and when none is left the slot is not shown.
 - "Fighters and cargo in space" has both sides after the build: a staged fighter uses capacity, and a staged ship adds its own.
 - No planet pays while the build is chosen, and there is no payment bar. The main button says what is next: "Pay 3 resources", "Produce units" when the build costs nothing, "Produce nothing" when nothing is staged. The "✓" of the sheet does what "Pay …" does. "Reset" takes the build back.
 - **Pay.** The sheet closes and the map is the payment (the Payment section): the bar, the planets that pay, Auto-pay. The footer has the payment line and "Produce units", which is disabled while the payment is short. "Back to build" (Esc) or a tap on the system that produces opens the sheet again; the staged payment stays and is measured against the new cost.
@@ -242,6 +246,14 @@ The owner chose this design on 2026-10-11: the build first, then the payment, bo
 - The headers of the attacker and the defender have the same lines, so the unit rows start at the same height.
 - The simulated odds are in these headers (win % and survivors). They have no card of their own.
 - A player can have more than one strategy card (a game of four or fewer players). The player table shows all of them.
+
+## Tests
+
+- `npm test` runs two kinds of test (the projects in `vite.config.ts`). A `*.test.ts` has no DOM and runs in node: the view models, the drafts, the real engine. A `*.test.tsx` renders components in jsdom with `@testing-library/react`.
+- A component with logic of its own (open and close, keys, a place on the screen) gets a component test next to it (`src/ui/overlays.test.tsx`). jsdom has no layout: a test of a position gives the rectangle of the trigger.
+- A screen is tested over an update that the engine recorded (`src/session/fixtures/`), not over data written by hand, so the test sees what the engine sends. Such a test imports the session and the components, so it is in `src/dev/` (`src/dev/productionSheet.test.tsx`; the layers are in `src/boundaries.test.ts`). A fixture is recorded again with its command when the facts change; it is not edited.
+- The page takes its facts from `src/session/ti4.wasm`, which is not in the repository. After a change of a fact in `ti4-view`, build it again (`scripts/build-wasm.sh`); `wasmTransport.test.ts` checks the shape that the screens read.
+- The tests of a local game (`e2e/local.spec.ts`) collect the errors of the page and expect none. A new part of a screen that opens (a card, a sheet, a menu) is opened once there.
 
 ## Rust builds
 

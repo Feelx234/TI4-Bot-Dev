@@ -211,9 +211,13 @@ pub struct BuildFact {
     /// What the unit carries.
     #[serde(default)]
     pub capacity: i64,
-    /// The unit abilities as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5 (x1)".
+    /// The keyword abilities of the unit, as printed: "SUSTAIN DAMAGE", "BOMBARDMENT 5+",
+    /// "PRODUCTION +2".
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub abilities: Vec<String>,
+    /// The special rule that is printed on the unit. `None`: it has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<String>,
     /// Why the seat cannot produce the unit here now. `None`: it can.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable: Option<Unavailable>,
@@ -714,8 +718,15 @@ fn build_fact(
     places: Vec<String>,
     unavailable: Option<Unavailable>,
 ) -> BuildFact {
+    // "BOMBARDMENT 5+", and "BOMBARDMENT 3+ (x3)" with more than one die: as the dice are read.
     let rolls = |name: &str, hits_on: Option<i64>, dice: i64| {
-        hits_on.map(|value| format!("{name} {value} (x{dice})"))
+        hits_on.map(|value| {
+            if dice > 1 {
+                format!("{name} {value}+ (x{dice})")
+            } else {
+                format!("{name} {value}+")
+            }
+        })
     };
     let abilities = [
         kind.sustain_damage().then(|| "SUSTAIN DAMAGE".to_owned()),
@@ -728,6 +739,8 @@ fn build_fact(
         ),
         kind.planetary_shield()
             .then(|| "PLANETARY SHIELD".to_owned()),
+        kind.production_text()
+            .map(|value| format!("PRODUCTION {value}")),
     ];
     BuildFact {
         unit: kind.id().to_owned(),
@@ -752,6 +765,7 @@ fn build_fact(
         move_value: kind.move_value(),
         capacity: kind.capacity(),
         abilities: abilities.into_iter().flatten().collect(),
+        rules: kind.ability_text().map(str::to_owned),
         unavailable,
     }
 }

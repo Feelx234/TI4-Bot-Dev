@@ -1,6 +1,6 @@
 import type { BuildCountView, BuildGroupView, BuildSheetView, BuildUnitView } from "../../../model";
 import { plural } from "../../../model";
-import { Button, Gauge, Icon, cx } from "../../../ui";
+import { Button, Gauge, Icon, Peek, cx } from "../../../ui";
 import { useDispatch } from "../../context";
 
 // The columns of a unit row: name, cost, what is left in supply, then what is staged. Every row
@@ -74,6 +74,44 @@ function BuildTokens({ unit, count }: { unit: BuildUnitView; count: BuildCountVi
 }
 
 /**
+ * A unit as its card prints it: the name, the four values, the keywords and the printed special
+ * rule. It is behind the name of the row. A section with nothing is not shown.
+ */
+function UnitCard({ unit }: { unit: BuildUnitView }) {
+  const values = [
+    ["Cost", unit.price],
+    ["Combat", unit.combat],
+    ["Move", unit.move],
+    ["Capacity", unit.capacity],
+  ];
+  const section = "border-t border-line/50 px-3 py-2";
+  return (
+    <>
+      <div className="flex items-center gap-1.5 px-3 py-2">
+        <Icon name={unit.unit} className="size-4 flex-none text-icon" />
+        <strong className="text-sm font-mid">{unit.name}</strong>
+      </div>
+      <dl className={cx(section, "grid grid-cols-4 gap-x-1 text-center")}>
+        {values.map(([word, value]) => (
+          <div key={word} className="flex flex-col-reverse">
+            <dt className="text-2xs text-muted">{word}</dt>
+            <dd className="text-sm font-mid whitespace-nowrap tabular-nums">{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {unit.abilities.length > 0 && (
+        <ul className={cx(section, "text-2xs font-mid tracking-wide")}>
+          {unit.abilities.map((ability) => (
+            <li key={ability}>{ability}</li>
+          ))}
+        </ul>
+      )}
+      {unit.rules && <p className={cx(section, "whitespace-pre-line")}>{unit.rules}</p>}
+    </>
+  );
+}
+
+/**
  * One kind of unit as printed, with what is staged. A unit that is not produced here is dimmed.
  * `inline`: its tokens are in its own row. Else it has a line for each place.
  */
@@ -83,13 +121,22 @@ function UnitRow({ unit, inline }: { unit: BuildUnitView; inline: boolean }) {
   return (
     <>
       <div className={cx(COLUMNS, "min-h-8 border-t border-line/50 touch:min-h-10")}>
-        <span
-          className={cx("flex min-w-0 items-center gap-1.5", dim)}
-          title={[unit.name, unit.abilities].filter(Boolean).join(" · ")}
+        <Peek
+          label={`${unit.name}, printed values`}
+          trigger={
+            <>
+              <Icon name={unit.unit} className="size-4 flex-none text-icon" />
+              <strong className="min-w-0 truncate font-mid underline decoration-dotted decoration-muted/60 underline-offset-4">
+                {unit.name}
+              </strong>
+            </>
+          }
+          buttonClassName={() => cx("flex min-w-0 items-center gap-1.5 text-left", dim)}
+          width={264}
+          flush
         >
-          <Icon name={unit.unit} className="size-4 flex-none text-icon" />
-          <strong className="min-w-0 truncate font-mid">{unit.name}</strong>
-        </span>
+          <UnitCard unit={unit} />
+        </Peek>
         <span className={cx("justify-self-end text-xs tabular-nums", dim)}>{unit.price}</span>
         <span className={cx("justify-self-end text-xs tabular-nums", dim)}>{unit.left ?? "–"}</span>
         {/* A word, not only the dimmed row: why the unit is not produced here. */}

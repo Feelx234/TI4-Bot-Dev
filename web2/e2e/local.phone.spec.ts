@@ -234,6 +234,8 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
 });
 
 test("phone: a production is a sheet on the map, then the map is the payment", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?scenario=late-game&humans=1");
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
   const pane = (name: string) =>
@@ -260,8 +262,15 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   await sheet.getByRole("button", { name: "Add Fighter" }).click();
   await sheet.getByRole("button", { name: "Add Cruiser" }).click();
   await sheet.getByRole("button", { name: "Add Infantry, Planet Velnor" }).click();
-  // On a phone each value of a unit has its word.
-  await expect(sheet.getByText("Capacity 6")).toBeVisible();
+  // The printed values are behind the name: a tap opens the card, and nothing is cut at the side.
+  const card = page.getByRole("note");
+  await sheet.getByRole("button", { name: "War sun, printed values" }).tap();
+  await expect(card).toContainText("BOMBARDMENT 3+ (x3)");
+  await expect(card).toBeInViewport({ ratio: 1 });
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/production-card.png", animations: "disabled" });
+  await sheet.getByRole("button", { name: "War sun, printed values" }).tap();
+  await expect(card).toHaveCount(0);
   await expect(sheet.getByRole("status").first()).toContainText("5 units · 3 resources");
   await fits();
   await page.screenshot({ path: "shots/phone/local/production-build.png", animations: "disabled" });

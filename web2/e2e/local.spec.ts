@@ -741,6 +741,18 @@ test("a production: the build is staged on the map, then paid on the map, and se
   }
   await expect(forces.getByText("Mech", { exact: true })).toBeVisible();
   await expect(sheet.getByText("None left")).toHaveCount(3);
+  // The printed values are behind the name: hover shows the card, a click keeps it, Esc closes.
+  const card = page.getByRole("note");
+  await ships.getByRole("button", { name: "War sun, printed values" }).hover();
+  await expect(card).toContainText("BOMBARDMENT 3+ (x3)");
+  await expect(card).toContainText("lose PLANETARY SHIELD");
+  await ships.getByRole("button", { name: "War sun, printed values" }).click();
+  await page.mouse.move(0, 0);
+  await expect(card).toBeVisible();
+  await page.screenshot({ path: "shots/local/production-card.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(card).toHaveCount(0);
+  expect(errors).toEqual([]);
   await expect(ships.getByRole("button", { name: "Add Carrier" })).toHaveCount(0);
   await expect(ships.getByRole("button", { name: "Add War sun" })).toBeEnabled();
   // The limits, with the resources that the seat has.
@@ -766,7 +778,9 @@ test("a production: the build is staged on the map, then paid on the map, and se
 
   // A counter buys in its place: two fighters, a cruiser, infantry on each planet.
   await ships.getByRole("button", { name: "Add Fighter" }).click();
-  await expect(ships.getByLabel("Fighter quantity")).toHaveText("2");
+  // One purchase is one token, with the two fighters that it makes.
+  await expect(ships.getByRole("button", { name: "Remove Fighter" })).toHaveCount(1);
+  await expect(ships.getByRole("button", { name: "Remove Fighter" }).locator("svg")).toHaveCount(2);
   await ships.getByRole("button", { name: "Add Cruiser" }).click();
   await forces.getByRole("button", { name: "Add Infantry, Planet Velnor" }).click();
   await forces.getByRole("button", { name: "Add Infantry, Planet Lisis" }).click();
@@ -778,7 +792,8 @@ test("a production: the build is staged on the map, then paid on the map, and se
   await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 1}$`));
   await ships.getByRole("button", { name: "Add War sun" }).click();
   await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 7}$`));
-  await expect(ships.getByRole("button", { name: "Add War sun" })).toBeDisabled();
+  // The supply has one war sun: the slot is gone.
+  await expect(ships.getByRole("button", { name: "Add War sun" })).toHaveCount(0);
   await ships.getByRole("button", { name: "Remove War sun" }).click();
   await expect(gauge("Fighters and cargo in space")).toHaveText(new RegExp(`/ ${cargo + 1}$`));
   // The "−" of a counter takes a purchase back.

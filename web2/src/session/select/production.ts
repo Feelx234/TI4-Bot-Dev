@@ -86,12 +86,13 @@ export function selectBuild(
       name,
       price: fact.per > 1 ? `${fact.cost} for ${fact.per}` : `${fact.cost}`,
       combat: fact.combat
-        ? `${fact.combat.hits_on}${fact.combat.dice > 1 ? ` ×${fact.combat.dice}` : ""}`
+        ? `${fact.combat.hits_on}+${fact.combat.dice > 1 ? ` (x${fact.combat.dice})` : ""}`
         : "–",
       move: fact.move_value ? `${fact.move_value}` : "–",
       capacity: fact.capacity ? `${fact.capacity}` : "–",
       left: fact.supply === undefined ? null : fact.supply - total.made[index],
-      abilities: (fact.abilities ?? []).join(" · "),
+      abilities: fact.abilities ?? [],
+      rules: fact.rules ?? "",
       unavailable: fact.unavailable
         ? { word: UNAVAILABLE_WORD[fact.unavailable], reason: UNAVAILABLE[fact.unavailable] }
         : null,

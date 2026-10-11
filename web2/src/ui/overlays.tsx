@@ -77,10 +77,28 @@ export function Menu({
 }
 
 /**
- * Rule or help text behind a "?" button. Hover or focus shows it; a click keeps it open.
- * The players are experts, so this text is never in the layout.
+ * A text that a trigger shows on hover or focus, and keeps open on a click or a tap. Esc and a
+ * click outside close it. It opens below the trigger, or above it when there is no room below.
+ * `Hint` is the "?" version; a name or a value can be the trigger too.
  */
-export function Hint({ label, children }: { label: string; children: ReactNode }) {
+export function Peek({
+  label,
+  trigger,
+  buttonClassName,
+  width: wanted = 340,
+  flush = false,
+  children,
+}: {
+  label: string;
+  trigger: ReactNode;
+  /** The classes of the trigger button; `pinned` is true while the text is kept open. */
+  buttonClassName: (pinned: boolean) => string;
+  /** The width of the text in pixels, when the window has the room. */
+  width?: number;
+  /** The content sets its own padding: a card with sections. */
+  flush?: boolean;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState<"peek" | "pinned" | null>(null);
   const root = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -115,10 +133,18 @@ export function Hint({ label, children }: { label: string; children: ReactNode }
   const unpeek = () => setOpen((now) => (now === "peek" ? null : now));
   // Fixed position: the text is not cut by a scrolling parent.
   const rect = open ? button.current?.getBoundingClientRect() : undefined;
-  const width = Math.min(340, window.innerWidth - 16);
+  const width = Math.min(wanted, window.innerWidth - 16);
+  // Above the trigger when the room below is small and there is more of it above.
+  const below = rect ? window.innerHeight - rect.bottom : 0;
+  const above = !!rect && below < 200 && rect.top > below;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: hover only shows the text early; the button inside is the control
-    <span ref={root} className="relative inline-flex" onMouseEnter={peek} onMouseLeave={unpeek}>
+    <span
+      ref={root}
+      className="relative inline-flex min-w-0"
+      onMouseEnter={peek}
+      onMouseLeave={unpeek}
+    >
       <button
         ref={button}
         type="button"
@@ -130,30 +156,53 @@ export function Hint({ label, children }: { label: string; children: ReactNode }
           event.stopPropagation();
           setOpen(open === "pinned" ? null : "pinned");
         }}
-        className={cx(
-          // Under a finger the button keeps its size in the layout; the area that takes the tap is larger.
-          "relative grid size-[18px] shrink-0 place-items-center rounded-full border text-2xs leading-none font-bold hover:border-line-strong hover:text-text touch:size-6 touch:text-xs touch:after:absolute touch:after:-inset-2.5",
-          open === "pinned" ? "border-cyan text-cyan" : "border-line text-faint",
-        )}
+        className={buttonClassName(open === "pinned")}
       >
-        ?
+        {trigger}
       </button>
       {rect && (
         <div
           role="note"
-          className="fixed z-30 pt-1.5"
+          className={cx("fixed z-30", above ? "pb-1.5" : "pt-1.5")}
           style={{
-            top: rect.bottom,
+            ...(above ? { bottom: window.innerHeight - rect.top } : { top: rect.bottom }),
             left: Math.max(8, Math.min(rect.left - 12, window.innerWidth - width - 8)),
             width,
           }}
         >
-          <div className="space-y-2 rounded-lg border border-[#415065] bg-raised px-3 py-2.5 text-xs leading-[1.45] font-normal whitespace-normal text-text shadow-pop">
+          <div
+            className={cx(
+              "rounded-lg border border-[#415065] bg-raised text-xs leading-[1.45] font-normal whitespace-normal text-text shadow-pop",
+              !flush && "space-y-2 px-3 py-2.5",
+            )}
+          >
             {children}
           </div>
         </div>
       )}
     </span>
+  );
+}
+
+/**
+ * Rule or help text behind a "?" button. Hover or focus shows it; a click keeps it open.
+ * The players are experts, so this text is never in the layout.
+ */
+export function Hint({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Peek
+      label={label}
+      trigger="?"
+      buttonClassName={(pinned) =>
+        cx(
+          // Under a finger the button keeps its size in the layout; the area that takes the tap is larger.
+          "relative grid size-[18px] shrink-0 place-items-center rounded-full border text-2xs leading-none font-bold hover:border-line-strong hover:text-text touch:size-6 touch:text-xs touch:after:absolute touch:after:-inset-2.5",
+          pinned ? "border-cyan text-cyan" : "border-line text-faint",
+        )
+      }
+    >
+      {children}
+    </Peek>
   );
 }
 

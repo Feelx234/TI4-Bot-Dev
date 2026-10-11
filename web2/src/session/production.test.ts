@@ -72,6 +72,8 @@ it("has the facts of the engine for the fixture", () => {
     combat: { hits_on: 6, dice: 1 },
     move_value: 0,
     capacity: 0,
+    rules:
+      "After this unit is destroyed, roll 1 die. If the result is 5 or greater, place the unit on this card. At the start of your next turn, place each unit that is on this card on a planet you control in your home system.",
   });
   expect(facts.units[WARSUN]).toMatchObject({ cost: 12, per: 1, supply: 1, fleet: true });
   expect(facts.planets).toContainEqual({ planet: "lisis", worth: 2 });
@@ -364,11 +366,12 @@ it("opens the production step with the build at the system that produces", () =>
     unit: "cruiser",
     name: "Cruiser",
     price: "2",
-    combat: "6",
+    combat: "6+",
     move: "3",
     capacity: "1",
     left: 3,
-    abilities: "",
+    abilities: [],
+    rules: "",
     unavailable: null,
     counts: [
       {
@@ -381,10 +384,11 @@ it("opens the production step with the build at the system that produces", () =>
   });
   expect(ships[5]).toMatchObject({
     price: "12",
-    combat: "3 ×3",
+    combat: "3+ (x3)",
     capacity: "6",
     left: 1,
-    abilities: "SUSTAIN DAMAGE · BOMBARDMENT 3 (x3)",
+    abilities: ["SUSTAIN DAMAGE", "BOMBARDMENT 3+ (x3)"],
+    rules: "Other player's units in this system lose PLANETARY SHIELD.",
   });
   expect(ships[6]).toMatchObject({ price: "1 for 2", capacity: "–", left: null });
   // A unit that is not produced here keeps its row, with the reason and no counter.
