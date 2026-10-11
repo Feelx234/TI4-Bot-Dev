@@ -1,8 +1,8 @@
 import type { ChoiceOptionDto, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import { describeComponent } from "./componentInfo.ts";
 import {
   findActionCardByName,
   findStrategyCardMeta,
-  findTechnologyMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
 
@@ -57,6 +57,10 @@ export interface BarItem {
   label: string;
   detail: string | null;
   info: BarInfo;
+  /** Components: kind, owner, timing and cost, shown as a line under the name. */
+  facts?: string[];
+  /** Components: a short extra line (borrowed through Ssruu, the technology researched). */
+  note?: string | null;
 }
 
 export interface BarGroup {
@@ -239,35 +243,24 @@ function itemFor(option: ChoiceOptionDto, details?: Record<string, unknown>): Ba
       },
     };
   }
+  const component = describeComponent(option);
   const chips: BarInfo["chips"] = [];
-  const chip = costChip(label);
-  if (chip) chips.push(chip);
-  if (option.id.startsWith("component|tech|")) {
-    const meta = findTechnologyMeta(option.id.slice("component|tech|".length));
-    const name = meta?.name ?? label;
-    return {
-      optionId: option.id,
-      label: name,
-      detail: meta?.description ? firstSentence(meta.description, 120) : null,
-      info: {
-        kind: "Technology",
-        title: name,
-        text: meta?.description ?? label,
-        secondary: null,
-        chips,
-      },
-    };
-  }
-  const title = componentGroupTitle(option.id);
+  const cost = component.cost ?? costChip(label)?.label ?? null;
+  if (cost) chips.push({ label: cost, tone: "neutral" });
+  if (component.timing) chips.push({ label: `When: ${component.timing}`, tone: "neutral" });
+  const kind = component.owner ? `${component.kind} · ${component.owner}` : component.kind;
+  const facts = [kind, component.timing, cost].filter((f): f is string => !!f);
   return {
     optionId: option.id,
-    label,
-    detail: option.description ?? null,
+    label: component.name,
+    detail: component.text,
+    facts,
+    note: component.note,
     info: {
-      kind: title === "Other" ? "Component action" : title.replace(/s$/, ""),
-      title: label,
-      text: option.description ?? label,
-      secondary: null,
+      kind,
+      title: component.name,
+      text: component.text ?? label,
+      secondary: component.note,
       chips,
     },
   };

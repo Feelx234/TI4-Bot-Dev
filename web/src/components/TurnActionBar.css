@@ -164,14 +164,18 @@
   color: var(--color-text-strong, #e2e8f0);
 }
 
-/* menus open upward from the bar */
+/* menus open upward from the bar; the sheet head (title, Close) is for phones only */
+.turn-bar__menu-head {
+  display: none;
+}
 .turn-bar__menu {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
   z-index: var(--layer-popover);
   width: min(420px, calc(100vw - 32px));
-  max-height: min(340px, 50vh);
+  /* --turn-bar-menu-room: the room between the bar and the game header, measured while open */
+  max-height: min(340px, 50vh, var(--turn-bar-menu-room, 50vh));
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -220,6 +224,33 @@
 .turn-bar__row-detail {
   color: var(--color-text-muted, #94a3b8);
   font-size: 12.5px;
+}
+/* a component's printed rules text, in full */
+.turn-bar__row-detail--full {
+  color: var(--color-text-strong, #e2e8f0);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.turn-bar__row-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  margin: 1px 0 2px;
+}
+.turn-bar__row-fact {
+  font-size: 11.5px;
+  padding: 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-muted, #475569);
+  color: var(--color-text-muted, #94a3b8);
+}
+.turn-bar__row-fact:first-child {
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #7dd3fc;
+}
+.turn-bar__row-note {
+  font-size: 12px;
+  color: #fbbf24;
 }
 
 /* trade partner picker */
@@ -369,12 +400,56 @@
   .turn-bar__spacer {
     display: none;
   }
+  /* An open menu is a sheet from just below the game header down to the bar's bottom edge, over
+     the bar's buttons: its top (the first partner, the first components) can never leave the
+     screen, and it has the whole height to list several entries with their text. */
   .turn-bar__menu,
   .turn-bar__menu--trade {
+    position: fixed;
+    top: var(--turn-bar-menu-top, 48px);
+    bottom: var(--turn-bar-menu-bottom, 52px);
     left: 8px;
     right: 8px;
     width: auto;
-    max-height: 55vh;
+    max-height: none;
+    overscroll-behavior: contain;
+    padding-top: 0;
+  }
+  .turn-bar__menu-head {
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 -6px;
+    padding: 6px 6px 6px 14px;
+    background: var(--color-surface, #0f172a);
+    border-bottom: 1px solid var(--color-border-strong, #334155);
+    font-weight: 700;
+  }
+  .turn-bar__menu-close {
+    min-height: 44px;
+    min-width: 72px;
+    font: inherit;
+    font-weight: 600;
+    color: var(--color-text, #f8fafc);
+    background: var(--color-surface-raised, #1e293b);
+    border: 1px solid var(--color-border-muted, #475569);
+    border-radius: var(--radius-sm, 6px);
+    cursor: pointer;
+  }
+  /* the rows spell their text out; the hover panel would only push the bar (and the menu) up */
+  .turn-bar[data-menu-open] .turn-bar__info {
+    display: none;
+  }
+  .turn-bar__row,
+  .turn-bar__open {
+    min-height: 44px;
+  }
+  .turn-bar__open {
+    min-width: 64px;
   }
   .turn-bar__info {
     position: static;

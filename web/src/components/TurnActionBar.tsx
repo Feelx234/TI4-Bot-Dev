@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ValueText } from "./PlanetValueIcons.tsx";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import {
@@ -23,6 +23,12 @@ export interface TurnActionBarProps {
 type MenuKey = "components" | "cards" | "trade";
 
 const MAX_PIPS = 12;
+
+/** The height left above the bar for an open menu (set while a menu is open). */
+export const MENU_ROOM_VAR = "--turn-bar-menu-room";
+/** Phone sheet edges while a menu is open: just below the game header, and the bar's bottom edge. */
+export const MENU_TOP_VAR = "--turn-bar-menu-top";
+export const MENU_BOTTOM_VAR = "--turn-bar-menu-bottom";
 
 /** The viewer's single preference for the phone layout: is the action pane minimized to a slim bar. */
 export const MINIMIZED_KEY = "ti4_action_pane_minimized";
@@ -281,6 +287,36 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
     return () => document.removeEventListener("keydown", onKey);
   }, [model, open, readOnly, submit]);
 
+  // A menu opens upward from the bar: never taller than the room between the bar and the game header,
+  // or its top (the first partner, the first components) ends up off screen on a phone.
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!open || !root) return;
+    const place = () => {
+      const header = document.querySelector(".app-shell__header");
+      const top = Math.max(0, Math.ceil(header?.getBoundingClientRect().bottom ?? 0));
+      const bar = root.getBoundingClientRect();
+      root.style.setProperty(MENU_ROOM_VAR, `${Math.max(120, Math.floor(bar.top - top - 6 - 8))}px`);
+      // Phone sheet: from below the header down to the bar's bottom edge (over the bar's buttons).
+      root.style.setProperty(MENU_TOP_VAR, `${top + 6}px`);
+      root.style.setProperty(
+        MENU_BOTTOM_VAR,
+        `${Math.max(0, Math.floor(window.innerHeight - bar.bottom))}px`,
+      );
+    };
+    place();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(place);
+    observer?.observe(root);
+    window.addEventListener("resize", place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", place);
+      root.style.removeProperty(MENU_ROOM_VAR);
+      root.style.removeProperty(MENU_TOP_VAR);
+      root.style.removeProperty(MENU_BOTTOM_VAR);
+    };
+  }, [open]);
+
   // The first row of a freshly opened menu takes focus so the arrows work at once.
   useEffect(() => {
     if (!open) return;
@@ -378,8 +414,43 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
       {...infoHandlers(item.info)}
     >
       <span className="turn-bar__row-label">{item.label}</span>
-      {item.detail && <span className="turn-bar__row-detail">{item.detail}</span>}
+      {item.facts && item.facts.length > 0 && (
+        <span className="turn-bar__row-facts" data-testid="turn-bar-row-facts">
+          {item.facts.map((fact) => (
+            <span key={fact} className="turn-bar__row-fact">
+              {fact}
+            </span>
+          ))}
+        </span>
+      )}
+      {item.detail && (
+        <span
+          className={item.facts ? "turn-bar__row-detail turn-bar__row-detail--full" : "turn-bar__row-detail"}
+          data-testid="turn-bar-row-text"
+        >
+          {item.detail}
+        </span>
+      )}
+      {item.note && <span className="turn-bar__row-note">{item.note}</span>}
     </button>
+  );
+
+  /** Title and Close for the phone sheet (hidden on wider screens, where the menu is a popover). */
+  const menuHead = (title: string) => (
+    <div className="turn-bar__menu-head">
+      <span>{title}</span>
+      <button
+        type="button"
+        className="turn-bar__menu-close"
+        data-testid="turn-bar-menu-close"
+        onClick={() => {
+          setOpen(null);
+          setInfo(null);
+        }}
+      >
+        Close
+      </button>
+    </div>
   );
 
   const partnerName = (p: TradePartnerView) => {
@@ -420,6 +491,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
       data-testid="turn-action-bar"
       data-mode={model.mode}
       data-minimized={minimized ? "true" : "false"}
+      data-menu-open={open ?? undefined}
       aria-label="Turn actions"
     >
       {info && (
@@ -548,6 +620,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
               data-testid="turn-bar-menu-components"
               onKeyDown={onMenuKey}
             >
+              {menuHead(`Components (${model.components.count})`)}
               {model.components.groups.map((group) => (
                 <div key={group.title} role="group" aria-label={group.title}>
                   <h4>{group.title}</h4>
@@ -582,6 +655,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
               data-testid="turn-bar-menu-cards"
               onKeyDown={onMenuKey}
             >
+              {menuHead(`Action cards (${model.actionCards.count})`)}
               <h4>Action cards with an Action window</h4>
               {model.actionCards.items.map(row)}
             </div>
@@ -611,6 +685,7 @@ export const TurnActionBar: React.FC<TurnActionBarProps> = ({ model, onSubmit, l
               data-testid="turn-bar-menu-trade"
               onKeyDown={onMenuKey}
             >
+              {menuHead("Trade")}
               <h4>Open a transaction with&hellip;</h4>
               {model.trade.partners.map((p) => {
                 const who = partnerName(p);

@@ -64,3 +64,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Invasion landing defenders (CM-invasion-defenders)
 
 `CM-invasion-defenders` shows the landing tray listing, per planet, the other players' units on it (owner, ground forces by type, PDS, other structures) and the Space Cannon Defense they roll against forces landed there, including PDS II and L4 Disruptors silencing it, desktop and 390x844. `npm run screenshots -- CM` asserts the texts, that the block sits in the planet card and no horizontal scroll on the phone.
+
+## Trade partners and components on a phone (CQ-phone-trade-components)
+
+`CQ-phone-trade-components` shows the action-phase Trade and Components menus on phones (390x844, 360x740, 390x664) and desktop: on phones an open menu is a sheet between the game header and the bar's bottom edge with a Close button, and each component row spells out its printed name, kind and owner, timing, cost and rules text. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the fix and are committed under `before/`; `npm run screenshots -- CQ` regenerates the `after-*` PNGs and asserts that every partner name, Open button and component row is inside the viewport, not covered, at least 44 px tall, and that each component row has rules text.

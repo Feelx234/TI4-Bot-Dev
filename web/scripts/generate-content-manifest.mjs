@@ -63,6 +63,7 @@ async function generate() {
     leaders,
     factionAbilities,
     promissoryNotes,
+    relics,
   ] = await Promise.all([
     readJson("manifest.json"),
     readJson("strategy_cards.json"),
@@ -78,6 +79,7 @@ async function generate() {
     readJson("leaders.json"),
     readJson("abilities.json"),
     readJson("promissory_notes.json"),
+    readJson("relics.json"),
   ]);
 
   const strategyCatalog = {};
@@ -313,6 +315,22 @@ async function generate() {
     );
   }
 
+  const relicCatalog = {};
+  for (const relic of relics) {
+    const id = requiredString(relic, "alias", "relics");
+    addEntry(
+      relicCatalog,
+      id,
+      defined([
+        ["id", id],
+        ["name", requiredString(relic, "name", "relics")],
+        ["text", optionalString(relic, "text") || undefined],
+        ["source", optionalString(relic, "source") || undefined],
+      ]),
+      "relics",
+    );
+  }
+
   const factionCatalog = {};
   for (const faction of factions) {
     const id = requiredString(faction, "alias", "factions");
@@ -350,6 +368,7 @@ async function generate() {
     leaders: sortedCatalog(leaderCatalog),
     factionAbilities: sortedCatalog(factionAbilityCatalog),
     promissoryNotes: sortedCatalog(promissoryNoteCatalog),
+    relics: sortedCatalog(relicCatalog),
   };
   const source = JSON.stringify(catalogs);
   const sourceDigest = createHash("sha256").update(source).digest("hex");
@@ -373,6 +392,7 @@ async function generate() {
         leaders: leaders.length,
         factionAbilities: factionAbilities.length,
         promissoryNotes: promissoryNotes.length,
+        relics: relics.length,
       },
     },
     null,
