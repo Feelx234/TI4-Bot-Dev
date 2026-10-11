@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { BoardView } from "../protocol/types.ts";
+import type { BoardView, PlayerView } from "../protocol/types.ts";
 import {
+  formatDefenderUnits,
   planDefaultLanding,
+  planetDefense,
   planetInvasionInfo,
   planetStanding,
   sameDraft,
@@ -231,5 +233,68 @@ describe("planetInvasionInfo", () => {
       tile(["cultural"]),
     );
     expect(text(b, "a", 0).join(" ")).not.toContain("xplore");
+  });
+});
+
+describe("planetDefense", () => {
+  const unit = (owner: string, unit_type: string, planet?: string, damaged = false) => ({
+    owner,
+    unit_type,
+    planet,
+    damaged,
+  });
+  const board = (units: ReturnType<typeof unit>[]) =>
+    ({ systems: { "18": { system_id: "18", command_tokens: [], planets: {}, units } } }) as unknown as BoardView;
+  const seat = (id: string, faction: string, technologies: string[] = []) =>
+    ({ id, faction, technologies }) as unknown as PlayerView;
+
+  it("counts another player's ground forces by type, PDS and structures on that planet only", () => {
+    const defense = planetDefense(
+      board([
+        unit("me", "infantry"),
+        unit("me", "infantry", "jord"),
+        unit("rival", "infantry", "jord"),
+        unit("rival", "infantry", "jord"),
+        unit("rival", "infantry", "jord"),
+        unit("rival", "mech", "jord", true),
+        unit("rival", "pds", "jord"),
+        unit("rival", "space_dock", "jord"),
+        unit("rival", "infantry", "moll"),
+        unit("rival", "carrier"),
+      ]),
+      "18",
+      "jord",
+      "me",
+      { rival: seat("rival", "hacan") },
+    );
+    expect(defense.forces).toHaveLength(1);
+    const [force] = defense.forces;
+    expect(force!.owner).toBe("rival");
+    expect(force!.groundTotal).toBe(4);
+    expect(formatDefenderUnits(force!.ground)).toBe("1 Mech (1 damaged), 3 Infantry");
+    expect(force!.pds).toBe(1);
+    expect(formatDefenderUnits(force!.otherStructures)).toBe("1 Space Dock");
+    expect(force!.guns).toEqual([{ unit: "pds", count: 1, hitsOn: 6, dice: 1 }]);
+    expect(defense.spaceCannonDefense).toEqual({ dice: 1, expectedHits: 0.5 });
+  });
+
+  it("uses the defender's PDS II and reports L4 Disruptors silencing Space Cannon Defense", () => {
+    const units = [unit("rival", "pds", "jord"), unit("rival", "pds", "jord")];
+    const upgraded = planetDefense(board(units), "18", "jord", "me", {
+      rival: seat("rival", "hacan", ["pds2"]),
+    });
+    expect(upgraded.forces[0]!.groundTotal).toBe(0);
+    expect(upgraded.forces[0]!.guns).toEqual([{ unit: "pds", count: 2, hitsOn: 5, dice: 1 }]);
+    expect(upgraded.spaceCannonDefense).toEqual({ dice: 2, expectedHits: 1.2 });
+    const silenced = planetDefense(board(units), "18", "jord", "me", {
+      me: seat("me", "letnev", ["l4"]),
+      rival: seat("rival", "hacan"),
+    });
+    expect(silenced.spaceCannonDefense?.silencedBy).toBe("L4 Disruptors");
+  });
+
+  it("has no defenders or Space Cannon Defense on a planet holding only the invader's units", () => {
+    const defense = planetDefense(board([unit("me", "pds", "jord")]), "18", "jord", "me");
+    expect(defense).toEqual({ forces: [], spaceCannonDefense: null });
   });
 });

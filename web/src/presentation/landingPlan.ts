@@ -1,5 +1,8 @@
-import type { BoardView } from "../protocol/types.ts";
+import type { BoardView, PlayerView } from "../protocol/types.ts";
 import { findAttachmentMeta, findPlanetMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { getUnitBaseType, getUnitDisplayName } from "../components/UnitIcon.tsx";
+import { resolveUnit } from "./factionInfo.ts";
+import { describeUnitStats, hitChancePercent } from "./unitStats.ts";
 
 /**
  * The default landing plan and the per-planet "what happens when it is taken" lines of the
@@ -303,4 +306,129 @@ export function planetInvasionInfo(
     effects.push({ kind: "specialty", text: `Tech specialty: ${specialties.map((s) => s.toLowerCase()).join(", ")}` });
   }
   return { standing, defenders, effects };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Defenders per planet
+
+export interface DefenderUnitCount {
+  /** The unit type as on the board (e.g. "infantry", "spec_ops", "pds2"). */
+  unit: string;
+  count: number;
+  damaged: number;
+}
+
+export interface SpaceCannonGun {
+  unit: string;
+  count: number;
+  hitsOn: number;
+  /** Dice per unit. */
+  dice: number;
+}
+
+export interface PlanetDefenderForce {
+  owner: string;
+  /** Infantry and mechs (and their faction variants). */
+  ground: DefenderUnitCount[];
+  groundTotal: number;
+  pds: number;
+  /** Space docks and other non-PDS structures. */
+  otherStructures: DefenderUnitCount[];
+  /** Units on the planet that roll Space Cannon Defense against forces landing there. */
+  guns: SpaceCannonGun[];
+}
+
+export interface PlanetDefense {
+  forces: PlanetDefenderForce[];
+  /** Space Cannon Defense against the forces landed here; null when nothing on the planet has SPACE CANNON. */
+  spaceCannonDefense: {
+    dice: number;
+    /** Expected hits from one roll of all dice (rounded to 0.1). */
+    expectedHits: number;
+    /** Why it will not fire, when the client can tell (L4 Disruptors). */
+    silencedBy?: string;
+  } | null;
+}
+
+/** Fallback PDS card values when the catalog cannot resolve the unit (PDS I hits on 6, PDS II on 5). */
+const fallbackPdsGun = (unit: string, technologies: readonly string[]): { hitsOn: number; dice: number } =>
+  /2|ii/i.test(unit) || technologies.includes("pds2") ? { hitsOn: 5, dice: 1 } : { hitsOn: 6, dice: 1 };
+
+/**
+ * Other players' units on a planet of the invaded system, from the board view: ground forces by
+ * type, PDS and other structures, and the Space Cannon Defense they roll against forces landed
+ * there (crates/ti4-engine/src/invasion.rs `space_cannon_defense`: every non-invader unit on the
+ * planet with SPACE CANNON fires; L4 Disruptors on the invader silences it). Unit values come from
+ * the content catalog for the owner's faction and researched technologies (public).
+ *
+ * Not modelled: Plasma Scoring's extra die, Disable, Quietus and other card/faction modifiers.
+ */
+export function planetDefense(
+  board: BoardView | undefined,
+  system: string,
+  planetId: string,
+  actor: string,
+  players?: Record<string, PlayerView>,
+): PlanetDefense {
+  const here = (board?.systems[system]?.units ?? []).filter(
+    (u) => u.planet === planetId && u.owner !== actor,
+  );
+  const owners = [...new Set(here.map((u) => u.owner))];
+  const bump = (list: DefenderUnitCount[], unit: string, damaged: boolean) => {
+    const entry = list.find((e) => e.unit === unit);
+    if (entry) {
+      entry.count += 1;
+      if (damaged) entry.damaged += 1;
+    } else list.push({ unit, count: 1, damaged: damaged ? 1 : 0 });
+  };
+  let dice = 0;
+  let expected = 0;
+  const forces = owners.map((owner): PlanetDefenderForce => {
+    const player = players?.[owner];
+    const technologies = player?.technologies ?? [];
+    const force: PlanetDefenderForce = { owner, ground: [], groundTotal: 0, pds: 0, otherStructures: [], guns: [] };
+    for (const u of here.filter((unit) => unit.owner === owner)) {
+      const base = getUnitBaseType(u.unit_type);
+      if (base === "infantry" || base === "mech") {
+        bump(force.ground, u.unit_type, u.damaged);
+        force.groundTotal += 1;
+      } else if (base === "pds") {
+        force.pds += 1;
+      } else {
+        bump(force.otherStructures, u.unit_type, u.damaged);
+      }
+      const resolved = resolveUnit(u.unit_type, player?.faction, technologies);
+      const cannon = resolved
+        ? describeUnitStats(resolved).spaceCannon
+        : base === "pds"
+          ? fallbackPdsGun(u.unit_type, technologies)
+          : undefined;
+      if (cannon) {
+        const gun = force.guns.find((g) => g.unit === u.unit_type);
+        if (gun) gun.count += 1;
+        else force.guns.push({ unit: u.unit_type, count: 1, hitsOn: cannon.hitsOn, dice: cannon.dice });
+        dice += cannon.dice;
+        expected += (cannon.dice * hitChancePercent(cannon.hitsOn)) / 100;
+      }
+    }
+    // Mechs before infantry, so the stronger defenders read first.
+    force.ground.sort((a, b) => (getUnitBaseType(b.unit) === "mech" ? 1 : 0) - (getUnitBaseType(a.unit) === "mech" ? 1 : 0));
+    return force;
+  });
+  const silencedBy = players?.[actor]?.technologies.includes("l4") ? "L4 Disruptors" : undefined;
+  return {
+    forces,
+    spaceCannonDefense:
+      dice > 0 ? { dice, expectedHits: Math.round(expected * 10) / 10, ...(silencedBy ? { silencedBy } : {}) } : null,
+  };
+}
+
+/** "3 Infantry, 1 Mech" (one damaged mech: "1 Mech (1 damaged)"). */
+export function formatDefenderUnits(list: DefenderUnitCount[]): string {
+  return list
+    .map(
+      (e) =>
+        `${e.count} ${getUnitDisplayName(e.unit, e.count)}${e.damaged ? ` (${e.damaged} damaged)` : ""}`,
+    )
+    .join(", ");
 }

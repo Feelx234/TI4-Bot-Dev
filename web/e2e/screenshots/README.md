@@ -60,3 +60,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Move dialog systems (CL-move-dialog-systems)
 
 `CL-move-dialog-systems` shows the tactical movement dialog naming each system as `#<tile> [<name>]` (destination, origins, en-route pickups) and the per-origin All from here button, desktop and 390x844. `npm run screenshots -- CL` asserts the names, the staged counts (every ship, then fighters, space-area and planet ground forces as far as capacity allows), that the button disables once everything is staged, no horizontal scroll on the phone, and that no message reaches the server before Commit Moves.
+
+## Invasion landing defenders (CM-invasion-defenders)
+
+`CM-invasion-defenders` shows the landing tray listing, per planet, the other players' units on it (owner, ground forces by type, PDS, other structures) and the Space Cannon Defense they roll against forces landed there, including PDS II and L4 Disruptors silencing it, desktop and 390x844. `npm run screenshots -- CM` asserts the texts, that the block sits in the planet card and no horizontal scroll on the phone.

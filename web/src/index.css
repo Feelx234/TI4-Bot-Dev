@@ -5014,3 +5014,50 @@ select:focus-visible,
   align-items: center;
   text-decoration: none;
 }
+
+/* Defenders of a planet in the landing tray: owner, ground forces, PDS, Space Cannon Defense. */
+.invasion-defenders {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  background: rgba(127, 29, 29, 0.25);
+  font-size: 12px;
+}
+.invasion-defenders__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+.invasion-defenders__owner {
+  font-weight: 700;
+  color: #fecaca;
+  text-transform: capitalize;
+}
+.invasion-defenders__unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: #f1f5f9;
+  font-variant-numeric: tabular-nums;
+}
+.invasion-defenders__unit--pds {
+  color: #fdba74;
+}
+.invasion-defenders__unit--structure,
+.invasion-defenders__none {
+  font-weight: 400;
+  color: #94a3b8;
+}
+.invasion-defenders__scd {
+  margin: 0;
+  font-size: 11px;
+  color: #fdba74;
+}
+.invasion-defenders__scd--silenced {
+  color: #94a3b8;
+}
