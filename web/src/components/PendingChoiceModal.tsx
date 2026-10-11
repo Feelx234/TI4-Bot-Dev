@@ -425,7 +425,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
-          {!secondary && !tokens && !replenish && <ExploreRewardPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && !offerCard && <ExploreRewardPanel choice={choice} />}
           {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && !voteGoods && (
           <form
             onSubmit={handleSubmit}

@@ -888,7 +888,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "exploration.rs",
-        function: "ask",
+        function: "ask_decorated",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1593,7 +1593,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "roll_round", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
-    ("exploration.rs", "ask", 1),
+    ("exploration.rs", "ask_decorated", 1),
     ("faction_abilities.rs", "munitions_offer", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),

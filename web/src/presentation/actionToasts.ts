@@ -14,6 +14,7 @@ export type ActionToastCategory =
   | "move"
   | "trade"
   | "politics"
+  | "explore"
   | "turn";
 
 export interface ActionToast {
@@ -142,6 +143,7 @@ export function actionToastText(toast: ActionToast): string {
   if (toast.category === "move") return `moved ${toast.parts.length} units`;
   if (toast.category === "produce") return `produced ${toast.count} units`;
   // Repeats ("played Sabotage" twice) are counted instead of listed twice.
+  if (toast.category === "explore") return toast.parts.join("; ");
   const counted = new Map<string, number>();
   for (const part of toast.parts) counted.set(part, (counted.get(part) ?? 0) + 1);
   const phrases = [...counted].map(([part, n]) => (n > 1 ? `${part} ×${n}` : part));

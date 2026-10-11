@@ -9,6 +9,7 @@ import {
   mergeActionToast,
   victoryPointToasts,
 } from "../presentation/actionToasts.ts";
+import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
 import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
@@ -32,6 +33,8 @@ export interface CornerToastsInput {
   localNotes?: readonly { id: string; text: string; prompt?: string }[];
   /** The board of the latest snapshot: bombardment, Space Cannon Defense and invasion results are read from it. */
   board?: BoardView | null;
+  /** The engine's public exploration log: every finished exploration toasts, for every seat. */
+  explorations?: readonly ExplorationRecordDto[];
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
@@ -61,6 +64,7 @@ export function useCornerToasts({
   historyGeneration,
   localNotes,
   board,
+  explorations,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
@@ -178,6 +182,22 @@ export function useCornerToasts({
       ),
     );
   }, [players, ready, viewerSeat, push]);
+
+  // Exploration results come from the state's log (they are not decisions, so the event log has
+  // no entry for them). What is there at load, or reappears after undo/redo, is history.
+  const exploredCursor = useRef<number | null>(null);
+  const exploredGeneration = useRef(historyGeneration);
+  useEffect(() => {
+    if (!ready || !explorations) return;
+    if (exploredCursor.current === null || exploredGeneration.current !== historyGeneration) {
+      exploredGeneration.current = historyGeneration;
+      exploredCursor.current = explorations.length;
+      return;
+    }
+    const { toasts, next } = explorationToasts(explorations, exploredCursor.current);
+    exploredCursor.current = next;
+    if (!mutedRef.current) push(toasts);
+  }, [explorations, ready, historyGeneration, push]);
 
   const { showToast } = auto;
   useEffect(() => {

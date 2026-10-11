@@ -47,6 +47,7 @@ import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
+import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 import {
@@ -429,6 +430,7 @@ const GameViewContainer: React.FC<{
   });
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
+  const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
   const tokenDraft = useCommandTokenDraft(pendingChoice, planetResources);
@@ -619,6 +621,7 @@ const GameViewContainer: React.FC<{
         autoResolved={snapshot?.type === "state_update" ? snapshot.auto_resolved : undefined}
         ready={Boolean(snapshot)}
         localNotes={localNotes}
+        explorations={explorationLog}
       />
       <MobileMenuSlotContext.Provider value={compactLayout ? menuSlotValue : null}>
       <GameShell
