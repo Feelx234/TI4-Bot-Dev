@@ -662,6 +662,10 @@ pub struct SessionUpdate {
     /// empty: a host that has the map fills it ([`crate::exploration`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration: Option<crate::exploration::ExplorationFacts>,
+    /// The action card deck, its discard pile and the hand limit of the viewer. The projection
+    /// leaves it empty: a host that shows them fills it ([`crate::action_cards`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_cards: Option<crate::action_cards::ActionCardFacts>,
 }
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
@@ -680,6 +684,7 @@ pub fn project_session_update(
         turn_status: project_turn_status(state, choice),
         tactical: None,
         exploration: None,
+        action_cards: None,
     }
 }
 

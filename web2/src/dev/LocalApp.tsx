@@ -7,6 +7,7 @@ import {
   type SavedGame,
   type SeatSwitch,
   STEPPING_KEY,
+  cardsKey,
   clearSavedGame,
   draftKey,
   gameAddress,
@@ -126,7 +127,12 @@ export function LocalApp({ game }: { game: LocalGame }) {
   // A new object after a seat change: the session then starts with nothing staged.
   // biome-ignore lint/correctness/useExhaustiveDependencies: seatChanges is the reason to make it again
   const drafts = useMemo(
-    () => ({ storage: localStorage, key: draftKey(game), planKey: planKey(game) }),
+    () => ({
+      storage: localStorage,
+      key: draftKey(game),
+      planKey: planKey(game),
+      cardsKey: cardsKey(game),
+    }),
     [game, seatChanges],
   );
   const stepSeats = (on: boolean) => {

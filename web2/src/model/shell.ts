@@ -113,12 +113,50 @@ export interface ExplorationDeckView {
   cards: ExplorationCardView[];
 }
 
+/** One action card as printed. Copies of a card are one card here. */
+export interface ActionCardView {
+  name: string;
+  /** "ACTION:", "At the start of a combat round:". */
+  window: string;
+  text: string;
+  /** The card is a component action: no window offers it. */
+  action: boolean;
+}
+
+/** One card of the action card deck, with where its copies are. */
+export interface DeckCardView extends ActionCardView {
+  /** How many copies the deck begins a game with. */
+  total: number;
+  discarded: number;
+  /** In the hand of the viewer. */
+  held: number;
+  /** Not seen: in the deck or in the hand of another player. The total without the two above. */
+  open: number;
+  /** The viewer acts as if holding it. */
+  faked: boolean;
+}
+
+/** The action cards of the viewer and of the deck. */
+export interface ActionCardsView {
+  held: number;
+  /** The hand limit of the viewer. Null: there is none, or the game does not say. */
+  limit: number | null;
+  /** Null when the game does not say. */
+  deck: { left: number; total: number; discarded: number } | null;
+  /** `never`: no window offers the card to the viewer. Null for a card that no window offers. */
+  hand: (ActionCardView & { copies: number; never: boolean | null })[];
+  /** The cards that the viewer acts as if holding. */
+  faked: ActionCardView[];
+  /** Every card of the deck, by name. */
+  reference: DeckCardView[];
+}
+
 export interface ReferenceView {
   objectives: ListSectionView[];
   technology: ListSectionView[];
   cards: ListSectionView[];
-  /** The viewer's cards that are played in a reaction window, with the offer setting of each. */
-  offerCards: { card: string; text: string; never: boolean }[];
+  /** The action cards: the hand of the viewer and the deck. Null for a viewer with no hand. */
+  actionCards: ActionCardsView | null;
   /** The exploration decks, in the order cultural, hazardous, industrial, frontier. */
   exploration: ExplorationDeckView[];
   /** `current` is the round in play: the log shows it open. */

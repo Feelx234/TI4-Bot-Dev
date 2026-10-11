@@ -363,6 +363,28 @@ export interface ComponentCatalog {
   relics: PrintedCard[];
   /** The ability cards of the legendary planets, by the id of the planet. */
   legendary: PrintedCard[];
+  /** The action card deck as a game begins with it. Copies have ids of their own and one name. */
+  action_cards: {
+    id: string;
+    name: string;
+    /** "Action", "Agenda", "Strategy", "Status" or "Any". */
+    phase: string;
+    /** When the card is played, as printed: "Action", or a timing. */
+    window: string;
+    text: string;
+  }[];
+}
+
+/** `ti4_view::action_cards::ActionCardFacts` */
+export interface ActionCardFacts {
+  /** How many cards the deck still holds. */
+  deck: number;
+  /** The ids of the discard pile. */
+  discard: string[];
+  /** The cards face up on the card of Garbozia. */
+  salvage?: string[];
+  /** Of the viewer. Absent for a spectator and for a seat with no limit. */
+  hand_limit?: number;
 }
 
 /** `ti4_view::components::Catalog`: everything printed. The host asks for it once. */
@@ -416,4 +438,6 @@ export interface SessionUpdate {
   tactical?: TacticalFacts;
   /** The exploration decks and the planets that are still explored. The wasm host fills it. */
   exploration?: ExplorationFacts;
+  /** The action card deck, its discard pile and the hand limit. The wasm host fills it. */
+  action_cards?: ActionCardFacts;
 }

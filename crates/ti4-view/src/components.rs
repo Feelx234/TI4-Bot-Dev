@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use ti4_content::{ContentStore, Record};
+use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
 
 use crate::exploration::{ExplorationCatalog, exploration_catalog};
@@ -56,6 +57,19 @@ pub struct PrintedCard {
     pub used: bool,
 }
 
+/// One action card as printed. Copies of a card have ids of their own and one name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionCard {
+    pub id: String,
+    pub name: String,
+    /// The phase of the card: `Action`, `Agenda`, `Strategy`, `Status` or `Any`.
+    pub phase: String,
+    /// When the card is played, as printed: `Action`, or a timing.
+    pub window: String,
+    pub text: String,
+}
+
 /// The printed cards of the play areas. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -68,6 +82,8 @@ pub struct ComponentCatalog {
     pub relics: Vec<PrintedCard>,
     /// The ability cards of the legendary planets, by the id of the planet.
     pub legendary: Vec<PrintedCard>,
+    /// The action card deck as a game begins with it, sorted by id.
+    pub action_cards: Vec<ActionCard>,
 }
 
 /// Everything printed that a client is handed once.
@@ -181,6 +197,23 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
                 ))
             })
             .collect(),
+        action_cards: {
+            let mut deck = build_starting_decks(content, sources, 0).action_cards;
+            deck.sort();
+            deck.iter()
+                .map(|id| {
+                    let record = content.get(ContentType::ActionCards, id.as_str());
+                    let printed = |key: &str| record.map(|record| text(record, key));
+                    ActionCard {
+                        id: id.as_str().to_owned(),
+                        name: printed("name").unwrap_or_else(|| id.as_str().to_owned()),
+                        phase: printed("phase").unwrap_or_default(),
+                        window: printed("window").unwrap_or_default(),
+                        text: printed("text").unwrap_or_default(),
+                    }
+                })
+                .collect()
+        },
     }
 }
 
@@ -253,6 +286,24 @@ mod tests {
         assert!(!used("amd"));
         assert!(!used("nm"));
         assert!(!used("cr2"), "a unit upgrade");
+    }
+
+    #[test]
+    fn the_action_card_deck_has_every_copy_as_printed() {
+        let catalog = printed();
+        assert!(!catalog.action_cards.is_empty());
+        for card in &catalog.action_cards {
+            assert!(!card.window.is_empty(), "{} has its window", card.id);
+            assert!(!card.text.is_empty(), "{} has its text", card.id);
+        }
+        let boosts: Vec<_> = catalog
+            .action_cards
+            .iter()
+            .filter(|card| card.name == "Morale Boost")
+            .collect();
+        assert_eq!(boosts.len(), 4);
+        assert_eq!(boosts[0].window, "At the start of a combat round");
+        assert_eq!(boosts[0].phase, "Action");
     }
 
     #[test]

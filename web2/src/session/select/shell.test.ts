@@ -38,6 +38,7 @@ const NO_COMPONENTS: ComponentCatalog = {
   technologies: [],
   relics: [],
   legendary: [],
+  action_cards: [],
 };
 const flow = (update: SessionUpdate, state: LocalState) => {
   const { action } = selectShell(update, state);

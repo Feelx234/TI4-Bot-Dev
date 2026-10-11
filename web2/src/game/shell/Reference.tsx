@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import type {
+  ActionCardsView,
   ComponentCardView,
   ExplorationDeck,
   ExplorationDeckView,
@@ -109,36 +110,175 @@ function Log({ log }: { log: ReferenceView["log"] }) {
   );
 }
 
-/** The cards that are played in a reaction window. The setting belongs to the card. */
-function OfferCards({ cards }: { cards: ReferenceView["offerCards"] }) {
-  const dispatch = useDispatch();
-  if (!cards.length) {
-    return null;
-  }
+/** A card as printed: the name, what it is, when it is used and the text. Dense, with the frame of a card. */
+function PrintedCard({
+  name,
+  kind,
+  window,
+  text,
+  aside,
+  className,
+  children,
+}: {
+  name: ReactNode;
+  kind?: string;
+  window?: string;
+  text?: string;
+  /** At the right of the name: the state of the card, or its control. */
+  aside?: ReactNode;
+  className?: string;
+  children?: ReactNode;
+}) {
   return (
-    <div>
-      <h3 className="mt-3.5 text-muted">
-        <Eyebrow>Reaction cards · offer</Eyebrow>
-      </h3>
-      {cards.map((item) => (
-        <div key={item.card} className="mt-2 flex items-start justify-between gap-3">
-          <span>
-            <strong>{item.card}</strong>
-            <span className="block text-xs text-muted">{item.text}</span>
-          </span>
-          <Button
-            size="sm"
-            tone="quiet"
-            active={item.never}
-            aria-pressed={item.never}
-            aria-label={`Never offer ${item.card}`}
-            onClick={() => dispatch({ type: "setCardOffer", card: item.card, never: !item.never })}
-          >
-            {item.never ? "Never offered" : "Offered"}
-          </Button>
+    <div className={cx("mt-1.5 rounded border border-line px-2.5 py-1.5", className)}>
+      <div className="flex items-baseline justify-between gap-3">
+        <strong className="font-mid">{name}</strong>
+        {aside != null && <span className="flex-none text-xs">{aside}</span>}
+      </div>
+      {kind && <div className="text-xs text-faint">{kind}</div>}
+      {(window || text) && (
+        <div className="mt-0.5 text-xs whitespace-pre-line text-muted">
+          {window && <span className="text-text">{window} </span>}
+          {text}
         </div>
-      ))}
+      )}
+      {children}
     </div>
+  );
+}
+
+/**
+ * The action cards: the hand of the viewer against the limit, as printed, and every card of the
+ * deck with where its copies are. "Never offered" and "Fake" are settings of a card.
+ */
+function ActionCards({ view }: { view: ActionCardsView }) {
+  const dispatch = useDispatch();
+  const over = view.limit !== null && view.held > view.limit;
+  return (
+    <>
+      <section aria-label="Your action cards">
+        <h3 className="mt-3.5 flex items-baseline justify-between gap-3 text-muted">
+          <Eyebrow>Your action cards</Eyebrow>
+          <span
+            className={cx("tabular-nums", over ? "text-red" : "text-text")}
+            title="Action cards in your hand / your hand limit"
+          >
+            {over && "⚠ "}
+            Hand {view.held} / {view.limit ?? "no limit"}
+          </span>
+        </h3>
+        {view.hand.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
+        {view.hand.map((card) => (
+          <article key={card.name} aria-label={card.name}>
+            <PrintedCard
+              name={
+                <>
+                  {card.name}
+                  {card.copies > 1 && (
+                    <span className="text-muted tabular-nums"> ×{card.copies}</span>
+                  )}
+                </>
+              }
+              window={card.window}
+              text={card.text}
+              aside={
+                card.never !== null && (
+                  <Button
+                    size="sm"
+                    tone="quiet"
+                    active={card.never}
+                    aria-pressed={card.never}
+                    aria-label={`Never offer ${card.name}`}
+                    title="A window that offers only cards that are never offered is passed without a question"
+                    onClick={() =>
+                      dispatch({ type: "setCardOffer", card: card.name, never: !card.never })
+                    }
+                  >
+                    {card.never ? "Never offered" : "Offered"}
+                  </Button>
+                )
+              }
+            />
+          </article>
+        ))}
+        {view.faked.map((card) => (
+          <article key={card.name} aria-label={`${card.name}, faked`}>
+            <PrintedCard
+              className="border-dashed"
+              name={card.name}
+              kind="Faked · not in your hand"
+              window={card.window}
+              text={card.text}
+              aside={
+                <Button
+                  size="sm"
+                  tone="quiet"
+                  onClick={() => dispatch({ type: "setCardFake", card: card.name, fake: false })}
+                >
+                  Stop faking
+                </Button>
+              }
+            />
+          </article>
+        ))}
+      </section>
+      <section aria-label="Action card deck">
+        <h3 className="mt-5 flex flex-wrap items-baseline justify-between gap-x-3 text-muted">
+          <Eyebrow>Action card deck</Eyebrow>
+          {view.deck && (
+            <span className="tabular-nums">
+              {view.deck.left} of {plural(view.deck.total, "card")} left · {view.deck.discarded}{" "}
+              discarded
+            </span>
+          )}
+        </h3>
+        {view.reference.map((card) => (
+          <div
+            key={card.name}
+            className={cx("mt-2 border-t border-line/50 pt-1.5", card.open === 0 && "text-muted")}
+          >
+            <div className="flex items-baseline justify-between gap-3">
+              <strong className="font-mid">{card.name}</strong>
+              <span className="flex flex-none items-baseline gap-2 text-xs tabular-nums">
+                <span title="Not discarded and not in your hand: in the deck or in the hand of another player / in the full deck">
+                  {card.open === 0 && "– "}
+                  {card.open} of {card.total} unseen
+                </span>
+                {card.held === 0 && card.open > 0 && (
+                  <Button
+                    size="sm"
+                    tone="quiet"
+                    active={card.faked}
+                    aria-pressed={card.faked}
+                    aria-label={`Fake ${card.name}`}
+                    title="Act as if you hold this card"
+                    onClick={() =>
+                      dispatch({ type: "setCardFake", card: card.name, fake: !card.faked })
+                    }
+                  >
+                    {card.faked ? "Faked" : "Fake"}
+                  </Button>
+                )}
+              </span>
+            </div>
+            {(card.held > 0 || card.discarded > 0) && (
+              <div className="text-xs tabular-nums">
+                {[
+                  card.held > 0 && `${card.held} in your hand`,
+                  card.discarded > 0 && `${card.discarded} discarded`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            )}
+            <div className="text-xs text-muted">
+              <span className={card.open === 0 ? undefined : "text-text"}>{card.window} </span>
+              {card.text}
+            </div>
+          </div>
+        ))}
+      </section>
+    </>
   );
 }
 
@@ -210,31 +350,22 @@ function ComponentCards({ title, cards }: { title: string; cards: ComponentCardV
       </h3>
       {cards.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
       {cards.map((card, index) => (
-        <article
-          key={index}
-          aria-label={card.name}
-          className={cx(
-            "mt-1.5 rounded border border-line px-2.5 py-1.5",
-            card.state && card.state !== "ready" && "opacity-55",
-          )}
-        >
-          <div className="flex items-baseline justify-between gap-3">
-            <strong className="font-mid">{card.name}</strong>
-            {card.state && <span className="flex-none text-xs">{STATES[card.state]}</span>}
-          </div>
-          <div className="text-xs text-faint">{card.kind}</div>
-          {(card.window || card.text) && (
-            <div className="mt-0.5 text-xs whitespace-pre-line text-muted">
-              {card.window && <span className="text-text">{card.window} </span>}
-              {card.text}
-            </div>
-          )}
-          {card.unlock && (
-            <div className="mt-0.5 text-xs">
-              <span className="text-muted">Unlock: </span>
-              {card.unlock}
-            </div>
-          )}
+        <article key={index} aria-label={card.name}>
+          <PrintedCard
+            className={cx(card.state && card.state !== "ready" && "opacity-55")}
+            name={card.name}
+            kind={card.kind}
+            window={card.window}
+            text={card.text}
+            aside={card.state && STATES[card.state]}
+          >
+            {card.unlock && (
+              <div className="mt-0.5 text-xs">
+                <span className="text-muted">Unlock: </span>
+                {card.unlock}
+              </div>
+            )}
+          </PrintedCard>
         </article>
       ))}
     </section>
@@ -313,7 +444,7 @@ export function ReferenceDrawer({
       ) : (
         <Sections sections={view[key]} />
       )}
-      {key === "cards" && <OfferCards cards={view.offerCards} />}
+      {key === "cards" && view.actionCards && <ActionCards view={view.actionCards} />}
     </Drawer>
   );
 }

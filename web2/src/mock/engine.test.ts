@@ -655,7 +655,7 @@ describe("mock engine", () => {
     const world = createWorld();
     reduce(world, { type: "setCardOffer", card: "Direct Hit", never: true });
     expect(
-      selectShell(world).reference.offerCards.find((item) => item.card === "Direct Hit"),
+      selectShell(world).reference.actionCards?.hand.find((item) => item.name === "Direct Hit"),
     ).toMatchObject({ never: true });
     world.toast = null;
     const toasts: string[] = [];

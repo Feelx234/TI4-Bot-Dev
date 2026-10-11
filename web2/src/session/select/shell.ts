@@ -3,6 +3,7 @@ import type { ShellView } from "../../model";
 import type { Catalog, SessionUpdate } from "../wire";
 import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
+import { type CardSettings, NO_CARD_SETTINGS, selectActionCards, withoutNever } from "./cards";
 import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
 import { isEmpty } from "../productionDraft";
@@ -38,11 +39,14 @@ function status(update: SessionUpdate, local: LocalState): string {
 }
 
 export function selectShell(
-  update: SessionUpdate,
+  shown: SessionUpdate,
   local: LocalState,
   /** The printed cards. Without it they are shown by id. */
   printed: Catalog | null = null,
+  cards: CardSettings = NO_CARD_SETTINGS,
 ): ShellView {
+  // A card that the viewer is never offered is not an option of the open choice.
+  const update = withoutNever(shown, cards.never);
   const catalog = printed?.exploration ?? null;
   // The activation, the movement, the landings and the production have their own screens;
   // every other decision is a list.
@@ -102,7 +106,7 @@ export function selectShell(
       objectives: [],
       technology: [],
       cards: [],
-      offerCards: [],
+      actionCards: selectActionCards(update, printed, cards),
       exploration: selectExploration(update, catalog),
       log: [],
     },

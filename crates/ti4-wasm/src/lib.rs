@@ -28,6 +28,7 @@ use ti4_engine::game::{Game, RunError};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
+use ti4_view::action_cards::project_action_card_facts;
 use ti4_view::components::catalog;
 use ti4_view::exploration::project_exploration_facts;
 use ti4_view::map::{build_board_tiles, create_game_with_template};
@@ -541,6 +542,11 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
     update.exploration = latest.galaxy.as_ref().map(|galaxy| {
         project_exploration_facts(&latest.state, ContentStore::embedded(), POK, galaxy)
     });
+    update.action_cards = Some(project_action_card_facts(
+        &latest.state,
+        ContentStore::embedded(),
+        viewer,
+    ));
     // Only a seat of the host is shown these, so the random seats do not pay for them.
     if update.pending_choice.is_some() {
         update.tactical = latest.galaxy.as_ref().and_then(|galaxy| {
@@ -710,6 +716,7 @@ fn play(
     update.exploration = game
         .galaxy()
         .map(|galaxy| project_exploration_facts(&game.state, content, POK, galaxy));
+    update.action_cards = Some(project_action_card_facts(&game.state, content, &viewer));
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",

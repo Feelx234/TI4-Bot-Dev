@@ -115,6 +115,18 @@ A decision is any choice that a card, an ability or a rule asks for. Every decis
 - The main button of the footer is Pass. A card row stages that card; the main button then plays it, and Esc clears it. Enter always does what the main button says.
 - "Never offer" is a setting of a card. It is in the Cards reference sheet; the reaction window has a button that opens the sheet. A window that does not open because of the setting leaves a toast.
 
+### Action cards
+
+The owner asked for this on 2026-10-11: the Cards sheet has the hand of the viewer and the whole deck.
+
+- "Your action cards" has the count against the hand limit ("Hand 5 / 7"; over the limit it is red with "⚠") and one card for each printed name, in the frame of the cards of a player sheet: the name, "×2" for copies, when it is played ("ACTION:", a timing) and the text.
+- A card that a window offers has its setting at the right of the name: "Offered" or "Never offered". A card with "ACTION:" has none: no window offers it.
+- "Action card deck" says how many cards are left and how many are discarded, then one row for all cards of a name, as the exploration decks: "3 of 4 unseen" (not discarded and not in the hand of the viewer, so in the deck or in the hand of another player), "1 in your hand · 1 discarded", and the printed text. A card with none unseen is dimmed and has "–".
+- Exception to "rule text is behind hover": the sheet shows the printed text of each card, as the deck sheet of the exploration does.
+- "Fake" is on the row of a card that the viewer does not hold and that can still be in a hand. A faked card is shown after the hand, with a dashed frame and the word "Faked", and "Stop faking". It is a setting of the page and is sent nowhere yet: later it gives the viewer the windows of that card.
+- The facts come from the engine: the hand (`held_action_cards`), the deck count, the discard pile and the hand limit (`action_cards` of the update). The printed cards and the deck that a game begins with are the catalogue (`components.action_cards`). Copies of a card have ids of their own; the sheet counts by printed name.
+- In local play the page answers a window that offers only Never cards with its decline (`filterOffers` in `src/session/select/cards.ts`, the rule of `ti4_engine::reaction_modes`). It is an answer like any other, so the saved game has it. An undo takes it back together with the answer of the player before it. A window with another card is asked without the Never cards. The Never cards are kept with the saved game (`cardsKey`).
+
 ### Payment
 
 - Every control of an open payment is on the board, in one bar on top of the map: how the payment stands ("Paying 4 / 6 resources", then "2 more" red, "✓ Paid" green or "⚠ 1 wasted" orange), the trade goods, "Auto-pay" and "Clear payment".
@@ -184,7 +196,7 @@ The owner asked for this on 2026-10-11: the sheet of a player shows what that pl
 - The state of a card is one word at its right edge: "Ready", "Exhausted", "Locked", "Purged". A card that cannot be used now is dimmed. A locked leader says how it is unlocked ("Unlock: Have 3 scored objectives."). A card with no state (a faction ability, a relic that always holds) has no word.
 - Exception to "rule text is behind hover": the sheet shows the printed text of each card, as the deck sheet does. The reason: the player opens the sheet to read what a seat can do.
 - The hover sheet of the player table has the names and the states only, with no text.
-- The sheet has public information only. The action cards and the secret objectives of a player get a screen of their own.
+- The sheet has public information only. The action cards of the viewer are in the Cards sheet; the secret objectives get a screen of their own.
 - The facts come from the engine (`leaders`, `exhausted_technologies`, `exhausted_relics`, `exhausted_legendary` of the player). The names, the texts and which cards are used are the catalogue (`Transport.catalog`, `components`); without it a card is shown by its id.
 - A faction ability has no state yet: the engine does not say when one was used.
 

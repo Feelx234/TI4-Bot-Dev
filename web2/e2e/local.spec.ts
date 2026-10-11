@@ -81,6 +81,17 @@ test("a game of eight is played through the decision list", async ({ page }) => 
   }
   await expect(page.getByText("Round 1 · Strategy phase")).toHaveCount(0);
   await page.screenshot({ path: "shots/local/after-30-choices.png", animations: "disabled" });
+
+  // The Cards sheet: the hand against the limit, and the deck. A card that is not held is faked.
+  await page.getByRole("button", { name: "Cards", exact: true }).click();
+  const cards = page.getByRole("complementary", { name: "Cards" });
+  await expect(cards.getByText(/^Hand \d+ \/ 7$/)).toBeVisible();
+  await expect(cards.getByText(/of 122 cards left/)).toBeVisible();
+  await cards.getByRole("button", { name: /^Fake / }).first().click();
+  await expect(cards.getByRole("button", { name: "Stop faking" })).toBeVisible();
+  await page.screenshot({ path: "shots/local/cards.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  await expect(cards).toBeHidden();
   expect(errors).toEqual([]);
 });
 

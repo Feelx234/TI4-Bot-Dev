@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GameSession, Intent } from "../model";
 import {
   type Draft,
@@ -54,6 +54,7 @@ import {
 } from "./productionDraft";
 import type { SaveStorage } from "./savedGame";
 import type { DraftInfo, LocalState } from "./select/action";
+import { type CardSettings, NO_CARD_SETTINGS, filterOffers } from "./select/cards";
 import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
@@ -91,6 +92,21 @@ export interface DraftStore {
   key: string;
   /** Where the private draft of a tactical action is kept. Without it a reload loses the draft. */
   planKey?: string;
+  /** Where the cards that the player is never offered are kept. Without it a reload forgets them. */
+  cardsKey?: string;
+}
+
+/** The Never cards of the game, as they were kept. A faked card is of the page only. */
+function readCards(drafts: DraftStore | undefined): CardSettings {
+  try {
+    const kept: unknown = JSON.parse((drafts?.cardsKey && drafts.storage.getItem(drafts.cardsKey)) || "[]");
+    return {
+      never: Array.isArray(kept) ? kept.filter((name) => typeof name === "string") : [],
+      faked: [],
+    };
+  } catch {
+    return NO_CARD_SETTINGS;
+  }
 }
 
 /** The private draft of the page, and whether it is in view. */
@@ -309,11 +325,20 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   const [update, setUpdate] = useState<SessionUpdate | null>(null);
   const [local, setLocal] = useState<LocalState>(NOTHING);
   const [plan, setPlan] = useState<Plan>(() => readPlanOf(drafts));
+  const [cards, setCards] = useState<CardSettings>(() => readCards(drafts));
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
+  /** The Never cards as the listener of the transport reads them. */
+  const never = useRef(cards.never);
+  never.current = cards.never;
+  /** The update that comes is of an undo: a window that the page passed is taken back with it. */
+  const undoing = useRef(false);
 
   useEffect(() => {
     setUpdate(null);
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
+    setCards(readCards(drafts));
+    undoing.current = false;
     /** The step and the system whose sheet (the landings, the build) opened with the last update. */
     let sheetAt: { key: string; system: string } | null = null;
     /** What the inspector showed before the landings opened. */
@@ -335,6 +360,27 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return;
       }
       setUpdate(event.update);
+      // A window that offers only cards that the player is never offered is passed here. It is
+      // an answer like any other, so a saved game plays it again.
+      const asked = event.update.pending_choice;
+      const offers = asked ? filterOffers(asked.choice, never.current) : null;
+      if (asked && offers?.kind === "declined") {
+        if (undoing.current && event.canUndo) {
+          // The undo goes on to the answer of the player before the window.
+          queueMicrotask(() => transport.undo());
+        } else {
+          undoing.current = false;
+          const { option, cards: passed } = offers;
+          queueMicrotask(() => transport.submitChoice(asked.nonce, option.id));
+          setToast((now) => ({
+            id: (now?.id ?? 0) + 1,
+            text: `${passed.join(", ")}: never offered. The window was passed.`,
+          }));
+        }
+        setLocal((now) => ({ ...now, staged: null, sent: asked.nonce, canUndo: event.canUndo }));
+        return;
+      }
+      undoing.current = false;
       // The landings open at the active system when their step opens, and so does the build of
       // a production.
       const tactical = event.update.tactical;
@@ -461,6 +507,12 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       drafts.storage.removeItem(drafts.key);
     }
   }, [update, local.movement, local.landing, local.production, drafts]);
+
+  useEffect(() => {
+    if (drafts?.cardsKey) {
+      drafts.storage.setItem(drafts.cardsKey, JSON.stringify(cards.never));
+    }
+  }, [cards.never, drafts]);
 
   // The private draft is kept for a reload, with its undo history.
   useEffect(() => {
@@ -786,7 +838,11 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
             ? toBuild(producing.system)
             : setLocal((now) => ({ ...now, staged: null }));
         case "undo":
-          return drafted ? redraft(undo) : transport.undo();
+          if (drafted) {
+            return redraft(undo);
+          }
+          undoing.current = true;
+          return transport.undo();
         case "flow":
           return intent.action === "resolve" && !facts ? send() : undefined;
         // The steps of a tactical action.
@@ -858,13 +914,36 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           }
           unmark(() => false);
           return moving && draft(() => ({}));
+        case "setCardOffer": {
+          const { card } = intent;
+          setCards((now) => ({
+            ...now,
+            never: [...now.never.filter((name) => name !== card), ...(intent.never ? [card] : [])],
+          }));
+          return setToast((now) => ({
+            id: (now?.id ?? 0) + 1,
+            text: intent.never
+              ? `${card}: never offered. Its windows are passed and you are told.`
+              : `${card}: offered again.`,
+          }));
+        }
+        case "setCardFake": {
+          const { card } = intent;
+          return setCards((now) => ({
+            ...now,
+            faked: [...now.faked.filter((name) => name !== card), ...(intent.fake ? [card] : [])],
+          }));
+        }
         default:
           // The other intents belong to screens that local play does not have yet.
           return;
       }
     };
-    return { view: selectShell(shown, state, transport?.catalog ?? null), dispatch };
-  }, [update, local, transport, plan, outcome, locked]);
+    return {
+      view: { ...selectShell(shown, state, transport?.catalog ?? null, cards), toast },
+      dispatch,
+    };
+  }, [update, local, transport, plan, outcome, locked, cards, toast]);
 
   return { session, error: local.error, replaying: local.replaying };
 }

@@ -1,5 +1,6 @@
 // The whole screen: toolbar, player table, board, action panel, reference drawers.
 import type {
+  ActionCardView,
   ComponentCardView,
   ExplorationDeck,
   ExplorationDeckView,
@@ -11,7 +12,7 @@ import type {
   ShellView,
   ToolbarView,
 } from "../../model";
-import { ACTION_CARDS, CARDS, HISTORY, REACTION_CARDS, SEATS } from "../data";
+import { ACTION_CARDS, CARDS, DISCARDED_CARDS, HISTORY, REACTION_CARDS, SEATS } from "../data";
 import { E } from "../loose";
 import { OBJECTIVES, strategyEditor } from "../strategy";
 import {
@@ -266,12 +267,19 @@ function reference(world: World, state: State): ReferenceView {
     title,
     rows: rows.map((row) => (typeof row === "string" ? [row] : row)),
   });
-  const cardText: Record<string, string> = {
-    "Direct Hit": "after a ship sustains damage, destroy it",
-    "Morale Boost": "+1 to combat rolls this round",
-    Sabotage: "cancel an action card",
-    "Ghost Ship": "place 1 destroyer in a wormhole system",
+  // A card of a reaction window is printed with its timing first.
+  const printed = (name: string): ActionCardView => {
+    const reaction = REACTION_CARDS[name];
+    const [window, ...rest] = (reaction ?? "").split(": ");
+    return reaction
+      ? { name, window: `${window}:`, text: rest.join(": "), action: false }
+      : { name, window: "ACTION:", text: ACTION_CARDS[name] ?? "", action: true };
   };
+  const held = [...(E.own() ? world.table.actionCards : []), ...hand];
+  const count = (cards: string[], name: string) => cards.filter((card) => card === name).length;
+  const names = [...Object.keys(REACTION_CARDS), ...Object.keys(ACTION_CARDS)].sort();
+  const copies = (name: string) => (REACTION_CARDS[name] ? 4 : 1);
+  const total = names.reduce((sum, name) => sum + copies(name), 0);
   const live = world.workspaces.live;
   const seats = world.table.seats;
   const entry = (item: (typeof HISTORY)[number]): LogEntryView => {
@@ -324,12 +332,6 @@ function reference(world: World, state: State): ReferenceView {
     ),
     cards: [
       section(
-        "Your action cards",
-        [...(E.own() ? world.table.actionCards : []), ...hand].map(
-          (card: string) => `${card} · ${cardText[card] || ACTION_CARDS[card] || ""}`,
-        ),
-      ),
-      section(
         "Strategy cards",
         cardOwners(world, state).map((card, index): Rich =>
           card.owner
@@ -346,13 +348,29 @@ function reference(world: World, state: State): ReferenceView {
         "Ceasefire (Sol) · held by Blair",
       ]),
     ],
-    offerCards: hand
-      .filter((card: string) => REACTION_CARDS[card])
-      .map((card: string) => ({
-        card,
-        text: REACTION_CARDS[card],
-        never: world.neverOffer.includes(card),
+    actionCards: {
+      held: held.length,
+      limit: 7,
+      deck: {
+        left: total - DISCARDED_CARDS.length - held.length - 5,
+        total,
+        discarded: DISCARDED_CARDS.length,
+      },
+      hand: [...new Set(held)].sort().map((name) => ({
+        ...printed(name),
+        copies: count(held, name),
+        never: printed(name).action ? null : world.neverOffer.includes(name),
       })),
+      faked: world.fakedCards.filter((name) => !held.includes(name)).map(printed),
+      reference: names.map((name) => ({
+        ...printed(name),
+        total: copies(name),
+        discarded: count(DISCARDED_CARDS, name),
+        held: count(held, name),
+        open: Math.max(0, copies(name) - count(DISCARDED_CARDS, name) - count(held, name)),
+        faked: !held.includes(name) && world.fakedCards.includes(name),
+      })),
+    },
     exploration: EXPLORATION.map((deck) => ({
       ...deck,
       fragments: seats.flatMap((seat) =>

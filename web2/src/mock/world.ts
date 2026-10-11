@@ -32,6 +32,8 @@ export interface World {
   usedCards: number[];
   /** Cards of the viewer that are set to "Never offer": their reaction windows do not open. */
   neverOffer: string[];
+  /** Cards that the viewer acts as if holding. Nothing reads it yet. */
+  fakedCards: string[];
   /** Counts example loads: the board frames itself again. */
   fit: number;
   toast: { id: number; text: string } | null;
@@ -57,6 +59,7 @@ export function createWorld(): World {
     table: tableOf("live-combat"),
     usedCards: [],
     neverOffer: [],
+    fakedCards: [],
     fit: 0,
     toast: null,
     announcement: "",
@@ -660,6 +663,12 @@ export function reduce(world: World, intent: Intent) {
           ? `${intent.card}: never offered. Its windows are skipped and you are told.`
           : `${intent.card}: offered again.`,
       );
+      break;
+    case "setCardFake":
+      world.fakedCards = world.fakedCards.filter((card) => card !== intent.card);
+      if (intent.fake) {
+        world.fakedCards.push(intent.card);
+      }
       break;
     case "payment": {
       const auto = intent.action === "auto";

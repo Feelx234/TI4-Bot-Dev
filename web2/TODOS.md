@@ -22,7 +22,7 @@ Reference sheets (web2 renders all of these as plain bullet lists)
 
 - Objectives: no cards with who scored what, and no VP breakdown per player (public / secret / other, summing to the total).
 - Technology: no tree by colour with prerequisites, no cross-player comparison, no tech-skip toggle.
-- Player sheet: no action card hand with printed text and no objectives list.
+- Player sheet: no objectives list. (The action card hand is in the Cards sheet.)
 - Log: no card names with hover text and no Copy replay button.
 
 Board

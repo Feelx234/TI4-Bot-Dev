@@ -27,6 +27,7 @@ import {
   togglePlanet,
   totals,
 } from "./productionDraft";
+import { selectActionCards } from "./select/cards";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
@@ -705,6 +706,37 @@ it.skipIf(!built)(
     for (const id of Object.values(facts.decks).flat()) {
       expect(catalog.cards.some((card) => card.id === id)).toBe(true);
     }
+  },
+);
+
+it.skipIf(!built)(
+  "has the printed action cards, and an update says where the cards of the deck are",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const deck = catalog.components.action_cards;
+    const boosts = deck.filter((card) => card.name === "Morale Boost");
+    expect(boosts).toHaveLength(4);
+    expect(boosts[0]).toMatchObject({ phase: "Action", window: "At the start of a combat round" });
+    const { transport, next } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const { update } = await next();
+    transport.close();
+    const facts = update.action_cards!;
+    expect(facts.hand_limit).toBe(7);
+    // Every card of the deck is in the deck, in a hand or in the discard pile.
+    const held = update.view.players.reduce((sum, player) => sum + player.action_cards_count, 0);
+    expect(facts.deck + held + facts.discard.length).toBe(deck.length);
+    const view = selectActionCards(update, catalog, { never: [], faked: [] })!;
+    expect(view.held).toBe(view.hand.reduce((sum, card) => sum + card.copies, 0));
+    for (const card of view.hand) {
+      expect(card.text).not.toBe("");
+      expect(card.window).toMatch(/:$/);
+    }
+    expect(view.reference.reduce((sum, card) => sum + card.total, 0)).toBe(deck.length);
   },
 );
 

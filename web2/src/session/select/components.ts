@@ -15,10 +15,10 @@ const LEADER_STATES: Record<string, ComponentCardView["state"]> = {
 };
 
 /** "ACTION:", "At the start of a ground combat round:": the timing as the cards print it. */
-const timing = (window: string | undefined) =>
+export const timing = (window: string | undefined) =>
   !window || /[:.]$/.test(window) ? (window ?? "") : `${window}:`;
 /** The corpus marks keywords for another renderer: "**STAR FORGE**". */
-const plain = (text: string | undefined) => (text ?? "").replaceAll("*", "");
+export const plain = (text: string | undefined) => (text ?? "").replaceAll("*", "");
 
 const byId = <T extends { id: string }>(cards: T[] | undefined) =>
   new Map((cards ?? []).map((card) => [card.id, card]));

@@ -1118,6 +1118,8 @@ export const ACTION_CARDS: Record<string, string> = {
   Plague:
     "Choose 1 planet that another player controls. Roll 1 die for each infantry on it. Destroy 1 infantry for each result of 6 or greater.",
 };
+/** The action cards of the demo that are in the discard pile. */
+export const DISCARDED_CARDS = ["Morale Boost", "Sabotage", "Plague"];
 export const FACES = [
   7, 2, 9, 4, 10, 3, 8, 1, 6, 9, 5, 2, 8, 4, 10, 1, 7, 3, 6, 9, 2, 5, 8, 4, 1, 10, 6, 3, 7, 9,
 ];

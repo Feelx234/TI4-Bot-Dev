@@ -91,6 +91,8 @@ export type Intent =
   | { type: "reaction"; action: "pass" | "play" }
   /** The viewer never wants an offer for this card, or wants it again. */
   | { type: "setCardOffer"; card: string; never: boolean }
+  /** The viewer acts as if holding this card, or stops. Nothing is sent. */
+  | { type: "setCardFake"; card: string; fake: boolean }
   /** Opens a reference sheet. The shell answers this one itself. */
   | { type: "openReference"; sheet: "cards" }
   /** Opens the exploration decks at one deck. */
