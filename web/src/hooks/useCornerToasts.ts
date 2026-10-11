@@ -10,6 +10,7 @@ import {
   victoryPointToasts,
 } from "../presentation/actionToasts.ts";
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
+import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
 import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
@@ -35,12 +36,15 @@ export interface CornerToastsInput {
   board?: BoardView | null;
   /** The engine's public exploration log: every finished exploration toasts, for every seat. */
   explorations?: readonly ExplorationRecordDto[];
+  /** The engine's public agenda log: every finished vote toasts, for every seat (voters too). */
+  agendas?: readonly AgendaRecordDto[];
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
 
 const MAX_RECAPS = 2;
 const MAX_INVASION_TOASTS = 3;
+const MAX_AGENDA_TOASTS = 2;
 
 const INVASION_TAGS: Record<InvasionToast["kind"], string> = {
   bombardment: "Bombardment",
@@ -65,6 +69,7 @@ export function useCornerToasts({
   localNotes,
   board,
   explorations,
+  agendas,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
@@ -79,6 +84,7 @@ export function useCornerToasts({
   const auto = useAutoResolveToasts();
   const [actions, setActions] = useState<Shown[]>([]);
   const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
+  const [agendaToastList, setAgendaToasts] = useState<AgendaToast[]>([]);
   const invasionTracker = useRef<InvasionTracker | null>(null);
   // The first board a client sees (load, undo) shows history, not news.
   const invasionQuiet = useRef(true);
@@ -199,6 +205,29 @@ export function useCornerToasts({
     if (!mutedRef.current) push(toasts);
   }, [explorations, ready, historyGeneration, push]);
 
+  // Agenda results come from the state's agenda log, like explorations: what is there at load, or
+  // reappears after undo/redo, is history. The voter is told too: the result is news to all.
+  const agendaCursor = useRef<number | null>(null);
+  const agendaGeneration = useRef(historyGeneration);
+  useEffect(() => {
+    if (!ready || !agendas) return;
+    if (agendaCursor.current === null || agendaGeneration.current !== historyGeneration) {
+      agendaGeneration.current = historyGeneration;
+      agendaCursor.current = agendas.length;
+      return;
+    }
+    const seatName = (id: string) => {
+      const seat = displayRef.current(id);
+      return seat.position === null ? null : seat.label;
+    };
+    const { toasts, next } = agendaToasts(agendas, agendaCursor.current, seatName);
+    agendaCursor.current = next;
+    if (toasts.length === 0 || mutedRef.current) return;
+    setAgendaToasts((prev) =>
+      [...prev.filter((t) => !toasts.some((n) => n.id === t.id)), ...toasts].slice(-MAX_AGENDA_TOASTS),
+    );
+  }, [agendas, ready, historyGeneration]);
+
   const { showToast } = auto;
   useEffect(() => {
     const auto1 = autoResolvedToast(pendingChoice, viewerSeat);
@@ -231,6 +260,7 @@ export function useCornerToasts({
     if (muted) {
       setActions([]);
       setInvasionToasts([]);
+      setAgendaToasts([]);
     }
   }, [muted]);
   useEffect(() => {
@@ -246,6 +276,7 @@ export function useCornerToasts({
     (id: string) => {
       setRecaps((prev) => prev.filter((r) => r.id !== id));
       setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
+      setAgendaToasts((prev) => prev.filter((t) => t.id !== id));
       dismissAction(id);
       dismissToast(id);
     },
@@ -276,6 +307,16 @@ export function useCornerToasts({
           tag: INVASION_TAGS[t.kind],
         }),
       ),
+      ...agendaToastList.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "agenda",
+          decisionType: "",
+          selectedValue: "",
+          text: t.text,
+          tag: "Agenda",
+        }),
+      ),
       ...actions.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -288,7 +329,7 @@ export function useCornerToasts({
         }),
       ),
     ],
-    [auto.toasts, actions, recaps, invasionToasts],
+    [auto.toasts, actions, recaps, invasionToasts, agendaToastList],
   );
 
   return { notifications, dismiss, muted };
