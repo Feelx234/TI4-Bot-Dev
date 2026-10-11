@@ -83,6 +83,9 @@ pub struct CreateGameRequest {
     /// Strategy card set: `"te"` (default), `"pok"` or `"base_game_codex1"`; see
     /// [`crate::card_set`]. Anything else is a 400.
     pub strategy_card_set: Option<String>,
+    /// Who opens as speaker: `"random"` (default; a seat drawn from the seed, so the same seed
+    /// gives the same speaker) or `"seat"` (the first seat). Anything else is a 400.
+    pub speaker_order: Option<String>,
 }
 
 /// Response after creating a game.
@@ -307,9 +310,15 @@ pub async fn create_game(
         None => crate::card_set::DEFAULT,
     };
 
+    let speaker_order = match payload.speaker_order.as_deref() {
+        Some(name) => crate::map::SpeakerOrder::parse(name)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?,
+        None => crate::map::SpeakerOrder::default(),
+    };
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = registry
-        .create_player_lobby_with_card_set(
+        .create_player_lobby_with_speaker(
             game_id.clone(),
             payload.player_count,
             seed,
@@ -317,6 +326,7 @@ pub async fn create_game(
             map_template,
             payload.start_preset,
             strategy_card_set,
+            speaker_order,
         )
         .map_err(lobby_error)?;
 
@@ -873,6 +883,7 @@ mod template_request_tests {
             map: None,
             start_preset: None,
             strategy_card_set: None,
+            speaker_order: None,
         })
     }
 
@@ -885,6 +896,7 @@ mod template_request_tests {
             map: None,
             start_preset: Some(preset.to_owned()),
             strategy_card_set: None,
+            speaker_order: None,
         })
     }
 

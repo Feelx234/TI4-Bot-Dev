@@ -472,6 +472,74 @@ pub fn create_game_with_options(
     preset: Option<&str>,
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
+    create_game_with_speaker(
+        content,
+        player_ids,
+        seed,
+        template,
+        preset,
+        card_set,
+        SpeakerOrder::Seat,
+    )
+}
+
+/// Who opens a new game as speaker (and so picks the first strategy card).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpeakerOrder {
+    /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
+    /// opens with the same speaker. What a lobby game gets unless it asks otherwise.
+    #[default]
+    Random,
+    /// The first seat. Fixtures and tests pin their games to this.
+    Seat,
+}
+
+impl SpeakerOrder {
+    /// The stored/requested name: `"random"` or `"seat"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Random => "random",
+            Self::Seat => "seat",
+        }
+    }
+
+    /// Parse a requested name.
+    ///
+    /// # Errors
+    /// A message naming the accepted values.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "random" => Ok(Self::Random),
+            "seat" => Ok(Self::Seat),
+            other => Err(format!(
+                "unknown speaker_order {other:?} (expected \"random\" or \"seat\")"
+            )),
+        }
+    }
+
+    /// A stored value; `None` (a record written before the option) and anything unknown are
+    /// [`SpeakerOrder::Random`].
+    #[must_use]
+    pub fn from_stored(name: Option<&str>) -> Self {
+        name.and_then(|n| Self::parse(n).ok()).unwrap_or_default()
+    }
+}
+
+/// As [`create_game_with_options`], with the opening speaker chosen by `speaker`. The speaker is
+/// part of the returned opening state, so a game replayed from its stored opening state keeps it.
+///
+/// # Errors
+/// As [`create_game_with_options`].
+pub fn create_game_with_speaker(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: Option<&str>,
+    card_set: Option<&str>,
+    speaker: SpeakerOrder,
+) -> Result<(GameState, Galaxy), String> {
     let rotation = preset.map_or(0, |name| crate::preset::rotation(name, seed));
     // A preset that seats factions outside the in-scope six names them itself (`+fac`, `world`).
     let mut assignments = preset
@@ -480,8 +548,19 @@ pub fn create_game_with_options(
     if let Some(name) = preset {
         crate::preset::seat_roster(name, seed, player_ids, &mut assignments);
     }
-    let (mut state, galaxy) =
-        create_game_with_template_seated(content, player_ids, seed, template, &assignments, card_set)?;
+    let (mut state, galaxy) = create_game_with_template_seated(
+        content,
+        player_ids,
+        seed,
+        template,
+        &assignments,
+        card_set,
+    )?;
+    if speaker == SpeakerOrder::Random
+        && let Some(drawn) = ti4_engine::seeded_speaker(player_ids, seed)
+    {
+        state.speaker = drawn;
+    }
     if let Some(preset) = preset {
         crate::preset::apply(content, &mut state, &galaxy, player_ids, seed, preset)?;
     }
@@ -548,6 +627,83 @@ mod template_tests {
                 "{preset}"
             );
         }
+    }
+
+    #[test]
+    fn a_random_speaker_follows_the_seed_and_changes_nothing_else() {
+        let content = ContentStore::embedded();
+        for n in [3, 4, 5, 6] {
+            let list = players(n);
+            let mut speakers = std::collections::BTreeSet::new();
+            for seed in 0..24_u64 {
+                let (seat, seat_galaxy) =
+                    create_game_with_options(content, &list, seed, None, None, None).unwrap();
+                assert_eq!(
+                    seat.speaker, list[0],
+                    "seat order opens with the first seat"
+                );
+                let (random, galaxy) = create_game_with_speaker(
+                    content,
+                    &list,
+                    seed,
+                    None,
+                    None,
+                    None,
+                    SpeakerOrder::Random,
+                )
+                .unwrap();
+                let (again, _) = create_game_with_speaker(
+                    content,
+                    &list,
+                    seed,
+                    None,
+                    None,
+                    None,
+                    SpeakerOrder::Random,
+                )
+                .unwrap();
+                assert_eq!(
+                    random.speaker, again.speaker,
+                    "{n}p seed {seed}: same seed, same speaker"
+                );
+                assert_eq!(
+                    Some(random.speaker.clone()),
+                    ti4_engine::seeded_speaker(&list, seed)
+                );
+                // Seats, factions, board and decks are untouched.
+                let mut reseated = random.clone();
+                reseated.speaker = seat.speaker.clone();
+                assert_eq!(reseated, seat, "{n}p seed {seed}");
+                assert_eq!(
+                    build_board_tiles(content, &galaxy),
+                    build_board_tiles(content, &seat_galaxy)
+                );
+                speakers.insert(random.speaker);
+            }
+            assert!(speakers.len() > 1, "{n}p: the speaker varies across seeds");
+        }
+        // A preset game draws the same speaker.
+        let list = players(4);
+        let (state, _) = create_game_with_speaker(
+            content,
+            &list,
+            5,
+            None,
+            Some("combat"),
+            None,
+            SpeakerOrder::Random,
+        )
+        .unwrap();
+        assert_eq!(Some(state.speaker), ti4_engine::seeded_speaker(&list, 5));
+    }
+
+    #[test]
+    fn speaker_order_names_round_trip() {
+        for order in [SpeakerOrder::Random, SpeakerOrder::Seat] {
+            assert_eq!(SpeakerOrder::parse(order.as_str()), Ok(order));
+        }
+        assert!(SpeakerOrder::parse("first").is_err());
+        assert_eq!(SpeakerOrder::from_stored(None), SpeakerOrder::Random);
     }
 
     #[test]

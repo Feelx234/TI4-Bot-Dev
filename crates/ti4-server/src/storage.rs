@@ -191,6 +191,10 @@ pub struct PlayerLobbyRecord {
     /// before the option existed: those games play the PoK cards they were recorded with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy_card_set: Option<String>,
+    /// Who opens as speaker: `"random"` (a seat drawn from the seed) or `"seat"` (the first
+    /// seat). Absent means random; the drawn speaker itself is saved in the init record's state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_order: Option<String>,
     /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
     /// order) so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]

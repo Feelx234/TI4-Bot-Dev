@@ -129,6 +129,22 @@ pub fn start_game_seeded(
     start_game_seeded_with_card_set(content, player_ids, sources, speaker, deck_seed, None)
 }
 
+/// The opening speaker drawn from `seed`: a uniformly chosen seat, the same one for the same
+/// seed and table. Drawn from its own RNG domain, so choosing it shifts no deck or die.
+/// `None` for an empty table.
+#[must_use]
+pub fn seeded_speaker(player_ids: &[PlayerId], seed: u64) -> Option<PlayerId> {
+    use rand::Rng;
+    if player_ids.is_empty() {
+        return None;
+    }
+    let mut rng = crate::rng::GameRng::new(seed);
+    let index = rng
+        .stream(crate::rng::domain::SPEAKER)
+        .random_range(0..player_ids.len());
+    Some(player_ids[index].clone())
+}
+
 /// As [`start_game_seeded`], but the strategy-card set is named (`Some("te")`, `Some("pok")`, ...)
 /// instead of derived from the source scope. `None` keeps the scope-derived set, so callers that
 /// do not pass a set (simulation, training, legacy replays) behave exactly as before.
@@ -372,5 +388,42 @@ mod tests {
                 "{card} has no initiative"
             );
         }
+    }
+
+    #[test]
+    fn the_seeded_speaker_is_reproducible_and_varies_across_seeds() {
+        assert_eq!(seeded_speaker(&[], 1), None);
+        for n in 1..=8 {
+            let table = players(n);
+            let mut seen = std::collections::BTreeSet::new();
+            for seed in 0..200_u64 {
+                let speaker = seeded_speaker(&table, seed).unwrap();
+                assert!(table.contains(&speaker));
+                assert_eq!(
+                    seeded_speaker(&table, seed),
+                    Some(speaker.clone()),
+                    "{n}p seed {seed}"
+                );
+                seen.insert(speaker);
+            }
+            assert_eq!(
+                seen.len(),
+                n,
+                "every seat of a {n}p table opens as speaker for some seed"
+            );
+        }
+    }
+
+    #[test]
+    fn the_seeded_speaker_does_not_shift_the_decks() {
+        let table = players(6);
+        let a = start_game_seeded(content(), &table, POK, None, 11).unwrap();
+        let speaker = seeded_speaker(&table, 11);
+        let b = start_game_seeded(content(), &table, POK, speaker.clone(), 11).unwrap();
+        assert_eq!(b.speaker, speaker.unwrap());
+        assert_eq!(a.objective_deck, b.objective_deck);
+        assert_eq!(a.agenda_deck, b.agenda_deck);
+        assert_eq!(a.action_card_deck, b.action_card_deck);
+        assert_eq!(a.seating_order, b.seating_order);
     }
 }
