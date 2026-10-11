@@ -1,7 +1,8 @@
 //! A survey of whole smart-bot games, for tuning the heuristics: `cargo test --test
 //! smart_bot_survey -- --ignored --nocapture`. Plays a fixed set of tables (all-smart 3, 4 and 6
 //! seats, and smart against random) and prints per-round standings and a summary per seat kind.
-//! Set `SURVEY_DUMP=<dir>` to also write each game's decision log as JSON lines.
+//! Set `SURVEY_DUMP=<dir>` to also write each game's decision log as JSON lines, and
+//! `SURVEY_SEEDS=1,2,3` to play all-smart 3, 4 and 6-seat tables on those seeds instead.
 
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -129,10 +130,25 @@ fn survey_smart_bot_games() {
     let smart = SeatController::BotSmart;
     let random = SeatController::BotRandom;
     let mut tables: Vec<(String, u64, Vec<SeatController>)> = Vec::new();
-    for (n, seed) in [(3usize, 5u64), (3, 23), (4, 7), (4, 31), (6, 13), (6, 47)] {
+    let seeds: Option<Vec<u64>> = std::env::var("SURVEY_SEEDS").ok().map(|list| {
+        list.split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect()
+    });
+    let all_smart: Vec<(usize, u64)> = seeds.as_ref().map_or_else(
+        || vec![(3, 5), (3, 23), (4, 7), (4, 31), (6, 13), (6, 47)],
+        |seeds| {
+            seeds
+                .iter()
+                .flat_map(|&seed| [3, 4, 6].map(|n| (n, seed)))
+                .collect()
+        },
+    );
+    for (n, seed) in all_smart {
         tables.push((format!("smart{n}_{seed}"), seed, vec![smart.clone(); n]));
     }
-    for seed in [3u64, 17, 29] {
+    let mixed_seeds: &[u64] = if seeds.is_some() { &[] } else { &[3, 17, 29] };
+    for &seed in mixed_seeds {
         for swap in [false, true] {
             let seats: Vec<SeatController> = (0..4)
                 .map(|i| {
@@ -148,6 +164,7 @@ fn survey_smart_bot_games() {
     }
     let (mut smart_vp, mut random_vp, mut smart_seats, mut random_seats) = (0, 0, 0, 0);
     let (mut smart_wins, mut random_wins) = (0, 0);
+    let (mut games, mut to_ten, mut end_rounds) = (0, 0, 0);
     for (id, seed, seats) in tables {
         if only.as_deref().is_some_and(|o| !id.starts_with(o)) {
             continue;
@@ -159,6 +176,10 @@ fn survey_smart_bot_games() {
             .map(|p| p.victory_points)
             .max()
             .unwrap_or(0);
+        games += 1;
+        to_ten += usize::from(best >= 10);
+        end_rounds += state.round;
+        eprintln!("RESULT {id} round {} best {best}", state.round);
         for (seat, controller) in state.players.iter().zip(&seats) {
             let won = state.finished && seat.victory_points == best;
             if *controller == SeatController::BotSmart {
@@ -172,6 +193,7 @@ fn survey_smart_bot_games() {
             }
         }
     }
+    eprintln!("GAMES {games}: {to_ten} reached 10 VP, rounds played {end_rounds}");
     eprintln!(
         "SUMMARY smart {smart_vp} VP over {smart_seats} seats ({smart_wins} mixed wins); random {random_vp} VP over {random_seats} seats ({random_wins} wins)"
     );

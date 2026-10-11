@@ -40,9 +40,10 @@
 //! - **Trades**: accept an offer only when its engine-estimated value to the bot is slightly
 //!   positive; propose only offers that gain for both sides; never counter.
 //! - **Over fleet supply**: remove the cheapest unit.
+//! - **Strategy cards**: Imperial first, else the card with the most trade goods on it.
 //!
-//! Strategy cards, technology choice, agendas, action cards, the other secondaries and every
-//! other window stay random.
+//! Other strategy-card picks, technology choice, agendas, action cards, the other secondaries
+//! and every other window stay random.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -95,6 +96,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("load_cargo") => return pick_load(choice, observed, &me),
         Some("commit_ground_forces") => return pick_commit(choice, observed, &me),
         Some("announce_retreat") => return pick_retreat(choice, observed, &me),
+        Some("draft_strategy_card") => return pick_strategy_card(choice, observed),
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
         Some("status_redistribute_tokens" | "warfare_redistribute_tokens") => {
             return pick_redistribution(choice, observed, &me);
@@ -824,6 +826,26 @@ fn pick_cheapest_removal(choice: &Choice, seen: &Observed<'_>) -> Option<usize> 
         .map(|(i, _)| i)
 }
 
+/// Draft: Imperial (an extra objective, and a point while holding Mecatol Rex), else the card with
+/// the most trade goods on it; with neither, no opinion.
+fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
+    let imperial = choice.options.iter().position(|o| {
+        ti4_engine::strategy_cards::card_name(seen.content(), &o.id).as_deref() == Some("Imperial")
+    });
+    imperial.or_else(|| {
+        let scored: Vec<(usize, f64)> = choice
+            .options
+            .iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let goods = seen.strategy_card_goods(&ti4_model::id::StrategyCardId::new(&o.id));
+                (i, f64::from(goods))
+            })
+            .collect();
+        best_above(&scored, 1.0)
+    })
+}
+
 /// A new command token: the fleet pool until it holds a few, then whichever of the tactic and
 /// strategy pools is smaller (tactic on a tie, as tactical actions are what the bot mostly takes).
 fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
@@ -1436,6 +1458,32 @@ mod tests {
         // A stack of four ships needs four fleet tokens.
         put(&mut state, &outer(&hub, 0), "cruiser", &me(), 4);
         assert_eq!(picked(&state, &hub, &choice), Some(1));
+    }
+
+    #[test]
+    fn the_draft_takes_imperial_else_the_card_with_most_trade_goods() {
+        let (mut state, hub, _, _) = board();
+        let draft = |cards: &[&str]| {
+            contextual(
+                Choice::new(
+                    me(),
+                    "choose a strategy card",
+                    cards
+                        .iter()
+                        .map(|id| ChoiceOption::labelled(*id, "strategy_card", *id))
+                        .collect(),
+                ),
+                "draft_strategy_card",
+            )
+        };
+        let all = draft(&["pok1leadership", "pok5trade", "pok8imperial"]);
+        assert_eq!(picked(&state, &hub, &all), Some(2));
+        let rest = draft(&["pok1leadership", "pok5trade", "pok7technology"]);
+        assert_eq!(picked(&state, &hub, &rest), None, "no goods: no opinion");
+        state
+            .strategy_card_goods
+            .insert(ti4_model::id::StrategyCardId::new("pok5trade"), 2);
+        assert_eq!(picked(&state, &hub, &rest), Some(1));
     }
 
     #[test]
