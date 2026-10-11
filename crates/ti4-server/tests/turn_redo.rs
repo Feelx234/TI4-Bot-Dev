@@ -47,7 +47,15 @@ impl Decider for Lcg {
                 return Ok(choice.options[pushy[roll / 10 % pushy.len()]].clone());
             }
         }
-        Ok(choice.options[roll % choice.options.len()].clone())
+        // The inner "play an action card" pick gained a decline (a "may" choice; the window's
+        // slot is offered again). The fixtures below were tuned on the option set without it, so
+        // this decider keeps sampling among the cards only.
+        let options: Vec<&ChoiceOption> = if choice.options.iter().any(|o| o.kind == "action_card") {
+            choice.options.iter().filter(|o| !o.is_decline()).collect()
+        } else {
+            choice.options.iter().collect()
+        };
+        Ok(options[roll % options.len()].clone())
     }
 }
 
