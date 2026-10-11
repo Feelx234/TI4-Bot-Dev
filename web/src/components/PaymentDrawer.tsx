@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
+import { usePlanetInfluence, usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
@@ -12,6 +12,7 @@ import { productionTotalText } from "../presentation/productionTotalText.ts";
 import {
   buildPaymentSteps,
   derivePaymentOffer,
+  paymentPlanetKey,
   paymentProblem,
   summarizePayment,
   suggestAutoPay,
@@ -58,6 +59,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   const display = usePlayerIdentity();
   const shared = useSharedPaymentDraft();
   const resourcesOf = usePlanetResources();
+  const influenceOf = usePlanetInfluence();
   const local = usePaymentDraftState(choice?.nonce);
   const { draft, togglePlanet, setTradeGoods, setDraft, reset } = shared ?? local;
   const selectedPlanetIds = draft.planetIds;
@@ -314,8 +316,22 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
                                 )}
                             </div>
                           </div>
-                          <span className="workflow-badge">
-                            {planet.worth ? (
+                          <span className="workflow-badge" data-testid={`planet-card-${planet.id}-values`}>
+                            {/* Both values sit beside the planet; the one being paid with is marked. */}
+                            {resourcesOf.has(paymentPlanetKey(planet.id)) || influenceOf.has(paymentPlanetKey(planet.id)) ? (
+                              <>
+                                <PlanetValue
+                                  kind="resources"
+                                  value={resourcesOf.get(paymentPlanetKey(planet.id)) ?? 0}
+                                  state={kind === "resources" ? "ready" : "muted"}
+                                />{" "}
+                                <PlanetValue
+                                  kind="influence"
+                                  value={influenceOf.get(paymentPlanetKey(planet.id)) ?? 0}
+                                  state={kind === "influence" ? "ready" : "muted"}
+                                />
+                              </>
+                            ) : planet.worth ? (
                               <PlanetValue kind={kind} value={planet.worth} sign="+" />
                             ) : (
                               "Value unknown"

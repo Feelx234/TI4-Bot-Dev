@@ -25,3 +25,17 @@ export const PlanetResourcesProvider: React.FC<{
 };
 
 export const usePlanetResources = (): ReadonlyMap<string, number> => useContext(PlanetResourcesContext);
+
+/** Influence value of every planet on the board by planet id (printed values, from the static tiles). */
+export function planetInfluenceMap(board: BoardView | null | undefined): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const tile of board?.map_tiles ?? []) {
+    for (const planet of tile.planets ?? []) {
+      if (typeof planet.influence === "number") map.set(planet.id, planet.influence);
+    }
+  }
+  return map;
+}
+
+export const PlanetInfluenceContext = createContext<ReadonlyMap<string, number>>(EMPTY);
+export const usePlanetInfluence = (): ReadonlyMap<string, number> => useContext(PlanetInfluenceContext);

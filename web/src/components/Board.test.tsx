@@ -785,7 +785,7 @@ describe("Board payment mode", () => {
         onSelectTarget={onSelectTarget}
       />,
     );
-    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "4 resources");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "4 resources, also 0 influence");
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "false");
     expect(screen.getByTestId("planet-abyz")).toHaveAttribute("data-target-dimmed", "true");
     fireEvent.click(screen.getByTestId("planet-fria"));
@@ -823,7 +823,7 @@ describe("Board payment mode", () => {
       </PaymentDraftProvider>,
     );
     expect(screen.getByTestId("planet-fria")).toHaveAttribute("data-payment-staged", "true");
-    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "Staged: 4 resources");
+    expect(screen.getByTestId("payment-mark-fria")).toHaveAttribute("aria-label", "Staged: 4 resources, also 0 influence");
     expect(screen.getByTestId("payment-mark-fria")).toHaveTextContent("✓ 4");
   });
 

@@ -152,8 +152,11 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
 
             {mark && isCandidateTarget && (() => {
               const lost = mark.resources ?? p.resources;
-              const wide = mark.unit === "I" && lost !== undefined;
-              const label = `${mark.staged ? (mark.readies ? "To ready: " : "Staged: ") : ""}${valueLabel(valueKind(mark.unit), mark.worth)}${wide ? `${mark.readies ? ", " : ", exhausting loses "}${valueLabel("resources", lost)}` : ""}`;
+              // Paying with resources: the planet's influence is shown beside it, and vice versa.
+              const otherKind = mark.unit === "I" ? "resources" : "influence";
+              const other = mark.unit === "I" ? lost : p.influence;
+              const wide = other !== undefined;
+              const label = `${mark.staged ? (mark.readies ? "To ready: " : "Staged: ") : ""}${valueLabel(valueKind(mark.unit), mark.worth)}${wide ? `${mark.readies ? ", " : mark.unit === "I" ? ", exhausting loses " : ", also "}${valueLabel(otherKind, other)}` : ""}`;
               const width = wide ? 66 : 44;
               const left = pX - width / 2;
               return (
@@ -184,7 +187,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
                   </text>
                   {wide && (
                     <>
-                      <PlanetValueGlyph kind="resources" x={left + 38} y={pY - planetRadius - 21} size={12} />
+                      <PlanetValueGlyph kind={otherKind} x={left + 38} y={pY - planetRadius - 21} size={12} />
                       <text
                         x={left + 56}
                         y={pY - planetRadius - 11}
@@ -194,7 +197,7 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
                         fontWeight="bold"
                         aria-hidden="true"
                       >
-                        {lost}
+                        {other}
                       </text>
                     </>
                   )}

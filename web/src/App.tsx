@@ -40,7 +40,7 @@ import {
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
-import { PlanetResourcesContext, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
+import { PlanetInfluenceContext, PlanetResourcesContext, planetInfluenceMap, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
 import { useSecondaryPrepare, useTokenPrefill, useReadyPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
@@ -430,6 +430,7 @@ const GameViewContainer: React.FC<{
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
+  const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
   const tokenDraft = useCommandTokenDraft(pendingChoice, planetResources);
   // Diplomacy: the planets picked for its ready question (bar, list and map share them).
   const readyDraft = useReadyPlanetsDraft(
@@ -577,6 +578,7 @@ const GameViewContainer: React.FC<{
       {/* The provider wraps the rest unindented to keep this diff small. */}
       <PaymentDraftProvider value={paymentDraft}>
       <PlanetResourcesContext.Provider value={planetResources}>
+      <PlanetInfluenceContext.Provider value={planetInfluence}>
       <CommandTokenDraftProvider value={tokenDraft}>
       <ReadyPlanetsDraftProvider value={readyDraft}>
       {undoRequest && (
@@ -839,6 +841,7 @@ const GameViewContainer: React.FC<{
       />
       </ReadyPlanetsDraftProvider>
       </CommandTokenDraftProvider>
+      </PlanetInfluenceContext.Provider>
       </PlanetResourcesContext.Provider>
       </PaymentDraftProvider>
     </PreparedHintProvider>
