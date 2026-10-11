@@ -138,6 +138,32 @@ it("answers the landings of the game from the steps", () => {
   });
 });
 
+it("passes the pause between two steps, and answers an ability by the id of its option", () => {
+  const steps: PlanStep[] = [
+    { kind: "done_moving" },
+    { kind: "choose", option_id: "decline" },
+    ...stepsOf(real, setLanding(real, {}, "saudor", 0, 1)),
+  ];
+  const asked = (subtype: string, ids: string[]): Choice => ({
+    ...choice,
+    context: { subtype, actor: "a" },
+    options: ids.map((id) => ({ id, kind: id, label: id, payload: {} })),
+  });
+  // "Negotiate, or continue the action": the plan continues while steps are left.
+  const pause = asked("mid_action_pause", ["continue_action", "contact|b"]);
+  expect(planAnswer(steps, 1, pause, "a")).toEqual({ kind: "answer", index: 0, next: 1 });
+  expect(planAnswer(steps, steps.length, pause, "a")).toEqual({ kind: "done" });
+  // The pause does not end the landings that the game has not asked for yet.
+  expect(planAnswer([{ kind: "done_committing" }], 0, pause, "a")).toMatchObject({
+    kind: "answer",
+    next: 0,
+  });
+  const ability = asked("exhaust_for_production_discount", ["exhaust", "decline"]);
+  expect(planAnswer(steps, 1, ability, "a")).toEqual({ kind: "answer", index: 1, next: 2 });
+  expect(planAnswer(steps, 1, { ...ability, player: "c" }, "a").kind).toBe("interrupted");
+  expect(planAnswer(steps, 1, choice, "a").kind).toBe("mismatch");
+});
+
 const local = (change: Partial<LocalState> = {}): LocalState => ({
   inspected: null,
   staged: null,

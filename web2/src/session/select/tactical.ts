@@ -49,6 +49,38 @@ const tilesOf = (update: SessionUpdate) =>
 
 const UNDO: ActionButtonView = { label: "Undo", tone: "quiet", intent: { type: "undo" } };
 
+/** The tab of each step that a draft stages. */
+const TAB = { movement: 1, invasion: 3, production: 4 };
+
+/**
+ * The footer of a step of a draft. Every change is recorded at once, so nothing is sent: the
+ * button records a step with nothing staged, or goes on to the step that the game comes to.
+ */
+function draftFooter(
+  local: LocalState,
+  nothing: string,
+  note: string | null = null,
+  error = false,
+): FooterView {
+  const info = local.draft;
+  const main = (label: string, intent: ActionButtonView["intent"]): ActionButtonView => ({
+    label,
+    tone: "primary",
+    key: "Enter",
+    arrow: true,
+    intent,
+  });
+  return {
+    note: local.planNote?.text ?? note ?? info?.ends ?? "Private to you until you apply.",
+    error: !!local.planNote?.error || error,
+    actions: !info?.recorded
+      ? [main(nothing, { type: "commitEdit" })]
+      : info.next
+        ? [main(`Go to ${STEPS[TAB[info.next]].toLowerCase()}`, { type: "selectStep", step: TAB[info.next] })]
+        : [],
+  };
+}
+
 function activation(
   update: SessionUpdate,
   local: LocalState,
@@ -161,16 +193,7 @@ function movement(
   const nothing = Object.keys(local.movement).length === 0;
   const content = selectMovement(update, facts, local.movement, local.handled);
   if (local.draft) {
-    // A draft records every change of the movement at once: there is nothing to send.
-    return {
-      target,
-      content,
-      footer: {
-        note: local.planNote?.text ?? "Private to you until you apply.",
-        error: !!local.planNote?.error,
-        actions: [],
-      },
-    };
+    return { target, content, footer: draftFooter(local, "Move nothing") };
   }
   return {
     target,
@@ -208,9 +231,17 @@ function invasion(
   catalog: ExplorationCatalog | null,
 ): { content: StepContentView; footer: FooterView; target: string } {
   const nothing = landed(local.landing) === 0;
+  const content = selectInvasion(update, facts, local.landing, local.landingKind, catalog);
+  if (local.draft) {
+    return {
+      target: systemLabel(tilesOf(update), facts.active),
+      content,
+      footer: draftFooter(local, "Land nothing"),
+    };
+  }
   return {
     target: systemLabel(tilesOf(update), facts.active),
-    content: selectInvasion(update, facts, local.landing, local.landingKind, catalog),
+    content,
     footer: {
       note: local.planNote?.text ?? "This commits to the live game.",
       error: !!local.planNote?.error,
@@ -265,6 +296,36 @@ function production(
     ? []
     : [{ label: "Reset selection", intent: { type: "cancelEdit" } }];
   const paying = stage === "pay" && units > 0 && cost > 0;
+  if (local.draft) {
+    // A build that is not paid is kept in the draft; the game is asked for it when it is paid.
+    const open = units > 0 && paid < cost;
+    const footer = draftFooter(
+      local,
+      "Produce nothing",
+      blocked
+        ? problems.join(" · ")
+        : open
+          ? "The production is in the draft when it is paid."
+          : null,
+      blocked,
+    );
+    return {
+      target: systemLabel(tilesOf(update), facts.system),
+      content,
+      footer: {
+        ...footer,
+        payment: paying ? content.payment : undefined,
+        actions: paying
+          ? [
+              { label: "Back to build", key: "Escape", intent: { type: "clearChoice" } },
+              ...(open ? [] : footer.actions),
+            ]
+          : open
+            ? [main(`Pay ${plural(cost, "resource")}`, blocked)]
+            : footer.actions,
+      },
+    };
+  }
   return {
     target: systemLabel(tilesOf(update), facts.system),
     content,
@@ -328,8 +389,19 @@ export function selectTactical(
     update.view.players.find((player) => player.id === seat)?.faction ?? seat,
   );
   const ships = Object.keys(local.movement).length;
+  // A draft opens every step that the game came to with it, also the steps after the one in view.
+  const reached = (local.draft?.reached ?? []).map((stage) => TAB[stage]);
   const tabs = STEPS.map((name, step): StepTabView => {
-    const status = step < current ? "done" : step === current ? "decision" : "future";
+    const status =
+      step < current
+        ? step === 2 && local.draft
+          ? "skipped"
+          : "done"
+        : step === current
+          ? "decision"
+          : reached.includes(step)
+            ? "draft"
+            : "future";
     return {
       name,
       status,

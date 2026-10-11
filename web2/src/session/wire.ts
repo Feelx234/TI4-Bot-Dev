@@ -376,14 +376,14 @@ export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts | Pr
 
 /** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
 export type DraftStep =
-  | import("./movementPlan").MovementStep
+  | import("./movementPlan").PlanStep
   | { kind: "choose"; option_id: string };
 
 /** `ti4_view::planning::draft::DraftStop`: why a run of a draft ended. */
 export type DraftStop =
   /** The script is used up: the question of the update is open. */
   | { kind: "open" }
-  /** The script ends the movement, and the game offers that. */
+  /** The game played the whole script, and the tactical action is over. */
   | { kind: "complete" }
   /** The game does not offer what step `step` of the script asks for. */
   | { kind: "refused"; step: number; reason: string }
@@ -393,11 +393,15 @@ export type DraftStop =
 
 /** `ti4_view::planning::draft::DraftOutcome` */
 export interface DraftOutcome {
-  /** Where the run ended. It has the open question when the stop is "open" or "complete". */
+  /** Where the run ended. It has the open question when the stop is "open". */
   update: SessionUpdate;
   /** The question of the first ship to move, before any ship moved. */
   movement?: SessionUpdate;
-  /** How many steps of the script the game took. */
+  /** The question of the first ground force to land: what the landings are staged against. */
+  invasion?: SessionUpdate;
+  /** The question of the first unit to produce: what a production is staged against. */
+  production?: SessionUpdate;
+  /** How many steps of the script the game took, or did not need. */
   consumed: number;
   stop: DraftStop;
 }

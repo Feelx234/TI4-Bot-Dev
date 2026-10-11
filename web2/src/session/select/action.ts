@@ -19,6 +19,16 @@ export interface DraftInfo {
   apply: ApplyView | null;
   /** Why the game did not play the whole draft. */
   problem: string | null;
+  /** The step of the action that is in view. Null: the activation, or a question of an ability. */
+  stage: "movement" | "invasion" | "production" | null;
+  /** The steps that the game came to with this draft: each of them can be opened. */
+  reached: ("movement" | "invasion" | "production")[];
+  /** The step in view is in the draft. While it is not, it is decided in Live. */
+  recorded: boolean;
+  /** The step that the game comes to after the step in view. */
+  next: "movement" | "invasion" | "production" | null;
+  /** What the draft comes to after the step in view, when no step follows. */
+  ends: string | null;
 }
 
 /** What the player does in this page, between two updates. Nothing of it is sent. */
@@ -53,7 +63,7 @@ export interface LocalState {
    * The steps of a movement, of the landings or of a production that another decision stopped.
    * They are staged again when that step goes on.
    */
-  remaining: MovementPlan | null;
+  remaining: (MovementPlan & { /** From a draft that was applied, not from a plan that stopped. */ drafted?: boolean }) | null;
   /** What the last movement that was sent came to, when it did not reach its end. */
   planNote: { text: string; error: boolean } | null;
   /** The seat that the game waits for before it lets it decide: "Step" goes on. */
@@ -211,7 +221,8 @@ export function selectAction(
                   ]
                 : []),
               {
-                label: "Send",
+                // A draft sends nothing: the answer is recorded.
+                label: local.draft ? "Record" : "Send",
                 tone: "primary" as const,
                 disabled: !staged,
                 key: "Enter",

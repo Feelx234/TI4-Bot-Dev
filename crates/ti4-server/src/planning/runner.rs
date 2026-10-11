@@ -31,6 +31,7 @@ pub use ti4_view::planning::audit::{
     ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION, SafePublication, StopReason,
 };
 use ti4_view::planning::audit::{audit_offer, audit_secondary_offer, validate_knowledge};
+use ti4_view::planning::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerPlan {
@@ -565,17 +566,7 @@ impl Gate {
         if !shared.active(self.generation) {
             return false;
         }
-        let activity = self.observation.activity();
-        // Uncertainty wins over any speculative error or later unsupported path.
-        let reason = if activity.randomness || activity.hidden_information {
-            Some(StopReason::Uncertainty)
-        } else if activity.unsupported_participation {
-            Some(StopReason::UnsupportedParticipation)
-        } else if activity.unsupported_segment {
-            Some(StopReason::UnsupportedSegment)
-        } else {
-            None
-        };
+        let reason = activity_stop(&self.observation);
         if let Some(reason) = reason {
             shared.stop(reason);
             return false;
@@ -864,35 +855,7 @@ fn spawn(
     let (inbox_tx, inbox) = mpsc::channel();
     let worker = std::thread::spawn(move || {
         let mut game = make_game();
-        let observation = ExecutionObservation::default();
-        game.bind_observation(observation.clone());
-        let planner = player.clone();
-        // One structural rule, no per-ability list: other seats take no optional
-        // reactions and their conditions are never read. The planner's own
-        // abilities and every mandatory one run on the disposable fork. What may
-        // be shown is decided only by the publication gate: a question outside
-        // the audited offers, new knowledge or a random outcome stops the preview.
-        game.timing.set_participation(Arc::new(move |ability| {
-            ability.owner == planner || !ability.optional
-        }));
-        let aftermath_observation = observation.clone();
-        game.on_aftermath(move |state, _content, _sources| {
-            let (Some(system), Some(player)) = (&state.active_system, &state.active) else {
-                aftermath_observation.unsupported_segment();
-                return;
-            };
-            // Space combat remains outside this slice. Invasion and production
-            // proceed through audited offers; dice and ordered draws latch
-            // uncertainty before any resulting position can be published.
-            if state
-                .system_state(system)
-                .units
-                .iter()
-                .any(|unit| &unit.owner != player)
-            {
-                aftermath_observation.unsupported_segment();
-            }
-        });
+        let observation = guard_fork(&mut game, &player);
         let (generation, scope) = {
             let shared = shared.lock().expect("planning lock");
             (shared.generation, shared.scope.clone())
@@ -990,7 +953,7 @@ fn run(mut game: Game<'static>, player: PlayerId, gate: &Gate, step_bound: usize
             }
         };
         let complete = match &gate.scope {
-            PlanScope::Tactical => ("TACTICAL_ACTION_COMPLETE", StopReason::MovementComplete),
+            PlanScope::Tactical => (TACTICAL_COMPLETE, StopReason::MovementComplete),
             PlanScope::Secondary { .. } => (
                 ti4_engine::game::SECONDARY_PREVIEW_COMPLETE,
                 StopReason::SecondaryComplete,

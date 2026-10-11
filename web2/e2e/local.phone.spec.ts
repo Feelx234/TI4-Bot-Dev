@@ -126,7 +126,8 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   await expect(send).toHaveText(/Activate system/);
   await expect(send).toBeInViewport({ ratio: 1 });
   await send.click();
-  // The movement of a draft has no main button; the controls of the draft are in the toolbar.
+  // Every change of the movement is recorded, and nothing follows it here: the footer has no
+  // main button. The controls of the draft are in the toolbar.
   await system("01").click();
   const sheet = page.getByRole("group", { name: /^Move from / });
   await sheet.getByRole("button", { name: /^Carrier 1 of / }).click();
@@ -305,6 +306,88 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   await send.click();
   await expect(send).not.toHaveText(/Produce/);
   await fits();
+});
+
+test("phone: a draft goes on to the landings and the production", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const row = (name: string | RegExp) => page.locator("#step-panel").getByRole("button", { name });
+  const footer = page.locator("footer");
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  const draft = () =>
+    page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Draft" });
+  await expect(row("Take a tactical action")).toBeVisible();
+  await draft().click();
+
+  // The system of the two space docks. Nothing moves, and AI Development Algorithm is kept.
+  await system("72").click();
+  await send.click();
+  await expect(send).toHaveText(/Move nothing/);
+  await send.click();
+  await row(/^Decline/i).click();
+  await expect(send).toHaveText(/Record/);
+  await send.click();
+  // The build of the draft is the sheet over the map, as in Live.
+  const sheet = page.getByRole("group", { name: /^Produce in / });
+  await expect(sheet).toBeVisible();
+  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  await sheet.getByRole("button", { name: "Add Cruiser" }).click();
+  await expect(sheet.getByRole("status").first()).toContainText("1 unit · 1 resource");
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/draft-production.png", animations: "disabled" });
+  // The check of the sheet goes on to the payment; a planet pays, and the draft is whole.
+  await sheet.getByRole("button", { name: "Done with the build" }).click();
+  await expect(sheet).toBeHidden();
+  await expect(page.getByRole("group", { name: "Payment" })).toBeVisible();
+  await page.locator("g.planet.payable").filter({ hasText: "Lisis" }).click();
+  await expect(footer.getByText("The action ends here. Every step is drafted.")).toBeVisible();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/draft-payment.png", animations: "disabled" });
+  const apply = page.getByRole("button", { name: "Apply to Live" });
+  await expect(apply).toBeInViewport({ ratio: 1 });
+  await apply.click();
+  await expect(page.getByRole("dialog").getByText("1 purchase produced and paid")).toBeVisible();
+  await fits();
+  await page.keyboard.press("Escape");
+
+  // Another action: a carrier lands infantry, and the draft ends where the landing draws a card.
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await page.getByRole("menuitem", { name: "Start over" }).click();
+  await system("38").click();
+  await send.click();
+  await system("63").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Carrier 1 of 1" }).click();
+  await fleet.getByRole("button", { name: /^Load Infantry, Planet Vorhal, 2 left/ }).click();
+  await fleet.getByRole("button", { name: "Load Infantry on Carrier 1 of 1" }).first().click();
+  await fleet.getByRole("button", { name: /^Done with/ }).click();
+  await expect(send).toHaveText(/Go to invasion/);
+  await expect(send).toBeInViewport({ ratio: 1 });
+  await send.click();
+  const landing = page.getByRole("group", { name: /^Land in / });
+  await expect(landing).toBeVisible();
+  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  await landing.getByRole("button", { name: /^Land .*Abyz/ }).first().click();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/draft-invasion.png", animations: "disabled" });
+  await landing.getByRole("button", { name: /^Done with/ }).click();
+  await expect(footer.getByText("The draft ends at a roll or a draw.")).toBeVisible();
+  await expect(apply).toBeEnabled();
+  await fits();
+  // Applied, the game lands the unit and goes on in Live.
+  await apply.click();
+  await expect(page.getByRole("dialog").getByText("1 ground force lands")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Apply to Live" }).click();
+  await expect(apply).toHaveCount(0);
+  await fits();
+  expect(errors).toEqual([]);
 });
 
 test("phone: the sheet of a player has its cards, and nothing is cut at the side", async ({

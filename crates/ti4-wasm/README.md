@@ -374,27 +374,40 @@ are still the printed ones: the value after the attachments is not in the view y
 
 ### A draft
 
-A draft is the next tactical action of a seat, tried on a copy of the game: its activation and
-its movement. `web2` shows it in the Draft workspace.
+A draft is the next tactical action of a seat, tried on a copy of the game: its activation, its
+movement, the landings of its invasion and its production. `web2` shows it in the Draft
+workspace.
 
 - The host writes `{"script": [...]}` at `ti4_request_ptr()` and calls `ti4_draft(length)`. A
-  step of the script is `{"kind":"choose","option_id":…}` or a step of a movement plan
-  (`DraftStep` in `ti4-view/src/planning/draft.rs`). The script of a tactical action is
-  `choose tactical`, `choose <system>`, then the movement.
+  step of the script is `{"kind":"choose","option_id":…}` or a step of a plan (`PlanStep` in
+  `ti4-view/src/planning/steps.rs`: `move`, `load`, `done_loading`, `done_moving`, `land`,
+  `done_committing`, `produce`, `place`, `pay`, `done_producing`). The script of a tactical
+  action is `choose tactical`, `choose <system>`, then the movement, the landings and the
+  production. A `choose` between them answers what the game asks the seat there (AI Development
+  Algorithm before the production).
+- The steps that follow each other are answered as a plan (`plan_answer`), with the rules that
+  the page has for a plan that it sends to the game (`planAnswer` in `web2`): a hold that is not
+  loaded is declined, a payment is found anywhere in the plan, an end that the game does not ask
+  for is left out. The pause between two steps of the action ("negotiate, or continue") is
+  passed.
 - The run forks the game at its last finished step, gives the seat a hypothetical turn
   (`Game::prepare_hypothetical_turn`), answers from the script, and stops at the first question
   that the script does not answer. Nothing is kept between two runs: a changed script is run
   again from its start. So the export returns at once and needs no second stack, and undo and
   redo of a draft are a list of scripts in the page.
 - The outcome (`DraftOutcome`) has `update`, where the run ended, in the shape of a live update
-  with `tactical`; `movement`, the update at the first ship to move, which a whole movement is
-  staged against; `consumed`, how many steps fit; and `stop`: `open`, `complete` (the script
-  ends the movement and the game offers that), `refused` with the step, `stopped` or `failed`.
-- The run does not answer "done moving": what follows rolls dice or asks other seats.
+  with `tactical`; `movement`, `invasion` and `production`, the update at the first question of
+  that step, which the whole step is staged against; `consumed`, how many steps fit; and
+  `stop`: `open` (a question that the script does not answer; steps of the script may be left),
+  `complete` (the tactical action is over), `refused` with the step, `stopped` or `failed`.
+- The run ends where something random lies ahead: dice (a gravity rift, space cannon, a
+  combat), a card that is drawn (a landing on a planet that nobody explored), ships of another
+  seat in the active system, a question of another seat. It is `stopped` there, with the reason.
 - What a draft may show is checked as on the server (`ti4-view/src/planning/audit.rs`): only
   audited offers, no dice, nothing that the seat did not know. The other seats take no optional
   reactions. These checks and the recorded-decision adapters were moved from `ti4-server`,
-  which re-exports them; its `PlanningRunner` is a worker thread around the same checks.
+  which re-exports them; its `PlanningRunner` is a worker thread around the same checks, and
+  guards its copy with the same code (`ti4-view/src/planning/fork.rs`).
 - The game at its last finished step is not kept: the checkpoints are made only after a step
   that asked the host. The base of a draft is the last checkpoint with the steps of the random
   seats since then played again on a copy of their stream, as an undo does. It is made for the
@@ -409,10 +422,16 @@ its movement. `web2` shows it in the Draft workspace.
 
 Limits:
 
-- Only the activation and the movement. A question of the seat before its turn menu (a
-  start-of-turn ability) stops the draft at its first step.
-- The matching of a movement step to an option is now in three places: `DraftStep` in
-  `ti4-view`, `planAnswer` in `web2` (for the live plan) and `batch.rs` in the server.
+- A question of the seat before its turn menu (a start-of-turn ability) stops the draft at its
+  first step. A question of an ability in the middle of a step (not before it) has no place in
+  the script of the page.
+- A landing on a planet that nobody explored draws a card, so a production after it is not
+  drafted.
+- An option of the landings with `from_system` or `from_planet`, and the exchange of a
+  production, are not audited: the draft stops there.
+- The rules of a plan are in two places: `plan_answer` in `ti4-view` (the draft) and
+  `planAnswer` in `web2` (the plan that is sent to the live game). Tests hold them together.
+  `batch.rs` in the server has its own steps.
 
 ### Scenarios
 

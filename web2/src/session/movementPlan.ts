@@ -54,9 +54,28 @@ export type ProductionStep =
   | { kind: "pay"; source: string }
   | { kind: "done_producing" };
 
-export type PlanStep = MovementStep | LandingStep | ProductionStep;
+/** An answer to what the game asks between the steps (an ability of the seat), by the id of the option. */
+export type ChooseStep = { kind: "choose"; option_id: string };
 
-/** The steps of one step of a tactical action: its movement, its landings, or its production. */
+export type PlanStep = MovementStep | LandingStep | ProductionStep | ChooseStep;
+
+/** The step of a tactical action that a step of a plan belongs to. Null for an answer by id. */
+export const stageOf = (step: PlanStep): "movement" | "invasion" | "production" | null =>
+  step.kind === "choose"
+    ? null
+    : step.kind === "move" ||
+        step.kind === "load" ||
+        step.kind === "done_loading" ||
+        step.kind === "done_moving"
+      ? "movement"
+      : step.kind === "land" || step.kind === "done_committing"
+        ? "invasion"
+        : "production";
+
+/**
+ * The steps of a tactical action: its movement, its landings or its production, or several of
+ * them in this order when a draft is sent.
+ */
 export interface MovementPlan {
   /** The active system. */
   destination: string;
@@ -185,6 +204,8 @@ export function matches(step: PlanStep, option: ChoiceOption): boolean {
       return option.kind === "pay" && option.id === step.source;
     case "done_producing":
       return option.id === "done_producing";
+    case "choose":
+      return option.id === step.option_id;
   }
 }
 
@@ -260,9 +281,11 @@ const describe = (step: PlanStep) =>
                   ? `place the units on ${step.destination}`
                   : step.kind === "pay"
                     ? `pay with ${step.source}`
-                    : "finish the production";
+                    : step.kind === "choose"
+                      ? `answer "${step.option_id}"`
+                      : "finish the production";
 
-const SUBTYPES: Record<PlanStep["kind"], string> = {
+const SUBTYPES: Record<Exclude<PlanStep["kind"], "choose">, string> = {
   move: "movement_step",
   done_moving: "movement_step",
   load: "load_cargo",
@@ -302,6 +325,9 @@ export type PlanAnswer =
  * the purchase needs: the answer is the first payment of the plan that is offered, wherever it is
  * in the plan. A place that the game settled, a payment that it did not need and an end that it
  * did not ask for are left out.
+ * The pause between two steps of the action ("negotiate, or continue") is passed while steps are
+ * left. An answer by id (`choose`) is for whatever the game asks the seat there.
+ * `plan_answer` in `crates/ti4-view/src/planning/steps.rs` has the same rules, for a draft.
  */
 export function planAnswer(
   steps: PlanStep[],
@@ -320,6 +346,13 @@ export function planAnswer(
           reason: `The game does not offer to ${describe(step)}${found.length ? " in one way only" : ""}.`,
         };
   };
+  if (own && subtype === "mid_action_pause" && next < steps.length) {
+    // The plan goes on to its next step, whatever that is.
+    const index = choice.options.findIndex((option) => option.id === "continue_action");
+    if (index >= 0) {
+      return { kind: "answer", index, next };
+    }
+  }
   if (own && subtype === "movement_step") {
     while (steps[next]?.kind === "done_loading") {
       next += 1;
@@ -372,6 +405,11 @@ export function planAnswer(
   const step = steps[next];
   if (!step) {
     return { kind: "done" };
+  }
+  if (step.kind === "choose") {
+    return own
+      ? pick(step, next + 1)
+      : { kind: "interrupted", reason: "The game asks for another decision first." };
   }
   if (own && subtype === "load_cargo" && step.kind !== "load" && step.kind !== "done_loading") {
     // A hold that the plan does not load.

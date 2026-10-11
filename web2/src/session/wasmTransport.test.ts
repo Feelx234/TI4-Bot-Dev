@@ -2,7 +2,20 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { setLoad, setShip } from "./movementDraft";
-import { entryOf, activate, fits, newDraft, scriptOf, setMovement } from "./draft";
+import {
+  type Draft,
+  activate,
+  answer,
+  entryOf,
+  fits,
+  frontier,
+  newDraft,
+  problemOf,
+  scriptOf,
+  setMovement,
+  setProduction,
+  stageAfter,
+} from "./draft";
 import { draftOf as landingOf, stepsOf as landingSteps, setLanding } from "./landingDraft";
 import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
 import {
@@ -18,7 +31,13 @@ import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
-import type { InvasionFacts, MovementFacts, ProductionFacts, SessionUpdate } from "./wire";
+import type {
+  DraftOutcome,
+  InvasionFacts,
+  MovementFacts,
+  ProductionFacts,
+  SessionUpdate,
+} from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
@@ -567,6 +586,84 @@ it.skipIf(!built)(
     );
     transport.close();
   },
+);
+
+it.skipIf(!built)(
+  "drafts a tactical action up to its production, and applies it as one request",
+  async () => {
+    const { transport, next, nonce, answers } = await play(false, {
+      seed: 42,
+      players: 8,
+      humans: 1,
+      scenario: "late-game",
+    });
+    const menu = await next();
+    expect(subtype(menu)).toBe("action_menu");
+    const run = (draft: Draft) => transport.runDraft(scriptOf(entryOf(draft)))!;
+    const asks = (outcome: DraftOutcome) =>
+      outcome.update.pending_choice?.choice.context?.subtype;
+
+    // The system of the two space docks. Nothing moves: the draft goes on.
+    let draft = setMovement(activate(newDraft(), "72"), [{ kind: "done_moving" }]);
+    const asked = run(draft);
+    // AI Development Algorithm asks before the production. It is no step of the action.
+    expect(asked.stop).toEqual({ kind: "open" });
+    expect(asks(asked)).toBe("exhaust_for_production_discount");
+    expect(frontier(asked)).toBeNull();
+    draft = answer(draft, "invasion", "decline");
+
+    const open = run(draft);
+    expect(open.stop).toEqual({ kind: "open" });
+    expect(frontier(open)).toBe("production");
+    expect(open.invasion).toBeUndefined();
+    expect(stageAfter(open, "movement")).toBe("production");
+    const facts = open.production?.tactical as ProductionFacts;
+    expect(facts).toMatchObject({ kind: "production", system: "72" });
+    const before = shipsIn(open.update, "72");
+
+    // A cruiser that is not paid is kept in the draft, and the game is not asked for it.
+    const unit = facts.units.findIndex((item) => item.unit === "cruiser2");
+    let build = addBuild(facts, EMPTY, unit, "space");
+    draft = setProduction(draft, productionSteps(facts, build), false);
+    expect(run(draft).stop).toEqual({ kind: "open" });
+    // Played unpaid, it is refused at its payment.
+    const unpaid = transport.runDraft([
+      ...scriptOf(entryOf(draft)),
+      ...productionSteps(facts, build),
+    ])!;
+    expect(unpaid.stop).toMatchObject({ kind: "refused" });
+    expect(problemOf({ ...entryOf(draft), unpaid: false }, unpaid)).toMatch(
+      /^A part of the production no longer fits/,
+    );
+
+    // Lisis pays: the action is over, and the draft is the whole of it.
+    build = togglePlanet(facts, build, "lisis");
+    expect(totals(facts, build).paid).toBeGreaterThanOrEqual(totals(facts, build).cost);
+    draft = setProduction(draft, productionSteps(facts, build), true);
+    const done = run(draft);
+    expect(done.stop).toEqual({ kind: "complete" });
+    expect(fits(entryOf(draft), done)).toBe(true);
+    expect(shipsIn(done.update, "72")).toEqual([...before, "cruiser2"].sort());
+    // The production is still staged against its first question.
+    expect(done.production?.tactical).toEqual(facts);
+    expect(productionOf(facts, entryOf(draft).production ?? [])).toEqual(build);
+
+    // Nothing of this is in the game, until it is applied as one request.
+    expect(answers()).toHaveLength(0);
+    const script = scriptOf(entryOf(draft));
+    transport.applyDraft(nonce(menu), {
+      choices: ["tactical", "72"],
+      plan: { destination: "72", steps: script.slice(2, done.consumed) as PlanStep[] },
+    });
+    const after = await next();
+    expect(after.plan).toBeUndefined();
+    expect(subtype(after)).not.toBe("produce_unit");
+    expect(shipsIn(after.update, "72")).toEqual([...before, "cruiser2"].sort());
+    expect(after.update.view.board.systems["72"].planets.lisis.exhausted).toBe(true);
+    expect(answers().slice(0, 5)).toEqual(["tactical", "72", "done_moving", "decline", "build|cruiser2|1"]);
+    transport.close();
+  },
+  60_000,
 );
 
 it.skipIf(!built)(

@@ -4,10 +4,12 @@
 //! disposable [`Game::fork`] with a fresh hypothetical turn, and returns where it stopped and
 //! what the planner is shown there. Nothing is kept between two runs, so a changed script is run
 //! again from its start, and the caller needs no thread and no game of its own. The server's
-//! planning runner keeps a worker thread around the same checks ([`super::audit`]).
+//! planning runner keeps a worker thread around the same guard ([`super::fork`]) and the same
+//! checks ([`super::audit`]).
 //!
-//! The run covers the activation and the movement. It does not answer "done moving": the
-//! steps after the movement roll dice or ask other seats, and are not drafted yet.
+//! The run covers the whole action: the activation, the movement, the landings of an invasion
+//! and the production. It ends where the script does, or where something random lies ahead:
+//! dice, a card that is drawn, a combat, a question of another seat.
 
 use std::sync::{Arc, Mutex};
 
@@ -23,6 +25,8 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
 use super::audit::{PlanScope, SafePublication, StopReason, audit_offer, validate_knowledge};
+use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
+use super::steps::{PlanAnswer, PlanStep, plan_answer};
 use crate::projection::{SessionUpdate, project_game_view, project_session_update};
 use crate::status::ViewerRole;
 use crate::tactical::{TacticalFacts, project_tactical_facts};
@@ -31,97 +35,41 @@ use crate::view::{BoardTileView, GameView};
 /// The nonce of the question a draft is open at. A draft is never answered by its nonce.
 pub const DRAFT_NONCE: &str = "draft";
 
-/// How many engine steps a run takes at most. A tactical action up to the end of its movement
-/// needs a few.
-const STEP_BOUND: usize = 32;
+/// How many engine steps a run takes at most. A whole tactical action needs a few: most of its
+/// questions are asked inside one step.
+const STEP_BOUND: usize = 64;
 
-/// One entry of a draft script. The movement steps name what is moved and loaded, not the ids
-/// of the options: the engine numbers its options again after each ship.
+/// An answer by the id of its option: the action of the turn menu, the system that is activated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ChosenOption {
+    Choose { option_id: String },
+}
+
+/// One entry of a draft script: an answer by its id, or a step of the action ([`PlanStep`]) as
+/// the page sends it to the live game. The steps that follow each other are one plan
+/// ([`plan_answer`]); an answer by id between them is for what the game asks there (an ability
+/// of the planner before the production).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum DraftStep {
-    /// Answer the open question with the option of this id.
-    Choose {
-        option_id: String,
-    },
-    Move {
-        origin: String,
-        unit: String,
-        damaged: bool,
-        gravity_drive: bool,
-        ionian: bool,
-    },
-    Load {
-        /// The system that the ship starts in.
-        origin: String,
-        /// The system where the unit is picked up.
-        pickup_system: String,
-        unit: String,
-        /// The planet, or `None` for the space area.
-        source: Option<String>,
-        damaged: bool,
-        galvanized: bool,
-    },
-    DoneLoading,
-    DoneMoving,
+    Chosen(ChosenOption),
+    Step(PlanStep),
 }
 
 impl DraftStep {
-    /// The question that this step answers, by the subtype of its context. `None`: any question.
-    const fn subtype(&self) -> Option<&'static str> {
-        match self {
-            Self::Choose { .. } => None,
-            Self::Move { .. } | Self::DoneMoving => Some("movement_step"),
-            Self::Load { .. } | Self::DoneLoading => Some("load_cargo"),
-        }
-    }
-
-    /// Whether an offered option is what this step asks for.
+    /// Answer the open question with the option of this id.
     #[must_use]
-    pub fn matches_option(&self, option: &ChoiceOption) -> bool {
-        let text = |key: &str| option.payload.get(key).and_then(serde_json::Value::as_str);
-        let flag = |key: &str| {
-            option
-                .payload
-                .get(key)
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(false)
-        };
-        match self {
-            Self::Choose { option_id } => option.id == *option_id,
-            Self::Move {
-                origin,
-                unit,
-                damaged,
-                gravity_drive,
-                ionian,
-            } => {
-                option.kind == ti4_engine::tactical::MOVE_KIND
-                    && text("origin") == Some(origin)
-                    && text("unit") == Some(unit)
-                    && flag("damaged") == *damaged
-                    && flag("gravity_drive") == *gravity_drive
-                    && flag("ionian") == *ionian
-            }
-            Self::Load {
-                origin,
-                pickup_system,
-                unit,
-                source,
-                damaged,
-                galvanized,
-            } => {
-                option.kind == ti4_engine::transit::LOAD_KIND
-                    && text("system") == Some(origin)
-                    && text("pickup_system") == Some(pickup_system)
-                    && text("unit") == Some(unit)
-                    && text("source") == source.as_deref()
-                    && flag("damaged") == *damaged
-                    && flag("galvanized") == *galvanized
-            }
-            Self::DoneLoading => option.id == "done_loading",
-            Self::DoneMoving => option.id == "done_moving",
-        }
+    pub fn choose(option_id: impl Into<String>) -> Self {
+        Self::Chosen(ChosenOption::Choose {
+            option_id: option_id.into(),
+        })
+    }
+}
+
+impl From<PlanStep> for DraftStep {
+    fn from(step: PlanStep) -> Self {
+        Self::Step(step)
     }
 }
 
@@ -131,12 +79,12 @@ impl DraftStep {
 pub enum DraftStop {
     /// The script is used up: the question of the update is open.
     Open,
-    /// The script ends the movement, and the game offers that. The draft goes no further.
+    /// The game played the whole script, and the tactical action is over.
     Complete,
     /// The game does not offer what step `step` of the script asks for.
     Refused { step: usize, reason: String },
-    /// The run reached something a draft cannot show: dice, a card that is drawn, a question
-    /// of another seat or one outside the audited offers.
+    /// The run reached something a draft cannot show: dice, a card that is drawn, a combat, a
+    /// question of another seat or one outside the audited offers.
     Stopped { reason: StopReason },
     /// No hypothetical turn can be made from this position, or the engine failed.
     Failed { reason: String },
@@ -146,13 +94,20 @@ pub enum DraftStop {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DraftOutcome {
     /// The position where the run ended, with the open question when the stop is
-    /// [`DraftStop::Open`] or [`DraftStop::Complete`]. The same shape as a live update.
+    /// [`DraftStop::Open`]. The same shape as a live update.
     pub update: SessionUpdate,
     /// The question of the first ship to move, before any ship moved: what a whole movement is
     /// staged against. `None` when the run did not reach the movement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub movement: Option<SessionUpdate>,
-    /// How many steps of the script the game took.
+    /// The question of the first ground force to land: what the landings are staged against.
+    /// `None` when the run did not reach them, or the action has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invasion: Option<SessionUpdate>,
+    /// The question of the first unit to produce: what a production is staged against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub production: Option<SessionUpdate>,
+    /// How many steps of the script the game took, or did not need.
     pub consumed: usize,
     pub stop: DraftStop,
 }
@@ -167,6 +122,7 @@ pub struct DraftBase<'a, 'c> {
 }
 
 /// A question that passed the audit, on the position it was asked in.
+#[derive(Clone)]
 struct Offer {
     state: GameState,
     choice: Choice,
@@ -174,7 +130,9 @@ struct Offer {
 
 struct Run {
     player: PlayerId,
+    /// A payment may change its place among the steps around it ([`plan_answer`]).
     script: Vec<DraftStep>,
+    /// How many entries of the script are done.
     next: usize,
     stop: Option<DraftStop>,
     baseline: GameView,
@@ -183,8 +141,8 @@ struct Run {
     seen: Option<GameState>,
     last: Option<Offer>,
     movement: Option<Offer>,
-    /// A ship of the script moved.
-    moved: bool,
+    invasion: Option<Offer>,
+    production: Option<Offer>,
 }
 
 impl Run {
@@ -202,19 +160,8 @@ impl Run {
         if self.stop.is_some() {
             return None;
         }
-        let activity = observation.activity();
-        // Uncertainty wins over any later unsupported path, as in the server's gate.
-        let reason = if activity.randomness || activity.hidden_information {
-            Some(StopReason::Uncertainty)
-        } else if activity.unsupported_participation {
-            Some(StopReason::UnsupportedParticipation)
-        } else if activity.unsupported_segment {
-            Some(StopReason::UnsupportedSegment)
-        } else if choice.player != self.player {
-            Some(StopReason::OtherPlayerRequired)
-        } else {
-            None
-        };
+        let reason = activity_stop(observation)
+            .or_else(|| (choice.player != self.player).then_some(StopReason::OtherPlayerRequired));
         let offer = match (reason, state) {
             (Some(reason), _) => Err(reason),
             (None, None) => Err(StopReason::UnsupportedOffer),
@@ -227,84 +174,132 @@ impl Run {
                 return None;
             }
         };
-        let subtype = choice
+        let subtype = offer
+            .choice
             .context
             .as_ref()
             .map_or("", |context| context.subtype.as_str());
-        if subtype == "movement_step" && !self.moved && self.movement.is_none() {
-            self.movement = Some(Offer {
-                state: offer.state.clone(),
-                choice: offer.choice.clone(),
-            });
+        if subtype == "mid_action_pause" {
+            // The pause between two steps of the action is no step of a draft: it goes on.
+            return offer
+                .choice
+                .option(ti4_engine::game::CONTINUE_ACTION_ID)
+                .cloned();
         }
-        let offered = self.last.insert(offer);
-        // A hold that closed itself needs no "done loading".
-        if subtype == "movement_step" {
-            while self.script.get(self.next) == Some(&DraftStep::DoneLoading) {
-                self.next += 1;
+        // The first question of a step is what the whole step is staged against.
+        let first = match subtype {
+            crate::tactical::MOVEMENT_SUBTYPE => Some(&mut self.movement),
+            crate::tactical::INVASION_SUBTYPE => Some(&mut self.invasion),
+            crate::tactical::PRODUCTION_SUBTYPE => Some(&mut self.production),
+            _ => None,
+        };
+        if let Some(first) = first {
+            first.get_or_insert_with(|| offer.clone());
+        }
+        let offered = self.last.insert(offer).choice.clone();
+        if matches!(self.script.get(self.next), Some(DraftStep::Step(_))) {
+            // The steps around the next one are one plan.
+            let is_step = |entry: &DraftStep| matches!(entry, DraftStep::Step(_));
+            let start = self.script[..self.next]
+                .iter()
+                .rposition(|entry| !is_step(entry))
+                .map_or(0, |index| index + 1);
+            let end = self.script[self.next..]
+                .iter()
+                .position(|entry| !is_step(entry))
+                .map_or(self.script.len(), |offset| self.next + offset);
+            let plan: Vec<PlanStep> = self.script[start..end]
+                .iter()
+                .filter_map(|entry| match entry {
+                    DraftStep::Step(step) => Some(step.clone()),
+                    DraftStep::Chosen(_) => None,
+                })
+                .collect();
+            match plan_answer(&plan, self.next - start, &offered, &self.player) {
+                PlanAnswer::Answer {
+                    option,
+                    next,
+                    steps,
+                } => {
+                    self.next = start + next;
+                    if let Some(steps) = steps {
+                        self.script
+                            .splice(start..end, steps.into_iter().map(DraftStep::Step));
+                    }
+                    return Some(option);
+                }
+                // The game needs no more of these steps: what follows them is next.
+                PlanAnswer::Done => self.next = end,
+                PlanAnswer::Interrupted { .. } => {
+                    // A question of the planner that the script has no answer for is open, with
+                    // the rest of the script still to play.
+                    self.end(DraftStop::Open);
+                    return None;
+                }
+                PlanAnswer::Mismatch { step, reason } => {
+                    self.end(DraftStop::Refused {
+                        step: start + step,
+                        reason,
+                    });
+                    return None;
+                }
             }
         }
-        let Some(step) = self.script.get(self.next) else {
-            self.end(DraftStop::Open);
-            return None;
-        };
-        // A hold that the script does not load is declined.
-        let declined = subtype == "load_cargo" && step.subtype() != Some("load_cargo");
-        let step = if declined {
-            &DraftStep::DoneLoading
-        } else {
-            step
-        };
-        if step.subtype().is_some_and(|wanted| wanted != subtype) {
-            self.stop = Some(DraftStop::Refused {
-                step: self.next,
-                reason: "The game asks for another decision first.".to_owned(),
-            });
-            return None;
-        }
-        let mut matching = offered
-            .choice
-            .options
-            .iter()
-            .filter(|option| step.matches_option(option));
-        let option = match (matching.next(), matching.next()) {
-            (Some(option), None) => option.clone(),
-            (found, _) => {
-                let reason = if found.is_some() {
-                    "The game offers this in more than one way."
-                } else {
-                    "The game does not offer this."
+        match self.script.get(self.next) {
+            Some(DraftStep::Chosen(ChosenOption::Choose { option_id })) => {
+                let Some(option) = offered.option(option_id) else {
+                    self.end(DraftStop::Refused {
+                        step: self.next,
+                        reason: "The game does not offer this.".to_owned(),
+                    });
+                    return None;
                 };
-                self.stop = Some(DraftStop::Refused {
-                    step: self.next,
-                    reason: reason.to_owned(),
-                });
-                return None;
+                self.next += 1;
+                Some(option.clone())
             }
-        };
-        if *step == DraftStep::DoneMoving {
-            // Offered, and not taken: what follows the movement is not drafted.
-            self.next += 1;
-            self.end(DraftStop::Complete);
-            return None;
+            _ => {
+                self.end(DraftStop::Open);
+                None
+            }
         }
-        if !declined {
-            self.moved |= matches!(step, DraftStep::Move { .. });
-            self.next += 1;
-        }
-        Some(option)
     }
 
-    /// The question as the planner may see it: only the audited options, on a position that
-    /// tells nothing new.
-    fn audited(&self, state: GameState, choice: &Choice) -> Result<Offer, StopReason> {
-        let enabled = audit_offer(choice)?;
-        let mut choice = choice.clone();
-        choice.options.retain(|option| enabled.contains(&option.id));
+    /// The action is over. The entries that are left must be such that the game needs no answer
+    /// for them: an end that it did not ask for, a payment that it did not need.
+    fn complete(&mut self) {
+        let needless = |entry: &DraftStep| {
+            matches!(
+                entry,
+                DraftStep::Step(
+                    PlanStep::DoneLoading
+                        | PlanStep::DoneCommitting
+                        | PlanStep::Pay { .. }
+                        | PlanStep::Place { .. }
+                        | PlanStep::DoneProducing
+                )
+            )
+        };
+        if self.script[self.next..].iter().all(needless) {
+            self.next = self.script.len();
+            self.end(DraftStop::Complete);
+        } else {
+            self.end(DraftStop::Refused {
+                step: self.next,
+                reason: "The action is over before this.".to_owned(),
+            });
+        }
+    }
+
+    /// Whether a position tells the planner nothing new.
+    fn known(
+        &self,
+        state: &GameState,
+        choice: Option<Choice>,
+    ) -> Result<Option<Choice>, StopReason> {
         let viewer = ViewerRole::Player(self.player.clone());
         let publication = SafePublication {
-            position: project_game_view(&state, &viewer),
-            choice: Some(choice),
+            position: project_game_view(state, &viewer),
+            choice,
             events: Vec::new(),
         };
         validate_knowledge(
@@ -313,10 +308,19 @@ impl Run {
             &self.player,
             &PlanScope::Tactical,
         )?;
-        Ok(Offer {
-            state,
-            choice: publication.choice.expect("the audited choice"),
-        })
+        Ok(publication.choice)
+    }
+
+    /// The question as the planner may see it: only the audited options, on a position that
+    /// tells nothing new.
+    fn audited(&self, state: GameState, choice: &Choice) -> Result<Offer, StopReason> {
+        let enabled = audit_offer(choice)?;
+        let mut choice = choice.clone();
+        choice.options.retain(|option| enabled.contains(&option.id));
+        let choice = self
+            .known(&state, Some(choice))?
+            .expect("the audited choice");
+        Ok(Offer { state, choice })
     }
 }
 
@@ -370,13 +374,7 @@ pub fn run_draft(
 ) -> DraftOutcome {
     let viewer = ViewerRole::Player(player.clone());
     let mut game = base.game.fork();
-    let observation = ExecutionObservation::default();
-    game.bind_observation(observation.clone());
-    // Other seats take no optional reactions, and their conditions are never read.
-    let planner = player.clone();
-    game.timing.set_participation(Arc::new(move |ability| {
-        ability.owner == planner || !ability.optional
-    }));
+    let observation = guard_fork(&mut game, player);
     let run = Arc::new(Mutex::new(Run {
         player: player.clone(),
         script: script.to_vec(),
@@ -386,7 +384,8 @@ pub fn run_draft(
         seen: None,
         last: None,
         movement: None,
-        moved: false,
+        invasion: None,
+        production: None,
     }));
     let decider = |observed| {
         Box::new(ScriptDecider {
@@ -408,17 +407,37 @@ pub fn run_draft(
             reason: error.to_string(),
         });
     }
+    // The position after the last step that ended with no question open.
+    let mut settled = None;
+    let mut events = game.events.len();
     for _ in 0..STEP_BOUND {
         if ended(&run) {
             break;
         }
         let error = game.step().error;
         let mut run = run.lock().expect("draft lock");
+        if run.stop.is_some() {
+            break;
+        }
         if let Some(error) = error {
             run.end(DraftStop::Failed {
                 reason: error.to_string(),
             });
+        } else if let Some(reason) =
+            activity_stop(&observation).or_else(|| run.known(&game.state, None).err())
+        {
+            // The step did something that no question came after: a roll, a draw.
+            run.end(DraftStop::Stopped { reason });
+        } else {
+            settled = Some(game.state.clone());
+            if game.events[events..]
+                .iter()
+                .any(|event| event == TACTICAL_COMPLETE)
+            {
+                run.complete();
+            }
         }
+        events = game.events.len();
     }
     drop(game);
     let mut run = run.lock().expect("draft lock");
@@ -433,30 +452,37 @@ pub fn run_draft(
         });
         update
     };
+    let closed = |state: &GameState| {
+        explored(
+            state,
+            project_session_update(state, &viewer, None, base.tiles),
+        )
+    };
     let shown = |offer: &Offer, open: bool| {
+        if !open {
+            return closed(&offer.state);
+        }
         let mut update = project_session_update(
             &offer.state,
             &viewer,
-            open.then_some((&offer.choice, DRAFT_NONCE)),
+            Some((&offer.choice, DRAFT_NONCE)),
             base.tiles,
         );
-        if open {
-            update.tactical = facts(base, &offer.state, &offer.choice);
-        }
+        update.tactical = facts(base, &offer.state, &offer.choice);
         explored(&offer.state, update)
     };
-    let open = matches!(stop, DraftStop::Open | DraftStop::Complete);
+    let first = |offer: &Option<Offer>| offer.as_ref().map(|offer| shown(offer, true));
+    let update = match (&stop, &settled, &run.last) {
+        // The board after the action.
+        (DraftStop::Complete, Some(state), _) => closed(state),
+        (_, _, Some(offer)) => shown(offer, stop == DraftStop::Open),
+        _ => closed(&base.game.state),
+    };
     DraftOutcome {
-        update: run.last.as_ref().map_or_else(
-            || {
-                explored(
-                    &base.game.state,
-                    project_session_update(&base.game.state, &viewer, None, base.tiles),
-                )
-            },
-            |offer| shown(offer, open),
-        ),
-        movement: run.movement.as_ref().map(|offer| shown(offer, true)),
+        update,
+        movement: first(&run.movement),
+        invasion: first(&run.invasion),
+        production: first(&run.production),
         consumed: run.next,
         stop,
     }
@@ -535,15 +561,15 @@ mod tests {
             .find(|ship| ship.r#move.is_some())
             .expect("a ship that can move");
         let plan = ship.r#move.as_ref().unwrap();
-        script.push(DraftStep::Move {
+        script.push(step(PlanStep::Move {
             origin: ship.origin.clone(),
             unit: ship.unit.clone(),
             damaged: ship.damaged,
             gravity_drive: plan.gravity_drive,
             ionian: plan.ionian,
-        });
-        script.push(DraftStep::DoneLoading);
-        script.push(DraftStep::DoneMoving);
+        }));
+        script.push(step(PlanStep::DoneLoading));
+        script.push(step(PlanStep::DoneMoving));
         let moved = run(&game, &tiles, &script);
         assert_eq!(moved.stop, DraftStop::Complete);
         assert_eq!(moved.consumed, script.len());
@@ -562,10 +588,12 @@ mod tests {
         run_draft(&base, &PlayerId::new("a"), script)
     }
 
+    fn step(step: PlanStep) -> DraftStep {
+        step.into()
+    }
+
     fn choose(id: &str) -> DraftStep {
-        DraftStep::Choose {
-            option_id: id.to_owned(),
-        }
+        DraftStep::choose(id)
     }
 
     fn subtype(update: &SessionUpdate) -> &str {
@@ -613,15 +641,15 @@ mod tests {
             .expect("a ship that can move");
         let plan = ship.r#move.as_ref().unwrap();
 
-        script.push(DraftStep::Move {
+        script.push(step(PlanStep::Move {
             origin: ship.origin.clone(),
             unit: ship.unit.clone(),
             damaged: ship.damaged,
             gravity_drive: plan.gravity_drive,
             ionian: plan.ionian,
-        });
-        script.push(DraftStep::DoneLoading);
-        script.push(DraftStep::DoneMoving);
+        }));
+        script.push(step(PlanStep::DoneLoading));
+        script.push(step(PlanStep::DoneMoving));
         let moved = run(&game, &tiles, &script);
         assert_eq!(moved.stop, DraftStop::Complete);
         assert_eq!(moved.consumed, script.len());
@@ -649,14 +677,14 @@ mod tests {
         let script = [
             choose("tactical"),
             choose(&facts.systems[0].system),
-            DraftStep::Move {
+            step(PlanStep::Move {
                 origin: "nowhere".to_owned(),
                 unit: "carrier".to_owned(),
                 damaged: false,
                 gravity_drive: false,
                 ionian: false,
-            },
-            DraftStep::DoneMoving,
+            }),
+            step(PlanStep::DoneMoving),
         ];
         let outcome = run(&game, &tiles, &script);
         assert!(
@@ -673,5 +701,217 @@ mod tests {
             &[choose("tactical"), choose("no such system")],
         );
         assert!(matches!(unknown.stop, DraftStop::Refused { step: 1, .. }));
+    }
+
+    /// The late game of the scenarios: seat A has the turn, two space docks and many fleets.
+    fn late_game() -> (Game<'static>, Vec<BoardTileView>) {
+        let content = ContentStore::embedded();
+        let ids: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f", "g", "h"]
+            .iter()
+            .map(|name| PlayerId::new(*name))
+            .collect();
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 8, POK)
+            .expect("a template for eight");
+        let (mut state, mut galaxy) =
+            crate::map::create_game_with_template(content, &ids, 42, Some(&template))
+                .expect("a game");
+        crate::scenario::apply(
+            crate::scenario::LATE_GAME,
+            &mut state,
+            &mut galaxy,
+            content,
+            POK,
+        )
+        .expect("the scenario applies");
+        let tiles = crate::map::build_board_tiles(content, &galaxy);
+        let mut game = Game::with_seeded_random(state, content, 42)
+            .with_sources(POK)
+            .with_galaxy(galaxy);
+        game.table = Table::with_default(Box::new(SeededRandom::new(42)));
+        (game, tiles)
+    }
+
+    /// The system of the second space dock, the free system with two planets, a system with a
+    /// fleet of seat C, and the system north of the free one (`scenario::at`).
+    const DOCK: &str = "72";
+    const FREE: &str = "38";
+    const ENEMY: &str = "32";
+    const NORTH: &str = "63";
+
+    #[test]
+    fn a_draft_goes_on_to_the_production_and_ends_with_the_action() {
+        let (game, tiles) = late_game();
+        let before = game.state.clone();
+        let mut script = vec![choose("tactical"), choose(DOCK), step(PlanStep::DoneMoving)];
+
+        // AI Development Algorithm asks before the production: the question is open.
+        let asked = run(&game, &tiles, &script);
+        assert_eq!(asked.stop, DraftStop::Open);
+        assert_eq!(subtype(&asked.update), "exhaust_for_production_discount");
+        assert_eq!(asked.consumed, 3);
+        script.push(choose("decline"));
+
+        let open = run(&game, &tiles, &script);
+        assert_eq!(open.stop, DraftStop::Open);
+        assert_eq!(subtype(&open.update), "produce_unit");
+        assert_eq!(open.production.as_ref(), Some(&open.update));
+        assert_eq!(open.invasion, None, "nothing can land");
+        let Some(TacticalFacts::Production(facts)) = &open.update.tactical else {
+            panic!("no production facts");
+        };
+        let cruiser = facts
+            .units
+            .iter()
+            .find(|unit| unit.unit == "cruiser2" && unit.unavailable.is_none())
+            .expect("a cruiser");
+        let produce = step(PlanStep::Produce {
+            unit: cruiser.unit.clone(),
+        });
+
+        // A build that is not paid is refused at its payment.
+        let mut unpaid = script.clone();
+        unpaid.extend([produce.clone(), step(PlanStep::DoneProducing)]);
+        let refused = run(&game, &tiles, &unpaid);
+        assert!(
+            matches!(refused.stop, DraftStop::Refused { step: 5, .. }),
+            "{:?}",
+            refused.stop
+        );
+        assert_eq!(refused.production, open.production);
+
+        // Every planet pays; the game takes what it needs and the rest is left out.
+        script.push(produce);
+        script.extend(facts.planets.iter().map(|planet| {
+            step(PlanStep::Pay {
+                source: format!("exhaust|{}", planet.planet),
+            })
+        }));
+        script.push(step(PlanStep::DoneProducing));
+        let produced = run(&game, &tiles, &script);
+        assert_eq!(produced.stop, DraftStop::Complete);
+        assert_eq!(produced.consumed, script.len());
+        assert_eq!(produced.production, open.production);
+        assert_eq!(produced.update.pending_choice, None);
+        let there = &produced.update.view.board.systems[&ti4_model::id::SystemId::new(DOCK)].units;
+        let cruisers = |units: &[crate::view::PlacedUnitView]| {
+            units
+                .iter()
+                .filter(|unit| unit.unit_type.as_str() == cruiser.unit)
+                .count()
+        };
+        let was = &open.update.view.board.systems[&ti4_model::id::SystemId::new(DOCK)].units;
+        assert_eq!(cruisers(there), cruisers(was) + 1);
+
+        assert_eq!(game.state, before, "a draft changes nothing");
+    }
+
+    #[test]
+    fn a_draft_ends_where_a_landing_draws_a_card() {
+        let (game, tiles) = late_game();
+        let mut script = vec![choose("tactical"), choose(FREE)];
+        let movement = run(&game, &tiles, &script);
+        let Some(TacticalFacts::Movement(facts)) = &movement.update.tactical else {
+            panic!("no movement facts");
+        };
+        let ship = facts
+            .ships
+            .iter()
+            .find(|ship| ship.origin == NORTH && ship.capacity > 0 && !ship.loads.is_empty())
+            .expect("a carrier in the north");
+        let plan = ship.r#move.as_ref().expect("it arrives");
+        let cargo = ship
+            .loads
+            .iter()
+            .map(|index| &facts.cargo[*index])
+            .find(|cargo| cargo.unit.contains("infantry"))
+            .expect("infantry to load");
+        script.extend([
+            step(PlanStep::Move {
+                origin: ship.origin.clone(),
+                unit: ship.unit.clone(),
+                damaged: ship.damaged,
+                gravity_drive: plan.gravity_drive,
+                ionian: plan.ionian,
+            }),
+            step(PlanStep::Load {
+                origin: ship.origin.clone(),
+                pickup_system: cargo.system.clone(),
+                unit: cargo.unit.clone(),
+                source: cargo.source.clone(),
+                damaged: cargo.damaged,
+                galvanized: cargo.galvanized,
+            }),
+            step(PlanStep::DoneLoading),
+            step(PlanStep::DoneMoving),
+        ]);
+
+        // The landings are open, staged against their first question.
+        let landing = run(&game, &tiles, &script);
+        assert_eq!(landing.stop, DraftStop::Open);
+        assert_eq!(landing.consumed, script.len());
+        assert_eq!(subtype(&landing.update), "commit_ground_forces");
+        assert_eq!(landing.invasion.as_ref(), Some(&landing.update));
+        let Some(TacticalFacts::Invasion(facts)) = &landing.update.tactical else {
+            panic!("no invasion facts");
+        };
+        assert_eq!(facts.active, FREE);
+        let planet = facts
+            .planets
+            .iter()
+            .find(|planet| !planet.lands.is_empty())
+            .expect("a planet to land on");
+        let force = &facts.forces[planet.lands[0]];
+
+        // Land nothing: the action is over, and the draft with it.
+        let mut nothing = script.clone();
+        nothing.push(step(PlanStep::DoneCommitting));
+        assert_eq!(run(&game, &tiles, &nothing).stop, DraftStop::Complete);
+
+        // A planet that nobody explored: the card that the landing draws ends the draft.
+        script.extend([
+            step(PlanStep::Land {
+                planet: planet.planet.clone(),
+                unit: force.unit.clone(),
+                damaged: force.damaged,
+                from_system: force.from_system.clone(),
+                from_planet: force.from_planet.clone(),
+            }),
+            step(PlanStep::DoneCommitting),
+        ]);
+        let landed = run(&game, &tiles, &script);
+        assert_eq!(
+            landed.stop,
+            DraftStop::Stopped {
+                reason: StopReason::Uncertainty
+            }
+        );
+        assert_eq!(landed.invasion, landing.invasion);
+        assert_eq!(landed.update.pending_choice, None);
+    }
+
+    #[test]
+    fn a_draft_ends_before_a_space_combat() {
+        let (game, tiles) = late_game();
+        let script = [
+            choose("tactical"),
+            choose(ENEMY),
+            step(PlanStep::DoneMoving),
+        ];
+        let outcome = run(&game, &tiles, &script);
+        // The guns of the system roll before the combat is reached.
+        assert!(
+            matches!(
+                outcome.stop,
+                DraftStop::Stopped {
+                    reason: StopReason::Uncertainty | StopReason::UnsupportedSegment
+                }
+            ),
+            "{:?}",
+            outcome.stop
+        );
+        assert!(outcome.movement.is_some());
+        assert_eq!(outcome.invasion, None);
+        assert_eq!(outcome.update.pending_choice, None);
     }
 }

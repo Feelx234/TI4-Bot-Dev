@@ -2,18 +2,27 @@ import { useEffect, useMemo, useState } from "react";
 import type { GameSession, Intent } from "../model";
 import {
   type Draft,
+  type DraftEntry,
+  STAGES,
+  type Stage,
   activate,
+  answer,
   canRedo,
   canUndo,
   entryOf,
-  fits,
+  frontier,
+  isBoundary,
   newDraft,
   problemOf,
   readDraft as readPlan,
   redo,
   scriptOf,
+  setLandings,
   setMovement,
+  setProduction,
+  stageAfter,
   startOver,
+  stepsOfStage,
   storeDraft as storePlan,
   undo,
 } from "./draft";
@@ -27,7 +36,7 @@ import {
   setLanding,
 } from "./landingDraft";
 import { type MovementDraft, fill, poolOfSource, resetOrigin, setCount } from "./movementDraft";
-import { type MovementStep, type PlanStep, draftOf, stepsOf } from "./movementPlan";
+import { type MovementPlan, type PlanStep, draftOf, stageOf, stepsOf } from "./movementPlan";
 import {
   GOODS,
   EMPTY as NO_PRODUCTION,
@@ -49,7 +58,7 @@ import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
 import type { Transport } from "./transport";
-import type { DraftOutcome, MovementFacts, SessionUpdate } from "./wire";
+import type { DraftOutcome, SessionUpdate } from "./wire";
 
 const NOTHING: LocalState = {
   inspected: null,
@@ -88,12 +97,24 @@ export interface DraftStore {
 interface Plan {
   draft: Draft | null;
   open: boolean;
+  /** The step of the draft that the player chose to see. Null: where the draft is open. */
+  stage: Stage | null;
 }
 
 const readPlanOf = (drafts: DraftStore | undefined): Plan => ({
   draft: drafts?.planKey ? readPlan(drafts.storage, drafts.planKey) : null,
   open: false,
+  stage: null,
 });
+
+/** The steps of a plan that belong to the steps of the action after `stage`. Null when there are none. */
+function laterSteps(plan: MovementPlan | null, stage: Stage): MovementPlan | null {
+  const steps = (plan?.steps ?? []).filter((step) => {
+    const of = stageOf(step);
+    return of !== null && STAGES.indexOf(of) > STAGES.indexOf(stage);
+  });
+  return plan && steps.length ? { ...plan, steps } : null;
+}
 
 /** Why the viewer cannot draft a tactical action now. Null when the Draft tab opens. */
 function draftLock(update: SessionUpdate, local: LocalState): string | null {
@@ -125,16 +146,17 @@ const menuNonce = (update: SessionUpdate, local: LocalState): string | null => {
     : null;
 };
 
-/** What "Apply to Live" sends, in words. */
-function applyItems(update: SessionUpdate, system: string, steps: MovementStep[] | null) {
+/** What "Apply to Live" sends, in words: the steps of the draft that the game played. */
+function applyItems(update: SessionUpdate, system: string, sent: PlanStep[], entry: DraftEntry) {
   const tiles = new Map((update.view.board.map_tiles ?? []).map((tile) => [tile.system_id, tile]));
   const items = [`Activate ${systemLabel(tiles, system)}`];
-  if (steps === null) {
+  const has = (stage: Stage) => sent.some((step) => stageOf(step) === stage);
+  if (!has("movement")) {
     return [...items, "The movement is decided in Live"];
   }
   const origins = new Map<string, { ships: number; units: number }>();
   let last: { ships: number; units: number } | null = null;
-  for (const step of steps) {
+  for (const step of sent) {
     if (step.kind === "move") {
       last = origins.get(step.origin) ?? { ships: 0, units: 0 };
       last.ships += 1;
@@ -149,7 +171,27 @@ function applyItems(update: SessionUpdate, system: string, steps: MovementStep[]
       `${ships} ${ships === 1 ? "ship" : "ships"} from ${systemLabel(tiles, origin)}${cargo}`,
     );
   }
-  return origins.size ? items : [...items, "No ship moves"];
+  if (!origins.size) {
+    items.push("No ship moves");
+  }
+  const count = (kind: PlanStep["kind"]) => sent.filter((step) => step.kind === kind).length;
+  if (has("invasion")) {
+    const lands = count("land");
+    items.push(lands ? `${lands} ground ${lands === 1 ? "force lands" : "forces land"}` : "Nothing lands");
+  }
+  if (has("production")) {
+    const builds = count("produce");
+    items.push(
+      builds ? `${builds} ${builds === 1 ? "purchase" : "purchases"} produced and paid` : "Nothing is produced",
+    );
+  }
+  // What the draft holds after the point where the game stops to roll or to ask.
+  const later = STAGES.filter((stage) => !has(stage) && stepsOfStage(entry, stage) !== null);
+  if (later.length) {
+    const names = { movement: "movement", invasion: "landings", production: "production" };
+    items.push(`Staged again in Live: ${later.map((stage) => names[stage]).join(", ")}`);
+  }
+  return items;
 }
 
 /** The draft in view: the update that its screens are made from, and what its toolbar says. */
@@ -158,18 +200,24 @@ function draftView(
   local: LocalState,
   draft: Draft,
   outcome: DraftOutcome,
-): { update: SessionUpdate; local: LocalState; facts: MovementFacts | null } {
+  chosen: Stage | null,
+): { update: SessionUpdate; local: LocalState; stage: Stage | null; sent: PlanStep[] } {
   const entry = entryOf(draft);
   const problem = problemOf(entry, outcome);
-  const staged = entry.system !== null ? outcome.movement : undefined;
-  const update = staged ?? outcome.update;
-  const facts = staged?.tactical?.kind === "movement" ? staged.tactical : null;
-  // A roll ends the check, not the draft: the game goes on from there in Live.
-  const sound =
-    fits(entry, outcome) ||
-    (outcome.stop.kind === "stopped" && outcome.stop.reason === "Uncertainty");
+  // The step in view: the one that the player chose, while the game still asks for it.
+  const stage =
+    entry.system === null ? null : chosen && outcome[chosen] ? chosen : frontier(outcome);
+  const update = (stage && outcome[stage]) ?? outcome.update;
+  const facts = update.tactical ?? null;
+  // A roll ends the check, not the draft: the game goes on from there in Live. So does a
+  // question that the draft has no answer for yet.
+  const sound = outcome.stop.kind === "open" || outcome.stop.kind === "complete" || isBoundary(outcome);
   const atMenu = menuNonce(live, local) !== null;
   const canApply = entry.system !== null && sound && atMenu;
+  // The action and its system are sent as choices; the rest is the plan.
+  const sent = scriptOf(entry).slice(2, Math.max(2, outcome.consumed)) as PlanStep[];
+  const recorded = stage !== null && stepsOfStage(entry, stage) !== null;
+  const next = stage && recorded && !(stage === "production" && entry.unpaid) ? stageAfter(outcome, stage) : null;
   const info: DraftInfo = {
     canUndo: canUndo(draft),
     canRedo: canRedo(draft),
@@ -185,23 +233,39 @@ function draftView(
     apply:
       canApply && entry.system !== null
         ? {
-            items: applyItems(update, entry.system, entry.steps),
+            items: applyItems(update, entry.system, sent, entry),
             cost: "Costs 1 tactic token.",
             note: "Dice and later decisions continue in Live.",
           }
         : null,
     problem,
+    stage,
+    reached: STAGES.filter((item) => outcome[item] !== undefined),
+    recorded,
+    next,
+    ends:
+      recorded && !next && outcome.stop.kind === "complete"
+        ? "The action ends here. Every step is drafted."
+        : null,
   };
+  const steps = (of: Stage) => stepsOfStage(entry, of) ?? [];
   return {
     update,
-    facts,
+    stage,
+    sent,
     local: {
       ...local,
       sent: null,
       canUndo: false,
-      movement: facts ? draftOf(facts, entry.steps ?? []) : {},
+      movement: facts?.kind === "movement" ? draftOf(facts, steps("movement")) : {},
+      landing: facts?.kind === "invasion" ? landingOf(facts, steps("invasion")) : {},
+      production:
+        facts?.kind === "production" ? productionOf(facts, steps("production")) : NO_PRODUCTION,
       remaining: null,
-      planNote: facts && problem ? { text: problem, error: outcome.stop.kind === "refused" } : null,
+      planNote:
+        problem && (facts || entry.system !== null)
+          ? { text: problem, error: outcome.stop.kind === "refused" || outcome.stop.kind === "failed" }
+          : null,
       stepping: null,
       draft: info,
     },
@@ -324,10 +388,12 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           } else if (steps && facts.kind === "production") {
             production = productionOf(facts, steps);
           }
-          if (steps && steps === again && !undone) {
+          const stage = facts.kind;
+          if (steps && steps === again && !undone && steps.some((step) => stageOf(step) === stage)) {
             planNote ??= {
-              text:
-                facts.kind === "movement"
+              text: remaining?.drafted
+                ? "Staged from your draft. Nothing of it is sent yet."
+                : facts.kind === "movement"
                   ? "Another decision stopped the movement. What did not move is staged again."
                   : facts.kind === "invasion"
                     ? "Another decision stopped the landings. What did not land is staged again."
@@ -335,8 +401,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
               error: false,
             };
           }
-          remaining = null;
-        } else if (facts?.kind === "activation") {
+          // The steps of the action that come later wait for their own step.
+          remaining = remaining?.destination === place ? laterSteps(remaining, stage) : null;
+        } else if (facts?.kind === "activation" || !event.update.view.board.active_system) {
+          // The action is over, or another one starts.
           remaining = null;
         }
         if (opens) {
@@ -419,23 +487,43 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
   }, [transport, update, entry, plan.open, locked]);
 
+  // The sheet of the landings or of the build opens when the draft comes to that step.
+  const draftStage = entry && outcome && entry.system ? (plan.stage && outcome[plan.stage] ? plan.stage : frontier(outcome)) : null;
+  const draftSheet =
+    draftStage === "invasion" || draftStage === "production"
+      ? `${draftStage}:${entry?.system}`
+      : draftStage;
+  useEffect(() => {
+    const system = draftSheet?.includes(":") ? draftSheet.split(":")[1] : null;
+    setLocal((now) => ({ ...now, inspected: system, productionStage: "build" }));
+  }, [draftSheet]);
+
   const session = useMemo((): GameSession | null => {
     if (!update || !transport) {
       return null;
     }
     const live: LocalState = { ...local, draftLocked: locked, draft: null };
-    const drafted = plan.draft && outcome ? draftView(update, live, plan.draft, outcome) : null;
+    const drafted =
+      plan.draft && outcome ? draftView(update, live, plan.draft, outcome, plan.stage) : null;
     const shown = drafted?.update ?? update;
     const state = drafted?.local ?? live;
     const pending = state.sent === shown.pending_choice?.nonce ? null : shown.pending_choice;
     /** Opens or closes the draft. What was staged for the other workspace is dropped. */
     const workspace = (open: boolean, draft: Draft | null) => {
-      setPlan({ open, draft });
+      setPlan({ open, draft, stage: null });
       setLocal((now) => ({ ...now, staged: null, inspected: null, handled: [], step: null }));
     };
     /** A change of the draft: one step of its undo. */
     const redraft = (change: (now: Draft) => Draft) =>
       setPlan((now) => (now.draft ? { ...now, draft: change(now.draft) } : now));
+    /**
+     * A change of the step in view: one step of undo. The step stays in view, also when the
+     * game comes to a later step with it.
+     */
+    const restage = (change: (now: Draft) => Draft) =>
+      setPlan((now) =>
+        now.draft ? { ...now, draft: change(now.draft), stage: drafted?.stage ?? now.stage } : now,
+      );
     const stage = (option: string) => {
       if (pending?.choice.options.some((item) => item.id === option)) {
         setLocal((now) => ({ ...now, staged: now.staged === option ? null : option }));
@@ -443,18 +531,41 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     };
     const facts = tacticalFacts(shown, state);
     const moving = facts?.kind === "movement" ? facts : null;
-    const landing = facts?.kind === "invasion" && !drafted ? facts : null;
-    const producing = facts?.kind === "production" && !drafted ? facts : null;
-    /** A change of the staged production. It clears the note of the last plan. */
-    const produce = (change: (now: ProductionDraft) => ProductionDraft) =>
-      setLocal((now) => ({ ...now, production: change(now.production), planNote: null }));
+    const landing = facts?.kind === "invasion" ? facts : null;
+    const producing = facts?.kind === "production" ? facts : null;
+    /** The game can be asked for a staged production: it is paid, and within its limits. */
+    const paidFor = (staged: ProductionDraft) => {
+      const { units, cost, paid } = producing ? totals(producing, staged) : { units: 0, cost: 0, paid: 0 };
+      return units === 0 || (paid >= cost && !!producing && overrunOf(producing, staged) === 0);
+    };
+    /** What a staged production sends: nothing is paid for nothing. */
+    const productionPlan = (staged: ProductionDraft) => {
+      const { units, cost } = producing ? totals(producing, staged) : { units: 0, cost: 0 };
+      return units === 0 ? NO_PRODUCTION : cost === 0 ? clearPayment(staged) : staged;
+    };
+    /**
+     * A change of the staged production. Live, it clears the note of the last plan. A draft
+     * records it at once; the game is asked for it when it is paid.
+     */
+    const produce = (change: (now: ProductionDraft) => ProductionDraft) => {
+      if (!drafted) {
+        return setLocal((now) => ({ ...now, production: change(now.production), planNote: null }));
+      }
+      if (producing) {
+        const staged = change(state.production);
+        const ready = paidFor(staged);
+        // A build that is not paid keeps its payment as it is staged.
+        const steps = productionSteps(producing, ready ? productionPlan(staged) : staged);
+        restage((now) => setProduction(now, steps, ready));
+      }
+    };
     /** The build is chosen: the payment is next, when there is something to pay. */
     const toPayment = () => {
       const { units, cost } = producing
-        ? totals(producing, local.production)
+        ? totals(producing, state.production)
         : { units: 0, cost: 0 };
       // A build over a limit stays open: the gauges and the footer say what is over.
-      if (producing && overrunOf(producing, local.production) > 0) {
+      if (producing && overrunOf(producing, state.production) > 0) {
         return true;
       }
       const pays = units > 0 && cost > 0;
@@ -464,9 +575,26 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     /** Back to the build of the system that produces: its sheet opens. */
     const toBuild = (system: string) =>
       setLocal((now) => ({ ...now, inspected: system, productionStage: "build" }));
-    /** A change of the staged landings. It clears the note of the last plan. */
-    const land = (change: (now: LandingDraft) => LandingDraft) =>
-      setLocal((now) => ({ ...now, landing: change(now.landing), planNote: null }));
+    /**
+     * A change of the staged landings. Live, it clears the note of the last plan. A draft
+     * records it at once.
+     */
+    const land = (change: (now: LandingDraft) => LandingDraft) => {
+      if (!drafted) {
+        return setLocal((now) => ({ ...now, landing: change(now.landing), planNote: null }));
+      }
+      if (landing) {
+        const steps = landingSteps(landing, change(state.landing));
+        if (JSON.stringify(steps) !== JSON.stringify(landingSteps(landing, state.landing))) {
+          restage((now) => setLandings(now, steps));
+        }
+      }
+    };
+    /** The step of the draft that is in view from now on. Null: where the draft is open. */
+    const toStage = (stage: Stage | null) => {
+      setPlan((now) => ({ ...now, stage }));
+      setLocal((now) => ({ ...now, step: null, staged: null }));
+    };
     /**
      * A change of the staged movement. Live, it clears the note of the last plan. A draft
      * records it at once, as the steps that the game is asked for.
@@ -478,7 +606,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       if (moving) {
         const steps = stepsOf(moving, change(state.movement));
         if (JSON.stringify(steps) !== JSON.stringify(stepsOf(moving, state.movement))) {
-          redraft((now) => setMovement(now, steps));
+          restage((now) => setMovement(now, steps));
         }
       }
     };
@@ -489,32 +617,46 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return;
       }
       if (drafted) {
-        // The activation of a draft is recorded. Its movement has nothing to send.
+        // Nothing of a draft is sent. Its activation is recorded, and a step with nothing
+        // staged is recorded as that ("Move nothing"), so that the draft goes on.
         const system = facts?.kind === "activation" ? state.staged : null;
         if (system) {
           redraft((now) => activate(now, system));
           setLocal((now) => ({ ...now, staged: null, inspected: null }));
+        } else if (moving) {
+          redraft((now) => setMovement(now, stepsOf(moving, state.movement)));
+          toStage(null);
+        } else if (landing) {
+          redraft((now) => setLandings(now, landingSteps(landing, state.landing)));
+          toStage(null);
+        } else if (producing) {
+          if (totals(producing, state.production).units === 0) {
+            redraft((now) => setProduction(now, productionSteps(producing, NO_PRODUCTION), true));
+          } else if (local.productionStage === "build") {
+            toPayment();
+          }
+        } else if (state.staged && drafted.stage === null && plan.draft && entryOf(plan.draft).system) {
+          // An ability of the seat asks before a step: the answer is of the step that comes.
+          const reached = drafted.local.draft?.reached ?? [];
+          const before = STAGES[reached.length];
+          const option = state.staged;
+          if (before) {
+            redraft((now) => answer(now, before, option));
+            setLocal((now) => ({ ...now, staged: null }));
+          }
         }
         return;
       }
       if (producing) {
-        const { units, cost, paid } = totals(producing, local.production);
         if (local.productionStage === "build" && toPayment()) {
           return;
         }
-        if ((units > 0 && paid < cost) || overrunOf(producing, local.production) > 0) {
+        if (!paidFor(local.production)) {
           return;
         }
-        // Nothing is paid for nothing: a payment that is still staged is not sent.
-        const staged =
-          units === 0
-            ? NO_PRODUCTION
-            : cost === 0
-              ? clearPayment(local.production)
-              : local.production;
         transport.submitPlan(pending.nonce, {
           destination: producing.system,
-          steps: productionSteps(producing, staged),
+          steps: productionSteps(producing, productionPlan(local.production)),
         });
         return setLocal((now) => ({ ...now, sent: pending.nonce, planNote: null }));
       }
@@ -538,13 +680,23 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       if (!drafted?.local.draft?.canApply || !plan.draft || nonce === null || system === null) {
         return;
       }
-      const { steps } = entryOf(plan.draft);
+      // What the game played is sent. What the draft holds after a roll is staged again in Live,
+      // when its step opens.
+      const { sent } = drafted;
+      const rest = (scriptOf(entryOf(plan.draft)).slice(2 + sent.length) as PlanStep[]).filter(
+        (step) => stageOf(step) !== null,
+      );
       transport.applyDraft(nonce, {
         choices: ["tactical", system],
-        plan: steps ? { destination: system, steps } : null,
+        plan: sent.length ? { destination: system, steps: sent } : null,
       });
       workspace(false, null);
-      setLocal((now) => ({ ...now, sent: nonce, planNote: null }));
+      setLocal((now) => ({
+        ...now,
+        sent: nonce,
+        planNote: null,
+        remaining: rest.length ? { destination: system, steps: rest, drafted: true } : null,
+      }));
     };
     const dispatch = (intent: Intent) => {
       switch (intent.type) {
@@ -636,12 +788,22 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "undo":
           return drafted ? redraft(undo) : transport.undo();
         case "flow":
-          return intent.action === "resolve" && !facts && !drafted ? send() : undefined;
+          return intent.action === "resolve" && !facts ? send() : undefined;
         // The steps of a tactical action.
         case "commitEdit":
           return facts ? send() : undefined;
-        case "selectStep":
+        case "selectStep": {
+          // A step of a draft that the game came to is opened to change it.
+          const stage = ([null, "movement", null, "invasion", "production"] as const)[intent.step];
+          if (drafted && stage) {
+            return toStage(stage);
+          }
+          if (drafted && intent.step === 0 && !moving) {
+            setPlan((now) => ({ ...now, stage: "movement" }));
+            return setLocal((now) => ({ ...now, step: 0 }));
+          }
           return setLocal((now) => ({ ...now, step: moving && intent.step === 0 ? 0 : null }));
+        }
         case "returnToCurrent":
           return setLocal((now) => ({ ...now, step: null }));
         case "setCount":
