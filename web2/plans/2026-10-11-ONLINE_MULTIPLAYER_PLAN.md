@@ -28,9 +28,14 @@ catalogue come from the local wasm in both modes.
      planning checkpoint (`session/planning.rs`, `checkpoint`) and calls
      `ti4_view::planning::draft::run_draft`, as the wasm host does. The server keeps no draft:
      the script stays in `localStorage`. It works on the turn of the seat too.
-   - `ApplyDraft { nonce, expected_version, choices, steps }` sends a draft or a plan to the live
-     game (`submitPlan` is the same with no `choices`). The server answers the questions with
-     `ti4_view::planning::steps::plan_answer`. The result has the shape of `PlanStopped`.
+   - `ApplyDraft { nonce, expected_version, script }` sends a draft or a plan to the live game.
+     The script is the part that the run of the draft played, in the form of `RunDraft`: the
+     action, the system, the steps, and the answers by id that the draft recorded for a card or an
+     ability (`{ kind: "choose", option_id }`). So a card that was played in the draft is played
+     in the live game, and the player is not asked again. `submitPlan` is the same with the steps
+     only. The server answers the questions of the game as a run of a draft does (`Run::answer`
+     in `ti4-view/src/planning/draft.rs`: `plan_answer` for a step, the option of that id for a
+     `choose`). The result has the shape of `PlanStopped`.
    - The owner does not need a draft that is applied while the page is closed, or a draft on
      another device. So the server keeps no script.
    - What a draft may be asked is the same as in the runner: both use `guard_fork` and
@@ -54,8 +59,8 @@ catalogue come from the local wasm in both modes.
    implementation, in Rust, and both hosts (`ti4-wasm`, `ti4-server`) call it. What this asks for:
    - the facts: one function of `ti4-view` (phase 1a);
    - a draft: `run_draft`, in both;
-   - a plan or a draft that is sent: one function of `ti4-view` over `plan_answer` that both hosts
-     call. The wasm host gets an export for it, and the TypeScript `planAnswer` is removed
+   - a plan or a draft that is sent: one function of `ti4-view` that both hosts call, the same
+     that answers a run of a draft (`plan_answer`, and a `choose` by its id). The wasm host gets an export for it, and the TypeScript `planAnswer` is removed
      (`NEXT.md` has this as open). Phase 0;
    - Never cards: `ti4_engine::reaction_modes::NeverOffer` in both. The wasm host gets an export
      to set the mode of a card, and `filterOffers` of the page is removed. Phase 0;
@@ -137,7 +142,8 @@ Each phase leaves single player working and green (`npm test`, `e2e`, `boundarie
 4. **Undo as a fact, not a method.** `canUndo` stays in the update event. Its meaning becomes
    "this seat may take back its last answer" in both modes (see phase 3).
 5. **One answer to a plan** (decision 6). A function of `ti4-view` answers a parked question from
-   the steps of a plan (`plan_answer`), and the wasm host has an export for it that is called
+   a script (`plan_answer` for a step, the option of that id for a `choose`, as `Run::answer` of
+   `draft.rs` does), and the wasm host has an export for it that is called
    while the game is parked. `submitPlan` and `applyDraft` of the wasm transport use it; the
    TypeScript `planAnswer` is removed.
 
@@ -232,10 +238,16 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
    carries `can_undo` per viewer (extend `HistoryStatus` with a bool; do not reuse `cursor`, which
    is the host's). A rejected undo says why (`barrier: "revealed"|"random"|"other_seat"`).
 3. **web2**: `wsTransport.undo()` sends it; `canUndo` of the update drives the button, as now.
-   The existing page logic for "an undo took back a movement, stage it again" needs the steps
-   back: the server must return them as `undone` (the same shape as `PlanStep[]`), or the page
-   re-derives them from its own staged plan. **Decide when starting**; the wasm transport's
-   `undone` is the reference.
+   **The server returns the steps that the undo took back** (owner, 2026-10-11), as `undone`
+   with the next update, in the shape of `PlanStep[]`, as the wasm transport does.
+   - Why the page needs them: one undo takes a movement back whole, and so the landings. The
+     movement is then staged again as it was sent, so that the player can change a part of it
+     and send it again (`AGENTS.md`, Local play). Without the steps the step would be empty.
+   - Why the server: it has the decision log, so it knows which answers the undo took back. This
+     holds after a reload too. A page that keeps what it sent loses it with a reload, and would
+     have to guess how many of its plans one undo covers.
+   - It is the same in both modes (decision 6): the websocket transport fills `undone` as the
+     wasm transport does, and the page has one path.
 4. The wasm transport keeps its undo with no barrier (decision 3). So single player undoes
    further than multiplayer: this difference is wanted.
 
@@ -336,10 +348,7 @@ phase 2 for online.
 
 ## Open
 
-- `ApplyDraft` sends the action, the system and the steps, as the local game does now. The
-  answers that a draft recorded for a card or an ability are not sent, so the live game asks
-  them again. To send the whole script instead is a change of both modes: ask the owner.
-- Phase 3, step 3: the server returns `undone`, or the page derives it.
+Nothing. Every decision of this plan is made.
 
 ## Questions and answers
 
@@ -402,6 +411,13 @@ A decision that another seat must make ends the draft there. So a draft shows wh
 nobody stops the player. At Apply the live game asks the other seats; if one of them reacts, the
 plan stops there and the rest is staged again.
 
+**Is the player asked again in the live game for a card of the draft?** No. Apply sends the
+script that the draft played, with the answer of the card in it, and that answer is given when
+the live game opens the window. The local game does this already (`sent` in `useLiveSession.ts`
+is a part of the script, and `planAnswer` answers a `choose` by its id). The player is asked
+only when the live game asks something that the draft did not: a window that opens because
+another seat reacted, or a question after a roll.
+
 **What does not work?**
 
 - A window in a space battle or an invasion ends the draft. An action card as the action
@@ -409,8 +425,6 @@ plan stops there and the rest is staged again.
   the checks in `ti4-view`, so the server's runner has them too.
 - A question in the middle of a step has no place in the script of the page yet (`NEXT.md`). A
   question before a step has one.
-- Apply sends the action, the system and the steps. It does not send the answer of a card, so
-  the live game asks it again (see "Open").
 
 ### Why the script, and not the drafts that the server has
 
