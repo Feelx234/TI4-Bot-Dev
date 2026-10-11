@@ -12,7 +12,7 @@ import type {
   SecretsView,
 } from "../../model";
 import { plural } from "../../model";
-import { Button, Drawer, Eyebrow, Icon, cx } from "../../ui";
+import { Button, Drawer, Eyebrow, Icon, Peek, cx } from "../../ui";
 import { TYPE_COLOR } from "../board/PlanetTraits";
 import { RichText, SeatSymbol, useDispatch, useSeat, useSeats } from "../context";
 
@@ -444,107 +444,235 @@ function cellWords(cell: ScoreCellView, faction: (seat: string) => string): stri
 }
 
 /**
- * Where the victory points of every seat come from: a table with the sources at the left and one
- * column for each seat. The names and the heading stay in view; the seats scroll to the side,
- * the viewer first and then by points, so the seats that are cut off are the ones far behind.
+ * Where the victory points of every seat come from. Each source is a card, with a tag for each
+ * seat that has something from it. The standings on top stay in view and are the filter: a seat
+ * that is chosen shows what it can still score, and where its other points come from.
  */
 function Score({ view }: { view: ScoreView }) {
   const seats = useSeats();
   const faction = (seat: string) => seats[seat]?.faction ?? seat;
-  const columns = { gridTemplateColumns: `11rem repeat(${view.seats.length}, 3.25rem)` };
-  // The name of a row stays in view. Its shadow covers the padding of the sheet, so no cell
-  // shows at its left.
-  const name = "sticky left-0 bg-surface shadow-[-1rem_0_0_var(--color-surface)]";
+  const [chosen, setChosen] = useState<string | null>(null);
+  const [deck, setDeck] = useState<Record<string, boolean>>({});
+  const at = view.seats.findIndex((seat) => seat.seat === chosen);
   return (
-    <div className="w-max min-w-full">
+    <>
       <div
-        className="sticky -top-1 z-2 grid border-b border-line bg-surface pt-1.5 pb-1"
-        style={columns}
+        className="sticky -top-1.5 z-1 -mx-4 grid border-b border-line bg-surface px-4 pt-2.5 pb-1.5"
+        style={{ gridTemplateColumns: `repeat(${view.seats.length}, minmax(0, 1fr))` }}
+        role="group"
+        aria-label="Victory points"
       >
-        <div className={cx(name, "z-1 self-end text-xs text-muted")}>{view.target} VP to win</div>
-        <ul className="contents" aria-label="Victory points">
-          {view.seats.map((seat) => (
-            <li
-              key={seat.seat}
-              className={cx("flex min-w-0 flex-col items-center", seat.isMe && "bg-raised")}
-              aria-label={`${faction(seat.seat)}${seat.isMe ? " (you)" : ""}: ${plural(seat.points, "point")}`}
-            >
-              <span className="flex items-center gap-1">
-                <SeatSymbol seat={seat.seat} />
-                <strong className="text-md tabular-nums">{seat.points}</strong>
-              </span>
-              <span
-                className="w-full truncate text-center text-xs text-muted"
-                title={faction(seat.seat)}
-              >
-                {faction(seat.seat)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        {view.seats.map((seat) => (
+          <button
+            key={seat.seat}
+            type="button"
+            aria-pressed={seat.seat === chosen}
+            aria-label={`${faction(seat.seat)}${seat.isMe ? " (you)" : ""}: ${plural(seat.points, "point")}`}
+            title={`${faction(seat.seat)}: what it can still score`}
+            onClick={() => setChosen(seat.seat === chosen ? null : seat.seat)}
+            className="flex min-w-0 flex-col items-center rounded border border-transparent py-0.5 aria-pressed:border-line-strong aria-pressed:bg-raised"
+          >
+            <span className="flex items-center gap-1">
+              <SeatSymbol seat={seat.seat} />
+              <strong className="text-md tabular-nums">{seat.points}</strong>
+            </span>
+            <span className="w-full truncate text-xs text-muted">{faction(seat.seat)}</span>
+          </button>
+        ))}
       </div>
-      {view.groups.map((group) => (
-        <section key={group.title} aria-label={group.title}>
-          <h3 className="sticky left-0 mt-3.5 w-max text-muted">
-            <Eyebrow>{group.title}</Eyebrow>
-          </h3>
-          {group.rows.length === 0 && (
-            <div className="sticky left-0 mt-1 w-max text-xs text-muted">None revealed</div>
-          )}
-          {group.rows.map((row) => (
-            <article
-              key={row.name}
-              aria-label={row.name}
-              className="mt-1.5 grid border-t border-line/50"
-              style={columns}
-            >
-              <div className={cx(name, "z-1 py-1.5 pr-2")}>
-                <div className="flex items-baseline justify-between gap-2">
-                  <strong className="font-mid">{row.name}</strong>
-                  {row.worth !== null && (
-                    <span className="flex-none text-xs text-muted tabular-nums">
-                      {row.worth} VP
-                    </span>
-                  )}
-                </div>
-                {row.text && <div className="text-xs text-muted">{row.text}</div>}
+      {view.groups.map((group, index) => {
+        // The sheet is about the points that are still to get or to lose: a row that is done
+        // (an objective that every seat scored, the points of Imperial) is in the player sheets.
+        const open = group.rows.filter((row) => row.open);
+        const objectives = index < 2;
+        const rows =
+          at < 0
+            ? open
+            : open.filter((row) =>
+                objectives
+                  ? row.cells[at].kind !== "scored"
+                  : row.cells[at].kind !== "none" ||
+                    row.cells.every((cell) => cell.kind === "none"),
+              );
+        return (
+          <section key={group.title} aria-label={group.title}>
+            <h3 className="mt-3.5 flex items-baseline justify-between gap-3 text-muted">
+              <Eyebrow>{group.title}</Eyebrow>
+              {index === 0 && <span className="text-xs">{view.target} VP to win</span>}
+            </h3>
+            {at >= 0 && objectives && open.length > 0 && (
+              <div className="mt-1 text-xs text-muted">
+                {rows.length ? `${rows.length} of ${open.length} open` : "All scored"} for{" "}
+                {faction(view.seats[at].seat)}
               </div>
-              <ul className="contents">
-                {row.cells.map((cell, index) => {
-                  const seat = view.seats[index];
-                  return (
-                    <li
-                      key={seat.seat}
-                      className={cx(
-                        "flex min-w-0 items-center justify-center tabular-nums",
-                        seat.isMe && "bg-raised",
-                      )}
-                      aria-label={`${faction(seat.seat)}: ${cellWords(cell, faction)}`}
-                    >
-                      {cell.kind === "none" ? (
-                        <span className="text-faint">·</span>
-                      ) : cell.kind === "scored" ? (
-                        "✓"
-                      ) : cell.from.length > 0 && cell.from.length === cell.value ? (
-                        <span className="inline-flex flex-wrap justify-center gap-0.5">
-                          {cell.from.map((from) => (
-                            <SeatSymbol key={from} seat={from} />
-                          ))}
-                        </span>
-                      ) : (
-                        <span className={cx(cell.value < 0 && "text-red")}>
-                          {cell.value < 0 ? `−${-cell.value}` : cell.value}
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            </article>
+            )}
+            {objectives && open.length === 0 && (
+              <div className="mt-1 text-xs text-muted">
+                {group.rows.length ? "All scored by every seat" : "None revealed"}
+              </div>
+            )}
+            {!objectives && rows.length === 0 && (
+              <div className="mt-1 text-xs text-muted">None</div>
+            )}
+            {rows.map((row) => {
+              const tags = row.cells.flatMap((cell, seat) =>
+                cell.kind === "none" ? [] : [{ cell, seat: view.seats[seat].seat }],
+              );
+              return (
+                <article key={row.name} aria-label={row.name}>
+                  <PrintedCard
+                    name={row.name}
+                    text={row.text}
+                    aside={row.worth !== null && <span className="text-muted">{row.worth} VP</span>}
+                  >
+                    {tags.length === 0 ? (
+                      <div className="mt-1 text-xs text-faint">Nobody yet</div>
+                    ) : (
+                      <ul className="mt-1 flex flex-wrap gap-1">
+                        {tags.map(({ cell, seat }) => (
+                          <li
+                            key={seat}
+                            aria-label={`${faction(seat)}: ${cellWords(cell, faction)}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-px text-xs tabular-nums"
+                          >
+                            <SeatSymbol seat={seat} />
+                            {faction(seat)}
+                            {cell.kind === "points" &&
+                              (cell.from.length > 0 && cell.from.length === cell.value ? (
+                                <>
+                                  <span className="text-muted">←</span>
+                                  {cell.from.map((from) => (
+                                    <SeatSymbol key={from} seat={from} />
+                                  ))}
+                                </>
+                              ) : (
+                                <strong className={cx(cell.value < 0 && "text-red")}>
+                                  {cell.value < 0 ? `−${-cell.value}` : cell.value}
+                                </strong>
+                              ))}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </PrintedCard>
+                </article>
+              );
+            })}
+          </section>
+        );
+      })}
+      {view.deck.length > 0 && (
+        <section aria-label="Public objective deck">
+          <h3 className="mt-5 flex flex-wrap items-baseline justify-between gap-x-3 text-muted">
+            <Eyebrow>Public objective deck</Eyebrow>
+            <span
+              className="tabular-nums"
+              title="The objectives that the game can still reveal. A game has five of each stage."
+            >
+              {view.deck.reduce((sum, group) => sum + group.cards.length, 0)} not revealed
+            </span>
+          </h3>
+          {view.deck.map((group) => (
+            <section key={group.group} aria-label={group.group}>
+              <GroupHeading
+                open={!!deck[group.group]}
+                onToggle={() => setDeck((now) => ({ ...now, [group.group]: !now[group.group] }))}
+                name={group.group}
+                count={group.cards.length}
+              />
+              {deck[group.group] &&
+                group.cards.map((card) => (
+                  <div key={card.name} className="mt-2 border-t border-line/50 pt-1.5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <strong className="font-mid">{card.name}</strong>
+                      <span className="flex-none text-xs text-muted tabular-nums">
+                        {card.worth} VP
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted">{card.text}</div>
+                  </div>
+                ))}
+            </section>
           ))}
         </section>
-      ))}
-    </div>
+      )}
+    </>
+  );
+}
+
+/** The name of an objective, with its printed text behind it, as the values of a unit. */
+function Printed({ name, text }: { name: string; text: string }) {
+  return (
+    <Peek
+      label={`${name}, printed text`}
+      trigger={
+        <span className="underline decoration-dotted decoration-muted/60 underline-offset-4">
+          {name}
+        </span>
+      }
+      buttonClassName={() => "text-left"}
+      width={264}
+    >
+      <strong className="font-mid">{name}</strong>
+      <div className="mt-0.5 text-xs whitespace-pre-line text-muted">{text}</div>
+    </Peek>
+  );
+}
+
+/**
+ * Why a seat has its points: every source that it has something from, with the points. The
+ * Objectives sheet says what is still to get; this says what was got.
+ */
+function Points({ view, seat }: { view: ScoreView; seat: string }) {
+  const at = view.seats.findIndex((item) => item.seat === seat);
+  if (at < 0) {
+    return null;
+  }
+  const rows = view.groups.flatMap((group) =>
+    group.rows.flatMap((row) => {
+      const cell = row.cells[at];
+      return cell.kind === "none" ? [] : [{ row, cell }];
+    }),
+  );
+  return (
+    <section aria-label="Victory points">
+      <h3 className="mt-3.5 flex items-baseline justify-between gap-3 text-muted">
+        <Eyebrow>Victory points</Eyebrow>
+        <span className="text-xs tabular-nums">
+          {view.seats[at].points} of {view.target}
+        </span>
+      </h3>
+      {rows.length === 0 && <div className="mt-1 text-xs text-muted">None</div>}
+      <ul className="mt-1">
+        {rows.map(({ row, cell }) => {
+          const value = cell.kind === "scored" ? (row.worth ?? 1) : cell.value;
+          return (
+            <li key={row.name} className="mt-[3px] flex items-baseline justify-between gap-3">
+              <span className="min-w-0">
+                {row.text ? <Printed name={row.name} text={row.text} /> : row.name}
+                {cell.kind === "points" && cell.from.length > 0 && (
+                  <span className="ml-1.5 inline-flex items-center gap-1 text-muted">
+                    ←
+                    {cell.from.map((from) => (
+                      <SeatSymbol key={from} seat={from} />
+                    ))}
+                  </span>
+                )}
+                {cell.kind === "points" &&
+                  cell.detail.map((card) => (
+                    <span key={card.name} className="block text-xs text-muted">
+                      {card.text ? <Printed name={card.name} text={card.text} /> : card.name}
+                    </span>
+                  ))}
+              </span>
+              <strong className={cx("flex-none tabular-nums", value < 0 && "text-red")}>
+                {value < 0 ? `−${-value}` : value}
+              </strong>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -691,6 +819,7 @@ export function ReferenceDrawer({
   if (player) {
     return (
       <Drawer title={`${seat.name} · ${seat.faction}`} onClose={onClose}>
+        {view.objectives && <Points view={view.objectives} seat={player.seat} />}
         <ComponentCards title="Faction abilities" cards={player.abilities} />
         <ComponentCards title="Leaders" cards={player.leaders} />
         <ComponentCards title="Action components" cards={player.components} />

@@ -206,6 +206,7 @@ function score(table: string[], viewer: string): ScoreView {
     name: item.name,
     text: item.text,
     worth,
+    open: item.scored.length < seats.length,
     cells: seats.map((seat): ScoreCellView => ({
       kind: item.scored.includes(seat) ? "scored" : "none",
     })),
@@ -218,8 +219,15 @@ function score(table: string[], viewer: string): ScoreView {
     name,
     text: "",
     worth: null,
+    // A note changes hands, a law can be repealed, and the custodians are there once.
+    open:
+      name === "Support for the Throne" ||
+      name.startsWith("Agenda · ") ||
+      (name === "Custodians of Mecatol Rex" && Object.keys(of).length === 0),
     cells: seats.map((seat): ScoreCellView =>
-      of[seat] ? { kind: "points", value: of[seat], from: from[seat] ?? [] } : { kind: "none" },
+      of[seat]
+        ? { kind: "points", value: of[seat], from: from[seat] ?? [], detail: [] }
+        : { kind: "none" },
     ),
   });
   const stage = (worth: number) =>
@@ -244,6 +252,8 @@ function score(table: string[], viewer: string): ScoreView {
         ],
       },
     ],
+    // The demo has no catalogue: the deck is the revealed objectives only.
+    deck: [],
   };
 }
 

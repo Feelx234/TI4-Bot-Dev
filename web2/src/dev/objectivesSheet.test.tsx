@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { GameProvider } from "../game/context";
 import { ReferenceDrawer } from "../game/shell/Reference";
@@ -74,7 +74,7 @@ function open(shown = update) {
 }
 const row = (name: string) => within(screen.getByRole("article", { name }));
 const names = (items: HTMLElement[]) => items.map((item) => item.getAttribute("aria-label"));
-/** The cells of a row by the faction of their seat: the columns are in the order of the points. */
+/** The tags of a card by the faction of their seat. A seat with nothing from the source has none. */
 const cells = (name: string) =>
   Object.fromEntries(
     row(name)
@@ -87,8 +87,8 @@ const cellName = (name: string, faction: string) =>
 it("has the viewer first in the heading, then the seats by their points", () => {
   open();
   expect(screen.getByText("10 VP to win")).toBeInTheDocument();
-  const seats = within(screen.getByRole("list", { name: "Victory points" })).getAllByRole(
-    "listitem",
+  const seats = within(screen.getByRole("group", { name: "Victory points" })).getAllByRole(
+    "button",
   );
   expect(seats).toHaveLength(8);
   expect(names(seats)[0]).toBe("Sol (you): 0 points");
@@ -110,44 +110,93 @@ it("lists the public objectives by stage, as printed, with who scored each", () 
   ).toBeInTheDocument();
   expect(cellName("Expand Borders", "Sol")).toBe("Sol: scored");
   expect(cellName("Expand Borders", "Hacan")).toBe("Hacan: scored");
-  expect(cellName("Expand Borders", "Letnev")).toBe("Letnev: nothing");
-  expect(cellName("Expand Borders", "Xxcha")).toBe("Xxcha: nothing");
-  expect(row("Expand Borders").getAllByText("✓")).toHaveLength(2);
+  expect(Object.keys(cells("Expand Borders"))).toHaveLength(2);
   const second = within(screen.getByRole("region", { name: "Public objectives · stage II" }));
   expect(second.getByRole("article", { name: "Master the Sciences" })).toBeInTheDocument();
   expect(row("Master the Sciences").getByText("2 VP")).toBeInTheDocument();
 });
 
-it("has every other source of a point, with one cell for each seat", () => {
+it("has of the other sources only the points that are still to get or to lose", () => {
   open();
+  // The custodians are taken; the secret objectives and Imperial are in the player sheets.
   const other = within(screen.getByRole("region", { name: "Other points" }));
   expect(other.getAllByRole("article").map((item) => item.getAttribute("aria-label"))).toEqual([
-    "Secret objectives",
-    "Custodians of Mecatol Rex",
-    "Imperial · Mecatol Rex",
     "Support for the Throne",
     "Agenda · Mutiny",
   ]);
-  for (const item of screen.getAllByRole("article")) {
-    expect(within(item).getAllByRole("listitem")).toHaveLength(8);
-  }
-  expect(cellName("Secret objectives", "Sol")).toBe("Sol: 2 points");
-  expect(cellName("Secret objectives", "Hacan")).toBe("Hacan: nothing");
-  expect(cellName("Secret objectives", "Letnev")).toBe("Letnev: nothing");
-  expect(cellName("Secret objectives", "Xxcha")).toBe("Xxcha: 1 point");
-  // A source that nobody has a point from keeps its row.
-  expect(row("Imperial · Mecatol Rex").queryByText(/\d/)).not.toBeInTheDocument();
+  // An agenda stays: a law can be repealed. A loss has the minus sign.
+  expect(cellName("Agenda · Mutiny", "Xxcha")).toBe("Xxcha: −1 point");
   // Support for the Throne shows whose note it is.
   expect(cellName("Support for the Throne", "Sol")).toBe("Sol: 1 point from Hacan");
   expect(
     within(cells("Support for the Throne").Sol).getByRole("img", { name: "Hacan" }),
   ).toBeInTheDocument();
-  // A loss has the minus sign.
-  expect(cellName("Agenda · Mutiny", "Xxcha")).toBe("Xxcha: −1 point");
-  expect(row("Agenda · Mutiny").getByText("−1")).toBeInTheDocument();
+});
+
+it("has the custodians while no seat has them, and no objective that every seat scored", () => {
+  const score = update.score!;
+  const seats = update.view.players.map((player) => player.id);
+  open({
+    ...update,
+    score: {
+      ...score,
+      public: [{ ...score.public[0], scored: seats }, score.public[1]],
+      sources: score.sources.map((source) =>
+        source.kind === "custodians" ? { ...source, points: {} } : source,
+      ),
+    },
+  });
+  expect(screen.queryByRole("article", { name: "Expand Borders" })).not.toBeInTheDocument();
+  expect(screen.getByText("All scored by every seat")).toBeInTheDocument();
+  expect(row("Custodians of Mecatol Rex").getByText("Nobody yet")).toBeInTheDocument();
+});
+
+it("lists in the sheet of a player every point of the seat with its reason", () => {
+  const view = selectShell(update, local, null);
+  const sheet = (seat: string) => {
+    const shown = render(
+      <GameProvider seats={view.seats} dispatch={() => {}}>
+        <ReferenceDrawer
+          id={`player:${seat}`}
+          view={view.reference}
+          players={view.players.rows}
+          onClose={() => {}}
+        />
+      </GameProvider>,
+    );
+    const points = within(screen.getByRole("region", { name: "Victory points" }));
+    // The printed text of an objective is behind its name.
+    expect(points.getAllByRole("button", { name: /, printed text$/ }).length).toBeGreaterThan(0);
+    const rows = points.getAllByRole("listitem").map((item) => item.textContent);
+    shown.unmount();
+    return rows;
+  };
+  expect(sheet("a")).toEqual(["Expand Borders1", "Secret objectives2", "Support for the Throne←1"]);
+  // A loss has the minus sign, and an objective of stage II its two points.
+  expect(sheet("d")).toEqual(["Master the Sciences2", "Secret objectives1", "Agenda · Mutiny−1"]);
 });
 
 it("says when no objective of a stage is revealed, and shows nothing without the fact", () => {
   open({ ...update, score: { ...update.score!, public: [] } });
   expect(screen.getAllByText("None revealed")).toHaveLength(2);
+});
+
+it("shows for a chosen seat what it can still score or lose", () => {
+  open();
+  const seat = (name: RegExp) =>
+    within(screen.getByRole("group", { name: "Victory points" })).getByRole("button", { name });
+  fireEvent.click(seat(/^Hacan/));
+  expect(seat(/^Hacan/)).toHaveAttribute("aria-pressed", "true");
+  // Hacan scored Expand Borders, and not Master the Sciences.
+  expect(screen.queryByRole("article", { name: "Expand Borders" })).not.toBeInTheDocument();
+  expect(screen.getByText("All scored for Hacan")).toBeInTheDocument();
+  expect(screen.getByRole("article", { name: "Master the Sciences" })).toBeInTheDocument();
+  expect(screen.getByText("1 of 1 open for Hacan")).toBeInTheDocument();
+  // Hacan has no Support for the Throne and no point of an agenda.
+  const other = within(screen.getByRole("region", { name: "Other points" }));
+  expect(other.queryByRole("article")).not.toBeInTheDocument();
+  expect(other.getByText("None")).toBeInTheDocument();
+  // A second tap shows every seat again.
+  fireEvent.click(seat(/^Hacan/));
+  expect(screen.getByRole("article", { name: "Expand Borders" })).toBeInTheDocument();
 });

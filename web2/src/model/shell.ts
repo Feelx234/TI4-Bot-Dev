@@ -197,16 +197,27 @@ export type ScoreCellView =
   | { kind: "none" }
   /** The seat scored the objective of the row. */
   | { kind: "scored" }
-  /** `from`: the seats whose Support for the Throne gives the points. Empty for another source. */
-  | { kind: "points"; value: number; from: SeatId[] };
+  /**
+   * `from`: the seats whose Support for the Throne gives the points. Empty for another source.
+   * `detail`: the cards behind the points as printed, when the game says them (the scored secret
+   * objectives). `text` is empty without the catalogue.
+   */
+  | { kind: "points"; value: number; from: SeatId[]; detail: { name: string; text: string }[] };
 
 /** One source of points: a public objective, or another source ("Custodians of Mecatol Rex"). */
 export interface ScoreRowView {
   name: string;
-  /** The printed text of an objective. Empty for another source. */
+  /** The printed text of an objective, an agenda, a relic or a card. Empty when the source has none. */
   text: string;
   /** What a public objective is worth. Null for another source: its cells say the points. */
   worth: number | null;
+  /**
+   * A point can still be scored here, or change hands: an objective that not every seat scored,
+   * the custodians while no seat has them, Support for the Throne, and the points of an agenda
+   * (a law can be repealed). The Objectives sheet shows
+   * these rows only; the sheet of a player has every row of its seat.
+   */
+  open: boolean;
   /** One cell for each seat, in the order of `ScoreView.seats`. */
   cells: ScoreCellView[];
 }
@@ -219,6 +230,13 @@ export interface ScoreView {
   seats: { seat: SeatId; points: number; isMe: boolean }[];
   /** "Public objectives · stage I", "Public objectives · stage II", "Other points". */
   groups: { title: string; rows: ScoreRowView[] }[];
+  /**
+   * The public objectives that the game can still reveal, in groups by what an objective asks
+   * for ("Spend", "Planets you control"). A game draws five of each stage, and nobody knows
+   * which. Stage I is not there once an objective of stage II is revealed. Empty without the
+   * catalogue.
+   */
+  deck: { group: string; cards: { name: string; text: string; worth: number }[] }[];
 }
 
 export interface ReferenceView {

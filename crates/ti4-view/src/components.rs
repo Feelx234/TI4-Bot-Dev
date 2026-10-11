@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use ti4_content::{
-    ActionCardTiming, ContentStore, Record, SecretObjectiveGroup, action_card_timing,
-    secret_objective_group,
+    ActionCardTiming, ContentStore, PublicObjectiveGroup, Record, SecretObjectiveGroup,
+    action_card_timing, public_objective_group, secret_objective_group,
 };
 use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
@@ -88,6 +88,19 @@ pub struct SecretObjective {
     pub text: String,
 }
 
+/// One public objective as printed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicObjectiveCard {
+    pub id: String,
+    pub name: String,
+    /// What the objective is worth: 1 for stage I, 2 for stage II.
+    pub points: i64,
+    /// What the objective asks for, one of [`ComponentCatalog::public_objective_groups`].
+    pub group: String,
+    pub text: String,
+}
+
 /// The printed cards of the play areas. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -109,6 +122,12 @@ pub struct ComponentCatalog {
     /// The groups of what the secret objectives ask for, in the order in which a reader is shown
     /// them.
     pub secret_objective_groups: Vec<String>,
+    /// Every public objective that a game can reveal: stage I, then stage II, each sorted by id.
+    /// A game draws five of each stage, and no fact says which.
+    pub public_objectives: Vec<PublicObjectiveCard>,
+    /// The groups of what the public objectives ask for, in the order in which a reader is shown
+    /// them.
+    pub public_objective_groups: Vec<String>,
 }
 
 /// Everything printed that a client is handed once.
@@ -133,7 +152,7 @@ const OTHER_TIMING: &str = "Other";
 
 /// The group of a secret objective that `ti4-content` does not know. No objective of the corpus
 /// has it.
-const OTHER_SECRET: &str = "Other";
+const OTHER_GROUP: &str = "Other";
 
 fn text(record: &Record, key: &str) -> String {
     record.text(key).map(ToOwned::to_owned).unwrap_or_default()
@@ -269,7 +288,7 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
                         name: printed("name").unwrap_or_else(|| id.as_str().to_owned()),
                         phase: printed("phase").unwrap_or_default(),
                         group: secret_objective_group(id.as_str())
-                            .map_or(OTHER_SECRET, SecretObjectiveGroup::label)
+                            .map_or(OTHER_GROUP, SecretObjectiveGroup::label)
                             .to_owned(),
                         text: printed("text").unwrap_or_default(),
                     }
@@ -279,7 +298,30 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
         secret_objective_groups: SecretObjectiveGroup::ALL
             .iter()
             .map(|group| group.label())
-            .chain([OTHER_SECRET])
+            .chain([OTHER_GROUP])
+            .map(ToOwned::to_owned)
+            .collect(),
+        public_objectives: {
+            let mut cards: Vec<PublicObjectiveCard> = records(ContentType::PublicObjectives)
+                .filter_map(|record| {
+                    Some(PublicObjectiveCard {
+                        id: record.id()?.to_owned(),
+                        name: text(record, "name"),
+                        points: record.int("points")?,
+                        group: public_objective_group(record.id()?)
+                            .map_or(OTHER_GROUP, PublicObjectiveGroup::label)
+                            .to_owned(),
+                        text: text(record, "text"),
+                    })
+                })
+                .collect();
+            cards.sort_by(|a, b| (a.points, &a.id).cmp(&(b.points, &b.id)));
+            cards
+        },
+        public_objective_groups: PublicObjectiveGroup::ALL
+            .iter()
+            .map(|group| group.label())
+            .chain([OTHER_GROUP])
             .map(ToOwned::to_owned)
             .collect(),
     }
@@ -357,6 +399,37 @@ mod tests {
     }
 
     #[test]
+    fn the_public_objectives_are_as_printed_by_stage() {
+        let catalog = printed();
+        let stage = |points| {
+            catalog
+                .public_objectives
+                .iter()
+                .filter(|card| card.points == points)
+                .count()
+        };
+        assert_eq!((stage(1), stage(2)), (20, 20));
+        assert_eq!(catalog.public_objectives.len(), 40);
+        assert!(
+            catalog
+                .public_objectives
+                .is_sorted_by_key(|card| card.points)
+        );
+        let borders = catalog
+            .public_objectives
+            .iter()
+            .find(|card| card.id == "expand_borders")
+            .expect("Expand Borders");
+        assert_eq!(borders.name, "Expand Borders");
+        assert_eq!(borders.group, "Planets you control");
+        for card in &catalog.public_objectives {
+            assert!(catalog.public_objective_groups.contains(&card.group));
+            assert_ne!(card.group, OTHER_GROUP, "{} has no group", card.id);
+        }
+        assert_eq!(borders.text, "Control 6 planets in non-home systems.");
+    }
+
+    #[test]
     fn the_secret_objectives_are_as_printed_and_have_their_group() {
         let catalog = component_catalog(ContentStore::embedded(), POK);
         assert_eq!(catalog.secret_objectives.len(), 40);
@@ -364,7 +437,7 @@ mod tests {
             assert!(!objective.text.is_empty(), "{} has its text", objective.id);
             assert!(
                 catalog.secret_objective_groups.contains(&objective.group)
-                    && objective.group != OTHER_SECRET,
+                    && objective.group != OTHER_GROUP,
                 "{} has its group",
                 objective.id
             );

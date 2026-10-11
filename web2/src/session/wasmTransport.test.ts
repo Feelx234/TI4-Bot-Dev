@@ -829,8 +829,9 @@ it.skipIf(!built)("says where the points of every seat of the late game come fro
   expect(facts.sources[3].from).toEqual({ d: ["g"], f: ["c"] });
   expect(facts.unexplained).toBeUndefined();
   // The cells of a seat sum to its points.
-  const view = selectScore(update)!;
-  expect(view.seats.map((seat) => seat.points)).toEqual([5, 5, 5, 4, 7, 2, 4, 6]);
+  const view = selectScore(update, null)!;
+  // The viewer (seat A, 5 points) is first, then the seats by their points.
+  expect(view.seats.map((seat) => seat.points)).toEqual([5, 7, 6, 5, 5, 4, 4, 2]);
   const rows = view.groups.flatMap((group) => group.rows);
   view.seats.forEach((seat, index) => {
     const sum = rows.reduce((total, row) => {

@@ -147,7 +147,7 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   await fits();
 });
 
-test("phone: the Objectives sheet has the viewer first and scrolls to the other seats", async ({
+test("phone: the Objectives sheet has the eight seats in its width, and a filter by seat", async ({
   page,
 }) => {
   await page.goto("/?scenario=late-game&humans=1");
@@ -155,28 +155,31 @@ test("phone: the Objectives sheet has the viewer first and scrolls to the other 
   await page.getByRole("button", { name: "Reference and more" }).click();
   await page.getByRole("menuitem", { name: "Objectives" }).click();
   const sheet = page.getByRole("complementary", { name: "Objectives" });
-  const seats = sheet.getByRole("list", { name: "Victory points" }).getByRole("listitem");
+  const seats = sheet.getByRole("group", { name: "Victory points" }).getByRole("button");
   await expect(seats).toHaveCount(8);
   // The sheet has the room of the footer and of the tabs.
   await expect(page.locator("main > footer")).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Panes" })).toHaveCount(0);
-  // The page is not cut at the side. The sheet scrolls to the seats that are behind; the viewer
-  // is the first column, and is in view.
+  // Nothing is cut at the side, of the page or of the sheet. The viewer is first.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
-  await expect(seats.nth(0)).toHaveAccessibleName(/\(you\)/);
-  await expect(seats.nth(0)).toBeInViewport({ ratio: 1 });
   const scroller = sheet.locator("div.overflow-auto");
-  const mutiny = sheet.getByRole("article", { name: "Agenda · Mutiny" });
-  const box = async (item: typeof seats) => (await item.boundingBox())!;
-  await page.screenshot({ path: "shots/phone/local/objectives.png", animations: "disabled" });
-  // The names and the heading stay in view when the sheet scrolls, and a cell is under its seat.
-  await scroller.evaluate((element) => element.scrollTo(element.scrollWidth, element.scrollHeight));
+  expect(await scroller.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+  await expect(seats.nth(0)).toHaveAccessibleName(/\(you\)/);
   await expect(seats.nth(7)).toBeInViewport({ ratio: 1 });
-  await expect(mutiny.getByText("Agenda · Mutiny")).toBeInViewport({ ratio: 1 });
-  expect((await box(mutiny.getByRole("listitem").nth(7))).x).toBeCloseTo(
-    (await box(seats.nth(7))).x,
-    0,
-  );
+  await page.screenshot({ path: "shots/phone/local/objectives.png", animations: "disabled" });
+  // A seat is the filter: the objectives that it scored are not shown.
+  const cards = sheet
+    .getByRole("region", { name: "Public objectives · stage I", exact: true })
+    .getByRole("article");
+  await expect(cards).toHaveCount(5);
+  await seats.nth(1).click();
+  await expect(seats.nth(1)).toHaveAttribute("aria-pressed", "true");
+  expect(await cards.count()).toBeLessThan(5);
+  await page.screenshot({ path: "shots/phone/local/objectives-seat.png", animations: "disabled" });
+  // The standings stay in view when the sheet scrolls.
+  await seats.nth(1).click();
+  await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect(seats.nth(0)).toBeInViewport();
   await page.screenshot({ path: "shots/phone/local/objectives-end.png", animations: "disabled" });
   await sheet.getByRole("button", { name: "Close Objectives" }).click();
   await expect(page.getByRole("navigation", { name: "Panes" })).toBeVisible();

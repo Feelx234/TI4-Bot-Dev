@@ -387,6 +387,13 @@ export interface ComponentCatalog {
     group: string;
     text: string;
   }[];
+  /**
+   * Every public objective that a game can reveal: stage I, then stage II. A game draws five of
+   * each stage. Absent from an engine that is older than the fact.
+   */
+  public_objectives?: { id: string; name: string; points: number; group: string; text: string }[];
+  /** The groups of what the public objectives ask for, in the order in which they are shown. */
+  public_objective_groups?: string[];
   /** The groups of what the secret objectives ask for, in the order in which they are shown. */
   secret_objective_groups: string[];
 }
@@ -405,6 +412,8 @@ export interface PointSource {
     | "other";
   /** The printed name of the agenda, relic, card or planet. Empty for the first four kinds. */
   name: string;
+  /** The printed text of the agenda, relic, card or planet. Absent for the first four kinds. */
+  text?: string;
   /** The points of each seat, gains and losses together. A seat with none is absent. */
   points: Record<string, number>;
   /** For `support`: whose notes the seat has. */

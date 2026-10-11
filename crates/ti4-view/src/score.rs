@@ -57,6 +57,9 @@ pub struct PointSource {
     pub name: String,
     /// The points of each seat, gains and losses together. A seat with none is left out.
     pub points: BTreeMap<PlayerId, i32>,
+    /// The printed text of the agenda, relic, card or planet. Empty for the first four kinds.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub text: String,
     /// For [`PointSourceKind::Support`]: whose notes the seat has, sorted by id.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub from: BTreeMap<PlayerId, Vec<PlayerId>>,
@@ -79,39 +82,55 @@ pub struct ScoreFacts {
     pub unexplained: BTreeMap<PlayerId, i32>,
 }
 
-/// The source of a row of the ledger, by its reason. `None` for the objectives: they are read
-/// from what was scored.
-fn source_of(content: &ContentStore, reason: &str) -> Option<(PointSourceKind, String)> {
-    let printed = |category: ContentType, id: &str| {
-        content
-            .get(category, id)
-            .and_then(|record| record.text("name"))
-            .unwrap_or(id)
-            .to_owned()
+/// The source of a row of the ledger, by its reason: its kind, its printed name and its printed
+/// text. `None` for the objectives: they are read from what was scored.
+fn source_of(content: &ContentStore, reason: &str) -> Option<(PointSourceKind, String, String)> {
+    // The name of a record, and the texts under `keys`, one line each.
+    let printed = |kind: PointSourceKind, category: ContentType, id: &str, keys: &[&str]| {
+        let record = content.get(category, id);
+        let name = record.and_then(|record| record.text("name")).unwrap_or(id);
+        let text: Vec<&str> = keys
+            .iter()
+            .filter_map(|key| record.and_then(|record| record.text(key)))
+            .collect();
+        (kind, name.to_owned(), text.join("\n"))
     };
+    let fixed = |kind| (kind, String::new(), String::new());
     Some(match reason {
         "objective" | "secret_objective" => return None,
-        "custodians" => (PointSourceKind::Custodians, String::new()),
-        "imperial_primary" => (PointSourceKind::Imperial, String::new()),
-        "support_for_the_throne" => (PointSourceKind::Support, String::new()),
-        "imperial_rider" => (
+        "custodians" => fixed(PointSourceKind::Custodians),
+        "imperial_primary" => fixed(PointSourceKind::Imperial),
+        "support_for_the_throne" => fixed(PointSourceKind::Support),
+        "imperial_rider" => printed(
             PointSourceKind::ActionCard,
-            printed(ContentType::ActionCards, reason),
+            ContentType::ActionCards,
+            reason,
+            &["text"],
         ),
-        "styx" => (
+        "styx" => printed(
             PointSourceKind::Planet,
-            printed(ContentType::Planets, reason),
+            ContentType::Planets,
+            reason,
+            &["legendaryAbilityText"],
         ),
         _ => {
             if let Some(agenda) = reason.strip_prefix("agenda:") {
-                (
+                // An agenda has the text of each outcome.
+                printed(
                     PointSourceKind::Agenda,
-                    printed(ContentType::Agendas, agenda),
+                    ContentType::Agendas,
+                    agenda,
+                    &["text1", "text2"],
                 )
             } else if content.get(ContentType::Relics, reason).is_some() {
-                (PointSourceKind::Relic, printed(ContentType::Relics, reason))
+                printed(
+                    PointSourceKind::Relic,
+                    ContentType::Relics,
+                    reason,
+                    &["text"],
+                )
             } else {
-                (PointSourceKind::Other, reason.to_owned())
+                (PointSourceKind::Other, reason.to_owned(), String::new())
             }
         }
     })
@@ -163,6 +182,7 @@ pub fn project_score_facts(state: &GameState, content: &ContentStore) -> ScoreFa
     let fixed = |kind| PointSource {
         kind,
         name: String::new(),
+        text: String::new(),
         points: BTreeMap::new(),
         from: BTreeMap::new(),
     };
@@ -183,25 +203,25 @@ pub fn project_score_facts(state: &GameState, content: &ContentStore) -> ScoreFa
         }
     }
 
-    let mut ledger: BTreeMap<(PointSourceKind, String), BTreeMap<PlayerId, i32>> = BTreeMap::new();
+    // By kind and name, with the printed text of the source.
+    let mut ledger: BTreeMap<(PointSourceKind, String), (String, BTreeMap<PlayerId, i32>)> =
+        BTreeMap::new();
     for kind in [
         PointSourceKind::Custodians,
         PointSourceKind::Imperial,
         PointSourceKind::Support,
     ] {
-        ledger.insert((kind, String::new()), BTreeMap::new());
+        ledger.insert((kind, String::new()), Default::default());
     }
     for (player, delta, reason) in &state.vp_ledger {
-        if let Some(source) = source_of(content, reason) {
-            *ledger
-                .entry(source)
-                .or_default()
-                .entry(player.clone())
-                .or_default() += delta;
+        if let Some((kind, name, text)) = source_of(content, reason) {
+            let row = ledger.entry((kind, name)).or_default();
+            row.0 = text;
+            *row.1.entry(player.clone()).or_default() += delta;
         }
     }
     let mut sources = vec![secrets];
-    for ((kind, name), mut points) in ledger {
+    for ((kind, name), (text, mut points)) in ledger {
         points.retain(|_, points| *points != 0);
         let always = matches!(
             kind,
@@ -220,6 +240,7 @@ pub fn project_score_facts(state: &GameState, content: &ContentStore) -> ScoreFa
         sources.push(PointSource {
             kind,
             name,
+            text,
             points,
             from,
         });
@@ -389,6 +410,19 @@ mod tests {
             points(PointSourceKind::Relic, "Shard of the Throne"),
             BTreeMap::from([(c.clone(), 1)])
         );
+        // A source with a printed card has its text: an agenda has both outcomes.
+        let mutiny = &source(&facts, PointSourceKind::Agenda, "Mutiny").text;
+        assert!(
+            mutiny.starts_with("For: Each player that voted"),
+            "{mutiny}"
+        );
+        assert!(mutiny.contains("\nAgainst: "), "{mutiny}");
+        assert!(
+            source(&facts, PointSourceKind::Relic, "Shard of the Throne")
+                .text
+                .starts_with("When you gain this card, gain 1 victory point")
+        );
+        assert_eq!(support.text, "");
         assert_eq!(
             points(PointSourceKind::Other, "a reason of tomorrow"),
             BTreeMap::from([(c.clone(), 1)])

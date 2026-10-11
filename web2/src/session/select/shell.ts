@@ -105,7 +105,7 @@ export function selectShell(
       ? selectTactical(update, local, facts, catalog)
       : selectAction(update, local, catalog),
     reference: {
-      objectives: selectScore(update),
+      objectives: selectScore(update, printed),
       technology: [],
       cards: [],
       actionCards: selectActionCards(update, printed, cards),

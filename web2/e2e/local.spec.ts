@@ -1089,41 +1089,66 @@ test("the Objectives sheet of the late game says where the points of every seat 
   await expect(heading(page)).toBeVisible();
   await page.getByRole("button", { name: "Objectives", exact: true }).click();
   const sheet = page.getByRole("complementary", { name: "Objectives" });
-  const seats = sheet.getByRole("list", { name: "Victory points" }).getByRole("listitem");
+  const seats = sheet.getByRole("group", { name: "Victory points" }).getByRole("button");
   await expect(seats).toHaveCount(8);
   // The viewer is first, then the seats by their points: Jol-Nar has 7, L1Z1X has 2.
   await expect(seats.nth(0)).toHaveAccessibleName(/\(you\): 5 points$/);
   await expect(seats.nth(1)).toHaveAccessibleName(/: 7 points$/);
   await expect(seats.nth(7)).toHaveAccessibleName(/: 2 points$/);
-  await expect(
-    sheet
-      .getByRole("region", { name: "Public objectives · stage I", exact: true })
-      .getByRole("article"),
-  ).toHaveCount(5);
+  const first = sheet
+    .getByRole("region", { name: "Public objectives · stage I", exact: true })
+    .getByRole("article");
+  await expect(first).toHaveCount(5);
   await expect(
     sheet.getByRole("region", { name: "Public objectives · stage II" }).getByRole("article"),
   ).toHaveCount(2);
+  // Of the other sources, the sheet has what is still to get or to lose: the notes and the
+  // agendas. The custodians are taken, and what is done (Imperial) is in the sheet of a player.
   const other = sheet.getByRole("region", { name: "Other points" });
-  const cell = (row: string, seat: number) =>
-    other.getByRole("article", { name: row }).getByRole("listitem").nth(seat);
-  await expect(cell("Secret objectives", 3)).toHaveAccessibleName(/: 2 points$/);
-  await expect(cell("Custodians of Mecatol Rex", 1)).toHaveAccessibleName(/: 1 point$/);
-  await expect(cell("Imperial · Mecatol Rex", 0)).toHaveAccessibleName(/: 2 points$/);
-  await expect(cell("Support for the Throne", 5)).toHaveAccessibleName(/: 1 point from /);
-  await expect(cell("Agenda · Mutiny", 7)).toHaveText("−1");
-  await expect(cell("Agenda · Political Censure", 4)).toHaveText("1");
-  await expect(cell("Relic · Shard of the Throne", 6)).toHaveText("1");
-  // The columns line up: a cell is under the seat of the heading, in every row.
-  const left = async (item: ReturnType<typeof cell>) => (await item.boundingBox())!.x;
-  expect(await left(cell("Agenda · Mutiny", 7))).toBeCloseTo(await left(seats.nth(7)), 0);
-  expect(await left(cell("Secret objectives", 2))).toBeCloseTo(await left(seats.nth(2)), 0);
-  // The seats that are behind are at the side: the sheet scrolls to them.
+  await expect(other.getByRole("article")).toHaveCount(3);
+  await expect(other.getByRole("article", { name: "Agenda · Mutiny" })).toContainText("−1");
+  await expect(
+    other.getByRole("article", { name: "Support for the Throne" }).getByRole("listitem").first(),
+  ).toHaveAccessibleName(/: 1 point from /);
+  // Nothing is cut at the side of the sheet.
   const scroller = sheet.locator("div.overflow-auto");
-  await expect(seats.nth(0)).toBeInViewport({ ratio: 1 });
+  expect(await scroller.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
   await page.screenshot({ path: "shots/local/objectives-late-game.png", animations: "disabled" });
-  // The heading stays in view when the sheet scrolls.
+  // A seat is the filter: the sheet shows what it can still score. Sol scored one objective, of
+  // stage II.
+  await seats.nth(0).click();
+  await expect(first).toHaveCount(5);
+  await expect(
+    sheet.getByRole("region", { name: "Public objectives · stage II" }).getByRole("article"),
+  ).toHaveCount(1);
+  await expect(sheet.getByText("1 of 2 open for Sol")).toBeVisible();
+  await seats.nth(0).click();
+  // The deck: the public objectives that the game can still reveal, in groups by what they ask
+  // for. The late game has two of stage II on the table, so 18 of stage II are left and none of
+  // stage I.
+  const deck = sheet.getByRole("region", { name: "Public objective deck" });
+  await expect(deck).toContainText("18 not revealed");
+  await deck.getByRole("button", { name: /^▸ Spend/ }).click();
+  await expect(deck.getByRole("region", { name: "Spend" }).getByText("2 VP")).toHaveCount(5);
+  await expect(deck.getByText("1 VP")).toHaveCount(0);
+  // The standings stay in view when the sheet scrolls.
   await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
   await expect(seats.nth(0)).toBeInViewport();
+  // The sheet of a player says why the seat has its points: Sol has 5.
+  await sheet.getByRole("button", { name: "Close Objectives" }).click();
+  await page.getByRole("button", { name: /^Seat A, Sol.*Open player sheet/ }).click();
+  const points = page
+    .getByRole("complementary", { name: "Seat A · Sol" })
+    .getByRole("region", { name: "Victory points" });
+  await expect(points).toContainText("5 of 10");
+  // The printed text of an objective is behind its name, as the values of a unit.
+  await points.getByRole("button", { name: "Patrol Vast Territories, printed text" }).click();
+  await expect(
+    points.getByText("Have units in 5 systems that do not contain planets."),
+  ).toBeVisible();
+  await expect(
+    points.getByRole("listitem").filter({ hasText: "Imperial · Mecatol Rex" }),
+  ).toHaveText(/2$/);
   expect(errors).toEqual([]);
 });
 
