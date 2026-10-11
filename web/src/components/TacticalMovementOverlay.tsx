@@ -12,6 +12,7 @@ import {
   originCargoBlockedByToken,
   ridesFree,
 } from "../presentation/enRoutePickup.ts";
+import { systemTag } from "../presentation/systemFacts.ts";
 
 export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
@@ -63,6 +64,143 @@ const cargoTestId = (c: OriginCargoGroup) =>
   `${c.originSystemId}-${c.unitType}-${c.source ?? "space"}${
     c.pickupSystemId === c.originSystemId ? "" : `-via-${c.pickupSystemId}`
   }`;
+
+const shipKey = (g: OriginShipGroup) =>
+  `${g.originSystemId}:${g.unitType}${g.damaged ? ":damaged" : ""}`;
+
+/** A fighter move option is listed under cargo when the board shows the same fighters there. */
+const shownAsCargo = (g: OriginShipGroup, cargoGroups: OriginCargoGroup[]) =>
+  g.isFighter &&
+  cargoGroups.some(
+    (cargo) =>
+      cargo.originSystemId === g.originSystemId &&
+      cargo.unitType === g.unitType &&
+      cargo.damaged === g.damaged &&
+      cargo.source === null,
+  );
+
+/** How many of a cargo group can still be staged, given the same units staged by other origins. */
+function cargoLimit(
+  c: OriginCargoGroup,
+  cargoGroups: OriginCargoGroup[],
+  staged: Record<string, number>,
+): number {
+  const key = cargoKey(c);
+  const others = cargoGroups
+    .filter(
+      (o) =>
+        cargoKey(o) !== key &&
+        o.pickupSystemId === c.pickupSystemId &&
+        o.unitType === c.unitType &&
+        o.source === c.source &&
+        o.damaged === c.damaged,
+    )
+    .reduce((sum, o) => sum + (staged[cargoKey(o)] ?? 0), 0);
+  return c.blocked ? 0 : Math.max(0, c.totalAvailable - others);
+}
+
+const cargoOrder = (unitType: string, source: string | null) =>
+  getUnitBaseType(unitType) === "fighter" ? 0 : source === null ? 1 : 2;
+
+/**
+ * "All from here": the staging a player would reach by pressing + on every row of one origin.
+ * Every ship that may move, then fighters and ground forces standing in that system (space area
+ * first, then planets) as far as the staged holds allow. En-route pickups and other origins keep
+ * what was staged. Pure client convenience: the commit path, and so the engine answers, are the
+ * same as for manual clicks.
+ */
+export function stageAllFromOrigin(
+  origin: string,
+  shipGroups: OriginShipGroup[],
+  cargoGroups: OriginCargoGroup[],
+  staged: Record<string, number>,
+): Record<string, number> {
+  const next = { ...staged };
+  const gravityKeys = new Set(
+    shipGroups
+      .filter((g) => g.options.length > 0 && g.options.every((o) => o.gravityDrive))
+      .map(shipKey),
+  );
+  const ships = shipGroups.filter(
+    (g) => g.originSystemId === origin && !g.isFighter && !g.isGroundForce,
+  );
+  const shipCargo = shipGroups.filter(
+    (g) =>
+      g.originSystemId === origin &&
+      (g.isFighter || g.isGroundForce) &&
+      !shownAsCargo(g, cargoGroups),
+  );
+  const localCargo = cargoGroups.filter(
+    (c) => c.originSystemId === origin && c.pickupSystemId === origin,
+  );
+  for (const g of [...ships, ...shipCargo]) delete next[shipKey(g)];
+  for (const c of localCargo) delete next[cargoKey(c)];
+
+  let capacity = 0;
+  for (const g of ships) {
+    const key = shipKey(g);
+    let count = g.totalAvailable;
+    if (gravityKeys.has(key)) {
+      const elsewhere = [...gravityKeys].reduce((sum, k) => sum + (next[k] ?? 0), 0);
+      count = Math.min(count, Math.max(0, 1 - elsewhere));
+    }
+    if (count > 0) next[key] = count;
+    capacity += count * g.capacityPerUnit;
+  }
+
+  // Holds already promised to en-route pickups of this origin stay promised.
+  let used = cargoGroups
+    .filter(
+      (c) =>
+        c.originSystemId === origin &&
+        c.pickupSystemId !== origin &&
+        !ridesFree(c.unitType),
+    )
+    .reduce((sum, c) => sum + (next[cargoKey(c)] ?? 0), 0);
+
+  const candidates = [
+    ...shipCargo.map((g) => ({
+      key: shipKey(g),
+      unitType: g.unitType,
+      source: null as string | null,
+      limit: () => g.totalAvailable,
+    })),
+    ...localCargo.map((c) => ({
+      key: cargoKey(c),
+      unitType: c.unitType,
+      source: c.source,
+      limit: () => cargoLimit(c, cargoGroups, next),
+    })),
+  ]
+    .map((item, index) => ({ item, index }))
+    .sort(
+      (a, b) =>
+        cargoOrder(a.item.unitType, a.item.source) -
+          cargoOrder(b.item.unitType, b.item.source) || a.index - b.index,
+    )
+    .map(({ item }) => item);
+
+  for (const item of candidates) {
+    if (capacity <= 0) break;
+    const limit = item.limit();
+    const count = ridesFree(item.unitType)
+      ? limit
+      : Math.min(limit, Math.max(0, capacity - used));
+    if (count <= 0) continue;
+    next[item.key] = count;
+    if (!ridesFree(item.unitType)) used += count;
+  }
+  return next;
+}
+
+/** Same staged units, ignoring keys staged at zero. */
+export function sameStaging(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every((k) => (a[k] ?? 0) === (b[k] ?? 0));
+}
 
 export interface ExecutionPlan {
   active: boolean;
@@ -951,7 +1089,7 @@ export const TacticalMovementOverlay: React.FC<
         }
         progress={
           destinationSystemId && !isCargoStep
-            ? `Destination: system ${destinationSystemId}`
+            ? `Destination: ${systemTag(destinationSystemId, board)}`
             : undefined
         }
         onMinimize={onClose}
@@ -1017,6 +1155,13 @@ export const TacticalMovementOverlay: React.FC<
               const originCap = capacityByOrigin[originId] ?? 0;
               const originCargo = cargoByOrigin[originId] ?? 0;
               const isOriginOverCapacity = originCargo > originCap;
+              const allFromHere = stageAllFromOrigin(
+                originId,
+                shipGroups,
+                originCargoGroups,
+                stagedMoves,
+              );
+              const nothingMoreHere = sameStaging(allFromHere, stagedMoves);
 
               return (
                 <div
@@ -1026,9 +1171,28 @@ export const TacticalMovementOverlay: React.FC<
                   data-alert={isOriginOverCapacity ? "true" : undefined}
                 >
                   <div className="origin-system-group__header">
-                    <span className="origin-system-group__title">
-                      Origin: System #{originId}
+                    <span
+                      className="origin-system-group__title"
+                      data-testid={`origin-title-${originId}`}
+                    >
+                      From {systemTag(originId, board)}
                     </span>
+                    <button
+                      type="button"
+                      data-testid={`rally-all-${originId}`}
+                      className="button button--secondary origin-system-group__all"
+                      onClick={() => setStagedMoves(allFromHere)}
+                      disabled={
+                        nothingMoreHere || isExecuting || isDirectSubmitting
+                      }
+                      title={
+                        nothingMoreHere
+                          ? "Everything that can move from here is already selected"
+                          : "Select every ship here, then load what their capacity allows (confirm with Commit Moves)"
+                      }
+                    >
+                      All from here
+                    </button>
                     <span
                       data-testid={`cargo-capacity-gauge-${originId}`}
                       className="fleet-rally-tray__status"
@@ -1083,7 +1247,7 @@ export const TacticalMovementOverlay: React.FC<
                                   {g.damaged ? " (Damaged)" : ""}
                                 </div>
                                 <div className="text-muted">
-                                  Origin: #{g.originSystemId} • Available:{" "}
+                                  Available:{" "}
                                   {g.totalAvailable}
                                   {g.capacityPerUnit > 0 &&
                                     ` • Capacity: ${g.capacityPerUnit}`}
@@ -1185,8 +1349,8 @@ export const TacticalMovementOverlay: React.FC<
                                 </div>
                                 <div className="text-muted">
                                   {c.pickupSystemId === c.originSystemId
-                                    ? `Origin: #${c.originSystemId}`
-                                    : `On the way: #${c.pickupSystemId}`}{" "}
+                                    ? ""
+                                    : `On the way: ${systemTag(c.pickupSystemId, board)} `}
                                   ({c.source ?? "Space"}) • Available:{" "}
                                   {maxStage}
                                 </div>

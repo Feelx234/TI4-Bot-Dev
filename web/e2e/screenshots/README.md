@@ -56,3 +56,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Movement variant ships (BU-movement-variant-ships)
 
 `BU-movement-variant-ships` shows the tactical movement dialog for a system holding a carrier and a sol_carrier: each row now counts only ships of its exact type (Available: 1, + disabled after one click). The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the fix; `npm run screenshots -- BU` regenerates the `after-*` PNGs and asserts the counts. `TI4_SHOT_OUT` moves Playwright's scratch directory off /tmp.
+
+## Move dialog systems (CL-move-dialog-systems)
+
+`CL-move-dialog-systems` shows the tactical movement dialog naming each system as `#<tile> [<name>]` (destination, origins, en-route pickups) and the per-origin All from here button, desktop and 390x844. `npm run screenshots -- CL` asserts the names, the staged counts (every ship, then fighters, space-area and planet ground forces as far as capacity allows), that the button disables once everything is staged, no horizontal scroll on the phone, and that no message reaches the server before Commit Moves.
