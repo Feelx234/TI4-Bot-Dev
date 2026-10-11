@@ -1091,6 +1091,16 @@ export class GameSessionClient {
     ) {
       throw new Error("Server viewer identity does not match this session");
     }
+    // The server answered without replacing the timeline (a repeated turn redo auto-play, or one
+    // with nothing to replay): the live connection is still the right one. Tearing it down would
+    // throw away an answer in flight ("Submission disconnected...") for nothing.
+    const generation = snapshot.history?.generation;
+    if (
+      generation !== undefined &&
+      generation === this.state.history.generation &&
+      this.socket !== null
+    )
+      return;
     this.rejectSubmission("Game history changed");
     this.detachSocket();
     this.clearTimers();

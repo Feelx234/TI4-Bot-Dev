@@ -194,6 +194,22 @@ describe("TurnRedoBar", () => {
     expect(screen.getByTestId("turn-redo-bar")).toHaveAttribute("data-state", "complete");
   });
 
+  it("says plainly that a turn redone mid-turn had nothing to replay", () => {
+    renderBar({
+      ...base,
+      stage: "auto_played",
+      handoff_len: 120,
+      outcome: { kept: 0, tail_total: 0, stop: { kind: "tail_exhausted" }, asking_seat: null },
+    });
+    const bar = screen.getByTestId("turn-redo-bar");
+    expect(bar).toHaveAttribute("data-state", "complete");
+    expect(bar.textContent).toMatch(/new turn is done/);
+    expect(bar.textContent).toMatch(/nothing to replay/);
+    expect(bar.textContent).not.toMatch(/All 0 recorded decisions/);
+    expect(screen.getByTestId("turn-redo-keep")).toBeVisible();
+    expect(screen.getByTestId("turn-redo-restore")).toBeVisible();
+  });
+
   it("lets other players watch but not steer", () => {
     renderBar({ ...base, can_control: false, stage: "auto_played", handoff_len: 1, outcome: {
       kept: 0, tail_total: 0, stop: { kind: "tail_exhausted" }, asking_seat: null } });

@@ -49,6 +49,46 @@ describe("useTurnRedo", () => {
     expect(command).toHaveBeenCalledTimes(1);
   });
 
+  it("does not ask again for an auto-play that went through when a stale status still says 'complete'", async () => {
+    const complete = { ...base, turn_complete: true };
+    // Every read (one started before the auto-play landed) still reports the new turn as complete.
+    const { hook, command } = setup([complete]);
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hook.result.current.busy).toBeNull());
+    hook.rerender({ gameVersion: 6, generation: 0 });
+    hook.rerender({ gameVersion: 7, generation: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(hook.result.current.error).toBeNull();
+  });
+
+  it("asks again for a later redo once the previous one is over", async () => {
+    const complete = { ...base, turn_complete: true };
+    const { hook, command, fetchStatus } = setup([complete]);
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+    // The redo ends (status gone), then the same seat redoes the same turn again.
+    fetchStatus.mockResolvedValue(null);
+    hook.rerender({ gameVersion: 6, generation: 1 });
+    await waitFor(() => expect(hook.result.current.status).toBeNull());
+    fetchStatus.mockResolvedValue(complete);
+    hook.rerender({ gameVersion: 7, generation: 2 });
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2));
+  });
+
+  it("asks again after an auto-play the game outran (a quiet stale refusal)", async () => {
+    const complete = { ...base, turn_complete: true };
+    const command = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Game advanced or a decision is in flight: expected 5"))
+      .mockResolvedValue(undefined);
+    const { hook } = setup([complete], command);
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(hook.result.current.busy).toBeNull());
+    expect(hook.result.current.error).toBeNull();
+    hook.rerender({ gameVersion: 6, generation: 0 });
+    await waitFor(() => expect(command).toHaveBeenCalledTimes(2));
+  });
+
   it("does not auto-play for a viewer who may not steer the redo", async () => {
     const { hook, command } = setup([{ ...base, turn_complete: true, can_control: false }]);
     await waitFor(() => expect(hook.result.current.status).not.toBeNull());
