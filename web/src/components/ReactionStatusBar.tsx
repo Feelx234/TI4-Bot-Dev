@@ -163,6 +163,9 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     return choice.options.filter((o) => o.id !== "decline" && o.kind !== "decline");
   }, [choice]);
 
+  // The second step of a multi-card window: the player already said yes and now picks the card.
+  const isCardStep = Boolean(choice?.context?.subtype?.startsWith("play_reaction_"));
+
   const handleAction = async (optionId: string) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -360,7 +363,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 disabled={isSubmitting}
                 className="button button--secondary reaction-status-bar__pass"
               >
-                Pass (Spacebar)
+                {isCardStep ? "Back, do not play a card (Spacebar)" : "Pass (Spacebar)"}
               </button>
             )}
 

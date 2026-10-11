@@ -1471,7 +1471,9 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                             disabled={isDirectSubmitting}
                             onClick={() => void submitDirect(declineOption.id)}
                           >
-                            Pass
+                            {subtype.startsWith("play_reaction_")
+                              ? "Back, do not play a card"
+                              : "Pass"}
                           </button>
                         )}
                       </div>

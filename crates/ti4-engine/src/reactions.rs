@@ -933,6 +933,10 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
             }) {
                 first
             } else {
+                // "May": the player who opened this step can still back out of it. Declining
+                // plays nothing and the window offers its slot again, so the outer Pass stays.
+                let mut card_options = reaction_card_options(context.content, &options);
+                card_options.push(crate::choice::ChoiceOption::decline());
                 let choice = crate::choice::Choice::new(
                     owner.clone(),
                     format!(
@@ -940,7 +944,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                         relation_name(relation),
                         event.event_type
                     ),
-                    reaction_card_options(context.content, &options),
+                    card_options,
                 )
                 .contextualized(
                     DecisionContext::new(
@@ -954,6 +958,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                         context.state.phase,
                         context.state.round,
                     )
+                    .optional(true)
                     .about_battle(context.state)
                     .with_trigger(crate::decision_context::DecisionTrigger::from_event(
                         event,
@@ -962,6 +967,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                     )),
                 );
                 match context.ask_seeing(&choice) {
+                    Ok(answer) if answer.is_decline() => return Ok(()),
                     Ok(answer) => ActionCardId::new(answer.id),
                     Err(_) => return Ok(()),
                 }
@@ -1723,7 +1729,8 @@ mod tests {
                     "silence_space",
                     "action_card",
                     "play In The Silence Of Space"
-                )
+                ),
+                ("decline", "decline", "Decline"),
             ]
         );
 
@@ -1732,6 +1739,30 @@ mod tests {
             state.player(&player()).unwrap().action_cards,
             [ActionCardId::new("silence_space")]
         );
+    }
+
+    #[test]
+    fn the_inner_card_choice_can_be_declined_without_playing() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().action_cards =
+            vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
+        state
+            .player_mut(&PlayerId::new("b"))
+            .unwrap()
+            .action_cards
+            .clear();
+        let asked = asked_for(
+            state,
+            "SYSTEM_ACTIVATED",
+            payload(&[("player", "a".into())]),
+            &["reaction:generic:SYSTEM_ACTIVATED:after", "decline", "decline"],
+        );
+        let inner = asked
+            .iter()
+            .find(|c| c.prompt.starts_with("play an action card"))
+            .expect("the inner card choice is asked");
+        assert!(inner.options.iter().any(|o| o.is_decline()));
+        assert!(inner.context.as_ref().is_some_and(|c| c.optional));
     }
 
     /// Emit `event_type` with `payload` through an armed resolver and return every decision the
