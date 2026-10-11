@@ -31,6 +31,8 @@ import { UnitPickOptionNote, UnitPickPanel } from "./UnitPickParts.tsx";
 import { TechnologyPickOptionNote, TechnologyPickPanel } from "./TechnologyPickParts.tsx";
 import { PredictOutcomeNote, PredictOutcomePanel } from "./PredictOutcomeParts.tsx";
 import { ExploreRewardPanel } from "./ExploreRewardParts.tsx";
+import { CommodityStandingPanel } from "./CommodityStandingFacts.tsx";
+import { describeExploreCard } from "../presentation/exploreReward.ts";
 import { AbilityOfferPanel } from "./AbilityOfferPanel.tsx";
 import { describeOfferCard } from "../presentation/offerCard.ts";
 import { OfferCardPanel } from "./OfferCardPanel.tsx";
@@ -426,6 +428,9 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
           {!secondary && !tokens && !replenish && <ExploreRewardPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && !offerCard && !describeExploreCard(choice) && (
+            <CommodityStandingPanel choice={choice} />
+          )}
           {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && !voteGoods && (
           <form
             onSubmit={handleSubmit}

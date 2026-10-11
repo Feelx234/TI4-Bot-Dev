@@ -3,6 +3,7 @@ import { ValueText } from "./PlanetValueIcons.tsx";
 import type { StrategySecondaryView } from "../presentation/strategySecondary.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { usePreparedHint } from "../presentation/PreparedHint.tsx";
+import { CommodityStandingFacts } from "./CommodityStandingFacts.tsx";
 import "./DecisionContext.css";
 
 /** A strategy card's secondary as a named action: the card, who played it, what it costs. */
@@ -50,6 +51,7 @@ export const StrategySecondaryPanel: React.FC<{
           </strong>
         </div>
       )}
+      {view.commodities && <CommodityStandingFacts standing={view.commodities} />}
       <div className="secondary-panel__actions">
         <button
           type="button"

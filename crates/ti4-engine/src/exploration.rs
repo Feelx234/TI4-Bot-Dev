@@ -193,7 +193,7 @@ fn ask(
     prompt: &str,
     options: &[(&str, &str)],
 ) -> Option<String> {
-    let choice = crate::choice::Choice::new(
+    let mut choice = crate::choice::Choice::new(
         player.clone(),
         prompt,
         options
@@ -208,8 +208,23 @@ fn ask(
         state.phase,
         state.round,
     ));
+    if COMMODITY_REWARDS.contains(&card) {
+        // Display only: what the seat holds now, so "gain 2" or "convert" reads against it.
+        choice = choice.detailed(
+            "commodities",
+            crate::strategy_cards::commodity_standing(state, ctx.content, player),
+        );
+    }
     ctx.ask_seeing(state, &choice).ok().map(|answer| answer.id)
 }
+
+/// Exploration cards whose reward choice gains, replenishes, spends or converts commodities.
+const COMMODITY_REWARDS: [&str; 4] = [
+    "abandoned_warehouses",
+    "merchant_station",
+    "functioning_base",
+    "local_fabricators",
+];
 
 /// The system a planet sits in, according to the board.
 fn system_of(state: &GameState, planet: &PlanetId) -> Option<ti4_model::id::SystemId> {
@@ -1835,6 +1850,48 @@ mod tests {
             "gained as commodities, not trade goods"
         );
         assert_eq!(seat.trade_goods, 0);
+    }
+
+    #[test]
+    fn a_commodity_reward_states_the_seats_commodities_for_display() {
+        let (mut state, planet) = holder(3, 1);
+        let limit = commodity_limit(&state, ContentStore::embedded(), &player());
+        let (decider, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                "gain".to_owned()
+            ])));
+        let mut table = crate::choice::Table::with_default(Box::new(decider));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec!["ms1".to_owned()]);
+        explore_with(&mut state, &mut ctx, &player(), "CULTURAL", Some(&planet));
+
+        let seen = seen.borrow();
+        let ask = seen
+            .iter()
+            .find(|choice| {
+                choice.context.as_ref().map(|c| c.subtype.as_str())
+                    == Some("merchant_station_choose_reward")
+            })
+            .expect("the Merchant Station question");
+        assert_eq!(ask.details["commodities"]["have"], 1);
+        assert_eq!(ask.details["commodities"]["max"], limit);
+        assert_eq!(ask.details["commodities"]["trade_goods"], 3);
+        assert_eq!(
+            ask.ids(),
+            vec!["replenish", "convert"],
+            "the options are unchanged"
+        );
     }
 
     #[test]

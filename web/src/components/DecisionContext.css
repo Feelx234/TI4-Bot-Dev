@@ -445,3 +445,11 @@
   min-width: 44px;
   min-height: 44px;
 }
+.commodity-standing {
+  margin-top: 8px;
+}
+.commodity-standing__full {
+  color: var(--color-warning, #fbbf24);
+  font-size: 0.8rem;
+  margin-left: 4px;
+}

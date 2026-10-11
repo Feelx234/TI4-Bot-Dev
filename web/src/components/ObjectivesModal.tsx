@@ -4,7 +4,13 @@ import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { describeImperialOutcome } from "../presentation/imperialOutcome.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
-import { getPublicObjectiveMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { humanizeId } from "../protocol/contentCatalog.ts";
+import {
+  readSecretScoringOption,
+  scoringObjectiveMeta,
+  secretPhaseLabel,
+  type SecretScoringOption,
+} from "../presentation/scoringOptions.ts";
 import {
   BOUGHT_PROGRESS_HINT,
   boughtObjectiveUnit,
@@ -44,7 +50,7 @@ export interface ObjectivesModalProps {
   objectiveProgress?: Record<string, Record<string, ObjectiveProgressView>>;
   players?: Record<string, PlayerView> | PlayerView[];
   viewerSeat?: string | null;
-  onInspectCard?: (subject: { kind: "publicObjective"; id: string }) => void;
+  onInspectCard?: (subject: { kind: "publicObjective" | "secretObjective"; id: string }) => void;
   // Decision / scoring mode props:
   choice?: PendingChoiceDto | null;
   model?: ChoiceRendererModel | null;
@@ -104,10 +110,22 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
       return revealedObjectives;
     }
     if (scoreableOptionMap.size > 0) {
-      return Array.from(scoreableOptionMap.keys());
+      // Secret options get their own section below, never a public row.
+      return Array.from(scoreableOptionMap.keys()).filter((id) => !readSecretScoringOption(id));
     }
     return [];
   }, [revealedObjectives, scoreableOptionMap]);
+
+  // Secrets this window may score (61.6 offers one public and one secret together), as cards.
+  const secretOptions = useMemo(() => {
+    const rows: { optionId: string; secret: SecretScoringOption }[] = [];
+    for (const id of scoreableOptionMap.keys()) {
+      if (revealedObjectives.includes(id)) continue; // a secret made public scores as public
+      const secret = readSecretScoringOption(id);
+      if (secret) rows.push({ optionId: id, secret });
+    }
+    return rows;
+  }, [scoreableOptionMap, revealedObjectives]);
 
   const playerList = useMemo<PlayerView[]>(() => {
     if (players) {
@@ -143,6 +161,19 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
     }
     return [];
   }, [players, choice?.actor]);
+
+  // The asked seat's other secrets, shown beside the scoreable ones so the hand reads whole. Only
+  // the seat's own view carries its hand, so this is empty for anybody else.
+  const heldSecretRows = useMemo(() => {
+    if (!activeScoringMode || !choice?.actor || (viewerSeat && viewerSeat !== choice.actor)) {
+      return [];
+    }
+    const seat = playerList.find((player) => player.id === choice.actor);
+    const offered = new Set(
+      secretOptions.filter((row) => !row.secret.plotToken).map((row) => row.secret.secretId),
+    );
+    return (seat?.held_secret_objectives ?? []).filter((id) => !offered.has(id));
+  }, [activeScoringMode, choice?.actor, viewerSeat, playerList, secretOptions]);
 
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string | null>(
     null,
@@ -223,7 +254,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
     const rest: string[] = [];
 
     for (const id of effectiveRevealedObjectives) {
-      const meta = getPublicObjectiveMeta(id);
+      const meta = scoringObjectiveMeta(id);
       if (meta.points === 1) {
         s1.push(id);
       } else if (meta.points === 2) {
@@ -237,7 +268,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
   }, [effectiveRevealedObjectives]);
 
   const renderObjectiveRow = (objectiveId: string) => {
-    const meta = getPublicObjectiveMeta(objectiveId);
+    const meta = scoringObjectiveMeta(objectiveId);
     const bought = isBoughtObjective(meta.description);
     const boughtUnit = boughtObjectiveUnit(meta.description);
     const isScoreable = scoreableOptionMap.has(objectiveId);
@@ -389,6 +420,116 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
     );
   };
 
+  const renderSecretRow = (
+    key: string,
+    secretId: string,
+    optionId: string | null,
+    plotToken: string | null,
+  ) => {
+    const meta = readSecretScoringOption(optionId ?? secretId)?.meta ?? scoringObjectiveMeta(secretId);
+    const isScoreable = optionId !== null;
+    const isSelected = isScoreable && selectedOptionId === optionId;
+    const select = isScoreable ? () => setSelectedOptionId(optionId) : undefined;
+    return (
+      <tr
+        key={key}
+        className={`objectives-matrix__row objectives-matrix__row--secret${
+          isScoreable ? " objectives-matrix__row--scoreable" : " objectives-matrix__row--held"
+        }${isSelected ? " objectives-matrix__row--selected" : ""}`}
+        data-testid={`secret-row-${key}`}
+      >
+        <td
+          className={`objectives-matrix__card-cell${
+            isScoreable ? " objectives-matrix__card-cell--scoreable" : ""
+          }`}
+          data-testid={isScoreable ? "choice-option" : undefined}
+          data-option-id={optionId ?? undefined}
+          onClick={select}
+          style={{ cursor: isScoreable ? "pointer" : "default" }}
+        >
+          <div className="objectives-matrix__card-content">
+            <div className="objectives-matrix__card-title-row">
+              {isScoreable && (
+                <input
+                  type="radio"
+                  name="score-objective-choice"
+                  value={optionId}
+                  checked={isSelected}
+                  onChange={select}
+                  className="objectives-matrix__radio"
+                  aria-label={`Score ${meta.name}`}
+                  style={{ cursor: "pointer" }}
+                />
+              )}
+              <span
+                className={`objectives-matrix__point-pill objectives-matrix__point-pill--secret`}
+              >
+                {plotToken ? "Plot" : `${meta.points} VP`}
+              </span>
+              <button
+                type="button"
+                className="objectives-matrix__card-name-btn"
+                data-testid={`inspect-secret-${key}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onInspectCard?.({ kind: "secretObjective", id: secretId });
+                }}
+              >
+                {meta.name}
+              </button>
+              <span className="objectives-matrix__secret-phase" data-testid="secret-phase">
+                {secretPhaseLabel(meta)}
+              </span>
+              {isSelected && <span className="objectives-matrix__selected-tag">Selected</span>}
+            </div>
+            <div className="objectives-matrix__card-desc" data-testid="secret-desc">
+              {meta.description}
+            </div>
+            {plotToken && (
+              <div className="objectives-matrix__plot-note" data-testid="secret-plot-note">
+                Plots Within Plots: scored by {display(plotToken).label}; it becomes a plot with
+                their control token on it, for no VP.
+              </div>
+            )}
+          </div>
+        </td>
+        <td
+          colSpan={Math.max(playerList.length, 1)}
+          className="objectives-matrix__progress-cell objectives-matrix__progress-cell--self objectives-matrix__secret-status"
+          onClick={select}
+          style={{ cursor: isScoreable ? "pointer" : "default" }}
+        >
+          {isSelected ? (
+            <div className="objectives-matrix__status-selected">
+              <span className="objectives-matrix__icon-check">●</span>
+              <span>Selected</span>
+            </div>
+          ) : isScoreable ? (
+            <div className="objectives-matrix__status-ready" data-testid={`secret-ready-${key}`}>
+              <span className="objectives-matrix__icon-ready">✓</span>
+              <span className="objectives-matrix__ready-text">
+                {plotToken ? "Ready to score as a plot" : "Ready to Score"}
+              </span>
+            </div>
+          ) : (
+            <span className="objectives-matrix__status-empty" data-testid={`secret-held-${key}`}>
+              In your hand · not scoreable now
+            </span>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
+  const hasSecretSection = secretOptions.length > 0 || heldSecretRows.length > 0;
+  const title = !activeScoringMode
+    ? "Public Objectives Matrix"
+    : choice?.context?.subtype === "score_secret_objective"
+      ? "Score Secret Objective"
+      : secretOptions.length > 0
+        ? "Score Objective"
+        : "Score Public Objective";
+
   if (!isOpen) return null;
 
   return (
@@ -406,7 +547,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
           <header className="objectives-modal__header">
             <div className="objectives-modal__title-group">
               <Dialog.Title as="h2" className="objectives-modal__title">
-                {activeScoringMode ? "Score Public Objective" : "Public Objectives Matrix"}
+                {title}
                 {activeScoringMode && (
                   <span className="objectives-modal__scoring-badge">Scoring Window</span>
                 )}
@@ -457,7 +598,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
           )}
 
           <div className="objectives-modal__scroll-body">
-            {effectiveRevealedObjectives.length === 0 ? (
+            {effectiveRevealedObjectives.length === 0 && !hasSecretSection ? (
               <div className="objectives-modal__empty" data-testid="objectives-empty">
                 No public objectives revealed yet.
               </div>
@@ -523,6 +664,23 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                       </tr>
                     )}
                     {other.map((id) => renderObjectiveRow(id))}
+
+                    {hasSecretSection && (
+                      <tr className="objectives-matrix__stage-header-row">
+                        <td colSpan={playerList.length + 1}>
+                          <div
+                            className="objectives-matrix__stage-badge objectives-matrix__stage-badge--secret"
+                            data-testid="secret-objectives-header"
+                          >
+                            Your Secret Objectives
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {secretOptions.map(({ optionId, secret }) =>
+                      renderSecretRow(optionId, secret.secretId, optionId, secret.plotToken),
+                    )}
+                    {heldSecretRows.map((id) => renderSecretRow(`held-${id}`, id, null, null))}
                   </tbody>
                 </table>
               </div>
@@ -542,9 +700,11 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                     <>
                       Selected:{" "}
                       <strong style={{ color: "#38bdf8" }}>
-                        {getPublicObjectiveMeta(selectedOptionId).name}
+                        {scoringObjectiveMeta(selectedOptionId).name}
                       </strong>{" "}
-                      (+{getPublicObjectiveMeta(selectedOptionId).points} VP)
+                      {readSecretScoringOption(selectedOptionId)?.plotToken
+                        ? "(as a plot, no VP)"
+                        : `(+${scoringObjectiveMeta(selectedOptionId).points} VP)`}
                       {imperial && <> · {imperial.summary}</>}
                     </>
                   ) : selectedOptionId === "decline" ? (

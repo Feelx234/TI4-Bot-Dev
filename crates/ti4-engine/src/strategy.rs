@@ -108,6 +108,13 @@ fn secondary_choice(
                 .detailed("purchase", purchase);
         }
     }
+    if crate::strategy_cards::card_name(content, card.as_str()).as_deref() == Some("Trade") {
+        // Display only: the follower's commodities now and at the limit the replenish fills to.
+        question = question.detailed(
+            "commodities",
+            crate::strategy_cards::commodity_standing(state, content, player),
+        );
+    }
     question
         .detailed("kind", "strategy_secondary")
         .detailed("card", card.as_str())
@@ -1065,6 +1072,36 @@ mod tests {
         assert_eq!(choice.details["played_by"], "a");
         assert_eq!(choice.details["tokens_left"], 3);
         assert_eq!(choice.details["costs_token"], true);
+    }
+
+    #[test]
+    fn the_trade_secondary_states_the_followers_commodities() {
+        let (mut state, card) = drafted_with_first_pick("Trade");
+        if let Some(seat) = state.player_mut(&PlayerId::new("b")) {
+            seat.faction = ti4_model::id::FactionId::new("sol");
+            seat.strategic_tokens = 2;
+            seat.commodities = 1;
+            seat.trade_goods = 2;
+        }
+        let limit = crate::strategy_cards::commodity_limit(
+            &state,
+            ContentStore::embedded(),
+            &PlayerId::new("b"),
+        );
+        let window = StrategySecondaryWindow {
+            primary_player: PlayerId::new("a"),
+            card,
+            followers: vec![PlayerId::new("b")],
+            next_follower: 0,
+            resolutions: Vec::new(),
+            exhausts_card: false,
+        };
+        let choice = window
+            .pending_choice(&state, ContentStore::embedded(), POK)
+            .expect("the follower is offered the secondary");
+        assert_eq!(choice.details["commodities"]["have"], 1);
+        assert_eq!(choice.details["commodities"]["max"], limit);
+        assert_eq!(choice.details["commodities"]["trade_goods"], 2);
     }
 
     #[test]

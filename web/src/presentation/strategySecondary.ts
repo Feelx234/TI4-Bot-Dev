@@ -1,5 +1,6 @@
 import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { findStrategyCardMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { describeCommodityStanding, type CommodityStanding } from "./commodityStanding.ts";
 
 export interface StrategySecondaryView {
   cardName: string;
@@ -15,6 +16,8 @@ export interface StrategySecondaryView {
   /** A button caption that says what happens, e.g. "Spend 1 strategy token to draw two action cards". */
   yesLabel: string;
   noLabel: string;
+  /** Trade: the follower's commodities now and the limit a replenish fills to. */
+  commodities: CommodityStanding | null;
 }
 
 const isNo = (option: ChoiceOptionDto) =>
@@ -59,5 +62,6 @@ export function describeStrategySecondary(
     no,
     yesLabel: secondaryButtonLabel(choice.prompt, yes.label),
     noLabel: "Skip",
+    commodities: describeCommodityStanding(choice),
   };
 }

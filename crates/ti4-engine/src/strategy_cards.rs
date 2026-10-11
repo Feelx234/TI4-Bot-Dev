@@ -1667,6 +1667,23 @@ fn commodity_map(
     )
 }
 
+/// Display only: one seat's own commodities now, its printed limit and its trade goods, for a
+/// question that offers to gain, replenish, spend or convert commodities (`details.commodities`).
+pub(crate) fn commodity_standing(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> serde_json::Value {
+    let (have, goods) = state
+        .player(player)
+        .map_or((0, 0), |seat| (seat.commodities, seat.trade_goods));
+    serde_json::json!({
+        "have": have,
+        "max": commodity_limit(state, content, player),
+        "trade_goods": goods,
+    })
+}
+
 /// Display only: the agenda card being placed, as printed.
 pub(crate) fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
     let record = content.get(ContentType::Agendas, alias);
