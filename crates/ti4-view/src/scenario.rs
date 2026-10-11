@@ -9,7 +9,8 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::{ActionCardTiming, ContentStore};
-use ti4_engine::{phase, technology};
+use ti4_engine::objectives::{self, adjust_victory_points};
+use ti4_engine::{phase, promissory, technology};
 use ti4_model::content_types::{ContentType, SourceSet};
 use ti4_model::id::{
     ActionCardId, LeaderId, ObjectiveId, PlanetId, PlayerId, RelicId, SecretObjectiveId,
@@ -399,7 +400,8 @@ fn late_game(
         .insert(LeaderId::new("solagent"), LeaderStatus::Exhausted);
 
     deal_action_cards(state, content, !deflectors)?;
-    deal_secret_objectives(state, content)
+    deal_secret_objectives(state, content)?;
+    deal_points(state, content)
 }
 
 /// How many secret objectives a seat of the late game has, scored and unscored: the limit.
@@ -455,13 +457,106 @@ fn deal_secret_objectives(state: &mut GameState, content: &ContentStore) -> Resu
             // The scored ones begin at another place of the hand from seat to seat.
             if (index + SECRETS - (seat + 1) % SECRETS) % SECRETS < scored {
                 state.record_score(&player, ObjectiveId::new(id.as_str()));
-                state.note_vp(&player, 1, "a secret objective of the scenario");
-                state.players[seat].victory_points += 1;
+                adjust_victory_points(state, &player, 1, "secret_objective");
             } else {
                 state.players[seat].secret_objectives.push(id);
             }
         }
     }
+    Ok(())
+}
+
+/// The public objectives that each seat of the late game has scored, by its place at the table:
+/// places in the revealed objectives, five of stage I and then two of stage II. Seat F has scored
+/// none. Seat A has scored one, so with its secret objective its hero stays locked (three scored
+/// objectives unlock it).
+const PUBLIC_SCORED: [&[usize]; 8] = [
+    &[5],
+    &[0, 2],
+    &[1, 3, 4],
+    &[0],
+    &[0, 1, 2, 6],
+    &[],
+    &[0, 3],
+    &[0, 2, 4, 6],
+];
+
+/// Gives the seats the points of a late game, so that every source of a point has a seat: five
+/// public objectives of stage I and two of stage II, scored unevenly ([`PUBLIC_SCORED`]), and
+///
+/// - the custodians token for seat E,
+/// - Imperial with Mecatol Rex twice for seat A and once for seat B,
+/// - Support for the Throne of seat C with seat F and of seat G with seat D,
+/// - Political Censure for seat C,
+/// - Mutiny against: seats F and H voted for and lost a point,
+/// - the Shard of the Throne (the relic) for seat G.
+///
+/// With the secret objectives that is 5, 5, 5, 4, 7, 2, 4 and 6 points. Every point is a row of
+/// the ledger, as in a game that was played.
+fn deal_points(state: &mut GameState, content: &ContentStore) -> Result<(), String> {
+    let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
+    if seats.len() != PUBLIC_SCORED.len() {
+        return Err(format!(
+            "the points of the late game are for {} seats",
+            PUBLIC_SCORED.len()
+        ));
+    }
+    let [a, b, c, d, e, f, g, h] = [0, 1, 2, 3, 4, 5, 6, 7].map(|place| seats[place].clone());
+
+    // The objectives that the game began with stay, and the decks give the others.
+    let revealed = |state: &GameState, stage: u8| {
+        state
+            .revealed_objectives
+            .iter()
+            .filter(|id| objectives::stage_of(content, id) == Some(stage))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    for (stage, count) in [(1, 5), (2, 2)] {
+        while revealed(state, stage).len() < count {
+            objectives::reveal_stage(state, content, stage)
+                .ok_or_else(|| format!("the deck has no objective of stage {stage} left"))?;
+        }
+    }
+    let public: Vec<ObjectiveId> = revealed(state, 1)
+        .into_iter()
+        .take(5)
+        .chain(revealed(state, 2).into_iter().take(2))
+        .collect();
+    for (seat, scored) in seats.iter().zip(PUBLIC_SCORED) {
+        for place in scored {
+            let id = &public[*place];
+            let points = objectives::points_for(content, id)
+                .ok_or_else(|| format!("the objective {id} has no printed points"))?;
+            state.record_score(seat, id.clone());
+            adjust_victory_points(state, seat, points, "objective");
+        }
+    }
+
+    state.custodians_removed = true;
+    adjust_victory_points(state, &e, 1, "custodians");
+    for seat in [&a, &a, &b] {
+        adjust_victory_points(state, seat, 1, "imperial_primary");
+    }
+    for (owner, holder) in [(&c, &f), (&g, &d)] {
+        let note = promissory::support(&promissory::faction_name(state, owner));
+        if !promissory::receive(state, holder, &note) {
+            return Err(format!("seat {holder} cannot have the note {note}"));
+        }
+    }
+    state.enact_law("censure", c.as_str());
+    adjust_victory_points(state, &c, 1, "agenda:censure");
+    for seat in [&f, &h] {
+        adjust_victory_points(state, seat, -1, "agenda:mutiny");
+    }
+    let shard = RelicId::new(ti4_engine::relics::SHARD);
+    state.relic_deck.retain(|held| held != &shard);
+    state
+        .player_mut(&g)
+        .ok_or("seat G is not seated")?
+        .relics
+        .push(shard);
+    adjust_victory_points(state, &g, 1, ti4_engine::relics::SHARD);
     Ok(())
 }
 
@@ -737,7 +832,77 @@ mod tests {
         );
         let held: Vec<&str> = a.secret_objectives.iter().map(phase).collect();
         assert_eq!(held, ["Action", "Agenda"]);
-        assert_eq!(a.victory_points, 1);
+    }
+
+    #[test]
+    fn the_points_of_a_late_game_come_from_every_source() {
+        use crate::score::{PointSourceKind, project_score_facts};
+
+        let content = ContentStore::embedded();
+        for id in [LATE_GAME, LATE_GAME_DEFLECTORS] {
+            let (state, _) = game(id);
+            let facts = project_score_facts(&state, content);
+            let seat = |place: usize| state.players[place].id.clone();
+
+            let stages: Vec<i32> = facts.public.iter().map(|public| public.points).collect();
+            assert_eq!(stages.iter().filter(|points| **points == 1).count(), 5);
+            assert_eq!(stages.iter().filter(|points| **points == 2).count(), 2);
+            // An objective that most seats scored, and one that a single seat scored.
+            let scored: Vec<usize> = facts.public.iter().map(|p| p.scored.len()).collect();
+            assert!(scored.contains(&5) && scored.contains(&1), "{scored:?}");
+            let points = |kind, name: &str| {
+                facts
+                    .sources
+                    .iter()
+                    .find(|source| source.kind == kind && source.name == name)
+                    .unwrap_or_else(|| panic!("no source {kind:?} {name:?}"))
+                    .points
+                    .clone()
+            };
+            assert_eq!(points(PointSourceKind::Secrets, "").len(), 8);
+            assert_eq!(
+                points(PointSourceKind::Custodians, ""),
+                BTreeMap::from([(seat(4), 1)])
+            );
+            assert_eq!(
+                points(PointSourceKind::Imperial, ""),
+                BTreeMap::from([(seat(0), 2), (seat(1), 1)])
+            );
+            assert_eq!(
+                points(PointSourceKind::Support, ""),
+                BTreeMap::from([(seat(3), 1), (seat(5), 1)])
+            );
+            let support = &facts.sources[3];
+            assert_eq!(
+                support.from,
+                BTreeMap::from([(seat(3), vec![seat(6)]), (seat(5), vec![seat(2)])])
+            );
+            assert_eq!(
+                points(PointSourceKind::Agenda, "Political Censure"),
+                BTreeMap::from([(seat(2), 1)])
+            );
+            assert_eq!(
+                points(PointSourceKind::Agenda, "Mutiny"),
+                BTreeMap::from([(seat(5), -1), (seat(7), -1)])
+            );
+            assert_eq!(
+                points(PointSourceKind::Relic, "Shard of the Throne"),
+                BTreeMap::from([(seat(6), 1)])
+            );
+            // Every point has its row, and the ledger says the same.
+            assert!(facts.unexplained.is_empty(), "{:?}", facts.unexplained);
+            let totals: Vec<i32> = state.players.iter().map(|p| p.victory_points).collect();
+            assert_eq!(totals, [5, 5, 5, 4, 7, 2, 4, 6]);
+            for player in &state.players {
+                let ledger: i32 = state
+                    .vp_ledger
+                    .iter()
+                    .filter(|(seat, _, _)| *seat == player.id)
+                    .map(|(_, delta, _)| *delta)
+                    .sum();
+                assert_eq!(ledger, player.victory_points, "{}", player.id);
+            }
+        }
     }
 
     #[test]

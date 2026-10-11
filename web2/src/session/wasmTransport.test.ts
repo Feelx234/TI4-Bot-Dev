@@ -28,6 +28,7 @@ import {
   totals,
 } from "./productionDraft";
 import { selectActionCards } from "./select/cards";
+import { selectScore } from "./select/score";
 import { selectSecrets } from "./select/secrets";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
@@ -799,6 +800,48 @@ it.skipIf(!built)(
     );
   },
 );
+
+it.skipIf(!built)("says where the points of every seat of the late game come from", async () => {
+  const { transport, next } = await play(false, {
+    seed: 42,
+    players: 8,
+    humans: 1,
+    scenario: "late-game",
+  });
+  const { update } = await next();
+  transport.close();
+  const facts = update.score!;
+  expect(facts.target).toBe(10);
+  expect(facts.public.map((item) => item.points).sort()).toEqual([1, 1, 1, 1, 1, 2, 2]);
+  for (const item of facts.public) {
+    expect(item.name).not.toBe(item.id);
+    expect(item.text).not.toBe("");
+  }
+  expect(facts.sources.map((source) => [source.kind, source.name])).toEqual([
+    ["secrets", ""],
+    ["custodians", ""],
+    ["imperial", ""],
+    ["support", ""],
+    ["agenda", "Mutiny"],
+    ["agenda", "Political Censure"],
+    ["relic", "Shard of the Throne"],
+  ]);
+  expect(facts.sources[3].from).toEqual({ d: ["g"], f: ["c"] });
+  expect(facts.unexplained).toBeUndefined();
+  // The cells of a seat sum to its points.
+  const view = selectScore(update)!;
+  expect(view.seats.map((seat) => seat.points)).toEqual([5, 5, 5, 4, 7, 2, 4, 6]);
+  const rows = view.groups.flatMap((group) => group.rows);
+  view.seats.forEach((seat, index) => {
+    const sum = rows.reduce((total, row) => {
+      const cell = row.cells[index];
+      return (
+        total + (cell.kind === "scored" ? row.worth! : cell.kind === "points" ? cell.value : 0)
+      );
+    }, 0);
+    expect(sum).toBe(seat.points);
+  });
+});
 
 it.skipIf(!built)(
   "has the printed cards of a play area, and an update says which are used",

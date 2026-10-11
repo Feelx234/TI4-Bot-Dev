@@ -1080,6 +1080,53 @@ test("the Secrets sheet of the late game has scored and unscored objectives of e
   expect(errors).toEqual([]);
 });
 
+test("the Objectives sheet of the late game says where the points of every seat come from", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  await expect(heading(page)).toBeVisible();
+  await page.getByRole("button", { name: "Objectives", exact: true }).click();
+  const sheet = page.getByRole("complementary", { name: "Objectives" });
+  const seats = sheet.getByRole("list", { name: "Victory points" }).getByRole("listitem");
+  await expect(seats).toHaveCount(8);
+  // The viewer is first, then the seats by their points: Jol-Nar has 7, L1Z1X has 2.
+  await expect(seats.nth(0)).toHaveAccessibleName(/\(you\): 5 points$/);
+  await expect(seats.nth(1)).toHaveAccessibleName(/: 7 points$/);
+  await expect(seats.nth(7)).toHaveAccessibleName(/: 2 points$/);
+  await expect(
+    sheet
+      .getByRole("region", { name: "Public objectives · stage I", exact: true })
+      .getByRole("article"),
+  ).toHaveCount(5);
+  await expect(
+    sheet.getByRole("region", { name: "Public objectives · stage II" }).getByRole("article"),
+  ).toHaveCount(2);
+  const other = sheet.getByRole("region", { name: "Other points" });
+  const cell = (row: string, seat: number) =>
+    other.getByRole("article", { name: row }).getByRole("listitem").nth(seat);
+  await expect(cell("Secret objectives", 3)).toHaveAccessibleName(/: 2 points$/);
+  await expect(cell("Custodians of Mecatol Rex", 1)).toHaveAccessibleName(/: 1 point$/);
+  await expect(cell("Imperial · Mecatol Rex", 0)).toHaveAccessibleName(/: 2 points$/);
+  await expect(cell("Support for the Throne", 5)).toHaveAccessibleName(/: 1 point from /);
+  await expect(cell("Agenda · Mutiny", 7)).toHaveText("−1");
+  await expect(cell("Agenda · Political Censure", 4)).toHaveText("1");
+  await expect(cell("Relic · Shard of the Throne", 6)).toHaveText("1");
+  // The columns line up: a cell is under the seat of the heading, in every row.
+  const left = async (item: ReturnType<typeof cell>) => (await item.boundingBox())!.x;
+  expect(await left(cell("Agenda · Mutiny", 7))).toBeCloseTo(await left(seats.nth(7)), 0);
+  expect(await left(cell("Secret objectives", 2))).toBeCloseTo(await left(seats.nth(2)), 0);
+  // The seats that are behind are at the side: the sheet scrolls to them.
+  const scroller = sheet.locator("div.overflow-auto");
+  await expect(seats.nth(0)).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: "shots/local/objectives-late-game.png", animations: "disabled" });
+  // The heading stays in view when the sheet scrolls.
+  await scroller.evaluate((element) => element.scrollTo(0, element.scrollHeight));
+  await expect(seats.nth(0)).toBeInViewport();
+  expect(errors).toEqual([]);
+});
+
 test("the sheet of a player has its abilities, leaders and used cards as printed", async ({
   page,
 }) => {

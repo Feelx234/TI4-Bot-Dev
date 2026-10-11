@@ -6,7 +6,7 @@ import { DECKS } from "./exploration";
 import { commodityValue, factionName, seatMark, strategyCard } from "./names";
 
 /** The players in seat order. */
-const seated = (update: SessionUpdate): PlayerView[] => {
+export const seated = (update: SessionUpdate): PlayerView[] => {
   const order = update.view.seating_order;
   return [...update.view.players].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 };

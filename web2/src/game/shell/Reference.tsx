@@ -7,6 +7,8 @@ import type {
   ListSectionView,
   PlayerRowView,
   ReferenceView,
+  ScoreCellView,
+  ScoreView,
   SecretsView,
 } from "../../model";
 import { plural } from "../../model";
@@ -429,6 +431,123 @@ function Secrets({ view }: { view: SecretsView }) {
   );
 }
 
+/** What a cell of the Objectives sheet says, in words: "scored", "2 points", "1 point from Hacan". */
+function cellWords(cell: ScoreCellView, faction: (seat: string) => string): string {
+  if (cell.kind === "none") {
+    return "nothing";
+  }
+  if (cell.kind === "scored") {
+    return "scored";
+  }
+  const from = cell.from.length ? ` from ${cell.from.map(faction).join(" and ")}` : "";
+  return `${cell.value < 0 ? "−" : ""}${plural(Math.abs(cell.value), "point")}${from}`;
+}
+
+/**
+ * Where the victory points of every seat come from: a table with the sources at the left and one
+ * column for each seat. The names and the heading stay in view; the seats scroll to the side,
+ * the viewer first and then by points, so the seats that are cut off are the ones far behind.
+ */
+function Score({ view }: { view: ScoreView }) {
+  const seats = useSeats();
+  const faction = (seat: string) => seats[seat]?.faction ?? seat;
+  const columns = { gridTemplateColumns: `11rem repeat(${view.seats.length}, 3.25rem)` };
+  // The name of a row stays in view. Its shadow covers the padding of the sheet, so no cell
+  // shows at its left.
+  const name = "sticky left-0 bg-surface shadow-[-1rem_0_0_var(--color-surface)]";
+  return (
+    <div className="w-max min-w-full">
+      <div
+        className="sticky -top-1 z-2 grid border-b border-line bg-surface pt-1.5 pb-1"
+        style={columns}
+      >
+        <div className={cx(name, "z-1 self-end text-xs text-muted")}>{view.target} VP to win</div>
+        <ul className="contents" aria-label="Victory points">
+          {view.seats.map((seat) => (
+            <li
+              key={seat.seat}
+              className={cx("flex min-w-0 flex-col items-center", seat.isMe && "bg-raised")}
+              aria-label={`${faction(seat.seat)}${seat.isMe ? " (you)" : ""}: ${plural(seat.points, "point")}`}
+            >
+              <span className="flex items-center gap-1">
+                <SeatSymbol seat={seat.seat} />
+                <strong className="text-md tabular-nums">{seat.points}</strong>
+              </span>
+              <span
+                className="w-full truncate text-center text-xs text-muted"
+                title={faction(seat.seat)}
+              >
+                {faction(seat.seat)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      {view.groups.map((group) => (
+        <section key={group.title} aria-label={group.title}>
+          <h3 className="sticky left-0 mt-3.5 w-max text-muted">
+            <Eyebrow>{group.title}</Eyebrow>
+          </h3>
+          {group.rows.length === 0 && (
+            <div className="sticky left-0 mt-1 w-max text-xs text-muted">None revealed</div>
+          )}
+          {group.rows.map((row) => (
+            <article
+              key={row.name}
+              aria-label={row.name}
+              className="mt-1.5 grid border-t border-line/50"
+              style={columns}
+            >
+              <div className={cx(name, "z-1 py-1.5 pr-2")}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <strong className="font-mid">{row.name}</strong>
+                  {row.worth !== null && (
+                    <span className="flex-none text-xs text-muted tabular-nums">
+                      {row.worth} VP
+                    </span>
+                  )}
+                </div>
+                {row.text && <div className="text-xs text-muted">{row.text}</div>}
+              </div>
+              <ul className="contents">
+                {row.cells.map((cell, index) => {
+                  const seat = view.seats[index];
+                  return (
+                    <li
+                      key={seat.seat}
+                      className={cx(
+                        "flex min-w-0 items-center justify-center tabular-nums",
+                        seat.isMe && "bg-raised",
+                      )}
+                      aria-label={`${faction(seat.seat)}: ${cellWords(cell, faction)}`}
+                    >
+                      {cell.kind === "none" ? (
+                        <span className="text-faint">·</span>
+                      ) : cell.kind === "scored" ? (
+                        "✓"
+                      ) : cell.from.length > 0 && cell.from.length === cell.value ? (
+                        <span className="inline-flex flex-wrap justify-center gap-0.5">
+                          {cell.from.map((from) => (
+                            <SeatSymbol key={from} seat={from} />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className={cx(cell.value < 0 && "text-red")}>
+                          {cell.value < 0 ? `−${-cell.value}` : cell.value}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </article>
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 /** One exploration deck: what is left of it, who has its fragments, and each card as printed. */
 function Deck({ view, focus }: { view: ExplorationDeckView; focus: boolean }) {
   const seats = useSeats();
@@ -590,6 +709,8 @@ export function ReferenceDrawer({
         ))
       ) : key === "secrets" ? (
         view.secrets && <Secrets view={view.secrets} />
+      ) : key === "objectives" ? (
+        view.objectives && <Score view={view.objectives} />
       ) : (
         <Sections sections={view[key]} />
       )}

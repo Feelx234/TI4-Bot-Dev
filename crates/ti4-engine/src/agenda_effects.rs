@@ -120,14 +120,17 @@ pub fn unimplemented(content: &ContentStore, sources: SourceSet) -> Vec<String> 
 }
 
 /// 98.4a caps a player at the target; a loss cannot take them below zero.
-fn adjust_victory_points(state: &mut GameState, player: &PlayerId, delta: i32) {
+///
+/// The ledger row names the agenda (`agenda:mutiny`), so a reader of it can say which card gave
+/// the point.
+fn adjust_victory_points(state: &mut GameState, agenda: &str, player: &PlayerId, delta: i32) {
     let Some(before) = state.player(player).map(|seat| seat.victory_points) else {
         return;
     };
     if let Some(seat) = state.player_mut(player) {
         seat.victory_points = (seat.victory_points + delta).clamp(0, VICTORY_TARGET);
     }
-    crate::objectives::note_vp_since(state, player, before, "agenda");
+    crate::objectives::note_vp_since(state, player, before, &format!("agenda:{agenda}"));
 }
 
 fn everyone(state: &GameState) -> Vec<PlayerId> {
@@ -486,7 +489,7 @@ pub fn resolve_with(
             // transfer rule has anywhere to hook (a planet changing hands); the Shard's needs
             // "win a combat against the owner", which combat does not report.
             if state.player(&PlayerId::new(outcome)).is_some() {
-                adjust_victory_points(state, &PlayerId::new(outcome), 1);
+                adjust_victory_points(state, agenda, &PlayerId::new(outcome), 1);
             }
         }
         "classified" => {
@@ -1180,7 +1183,7 @@ pub fn resolve_with(
         }
         "holy_planet_of_ixth" => {
             if let Some(controller) = controller_of(state, outcome) {
-                adjust_victory_points(state, &controller, 1);
+                adjust_victory_points(state, agenda, &controller, 1);
             }
         }
         "wormhole_recon" => {
@@ -1246,7 +1249,7 @@ pub fn resolve_with(
             // ballot, not from the outcome: who voted which way is the whole card.
             let delta = if outcome == FOR { 1 } else { -1 };
             for player in ballot.voted_for(FOR) {
-                adjust_victory_points(state, &player, delta);
+                adjust_victory_points(state, agenda, &player, delta);
             }
         }
         "seed_empire" => {
@@ -1283,7 +1286,7 @@ pub fn resolve_with(
                 _ => ask_the_speaker(state, ctx, &tied),
             };
             if let Some(winner) = winner {
-                adjust_victory_points(state, &winner, 1);
+                adjust_victory_points(state, agenda, &winner, 1);
             }
         }
         "abolishment" => {

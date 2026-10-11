@@ -9,6 +9,8 @@ import type {
   LogEntryView,
   PlayerTableView,
   ReferenceView,
+  ScoreCellView,
+  ScoreView,
   Rich,
   ShellView,
   ToolbarView,
@@ -20,6 +22,7 @@ import {
   DISCARDED_CARDS,
   HISTORY,
   REACTION_CARDS,
+  SCORE,
   SEATS,
   SECRET_GROUPS,
   SECRETS,
@@ -193,6 +196,57 @@ const EXPLORATION: Omit<ExplorationDeckView, "fragments">[] = [
 ];
 
 /** One row for each player, in seat order. Rows do not move. */
+/** The Objectives sheet: every source of a point of the demo against every seat. */
+function score(table: string[], viewer: string): ScoreView {
+  // The viewer is first, then the seats by their points.
+  const seats = [...table].sort(
+    (a, b) => Number(b === viewer) - Number(a === viewer) || SEATS[b].vp - SEATS[a].vp,
+  );
+  const objective = (item: { name: string; text: string; scored: string[] }, worth: number) => ({
+    name: item.name,
+    text: item.text,
+    worth,
+    cells: seats.map((seat): ScoreCellView => ({
+      kind: item.scored.includes(seat) ? "scored" : "none",
+    })),
+  });
+  const points = (
+    name: string,
+    of: Record<string, number>,
+    from: Record<string, string[]> = {},
+  ) => ({
+    name,
+    text: "",
+    worth: null,
+    cells: seats.map((seat): ScoreCellView =>
+      of[seat] ? { kind: "points", value: of[seat], from: from[seat] ?? [] } : { kind: "none" },
+    ),
+  });
+  const stage = (worth: number) =>
+    SCORE.public.filter((item) => item.worth === worth).map((item) => objective(item, worth));
+  return {
+    target: 10,
+    seats: seats.map((seat) => ({ seat, points: SEATS[seat].vp, isMe: seat === viewer })),
+    groups: [
+      {
+        title: "Public objectives · stage I",
+        rows: [...OBJECTIVES.map((item) => objective(item, 1)), ...stage(1)],
+      },
+      { title: "Public objectives · stage II", rows: stage(2) },
+      {
+        title: "Other points",
+        rows: [
+          points(
+            "Secret objectives",
+            Object.fromEntries(seats.map((seat) => [seat, SEATS[seat].so[0]])),
+          ),
+          ...SCORE.other.map((item) => points(item.name, item.points, item.from)),
+        ],
+      },
+    ],
+  };
+}
+
 function players(world: World, state: State): PlayerTableView {
   const owners = cardOwners(world, state);
   const seats = world.table.seats;
@@ -342,22 +396,7 @@ function reference(world: World, state: State): ReferenceView {
         ]
       : [];
   return {
-    objectives: [
-      section(
-        "Public objectives · stage I",
-        OBJECTIVES.map((item): Rich => [
-          `${item.name} · ${item.text} · ${item.scored.length ? "scored by " : "not scored"}`,
-          ...item.scored.flatMap((seat) => [sym(seat), " "]),
-        ]),
-      ),
-      section(
-        "Points",
-        seats.map((id) => [
-          sym(id),
-          ` ${SEATS[id].name} · ${SEATS[id].vp} of 10 · ${SEATS[id].so[0]} from secrets`,
-        ]),
-      ),
-    ],
+    objectives: score(seats, world.viewer),
     technology: seats.map((id) =>
       section(`${SEATS[id].name} · ${SEATS[id].faction}`, SEATS[id].tech),
     ),

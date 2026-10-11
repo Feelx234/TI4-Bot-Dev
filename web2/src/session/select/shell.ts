@@ -8,6 +8,7 @@ import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
 import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
+import { selectScore } from "./score";
 import { selectSecrets } from "./secrets";
 import { selectTactical, tacticalFacts } from "./tactical";
 
@@ -104,7 +105,7 @@ export function selectShell(
       ? selectTactical(update, local, facts, catalog)
       : selectAction(update, local, catalog),
     reference: {
-      objectives: [],
+      objectives: selectScore(update),
       technology: [],
       cards: [],
       actionCards: selectActionCards(update, printed, cards),

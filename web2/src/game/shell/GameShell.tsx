@@ -218,31 +218,32 @@ export function GameShell({
                 {sheet}
               </div>
               {/* An open fleet has the room of the footer, and so have the open landings and the
-                  open build of a production. The check mark of the sheet gives the footer back. */}
-              {!(
-                pane === "map" &&
-                (view.board.origin || view.board.landing || view.board.production)
-              ) && <ActionFooter view={footerOf(view.action)} />}
-              <nav
-                aria-label="Panes"
-                className="flex border-t border-line bg-well pb-(--inset-bottom,env(safe-area-inset-bottom))"
-              >
-                {PANES.map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    aria-pressed={pane === id}
-                    onClick={() => {
-                      setDrawer(null);
-                      setPane(id);
-                    }}
-                    className="min-h-12 flex-1 border-t-2 border-transparent text-sm font-strong text-muted aria-pressed:border-accent aria-pressed:text-accent"
-                  >
-                    {label}
-                    {choiceOn === id && pane !== id && " ·"}
-                  </button>
-                ))}
-              </nav>
+                  open build of a production. The check mark of the sheet gives the footer back.
+                  A sheet that covers the pane has the room of the footer and of the tabs. */}
+              {!sheet &&
+                !(
+                  pane === "map" &&
+                  (view.board.origin || view.board.landing || view.board.production)
+                ) && <ActionFooter view={footerOf(view.action)} />}
+              {!sheet && (
+                <nav
+                  aria-label="Panes"
+                  className="flex border-t border-line bg-well pb-(--inset-bottom,env(safe-area-inset-bottom))"
+                >
+                  {PANES.map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={pane === id}
+                      onClick={() => setPane(id)}
+                      className="min-h-12 flex-1 border-t-2 border-transparent text-sm font-strong text-muted aria-pressed:border-accent aria-pressed:text-accent"
+                    >
+                      {label}
+                      {choiceOn === id && pane !== id && " ·"}
+                    </button>
+                  ))}
+                </nav>
+              )}
             </>
           ) : (
             <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_1040px]">

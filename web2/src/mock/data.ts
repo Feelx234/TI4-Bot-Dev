@@ -1126,6 +1126,56 @@ export const CARD_GROUPS: Record<string, string> = {
 };
 /** The action cards of the demo that are in the discard pile. */
 export const DISCARDED_CARDS = ["Morale Boost", "Sabotage", "Plague"];
+/**
+ * Where the points of the demo come from, beside the objectives of `OBJECTIVES` and the scored
+ * secrets of a seat (`so`): more public objectives with who scored them, and the other sources
+ * with the points of each seat. `from` is whose Support for the Throne a seat has. With them the
+ * points of every seat sum to its `vp`.
+ */
+export const SCORE: {
+  public: { name: string; text: string; worth: number; scored: string[] }[];
+  other: { name: string; points: Record<string, number>; from?: Record<string, string[]> }[];
+} = {
+  public: [
+    {
+      name: "Diversify Research",
+      text: "Own 2 technologies in each of 2 colors.",
+      worth: 1,
+      scored: ["xxcha", "letnev", "jolnar", "mentak", "yssaril", "naalu"],
+    },
+    {
+      name: "Sway the Council",
+      text: "Spend 8 influence.",
+      worth: 1,
+      scored: ["hacan", "mentak", "yssaril", "naalu"],
+    },
+    {
+      name: "Master the Sciences",
+      text: "Own 2 technologies in each of 4 colors.",
+      worth: 2,
+      scored: ["sol", "jolnar"],
+    },
+    {
+      name: "Galvanize the People",
+      text: "Spend a total of 6 tokens from your tactic and/or strategy pools.",
+      worth: 2,
+      scored: ["letnev", "jolnar", "yssaril", "naalu"],
+    },
+  ],
+  other: [
+    { name: "Custodians of Mecatol Rex", points: { hacan: 1 } },
+    { name: "Imperial · Mecatol Rex", points: { sol: 1, hacan: 2 } },
+    {
+      name: "Support for the Throne",
+      points: { sol: 1, mentak: 1, naalu: 1 },
+      from: { sol: ["xxcha"], mentak: ["naalu"], naalu: ["letnev"] },
+    },
+    { name: "Agenda · Mutiny", points: { hacan: -1, naalu: -1 } },
+    { name: "Agenda · Political Censure", points: { xxcha: 1 } },
+    { name: "Relic · Shard of the Throne", points: { letnev: 1 } },
+    { name: "Action card · Imperial Rider", points: { naalu: 1 } },
+  ],
+};
 /** What the secret objectives ask for, in the order of the sheet. */
 export const SECRET_GROUPS = [
   "Planets you control",

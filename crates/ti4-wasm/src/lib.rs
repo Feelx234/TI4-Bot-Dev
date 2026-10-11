@@ -35,6 +35,7 @@ use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
 use ti4_view::planning::draft::{DraftBase, DraftStep, run_draft};
 use ti4_view::projection::{project_game_view_full, project_session_update};
+use ti4_view::score::project_score_facts;
 use ti4_view::secret_objectives::project_secret_objective_facts;
 use ti4_view::status::ViewerRole;
 use ti4_view::tactical::project_tactical_facts;
@@ -552,6 +553,7 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
         &latest.state,
         ContentStore::embedded(),
     ));
+    update.score = Some(project_score_facts(&latest.state, ContentStore::embedded()));
     // Only a seat of the host is shown these, so the random seats do not pay for them.
     if update.pending_choice.is_some() {
         update.tactical = latest.galaxy.as_ref().and_then(|galaxy| {
@@ -723,6 +725,7 @@ fn play(
         .map(|galaxy| project_exploration_facts(&game.state, content, POK, galaxy));
     update.action_cards = Some(project_action_card_facts(&game.state, content, &viewer));
     update.secret_objectives = Some(project_secret_objective_facts(&game.state, content));
+    update.score = Some(project_score_facts(&game.state, content));
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",

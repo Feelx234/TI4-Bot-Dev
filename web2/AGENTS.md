@@ -59,6 +59,7 @@ There are two layouts, and no others.
 - The map zooms with two fingers; the "+" and "−" buttons are not shown under a finger. "Fit task" and "Fit board" stay, in the row of the map views.
 - Exception to "no short variants of labels" (owner, 2026-10-10): the map views and the two fit buttons are icons on a phone, so that they are one row. The name is the tooltip and the accessible name. Desktop keeps the words.
 - The reference sheets, the draft menu and (in a local game) Dev are one menu in the toolbar. A sheet covers the pane.
+- Exception (owner, 2026-10-11): while a sheet covers the pane (a reference sheet, the sheet of a player, Dev), the footer and the tab bar are not shown. The sheet has their room, and its "×" gives them back. A sheet on the map (a fleet, the landings, a build) keeps the tab bar: the Action pane says what is staged.
 - The app can be installed (`public/manifest.webmanifest`): fullscreen, locked to portrait. There is no service worker: the game is live, and the CDN already caused stale bundles once. The icons come from `scripts/make-icons.mjs`.
 - A new screen is checked in both layouts. Short variants of labels are still not allowed; restructure the row instead.
 
@@ -137,6 +138,21 @@ The owner asked for this on 2026-10-11: the Secrets sheet has the secret objecti
 - Exception to "rule text is behind hover": the sheet shows the printed text of each objective, as the Cards sheet does.
 - The facts come from the engine: the hand (`held_secret_objectives`), and the deck count, what each seat has scored and the limit (`secret_objectives` of the update). The printed objectives and the deck that a game begins with are the catalogue (`components.secret_objectives`). The "Secrets" column of the player table counts the scored objectives from the same fact.
 - Not there yet: how far a seat is with an objective, and the sheet for another seat sorted by that.
+
+### Objectives sheet
+
+The owner asked for this on 2026-10-11: the Objectives sheet says where every victory point comes from, for all seats, so that the seats are easy to compare.
+
+- The sheet is a table: the sources of the points at the left, one column for each seat. The owner chose this on 2026-10-11, after cells under each name were tried: the heading was too high on a phone.
+- The viewer is the first column, then the other seats by their points, the most first. The sheet scrolls to the side, as the player table of a phone does: the names and the heading stay in view, and the seats that are cut off are the ones far behind. Both screens have the same layout.
+- The heading has two lines for a seat: the symbol with the points, and the faction. Its corner says the points that win ("10 VP to win"). The column of the viewer is tinted; there is no "You".
+- Every source of a point is one row: its name, and one cell for each seat in the columns of the heading.
+- A cell has one sign: "✓" for a scored objective, the points of another source ("2", "−1" for a loss), the symbol of the seat whose Support for the Throne it is, or "·" for nothing. The cells of a seat sum to its points.
+- The groups are "Public objectives · stage I", "Public objectives · stage II" and "Other points". An objective says what it is worth at the right of its name ("1 VP"). The objectives are in the order of the reveal.
+- "Other points" always has "Secret objectives" (how many a seat scored; which ones is in the Secrets sheet), "Custodians of Mecatol Rex", "Imperial · Mecatol Rex" and "Support for the Throne". A row of an agenda, a relic, an action card or a planet is there when a seat has a point from it ("Agenda · Mutiny", "Relic · Shard of the Throne"). Points that no source explains are a row "Other".
+- Exception to "rule text is behind hover": the sheet shows the printed text of each public objective, as the Secrets sheet does.
+- The facts come from the engine (`score` of the update, `ti4-view/src/score.rs`): the objectives as printed with who scored each, and the other sources from the ledger of the engine, which has a row for every point that is given or taken (`vp_ledger`). web2 only words the rows.
+- Not there yet: how far a seat is with a public objective; every objective of the two decks with its text, to look up what can still be revealed (as the decks of the Cards and the Secrets sheet).
 
 ### Payment
 

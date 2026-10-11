@@ -391,6 +391,38 @@ export interface ComponentCatalog {
   secret_objective_groups: string[];
 }
 
+/** `ti4_view::score::PointSource`: a source of points that is not a public objective. */
+export interface PointSource {
+  kind:
+    | "secrets"
+    | "custodians"
+    | "imperial"
+    | "support"
+    | "agenda"
+    | "relic"
+    | "action_card"
+    | "planet"
+    | "other";
+  /** The printed name of the agenda, relic, card or planet. Empty for the first four kinds. */
+  name: string;
+  /** The points of each seat, gains and losses together. A seat with none is absent. */
+  points: Record<string, number>;
+  /** For `support`: whose notes the seat has. */
+  from?: Record<string, string[]>;
+}
+
+/** `ti4_view::score::ScoreFacts` */
+export interface ScoreFacts {
+  /** The points that win the game. */
+  target: number;
+  /** The public objectives as printed, in the order of the reveal, with the seats that scored. */
+  public: { id: string; name: string; points: number; text: string; scored: string[] }[];
+  /** Secrets, custodians, Imperial and Support are always there; the rest when a seat has a point. */
+  sources: PointSource[];
+  /** The points of a seat that no row explains. Absent in a game that the engine played. */
+  unexplained?: Record<string, number>;
+}
+
 /** `ti4_view::secret_objectives::SecretObjectiveFacts` */
 export interface SecretObjectiveFacts {
   /** How many cards the deck still holds. */
@@ -466,4 +498,6 @@ export interface SessionUpdate {
   action_cards?: ActionCardFacts;
   /** The secret objective deck and what each seat has scored of it. The wasm host fills it. */
   secret_objectives?: SecretObjectiveFacts;
+  /** Where the victory points of every seat come from. The wasm host fills it. */
+  score?: ScoreFacts;
 }

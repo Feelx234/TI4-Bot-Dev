@@ -192,8 +192,38 @@ export interface SecretsView {
   reference: { group: string; unseen: number; cards: DeckSecretView[] }[];
 }
 
+/** What one seat has from one source of points. */
+export type ScoreCellView =
+  | { kind: "none" }
+  /** The seat scored the objective of the row. */
+  | { kind: "scored" }
+  /** `from`: the seats whose Support for the Throne gives the points. Empty for another source. */
+  | { kind: "points"; value: number; from: SeatId[] };
+
+/** One source of points: a public objective, or another source ("Custodians of Mecatol Rex"). */
+export interface ScoreRowView {
+  name: string;
+  /** The printed text of an objective. Empty for another source. */
+  text: string;
+  /** What a public objective is worth. Null for another source: its cells say the points. */
+  worth: number | null;
+  /** One cell for each seat, in the order of `ScoreView.seats`. */
+  cells: ScoreCellView[];
+}
+
+/** Where the victory points of every seat come from: each source against each seat. */
+export interface ScoreView {
+  /** The points that win the game. */
+  target: number;
+  /** The viewer first, then the other seats by their points, the most first. */
+  seats: { seat: SeatId; points: number; isMe: boolean }[];
+  /** "Public objectives · stage I", "Public objectives · stage II", "Other points". */
+  groups: { title: string; rows: ScoreRowView[] }[];
+}
+
 export interface ReferenceView {
-  objectives: ListSectionView[];
+  /** Null when the game does not say where the points come from. */
+  objectives: ScoreView | null;
   technology: ListSectionView[];
   cards: ListSectionView[];
   /** The action cards: the hand of the viewer and the deck. Null for a viewer with no hand. */

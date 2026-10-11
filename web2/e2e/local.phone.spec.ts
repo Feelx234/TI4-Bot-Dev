@@ -147,6 +147,41 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   await fits();
 });
 
+test("phone: the Objectives sheet has the viewer first and scrolls to the other seats", async ({
+  page,
+}) => {
+  await page.goto("/?scenario=late-game&humans=1");
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toBeVisible();
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await page.getByRole("menuitem", { name: "Objectives" }).click();
+  const sheet = page.getByRole("complementary", { name: "Objectives" });
+  const seats = sheet.getByRole("list", { name: "Victory points" }).getByRole("listitem");
+  await expect(seats).toHaveCount(8);
+  // The sheet has the room of the footer and of the tabs.
+  await expect(page.locator("main > footer")).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Panes" })).toHaveCount(0);
+  // The page is not cut at the side. The sheet scrolls to the seats that are behind; the viewer
+  // is the first column, and is in view.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
+  await expect(seats.nth(0)).toHaveAccessibleName(/\(you\)/);
+  await expect(seats.nth(0)).toBeInViewport({ ratio: 1 });
+  const scroller = sheet.locator("div.overflow-auto");
+  const mutiny = sheet.getByRole("article", { name: "Agenda · Mutiny" });
+  const box = async (item: typeof seats) => (await item.boundingBox())!;
+  await page.screenshot({ path: "shots/phone/local/objectives.png", animations: "disabled" });
+  // The names and the heading stay in view when the sheet scrolls, and a cell is under its seat.
+  await scroller.evaluate((element) => element.scrollTo(element.scrollWidth, element.scrollHeight));
+  await expect(seats.nth(7)).toBeInViewport({ ratio: 1 });
+  await expect(mutiny.getByText("Agenda · Mutiny")).toBeInViewport({ ratio: 1 });
+  expect((await box(mutiny.getByRole("listitem").nth(7))).x).toBeCloseTo(
+    (await box(seats.nth(7))).x,
+    0,
+  );
+  await page.screenshot({ path: "shots/phone/local/objectives-end.png", animations: "disabled" });
+  await sheet.getByRole("button", { name: "Close Objectives" }).click();
+  await expect(page.getByRole("navigation", { name: "Panes" })).toBeVisible();
+});
+
 test("phone: the Dev sheet plays another seat", async ({ page }) => {
   await page.goto("/?local=3&players=8&humans=1");
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
@@ -374,7 +409,10 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   const landing = page.getByRole("group", { name: /^Land in / });
   await expect(landing).toBeVisible();
   await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
-  await landing.getByRole("button", { name: /^Land .*Abyz/ }).first().click();
+  await landing
+    .getByRole("button", { name: /^Land .*Abyz/ })
+    .first()
+    .click();
   await fits();
   await page.screenshot({ path: "shots/phone/local/draft-invasion.png", animations: "disabled" });
   await landing.getByRole("button", { name: /^Done with/ }).click();
