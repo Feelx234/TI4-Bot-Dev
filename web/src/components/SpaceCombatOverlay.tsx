@@ -47,6 +47,7 @@ import {
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
+import { systemTag } from "../presentation/systemFacts.ts";
 
 export interface SpaceCombatOverlayProps {
   choice: PendingChoiceDto | null;
@@ -1650,7 +1651,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                               disabled={isDirectSubmitting}
                               className="button button--secondary"
                             >
-                              {opt.label}
+                              {opt.kind === "retreat_to" ? `Retreat to ${systemTag(opt.id, board)}` : opt.label}
                             </button>
                           ))}
                         </div>
