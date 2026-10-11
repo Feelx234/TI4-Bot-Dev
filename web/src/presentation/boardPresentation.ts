@@ -327,11 +327,10 @@ export function deriveActorTargetHighlights(
     !board?.invasion &&
     isPlanetSelectionChoice(pendingChoice);
   // Paying: payable planets are ringed with their worth and toggle in and out of the payment.
-  const isPanelPaymentMode =
-    !isActivationMode && !board?.invasion && Boolean(paymentPlanetIds);
+  // A payment inside an invasion (custodians, Dunlain Reaper, Freelancers) is paid the same way.
+  const isPanelPaymentMode = !isActivationMode && Boolean(paymentPlanetIds);
   const isPaymentMode =
-    isPanelPaymentMode ||
-    (!isActivationMode && !board?.invasion && isPaymentChoice(pendingChoice));
+    isPanelPaymentMode || (!isActivationMode && isPaymentChoice(pendingChoice));
   const targetMode: MapTargetMode = isActivationMode
     ? "system"
     : isPanelPaymentMode

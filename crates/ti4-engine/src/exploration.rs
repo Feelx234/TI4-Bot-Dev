@@ -690,7 +690,7 @@ fn resolve_instant(
                 return false;
             };
             return crate::production::produce_one_paying_with_influence(
-                state, ctx, player, &system,
+                state, ctx, player, &system, card,
             );
         }
         "dw" => {
@@ -2270,6 +2270,103 @@ mod tests {
         resolve_card(&mut state, &player(), Some(&planet), "dv1", &[]);
 
         assert_eq!(state.player(&player()).unwrap().secret_objectives.len(), 1);
+    }
+
+    /// Explore Freelancers with a scripted answer, recording every question it asked.
+    fn freelancers(answers: &[&str]) -> (GameState, Vec<crate::choice::Choice>) {
+        let (mut state, planet) = holder(5, 0);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(
+            crate::choice::Scripted::new(answers.iter().map(|answer| (*answer).to_owned())),
+        ));
+        let mut table = crate::choice::Table::with_default(Box::new(capturing));
+        let mut dice = crate::dice::Dice::new();
+        let mut rng = crate::rng::GameRng::new(0);
+        let mut ctx = crate::choice::Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: None,
+        };
+        state
+            .exploration_decks
+            .insert("CULTURAL".to_owned(), vec!["frln1".to_owned()]);
+        explore_with(&mut state, &mut ctx, &player(), "CULTURAL", Some(&planet));
+        let seen = seen.borrow().clone();
+        (state, seen)
+    }
+
+    fn units_of_player(state: &GameState) -> usize {
+        let system = crate::fixtures::a_placed_planet().0;
+        let board = state.system_state(&system);
+        board.units_of(&player()).len()
+            + board
+                .planet_units
+                .values()
+                .map(|units| units.iter().filter(|unit| unit.owner == player()).count())
+                .sum::<usize>()
+    }
+
+    /// Freelancers ("You may produce 1 unit in this system"): the unit question names the card,
+    /// is typed as an optional single-unit production about the system, and ends with a decline.
+    #[test]
+    fn freelancers_asks_a_named_optional_unit_question() {
+        let (_, seen) = freelancers(&["decline"]);
+        let ask = seen
+            .iter()
+            .find(|choice| choice.options.iter().any(|o| o.kind == "produce"))
+            .expect("Freelancers asked which unit to produce");
+        assert!(
+            ask.prompt.starts_with("Freelancers: produce one unit in "),
+            "{}",
+            ask.prompt
+        );
+        let context = ask.context.as_ref().expect("the question is typed");
+        assert_eq!(context.subtype, crate::production::PRODUCE_ONE_SUBTYPE);
+        assert!(context.optional);
+        assert_eq!(
+            context.source,
+            crate::decision_context::DecisionSource::Content("frln1".to_owned())
+        );
+        let last = ask.options.last().expect("options");
+        assert!(last.is_decline(), "the decline comes last: {:?}", ask.ids());
+        assert!(
+            ask.options[..ask.options.len() - 1]
+                .iter()
+                .all(|o| o.id.starts_with("build|") && o.id.ends_with("|1")),
+            "the unit options keep their ids: {:?}",
+            ask.ids()
+        );
+    }
+
+    #[test]
+    fn freelancers_may_be_declined() {
+        let before = holder(5, 0).0;
+        let (state, seen) = freelancers(&["decline"]);
+        assert_eq!(units_of_player(&state), units_of_player(&before), "nothing built");
+        assert_eq!(state.player(&player()).unwrap().trade_goods, 5, "nothing paid");
+        assert!(
+            !seen.iter().any(|c| c.options.iter().any(|o| o.kind == "pay")),
+            "declining asks for no payment"
+        );
+        assert!(
+            state.influence_pays_for_units.is_empty(),
+            "the influence permission does not outlive the card"
+        );
+    }
+
+    #[test]
+    fn freelancers_still_builds_when_a_unit_is_chosen() {
+        let before = holder(5, 0).0;
+        // A ship: a fighter in a system without capacity would be removed again.
+        let (state, seen) = freelancers(&["build|destroyer|1"]);
+        assert_eq!(
+            units_of_player(&state),
+            units_of_player(&before) + 1,
+            "one unit: {:?}",
+            seen.iter().map(|c| c.prompt.clone()).collect::<Vec<_>>()
+        );
     }
 
     #[test]

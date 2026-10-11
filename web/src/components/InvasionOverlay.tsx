@@ -209,19 +209,35 @@ export const InvasionEffectCard: React.FC<{
               option.id === "decline" ||
               option.id === "pass";
             const isPrimary = index === 0 && !isDecline;
+            // A unit offered for production (Freelancers): its name and cost, not the raw label.
+            const unit =
+              option.kind === "produce" && typeof option.payload?.unit === "string"
+                ? option.payload.unit
+                : null;
+            const cost = typeof option.payload?.cost === "number" ? option.payload.cost : null;
+            const builds = choice.options.some((o) => o.kind === "produce");
             return (
               <button
                 key={option.id}
                 type="button"
                 className={`button ${isPrimary ? "button--primary invasion-effect-btn--primary" : "button--secondary invasion-effect-btn--secondary"} invasion-effect-btn`}
                 disabled={isDirectSubmitting}
+                data-testid={isDecline ? "invasion-effect-decline" : undefined}
                 onClick={() => void onSubmit?.(option.id)}
               >
+                {unit && <UnitIcon type={unit} />}
                 <span className="invasion-effect-btn__label">
                   {choice.context?.subtype === "fight_ground_combat_round"
                     ? "Fight next round"
-                    : option.label}
+                    : unit
+                      ? `Produce ${getUnitDisplayName(unit)}`
+                      : isDecline && builds
+                        ? "Decline: build nothing"
+                        : option.label}
                 </span>
+                {unit && cost !== null && (
+                  <small className="invasion-effect-btn__sub"> · cost {cost}</small>
+                )}
                 {option.description && (
                   <small className="invasion-effect-btn__sub">
                     {" "}

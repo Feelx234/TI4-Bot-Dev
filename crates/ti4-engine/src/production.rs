@@ -1200,6 +1200,36 @@ pub fn produce_one(
     player: &PlayerId,
     system: &SystemId,
 ) -> Result<bool, IllegalChoice> {
+    produce_one_from(state, content, sources, galaxy, table, player, system, None)
+}
+
+/// The effect a single-unit production comes from, for the prompt and the decision context:
+/// `(content alias, printed name)`, e.g. `("frln1", "Freelancers")`.
+type ProduceOneSource<'a> = Option<(&'a str, &'a str)>;
+
+/// The context subtype of the "which unit" question a named single-unit production asks.
+pub const PRODUCE_ONE_SUBTYPE: &str = "produce_one_unit";
+
+/// [`produce_one`], naming the effect that grants it.
+///
+/// Every single-unit production is a "may" (Chaos Mapping, Minister of Industry, Freelancers), so
+/// the unit question always ends with a decline: answering it produces nothing and pays nothing.
+/// It is appended last, so the ids and positions of the unit options do not move.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "single-unit production needs the complete observed rules position"
+)]
+fn produce_one_from(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+    source: ProduceOneSource<'_>,
+) -> Result<bool, IllegalChoice> {
     let types = catalogue(content, sources);
     let affordable = available(state, content, sources, player, Spend::Resources);
     let candidates: Vec<(String, i64)> = buildable_for(state, content, sources, player)
@@ -1234,25 +1264,43 @@ pub fn produce_one(
     if candidates.is_empty() {
         return Ok(false);
     }
-    let choice = Choice::new(
-        player.clone(),
-        format!("produce one unit in {system}"),
-        candidates
-            .iter()
-            .map(|(id, cost)| {
-                ChoiceOption::labelled(
-                    format!("build|{id}|1"),
-                    PRODUCE_KIND,
-                    format!("produce 1x {id} for {cost}"),
-                )
-                .with("unit", id.clone())
-                .with("count", 1)
-                .with("cost", *cost)
-                .with("system", system.to_string())
-            })
-            .collect(),
-    );
+    let mut options: Vec<ChoiceOption> = candidates
+        .iter()
+        .map(|(id, cost)| {
+            ChoiceOption::labelled(
+                format!("build|{id}|1"),
+                PRODUCE_KIND,
+                format!("produce 1x {id} for {cost}"),
+            )
+            .with("unit", id.clone())
+            .with("count", 1)
+            .with("cost", *cost)
+            .with("system", system.to_string())
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let prompt = match source {
+        Some((_, name)) => format!("{name}: produce one unit in {system}"),
+        None => format!("produce one unit in {system}"),
+    };
+    let mut choice = Choice::new(player.clone(), prompt, options);
+    if let Some((alias, _)) = source {
+        choice = choice.contextualized(
+            DecisionContext::new(
+                player.clone(),
+                DecisionSource::Content(alias.to_owned()),
+                PRODUCE_ONE_SUBTYPE,
+                state.phase,
+                state.round,
+            )
+            .optional(true)
+            .about(DecisionTarget::System(system.clone())),
+        );
+    }
     let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+    if answer.is_decline() {
+        return Ok(false);
+    }
     let Some((id, cost)) = candidates
         .iter()
         .find(|(id, _)| answer.id == format!("build|{id}|1"))
@@ -1337,9 +1385,10 @@ pub fn produce_one_paying_with_influence(
     ctx: &mut crate::choice::Resolving<'_>,
     player: &PlayerId,
     system: &SystemId,
+    card: &str,
 ) -> bool {
     state.influence_pays_for_units.insert(player.clone());
-    let made = produce_one(
+    let made = produce_one_from(
         state,
         ctx.content,
         ctx.sources,
@@ -1347,6 +1396,7 @@ pub fn produce_one_paying_with_influence(
         ctx.table,
         player,
         system,
+        Some((card, "Freelancers")),
     );
     state.influence_pays_for_units.remove(player);
     made.unwrap_or(false)

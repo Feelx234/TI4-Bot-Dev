@@ -715,7 +715,12 @@ export const ChoiceRendererDispatcher: React.FC<
     workflow === "combat_casualty" ||
     workflow === "combat_retreat";
 
-  if (boardView?.invasion && !boardView.combat) {
+  // Paying during an invasion (the custodians' six influence, a Dunlain Reaper's two resources,
+  // Freelancers' unit) is an ordinary payment: the payer gets the payment panel and the map's
+  // payable planets with both values and the running total, not a list of "exhaust" buttons.
+  const invasionPayment =
+    workflow === "payment" && Boolean(choice) && choice?.actor === viewerSeat;
+  if (boardView?.invasion && !boardView.combat && !invasionPayment) {
     // Participant ids in the prompt and option labels ("player_<hash>'s units" for a
     // bombardment target) are shown as the seat's name, as in every other decision.
     const shownChoice = choice
