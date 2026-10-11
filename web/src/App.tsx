@@ -743,6 +743,7 @@ const GameViewContainer: React.FC<{
             />
           ) : null
         }
+        onOpenObjectives={() => setIsObjectivesModalOpen(true)}
         detail={
           cardSubject &&
           cardIsVisible && (

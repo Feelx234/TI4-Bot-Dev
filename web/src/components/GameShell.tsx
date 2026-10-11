@@ -77,6 +77,8 @@ export interface GameShellProps {
   board: React.ReactNode;
   playerSheet: React.ReactNode;
   detail?: React.ReactNode;
+  /** Phone bottom buttons: opens the Objectives dialog (absent: no Objectives button). */
+  onOpenObjectives?: () => void;
   events: GameLogEntry[];
   history?: HistoryStatus;
   currentPath?: CurrentLogPath;
@@ -981,6 +983,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   board,
   playerSheet,
   detail,
+  onOpenObjectives,
   events,
   history,
   currentPath,
@@ -1358,6 +1361,19 @@ export const GameShell: React.FC<GameShellProps> = ({
         >
           Players
         </button>
+        {onOpenObjectives && (
+          <button
+            type="button"
+            data-testid="objectives-mobile-button"
+            className="button button--secondary"
+            onClick={() => {
+              setOpenDrawer(null);
+              onOpenObjectives();
+            }}
+          >
+            Objectives
+          </button>
+        )}
         <button
           type="button"
           data-testid="event-log-mobile-toggle"
