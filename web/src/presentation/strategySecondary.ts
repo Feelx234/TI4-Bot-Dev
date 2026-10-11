@@ -1,6 +1,7 @@
 import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { readReadyHints, type ReadyHints } from "./readyHints.ts";
 import { findStrategyCardMeta, humanizeId } from "../protocol/contentCatalog.ts";
+import { describeCommodityStanding, type CommodityStanding } from "./commodityStanding.ts";
 
 export interface StrategySecondaryView {
   cardName: string;
@@ -18,6 +19,8 @@ export interface StrategySecondaryView {
   noLabel: string;
   /** Diplomacy: the planets that could be readied and which spending cards were played. */
   readyHints: ReadyHints | null;
+  /** Trade: the follower's commodities now and the limit a replenish fills to. */
+  commodities: CommodityStanding | null;
 }
 
 const isNo = (option: ChoiceOptionDto) =>
@@ -63,5 +66,6 @@ export function describeStrategySecondary(
     yesLabel: secondaryButtonLabel(choice.prompt, yes.label),
     noLabel: "Skip",
     readyHints: readReadyHints(details),
+    commodities: describeCommodityStanding(choice),
   };
 }

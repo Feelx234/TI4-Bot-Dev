@@ -420,4 +420,126 @@ describe("ObjectivesModal", () => {
       expect(screen.queryByTestId("bought-progress-monument-p1")).toBeNull();
     });
   });
+
+  describe("secret objectives in the scoring window", () => {
+    const withHand: PlayerView[] = [
+      { ...mockPlayers[0], held_secret_objectives: ["ans", "ctr", "baf"] },
+      mockPlayers[1],
+    ];
+    const scoring = (options: { id: string; label: string }[], subtype = "score_objective") => ({
+      actor: "p1",
+      nonce: "secret-nonce",
+      prompt: "score an objective",
+      context: { subtype },
+      options: [...options, { id: "decline", label: "decline" }],
+    });
+
+    it("shows an offered secret as a card with name, condition, phase and VP", async () => {
+      const onSubmit = vi.fn().mockResolvedValue(undefined);
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={withHand}
+          viewerSeat="p1"
+          choice={scoring([
+            { id: "corner", label: "corner" },
+            { id: "ans", label: "ans" },
+          ])}
+          onSubmit={onSubmit}
+          isScoringMode={true}
+        />,
+      );
+      expect(screen.getByText("Score Objective")).toBeInTheDocument();
+      expect(screen.getByTestId("secret-objectives-header")).toBeInTheDocument();
+      const row = screen.getByTestId("secret-row-ans");
+      expect(row).toHaveTextContent("Adapt New Strategies");
+      expect(row).toHaveTextContent("Own 2 faction technologies");
+      expect(row).toHaveTextContent("1 VP");
+      expect(row).toHaveTextContent("Status phase");
+      expect(row).not.toHaveTextContent(/^ans$/);
+
+      fireEvent.click(
+        document.querySelector('[data-testid="choice-option"][data-option-id="ans"]')!,
+      );
+      expect(screen.getByTestId("objectives-scoring-footer")).toHaveTextContent(
+        "Adapt New Strategies (+1 VP)",
+      );
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("submit-choice-button"));
+      });
+      expect(onSubmit).toHaveBeenCalledWith("ans");
+    });
+
+    it("lists the rest of the hand as not scoreable now", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={withHand}
+          viewerSeat="p1"
+          choice={scoring([{ id: "ans", label: "ans" }])}
+          isScoringMode={true}
+        />,
+      );
+      expect(screen.getByTestId("secret-held-held-ctr")).toHaveTextContent("not scoreable now");
+      expect(screen.getByTestId("secret-row-held-ctr")).toHaveTextContent("Control the Region");
+      expect(screen.queryByTestId("secret-row-held-ans")).toBeNull();
+      // Not an option: only the offered secret, and decline, are actionable.
+      const ids = screen.getAllByTestId("choice-option").map((el) => el.getAttribute("data-option-id"));
+      expect(ids).toEqual(["ans", "decline"]);
+    });
+
+    it("never files a secret among the public objectives when none are revealed", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={[]}
+          players={withHand}
+          viewerSeat="p1"
+          choice={scoring([{ id: "baf", label: "baf" }], "score_secret_objective")}
+          isScoringMode={true}
+        />,
+      );
+      expect(screen.getByText("Score Secret Objective")).toBeInTheDocument();
+      expect(screen.queryByTestId("objective-row-baf")).toBeNull();
+      expect(screen.queryByText("Stage I Objectives (1 VP)")).toBeNull();
+      expect(screen.getByTestId("secret-row-baf")).toHaveTextContent("Betray a Friend");
+      expect(screen.getByTestId("secret-row-baf")).toHaveTextContent("Action phase");
+    });
+
+    it("reads a Plots Within Plots option as the secret, scored for no point", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={mockPlayers}
+          viewerSeat="p1"
+          choice={scoring([{ id: "plot|ctr|p2", label: "ctr as a plot with p2's control token" }])}
+          isScoringMode={true}
+        />,
+      );
+      const row = screen.getByTestId("secret-row-plot|ctr|p2");
+      expect(row).toHaveTextContent("Control the Region");
+      expect(row).toHaveTextContent("Plot");
+      expect(row).toHaveTextContent("no VP");
+    });
+
+    it("hides another seat's hand", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["corner"]}
+          players={withHand}
+          viewerSeat="p2"
+        />,
+      );
+      expect(screen.queryByTestId("secret-objectives-header")).toBeNull();
+    });
+  });
 });
