@@ -14,12 +14,14 @@
 //!
 //! - **Score** an objective whenever the engine offers one.
 //! - **Action phase**: take a tactical action when some system is worth activating (below),
-//!   sometimes the strategic action instead so the card still gets played.
+//!   sometimes the strategic action instead so the card still gets played. With nothing worth a
+//!   command token, play the card or pass.
 //! - **Activation**: value each system as the planets it can take (resources + influence, Mecatol
 //!   Rex extra while the custodians point is there to win), counting only the planets its
 //!   reachable carriers can bring enough ground forces to; a hostile fleet must be beaten clearly
-//!   (fleet-strength matchup, [`ti4_policy::fleet_strength`]) or the system is avoided. A home
-//!   system with a space dock is worth activating to build when the seat is short of units.
+//!   (fleet-strength matchup, [`ti4_policy::fleet_strength`]) or the system is avoided. A system
+//!   with its space dock is worth activating to build when the seat is short of units it could
+//!   build there.
 //! - **Movement**: into a fight, move the strongest ships until the matchup is clearly won; move a
 //!   carrier while the target's planets still need ground forces; then stop. Never move into a
 //!   fight it cannot win. **Loading**: ground forces while planets need them, fighters for a fight.
@@ -324,10 +326,30 @@ fn own_counts(seen: &Observed<'_>, me: &PlayerId) -> (usize, usize) {
     (ships, ground)
 }
 
-/// Whether the seat is short of units and should build.
-fn wants_units(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    let (ships, ground) = own_counts(seen, me);
-    ships < 6 || ground < 5
+/// Whether the seat is short of units it could build in `system`: ships while it has few and the
+/// system's fleet supply has room, ground forces while few wait at its docks for transport.
+fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+    let (ships, _) = own_counts(seen, me);
+    let here = seen
+        .system(system)
+        .units
+        .iter()
+        .filter(|u| &u.owner == me)
+        .filter(|u| {
+            unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_ship() && !t.is_fighter())
+        })
+        .count();
+    let fleet = seen
+        .seat(me)
+        .map_or(0, |seat| usize::try_from(seat.fleet_tokens).unwrap_or(0));
+    (ships < 6 && here < fleet) || !enough_ground(seen, me)
+}
+
+/// Whether as many ground forces wait at its docks as its ships can carry (at least
+/// [`MIN_IDLE_GROUND`]), so more would only sit there.
+fn enough_ground(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    let (idle, lift) = idle_ground_and_lift(seen, me);
+    idle >= usize::try_from(lift.max(MIN_IDLE_GROUND)).unwrap_or(0)
 }
 
 fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
@@ -402,7 +424,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     if !contested
         && has_own_production(seen, me, system)
         && seen.available_spend(me, Spend::Resources) >= 3
-        && wants_units(seen, me)
+        && wants_to_build(seen, me, system)
     {
         value = value.max(2.0);
     }
@@ -457,13 +479,14 @@ fn pick_action(
         .filter(|system| !tokens.contains(system))
         .map(|system| activation_value(seen, me, &system))
         .fold(f64::NEG_INFINITY, f64::max);
-    if worth < ACTIVATION_THRESHOLD {
-        return None;
-    }
     let strategic = choice
         .options
         .iter()
         .position(|o| o.kind == "action" && o.id.starts_with("strategic"));
+    if worth < ACTIVATION_THRESHOLD {
+        // Nothing worth a command token: play the card or pass rather than waste one.
+        return strategic.or_else(|| choice.options.iter().position(|o| o.id == "pass"));
+    }
     match strategic {
         Some(index) if rng.random_bool(0.25) => Some(index),
         _ => Some(tactical),
@@ -731,8 +754,7 @@ fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
 /// at its docks than its ships can carry; when nothing useful is left, stop.
 fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let (ships, ground) = own_counts(seen, me);
-    let (idle, lift) = idle_ground_and_lift(seen, me);
-    let enough_ground = idle >= usize::try_from(lift.max(MIN_IDLE_GROUND)).unwrap_or(0);
+    let enough_ground = enough_ground(seen, me);
     let carriers = seen
         .board()
         .values()
@@ -1458,6 +1480,46 @@ mod tests {
         // A stack of four ships needs four fleet tokens.
         put(&mut state, &outer(&hub, 0), "cruiser", &me(), 4);
         assert_eq!(picked(&state, &hub, &choice), Some(1));
+    }
+
+    #[test]
+    fn with_nothing_worth_a_token_it_plays_the_card_or_passes() {
+        let (state, hub, _, _) = board();
+        let seen = observe(&state, &hub);
+        let action = |first: &str| {
+            Choice::new(
+                me(),
+                "action phase",
+                vec![
+                    ChoiceOption::labelled(first, "action", first),
+                    ChoiceOption::labelled("tactical", "action", "tactical"),
+                ],
+            )
+        };
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        assert_eq!(
+            pick_action(&action("strategic"), &seen, &me(), &mut rng),
+            Some(0)
+        );
+        assert_eq!(
+            pick_action(&action("pass"), &seen, &me(), &mut rng),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn a_dock_is_activated_to_build_only_when_something_could_be_built_there() {
+        let (mut state, hub, centre, planet) = board();
+        put_on_planet(&mut state, &centre, &planet, "spacedock", &me(), 1);
+        put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 4);
+        state.player_mut(&me()).expect("seat").trade_goods = 5;
+        state.player_mut(&me()).expect("seat").fleet_tokens = 3;
+        let seen = observe(&state, &hub);
+        assert!(activation_value(&seen, &me(), &centre) >= ACTIVATION_THRESHOLD);
+        // Fleet supply full there and enough infantry waiting: nothing to build.
+        put(&mut state, &centre, "destroyer", &me(), 3);
+        let seen = observe(&state, &hub);
+        assert!(activation_value(&seen, &me(), &centre) < ACTIVATION_THRESHOLD);
     }
 
     #[test]
