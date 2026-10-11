@@ -973,11 +973,14 @@ impl FileGameStore {
             .as_ref()
             .map(|h| h.rng_marks.clone())
             .unwrap_or_default();
-        let replay_report = replay_session_forced(
+        // The copy near the end lets the session worker fork the game instead of replaying the
+        // whole history a second time.
+        let (replay_report, replay_copy) = crate::session::replay::replay_session_with_copy(
             &init_record.initial_state,
             galaxy.as_ref(),
             &decisions,
             &marks,
+            history.as_ref().map_or(0, |h| h.generation),
         )
         .map_err(|source| StorageError::Replay {
                 game_id: game_id.to_owned(),
@@ -995,17 +998,23 @@ impl FileGameStore {
                 .chain(&history.redo)
                 .cloned()
                 .collect();
-            let validated = replay_session_forced(
-                &init_record.initial_state,
-                galaxy.as_ref(),
-                &future,
-                &history.rng_marks,
-            )
-            .map_err(|source| StorageError::Replay {
+            // Without a redo list this is the replay just made (same decisions, same marks).
+            let (hashes_match, decision_count) = if history.redo.is_empty() {
+                (replay_report.hashes_match, replay_report.decision_count)
+            } else {
+                let validated = replay_session_forced(
+                    &init_record.initial_state,
+                    galaxy.as_ref(),
+                    &future,
+                    &history.rng_marks,
+                )
+                .map_err(|source| StorageError::Replay {
                     game_id: game_id.to_owned(),
                     source,
                 })?;
-            if !validated.hashes_match || validated.decision_count != future.len() {
+                (validated.hashes_match, validated.decision_count)
+            };
+            if !hashes_match || decision_count != future.len() {
                 return Err(StorageError::HashMismatch(game_id.to_owned()));
             }
             let event_decisions = history
@@ -1054,6 +1063,7 @@ impl FileGameStore {
                 .with_store(self.clone())
                 .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
                 .with_prior_history(decisions.clone(), events.clone());
+        config.resume = replay_copy.map(Arc::new);
         if let Some(history) = history {
             config.initial_version = history.revision;
             config.redo_decisions = history.redo;

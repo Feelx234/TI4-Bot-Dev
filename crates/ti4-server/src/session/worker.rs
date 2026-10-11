@@ -817,10 +817,35 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let prior_records = config.prior_decisions.clone();
     let prior_queue = Arc::new(Mutex::new(VecDeque::from(config.prior_decisions.clone())));
     // A copy of this same history at an earlier step boundary replaces replaying that part.
-    let resume = config
+    let mut resume = config
         .resume
         .clone()
         .filter(|copy| config.step_snapshots && copy.is_prefix_of(&prior_records));
+    let boundary_state = if config.replay_boundary_state.is_some() {
+        config.replay_boundary_state.clone()
+    } else if prior_count > 0 {
+        // One private replay gives the position at the first live question. With a supplied
+        // copy it replays only what the copy does not cover; without one it also copies the game
+        // at a step boundary near the end of the prefix. Either way the worker forks the copy
+        // instead of replaying the whole prefix a second time.
+        let generation =
+            (config.step_snapshots && resume.is_none()).then_some(config.history_generation);
+        crate::session::batch::replay_boundary(
+            &config,
+            &config.prior_decisions,
+            resume.as_deref(),
+            generation,
+        )
+        .ok()
+        .map(|(state, copy)| {
+            if let Some(copy) = copy.filter(|copy| copy.is_prefix_of(&prior_records)) {
+                resume = Some(Arc::new(copy));
+            }
+            state
+        })
+    } else {
+        None
+    };
     if let Some(copy) = &resume {
         prior_queue
             .lock()
@@ -829,13 +854,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     }
     let selected_options = Arc::new(Mutex::new(VecDeque::new()));
     let published_count = Arc::new(Mutex::new(prior_count));
-    let boundary_state = config.replay_boundary_state.clone().or_else(|| {
-        (prior_count > 0)
-            .then(|| {
-                crate::session::batch::replay_boundary_state(&config, &config.prior_decisions).ok()
-            })
-            .flatten()
-    });
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
     if let Some(state) = &boundary_state {

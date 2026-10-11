@@ -31,7 +31,7 @@ use super::{
 };
 use crate::protocol::status::ViewerRole;
 use crate::protocol::turn_redo::{TurnRedoOutcome, TurnRedoStage, TurnRedoStatus};
-use crate::session::replay::replay_session_forced;
+use crate::session::replay::replay_session_with_copy;
 use crate::session::turn_redo::{
     AlternateTimeline, TurnRedoError, TurnRedoRecord, autoplay, events_through, find_turns,
     open_segment, prepare_tail, redact_for_viewer, redo_window,
@@ -302,6 +302,7 @@ impl GameRegistry {
             expected_version,
             snap.decisions.len(),
             actor,
+            None,
         );
         if published.is_err() {
             self.revert_record(game_id, &snap.config, previous.as_ref());
@@ -363,11 +364,12 @@ impl GameRegistry {
         )
         .map_err(|e| invalid(&e))?;
         // The persisted history must replay by itself, with its stored positions.
-        let report = replay_session_forced(
+        let (report, copy) = replay_session_with_copy(
             &snap.config.state,
             snap.config.galaxy.as_ref(),
             &result.decisions,
             &result.marks,
+            snap.generation.saturating_add(1),
         )
         .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
         if !report.hashes_match || report.decision_count != result.decisions.len() {
@@ -416,6 +418,7 @@ impl GameRegistry {
             expected_version,
             snap.decisions.len(),
             actor,
+            copy,
         );
         if published.is_err() {
             self.revert_record(game_id, &snap.config, Some(&record));
@@ -496,11 +499,12 @@ impl GameRegistry {
             ));
         }
         let alt = &record.alternate;
-        let report = replay_session_forced(
+        let (report, copy) = replay_session_with_copy(
             &snap.config.state,
             snap.config.galaxy.as_ref(),
             &alt.decisions,
             &alt.rng_marks,
+            snap.generation.saturating_add(1),
         )
         .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
         if !report.hashes_match || report.decision_count != alt.decisions.len() {
@@ -529,6 +533,7 @@ impl GameRegistry {
             expected_version,
             snap.decisions.len(),
             actor,
+            copy,
         );
         if published.is_ok() {
             self.drop_record(game_id, &snap.config);

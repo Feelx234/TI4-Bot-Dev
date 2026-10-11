@@ -296,12 +296,20 @@ const fn guarded(event: &'static str, relation: Relation, guard: Guard) -> Windo
 /// Keyed by the exact corpus string, which is why [`unmapped_windows`] exists: a typo or a
 /// reworded card would otherwise silently produce a card that can never be played, which is the
 /// state this module exists to end.
+///
+/// Built once per process: the engine looks windows up several times per step.
 #[must_use]
+pub fn window_table() -> &'static BTreeMap<&'static str, Window> {
+    static TABLE: std::sync::LazyLock<BTreeMap<&'static str, Window>> =
+        std::sync::LazyLock::new(build_window_table);
+    &TABLE
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one row per printed window: the table is the point, and splitting it hides the set"
 )]
-pub fn window_table() -> BTreeMap<&'static str, Window> {
+fn build_window_table() -> BTreeMap<&'static str, Window> {
     use Relation::{After, When};
     [
         (

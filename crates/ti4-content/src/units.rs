@@ -300,10 +300,26 @@ const fn positive(value: Option<i64>) -> Option<i64> {
 /// Every unit type in scope, keyed by id.
 #[must_use]
 pub fn catalogue(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, UnitType<'_>> {
-    store
-        .from_sources(ContentType::Units, sources)
-        .filter_map(|r| r.id().map(|id| (id, UnitType::new(r))))
-        .collect()
+    fn build(store: &ContentStore, sources: SourceSet) -> BTreeMap<&str, UnitType<'_>> {
+        store
+            .by_id_in_sources(ContentType::Units, sources)
+            .map(|(id, r)| (id, UnitType::new(r)))
+            .collect()
+    }
+    // The engine asks for this map many times per step. For the compiled-in corpus (the one every
+    // game runs on) it is built once per source scope; a copy costs no comparisons.
+    static EMBEDDED: [std::sync::OnceLock<BTreeMap<&'static str, UnitType<'static>>>; 128] =
+        [const { std::sync::OnceLock::new() }; 128];
+    if store.is_embedded() {
+        let embedded = ContentStore::embedded();
+        if let Some(slot) = usize::try_from(sources.as_u32())
+            .ok()
+            .and_then(|bits| EMBEDDED.get(bits))
+        {
+            return slot.get_or_init(|| build(embedded, sources)).clone();
+        }
+    }
+    build(store, sources)
 }
 
 /// One unit type by id, within a source scope.
