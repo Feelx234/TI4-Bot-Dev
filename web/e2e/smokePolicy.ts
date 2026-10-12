@@ -239,7 +239,10 @@ const COMMIT =
 export function classifyControl(desc: string): { unstage: boolean; commit: boolean } {
   if (isBarControl(desc)) return { unstage: false, commit: isBarSubmit(desc) };
   const unstage = isUnstage(desc);
-  return { unstage, commit: !unstage && COMMIT.test(desc) };
+  // A choice row is an answer, never a submit: its label ("commit infantry to ...", "Decline")
+  // says nothing about the control, so only its test id is matched.
+  const subject = /^choice-option\b/.test(desc) ? desc.split(" | ")[0] : desc;
+  return { unstage, commit: !unstage && COMMIT.test(subject) };
 }
 
 /**

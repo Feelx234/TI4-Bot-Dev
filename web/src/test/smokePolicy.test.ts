@@ -302,6 +302,15 @@ describe("preferTokenConfirm", () => {
   });
 });
 
+describe("choice rows (smoke harness)", () => {
+  it("never reads a choice-option label as a submit", () => {
+    expect(classifyControl("choice-option | commit infantry to lor in 36").commit).toBe(false);
+    expect(classifyControl("choice-option | Decline").commit).toBe(false);
+    expect(classifyControl("choice-option | Pass").commit).toBe(false);
+    expect(classifyControl("submit-choice | Confirm").commit).toBe(true);
+  });
+});
+
 describe("turn bar controls (smoke harness)", () => {
   const tactical = c("turn-bar-tactical | Tactical action 3 tactic tokens left T");
   const imperial = c(
