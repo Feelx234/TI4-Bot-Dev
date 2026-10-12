@@ -2506,6 +2506,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         if mecatol_in_reach(seen, me)
             && seen.available_spend(me, Spend::Influence) < 6
             && exhausted_influence(seen, me) > 0
+            && (seen.round() > 1 || tokens > keep_for_warfare)
         {
             return answer(true);
         }
