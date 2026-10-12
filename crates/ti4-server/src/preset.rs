@@ -1142,11 +1142,12 @@ fn world_kit(content: &ContentStore, state: &mut GameState, galaxy: &Galaxy, pla
             .player(player)
             .map(|seat| seat.faction.as_str().to_owned())
             .unwrap_or_default();
-        let owned: Vec<TechnologyId> = content
-            .from_sources(ContentType::Technologies, POK)
-            .filter(|record| record.text("faction") == Some(faction.as_str()))
-            .filter_map(|record| record.text("alias"))
-            .map(TechnologyId::new)
+        // The faction sheet's technologies (plus Thunder's Edge reprints), not every record that
+        // carries the faction tag: Nekro's `nekroc4r`/`nekroc4y` are not part of the game.
+        let owned: Vec<TechnologyId> = ti4_engine::factions::assets(content, POK, &faction)
+            .into_iter()
+            .filter(|asset| asset.kind == ti4_engine::factions::AssetKind::Technology)
+            .map(|asset| TechnologyId::new(asset.id))
             .collect();
         if let Some(seat) = state.player_mut(player) {
             seat.technologies.extend(owned);
@@ -2127,6 +2128,21 @@ mod tests {
         }
         let naalu = state.player(&list[0]).unwrap();
         assert!(naalu.technologies.len() > 2, "{:?}", naalu.technologies);
+    }
+
+    #[test]
+    fn world_gives_nekro_only_the_sheet_technologies() {
+        let list = players(4);
+        let (state, _) =
+            create_game_with_preset(content(), &list, 7, None, Some("world+fac:nekro")).unwrap();
+        let nekro = state.player(&list[0]).unwrap();
+        assert_eq!(nekro.faction.as_str(), "nekro", "{:?}", nekro.faction);
+        let owned: Vec<&str> = nekro.technologies.iter().map(|t| t.as_str()).collect();
+        assert!(owned.len() > 2, "{owned:?}");
+        for banned in ["nekroc4r", "nekroc4y"] {
+            assert!(!owned.contains(&banned), "{owned:?}");
+        }
+        assert!(owned.contains(&"vax") && owned.contains(&"vay"), "{owned:?}");
     }
 
     #[test]
