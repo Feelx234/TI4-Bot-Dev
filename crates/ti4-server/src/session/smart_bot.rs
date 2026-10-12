@@ -1189,8 +1189,13 @@ fn pick_action(
     }
     // A new transport and troops at home without placing a token there (Warfare's free tactical
     // action, Construction's production): the third system.
+    // The Arborec's Warfare builds where their troops land instead (see `warfare_builds`).
+    let landing_build = short_of_transports(seen, me) && ground_produces(seen, me);
     if home_build_wanted(seen, me) {
         for name in ["Warfare", "Construction"] {
+            if name == "Warfare" && landing_build {
+                continue;
+            }
             if let Some(index) = play(name) {
                 return Some(index);
             }
@@ -1251,7 +1256,9 @@ fn strategic_option(choice: &Choice, seen: &Observed<'_>, card: &str) -> Option<
 /// opening plan wants one; otherwise the system most worth activating (one with its own token
 /// too, as no token is placed).
 fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    if home_build_wanted(seen, me)
+    let landing_build = short_of_transports(seen, me) && ground_produces(seen, me);
+    if !landing_build
+        && home_build_wanted(seen, me)
         && let Some(home) = home_system(seen, me)
         && let Some(index) = choice.options.iter().position(|o| o.id == home.as_str())
     {
