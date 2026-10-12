@@ -127,7 +127,6 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     // tokens, Erect a Monument's resources, ...) would spend what the expansion plan needs; the
     // objective can still be scored in the status phase with what is left.
     if subtype == Some("imperial_score_objective")
-        && !exp_off("A")
         && spending_objective_blocks_plan(choice, observed, &me)
         && let Some(index) = choice.options.iter().position(ChoiceOption::is_decline)
     {
@@ -174,7 +173,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             return choice.options.iter().position(|o| o.id == "gain");
         }
         // Ambush (the Mentak): free dice before the fight, as many ships as offered.
-        Some("ambush_roll") if !exp_off("J") => {
+        Some("ambush_roll") => {
             return choice
                 .options
                 .iter()
@@ -184,14 +183,14 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
                 .map(|(i, _)| i);
         }
         // Pillage (the Mentak): always, and a trade good.
-        Some("pillage_take") if !exp_off("J") => {
+        Some("pillage_take") => {
             return choice
                 .options
                 .iter()
                 .position(|o| o.id.starts_with("trade_good|"))
                 .or(Some(0));
         }
-        Some(sub) if !exp_off("J") && sub.starts_with("reaction_after_") => {
+        Some(sub) if sub.starts_with("reaction_after_") => {
             if let Some(index) = choice
                 .options
                 .iter()
@@ -250,18 +249,6 @@ fn spending_objective_blocks_plan(choice: &Choice, seen: &Observed<'_>, me: &Pla
         && seen.round() <= 1
         && !offered.is_empty()
         && offered.iter().all(|o| SPENDING.contains(&o.id.as_str()))
-}
-
-/// Experiment switch (temporary): `SB_OFF=A,B` turns rules off.
-fn exp_off(tag: &str) -> bool {
-    static OFF: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
-    OFF.get_or_init(|| {
-        std::env::var("SB_OFF")
-            .map(|v| v.split(',').map(str::to_owned).collect())
-            .unwrap_or_default()
-    })
-    .iter()
-    .any(|t| t == tag)
 }
 
 // -- reading the board ---------------------------------------------------------------------------
@@ -817,12 +804,8 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     let tokens = seen
         .seat(me)
         .map_or(0, |seat| i64::from(seat.tactic_tokens))
-        + i64::from(ready_card(seen, me, "Warfare").is_some() && !exp_off("E1"));
-    let wanted = if exp_off("E1") {
-        tokens.min(3)
-    } else {
-        (3 - systems_taken_this_round(seen, me)).min(tokens)
-    };
+        + i64::from(ready_card(seen, me, "Warfare").is_some());
+    let wanted = (3 - systems_taken_this_round(seen, me)).min(tokens);
     let (transports, ground) = free_transports_and_ground(seen, me);
     let missing = wanted - transports;
     if missing <= 0 {
@@ -831,7 +814,7 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     // A troop for every transport (the first one leaves two at home for the new ones, see
     // `ground_shortfall`); two infantry cost one; Sarween Tools takes one off the build.
     let troops = (missing + transports - ground).max(0);
-    let discount = i64::from(has_technology(seen, me, "st") && !exp_off("E2"));
+    let discount = i64::from(has_technology(seen, me, "st"));
     Some((
         missing,
         CARRIER_COST * missing + (troops + 1) / 2 - discount,
@@ -875,7 +858,7 @@ fn gate_bound(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// redistribution gives the token back (the spread-out fleet needs fewer fleet tokens), so the
 /// tokens still send every new transport. It also waits a turn for Diplomacy's readying.
 fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    if exp_off("B") || gate_bound(seen, me) {
+    if gate_bound(seen, me) {
         return false;
     }
     let Some((missing, _)) = transport_plan(seen, me) else {
@@ -1772,8 +1755,7 @@ fn escort_from_home(
     let (missing, _) = transport_plan(seen, me)?;
     // Warfare's own build: the warships leave by a move of their own later
     // ([`wait_move_pays`]), so this transport's system keeps a small fleet.
-    if !exp_off("D")
-        && ready_card(seen, me, "Warfare").is_some()
+    if ready_card(seen, me, "Warfare").is_some()
         && !ground_produces(seen, me)
         && !gate_bound(seen, me)
     {
@@ -2404,8 +2386,7 @@ fn opening_pools(seen: &Observed<'_>, me: &PlayerId) -> Option<(i32, i32)> {
         ti4_model::state::Phase::Action if expanding(seen) => {
             // Round 1: a strategy token only while a secondary worth one is still to come; the
             // rest send transports.
-            let strategy = if seen.round() <= 1 && !exp_off("I") && transports_need_tokens(seen, me)
-            {
+            let strategy = if seen.round() <= 1 && transports_need_tokens(seen, me) {
                 strategy_reserve(seen, me).min(1)
             } else {
                 1
@@ -2454,7 +2435,7 @@ fn pick_redistribution(
     warfare: bool,
 ) -> Option<usize> {
     let opening = opening_pools(seen, me).map(|(fleet, strategy)| {
-        let zero = warfare && !exp_off("I") && warfare_build_needs_tokens(seen, me);
+        let zero = warfare && warfare_build_needs_tokens(seen, me);
         (fleet, if zero { 0 } else { strategy })
     });
     let fleet = opening.map_or_else(|| fleet_wanted(seen, me), |(fleet, _)| fleet);
@@ -3795,6 +3776,11 @@ mod tests {
         );
         // The cruisers fill the fleet pool at home: they leave first.
         assert!(wait_move_pays(&seen, &me()));
+        // The Creuss have nowhere out of the others' way to wait: they escort instead.
+        state.player_mut(&me()).expect("seat").faction = ti4_model::id::FactionId::new("ghost");
+        let seen = observe(&state, &hub);
+        assert!(!wait_move_pays(&seen, &me()));
+        state.player_mut(&me()).expect("seat").faction = ti4_model::id::FactionId::new("mentak");
         // With room at home (a bigger fleet pool) there is nothing to clear.
         state.player_mut(&me()).expect("seat").fleet_tokens = 4;
         let seen = observe(&state, &hub);
