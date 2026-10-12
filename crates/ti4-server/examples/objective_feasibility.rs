@@ -20,7 +20,7 @@ fn main() {
     let loader = TemplateLoader::load().unwrap();
     for n in 3..=6usize {
         let ids: Vec<PlayerId> = (0..n).map(|i| PlayerId::new(format!("p{i}"))).collect();
-        let assignments = seating::seat_in_scope_rotated(&ids, 0);
+        let assignments = seating::seat_in_scope(&ids);
         let homes: Vec<SystemId> = ids
             .iter()
             .map(|p| {
