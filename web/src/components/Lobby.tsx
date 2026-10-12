@@ -463,27 +463,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   </span>
                 )}
               </strong>
-              {slot.bot && slot.occupant && canChooseFactions && (
-                <span className="lobby-list__faction" data-testid={`seat-faction-${slot.position}`}>
-                  {isHost && lobby.phase === "lobby" && onSetBotFaction ? (
-                    <FactionPicker
-                      compact
-                      pool={factionPool}
-                      value={slot.faction ?? null}
-                      taken={takenFactions(lobby, slot.position)}
-                      disabled={!!pendingAction}
-                      label={`Faction of position ${slot.position}`}
-                      testId={`bot-faction-${slot.position}`}
-                      onChange={(faction) => void onSetBotFaction(slot.occupant!, faction)}
-                    />
-                  ) : (
-                    <>
-                      <FactionSigil faction={slot.faction ?? null} />
-                      <span>{slot.faction ? lobbyFactionName(slot.faction) : "Random faction"}</span>
-                    </>
-                  )}
-                </span>
-              )}
               <span className="lobby-list__status">
                 {slot.occupant ? (
                   <>
@@ -565,6 +544,27 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   >
                     ↓
                   </button>
+                </span>
+              )}
+              {slot.bot && slot.occupant && canChooseFactions && (
+                <span className="lobby-list__faction" data-testid={`seat-faction-${slot.position}`}>
+                  {isHost && lobby.phase === "lobby" && onSetBotFaction ? (
+                    <FactionPicker
+                      compact
+                      pool={factionPool}
+                      value={slot.faction ?? null}
+                      taken={takenFactions(lobby, slot.position)}
+                      disabled={!!pendingAction}
+                      label={`Faction of position ${slot.position}`}
+                      testId={`bot-faction-${slot.position}`}
+                      onChange={(faction) => void onSetBotFaction(slot.occupant!, faction)}
+                    />
+                  ) : (
+                    <>
+                      <FactionSigil faction={slot.faction ?? null} />
+                      <span>{slot.faction ? lobbyFactionName(slot.faction) : "Random faction"}</span>
+                    </>
+                  )}
                 </span>
               )}
             </div>

@@ -5082,6 +5082,19 @@ select:focus-visible,
   min-width: 200px;
   justify-content: space-between;
 }
+.faction-picker .faction-picker__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.faction-picker .faction-picker__option > span:not(.faction-picker__taken):not(.faction-sigil),
+.faction-picker .faction-picker__name {
+  color: var(--color-text);
+  font-size: 13px;
+}
+.lobby-list__item:has(.lobby-list__faction) .lobby-reorder {
+  margin-left: auto;
+}
 .faction-picker--compact .faction-picker__button {
   min-width: 0;
   min-height: 32px;
@@ -5147,10 +5160,21 @@ select:focus-visible,
   font-weight: 800;
   letter-spacing: 0.02em;
 }
-.lobby-list__faction {
-  display: inline-flex;
+.lobby-list__item:has(.lobby-list__faction) {
+  flex-wrap: wrap;
+}
+.lobby-list__item .lobby-list__faction {
+  flex: 1 1 100%;
+  display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--color-text-muted);
+  padding-left: 4px;
+}
+.lobby-list__item .faction-sigil {
+  color: #0b1220;
+  font-size: 10px;
+}
+.lobby-list__item .faction-picker__button,
+.lobby-list__item .faction-picker__name {
+  white-space: nowrap;
 }
