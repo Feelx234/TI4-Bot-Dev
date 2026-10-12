@@ -35,6 +35,20 @@
 .secondary-prep > * {
   pointer-events: auto;
 }
+/* The answer bars (Prepared ... Confirm / Choose myself, Needs review, auto-play toasts) dock at the
+   bottom of the board column: at the top they covered the token panel header and its pay-with-planets
+   row. The preparing banner keeps the top. */
+.secondary-prep:not(.secondary-prep--preparing) {
+  top: auto;
+  bottom: 16px;
+}
+@media (max-width: 720px) {
+  /* The board column is only as tall as the map strip on a phone: dock to the screen. */
+  .secondary-prep:not(.secondary-prep--preparing) {
+    position: fixed;
+    bottom: 72px;
+  }
+}
 @media (max-width: 720px) {
   .secondary-prep {
     left: 12px;
