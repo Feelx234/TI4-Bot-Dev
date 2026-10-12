@@ -80,3 +80,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Imperial with nothing scoreable (CV-imperial-no-score)
 
 `CV-imperial-no-score` shows why Imperial scored nothing in game 8261fb3f: a home planet was lost (rule 61.16). The Objectives dialog gets an amber "Home system lost" banner and met objectives read "Met (6/6) · home system lost" instead of "Ready"; playing Imperial with nothing scoreable shows an "Imperial" corner notice (home planet lost, or every unscored objective's progress when none is met), desktop and 390x844. `npm run screenshots -- CV` asserts the texts, the amber accent, that a met objective with the home intact stays "Ready" and gets no notice, and no horizontal scroll on the phone.
+
+## Public playtest (CX-public-playtest)
+
+`CX-public-playtest` shows the shared-password screen, the Alpha notice with the build footer in the lobby, the floating Feedback button (lobby, game, phone menu entry) and the feedback sheet (empty, filled, sent), desktop 1440x900 and phone 390x844. The mocked `/health` answers `public: true`, which is what turns the notice and button on. `npm run screenshots -- CX` asserts 44 px targets, 16px inputs, no horizontal scroll, the button clear of the turn action bar and that the sent report carries the build commit and seat but no session token.
