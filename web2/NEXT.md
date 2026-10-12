@@ -8,11 +8,21 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
   - what the draft holds after a roll is staged again in Live when its step opens (`remaining` in `useLiveSession.ts`). Unit tests cover the parts; no test plays it in the browser, because a draft cannot record a step after a roll by its screens (only when an earlier step is changed later)
   - a question of an ability before a step (AI Development Algorithm) is a list in the draft, with "Record". A question in the middle of a step has no place in the script (`answers` in `draft.ts`)
   - the server's batch (`session/batch.rs`) does not use `PlanStep` of `ti4-view`
+- the draft of a secondary (2026-10-12, phase 5 of `plans/2026-10-11-ONLINE_MULTIPLAYER_PLAN.md`): the list of the seats of a strategic action is built from the facts of the engine, and the row of the viewer is the draft. Still open:
+  - the editors of the cards (the technology tree, the command pools, the player table for Trade) are in the demo only: a question of a primary or a secondary is a list, and a production of Warfare is one question for each unit and each payment
+  - a row of another seat says its state, not what the seat did; the primary has no result. The facts have no text for it (the events of the game would give it)
+  - "who gave it for free" is not said: the question has `costs_token` only
+  - the printed text of a strategy card is not behind hover: the catalogue has no strategy cards
+  - the list is shown while the action is resolved. It is not in the event log, and after the last follower the panel is "Waiting" again
+  - a draft has no undo of one answer: "Start over" drops all. The board and the player table are of the live game, not of the draft
+  - the staged row of a draft is cleared by each update of the game (as in the draft of a tactical action)
+  - a script that is sent and has entries left when its secondary is over stays with the seat until another seat is asked (`scripts_after_step` in `ti4-server` ends a script with the tactical action or the turn only). The page sends a draft only after the game played it whole on the same version, so nothing is left; a check on the server would make it certain
+  - a game on the server with the other seats at random shows the action only when the seat is asked: the seats decide at once. With several people the page is told while the primary is resolved (`session_secondary_planning.rs` tests this on the server; no test plays it in the browser)
 - the invasion screen covers the landings only: space cannon defense, ground combat, control and exploration after them are still lists, and so are bombardment before them and the space combat. The Invasion tab shows the steps before it as done, also when the game skipped them.
 - the values of a planet are the printed ones: `res/inf` after the attachments must come from the engine (`ti4_engine::production`), for the planet rows, the player table and the payment
 - the deck sheet lists the exploration decks only: the relic deck is not there. The catalogue of the engine (`ti4_catalog`) has the relics, the leaders, the abilities and the technologies as printed (the sheet of a player shows them); it has the action cards too (the Cards sheet), and is the place for the objectives
 - the sheet of a player: a faction ability has no state, because the engine keeps no fact for "used" (only its own marks in `faction_marks`); a locked commander says its condition, not how far the seat is; promissory notes in the play area and the technology that Nekro copied are not cards yet
-- the server sends the six facts of an update (2026-10-12, `exploration` among them); the catalogue is the one of the wasm
+- the server sends the seven facts of an update (2026-10-12, `exploration` among them); the catalogue is the one of the wasm
 - a game on the server is played from the page (2026-10-12, `?online`, `wsTransport.ts`; phase 2 of `plans/2026-10-11-ONLINE_MULTIPLAYER_PLAN.md`). Still open:
   - the entry is built (2026-10-12, phase 4): the row "Multiplayer" of the Dev sheet, and `seed`, `name` and `map` of `?online`. The nickname is sent and shown nowhere; the page has no control for the nickname or the map (the address only)
   - the undo of a seat (2026-10-12, phase 3) plays the whole game again from its first decision, twice (the check and the new session), as a change of the host's history does: slow in a late game, not measured

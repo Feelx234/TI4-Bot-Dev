@@ -496,11 +496,19 @@ export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts | Pr
 /** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
 export type DraftStep = import("./movementPlan").PlanStep | { kind: "choose"; option_id: string };
 
+/**
+ * `ti4_view::planning::audit::PlanScope`: what a draft script is of. The next tactical action of
+ * the seat, or its secondary of the strategic action that is resolved (`secondary` of the update).
+ */
+export type DraftScope =
+  | { kind: "tactical" }
+  | { kind: "secondary"; primary: string; card: string };
+
 /** `ti4_view::planning::draft::DraftStop`: why a run of a draft ended. */
 export type DraftStop =
   /** The script is used up: the question of the update is open. */
   | { kind: "open" }
-  /** The game played the whole script, and the tactical action is over. */
+  /** The game played the whole script, and the tactical action or the secondary is over. */
   | { kind: "complete" }
   /** The game does not offer what step `step` of the script asks for. */
   | { kind: "refused"; step: number; reason: string }
@@ -541,6 +549,22 @@ export interface SessionUpdate {
   score?: ScoreFacts;
   /** The agenda deck. The laws in play are in the table of the view. */
   agendas?: AgendaFacts;
+  /** The strategic action that is resolved now, from the card that is played to its last follower. */
+  secondary?: SecondaryFacts;
+}
+
+/** `ti4_view::secondary::SecondaryFacts`: who played which strategy card, and what each follower did. */
+export interface SecondaryFacts {
+  primary: string;
+  card: string;
+  /** The printed name of the card. */
+  name: string;
+  /** The primary is resolved: the followers are asked, in their order. */
+  open: boolean;
+  /** The seats that may follow, in the order in which they are asked. */
+  followers: { seat: string; state: "waiting" | "followed" | "passed" | "ineligible" }[];
+  /** The viewer may draft its secondary now. */
+  draft: boolean;
 }
 
 // The messages of the websocket (`crates/ti4-server/src/protocol`), as far as web2 reads them.
@@ -638,7 +662,14 @@ export type ClientRequest =
       option_id: string;
     }
   | { type: "set_reaction_mode"; game_id: string; card: string; mode: "always" | "never" }
-  | { type: "run_draft"; game_id: string; request_id: string; script: DraftStep[] }
+  | {
+      type: "run_draft";
+      game_id: string;
+      request_id: string;
+      script: DraftStep[];
+      /** Left out: the next tactical action. */
+      scope?: DraftScope;
+    }
   | {
       type: "apply_draft";
       game_id: string;

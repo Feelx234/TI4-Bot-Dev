@@ -382,7 +382,10 @@ A draft is the next tactical action of a seat, tried on a copy of the game: its 
 movement, the landings of its invasion and its production. `web2` shows it in the Draft
 workspace.
 
-- The host writes `{"script": [...]}` at `ti4_request_ptr()` and calls `ti4_draft(length)`. A
+- The host writes `{"script": [...]}` at `ti4_request_ptr()` and calls `ti4_draft(length)`. With
+  `"scope": {"kind":"secondary","primary":…,"card":…}` the script is of the secondary of the
+  seat, for the strategic action that is resolved (`secondary` of the update names it and says
+  whether the seat may draft); its entries are answers by id. A
   step of the script is `{"kind":"choose","option_id":…}` or a step of a plan (`PlanStep` in
   `ti4-view/src/planning/steps.rs`: `move`, `load`, `done_loading`, `done_moving`, `land`,
   `done_committing`, `produce`, `place`, `pay`, `done_producing`). The script of a tactical

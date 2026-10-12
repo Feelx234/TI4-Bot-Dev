@@ -494,6 +494,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             off_map_system_ids: Vec::new(),
         },
         None,
+        None,
         &events,
     );
     let opponent = ti4_server::projection::project_initial_snapshot_with_map(
@@ -509,6 +510,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             placements: Vec::new(),
             off_map_system_ids: Vec::new(),
         },
+        None,
         None,
         &events,
     );
@@ -543,6 +545,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             placements: Vec::new(),
             off_map_system_ids: Vec::new(),
         },
+        None,
         None,
         &events,
     );
@@ -649,6 +652,7 @@ fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
             &tiles,
             &layout,
             Some(&galaxy),
+            None,
             &[],
         );
         let update = ti4_server::projection::project_state_update_with_map(
@@ -660,6 +664,7 @@ fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
             &tiles,
             &layout,
             Some(&galaxy),
+            None,
         );
         // A snapshot and an update have the same facts.
         let snapshot = serde_json::to_value(&snapshot).expect("the snapshot");
@@ -761,6 +766,7 @@ fn an_update_of_eight_seats_with_its_facts_stays_small() {
         &tiles,
         &layout,
         Some(&galaxy),
+        None,
     );
     let whole = serde_json::to_value(ServerMessage::StateUpdate(update)).expect("the update");
     let size = |value: &serde_json::Value| value.to_string().len();

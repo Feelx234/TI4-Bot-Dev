@@ -18,9 +18,11 @@ pub const SECONDARY_ASSUMPTION: &str =
 
 /// What a disposable attempt previews. The scope picks the engine preparation
 /// and the audited offers; the gate, script and lifecycle are shared.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PlanScope {
     /// The planner's next tactical action.
+    #[default]
     Tactical,
     /// The planner's secondary of `card`, played by `primary`.
     Secondary {

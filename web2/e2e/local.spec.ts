@@ -586,6 +586,73 @@ test("the other seats wait for a step when the Dev sheet says so", async ({ page
   await expect(send(page)).toHaveText(/^Send/);
 });
 
+test("a secondary is drafted while the primary is resolved, and sent when the seat is reached", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  // The other seats wait for a step, so that the page is shown the game between their decisions.
+  await page.addInitScript(() => localStorage.setItem("ti4.local.stepping", "1"));
+  await page.goto("/?local=3&players=8&humans=1");
+  await panel(page).getByRole("button", { name: "8. Imperial" }).click();
+  await send(page).click();
+  const step = page.getByRole("button", { name: /^Step/ });
+  const status = page.locator("header strong");
+  /** Lets the other seats decide until the panel says `text`. */
+  const stepTo = async (text: string | RegExp) => {
+    const wanted = panel(page).getByText(text).first();
+    for (let steps = 0; steps < 200 && !(await wanted.isVisible()); steps++) {
+      const before = await status.textContent();
+      await step.click();
+      // The step is taken when the game says something else. A seat that decides twice says
+      // the same: then the next step is tried after a moment.
+      await expect
+        .poll(async () => (await wanted.isVisible()) || (await status.textContent()) !== before, {
+          timeout: 300,
+        })
+        .toBe(true)
+        .catch(() => {});
+    }
+    await expect(wanted).toBeVisible();
+  };
+
+  // Leadership is played first. It asks this seat nothing, so its row is no draft.
+  await stepTo("Nothing to decide as the game is now");
+  await expect(panel(page).getByText("✎")).toHaveCount(0);
+
+  // Politics is played: the row of the viewer is the draft, while the primary is resolved.
+  await stepTo("✎ Private draft");
+  await expect(panel(page).getByRole("heading", { name: "Politics" })).toBeVisible();
+  await expect(panel(page).getByText("▶ Deciding")).toHaveCount(1);
+  await expect(panel(page).getByText("Strategy pool 2 → 1")).toBeVisible();
+  // The question is of the draft: the header says who the game waits for.
+  await expect(status).toHaveText(/^Waiting for /);
+  await expect(panel(page).getByRole("button", { name: /Draw/ })).toBeVisible();
+  await page.screenshot({ path: "shots/local/secondary-draft.png", animations: "disabled" });
+
+  // An answer is recorded, not sent.
+  const saved = await savedLine(page);
+  await page.keyboard.press("1");
+  await expect(send(page)).toHaveText(/^Record/);
+  await page.keyboard.press("Enter");
+  await expect(send(page)).toHaveText(/^Mark draft ready/);
+  await page.keyboard.press("Enter");
+  await expect(panel(page).getByText("✎ Draft ready")).toBeVisible();
+  await expect(panel(page).getByText(/^Decline · not sent, resolves after /)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Change draft" })).toBeVisible();
+  expect(await savedLine(page)).toBe(saved);
+  await page.screenshot({ path: "shots/local/secondary-ready.png", animations: "disabled" });
+
+  // The game comes to the seat: the draft is its answer, and the seat is not asked.
+  await stepTo("– Passed");
+  await expect(panel(page).getByText("✎")).toHaveCount(0);
+  expect(await savedLine(page)).not.toBe(saved);
+  await expect(page.getByRole("button", { name: /^Step/ })).toBeVisible();
+  await page.screenshot({ path: "shots/local/secondary-sent.png", animations: "disabled" });
+  expect(errors).toEqual([]);
+});
+
 test("the Dev sheet leads to a game on the server, on the seed of the page", async ({ page }) => {
   await page.goto("/?local=3&players=8&humans=1");
   await expect(send(page)).toBeDisabled();

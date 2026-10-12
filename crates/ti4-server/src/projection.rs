@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
 use ti4_model::state::GameState;
+use ti4_view::secondary::SecondaryWatch;
 
 pub use ti4_view::projection::*;
 
@@ -21,6 +22,7 @@ pub fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
         content: ti4_content::ContentStore::embedded(),
         sources: ti4_model::content_types::POK,
         galaxy,
+        secondary: None,
     }
 }
 
@@ -47,6 +49,7 @@ pub fn project_initial_snapshot_with_map(
     map_tiles: &[BoardTileView],
     galaxy_layout: &GalaxyLayout,
     galaxy: Option<&Galaxy>,
+    watch: Option<&SecondaryWatch>,
     events: &[GameEvent],
 ) -> InitialSnapshotMsg {
     let SessionUpdate {
@@ -60,12 +63,16 @@ pub fn project_initial_snapshot_with_map(
         secret_objectives,
         score,
         agendas,
+        secondary,
     } = project_session_update(
         state,
         viewer,
         pending_choice,
         map_tiles,
-        &facts_context(galaxy),
+        &FactsContext {
+            secondary: watch,
+            ..facts_context(galaxy)
+        },
     );
     InitialSnapshotMsg {
         protocol_version: PROTOCOL_VERSION,
@@ -90,6 +97,7 @@ pub fn project_initial_snapshot_with_map(
         secret_objectives,
         score,
         agendas,
+        secondary,
         content: content_digest().to_owned(),
         undone: Vec::new(),
     }
@@ -119,12 +127,14 @@ pub fn project_initial_snapshot(
         &[],
         &empty_layout(),
         None,
+        None,
         &[],
     )
 }
 
 /// Projects a versioned state update message with static map tiles, as
-/// [`project_initial_snapshot_with_map`] does.
+/// [`project_initial_snapshot_with_map`] does. `watch` is the strategic action of the game, as
+/// its session follows it: without it the message has no `secondary`.
 #[must_use]
 pub fn project_state_update_with_map(
     game_id: &str,
@@ -135,6 +145,7 @@ pub fn project_state_update_with_map(
     map_tiles: &[BoardTileView],
     galaxy_layout: &GalaxyLayout,
     galaxy: Option<&Galaxy>,
+    watch: Option<&SecondaryWatch>,
 ) -> StateUpdateMsg {
     let SessionUpdate {
         viewer: _,
@@ -147,12 +158,16 @@ pub fn project_state_update_with_map(
         secret_objectives,
         score,
         agendas,
+        secondary,
     } = project_session_update(
         state,
         viewer,
         pending_choice,
         map_tiles,
-        &facts_context(galaxy),
+        &FactsContext {
+            secondary: watch,
+            ..facts_context(galaxy)
+        },
     );
     StateUpdateMsg {
         history: crate::protocol::server::HistoryStatus::default(),
@@ -174,6 +189,7 @@ pub fn project_state_update_with_map(
         secret_objectives,
         score,
         agendas,
+        secondary,
     }
 }
 
@@ -194,6 +210,7 @@ pub fn project_state_update(
         pending_choice,
         &[],
         &empty_layout(),
+        None,
         None,
     )
 }

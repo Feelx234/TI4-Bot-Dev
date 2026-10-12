@@ -60,6 +60,9 @@ pub struct InitialSnapshotMsg {
     /// The agenda deck ([`ti4_view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agendas: Option<ti4_view::agendas::AgendaFacts>,
+    /// The strategic action that is resolved now ([`ti4_view::secondary`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
     /// The digest of the corpus that this server plays with
     /// ([`ti4_content::provenance::embedded_digest`]). A client that has the printed texts of
     /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
@@ -1503,6 +1506,9 @@ pub struct StateUpdateMsg {
     /// The agenda deck ([`ti4_view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agendas: Option<ti4_view::agendas::AgendaFacts>,
+    /// The strategic action that is resolved now ([`ti4_view::secondary`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.

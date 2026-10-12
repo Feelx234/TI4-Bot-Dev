@@ -55,6 +55,9 @@ export const draftKey = (game: LocalGame): string => `${saveKey(game)}.movement`
 /** Where the private draft of a tactical action is kept, with its undo history. */
 export const planKey = (game: LocalGame): string => `${saveKey(game)}.draft`;
 
+/** Where the private draft of a secondary is kept. */
+export const secondaryKey = (game: LocalGame): string => `${saveKey(game)}.secondary`;
+
 /** Where the cards that the player is never offered are kept. */
 export const cardsKey = (game: LocalGame): string => `${saveKey(game)}.cards`;
 
@@ -149,5 +152,6 @@ export function clearSavedGame(storage: SaveStorage, game: LocalGame): void {
   storage.removeItem(saveKey(game));
   storage.removeItem(draftKey(game));
   storage.removeItem(planKey(game));
+  storage.removeItem(secondaryKey(game));
   storage.removeItem(cardsKey(game));
 }

@@ -1,15 +1,17 @@
-//! A draft of a tactical action, run in one call.
+//! A draft of a tactical action or of a secondary, run in one call.
 //!
 //! A draft is a script: what the planner chose so far. A run plays the whole script on a
-//! disposable [`Game::fork`] with a fresh hypothetical turn, and returns where it stopped and
+//! disposable [`Game::fork`] with a fresh hypothetical turn ([`PlanScope::Tactical`]) or with
+//! the window of one follower ([`PlanScope::Secondary`]), and returns where it stopped and
 //! what the planner is shown there. Nothing is kept between two runs, so a changed script is run
 //! again from its start, and the caller needs no thread and no game of its own. The server's
 //! planning runner keeps a worker thread around the same guard ([`super::fork`]) and the same
 //! checks ([`super::audit`]).
 //!
 //! The run covers the whole action: the activation, the movement, the landings of an invasion
-//! and the production. It ends where the script does, or where something random lies ahead:
-//! dice, a card that is drawn, a combat, a question of another seat.
+//! and the production; or the whole secondary of the planner. It ends where the script does,
+//! or where something random lies ahead: dice, a card that is drawn, a combat, a question of
+//! another seat.
 
 use std::sync::{Arc, Mutex};
 
@@ -24,7 +26,9 @@ use ti4_model::content_types::SourceSet;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use super::audit::{PlanScope, SafePublication, StopReason, audit_offer, validate_knowledge};
+use super::audit::{
+    PlanScope, SafePublication, StopReason, audit_offer, audit_secondary_offer, validate_knowledge,
+};
 use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 use super::steps::{INTERRUPTED, PlanAnswer, PlanStep, plan_answer};
 use crate::projection::{FactsContext, SessionUpdate, project_game_view, project_session_update};
@@ -214,7 +218,7 @@ pub fn needless(entries: &[DraftStep]) -> bool {
 pub enum DraftStop {
     /// The script is used up: the question of the update is open.
     Open,
-    /// The game played the whole script, and the tactical action is over.
+    /// The game played the whole script, and the tactical action or the secondary is over.
     Complete,
     /// The game does not offer what step `step` of the script asks for.
     Refused { step: usize, reason: String },
@@ -254,6 +258,9 @@ pub struct DraftBase<'a, 'c> {
     pub sources: SourceSet,
     pub tiles: &'a [BoardTileView],
     pub galaxy: Option<&'a Galaxy>,
+    /// The strategic action of the game, as its host follows it: which secondary may be
+    /// drafted. Without it no secondary is drafted.
+    pub secondary: Option<&'a crate::secondary::SecondaryWatch>,
 }
 
 /// A question that passed the audit, on the position it was asked in.
@@ -265,6 +272,7 @@ struct Offer {
 
 struct Run {
     player: PlayerId,
+    scope: PlanScope,
     /// A payment may change its place among the steps around it ([`plan_answer`]).
     script: Vec<DraftStep>,
     /// How many entries of the script are done.
@@ -365,13 +373,22 @@ impl Run {
     /// The action is over. The entries that are left must be such that the game needs no answer
     /// for them: an end that it did not ask for, a payment that it did not need.
     fn complete(&mut self) {
-        if needless(&self.script[self.next..]) {
+        // A secondary asks for no end: nothing of its script may be left.
+        let rest = &self.script[self.next..];
+        if match self.scope {
+            PlanScope::Tactical => needless(rest),
+            PlanScope::Secondary { .. } => rest.is_empty(),
+        } {
             self.next = self.script.len();
             self.end(DraftStop::Complete);
         } else {
             self.end(DraftStop::Refused {
                 step: self.next,
-                reason: "The action is over before this.".to_owned(),
+                reason: match self.scope {
+                    PlanScope::Tactical => "The action is over before this.",
+                    PlanScope::Secondary { .. } => "The secondary is over before this.",
+                }
+                .to_owned(),
             });
         }
     }
@@ -388,19 +405,17 @@ impl Run {
             choice,
             events: Vec::new(),
         };
-        validate_knowledge(
-            &self.baseline,
-            &publication,
-            &self.player,
-            &PlanScope::Tactical,
-        )?;
+        validate_knowledge(&self.baseline, &publication, &self.player, &self.scope)?;
         Ok(publication.choice)
     }
 
     /// The question as the planner may see it: only the audited options, on a position that
     /// tells nothing new.
     fn audited(&self, state: GameState, choice: &Choice) -> Result<Offer, StopReason> {
-        let enabled = audit_offer(choice)?;
+        let enabled = match &self.scope {
+            PlanScope::Tactical => audit_offer(choice),
+            PlanScope::Secondary { primary, card } => audit_secondary_offer(choice, primary, card),
+        }?;
         let mut choice = choice.clone();
         choice.options.retain(|option| enabled.contains(&option.id));
         let choice = self
@@ -450,12 +465,17 @@ impl Decider for ScriptDecider {
     }
 }
 
-/// Play `script` as the next turn of `player` on a copy of the base, and tell where it ended.
-/// The base is not changed.
+/// Play `script` on a copy of the base, and tell where it ended: as the next turn of `player`,
+/// or as its secondary of the strategic action that is resolved, by `scope`. The base is not
+/// changed.
+///
+/// A secondary is drafted from the moment its card is played ([`crate::secondary`]): the copy
+/// may have nothing of the primary yet, and nothing of the followers before `player`.
 #[must_use]
 pub fn run_draft(
     base: &DraftBase<'_, '_>,
     player: &PlayerId,
+    scope: &PlanScope,
     script: &[DraftStep],
 ) -> DraftOutcome {
     let viewer = ViewerRole::Player(player.clone());
@@ -463,6 +483,7 @@ pub fn run_draft(
     let observation = guard_fork(&mut game, player);
     let run = Arc::new(Mutex::new(Run {
         player: player.clone(),
+        scope: scope.clone(),
         script: script.to_vec(),
         next: 0,
         stop: None,
@@ -488,11 +509,31 @@ pub fn run_draft(
     });
 
     let ended = |run: &Arc<Mutex<Run>>| run.lock().expect("draft lock").stop.is_some();
-    if let Err(error) = game.prepare_hypothetical_turn(player) {
-        run.lock().expect("draft lock").end(DraftStop::Failed {
-            reason: error.to_string(),
-        });
+    let prepared = match scope {
+        PlanScope::Tactical => game
+            .prepare_hypothetical_turn(player)
+            .map_err(|error| error.to_string()),
+        PlanScope::Secondary { primary, card } => {
+            let allowed = base
+                .secondary
+                .is_some_and(|watch| watch.allows(scope, &base.game.state, base.content, player));
+            if allowed {
+                game.prepare_hypothetical_secondary(player, primary, card)
+                    .map_err(|error| error.to_string())
+            } else {
+                Err("this secondary cannot be drafted now".to_owned())
+            }
+        }
+    };
+    if let Err(reason) = prepared {
+        run.lock()
+            .expect("draft lock")
+            .end(DraftStop::Failed { reason });
     }
+    let complete = match scope {
+        PlanScope::Tactical => TACTICAL_COMPLETE,
+        PlanScope::Secondary { .. } => ti4_engine::game::SECONDARY_PREVIEW_COMPLETE,
+    };
     // The position after the last step that ended with no question open.
     let mut settled = None;
     let mut events = game.events.len();
@@ -516,10 +557,7 @@ pub fn run_draft(
             run.end(DraftStop::Stopped { reason });
         } else {
             settled = Some(game.state.clone());
-            if game.events[events..]
-                .iter()
-                .any(|event| event == TACTICAL_COMPLETE)
-            {
+            if game.events[events..].iter().any(|event| event == complete) {
                 run.complete();
             }
         }
@@ -536,6 +574,7 @@ pub fn run_draft(
         content: base.content,
         sources: base.sources,
         galaxy: base.galaxy,
+        secondary: None,
     };
     let closed =
         |state: &GameState| project_session_update(state, &viewer, None, base.tiles, &context);
@@ -571,9 +610,11 @@ pub fn run_draft(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::secondary::{FollowerState, SecondaryWatch};
     use crate::tactical::TacticalFacts;
     use ti4_engine::choice::SeededRandom;
     use ti4_model::content_types::POK;
+    use ti4_model::id::StrategyCardId;
     use ti4_model::state::Phase;
 
     /// A seeded game of six on the recommended map, played by random seats to its first action.
@@ -735,6 +776,244 @@ mod tests {
         assert_eq!(game.state, before, "a draft changes nothing");
     }
 
+    /// A seat that is not `a` and holds a card of this name or, with `None`, any card but
+    /// Trade and Leadership; with its card.
+    fn holder(game: &Game<'static>, name: Option<&str>) -> (PlayerId, StrategyCardId) {
+        let content = ContentStore::embedded();
+        let seats = game
+            .state
+            .players
+            .iter()
+            .filter(|seat| seat.id.as_str() != "a");
+        seats
+            .flat_map(|seat| seat.strategy_cards.iter().map(move |card| (seat, card)))
+            .find(|(_, card)| {
+                let printed = ti4_engine::strategy_cards::card_name(content, card.as_str());
+                match (name, printed.as_deref()) {
+                    (Some(name), printed) => printed == Some(name),
+                    (None, printed) => !matches!(printed, Some("Trade" | "Leadership")),
+                }
+            })
+            .map(|(seat, card)| (seat.id.clone(), card.clone()))
+            .expect("a seat with such a card")
+    }
+
+    fn run_secondary(
+        game: &Game<'static>,
+        tiles: &[BoardTileView],
+        watch: Option<&SecondaryWatch>,
+        scope: &PlanScope,
+        script: &[DraftStep],
+    ) -> DraftOutcome {
+        let base = DraftBase {
+            game,
+            content: ContentStore::embedded(),
+            sources: POK,
+            tiles,
+            galaxy: game.galaxy(),
+            secondary: watch,
+        };
+        run_draft(&base, &PlayerId::new("a"), scope, script)
+    }
+
+    #[test]
+    fn a_secondary_is_drafted_from_the_moment_its_card_is_played() {
+        let (game, tiles) = game();
+        let before = game.state.clone();
+        let (primary, card) = holder(&game, None);
+        let content = ContentStore::embedded();
+        let viewer = ViewerRole::Player(PlayerId::new("a"));
+        let watch = SecondaryWatch::default();
+        assert_eq!(watch.facts(&game.state, content, &viewer), None);
+
+        // The engine announces the card inside the step that resolves its primary: the game
+        // of a draft is the one before that step.
+        watch.announce(&primary, &card);
+        let facts = watch
+            .facts(&game.state, content, &viewer)
+            .expect("the action");
+        assert_eq!((&facts.primary, &facts.card), (&primary, &card));
+        assert!(!facts.open, "the primary is not resolved yet");
+        assert!(facts.draft);
+        let order: Vec<PlayerId> = game
+            .state
+            .clockwise_from(&primary)
+            .into_iter()
+            .skip(1)
+            .collect();
+        let seats: Vec<PlayerId> = facts.followers.iter().map(|f| f.seat.clone()).collect();
+        assert_eq!(seats, order);
+        assert!(
+            facts
+                .followers
+                .iter()
+                .all(|follower| follower.state == FollowerState::Waiting)
+        );
+        // The primary player has nothing to draft, and neither has a spectator.
+        let other = |viewer| watch.facts(&game.state, content, &viewer).expect("facts");
+        assert!(!other(ViewerRole::Player(primary.clone())).draft);
+        assert!(!other(ViewerRole::Spectator).draft);
+
+        let scope = PlanScope::Secondary {
+            primary: primary.clone(),
+            card: card.clone(),
+        };
+        let asked = run_secondary(&game, &tiles, Some(&watch), &scope, &[]);
+        assert_eq!(asked.stop, DraftStop::Open);
+        let choice = &asked.update.pending_choice.as_ref().expect("asked").choice;
+        assert_eq!(choice.player, PlayerId::new("a"));
+        assert_eq!(
+            choice.details.get("kind").and_then(|kind| kind.as_str()),
+            Some("strategy_secondary")
+        );
+        assert_eq!(
+            choice.details.get("card").and_then(|card| card.as_str()),
+            Some(card.as_str())
+        );
+
+        // The first option of the question is the pass.
+        let pass = choose(&choice.options[0].id);
+        let passed = run_secondary(
+            &game,
+            &tiles,
+            Some(&watch),
+            &scope,
+            std::slice::from_ref(&pass),
+        );
+        assert_eq!(passed.stop, DraftStop::Complete);
+        assert_eq!(passed.consumed, 1);
+        assert_eq!(passed.update.pending_choice, None);
+
+        // Nothing is left of a script when the secondary is over.
+        let long = [pass.clone(), pass];
+        let over = run_secondary(&game, &tiles, Some(&watch), &scope, &long);
+        assert!(matches!(over.stop, DraftStop::Refused { step: 1, .. }));
+        let wrong = run_secondary(&game, &tiles, Some(&watch), &scope, &[choose("nothing")]);
+        assert!(matches!(wrong.stop, DraftStop::Refused { step: 0, .. }));
+
+        assert_eq!(game.state, before, "a draft changes nothing");
+    }
+
+    #[test]
+    fn a_secondary_is_drafted_only_of_the_card_that_is_played() {
+        let (game, tiles) = game();
+        let (primary, card) = holder(&game, None);
+        let scope = PlanScope::Secondary {
+            primary: primary.clone(),
+            card: card.clone(),
+        };
+        let failed = |outcome: DraftOutcome| matches!(outcome.stop, DraftStop::Failed { .. });
+        // No card is played, or the host does not follow its game.
+        let watch = SecondaryWatch::default();
+        assert!(failed(run_secondary(
+            &game,
+            &tiles,
+            Some(&watch),
+            &scope,
+            &[]
+        )));
+        assert!(failed(run_secondary(&game, &tiles, None, &scope, &[])));
+        // Another card is played.
+        let (other_seat, other) = holder(&game, Some("Trade"));
+        watch.announce(&other_seat, &other);
+        assert!(failed(run_secondary(
+            &game,
+            &tiles,
+            Some(&watch),
+            &scope,
+            &[]
+        )));
+        // Trade is not drafted before its window: the primary changes what it costs.
+        let trade = PlanScope::Secondary {
+            primary: other_seat.clone(),
+            card: other.clone(),
+        };
+        let content = ContentStore::embedded();
+        let viewer = ViewerRole::Player(PlayerId::new("a"));
+        let facts = watch.facts(&game.state, content, &viewer).expect("facts");
+        assert_eq!(facts.name, "Trade");
+        assert!(!facts.draft);
+        assert!(failed(run_secondary(
+            &game,
+            &tiles,
+            Some(&watch),
+            &trade,
+            &[]
+        )));
+    }
+
+    #[test]
+    fn the_watch_follows_the_window_of_the_followers_to_its_end() {
+        let content = ContentStore::embedded();
+        let ids: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .map(|name| PlayerId::new(*name))
+            .collect();
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 6, POK)
+            .expect("a template for six");
+        let (state, galaxy) =
+            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
+                .expect("a game");
+        let mut game = Game::with_seeded_random(state, content, 3)
+            .with_sources(POK)
+            .with_galaxy(galaxy);
+        game.table = Table::with_default(Box::new(SeededRandom::new(3)));
+        let watch = SecondaryWatch::default();
+        watch.bind(&mut game);
+        let spectator = ViewerRole::Spectator;
+
+        // To a step that ends inside a window, with a follower recorded and one to ask.
+        let mut seen = None;
+        for _ in 0..2_000 {
+            assert_eq!(game.step().error, None);
+            watch.completed_step(&game);
+            let facts = watch.facts(&game.state, content, &spectator);
+            assert_eq!(facts.is_some(), game.open_secondary().is_some());
+            let Some(facts) = facts else {
+                if seen.is_some() {
+                    break;
+                }
+                continue;
+            };
+            assert!(facts.open);
+            let (primary, card, unresolved) = game.open_secondary().expect("the window");
+            assert_eq!((&facts.primary, &facts.card), (primary, card));
+            let waiting: Vec<&PlayerId> = facts
+                .followers
+                .iter()
+                .filter(|follower| follower.state == FollowerState::Waiting)
+                .map(|follower| &follower.seat)
+                .collect();
+            assert_eq!(waiting, unresolved.iter().collect::<Vec<_>>());
+            assert_eq!(facts.followers.len(), 5);
+            if waiting.len() < 5 && !waiting.is_empty() {
+                seen = Some((facts, game.fork()));
+            }
+        }
+        let (facts, base) = seen.expect("a window with a follower recorded");
+        // A seat that is still to be asked drafts on; a seat that is recorded does not.
+        let draws = |seat: &PlayerId| {
+            watch_at(&base)
+                .facts(&base.state, content, &ViewerRole::Player(seat.clone()))
+                .expect("facts")
+                .draft
+        };
+        for follower in &facts.followers {
+            assert_eq!(
+                draws(&follower.seat),
+                follower.state == FollowerState::Waiting
+            );
+        }
+    }
+
+    /// A watch that is brought to a game that it did not follow.
+    fn watch_at(game: &Game<'static>) -> SecondaryWatch {
+        let watch = SecondaryWatch::default();
+        watch.completed_step(game);
+        watch
+    }
+
     fn run(game: &Game<'static>, tiles: &[BoardTileView], script: &[DraftStep]) -> DraftOutcome {
         let base = DraftBase {
             game,
@@ -742,8 +1021,9 @@ mod tests {
             sources: POK,
             tiles,
             galaxy: game.galaxy(),
+            secondary: None,
         };
-        run_draft(&base, &PlayerId::new("a"), script)
+        run_draft(&base, &PlayerId::new("a"), &PlanScope::Tactical, script)
     }
 
     fn step(step: PlanStep) -> DraftStep {

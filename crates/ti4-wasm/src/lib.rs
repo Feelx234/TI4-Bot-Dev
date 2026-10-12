@@ -32,8 +32,10 @@ use ti4_model::state::{GameState, ReactionMode};
 use ti4_view::components::catalog;
 use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
+use ti4_view::planning::audit::PlanScope;
 use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
 use ti4_view::projection::{FactsContext, project_game_view_full, project_session_update};
+use ti4_view::secondary::SecondaryWatch;
 use ti4_view::status::ViewerRole;
 use ti4_view::view::{BoardTileView, GameView};
 
@@ -129,7 +131,19 @@ fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
         content: ContentStore::embedded(),
         sources: POK,
         galaxy,
+        secondary: Some(&SECONDARY),
     }
+}
+
+/// The strategic action of the game that is played, from the card that is played to its last
+/// follower: a fact of the update, and what says which secondary a draft may be of.
+static SECONDARY: LazyLock<SecondaryWatch> = LazyLock::new(SecondaryWatch::default);
+
+/// Follow the strategic actions of `game`, from where it is. A copy of a game is not followed:
+/// the game after an undo is bound again.
+fn watch_secondary(game: &mut Game<'_>) {
+    SECONDARY.bind(game);
+    SECONDARY.completed_step(game);
 }
 
 /// Serializes as the text a value displays as, without building that text first.
@@ -751,6 +765,7 @@ fn play(
     let content = ContentStore::embedded();
     let mut game = new_game(content, seed, players, scenario)?;
     game.table = host_table();
+    watch_secondary(&mut game);
     *RANDOM.lock().expect("random lock") = Some(SeededRandom::new(seed));
     {
         let mut host = host();
@@ -811,10 +826,12 @@ fn play(
         DRAFT_BASE.take();
         if std::mem::take(&mut host().undo) {
             game = CHECKPOINTS.with_borrow_mut(|checkpoints| take_back(checkpoints, game));
+            watch_secondary(&mut game);
             SINCE.set(0);
             marked = Some(host().asked);
         } else {
             SINCE.set(SINCE.get() + 1);
+            SECONDARY.completed_step(&game);
             stopped = error.map(RunError::from);
         }
         if let Some(latest) = LATEST.lock().expect("latest lock").as_mut() {
@@ -932,6 +949,9 @@ fn draft() -> Result<usize, Failure> {
     #[derive(serde::Deserialize)]
     struct Request {
         script: Vec<DraftStep>,
+        /// What the script is of. Left out: the next tactical action.
+        #[serde(default)]
+        scope: PlanScope,
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
         .map_err(|error| setup(format_args!("the draft request is not read: {error}")))?;
@@ -953,8 +973,9 @@ fn draft() -> Result<usize, Failure> {
             sources: POK,
             tiles: &latest.tiles,
             galaxy: latest.galaxy.as_ref(),
+            secondary: Some(&SECONDARY),
         };
-        run_draft(&base, &player, &request.script)
+        run_draft(&base, &player, &request.scope, &request.script)
     });
     let mut buffer = DRAFT.lock().expect("draft lock");
     Ok(store(

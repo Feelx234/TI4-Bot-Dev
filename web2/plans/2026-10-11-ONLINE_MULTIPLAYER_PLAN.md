@@ -1,9 +1,9 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b, phase 2, phase 3 and
-phase 4 (2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built", "Phase 1b: what
-was built", "Phase 2: what was built", "Phase 3: what was built" and "Phase 4: what was built".
-Next: phase 5 (the draft of a secondary). Nothing else is built yet.
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b, phase 2, phase 3,
+phase 4 and phase 5 (2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built",
+"Phase 1b: what was built", "Phase 2: what was built", "Phase 3: what was built", "Phase 4: what
+was built" and "Phase 5: what was built". Every phase of this plan is built.
 
 ## Goal
 
@@ -627,8 +627,56 @@ draft is then the same code.
    as the tactical draft is.
 3. "Draft ready": when the live game asks the seat for its secondary, the page sends the script
    (`ApplyDraft`). The page must be open; the server keeps nothing (decision 2).
-4. A secondary is drafted only while its card is resolved, as in the runner. A draft before
-   that (a card that another seat holds and did not play yet) is not in this plan.
+4. A secondary can be drafted from the moment its card is played (owner, 2026-10-12), not only
+   after the primary is resolved. The runner does the same: the engine calls
+   `Game::on_strategic_action_chosen` inside the step that resolves the primary, and
+   `PlanningCoordinator::announce_primary` (`ti4-server/src/session/planning.rs`) opens the round.
+   `prepare_hypothetical_secondary` needs no open window. What follows from this:
+   - While the primary is resolved, the copy is the last completed step: it has nothing of the
+     primary yet. When the primary is done, the game has a new version and the page runs the
+     script again (as for every draft).
+   - Trade is the exception, as in the runner: its draft opens with the window, because the
+     primary changes what the secondary costs and gives.
+   - The page must know that a card was played before the window is open. Both hosts set the
+     hook and send the primary and the card as a fact of the update.
+   A draft before the card is played (a card that another seat holds) is not in this plan.
+
+#### Phase 5: what was built (2026-10-12)
+
+- **The fact.** `ti4-view/src/secondary.rs`: `SecondaryFacts` is the seventh fact of an update
+  (`secondary`): who played which card, whether the primary is resolved (`open`), the followers
+  in their order with what each did, and `draft` for the viewer. The state of a game does not
+  say this, so a host keeps a `SecondaryWatch` for its game: the engine tells it the card
+  (`Game::on_strategic_action_chosen`), and after each step it reads the window
+  (`Game::open_secondary`, and the new `Game::secondary_resolutions`). `fill_facts` takes it
+  from `FactsContext::secondary`. The wasm host has one watch (`SECONDARY`), bound again after
+  an undo; the server has it in `SessionPlanning`, beside the round of the runner.
+- **The run.** `run_draft(base, player, scope, script)`. `PlanScope` is on the wire
+  (`{ kind: "tactical" }`, `{ kind: "secondary", primary, card }`); `RunDraft` and the request
+  of `ti4_draft` have `scope`, and without it the script is of a tactical action. A secondary
+  is prepared with `prepare_hypothetical_secondary` and asked through `audit_secondary_offer`,
+  as in the runner. It is refused (`Failed`) when the watch does not say that this seat may
+  draft this card now: Trade before its window, a seat that is recorded, another card. A
+  script with an entry left when the secondary is over is `Refused` at that entry.
+- **Sending.** Nothing new: `ApplyDraft` (`Transport.applyDraft`) with the answers by id.
+- **The page.** `session/secondaryDraft.ts` is the draft (the answers with their labels, and
+  `ready`), kept under `secondaryKey`. `useLiveSession` asks for one run at a time: the
+  tactical draft while the Draft tab is open, else the secondary. `select/strategy.ts` is the
+  list of the seats (the `seats` block of the demo), and the row of the viewer is the draft or
+  the live question. The rules of the screen are in `AGENTS.md` (Strategy cards).
+- **Not as the plan said.** Item 2 names the editors of the strategy cards: they are not built
+  in a game of the engine, so the row opens into the question as a list. A draft that is not
+  ready when the seat is reached is not sent by itself; "Send draft" sends it.
+- **Protocol.** `PROTOCOL_VERSION` stays 3: `scope` and `secondary` are new and optional, and
+  `web/` reads neither.
+- **Tests.** `ti4-view` (`planning/draft.rs`): a secondary is drafted before the window, only
+  of the card that is played, and the watch follows the window. `ti4-server`
+  (`session_secondary_planning.rs`): three people, the followers are told of the card while
+  the primary is resolved, a script drafts and answers the secondary. web2:
+  `transportContract.test.ts` (both transports), `wasmTransport.test.ts` (with steps),
+  `liveSecondary.test.tsx` (the page over the real engine: ready and sent, not ready and
+  "Send draft", a draw), `e2e/local.spec.ts` and `e2e/local.phone.spec.ts`.
+- **Open.** `NEXT.md` has the list.
 
 Then a screen for the lobby of several humans is the next plan, not this one.
 

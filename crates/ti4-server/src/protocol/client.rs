@@ -84,11 +84,17 @@ pub enum ClientMessage {
     /// tell where the run ended (`ServerMessage::DraftOutcome` with this `request_id`). The game
     /// is not changed and the server keeps nothing of the script. Of the requests that wait on
     /// one connection only the newest is run: an older one gets no answer.
+    ///
+    /// With `scope` the script is of the secondary of this seat, for the strategic action that
+    /// is resolved now (`secondary` of the update names it, and says whether the seat may draft).
     RunDraft {
         protocol_version: u16,
         game_id: String,
         request_id: String,
         script: Vec<ti4_view::planning::draft::DraftStep>,
+        /// Left out: the next tactical action.
+        #[serde(default)]
+        scope: ti4_view::planning::audit::PlanScope,
     },
     /// Answer the pending choice of this connection's seat, and the choices after it, with
     /// `script`: a draft or a plan that is sent to the live game. A script that the game would

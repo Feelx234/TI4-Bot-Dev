@@ -536,3 +536,96 @@ fn a_diplomacy_draft_records_exactly_the_answers_the_live_window_accepts() {
     let next = answer_until(&session, &readying, &wanted[1], is_action_menu);
     assert_ne!(next.choice.player, pid("a"));
 }
+
+/// web2 keeps the draft of a secondary as a script (`RunDraft` with a scope, `ApplyDraft`), and
+/// the server keeps nothing of it. The update names the action from the moment the card is
+/// played.
+#[test]
+fn a_script_drafts_a_secondary_while_the_primary_is_resolved_and_answers_the_seat() {
+    use ti4_view::planning::audit::PlanScope;
+    use ti4_view::planning::draft::{DraftStep, DraftStop};
+    use ti4_view::secondary::FollowerState;
+
+    let session = session("secondary_script");
+    let b = pid("b");
+    assert!(
+        session
+            .get_snapshot(&ViewerRole::Player(b.clone()))
+            .secondary
+            .is_none()
+    );
+    let before = technologies(&session, "b");
+    let primary = play_technology(&session);
+
+    // "a" still chooses the technology of the primary: the followers are told of the card.
+    let facts = |seat: &str| {
+        session
+            .get_snapshot(&ViewerRole::Player(pid(seat)))
+            .secondary
+            .expect("the strategic action")
+    };
+    let told = facts("b");
+    assert_eq!(told.primary, pid("a"));
+    assert_eq!(told.name, "Technology");
+    assert!(!told.open && told.draft);
+    let seats: Vec<_> = told.followers.iter().map(|f| f.seat.clone()).collect();
+    assert_eq!(seats, [pid("b"), pid("c")]);
+    assert!(facts("c").draft);
+    assert!(!facts("a").draft, "the primary player has no secondary");
+
+    let scope = PlanScope::Secondary {
+        primary: pid("a"),
+        card: told.card.clone(),
+    };
+    let run = |script: &[DraftStep]| session.run_draft(&b, &scope, script).1;
+    let asked = run(&[]);
+    assert_eq!(asked.stop, DraftStop::Open);
+    let question = asked.update.pending_choice.expect("the question").choice;
+    assert!(is_secondary(&question));
+    // The seat follows and researches, on the copy only.
+    let mut script = vec![DraftStep::choose(follow_and_research(&question))];
+    let next = run(&script);
+    assert_eq!(next.stop, DraftStop::Open);
+    let wanted = research(&next.update.pending_choice.expect("the research").choice)
+        .expect("a technology to research");
+    script.push(DraftStep::choose(&wanted));
+    let done = run(&script);
+    assert_eq!(done.stop, DraftStop::Complete);
+    assert_eq!(done.consumed, 2);
+    assert_eq!(technologies(&session, "b"), before);
+    // A secondary of another action is not drafted, and "a" drafts none of its own card.
+    let other = PlanScope::Secondary {
+        primary: pid("c"),
+        card: told.card.clone(),
+    };
+    assert!(matches!(
+        session.run_draft(&b, &other, &[]).1.stop,
+        DraftStop::Failed { .. }
+    ));
+    assert!(matches!(
+        session.run_draft(&pid("a"), &scope, &[]).1.stop,
+        DraftStop::Failed { .. }
+    ));
+
+    // The primary is resolved: the game asks "b", and the script answers the whole secondary.
+    let technology = research(&primary.choice).unwrap();
+    let reached = answer_until(&session, &primary, &technology, is_secondary);
+    assert_eq!(reached.choice.player, b);
+    assert!(facts("b").open);
+    assert_eq!(run(&script).stop, DraftStop::Complete);
+    let stopped = session
+        .apply_draft(&b, &reached.nonce, reached.game_version, &script)
+        .expect("the script is taken");
+    assert_eq!(stopped, None);
+    // The questions of the secondary are pending only while the script answers them.
+    let mut after = live_offer(&session, Some(&reached.nonce));
+    let deadline = Instant::now() + DEADLINE;
+    while after.choice.player != pid("c") {
+        assert!(Instant::now() < deadline, "left with {:?}", after.choice);
+        after = live_offer(&session, Some(&after.nonce));
+    }
+    assert_eq!(technologies(&session, "b"), before + 1);
+    let now = facts("b");
+    assert_eq!(now.followers[0].state, FollowerState::Followed);
+    assert!(!now.draft && facts("c").draft);
+}

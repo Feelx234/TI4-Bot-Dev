@@ -15,6 +15,7 @@ import {
   loadSavedGame,
   parseSavedGame,
   planKey,
+  secondaryKey,
   saveKey,
   storeSavedGame,
 } from "../session/savedGame";
@@ -130,7 +131,12 @@ export function LocalApp({ game }: { game: LocalGame }) {
   // A new object after a seat change: the session then starts with nothing staged.
   // biome-ignore lint/correctness/useExhaustiveDependencies: seatChanges is the reason to make it again
   const drafts = useMemo(
-    () => ({ storage: localStorage, key: draftKey(game), planKey: planKey(game) }),
+    () => ({
+      storage: localStorage,
+      key: draftKey(game),
+      planKey: planKey(game),
+      secondaryKey: secondaryKey(game),
+    }),
     [game, seatChanges],
   );
   const stepSeats = (on: boolean) => {
@@ -154,6 +160,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
   const playAs = (seat: string) => {
     localStorage.removeItem(draftKey(game));
     localStorage.removeItem(planKey(game));
+    localStorage.removeItem(secondaryKey(game));
     setSeatChanges((count) => count + 1);
     transport?.capabilities.switchSeat?.(seat);
   };

@@ -504,3 +504,45 @@ test("phone: the Agendas sheet has the laws and the open groups in its width", a
   await expect(sheet).toBeHidden();
   expect(errors).toEqual([]);
 });
+
+test("phone: the draft of a secondary is the row of the viewer in the list of the seats", async ({
+  page,
+}) => {
+  // The other seats wait for a step, so that the page is shown the game between their decisions.
+  await page.addInitScript(() => localStorage.setItem("ti4.local.stepping", "1"));
+  await page.goto("/?local=3&players=8&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const panel = page.locator("#step-panel");
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const width = page.viewportSize()!.width;
+  await pane("Action").click();
+  await panel.getByRole("button", { name: "8. Imperial" }).click();
+  await send.click();
+  // Seat g plays Politics after some steps of the seats before it.
+  const draft = panel.getByText("✎ Private draft");
+  const step = page.getByRole("button", { name: /^Step/ });
+  for (let steps = 0; steps < 200 && !(await draft.isVisible()); steps++) {
+    await step.click();
+    await page.waitForTimeout(100);
+  }
+  await expect(draft).toBeVisible();
+  await expect(panel.getByText("Strategy pool 2 → 1")).toBeVisible();
+  await page.screenshot({ path: "shots/phone/local/secondary-draft.png", animations: "disabled" });
+  // Nothing is cut at the side, and every button of the footer is in view.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  const content = page.locator("#step-panel > div.overflow-y-auto");
+  expect(
+    await content.evaluate((element) => element.scrollWidth - element.clientWidth),
+  ).toBeLessThanOrEqual(0);
+  await panel.getByRole("button", { name: /Decline/ }).click();
+  for (const button of await page.locator("main > footer button").all()) {
+    await expect(button).toBeInViewport({ ratio: 1 });
+  }
+  await send.click();
+  await expect(send).toHaveText(/^Mark draft ready/);
+  await send.click();
+  await expect(panel.getByText("✎ Draft ready")).toBeVisible();
+  await page.screenshot({ path: "shots/phone/local/secondary-ready.png", animations: "disabled" });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+});

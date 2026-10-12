@@ -11,6 +11,7 @@ import { type Engine, catalogOf, createWasmTransport } from "./wasmTransport";
 import type {
   ActivationFacts,
   DraftOutcome,
+  DraftScope,
   DraftStep,
   MovementFacts,
   SessionUpdate,
@@ -35,7 +36,7 @@ interface Side {
   transport: Transport;
   /** The next event that is an update and that `wanted` holds for. Updates before it are passed. */
   until(wanted: (event: Update) => boolean): Promise<Update>;
-  draft(script: DraftStep[]): Promise<DraftOutcome | null>;
+  draft(script: DraftStep[], scope?: DraftScope): Promise<DraftOutcome | null>;
   never(): string[];
   /** Waits until the transport told the Never cards as `wanted`. */
   cards(wanted: string[]): Promise<void>;
@@ -82,10 +83,10 @@ function side(transport: Transport): Side {
         }
       }
     },
-    draft: (script) =>
+    draft: (script, scope) =>
       new Promise((answer) => {
         drafts.set(script, answer);
-        transport.draft(script);
+        transport.draft(script, scope);
       }),
     never: () => never,
     cards: (wanted) => wait(() => never.join() === wanted.join()),
@@ -257,6 +258,61 @@ function contract(start: () => Promise<Side>) {
     // The movement is in the game, and the question that stopped the plan is open.
     expect(subtype(stopped)).toBe("commit_ground_forces");
     expect(shipsIn(stopped.update, system)).toContain(ship.unit);
+    game.transport.close();
+  }, 60_000);
+
+  it("names the strategic action, plays the draft of a secondary, and sends it", async () => {
+    const game = await start();
+    // The seat plays on until another seat has played a strategy card and the game asks it
+    // for the secondary. (The steps of a local game show the action earlier: the primary.)
+    let answered: string | undefined;
+    let event = await asked(game);
+    for (let answers = 0; choiceOf(event)?.details?.kind !== "strategy_secondary"; answers += 1) {
+      expect(answers).toBeLessThan(300);
+      const { options } = choiceOf(event)!;
+      const option = options.find((item) => item.kind === "decline") ?? options[0];
+      answered = nonce(event);
+      game.transport.submitChoice(answered, option.id);
+      event = await asked(game, answered);
+    }
+    const question = choiceOf(event)!;
+    const me = seat(event.update);
+    const action = event.update.secondary!;
+    expect(action).toMatchObject({
+      card: question.details?.card,
+      primary: question.details?.played_by,
+      open: true,
+      draft: true,
+    });
+    expect(action.primary).not.toBe(me);
+    expect(action.followers.find((follower) => follower.seat === me)?.state).toBe("waiting");
+
+    // The draft asks what the game asks, on a copy.
+    const scope: DraftScope = { kind: "secondary", primary: action.primary, card: action.card };
+    const open = await game.draft([], scope);
+    expect(open?.stop).toEqual({ kind: "open" });
+    expect(open?.update.pending_choice?.choice.options.map((option) => option.id)).toEqual(
+      question.options.map((option) => option.id),
+    );
+    const pass: DraftStep = { kind: "choose", option_id: question.options[0].id };
+    const passed = await game.draft([pass], scope);
+    expect(passed?.stop).toEqual({ kind: "complete" });
+    expect(passed?.consumed).toBe(1);
+    // Only the secondary of the action that is resolved is drafted.
+    const other = await game.draft([], { ...scope, primary: me });
+    expect(other?.stop.kind).toBe("failed");
+
+    // Nothing of it is in the game: the question is still open, and the draft answers it.
+    game.transport.applyDraft(nonce(event), { choices: [pass.option_id], plan: null });
+    // The window goes on without the seat. A local game says nothing until the seat is asked
+    // again, which may be in another action.
+    const mine = (update: SessionUpdate) =>
+      update.secondary?.card === action.card && update.secondary.primary === action.primary
+        ? update.secondary.followers.find((follower) => follower.seat === me)?.state
+        : undefined;
+    const after = await game.until((next) => mine(next.update) !== "waiting");
+    expect(after.plan).toBeUndefined();
+    expect(mine(after.update) ?? "passed").toBe("passed");
     game.transport.close();
   }, 60_000);
 

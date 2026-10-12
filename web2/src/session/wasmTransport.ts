@@ -2,7 +2,14 @@
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { stepOf } from "./movementPlan";
 import type { Capabilities, PlanStopped, Transport, TransportEvent } from "./transport";
-import type { Catalog, ChoiceOption, DraftOutcome, DraftStep, SessionUpdate } from "./wire";
+import type {
+  Catalog,
+  ChoiceOption,
+  DraftOutcome,
+  DraftScope,
+  DraftStep,
+  SessionUpdate,
+} from "./wire";
 
 interface Exports {
   memory: WebAssembly.Memory;
@@ -190,7 +197,7 @@ export function createWasmTransport(
     /** The game waits before a decision of another seat: there is no choice to answer. */
     paused: boolean;
     /** Runs a draft script on the instance that waits here. */
-    draft: (script: DraftStep[]) => DraftOutcome;
+    draft: (script: DraftStep[], scope?: DraftScope) => DraftOutcome;
     /** Tells the instance that waits here the seats of the page. Returns the number of the decision. */
     switchTo: (humans: number) => number;
   } | null = null;
@@ -300,8 +307,8 @@ export function createWasmTransport(
       }
       return status ? JSON.parse(text(result(), status)) : null;
     };
-    const draft = (steps: DraftStep[]) =>
-      request<DraftOutcome>(exports.ti4_draft, { script: steps }, exports.ti4_draft_ptr)!;
+    const draft = (steps: DraftStep[], scope?: DraftScope) =>
+      request<DraftOutcome>(exports.ti4_draft, { script: steps, scope }, exports.ti4_draft_ptr)!;
     const setMode = (card: string, mode: "always" | "never") =>
       void request(exports.ti4_set_reaction_mode, { card, mode });
     /**
@@ -699,7 +706,7 @@ export function createWasmTransport(
       pending = null;
       answer(index);
     },
-    draft(script) {
+    draft(script, scope) {
       // Later, not now: the answer of the server is later too, and the page has one path.
       queueMicrotask(() => {
         if (!listeners.size) {
@@ -708,13 +715,13 @@ export function createWasmTransport(
         let outcome: DraftOutcome | null = null;
         if (pending) {
           try {
-            outcome = pending.draft(script);
+            outcome = pending.draft(script, scope);
           } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             outcome = { update: pending.update, consumed: 0, stop: { kind: "failed", reason } };
           }
         }
-        say({ kind: "draft", script, outcome });
+        say({ kind: "draft", script, scope, outcome });
       });
     },
     setReactionMode(card, mode) {

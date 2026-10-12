@@ -676,6 +676,11 @@ pub struct SessionUpdate {
     /// The agenda deck ([`crate::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agendas: Option<crate::agendas::AgendaFacts>,
+    /// The strategic action that is resolved now, from the card that is played to the last
+    /// follower ([`crate::secondary`]). It is there when the host follows its game
+    /// ([`FactsContext::secondary`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<crate::secondary::SecondaryFacts>,
 }
 
 /// What the facts of an update are made from, beside the state of the game.
@@ -685,11 +690,14 @@ pub struct FactsContext<'a> {
     pub sources: SourceSet,
     /// The map of the game. Without it an update has no `tactical` and no `exploration`.
     pub galaxy: Option<&'a Galaxy>,
+    /// The strategic action of the game, as its host follows it. Without it an update has no
+    /// `secondary`: a copy of the game for a draft has none.
+    pub secondary: Option<&'a crate::secondary::SecondaryWatch>,
 }
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
 ///
-/// The update has its six facts ([`fill_facts`]), made from `state` as it is: the caller gives
+/// The update has its seven facts ([`fill_facts`]), made from `state` as it is: the caller gives
 /// the full state of the game, and each fact shows `viewer` only what that seat may know.
 #[must_use]
 pub fn project_session_update(
@@ -711,12 +719,13 @@ pub fn project_session_update(
         secret_objectives: None,
         score: None,
         agendas: None,
+        secondary: None,
     };
     fill_facts(&mut update, state, facts);
     update
 }
 
-/// Fills the six facts of `update`, which was projected from `state`: the one place that does.
+/// Fills the seven facts of `update`, which was projected from `state`: the one place that does.
 ///
 /// `tactical` is of the choice in the update, so only the seat that is asked has it.
 pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &FactsContext<'_>) {
@@ -724,6 +733,7 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
         content,
         sources,
         galaxy,
+        secondary,
     } = *context;
     update.tactical = update.pending_choice.as_ref().and_then(|pending| {
         crate::tactical::project_tactical_facts(state, content, sources, galaxy?, &pending.choice)
@@ -741,6 +751,7 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
     ));
     update.score = Some(crate::score::project_score_facts(state, content));
     update.agendas = Some(crate::agendas::project_agenda_facts(state));
+    update.secondary = secondary.and_then(|watch| watch.facts(state, content, &update.viewer));
 }
 
 #[cfg(test)]
@@ -823,6 +834,7 @@ mod tests {
             content: ContentStore::embedded(),
             sources: POK,
             galaxy: None,
+            secondary: None,
         };
         let filled = project_session_update(&state, &viewer, None, &[], &context);
         assert!(filled.tactical.is_none() && filled.exploration.is_none());

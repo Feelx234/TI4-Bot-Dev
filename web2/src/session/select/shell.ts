@@ -11,6 +11,7 @@ import { selectPlayers, selectSeats } from "./players";
 import { selectScore } from "./score";
 import { selectAgendas } from "./agendas";
 import { selectSecrets } from "./secrets";
+import { selectStrategy, showsStrategy } from "./strategy";
 import { selectTactical, tacticalFacts } from "./tactical";
 
 function status(update: SessionUpdate, local: LocalState): string {
@@ -29,7 +30,8 @@ function status(update: SessionUpdate, local: LocalState): string {
   if (local.draft) {
     return "Private draft";
   }
-  if (openChoice(update, local)) {
+  // The question of a private draft of a secondary is not one of the game.
+  if (openChoice(update, local) && !local.follow?.editing) {
     return "Your decision";
   }
   switch (turn.kind) {
@@ -70,7 +72,7 @@ export function selectShell(
 ): ShellView {
   const catalog = printed?.exploration ?? null;
   // The activation, the movement, the landings and the production have their own screens;
-  // every other decision is a list.
+  // a strategic action is the list of its seats; every other decision is a list.
   const facts = tacticalFacts(update, local);
   const movement =
     facts?.kind === "movement" && local.step === null
@@ -88,7 +90,9 @@ export function selectShell(
       : null;
   const action = facts
     ? selectTactical(update, local, facts, catalog)
-    : selectAction(update, local, catalog);
+    : showsStrategy(update, local)
+      ? selectStrategy(update, local, catalog)
+      : selectAction(update, local, catalog);
   return {
     seats: selectSeats(update),
     accent:
@@ -123,7 +127,7 @@ export function selectShell(
       catalog,
       production,
     ),
-    action: local.draft?.waiting ? waitingFor(action) : action,
+    action: local.draft?.waiting || local.follow?.waiting ? waitingFor(action) : action,
     reference: {
       objectives: selectScore(update, printed),
       technology: [],

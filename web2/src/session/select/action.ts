@@ -33,6 +33,29 @@ export interface DraftInfo {
   ends: string | null;
 }
 
+/**
+ * The private draft of the viewer's secondary, while the strategic action of the update can be
+ * drafted by the viewer. With no answer yet it is the draft that nothing was chosen in.
+ */
+export interface FollowInfo {
+  /** What the player answered so far, as the game offered it. */
+  answers: string[];
+  /** The player marked the draft ready: it is sent when the game asks the seat. */
+  ready: boolean;
+  /** The editor is open at a question of the draft: the choice of the update is that question. */
+  editing: boolean;
+  /** The game is asked what it makes of the draft as it is now. */
+  waiting: boolean;
+  /** The draft has nothing more to decide: it can be marked ready. */
+  over: boolean;
+  /** Why the game did not play the whole draft. */
+  problem: string | null;
+  /** Where the draft ends before the secondary does. */
+  end: string | null;
+  /** The game asks the seat now, and the draft was not marked ready: it can still be sent as it is. */
+  canSend: boolean;
+}
+
 /** What the player does in this page, between two updates. Nothing of it is sent. */
 export interface LocalState {
   /** The system in the inspector. */
@@ -80,6 +103,8 @@ export interface LocalState {
   draftLocked: string | null;
   /** The private draft, when it is in view: the update is then what the draft came to. */
   draft: DraftInfo | null;
+  /** The private draft of the viewer's secondary. Null while there is none to draft. */
+  follow?: FollowInfo | null;
 }
 
 /** The choice that the viewer can answer now. */
@@ -236,7 +261,7 @@ export function selectAction(
                 : []),
               {
                 // A draft sends nothing: the answer is recorded.
-                label: local.draft ? "Record" : "Send",
+                label: local.draft || local.follow?.editing ? "Record" : "Send",
                 tone: "primary" as const,
                 disabled: !staged,
                 key: "Enter",

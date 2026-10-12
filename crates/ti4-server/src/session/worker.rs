@@ -611,6 +611,7 @@ impl SessionShared {
             .as_ref()
             .map(|pending| ViewerRole::Player(pending.seat.clone()))
             .filter(|viewer| self.can_undo(viewer));
+        let watch = self.planning.watch.clone();
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -623,6 +624,7 @@ impl SessionShared {
                 &map_tiles,
                 &galaxy_layout,
                 galaxy.as_deref(),
+                Some(&watch),
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
             update.history.can_undo = may_undo.as_ref() == Some(viewer);

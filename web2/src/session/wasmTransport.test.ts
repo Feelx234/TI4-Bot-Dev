@@ -37,6 +37,7 @@ import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
 import type {
   DraftOutcome,
+  DraftScope,
   DraftStep,
   InvasionFacts,
   MovementFacts,
@@ -100,10 +101,10 @@ async function play(
     }
   });
   /** Asks for a draft and waits for its answer: the script comes back with it. */
-  const draft = (script: DraftStep[]) =>
+  const draft = (script: DraftStep[], scope?: DraftScope) =>
     new Promise<DraftOutcome | null>((answer) => {
       drafts.set(script, answer);
-      transport.draft(script);
+      transport.draft(script, scope);
     });
   let read = 0;
   const next = async (): Promise<Update> => {
@@ -1184,4 +1185,78 @@ it.skipIf(!built)(
     never.transport.close();
   },
   60_000,
+);
+
+it.skipIf(!built)(
+  "drafts a secondary from the moment its card is played, and sends it when the seat is asked",
+  async () => {
+    const { transport, next, nonce, draft } = await play(true);
+    const choose = (option_id: string): DraftStep => ({ kind: "choose", option_id });
+    // Seat a takes the last card, so that another seat plays a strategy card before its turn.
+    let event = await next();
+    let drafted: { scope: DraftScope; pass: string } | null = null;
+    for (let turns = 0; turns < 600 && !drafted; turns += 1) {
+      const action = event.update.secondary;
+      if (event.update.pending_choice) {
+        const { choice } = event.update.pending_choice;
+        // Its own decisions before that: the card, and a pass of whatever is asked.
+        const option =
+          choice.options.find((item) => item.id === "pok8imperial") ?? choice.options[0];
+        transport.submitChoice(nonce(event), option.id);
+      } else if (action?.draft) {
+        // Another seat decides, and the card is certain: the draft is asked on the game as it
+        // was before the card was played.
+        expect(action.primary).not.toBe("a");
+        expect(action.followers.find((follower) => follower.seat === "a")?.state).toBe("waiting");
+        const scope: DraftScope = { kind: "secondary", primary: action.primary, card: action.card };
+        const asked = await draft([], scope);
+        if (asked?.stop.kind === "complete") {
+          // A secondary that the seat cannot use asks nothing (Leadership with no influence).
+          expect(asked.consumed).toBe(0);
+          transport.capabilities.stepping?.step();
+          event = await next();
+          continue;
+        }
+        expect(asked?.stop).toEqual({ kind: "open" });
+        const question = asked!.update.pending_choice!.choice;
+        expect(question.player).toBe("a");
+        expect(question.details).toMatchObject({
+          kind: "strategy_secondary",
+          card: action.card,
+          played_by: action.primary,
+        });
+        // The draft of another card is refused, and so is a draft with no card played.
+        const other = await draft([], { ...scope, card: "pok1leadership" });
+        expect(other?.stop.kind).toBe("failed");
+        const pass = question.options[0].id;
+        const passed = await draft([choose(pass)], scope);
+        expect(passed?.stop).toEqual({ kind: "complete" });
+        expect(passed?.consumed).toBe(1);
+        drafted = { scope, pass };
+        transport.capabilities.stepping?.set(false);
+      } else {
+        transport.capabilities.stepping?.step();
+      }
+      event = await next();
+    }
+    expect(drafted).not.toBeNull();
+    // The game asks seat a for its secondary: the draft is sent as its answer.
+    const action = event.update.secondary!;
+    expect(action.open).toBe(true);
+    expect(event.update.pending_choice?.choice.details).toMatchObject({
+      kind: "strategy_secondary",
+      card: drafted!.scope.kind === "secondary" ? drafted!.scope.card : "",
+    });
+    const again = await draft([choose(drafted!.pass)], drafted!.scope);
+    expect(again?.stop).toEqual({ kind: "complete" });
+    transport.applyDraft(nonce(event), { choices: [drafted!.pass], plan: null });
+    const after = await next();
+    expect(after.plan).toBeUndefined();
+    // The window goes on with the next seat, or the game is in another action by now.
+    const same = after.update.secondary?.card === action.card;
+    const mine = after.update.secondary?.followers.find((follower) => follower.seat === "a");
+    expect(same ? mine?.state : "passed").toBe("passed");
+    transport.close();
+  },
+  120_000,
 );

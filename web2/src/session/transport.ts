@@ -1,5 +1,5 @@
 import type { MovementPlan, PlanStep } from "./movementPlan";
-import type { Catalog, DraftOutcome, DraftStep, SessionUpdate } from "./wire";
+import type { Catalog, DraftOutcome, DraftScope, DraftStep, SessionUpdate } from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
 export interface PlanStopped {
@@ -37,10 +37,11 @@ export type TransportEvent =
   /** The game cannot go on. The text names the cause. */
   | { kind: "error"; message: string }
   /**
-   * The answer to `draft(script)`, with the script that was asked: a listener drops the answer
-   * for a script that is no longer its newest. Null while the game does not wait for this side.
+   * The answer to `draft(script, scope)`, with the script and the scope that were asked: a
+   * listener drops the answer for a script that is no longer its newest. Null while the game
+   * does not wait for this side.
    */
-  | { kind: "draft"; script: DraftStep[]; outcome: DraftOutcome | null }
+  | { kind: "draft"; script: DraftStep[]; scope?: DraftScope; outcome: DraftOutcome | null }
   /** The printed names of the cards that this side is never offered, after each change. */
   | { kind: "cards"; never: string[] }
   /** A window was declined for this side, because it offered only these cards and each is never offered. */
@@ -104,14 +105,16 @@ export interface Transport {
    */
   submitPlan(nonce: string, plan: MovementPlan): void;
   /**
-   * Asks to play a draft script as the next turn of this side, on a copy of the game. The game
-   * is not changed. Where the run ended is told later, as a `draft` event with this script.
+   * Asks to play a draft script on a copy of the game: as the next turn of this side, or with
+   * `scope` as its secondary of the strategic action that is resolved (`secondary` of the
+   * update says when). The game is not changed. Where the run ended is told later, as a `draft`
+   * event with this script and this scope. Only the newest script that waits is answered.
    */
-  draft(script: DraftStep[]): void;
+  draft(script: DraftStep[], scope?: DraftScope): void;
   /**
    * Sends a draft to the game: the pending choice and the choices after it are answered with
    * the options of these ids, then with the steps of the movement, as one request with the
-   * rules of `submitPlan`.
+   * rules of `submitPlan`. The draft of a secondary is its answers by id, with no plan.
    */
   applyDraft(nonce: string, draft: { choices: string[]; plan: MovementPlan | null }): void;
   /**

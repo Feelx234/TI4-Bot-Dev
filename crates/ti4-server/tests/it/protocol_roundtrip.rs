@@ -373,6 +373,7 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
         game_id: "game_abc".to_owned(),
         request_id: "r1".to_owned(),
         script,
+        scope: ti4_view::planning::audit::PlanScope::Tactical,
     };
     let json = serde_json::to_string(&run(script.clone())).unwrap();
     assert!(json.contains("\"type\":\"run_draft\""));

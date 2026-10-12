@@ -18,6 +18,7 @@ use ti4_server::protocol::client::ClientMessage;
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::{RejectionReason, ViewerRole};
 use ti4_server::session::{GameRegistry, GameSession, MockClient, SeatController, SessionConfig};
+use ti4_view::planning::audit::PlanScope;
 use ti4_view::planning::draft::{DraftOutcome, DraftStep, DraftStop};
 use ti4_view::planning::steps::PlanStep;
 use ti4_view::tactical::TacticalFacts;
@@ -105,7 +106,7 @@ fn choose(id: &str) -> DraftStep {
 }
 
 fn draft(session: &GameSession, seat: &PlayerId, script: &[DraftStep]) -> DraftOutcome {
-    session.run_draft(seat, script).1
+    session.run_draft(seat, &PlanScope::Tactical, script).1
 }
 
 /// The script of a whole tactical action with one ship moved, and the system and the ship.
@@ -187,7 +188,7 @@ fn a_draft_is_run_on_a_copy_with_the_facts_of_a_live_update() {
     let decisions = session.decision_log().len();
     let state = session.current_state();
 
-    let (base, menu) = session.run_draft(&seat, &[]);
+    let (base, menu) = session.run_draft(&seat, &PlanScope::Tactical, &[]);
     assert_eq!(base, version);
     assert_eq!(menu.stop, DraftStop::Open);
     let offered = &menu.update.pending_choice.as_ref().unwrap().choice;
@@ -423,6 +424,7 @@ async fn the_script_messages_are_answered_over_the_websocket() {
             game_id: game_id.clone(),
             request_id: "draft-1".to_owned(),
             script: vec![choose("tactical")],
+            scope: PlanScope::Tactical,
         }))
         .await
         .unwrap();

@@ -1343,6 +1343,16 @@ impl<'a> Game<'a> {
             })
     }
 
+    /// What the followers of [`Game::open_secondary`] that are recorded did, in resolution
+    /// order. Empty when no window is open.
+    #[must_use]
+    pub fn secondary_resolutions(&self) -> &[(PlayerId, crate::strategy::SecondaryResolution)] {
+        self.secondary
+            .as_ref()
+            .or(self.secondary_after_tactical.as_ref())
+            .map_or(&[], |window| window.resolutions())
+    }
+
     fn reset_for_hypothetical(&mut self, player: &PlayerId) -> Result<(), GameError> {
         if self.state.finished || !matches!(self.state.phase, Phase::Strategy | Phase::Action) {
             return Err(GameError::InvalidHypotheticalTurn(

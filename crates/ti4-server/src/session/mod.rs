@@ -410,6 +410,7 @@ impl GameSession {
             &lock.map_tiles,
             &lock.galaxy_layout,
             lock.galaxy.as_deref(),
+            Some(&lock.planning.watch),
             &lock.event_log,
         )
         .with_history(
@@ -721,8 +722,8 @@ impl GameSession {
         Ok(())
     }
 
-    /// Plays `script` as the next turn of `player` on a copy of the game at its last completed
-    /// step, as a local game does (`ti4_view::planning::draft::run_draft`). The game is not
+    /// Plays `script` as the next turn of `player`, or as its secondary (`scope`), on a copy of
+    /// the game at its last completed step, as a local game does (`ti4_view::planning::draft::run_draft`). The game is not
     /// changed and nothing of the script is kept. Returns the version of the game that the
     /// script was played on.
     ///
@@ -731,10 +732,11 @@ impl GameSession {
     pub fn run_draft(
         &self,
         player: &PlayerId,
+        scope: &ti4_view::planning::audit::PlanScope,
         script: &[ti4_view::planning::draft::DraftStep],
     ) -> (u64, ti4_view::planning::draft::DraftOutcome) {
         use ti4_view::planning::draft::{DraftBase, DraftOutcome, DraftStop, run_draft};
-        let (copy, version, tiles, galaxy, state) = {
+        let (copy, version, tiles, galaxy, state, watch) = {
             let mut lock = self.shared.lock().expect("shared lock");
             let playable = !lock.stopped
                 && !lock.finished
@@ -751,6 +753,7 @@ impl GameSession {
                 lock.map_tiles.clone(),
                 lock.galaxy.clone(),
                 lock.latest_state.clone(),
+                lock.planning.watch.clone(),
             )
         };
         let content = ti4_content::ContentStore::embedded();
@@ -780,8 +783,9 @@ impl GameSession {
             sources: ti4_model::content_types::POK,
             tiles: &tiles,
             galaxy: galaxy.as_deref(),
+            secondary: Some(&watch),
         };
-        (version, run_draft(&base, player, script))
+        (version, run_draft(&base, player, scope, script))
     }
 
     /// Sends `script` to the live game: the pending choice of `player` and the choices after

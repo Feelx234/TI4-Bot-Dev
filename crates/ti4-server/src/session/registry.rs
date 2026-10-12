@@ -2392,10 +2392,11 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
+        scope: &ti4_view::planning::audit::PlanScope,
         script: &[ti4_view::planning::draft::DraftStep],
     ) -> Option<(u64, ti4_view::planning::draft::DraftOutcome)> {
         self.current_player_session(game_id, credential, player, session)?;
-        Some(session.run_draft(player, script))
+        Some(session.run_draft(player, scope, script))
     }
 
     /// `Some` when `credential` is of `player` and `session` is the running game.

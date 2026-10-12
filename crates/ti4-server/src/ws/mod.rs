@@ -44,7 +44,11 @@ const OUTBOUND_QUEUE_CAPACITY: usize = 128;
 pub const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
 
 /// The newest draft request of a connection: its `request_id` and its script.
-type DraftRequest = Option<(String, Vec<ti4_view::planning::draft::DraftStep>)>;
+type DraftRequest = Option<(
+    String,
+    ti4_view::planning::audit::PlanScope,
+    Vec<ti4_view::planning::draft::DraftStep>,
+)>;
 
 #[allow(clippy::too_many_lines)]
 async fn handle_socket(
@@ -333,6 +337,7 @@ async fn handle_socket(
                 game_id: message_game_id,
                 request_id,
                 script,
+                scope,
                 ..
             } => {
                 let (Some(ViewerRole::Player(player)), Some(token), true) =
@@ -357,7 +362,8 @@ async fn handle_socket(
                     let outbound_tx = outbound_tx.clone();
                     tokio::spawn(async move {
                         while newest.changed().await.is_ok() {
-                            let Some((request_id, script)) = newest.borrow_and_update().clone()
+                            let Some((request_id, scope, script)) =
+                                newest.borrow_and_update().clone()
                             else {
                                 continue;
                             };
@@ -369,7 +375,7 @@ async fn handle_socket(
                                 let player = player.clone();
                                 tokio::task::spawn_blocking(move || {
                                     registry.run_player_draft(
-                                        &game_id, &token, &player, &session, &script,
+                                        &game_id, &token, &player, &session, &scope, &script,
                                     )
                                 })
                             };
@@ -390,7 +396,7 @@ async fn handle_socket(
                     });
                     requests
                 });
-                let _ = requests.send(Some((request_id, script)));
+                let _ = requests.send(Some((request_id, scope, script)));
             }
             ClientMessage::ApplyDraft {
                 game_id: message_game_id,

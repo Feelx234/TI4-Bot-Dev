@@ -67,11 +67,8 @@ export const answer = (draft: Draft, stage: Stage, option: string): Draft => {
 
 /** The steps of one stage, as they are recorded. Null when the stage is not drafted. */
 export const stepsOfStage = (entry: DraftEntry, stage: Stage): PlanStep[] | null =>
-  (stage === "movement"
-    ? entry.steps
-    : stage === "invasion"
-      ? entry.landings
-      : entry.production) ?? null;
+  (stage === "movement" ? entry.steps : stage === "invasion" ? entry.landings : entry.production) ??
+  null;
 
 export const startOver = (draft: Draft): Draft =>
   entryOf(draft).system === null ? draft : record(draft, EMPTY);
@@ -167,6 +164,10 @@ const STOPPED: Record<string, string> = {
   StepLimit: "The draft is too long to check.",
 };
 
+/** Why a run stopped at something a draft cannot show, in words. */
+export const stopText = (reason: string): string =>
+  STOPPED[reason] ?? "The draft ends at a decision that it cannot show yet.";
+
 const PARTS: Record<Stage, string> = {
   movement: "movement",
   invasion: "landings",
@@ -194,7 +195,7 @@ export function problemOf(entry: DraftEntry, outcome: DraftOutcome): string | nu
           : `A part of the ${PARTS[stage]} no longer fits. ${stop.reason}`;
     }
     case "stopped":
-      return STOPPED[stop.reason] ?? "The draft ends at a decision that it cannot show yet.";
+      return stopText(stop.reason);
     case "failed":
       return `No draft from here: ${stop.reason}.`;
   }

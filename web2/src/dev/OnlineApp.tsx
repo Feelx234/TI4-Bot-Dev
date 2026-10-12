@@ -90,7 +90,14 @@ export function OnlineApp({ gameId, start }: { gameId: string | null; start: Onl
 
   const drafts = useMemo(() => {
     const keys = gameId === null ? null : onlineKeys(gameId);
-    return keys ? { storage: localStorage, key: keys.draft, planKey: keys.plan } : undefined;
+    return keys
+      ? {
+          storage: localStorage,
+          key: keys.draft,
+          planKey: keys.plan,
+          secondaryKey: keys.secondary,
+        }
+      : undefined;
   }, [gameId]);
   const { session, error } = useLiveSession(transport, drafts);
 

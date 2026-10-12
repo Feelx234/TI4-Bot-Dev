@@ -53,13 +53,27 @@ import {
   totals,
 } from "./productionDraft";
 import type { SaveStorage } from "./savedGame";
-import type { DraftInfo, LocalState } from "./select/action";
+import {
+  type SecondaryDraft,
+  asksSecondary,
+  endOf,
+  isOf,
+  isOver,
+  newDraft as newFollow,
+  problemOf as followProblem,
+  readDraft as readFollow,
+  record,
+  scopeOf,
+  scriptOf as followScriptOf,
+  storeDraft as storeFollow,
+} from "./secondaryDraft";
+import type { DraftInfo, FollowInfo, LocalState } from "./select/action";
 import type { CardSettings } from "./select/cards";
 import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
 import type { Transport } from "./transport";
-import type { DraftOutcome, DraftStep, SessionUpdate } from "./wire";
+import type { DraftOutcome, DraftScope, DraftStep, SessionUpdate } from "./wire";
 
 const NOTHING: LocalState = {
   inspected: null,
@@ -92,18 +106,28 @@ export interface DraftStore {
   key: string;
   /** Where the private draft of a tactical action is kept. Without it a reload loses the draft. */
   planKey?: string;
+  /** Where the private draft of a secondary is kept. */
+  secondaryKey?: string;
+}
+
+/** A script that the game is asked to play, and what it is of. No scope: a tactical action. */
+interface Wanted {
+  script: DraftStep[];
+  scope?: DraftScope;
 }
 
 /** What the game made of a draft script, and the update of the game that it was asked on. */
 interface DraftRun {
-  script: DraftStep[];
+  wanted: Wanted;
   base: SessionUpdate;
   /** Null: the game did not wait for this side. */
   outcome: DraftOutcome | null;
 }
 
-const sameScript = (a: DraftStep[], b: DraftStep[]) =>
-  a === b || JSON.stringify(a) === JSON.stringify(b);
+const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
+
+const readFollowOf = (drafts: DraftStore | undefined): SecondaryDraft | null =>
+  drafts?.secondaryKey ? readFollow(drafts.storage, drafts.secondaryKey) : null;
 
 /** The private draft of the page, and whether it is in view. */
 interface Plan {
@@ -338,6 +362,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   const [update, setUpdate] = useState<SessionUpdate | null>(null);
   const [local, setLocal] = useState<LocalState>(NOTHING);
   const [plan, setPlan] = useState<Plan>(() => readPlanOf(drafts));
+  /** The private draft of the viewer's secondary. Null: nothing was answered yet. */
+  const [follow, setFollow] = useState<SecondaryDraft | null>(() => readFollowOf(drafts));
   /** The cards that the viewer is never offered: a view of the transport. */
   const [never, setNever] = useState<string[]>([]);
   /** The cards that the viewer acts as if holding. Of the page only. */
@@ -347,12 +373,13 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   /** What the game made of the draft, as the transport told it last. */
   const [run, setRun] = useState<DraftRun | null>(null);
   /** The script that the transport was asked last, and the update of then. An answer for another script is late. */
-  const asked = useRef<{ script: DraftStep[]; base: SessionUpdate } | null>(null);
+  const asked = useRef<{ wanted: Wanted; base: SessionUpdate } | null>(null);
 
   useEffect(() => {
     setUpdate(null);
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
+    setFollow(readFollowOf(drafts));
     setNever([]);
     setFaked([]);
     setRun(null);
@@ -379,9 +406,13 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       }
       if (event.kind === "draft") {
         // An answer for an older script is dropped: the newer one is on its way.
-        const wanted = asked.current;
-        if (wanted && sameScript(event.script, wanted.script)) {
-          setRun({ ...wanted, outcome: event.outcome });
+        const last = asked.current;
+        if (
+          last &&
+          same(event.script, last.wanted.script) &&
+          same(event.scope ?? null, last.wanted.scope ?? null)
+        ) {
+          setRun({ ...last, outcome: event.outcome });
         }
         return;
       }
@@ -543,22 +574,72 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
   }, [update, plan.draft, drafts]);
 
+  // The secondary of the strategic action that is resolved can be drafted from the moment its
+  // card is played, in Live: the row of the viewer in the list of the seats is the draft.
+  const action = update?.secondary ?? null;
+  const usable =
+    !!update && !local.error && !local.replaying && !local.offline && !update.view.finished;
+  const drafting = usable && !plan.open && action?.draft ? action : null;
+  /** The draft of this action. A draft of an action that is over is dropped. */
+  const mine =
+    follow && update && action && isOf(follow, update.view.round, action) ? follow : null;
+  useEffect(() => {
+    if (update && follow && !(action?.draft && isOf(follow, update.view.round, action))) {
+      setFollow(null);
+    }
+  }, [update, follow, action]);
+  useEffect(() => {
+    if (update && drafts?.secondaryKey) {
+      storeFollow(drafts.storage, drafts.secondaryKey, follow);
+    }
+  }, [update, follow, drafts]);
+  /** The nonce of the first question of the secondary, when the live game asks the viewer for it. */
+  const reached =
+    drafting &&
+    update?.pending_choice &&
+    update.pending_choice.nonce !== local.sent &&
+    asksSecondary(update.pending_choice.choice, drafting)
+      ? update.pending_choice.nonce
+      : null;
+  // The game is asked for the draft while its editor is in view, and before a draft is sent.
+  const followWanted =
+    !!drafting && (!update?.pending_choice || (reached !== null && !!mine?.answers.length));
+  const scopePrimary = drafting?.primary ?? null;
+  const scopeCard = drafting?.card ?? null;
+  const followScope = useMemo(
+    () =>
+      scopePrimary !== null && scopeCard !== null
+        ? scopeOf({ primary: scopePrimary, card: scopeCard })
+        : null,
+    [scopePrimary, scopeCard],
+  );
+  const followScript = useMemo(() => followScriptOf(mine), [mine]);
+
   // The draft is played again on a copy of the game, for each change of it and of the game. The
   // transport is asked, and answers later (`draft` of its events).
   const entry = plan.draft ? entryOf(plan.draft) : null;
   const locked = update ? draftLock(update, local) : "The game has not started";
   const script = useMemo(() => (entry ? scriptOf(entry) : null), [entry]);
-  const wanted = transport && update && plan.open && !locked ? script : null;
+  const wanted = useMemo(
+    (): Wanted | null =>
+      plan.open && !locked
+        ? script && { script }
+        : followWanted && followScope
+          ? { script: followScript, scope: followScope }
+          : null,
+    [plan.open, locked, script, followWanted, followScope, followScript],
+  );
   useEffect(() => {
     if (!transport || !update || !wanted) {
       asked.current = null;
       return setRun(null);
     }
-    asked.current = { script: wanted, base: update };
-    transport.draft(wanted);
+    asked.current = { wanted, base: update };
+    transport.draft(wanted.script, wanted.scope);
   }, [transport, update, wanted]);
   /** The answer is of this script on this game. Until it is, the last one stays in view. */
-  const answered = !!run && run.script === wanted && run.base === update;
+  const answered = !!run && run.wanted === wanted && run.base === update;
+  const tactical = !!wanted && !wanted.scope;
   // Before the first answer the draft is open with nothing to decide, so that nothing of the
   // live game can be sent from it.
   const unanswered = useMemo((): DraftOutcome | null => {
@@ -568,8 +649,35 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     const { pending_choice: _, tactical: __, ...rest } = update;
     return { update: rest, consumed: 0, stop: { kind: "open" } };
   }, [update]);
-  const outcome = !wanted ? null : answered ? run.outcome : (run?.outcome ?? unanswered);
-  const waiting = !!wanted && !answered;
+  const outcome = !tactical
+    ? null
+    : answered
+      ? run.outcome
+      : ((run && !run.wanted.scope ? run.outcome : null) ?? unanswered);
+  const waiting = tactical && !answered;
+  /** What the game made of the draft of the secondary. Until the answer, of the draft before. */
+  const followOutcome = wanted?.scope && run?.wanted.scope ? run.outcome : null;
+  const followChecked = !!wanted?.scope && answered;
+
+  // A ready draft is sent when the game asks the seat, if the game still plays it whole. One
+  // that no longer fits is not ready, and the seat decides in Live.
+  useEffect(() => {
+    if (!transport || !mine?.ready || !followChecked || !followOutcome) {
+      return;
+    }
+    const fits = isOver(mine, followOutcome);
+    if (fits && reached !== null && mine.answers.length) {
+      transport.applyDraft(reached, { choices: mine.answers.map(({ id }) => id), plan: null });
+      setFollow(null);
+      setLocal((now) => ({ ...now, sent: reached, planNote: null }));
+    } else if (!fits) {
+      setFollow({ ...mine, ready: false });
+      setLocal((now) => ({
+        ...now,
+        planNote: { text: "Your draft no longer fits the game. It is not ready.", error: true },
+      }));
+    }
+  }, [transport, mine, followChecked, followOutcome, reached]);
 
   // The sheet of the landings or of the build opens when the draft comes to that step.
   const draftStage =
@@ -591,12 +699,45 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     if (!update || !transport) {
       return null;
     }
-    const live: LocalState = { ...local, draftLocked: locked, draft: null };
+    // The live question of the secondary is not shown while a ready draft is checked for it.
+    // A check that the game does not answer holds nothing back.
+    const holding =
+      reached !== null &&
+      !!mine?.ready &&
+      mine.answers.length > 0 &&
+      !(followChecked && !followOutcome);
+    const drafted0 = mine ?? (drafting ? newFollow(update.view.round, drafting) : null);
+    const over = !!drafted0 && followChecked && !!followOutcome && isOver(drafted0, followOutcome);
+    const followInfo: FollowInfo | null =
+      drafting && drafted0
+        ? {
+            answers: drafted0.answers.map(({ label }) => label),
+            ready: drafted0.ready,
+            editing:
+              !update.pending_choice &&
+              !drafted0.ready &&
+              followOutcome?.stop.kind === "open" &&
+              !!followOutcome.update.pending_choice,
+            waiting: !followChecked && !update.pending_choice,
+            over,
+            problem: followOutcome ? followProblem(drafted0, followOutcome) : null,
+            end: followOutcome ? endOf(followOutcome) : null,
+            canSend: reached !== null && !drafted0.ready && over && drafted0.answers.length > 0,
+          }
+        : null;
+    const live: LocalState = { ...local, draftLocked: locked, draft: null, follow: followInfo };
     const drafted =
       plan.draft && outcome
         ? draftView(update, live, plan.draft, outcome, plan.stage, waiting)
         : null;
-    const shown = drafted?.update ?? update;
+    // The editor of the secondary asks the question of the draft, on the game as it is.
+    const shown =
+      drafted?.update ??
+      (followInfo?.editing
+        ? { ...update, pending_choice: followOutcome?.update.pending_choice }
+        : holding
+          ? { ...update, pending_choice: undefined, tactical: undefined }
+          : update);
     const state = drafted?.local ?? live;
     // Nothing is sent while the game cannot be reached: the next update says what is open.
     const pending =
@@ -715,6 +856,15 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         // The screen is of the script before: its main button waits for the game.
         return;
       }
+      if (followInfo?.editing) {
+        // Nothing of a draft is sent: the answer is recorded, and the game is asked again.
+        const option = pending.choice.options.find((item) => item.id === state.staged);
+        if (option && drafted0 && followChecked) {
+          setFollow(record(drafted0, { id: option.id, label: option.label || option.id }));
+          setLocal((now) => ({ ...now, staged: null }));
+        }
+        return;
+      }
       if (drafted) {
         // Nothing of a draft is sent. Its activation is recorded, and a step with nothing
         // staged is recorded as that ("Move nothing"), so that the draft goes on.
@@ -814,10 +964,20 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "redo":
           return redraft(redo);
         case "startOver":
-          return redraft(startOver);
+          // The draft of a secondary starts over with nothing answered.
+          return drafted ? redraft(startOver) : followInfo ? setFollow(null) : undefined;
         case "discardDraft":
           return workspace(false, null);
         case "confirmApply":
+          if (followInfo?.canSend && reached !== null && drafted0) {
+            // The draft that was not marked ready is sent as it is.
+            transport.applyDraft(reached, {
+              choices: drafted0.answers.map(({ id }) => id),
+              plan: null,
+            });
+            setFollow(null);
+            return setLocal((now) => ({ ...now, sent: reached, planNote: null }));
+          }
           return apply();
         case "simulate":
           return transport.capabilities.stepping?.step();
@@ -895,6 +1055,14 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           }
           return transport.undo();
         case "flow":
+          if (intent.action === "ready") {
+            return followInfo?.over && !followInfo.problem && drafted0
+              ? setFollow({ ...drafted0, ready: true })
+              : undefined;
+          }
+          if (intent.action === "change") {
+            return mine ? setFollow({ ...mine, ready: false }) : undefined;
+          }
           return intent.action === "resolve" && !facts ? send() : undefined;
         // The steps of a tactical action.
         case "commitEdit":
@@ -998,7 +1166,22 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         save: !!save,
       },
     };
-  }, [update, local, transport, plan, outcome, waiting, locked, cards, toast]);
+  }, [
+    update,
+    local,
+    transport,
+    plan,
+    outcome,
+    waiting,
+    locked,
+    cards,
+    toast,
+    drafting,
+    mine,
+    reached,
+    followOutcome,
+    followChecked,
+  ]);
 
   return { session, error: local.error, replaying: local.replaying };
 }

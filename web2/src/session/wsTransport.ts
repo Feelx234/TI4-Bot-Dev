@@ -4,6 +4,7 @@ import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import {
   type Catalog,
   type ClientRequest,
+  type DraftScope,
   type DraftStep,
   PROTOCOL_VERSION,
   type RejectionReason,
@@ -52,6 +53,8 @@ export const onlineKeys = (gameId: string) => ({
   draft: `ti4.online.${gameId}.movement`,
   /** The private draft of a tactical action. */
   plan: `ti4.online.${gameId}.draft`,
+  /** The private draft of a secondary. */
+  secondary: `ti4.online.${gameId}.secondary`,
 });
 
 const HEARTBEAT_MS = 10_000;
@@ -127,6 +130,7 @@ const updateOf = (message: StateMsg): SessionUpdate => ({
   secret_objectives: message.secret_objectives,
   score: message.score,
   agendas: message.agendas,
+  secondary: message.secondary,
 });
 
 /**
@@ -160,7 +164,7 @@ export function createWsTransport(
   let resync: ReturnType<typeof setTimeout> | null = null;
   let sequence = 0;
   /** The newest draft that was asked. An answer for another request is late. */
-  let asked: { id: string; script: DraftStep[] } | null = null;
+  let asked: { id: string; script: DraftStep[]; scope?: DraftScope } | null = null;
   let requests = 0;
   /** The script that is being sent: its result is counted in entries, a plan in steps. */
   let sent: { nonce: string; destination: string; lead: number } | null = null;
@@ -323,9 +327,9 @@ export function createWsTransport(
         return say({ kind: "rejected", reason: message.message });
       case "draft_outcome":
         if (asked?.id === message.request_id) {
-          const { script } = asked;
+          const { script, scope } = asked;
           asked = null;
-          say({ kind: "draft", script, outcome: message.outcome });
+          say({ kind: "draft", script, scope, outcome: message.outcome });
         }
         return;
       case "draft_applied": {
@@ -477,16 +481,16 @@ export function createWsTransport(
         sent = { nonce, destination: draft.plan?.destination ?? "", lead: draft.choices.length };
       }
     },
-    draft(script) {
+    draft(script, scope) {
       if (latest && !isPlayer()) {
         // A spectator has no turn to draft. Later, not now, as every answer.
-        queueMicrotask(() => say({ kind: "draft", script, outcome: null }));
+        queueMicrotask(() => say({ kind: "draft", script, scope, outcome: null }));
         return;
       }
       // While the game cannot be reached nothing is asked: the page asks again with the next update.
       const id = `${++requests}`;
-      if (send({ type: "run_draft", game_id: game.gameId, request_id: id, script })) {
-        asked = { id, script };
+      if (send({ type: "run_draft", game_id: game.gameId, request_id: id, script, scope })) {
+        asked = { id, script, scope };
       }
     },
     setReactionMode(card, mode) {

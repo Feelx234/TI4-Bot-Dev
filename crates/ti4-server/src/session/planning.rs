@@ -85,6 +85,9 @@ pub(crate) struct SessionPlanning {
     secondary: Option<SecondaryRound>,
     // Kept apart from tactical applications: a seat may hold both drafts.
     secondary_applications: BTreeMap<PlayerId, Application>,
+    /// The strategic action that is resolved, for the facts of an update and for a draft of a
+    /// secondary that is run from a script (`ti4_view::secondary`).
+    pub(crate) watch: ti4_view::secondary::SecondaryWatch,
 }
 
 impl SessionPlanning {
@@ -100,6 +103,7 @@ impl SessionPlanning {
             applications: BTreeMap::new(),
             secondary: None,
             secondary_applications: BTreeMap::new(),
+            watch: ti4_view::secondary::SecondaryWatch::default(),
         }
     }
 
@@ -112,6 +116,7 @@ impl SessionPlanning {
         self.available = game.state.phase == Phase::Action && !game.state.finished;
         self.checkpoint = Some(Box::new(game.fork_for_worker()));
         self.checkpoint_decisions = game.table.log.records.len();
+        self.watch.completed_step(game);
         self.refresh_secondary(game);
         if !self.available {
             self.retire_runners();
@@ -207,6 +212,7 @@ impl SessionPlanning {
     /// step. Trade waits for its window: the primary changes what a follower's
     /// secondary costs and gains.
     pub fn announce_primary(&mut self, primary: &PlayerId, card: &StrategyCardId) {
+        self.watch.announce(primary, card);
         self.secondary = None;
         if self.closed
             || !self.available
