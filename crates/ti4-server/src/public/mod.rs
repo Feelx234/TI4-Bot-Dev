@@ -96,7 +96,7 @@ pub struct PublicState {
     pub config: PublicConfig,
     gate: Option<AccessGate>,
     limiter: Option<RateLimiter>,
-    created: Mutex<HashMap<IpAddr, Vec<String>>>,
+    created: Mutex<HashMap<IpAddr, Vec<(String, u64)>>>,
 }
 
 impl Default for PublicState {
@@ -333,13 +333,34 @@ impl PublicState {
                 .collect();
             let mut created = self.created.lock().expect("created lock");
             let mine = created.entry(ip).or_default();
-            mine.retain(|id| open.contains(id.as_str()));
+            mine.retain(|(id, _)| open.contains(id.as_str()));
             if mine.len() >= max {
-                return Some(json_error(
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "too_many_games",
-                    "you already have several unfinished games on this server",
-                ));
+                let ids: Vec<String> = mine.iter().map(|(id, _)| id.clone()).collect();
+                let created_at: HashMap<&str, u64> =
+                    mine.iter().map(|(id, t)| (id.as_str(), *t)).collect();
+                let listed: Vec<serde_json::Value> = registry
+                    .open_game_infos(&ids)
+                    .into_iter()
+                    .map(|g| {
+                        serde_json::json!({
+                            "game_id": g.game_id,
+                            "created_at": created_at.get(g.game_id.as_str()),
+                            "phase": g.phase,
+                            "players": g.players,
+                        })
+                    })
+                    .collect();
+                return Some(
+                    (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        Json(serde_json::json!({
+                            "error": "too_many_games",
+                            "message": "you already have several unfinished games on this server",
+                            "games": listed,
+                        })),
+                    )
+                        .into_response(),
+                );
             }
         }
         if let (Some(max), Some(dir)) = (self.config.max_data_bytes, self.config.data_dir.clone()) {
@@ -373,7 +394,7 @@ impl PublicState {
                 .expect("created lock")
                 .entry(ip)
                 .or_default()
-                .push(id.to_owned());
+                .push((id.to_owned(), now_unix()));
         }
         Response::from_parts(parts, Body::from(bytes))
     }

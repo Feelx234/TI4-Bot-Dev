@@ -16,6 +16,7 @@ import { MobileTopMenu, menuAttention } from "./components/MobileTopMenu.tsx";
 import { MobileMenuSlotContext } from "./presentation/MobileMenuSlot.tsx";
 import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
+import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
@@ -167,6 +168,7 @@ const AppRoutes: React.FC = () => {
         <CreateLobby
           onError={setError}
           onCreated={(created) => navigate(created.game_id, created.player_session)}
+          onOpenGame={(id, openToken) => navigate(id, openToken)}
         />
         {error && (
           <div className="session-error" role="alert">
@@ -182,6 +184,7 @@ const AppRoutes: React.FC = () => {
       token={token}
       onCredential={(credential) => {
         sessionStorage.setItem(storageKey(gameId), credential);
+        rememberMyGame({ gameId, token: credential });
         setToken(credential);
       }}
       onCredentialInvalid={() => {

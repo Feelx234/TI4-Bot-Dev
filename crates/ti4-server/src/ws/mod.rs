@@ -63,6 +63,8 @@ async fn handle_socket(
     let mut replacement_tx = Some(replacement_tx);
     let outbound_registry = registry.clone();
     let outbound_game = game_id.clone();
+    let pump_registry = registry.clone();
+    let pump_game = game_id.clone();
     let outbound_credential = Arc::new(std::sync::Mutex::new(None::<String>));
     let credential_for_pump = outbound_credential.clone();
 
@@ -73,9 +75,14 @@ async fn handle_socket(
                 msg = outbound_rx.recv() => match msg { Some(msg) => msg, None => break },
                 result = &mut replacement_rx => {
                     if result.is_ok() {
+                        let (code, reason) = if pump_registry.is_terminated(&pump_game) {
+                            (4002, "game terminated")
+                        } else {
+                            (4001, "session replaced")
+                        };
                         let _ = ws_sender.send(Message::Close(Some(CloseFrame {
-                            code: 4001,
-                            reason: "session replaced".into(),
+                            code,
+                            reason: reason.into(),
                         }))).await;
                     }
                     break;

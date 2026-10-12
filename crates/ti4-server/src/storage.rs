@@ -779,6 +779,25 @@ impl FileGameStore {
         Ok(())
     }
 
+    /// Moves a game's directory into `terminated/` (nothing is deleted) so it is no longer
+    /// recovered at the next start. Idempotent: a game without a directory is already gone.
+    pub fn terminate_game(&self, game_id: &str) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        if !dir.exists() {
+            return Ok(());
+        }
+        let archive = self.base_dir.join("terminated");
+        fs::create_dir_all(&archive)?;
+        let mut target = archive.join(game_id);
+        let mut n = 1;
+        while target.exists() {
+            target = archive.join(format!("{game_id}.{n}"));
+            n += 1;
+        }
+        fs::rename(&dir, &target)?;
+        Ok(())
+    }
+
     /// Atomically stores a bounded replay-validation snapshot.
     pub fn save_snapshot(
         &self,
