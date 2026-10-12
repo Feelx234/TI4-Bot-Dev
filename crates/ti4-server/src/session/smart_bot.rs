@@ -630,8 +630,16 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     if !contested && has_own_production(seen, me, system) {
         // A command token only to build is worth it with plenty to spend; otherwise Warfare's
         // secondary or Construction builds without one.
-        let build =
-            spare_resources(seen, me) >= PLENTY_RESOURCES && wants_to_build(seen, me, system);
+        // (Not in round 1 while a token-free production at home is still to come for the
+        // transport plan: the token would keep the new transports home, and that production
+        // could not build there either.)
+        let waiting_build = seen.round() <= 1
+            && transport_plan(seen, me).is_some()
+            && home_builder_ahead(seen, me)
+            && home_system(seen, me).as_ref() == Some(system);
+        let build = !waiting_build
+            && spare_resources(seen, me) >= PLENTY_RESOURCES
+            && wants_to_build(seen, me, system);
         let ferry = needs_transport(seen, me, system)
             && movable.iter().any(|m| {
                 m.capacity > 0
