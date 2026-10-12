@@ -21,19 +21,30 @@ scaling beyond a few concurrent games.
   agent builds (8 CPUs, 15 GB RAM), so a public instance must not share its target dirs or
   starve under load.
 
-## 2. Recommended architecture
+## 2. Recommended architecture (the server is on Hetzner)
+
+The machine already has a public IPv4/IPv6 address, so no tunnel is needed:
 
 ```
-friend's browser --HTTPS/WSS--> Cloudflare Tunnel (or Tailscale Funnel)
+friend's browser --HTTPS/WSS--> Caddy on the Hetzner box (ports 80/443, automatic Let's Encrypt)
                                    --> 127.0.0.1:PORT  ti4-server (release build)
                                           serves web/dist + /api + /ws
 ```
 
-Why a tunnel and not a port forward: no inbound port on the home network, free TLS, the home IP
-stays hidden, and Cloudflare adds basic DDoS and rate-limit rules. Needs a domain (or a free
-`*.trycloudflare.com` quick tunnel for a first test, which changes on every restart).
-Alternative if the box can't stay on: a small VPS (5 EUR/month) running the same binary behind
-Caddy (automatic TLS). Not recommended: router port-forward + dynamic DNS.
+- **Domain:** any domain or subdomain with an A/AAAA record to the server IP. With no domain yet,
+  `<ip-with-dashes>.sslip.io` also gets a real Let's Encrypt certificate from Caddy.
+- **Firewall:** a Hetzner Cloud Firewall that allows only 22 (ideally restricted to your IP),
+  80 and 443. The ti4-server itself stays bound to 127.0.0.1; only Caddy is public. The phone
+  instance ports (18080/13000) stay closed to the internet.
+- **Optional Cloudflare in front** (proxied DNS) for free DDoS filtering and rate-limit rules;
+  then trust `CF-Connecting-IP` only when the request comes from Cloudflare's ranges.
+- **Isolation:** this box also runs the nightly sweep and agent builds (8 CPUs, 15 GB RAM). Either
+  run the public instance as its own user with a systemd slice (higher CPU weight, `MemoryMax`),
+  or, cleaner, order a small separate Hetzner Cloud server (about 4-6 EUR/month) just for the
+  playtest so a runaway build or the nightly sweep can never take the game down, and so the box
+  with the repo, credentials and agent tooling is not exposed at all. I recommend the separate
+  server.
+- Harden SSH (key-only, no root password, fail2ban or Hetzner firewall IP allow-list).
 
 ## 3. Work items
 
@@ -55,7 +66,7 @@ Caddy (automatic TLS). Not recommended: router port-forward + dynamic DNS.
    bots (`TI4_MAX_ACTIVE_BOTS` exists), WebSocket max message size and idle timeout, disk quota
    for the data dir.
 5. Access control for a closed playtest: a shared invite code. Simplest: Cloudflare Access
-   (email allow-list or one-time PIN) in front of the tunnel, zero code. Alternative: an
+   (email allow-list or one-time PIN) if Cloudflare fronts the site, or Caddy `basicauth` with one shared password, zero code. Alternative: an
    `TI4_INVITE_CODE` env checked on game create/join, entered once and kept in localStorage.
 6. Review hostile-input paths that were written for a trusted client: splice/turn-redo
    endpoints (`/history`, `/turn-redo`) and the replay endpoint (CPU heavy; restrict to the seat's
@@ -144,7 +155,7 @@ link after about 2-3 days.
 
 ## 6. Decisions needed from you
 
-1. Hosting: tunnel from this machine (cheapest, depends on the box being up) vs. a small VPS.
+1. Hosting on Hetzner: this box (isolated by systemd slice) vs. a separate small Hetzner server (recommended), and which domain/subdomain to use.
 2. Access: closed invite (recommended) vs. open link.
 3. Feedback delivery: Discord webhook, email, or GitHub issues.
 4. Whether to keep the ML advisor/bots disabled (recommended) and the smart bot as the only AI.
