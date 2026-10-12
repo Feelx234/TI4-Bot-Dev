@@ -451,12 +451,26 @@ fn canonical_objective_alias<'a>(content: &'a ContentStore, raw: &'a str) -> Opt
 }
 
 /// The placed galaxy the static map tiles describe, for map-shaped objective counts.
-fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
-    if map_tiles.is_empty() {
-        return None;
-    }
+///
+/// Only tiles on the hex grid count: the Fracture (`special_area: "fracture"`) is drawn beside
+/// the map at made-up coordinates and is outside the PoK catalogue, and an off-map Wormhole Nexus
+/// is parked at the origin, on top of Mecatol Rex. Feeding either to [`Galaxy::placed`] used to
+/// fail the whole build (or overwrite Mecatol), which silently dropped every map-shaped
+/// objective's progress — Push Boundaries, Intimidate Council, Learn the Secrets and the rest.
+#[must_use]
+pub fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
+    let mut taken = std::collections::BTreeSet::new();
     let tiles: Vec<_> = map_tiles
         .iter()
+        .filter(|tile| tile.special_area.as_deref() != Some("fracture"))
+        .filter(|tile| {
+            // On-map tiles first, so a parked nexus never displaces the tile it overlaps.
+            tile.special_area.is_none()
+                || !map_tiles.iter().any(|other| {
+                    other.special_area.is_none() && (other.q, other.r) == (tile.q, tile.r)
+                })
+        })
+        .filter(|tile| taken.insert((tile.q, tile.r)))
         .map(|tile| {
             (
                 tile.system_id.as_str(),
@@ -464,6 +478,9 @@ fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
             )
         })
         .collect();
+    if tiles.is_empty() {
+        return None;
+    }
     Galaxy::placed(ContentStore::embedded(), &tiles, POK).ok()
 }
 
@@ -496,14 +513,38 @@ pub fn project_secret_progress(
         .filter(|alias| alias.as_str() != HIDDEN)
         .filter_map(|alias| {
             let prog = ti4_engine::secrets::progress(alias, &position)?;
+            // Which systems count, so the holder can see where their 2 of 3 are.
+            let systems = if alias.as_str() == "lsc" {
+                ti4_engine::secrets::ship_systems_beside_anomaly(&position).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             Some((
                 alias.clone(),
                 ObjectiveProgressView {
                     have: u32::try_from(prog.have).unwrap_or(0),
                     threshold: u32::try_from(prog.threshold).unwrap_or(0),
                     satisfied: prog.satisfied(),
+                    systems,
+                    ..ObjectiveProgressView::default()
                 },
             ))
+        })
+        .collect()
+}
+
+/// Push Boundaries' per-neighbour planet comparison for `position.player`, in seating order.
+fn neighbour_progress_views(
+    position: &ti4_engine::objectives::Position<'_>,
+) -> Vec<crate::protocol::view::NeighbourProgressView> {
+    ti4_engine::objectives::neighbour_planet_counts(position)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| crate::protocol::view::NeighbourProgressView {
+            ahead: row.ahead(),
+            mine: u32::try_from(row.mine).unwrap_or(0),
+            theirs: u32::try_from(row.theirs).unwrap_or(0),
+            player: row.neighbour,
         })
         .collect()
 }
@@ -533,12 +574,21 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                     ti4_engine::objectives::remaining_position_progress(&canonical, &position)
                 })
             {
+                // Push Boundaries: each neighbour's planet count beside ours. Planet control is
+                // public, so every viewer may see every seat's comparison.
+                let neighbours = if canonical.as_str() == "push_boundaries" {
+                    neighbour_progress_views(&position)
+                } else {
+                    Vec::new()
+                };
                 player_progress.insert(
                     raw_alias.clone(),
                     ObjectiveProgressView {
                         have: u32::try_from(prog.have).unwrap_or(0),
                         threshold: u32::try_from(prog.threshold).unwrap_or(0),
                         satisfied: prog.satisfied(),
+                        neighbours,
+                        ..ObjectiveProgressView::default()
                     },
                 );
             } else if let Some(cost) =
@@ -550,6 +600,7 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                         have: u32::try_from(cost.have.max(0)).unwrap_or(0),
                         threshold: u32::try_from(cost.target.max(0)).unwrap_or(0),
                         satisfied: cost.satisfied(),
+                        ..ObjectiveProgressView::default()
                     },
                 );
             }

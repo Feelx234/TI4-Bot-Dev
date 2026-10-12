@@ -842,6 +842,7 @@ const GameViewContainer: React.FC<{
         objectiveProgress={snapshot?.view.table.objective_progress}
         players={snapshot?.view.players}
         viewerSeat={userSeat}
+        board={snapshot?.view.board}
         onInspectCard={(subject) => {
           setSelectedSystemId(null);
           setCardSubject(subject);

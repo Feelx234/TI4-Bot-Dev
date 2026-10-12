@@ -490,6 +490,7 @@ function renderObjectiveScoring({
   objectiveProgress,
   selectedOptionId,
   onSelectOption,
+  boardView,
 }: Parameters<WorkflowRenderer>[0]) {
   return (
     <ObjectivesModal
@@ -507,6 +508,7 @@ function renderObjectiveScoring({
       selectedOptionId={selectedOptionId}
       onSelectOption={onSelectOption}
       isScoringMode={true}
+      board={boardView}
     />
   );
 }

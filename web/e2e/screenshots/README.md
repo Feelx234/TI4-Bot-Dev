@@ -74,3 +74,6 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda result toast (CS-agenda-result-toast)
 
 `CS-agenda-result-toast` shows the corner toast every seat (the voter included) gets when an agenda vote finishes: For wins (a law enters play), Against wins (a directive resolved), an election, a tie and a silent table decided by the speaker, desktop and 390x844. `npm run screenshots -- CS` feeds the engine's `agenda_log` through a mocked state update and asserts the texts, the gold accent, that a later state with the same log does not toast again, and that the toast stays inside the viewport.
+## Objective progress (CU-objective-progress)
+
+`CU-objective-progress` shows Push Boundaries' per-neighbor comparison (ours/theirs, blue ▲ ahead, red = tied or ▼ behind, "Ahead of N of M neighbors · need 2") for ahead-of-2, ahead-of-1 and tied tables, and Learn the Secrets of the Cosmos at 0, 1, 2 and 3 counted systems with the systems named, desktop and 390x844. `npm run screenshots -- CU` asserts the rows, standings, summaries, the system list and no horizontal scroll on the phone.

@@ -1,5 +1,10 @@
 import React, { useMemo, useState, useEffect, useCallback } from "react";
-import type { PlayerView, ObjectiveProgressView, PendingChoiceDto } from "../protocol/types.ts";
+import type {
+  BoardView,
+  PlayerView,
+  ObjectiveProgressView,
+  PendingChoiceDto,
+} from "../protocol/types.ts";
 import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { describeImperialOutcome } from "../presentation/imperialOutcome.ts";
 import { Dialog } from "../primitives/index.ts";
@@ -19,6 +24,7 @@ import {
 } from "../presentation/boughtObjective.ts";
 import { ValueUnit } from "./PlanetValueIcons.tsx";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
+import { NeighbourProgress } from "./NeighbourProgress.tsx";
 import { secretProgressOf } from "../presentation/secretProgress.ts";
 import "./ObjectivesModal.css";
 
@@ -61,6 +67,8 @@ export interface ObjectivesModalProps {
   selectedOptionId?: string;
   onSelectOption?: (optionId: string) => void;
   isScoringMode?: boolean;
+  /** Names the systems a secret's progress counts (Learn the Secrets of the Cosmos). */
+  board?: BoardView | null;
 }
 
 export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
@@ -79,6 +87,7 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
   selectedOptionId: controlledSelectedOptionId,
   onSelectOption,
   isScoringMode = false,
+  board,
 }) => {
   const display = usePlayerIdentity();
   const imperial = choice ? describeImperialOutcome(choice) : null;
@@ -334,6 +343,14 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               )}
             </div>
             <div className="objectives-matrix__card-desc">{meta.description}</div>
+            {viewerSeat && !scoredObjectives[viewerSeat]?.includes(objectiveId) && (
+              <NeighbourProgress
+                progress={objectiveProgress[viewerSeat]?.[objectiveId]}
+                testId={`${objectiveId}-card`}
+                className="neighbour-progress--card"
+                heading="You:"
+              />
+            )}
           </div>
         </td>
         {playerList.map((player) => {
@@ -421,6 +438,9 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               ) : (
                 <span className="objectives-matrix__status-empty">—</span>
               )}
+              {!isScored && (
+                <NeighbourProgress progress={progress} testId={`${objectiveId}-${player.id}`} />
+              )}
             </td>
           );
         })}
@@ -499,7 +519,11 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
             {/* In the card, not the status column: on a phone the matrix scrolls sideways and the
                 status column starts off screen. */}
             {!isScoreable && (
-              <SecretObjectiveProgress alias={secretId} progress={secretProgressOf(holder, secretId)} />
+              <SecretObjectiveProgress
+                alias={secretId}
+                progress={secretProgressOf(holder, secretId)}
+                board={board}
+              />
             )}
             {plotToken && (
               <div className="objectives-matrix__plot-note" data-testid="secret-plot-note">

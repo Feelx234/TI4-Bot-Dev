@@ -223,12 +223,31 @@ pub struct BoardView {
 }
 
 /// Exact progress towards a public objective requirement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectiveProgressView {
     pub have: u32,
     pub threshold: u32,
     pub satisfied: bool,
+    /// Push Boundaries: this player's planet count against each neighbour's. Display only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub neighbours: Vec<NeighbourProgressView>,
+    /// Learn the Secrets of the Cosmos: the systems that count right now. Display only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub systems: Vec<SystemId>,
+}
+
+/// One neighbour row of a planet-count comparison (Push Boundaries).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighbourProgressView {
+    pub player: PlayerId,
+    /// Planets the progress owner controls.
+    pub mine: u32,
+    /// Planets this neighbour controls.
+    pub theirs: u32,
+    /// Strictly more planets than this neighbour, so the row counts toward the objective.
+    pub ahead: bool,
 }
 
 /// Public table state: objectives, laws, strategy card goods.

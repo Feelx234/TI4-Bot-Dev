@@ -329,6 +329,20 @@ export interface ObjectiveProgressView {
   have: number;
   threshold: number;
   satisfied: boolean;
+  /** Push Boundaries: this player's planet count against each neighbour's (public). */
+  neighbours?: NeighbourProgressView[];
+  /** Learn the Secrets of the Cosmos: the systems that count right now (holder only). */
+  systems?: string[];
+}
+
+export interface NeighbourProgressView {
+  player: string;
+  /** Planets the progress owner controls. */
+  mine: number;
+  /** Planets this neighbour controls. */
+  theirs: number;
+  /** Strictly more planets than this neighbour: the row counts toward the objective. */
+  ahead: boolean;
 }
 
 export interface TableView {

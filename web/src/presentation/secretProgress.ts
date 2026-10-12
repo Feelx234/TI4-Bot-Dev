@@ -65,6 +65,8 @@ export interface SecretProgressDisplay {
   unit: string;
   /** "4 / 6 systems with at least one of your ships". */
   text: string;
+  /** The systems that count right now, when the server names them (Learn the Secrets). */
+  systems: string[];
 }
 
 /** The viewer's progress toward one of their own secrets, or null when it has no count. */
@@ -82,6 +84,7 @@ export function secretProgressDisplay(
     percent: Math.min(100, Math.round((have / progress.threshold) * 100)),
     unit,
     text: `${have} / ${progress.threshold} ${unit}`,
+    systems: [...(progress.systems ?? [])],
   };
 }
 

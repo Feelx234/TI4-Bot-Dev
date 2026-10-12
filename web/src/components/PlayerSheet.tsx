@@ -896,6 +896,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 <SecretObjectiveProgress
                                   alias={objId}
                                   progress={secretProgressOf(player, objId)}
+                                  board={board}
                                 />
                               </div>
                             </button>

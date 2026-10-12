@@ -546,20 +546,33 @@ fn production_in_one_system_count(position: &Position<'_>) -> usize {
 }
 
 fn ship_systems_beside_anomaly_count(position: &Position<'_>) -> Option<usize> {
+    ship_systems_beside_anomaly(position).map(|systems| systems.len())
+}
+
+/// The systems that count toward Learn the Secrets of the Cosmos right now: each holds one of
+/// this player's ships and is adjacent to an anomaly, sorted by id.
+///
+/// Display-only detail behind [`CountFamily::ShipSystemsBesideAnomaly`](crate::objectives::CountFamily);
+/// its length is the count the requirement checks. `None` without a map.
+#[must_use]
+pub fn ship_systems_beside_anomaly(
+    position: &Position<'_>,
+) -> Option<Vec<ti4_model::id::SystemId>> {
     let galaxy = position.galaxy?;
     let systems = ti4_content::galaxy::all_systems(position.content, position.sources);
-    Some(
-        ship_systems(position)
-            .into_iter()
-            .filter(|here| {
-                galaxy.adjacent(here.as_str()).into_iter().any(|other| {
-                    systems
-                        .get(other)
-                        .is_some_and(ti4_content::galaxy::System::is_anomaly)
-                })
+    let mut found: Vec<ti4_model::id::SystemId> = ship_systems(position)
+        .into_iter()
+        .filter(|here| {
+            galaxy.adjacent(here.as_str()).into_iter().any(|other| {
+                systems
+                    .get(other)
+                    .is_some_and(ti4_content::galaxy::System::is_anomaly)
             })
-            .count(),
-    )
+        })
+        .cloned()
+        .collect();
+    found.sort();
+    Some(found)
 }
 
 fn ship_systems_beside_rival_home_count(position: &Position<'_>) -> Option<usize> {
@@ -1857,6 +1870,16 @@ mod tests {
             .have,
             2,
             "two systems beside an anomaly are two, however many ships are in them"
+        );
+        let mut expected: Vec<ti4_model::id::SystemId> = hub.outer[..2]
+            .iter()
+            .map(|id| ti4_model::id::SystemId::new(id.clone()))
+            .collect();
+        expected.sort();
+        assert_eq!(
+            ship_systems_beside_anomaly(&on_map(&state, &seat, &hub.galaxy)).unwrap(),
+            expected,
+            "the qualifying systems are named, not just counted"
         );
 
         crate::fixtures::put(

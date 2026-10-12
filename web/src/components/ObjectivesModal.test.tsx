@@ -614,4 +614,113 @@ describe("ObjectivesModal", () => {
       expect(screen.queryByTestId("secret-progress-ctr")).toBeNull();
     });
   });
+
+  describe("Push Boundaries per-neighbor progress", () => {
+    const progress: Record<string, Record<string, ObjectiveProgressView>> = {
+      p1: {
+        push_boundaries: {
+          have: 1,
+          threshold: 2,
+          satisfied: false,
+          neighbours: [
+            { player: "p2", mine: 12, theirs: 10, ahead: true },
+            { player: "p3", mine: 12, theirs: 13, ahead: false },
+            { player: "p4", mine: 12, theirs: 12, ahead: false },
+          ],
+        },
+      },
+      p2: {
+        push_boundaries: {
+          have: 0,
+          threshold: 2,
+          satisfied: false,
+          neighbours: [{ player: "p1", mine: 10, theirs: 12, ahead: false }],
+        },
+      },
+    };
+
+    it("shows ours/theirs per neighbor with a standing that is not colour alone", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["push_boundaries"]}
+          objectiveProgress={progress}
+          players={mockPlayers}
+          viewerSeat="p1"
+        />,
+      );
+      const ahead = screen.getByTestId("neighbour-row-push_boundaries-p1-p2");
+      expect(ahead).toHaveTextContent("12/10");
+      expect(ahead).toHaveAttribute("data-standing", "ahead");
+      expect(ahead.getAttribute("aria-label")).toMatch(/12 planets against .*10: ahead/);
+      const behind = screen.getByTestId("neighbour-row-push_boundaries-p1-p3");
+      expect(behind).toHaveTextContent("12/13");
+      expect(behind).toHaveAttribute("data-standing", "behind");
+      const tied = screen.getByTestId("neighbour-row-push_boundaries-p1-p4");
+      expect(tied).toHaveAttribute("data-standing", "tied");
+      expect(tied.getAttribute("aria-label")).toMatch(/tied, not ahead/);
+      expect(screen.getByTestId("neighbour-progress-push_boundaries-p1")).toHaveTextContent(
+        "Ahead of 1 of 3 neighbors · need 2",
+      );
+      // Every seat's comparison is public, from that seat's side.
+      expect(screen.getByTestId("neighbour-row-push_boundaries-p2-p1")).toHaveTextContent("10/12");
+      // The viewer's own copy in the card column (shown on phones).
+      expect(screen.getByTestId("neighbour-progress-push_boundaries-card")).toHaveTextContent(
+        "You:",
+      );
+    });
+
+    it("drops the comparison once the seat has scored it, and for other objectives", () => {
+      render(
+        <ObjectivesModal
+          isOpen={true}
+          onClose={vi.fn()}
+          revealedObjectives={["push_boundaries", "corner"]}
+          scoredObjectives={{ p1: ["push_boundaries"] }}
+          objectiveProgress={{
+            ...progress,
+            p1: { ...progress.p1, corner: { have: 2, threshold: 4, satisfied: false } },
+          }}
+          players={mockPlayers}
+          viewerSeat="p1"
+        />,
+      );
+      expect(screen.queryByTestId("neighbour-progress-push_boundaries-p1")).toBeNull();
+      expect(screen.queryByTestId("neighbour-progress-push_boundaries-card")).toBeNull();
+      expect(screen.queryByTestId("neighbour-progress-corner-p1")).toBeNull();
+      expect(screen.getByTestId("neighbour-progress-push_boundaries-p2")).toBeInTheDocument();
+    });
+  });
+
+  it("names the systems Learn the Secrets of the Cosmos counts", () => {
+    const owner: PlayerView = {
+      ...mockPlayers[0],
+      held_secret_objectives: ["lsc"],
+      secret_objective_progress: {
+        lsc: { have: 2, threshold: 3, satisfied: false, systems: ["26", "25"] },
+      },
+    };
+    render(
+      <ObjectivesModal
+        isOpen={true}
+        onClose={vi.fn()}
+        revealedObjectives={["corner"]}
+        players={[owner, mockPlayers[1]]}
+        viewerSeat="p1"
+        board={{
+          map_tiles: [
+            { system_id: "26", label: "Lodor", q: 0, r: 1, planets: [{ id: "lodor" }] },
+            { system_id: "25", label: "Quann", q: 1, r: 0, planets: [{ id: "quann" }] },
+          ],
+        } as never}
+      />,
+    );
+    expect(screen.getByTestId("secret-progress-lsc")).toHaveTextContent(
+      "2 / 3 systems adjacent to an anomaly with your ships",
+    );
+    expect(screen.getByTestId("secret-progress-systems-lsc")).toHaveTextContent(
+      "Counting: #26 [Lodor], #25 [Quann]",
+    );
+  });
 });

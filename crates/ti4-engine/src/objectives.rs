@@ -695,6 +695,42 @@ fn ships_adjacent_to_mecatol_count(position: &Position<'_>) -> Option<usize> {
 /// "More than each of two" is the difficulty: beating one neighbour twice over is not beating
 /// two neighbours.
 fn weaker_neighbours_count(position: &Position<'_>) -> Option<usize> {
+    Some(
+        neighbour_planet_counts(position)?
+            .iter()
+            .filter(|row| row.ahead())
+            .count(),
+    )
+}
+
+/// One neighbour's planet count beside this player's own, as Push Boundaries compares them.
+///
+/// Display-only detail behind [`CountFamily::WeakerNeighbours`]: the count is how many of these
+/// rows are [`NeighbourPlanets::ahead`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NeighbourPlanets {
+    pub neighbour: PlayerId,
+    /// Planets this player controls, counted as the objective counts them.
+    pub mine: usize,
+    /// Planets the neighbour controls, counted the same way.
+    pub theirs: usize,
+}
+
+impl NeighbourPlanets {
+    /// Strictly more planets than this neighbour ("more planets than"); a tie is not ahead.
+    #[must_use]
+    pub const fn ahead(&self) -> bool {
+        self.mine > self.theirs
+    }
+}
+
+/// Every neighbour of `position.player` with both planet counts, in seating order.
+///
+/// The exact comparison [`weaker_neighbours_count`] makes for Push Boundaries, neighbours by
+/// [`crate::transactions::neighbours`] (rule 60), so a row marked ahead is one the requirement
+/// counts. `None` without a map, since adjacency needs one.
+#[must_use]
+pub fn neighbour_planet_counts(position: &Position<'_>) -> Option<Vec<NeighbourPlanets>> {
     let galaxy = position.galaxy?;
     // Counted through the scoring view, not `state.controlled_planets`, so rule 7 applies to both
     // sides of the comparison. Reading the raw state here would have counted stations for everyone
@@ -708,8 +744,12 @@ fn weaker_neighbours_count(position: &Position<'_>) -> Option<usize> {
     Some(
         crate::transactions::neighbours(position.state, galaxy, position.player)
             .into_iter()
-            .filter(|other| planets_of(other) < mine)
-            .count(),
+            .map(|neighbour| NeighbourPlanets {
+                theirs: planets_of(&neighbour),
+                neighbour,
+                mine,
+            })
+            .collect(),
     )
 }
 
@@ -3137,6 +3177,7 @@ mod tests {
 
         assert!(!intimidate_council(&position));
         assert!(!push_boundaries(&position));
+        assert!(neighbour_planet_counts(&position).is_none());
         assert!(!rule_distant_lands(&position));
         assert!(on_the_rim_count(&position).is_none());
     }
@@ -3372,6 +3413,19 @@ mod tests {
             !one_weaker.satisfied(),
             "beating one neighbour is not beating two"
         );
+        // The per-neighbour detail behind that count: ahead of b, tied with c (a tie is not
+        // "more planets than"), in seating order.
+        let rows = neighbour_planet_counts(&on_map(&state, &seat, &hub.galaxy)).unwrap();
+        let summary: Vec<(&str, usize, usize, bool)> = rows
+            .iter()
+            .map(|row| (row.neighbour.as_str(), row.mine, row.theirs, row.ahead()))
+            .collect();
+        assert_eq!(summary, vec![("b", 3, 1, true), ("c", 3, 3, false)]);
+        assert_eq!(
+            rows.iter().filter(|row| row.ahead()).count(),
+            one_weaker.have,
+            "the detail and the count never disagree"
+        );
 
         // Take c's planets away and both are behind.
         state
@@ -3385,6 +3439,9 @@ mod tests {
         .unwrap();
         assert_eq!(two_weaker.have, 2);
         assert!(two_weaker.satisfied());
+        let rows = neighbour_planet_counts(&on_map(&state, &seat, &hub.galaxy)).unwrap();
+        assert!(rows.iter().all(NeighbourPlanets::ahead));
+        assert_eq!(rows[1].theirs, 0);
     }
 
     #[test]

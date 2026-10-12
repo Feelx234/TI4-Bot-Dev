@@ -1,5 +1,6 @@
 import React from "react";
-import type { ObjectiveProgressView } from "../protocol/types.ts";
+import type { BoardView, ObjectiveProgressView } from "../protocol/types.ts";
+import { systemTag } from "../presentation/systemFacts.ts";
 import { secretNoProgressNote, secretProgressDisplay } from "../presentation/secretProgress.ts";
 import "./SecretObjectiveProgress.css";
 
@@ -11,7 +12,9 @@ import "./SecretObjectiveProgress.css";
 export const SecretObjectiveProgress: React.FC<{
   alias: string;
   progress: ObjectiveProgressView | undefined;
-}> = ({ alias, progress }) => {
+  /** Names the counted systems ("#26 [Lodor]"); bare tile numbers without it. */
+  board?: BoardView | null;
+}> = ({ alias, progress, board }) => {
   const display = secretProgressDisplay(alias, progress);
   if (!display) {
     const note = secretNoProgressNote(alias);
@@ -38,6 +41,11 @@ export const SecretObjectiveProgress: React.FC<{
       <div className="secret-progress__bar" aria-hidden="true">
         <div className="secret-progress__fill" style={{ width: `${display.percent}%` }} />
       </div>
+      {display.systems.length > 0 && (
+        <div className="secret-progress__systems" data-testid={`secret-progress-systems-${alias}`}>
+          Counting: {display.systems.map((id) => systemTag(id, board)).join(", ")}
+        </div>
+      )}
     </div>
   );
 };
