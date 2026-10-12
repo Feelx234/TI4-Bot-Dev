@@ -109,6 +109,8 @@ async fn handle_socket(
     let mut last_preview: Option<std::time::Instant> = None;
     let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
+    let idle_timeout = registry.public().config.ws_idle_timeout;
+    let mut last_inbound = std::time::Instant::now();
 
     // Inbound processing loop
     loop {
@@ -116,6 +118,9 @@ async fn handle_socket(
             msg = ws_receiver.next() => match msg { Some(msg) => msg, None => break },
             _ = auth_check.tick() => {
                 if session.error().is_some() {
+                    break;
+                }
+                if idle_timeout.is_some_and(|limit| last_inbound.elapsed() > limit) {
                     break;
                 }
                 if registry.get_game(&game_id).is_none_or(|current| !Arc::ptr_eq(&current, &session)) {
@@ -130,6 +135,7 @@ async fn handle_socket(
                 continue;
             }
         };
+        last_inbound = std::time::Instant::now();
         let ws_msg = match msg_result {
             Ok(msg) => msg,
             Err(err) => {

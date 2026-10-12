@@ -295,6 +295,12 @@ pub async fn create_game(
         ),
     };
 
+    if payload.start_preset.is_some() && registry.public().is_public() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "start_preset is not available on the public server".to_owned(),
+        ));
+    }
     if let Some(preset) = &payload.start_preset
         && !crate::preset::is_known(preset)
     {
@@ -531,6 +537,12 @@ pub async fn add_bot_to_lobby(
     Json(payload): Json<AddBotRequest>,
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
+    if registry.public().is_public() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "ML bots are disabled on the public server; use the smart or random bots".to_owned(),
+        ));
+    }
     if !registry.bot_service_enabled() {
         return Err((
             StatusCode::FORBIDDEN,

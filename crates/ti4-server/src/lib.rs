@@ -5,11 +5,13 @@
 
 pub mod card_set;
 pub mod dev;
+pub mod feedback;
 pub mod fixtures;
 pub mod http;
 pub mod map;
 pub mod maps;
 pub mod preset;
+pub mod public;
 pub mod projection;
 pub mod protocol;
 pub mod session;

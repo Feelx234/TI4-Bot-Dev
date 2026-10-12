@@ -850,6 +850,8 @@ pub struct GameRegistry {
     /// Redos in flight, by game: the saved original timeline and where the redo stands.
     /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
     turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
+    /// Public-playtest hardening; inert by default.
+    public: Arc<crate::public::PublicState>,
 }
 
 impl Default for GameRegistry {
@@ -864,6 +866,7 @@ impl Default for GameRegistry {
             bot_config: None,
             active_bots: Mutex::new(BTreeMap::new()),
             turn_redos: Mutex::new(BTreeMap::new()),
+            public: Arc::new(crate::public::PublicState::default()),
         }
     }
 }
@@ -1797,6 +1800,18 @@ impl GameRegistry {
     pub fn with_presence_grace(mut self, grace: Duration) -> Self {
         self.presence_grace = grace;
         self
+    }
+
+    #[must_use]
+    pub fn with_public(mut self, config: crate::public::PublicConfig) -> Self {
+        self.public = Arc::new(crate::public::PublicState::new(config));
+        self
+    }
+
+    /// Public-playtest settings and state.
+    #[must_use]
+    pub fn public(&self) -> &crate::public::PublicState {
+        &self.public
     }
 
     #[must_use]
