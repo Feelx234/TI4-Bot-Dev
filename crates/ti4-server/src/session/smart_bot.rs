@@ -3120,6 +3120,161 @@ mod tests {
         assert_eq!(ground_shortfall(&seen, &me(), &system, 0), 2);
     }
 
+    /// The Mentak start on the opening board: Moll Primus-like home (four resources), a carrier,
+    /// two cruisers and four infantry, Plasma Scoring and Sarween Tools, no trade goods.
+    fn mentak_board() -> (GameState, Hub, SystemId, SystemId) {
+        let (mut state, hub, home, target) = opening_board();
+        put(&mut state, &home, "carrier", &me(), 1);
+        put(&mut state, &home, "cruiser", &me(), 2);
+        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "infantry", &me(), 4);
+        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "spacedock", &me(), 1);
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.faction = ti4_model::id::FactionId::new("mentak");
+        seat.trade_goods = 0;
+        seat.tactic_tokens = 3;
+        seat.technologies = ["ps", "st"]
+            .into_iter()
+            .map(ti4_model::id::TechnologyId::new)
+            .collect();
+        (state, hub, home, target)
+    }
+
+    fn action_choice(cards: &[&str]) -> Choice {
+        Choice::new(
+            me(),
+            "action phase",
+            cards
+                .iter()
+                .map(|card| {
+                    ChoiceOption::labelled(format!("strategic|{card}"), "action", *card)
+                })
+                .chain(std::iter::once(ChoiceOption::labelled(
+                    "tactical", "action", "tactical",
+                )))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn the_cruiser_two_plan_drafts_trade_and_technology_then_plays_them_in_that_order() {
+        let (mut state, hub, _, _) = mentak_board();
+        state.phase = ti4_model::state::Phase::Strategy;
+        let seen = observe(&state, &hub);
+        assert!(cruiser_plan(&seen, &me()), "two cruisers, one colour short of Cruiser II");
+        assert_eq!(missing_colours(&seen, &me(), CRUISER_II), vec!['G']);
+        // Holding Trade, Technology is the second pick, ahead of Warfare.
+        let trade = ti4_model::id::StrategyCardId::new("pok5trade");
+        state.player_mut(&me()).expect("seat").strategy_cards = vec![trade.clone()];
+        let rest = draft(&["te6warfare", "pok7technology", "pok8imperial"]);
+        assert_eq!(picked(&state, &hub, &rest), Some(1), "Technology");
+
+        // In the action phase: Trade first (four resources are not the six Cruiser II costs) ...
+        state.phase = ti4_model::state::Phase::Action;
+        let technology = ti4_model::id::StrategyCardId::new("pok7technology");
+        state.player_mut(&me()).expect("seat").strategy_cards =
+            vec![trade.clone(), technology.clone()];
+        let both = action_choice(&["pok5trade", "pok7technology"]);
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let seen = observe(&state, &hub);
+        assert_eq!(reserved_resources(&seen, &me()), SECOND_RESEARCH);
+        assert_eq!(pick_action(&both, &seen, &me(), &mut rng), Some(0), "Trade");
+        // ... then Technology with its goods.
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.exhausted_strategy_cards.insert(trade);
+        seat.trade_goods = 3;
+        let seen = observe(&state, &hub);
+        let tech_only = action_choice(&["pok7technology"]);
+        assert_eq!(pick_action(&tech_only, &seen, &me(), &mut rng), Some(0), "Technology");
+    }
+
+    #[test]
+    fn the_cruiser_two_plan_researches_the_missing_colour_then_cruiser_two() {
+        let (state, hub, _, _) = mentak_board();
+        let seen = observe(&state, &hub);
+        let research = |ids: &[&str]| {
+            Choice::new(
+                me(),
+                "research a technology",
+                ids.iter()
+                    .map(|id| ChoiceOption::labelled(*id, "research", *id))
+                    .collect(),
+            )
+        };
+        // Neural Motivator: green without prerequisites (Dacxive Animators needs a green).
+        assert_eq!(
+            pick_research(&research(&["amd", "dxa", "nm", "gd"]), &seen, &me()),
+            Some(2)
+        );
+        assert_eq!(
+            pick_research(&research(&["amd", "cr2", "gd"]), &seen, &me()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn short_of_transports_trade_comes_before_the_home_build_and_the_build_is_carriers_first() {
+        let (mut state, hub, home, _) = opening_board();
+        put(&mut state, &home, "carrier", &me(), 1);
+        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "infantry", &me(), 4);
+        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "spacedock", &me(), 1);
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.trade_goods = 0;
+        seat.tactic_tokens = 3;
+        seat.strategy_cards = vec![
+            ti4_model::id::StrategyCardId::new("te4construction"),
+            ti4_model::id::StrategyCardId::new("pok5trade"),
+        ];
+        let seen = observe(&state, &hub);
+        // One transport for three tactic tokens: two carriers to build, troops enough.
+        assert_eq!(transport_plan(&seen, &me()), Some((2, 2 * CARRIER_COST)));
+        assert!(short_of_transports(&seen, &me()));
+        let mut rng = ChaCha8Rng::seed_from_u64(1);
+        let cards = action_choice(&["te4construction", "pok5trade"]);
+        assert_eq!(pick_action(&cards, &seen, &me(), &mut rng), Some(1), "Trade first");
+
+        // At the build: a carrier while its troop waits at home.
+        let build = |unit: &str, cost: f64| {
+            ChoiceOption::labelled(format!("build|{unit}|1"), "produce", unit)
+                .with("unit", unit)
+                .with("cost", cost)
+                .with("owed", cost)
+                .with("available_resources", 7.0)
+                .with("system", home.as_str())
+        };
+        let produce = Choice::new(
+            me(),
+            "produce in 01",
+            vec![
+                build("infantry", 1.0),
+                build("fighter", 1.0),
+                build("carrier", 3.0),
+                ChoiceOption::decline(),
+            ],
+        );
+        assert_eq!(pick_produce(&produce, &seen, &me()), Some(2), "carrier");
+        // Nothing is built where its command token would keep it this round.
+        state.system_mut(&home).command_tokens.insert(me());
+        let seen = observe(&state, &hub);
+        assert_eq!(pick_produce(&produce, &seen, &me()), Some(3), "declined");
+    }
+
+    #[test]
+    fn predictive_intelligence_keeps_the_pools_as_they_are() {
+        let (state, hub, _, _) = opening_board();
+        let choice = contextual(
+            Choice::new(
+                me(),
+                "Predictive Intelligence: redistribute command tokens",
+                ["tactic|fleet", "fleet|strategy", "done"]
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "redistribute", *id))
+                    .collect(),
+            ),
+            "predictive_intelligence_redistribute",
+        );
+        assert_eq!(picked(&state, &hub, &choice), Some(2));
+    }
+
     #[test]
     fn the_status_phase_before_round_two_keeps_a_lean_fleet_and_one_strategy_token() {
         let (mut state, hub, _, _) = board();

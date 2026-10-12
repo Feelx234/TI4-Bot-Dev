@@ -2417,11 +2417,19 @@ pub fn primary(
         let Some(galaxy) = galaxy else {
             return Ok(Ability::Resolved);
         };
-        let systems: Vec<String> = galaxy
+        // "Any system": the printed map and every system in play beside it (the Creuss home
+        // system, the Fracture), as an ordinary activation offers them.
+        let mut systems: Vec<String> = galaxy
             .system_ids_holding_things()
             .into_iter()
             .map(ToOwned::to_owned)
             .collect();
+        for system in state.board.keys() {
+            if !galaxy.is_hyperlane(system.as_str()) && !systems.iter().any(|s| s == system.as_str())
+            {
+                systems.push(system.to_string());
+            }
+        }
         if systems.is_empty() {
             return Ok(Ability::Resolved);
         }
@@ -4807,6 +4815,47 @@ mod tests {
         assert_eq!(
             asked[1].context.as_ref().unwrap().subtype,
             "warfare_free_tactical"
+        );
+    }
+
+    /// "Any system" includes a system in play off the printed map, such as the Creuss home
+    /// system: an ordinary activation offers it, and so must Warfare's free tactical action.
+    #[test]
+    fn thunders_edge_warfare_offers_a_system_off_the_printed_map() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let hub = plain_hub();
+        state.phase = ti4_model::state::Phase::Action;
+        let off_map = SystemId::new("51");
+        assert!(
+            !hub.galaxy
+                .system_ids_holding_things()
+                .contains(&off_map.as_str()),
+            "the fixture's map does not place it"
+        );
+        let _ = state.system_mut(&off_map);
+        let held = held_distribution(&state, &player);
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(vec![
+                held,
+                off_map.to_string(),
+            ])));
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(capturing)),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+        assert!(matches!(result, Ability::FreeTactical(system) if system == off_map));
+        assert!(
+            seen.borrow()[1]
+                .options
+                .iter()
+                .any(|o| o.id == off_map.as_str())
         );
     }
 
