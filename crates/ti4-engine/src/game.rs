@@ -2315,6 +2315,9 @@ impl<'a> Game<'a> {
                     return Ok(());
                 }
                 if let Some(leader) = answer.id.strip_prefix("component|leader|") {
+                    if leader == crate::leaders::ZEU {
+                        return self.perform_zeu(&active, &answer.id);
+                    }
                     let leader = ti4_model::id::LeaderId::new(leader.to_owned());
                     // "During the action phase:" is not "ACTION:" (OP-07): Carth and the other
                     // Prophecy of Kings agents printed that way are used without spending the turn,
@@ -3184,6 +3187,64 @@ impl<'a> Game<'a> {
         }
         self.emit("FREE_TACTICAL_ACTION");
         Ok(())
+    }
+
+    /// Z'eu (`leaders::ZEU`): the Naalu choose a non-home system without their token, exhaust the
+    /// agent and perform a tactical action there without placing a command token. Declining (or
+    /// no such system) fails the component action, which then is not offered again this turn.
+    fn perform_zeu(&mut self, player: &PlayerId, option_id: &str) -> Result<(), GameError> {
+        let systems = self.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
+            crate::leaders::zeu_systems(&self.state, self.content, self.sources, galaxy, player)
+        });
+        let mut options: Vec<ChoiceOption> = systems
+            .iter()
+            .map(|system| {
+                ChoiceOption::labelled(
+                    system.to_string(),
+                    crate::tactical::ACTIVATE_KIND,
+                    format!("activate {system} without a command token"),
+                )
+            })
+            .collect();
+        options.push(ChoiceOption::decline());
+        let choice = Choice::new(
+            player.clone(),
+            "Z'eu: perform a tactical action without placing a command token",
+            options,
+        )
+        .contextualized(
+            crate::decision_context::DecisionContext::new(
+                player.clone(),
+                crate::decision_context::DecisionSource::Content(crate::leaders::ZEU.to_owned()),
+                "zeu_activate_system",
+                self.state.phase,
+                self.state.round,
+            )
+            .optional(true),
+        );
+        let answer = self.table.ask_seeing(
+            &choice,
+            &crate::choice::Observed::new(
+                &self.state,
+                self.content,
+                self.sources,
+                self.galaxy.as_ref(),
+            ),
+        )?;
+        let agent = ti4_model::id::LeaderId::new(crate::leaders::ZEU);
+        if answer.is_decline()
+            || !systems.iter().any(|system| system.as_str() == answer.id)
+            || !crate::leaders::exhaust(&mut self.state, player, &agent)
+        {
+            self.emit("COMPONENT_ACTION_FAILED");
+            self.failed_component_actions.insert(option_id.to_owned());
+            return Ok(());
+        }
+        self.settle_extreme_duress(player, false)?;
+        self.emit("COMPONENT_ACTION_RESOLVED");
+        // The tactical action is the component action's effect: it ends the turn when it closes
+        // (`close_tactical` finishes a plain tactical action).
+        self.begin_free_tactical(player.clone(), SystemId::new(answer.id))
     }
 
     fn perform_leader_action(
@@ -7780,6 +7841,101 @@ mod tests {
         }
         assert_eq!(game.state.active.as_ref(), Some(&b));
         assert!(!game.events.iter().any(|event| event == "TURN_CLOSING"));
+    }
+
+    /// Z'eu (`naaluagent`), the agent a Prophecy of Kings game deals the Naalu, was never offered
+    /// before 2026-10-12. Now: offered as a component action; the Naalu perform a tactical action
+    /// in a non-home system without placing a command token, and the agent exhausts.
+    fn zeu_fixture() -> (GameState, ti4_content::galaxy::Galaxy, Vec<SystemId>) {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let seat = state.player_mut(&PlayerId::new("a")).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("naalu");
+        seat.tactic_tokens = 3;
+        seat.home_system = Some(ids[2].clone());
+        seat.leaders.insert(
+            ti4_model::id::LeaderId::new("naaluagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        (state, galaxy, ids)
+    }
+
+    #[test]
+    fn zeu_performs_a_tactical_action_without_a_command_token() {
+        let (state, galaxy, ids) = zeu_fixture();
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(Scripted::new(vec![
+                "component|leader|naaluagent".to_owned(),
+                ids[0].to_string(),
+                "done_moving".to_owned(),
+            ]))),
+        )
+        .with_galaxy(galaxy);
+        let menu = game.legal_options().expect("a's action");
+        assert!(
+            menu.options.iter().any(|o| o.id == "component|leader|naaluagent"),
+            "Z'eu is offered: {:?}",
+            menu.ids()
+        );
+        for _ in 0..20 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&b) {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "FREE_TACTICAL_ACTION"));
+        assert_eq!(game.state.active.as_ref(), Some(&b), "the action ended a's turn");
+        let seat = game.state.player(&a).unwrap();
+        assert_eq!(seat.tactic_tokens, 3, "no token spent");
+        assert!(!game.state.system_state(&ids[0]).command_tokens.contains(&a), "none placed");
+        assert_eq!(
+            seat.leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            Some(&ti4_model::state::LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn zeu_offers_no_home_or_tokened_system_and_may_be_declined() {
+        let (mut state, galaxy, ids) = zeu_fixture();
+        let a = PlayerId::new("a");
+        state.system_mut(&ids[1]).command_tokens.insert(a.clone());
+        crate::fixtures::put(&mut state, &ids[0], "carrier", &a, 1);
+        let offered = crate::leaders::zeu_systems(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &galaxy,
+            &a,
+        );
+        assert!(offered.contains(&ids[0]));
+        assert!(!offered.contains(&ids[1]), "already holds a's token");
+        assert!(!offered.contains(&ids[2]), "a home system");
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(Scripted::new(vec![
+                "component|leader|naaluagent".to_owned(),
+                "decline".to_owned(),
+            ]))),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..3 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "COMPONENT_ACTION_FAILED") {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "COMPONENT_ACTION_FAILED"));
+        assert_eq!(game.state.active.as_ref(), Some(&a), "still a's turn");
+        assert_eq!(
+            game.state.player(&a).unwrap().leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        let menu = game.legal_options().expect("a is asked again");
+        assert!(!menu.options.iter().any(|o| o.id == "component|leader|naaluagent"));
     }
 
     /// OP-07: Carth of Golden Sands prints "During the action phase:", not "ACTION:". Using it
