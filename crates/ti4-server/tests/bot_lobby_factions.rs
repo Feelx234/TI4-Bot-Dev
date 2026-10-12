@@ -303,3 +303,116 @@ async fn the_map_preview_seats_the_factions_the_game_will_get() {
     assert_eq!(previewed, started);
     assert_eq!(started[1], "jolnar");
 }
+
+/// A person joins the lobby; returns (player id, session).
+async fn join(server: &Server, game: &str, nickname: &str) -> (String, String) {
+    let joined: Value = server
+        .client
+        .post(server.url(&format!("/api/games/{game}/lobby/join")))
+        .json(&json!({"kind": "new", "nickname": nickname}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    (
+        joined["player"]["id"].as_str().unwrap().to_owned(),
+        joined["player_session"].as_str().unwrap().to_owned(),
+    )
+}
+
+#[tokio::test]
+async fn people_choose_their_own_faction_and_the_host_chooses_for_anyone() {
+    let server = serve(Arc::new(GameRegistry::new())).await;
+    let (game, host) = server.lobby(3, 21).await;
+    let host_id = server.view(&game).await["host_player_id"].as_str().unwrap().to_owned();
+    let (guest_id, guest) = join(&server, &game, "Guest").await;
+    let (other_id, other) = join(&server, &game, "Other").await;
+    server.post(&game, "ready", &guest, json!({"ready": true})).await;
+
+    // A person sets their own seat; ready stays as it was.
+    let (status, body) = server
+        .post(&game, "seat-faction", &guest, json!({"player_id": guest_id, "faction": "nekro"}))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["slots"][1]["faction"], "nekro");
+    assert_eq!(body["slots"][1]["ready"], true);
+    // Not someone else's seat.
+    let (status, _) = server
+        .post(&game, "seat-faction", &guest, json!({"player_id": other_id, "faction": "sol"}))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = server
+        .post(&game, "seat-faction", &guest, json!({"player_id": host_id, "faction": "sol"}))
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    // The same faction twice is a conflict naming the holder; unknown is a bad request.
+    let (status, body) = server
+        .post(&game, "seat-faction", &other, json!({"player_id": other_id, "faction": "nekro"}))
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert!(body.as_str().unwrap().contains("already taken by Guest"), "{body}");
+    let (status, _) = server
+        .post(&game, "seat-faction", &other, json!({"player_id": other_id, "faction": "nope"}))
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // The host sets another person's seat and its own; everyone sees all choices.
+    let (status, _) = server
+        .post(&game, "seat-faction", &host, json!({"player_id": other_id, "faction": "ghost"}))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    server.post(&game, "seat-faction", &host, json!({"player_id": host_id, "faction": "titans"})).await;
+    let view = server.view(&game).await;
+    let chosen: Vec<_> = (0..3).map(|i| view["slots"][i]["faction"].as_str().unwrap()).collect();
+    assert_eq!(chosen, ["titans", "nekro", "ghost"]);
+    // Clearing goes back to random; a stranger cannot change anything.
+    let (status, body) = server
+        .post(&game, "seat-faction", &guest, json!({"player_id": guest_id}))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["slots"][1].get("faction").is_none());
+    let (status, _) = server
+        .post(&game, "seat-faction", "nobody", json!({"player_id": guest_id, "faction": "sol"}))
+        .await;
+    assert!(status.is_client_error());
+
+    // Start: the chosen factions are seated; changing afterwards is refused.
+    server.post(&game, "seat-faction", &guest, json!({"player_id": guest_id, "faction": "mahact"})).await;
+    server.post(&game, "ready", &other, json!({"ready": true})).await;
+    server.start(&game, &host).await;
+    let table: Vec<_> = seated(&server.registry, &game).into_iter().map(|(_, f)| f).collect();
+    assert_eq!(table, ["titans", "mahact", "ghost"]);
+    let (status, _) = server
+        .post(&game, "seat-faction", &guest, json!({"player_id": guest_id, "faction": "sol"}))
+        .await;
+    assert!(status.is_client_error());
+}
+
+#[tokio::test]
+async fn people_and_bots_together_get_distinct_factions_and_the_choices_survive_a_restart() {
+    let dir = std::env::temp_dir().join(format!("ti4_bf_human_{:016x}", rand::random::<u64>()));
+    let store = Arc::new(FileGameStore::new(&dir).unwrap());
+    let server = serve(Arc::new(GameRegistry::new().with_store(store.clone()))).await;
+    let (game, host) = server.lobby(4, 63).await;
+    let (guest_id, guest) = join(&server, &game, "Guest").await;
+    server.post(&game, "seat-faction", &guest, json!({"player_id": guest_id, "faction": "cabal"})).await;
+    server.post(&game, "bots", &host, json!({"kind": "smart", "faction": "yssaril"})).await;
+    drop(server);
+
+    let registry = Arc::new(GameRegistry::new().with_store(store.clone()));
+    registry.recover_all_games().expect("recover lobby");
+    let server = serve(registry).await;
+    let view = server.view(&game).await;
+    assert_eq!(view["slots"][1]["faction"], "cabal");
+    assert_eq!(view["slots"][2]["faction"], "yssaril");
+    server.post(&game, "bots", &host, json!({"kind": "smart", "fill": true})).await;
+    server.post(&game, "ready", &guest, json!({"ready": true})).await;
+    server.start(&game, &host).await;
+    let table: Vec<_> = seated(&server.registry, &game).into_iter().map(|(_, f)| f).collect();
+    assert_eq!(table[1], "cabal");
+    assert_eq!(table[2], "yssaril");
+    assert_eq!(table.iter().collect::<BTreeSet<_>>().len(), 4, "{table:?}");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
