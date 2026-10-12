@@ -65,10 +65,14 @@ used at a coin flip, **about half the time for an opponent's benefit**.
 1. **Naalu's PoK agent Z'eu (`naaluagent`) had no implementation.** PoK games deal `naaluagent`
    (`leaders::for_faction` falls back to it when the Thunder's Edge `naaluagent-te` is out of
    scope); nothing offered or resolved it, so Naalu played every game without an agent.
-   Planned fix (engine): offer it as a component action; the Naalu player performs a tactical
-   action in a non-home system that does not hold its command token, without placing one.
-   Limitation: only the Naalu seat itself as "that player" (giving another seat a tactical action
-   in the middle of Naalu's turn needs turn-ownership plumbing the engine does not have).
+   **Fixed in this branch** (engine: `leaders::ZEU`, `leaders::zeu_systems`, `Game::perform_zeu`;
+   tests `zeu_performs_a_tactical_action_without_a_command_token`,
+   `zeu_offers_no_home_or_tokened_system_and_may_be_declined`): offered as the component action
+   `component|leader|naaluagent`; the Naalu choose a non-home system without their command token
+   (`zeu_activate_system`, declinable), the agent exhausts and they perform a tactical action
+   there without placing a token; it ends the turn like any tactical action. Limitation: only the
+   Naalu seat itself is "that player" (giving another seat a tactical action inside the Naalu's
+   turn needs turn-ownership plumbing the engine does not have), and Ssruu does not copy it.
 2. **Letnev's Viscount Unlenn and Sol's Evelyn DeLouis are never offered to their owners.**
    `leaders::dispatch_leader` has an arm for them, but no window calls it; only Ssruu copies have a
    combat-round window (`factions::borrowed_round_agents`). The dispatch arm also hard-codes the
@@ -77,6 +81,18 @@ used at a coin flip, **about half the time for an opponent's benefit**.
    `borrowed_round_agents::abilities` that exhausts the owner's agent instead of Ssruu.
 3. **Naalu's Thunder's Edge Z'eu** (`naaluagent-te`) is implemented but unreachable in PoK games
    (see 1). Not a bug.
+4. **Replay divergences around agents (not fixed, found by the survey's replay check).**
+   - A Ssruu copy of Umbat (`component|leader|yssarilagent|muaatagent`) that resolves nothing
+     (the Yssaril have no war sun) fails as a component action live, and the recorded game then
+     no longer replays (`script wanted "muaat" but p3 was offered [strategic...]`, turn-one
+     survey seeds 29 and 33, reached through the random fallback). The bot now never leaves such a
+     menu to chance.
+   - When the Jol-Nar use Doctor Sucaban for their own research, a later research by the Yssaril
+     is offered a Ssruu copy of Sucaban on replay that the live game did not offer (`script wanted
+     "end_turn" but p1 was offered ["yes", "decline"]`, seeds 19 and 30; gone when the Jol-Nar
+     decline). The bot therefore never uses Sucaban (low early value anyway).
+   Both point at Ssruu-copy bookkeeping that differs between a live game and its replay; worth an
+   engine investigation, since a human seat can trigger the same paths.
 
 ## Per faction
 
@@ -167,9 +183,8 @@ the effort of the bot rule (S small, M medium, L large).
   `doctor_sucaban_remove_infantry` per infantry.
 - **Early use.** Pays Technology's second research (6) or the secondary (4) with spare infantry -
   Jol-Nar infantry are weak fighters, but rounds 1-2 need them for expansion.
-- **Bot rule.** Never for another seat. Own research: use when spare infantry exist (non-home
-  planets holding two or more, or home holding more than its transports can lift); remove only
-  those.
+- **Bot rule.** Planned: own research only, removing spare infantry. **Implemented: never use**
+  (its own use was measured to break later replays, gap 4).
 - **Value** L / M / M. **Effort** S.
 
 ### L1Z1X - I48S (`l1z1xagent`)
@@ -209,16 +224,18 @@ the effort of the bot rule (S small, M medium, L large).
 - **Early use.** Community: round 1, build a carrier and a destroyer (or infantry) at home with
   the war sun, without a token in home, so the new carrier still moves and Muaat takes two
   neighbouring systems (r/ti "advice on how to play Muaat", "Advice for turn 1 as Muaat").
-- **Bot rule.** Round 1-2 while short of transports and able to pay for a carrier: use first,
-  choose itself, build through the ordinary production rule (a transport first). Round 3: instead
-  of passing, with 4+ spare resources.
+- **Bot rule.** Rounds 1-2: as the opening's token-free home build, where the plan wants a new
+  transport at home (`home_build_wanted`) and a carrier is affordable; choose itself, build through
+  the ordinary production rule. Later: instead of passing, with 4+ spare resources. (Used as the
+  very first action it cost Muaat a system in the survey: the resources and the turn went before
+  the transports had left.)
 - **Value** H / M / L. **Effort** S.
 
 ### Naalu Collective - Z'eu (`naaluagent`, PoK)
 - **Text.** ACTION: exhaust and choose a player: that player may perform a tactical action in a
   non-home system without placing a command token; the system still counts as activated.
   (Thunder's Edge `naaluagent-te`: after any command token is placed, return it.)
-- **Engine.** **Not implemented** (gap 1); fix planned for the Naalu seat itself.
+- **Engine.** **Was not implemented** (gap 1); now delivered for the Naalu seat itself.
 - **Early use.** A tactical action without a token: in round 1 that is a third (or fourth) system
   with the same three tactic tokens; community: "take Warfare and use the agent to move both
   carriers forward".
@@ -318,9 +335,9 @@ the effort of the bot rule (S small, M medium, L large).
   `leader_xxchaagent_ready_planet`, `leader_xxchaagent_remove_infantry`.
 - **Early use.** Community: a stalling action ("the agent buying a turn") and resources for the
   build: ready the home's 3-resource planet after a round-1 production or research.
-- **Bot rule.** Use when the round-1 plan still needs resources (`readying_pays`) and a planet of
-  2+ resources is exhausted, or instead of passing / when out of tactic tokens with any exhausted
-  planet of value. Ready its own richest planet; never remove its own infantry.
+- **Bot rule.** Instead of an actual pass, with an exhausted planet of value: ready its own richest
+  planet; never remove its own infantry. (Used in round 1 for the plan's resources it cost the
+  turn's tempo and a system, so that use was dropped.)
 - **Value** M / M / M. **Effort** S.
 
 ### Yin Brotherhood - Brother Milor (`yinagent`)
@@ -373,21 +390,46 @@ the effort of the bot rule (S small, M medium, L large).
   of the same type. Implemented.
 - **Creuss alternate "Who Knows?"** (`redcreussagent`): an unofficial alternate, not dealt.
 
-## Ranked by value for effort (the implementation plan)
+## Ranked by value for effort (what was implemented)
 
 1. **Self-only reactions** (decline every agent use that only helps an opponent; use the clearly
    good own ones): Winnu, Sardakk, L1Z1X, Naaz, Yin, Empyrean, Titans, Artuno, Saar, Argent, Ghost,
-   Mercer, Thundarian, Jol-Nar, Ssruu copies. One rule, S.
+   Mercer, Thundarian, Ssruu copies (Jol-Nar: never, gap 4). One rule, S.
 2. **Round-1 transports**: Arborec cruiser -> carrier, Muaat Umbat build. S.
 3. **Naalu Z'eu**: engine implementation plus "a token-free tactical action". M.
 4. **Free actions instead of passing**: Xxcha, Arborec, Muaat; Nekro and Hacan at the end of a
    turn. S.
 5. **Cabal capture**, **Mentak draw**, **Mahact waiver**. S.
 
-Left out: Letnev/Sol own agents (engine gap 2), the Ghost agent in activation planning, the
-Thundarian without dice information, Hacan trade planning around its commodities.
+Left out: Letnev/Sol own agents (engine gap 2), the Ghost agent in activation planning (the
+Mallice opening), the Saar agent in activation planning, the Thundarian without dice information,
+Hacan trade planning around its commodities, Ssruu copies of action agents (only Xxcha, Nekro and
+Hacan copies are taken), and Doctor Sucaban (gap 4).
 
 ## Measured effect
 
-See the commit message of the bot rules for the survey numbers (rounds 1-2 systems and VP,
-before/after, overall and per affected faction).
+Turn-one survey (rounds 1-2) and midgame survey (to round 3), seeds 1-288, all-smart 4-seat tables
+with roster factions (1152 seats), agent layer on vs off on the same engine (Z'eu delivered in both):
+
+| | off | on |
+|---|---:|---:|
+| systems gained in round 1 (mean) | 2.86 | 2.93 |
+| seats with 3+ systems in round 1 | 79% | 84% |
+| systems held after round 2 | 5.27 | 5.36 |
+| VP after round 2 / round 3 | 1.65 / 3.32 | 1.74 / 3.44 |
+| planets after round 3 | 11.23 | 11.43 |
+| tables whose replay diverged | 2 | 0 |
+
+Per faction (n about 40-54 each, so differences below about 0.3 are noise):
+Naalu round 1 2.21 -> 3.15 systems, 4.76 -> 6.02 after round 2, VP r3 3.02 -> 3.75 (Z'eu);
+Arborec round 1 2.68 -> 2.98 (Ospha's carrier); Winnu round 1 2.14 -> 2.49, VP r3 2.55 -> 2.84
+(the discount); Argent VP r3 3.91 -> 4.48; Empyrean VP r3 2.86 -> 3.45; L1Z1X VP r3 3.12 -> 3.60;
+Yssaril VP r3 3.02 -> 3.37; Muaat round 1 2.62 -> 2.46 but VP r3 2.87 -> 3.27. Strong factions hold:
+Titans 4.04 -> 4.06, Saar 3.80 -> 3.84, Jol-Nar 3.55 -> 3.72. Down without an agent rule of their own
+(their neighbours got stronger): Sol VP r3 3.92 -> 3.54, Xxcha systems after round 2 5.49 -> 4.93
+(the Xxcha agent is not used in round 1 at all; restricting its stall to real passes changed nothing),
+Hacan VP r3 3.57 -> 3.29, Mahact 3.19 -> 2.96.
+
+Note for anyone repeating this: the shared cargo target dir is used by other worktrees with
+identically named crates; build the survey with `RUSTFLAGS="--cfg faction_agents_early"` (or any
+distinct cfg) so the release artifacts are this worktree's own.

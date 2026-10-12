@@ -83,6 +83,10 @@ use ti4_policy::fleet_strength::{Descriptors, descriptors, matchup};
 #[path = "smart_bot_objectives.rs"]
 pub mod objectives;
 
+// Agent layer (when to use a faction agent): `smart_bot_agents.rs`.
+#[path = "smart_bot_agents.rs"]
+pub mod agents;
+
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.
 pub const WIN_MARGIN: f64 = 0.5;
@@ -128,6 +132,14 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         return Some(index);
     }
     // -- end objective layer hook --
+    // -- agent layer hook (smart_bot_agents.rs) --
+    if let Some(index) = agents::pick(choice, seen, &me) {
+        return Some(index);
+    }
+    if let Some(answer) = agents::action_choice(choice, seen, &me, rng) {
+        return answer;
+    }
+    // -- end agent layer hook --
     if let Some(index) = choice.options.iter().position(|o| o.kind == "score") {
         return Some(index);
     }
