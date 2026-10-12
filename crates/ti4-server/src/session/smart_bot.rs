@@ -141,6 +141,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             return pick_redistribution(choice, observed, &me);
         }
         Some("ready_planet") => return pick_ready_planet(choice, observed, &me),
+        // Round 1's trade goods pay for transports, not an action card.
+        Some("functioning_base_choose_reward") if expanding(observed) => {
+            return choice.options.iter().position(|o| o.id == "gain");
+        }
         Some("answer_transaction") => return pick_answer(choice),
         Some("propose_transaction") => return pick_proposal(choice),
         _ => {}
@@ -595,9 +599,15 @@ fn secondary_to_come(seen: &Observed<'_>, me: &PlayerId, name: &str) -> bool {
 }
 
 /// Strategy tokens kept back for a secondary worth more than the one on offer: in the opening
-/// rounds one for Warfare's home production while another seat has Warfare still to play.
+/// rounds one for Warfare's home production while another seat has Warfare still to play, and
+/// one for Diplomacy's readying while the transport plan has a home build to pay for.
 fn strategy_reserve(seen: &Observed<'_>, me: &PlayerId) -> i32 {
-    i32::from(expanding(seen) && secondary_to_come(seen, me, "Warfare"))
+    let warfare = expanding(seen) && secondary_to_come(seen, me, "Warfare");
+    // Short of transports: one more for Diplomacy's readying, the home build's resources.
+    let diplomacy = short_of_transports(seen, me)
+        && home_builder_ahead(seen, me)
+        && secondary_to_come(seen, me, "Diplomacy");
+    i32::from(warfare) + i32::from(diplomacy)
 }
 
 /// Own non-fighter ships in `system`'s space area, and their capacity.
@@ -625,7 +635,18 @@ fn target_near(seen: &Observed<'_>, me: &PlayerId, origin: &SystemId) -> bool {
         .filter(|system| system != origin && !tokens.contains(system))
         .filter(|system| !has_hostile_ships(seen, me, system))
         .filter(|system| !targets(seen, me, system).is_empty())
-        .any(|system| seen.can_reach(me, origin, &system, 1))
+        .any(|system| seen.can_reach(me, origin, &system, carrier_reach(seen, me)))
+}
+
+/// A new carrier's movement: one, plus Gravity Drive, plus the Creuss' Slipstream (they start in
+/// a wormhole system).
+fn carrier_reach(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+    let gravity = seen.seat(me).is_some_and(|seat| {
+        seat.technologies
+            .iter()
+            .any(|t| t.as_str() == GRAVITY_DRIVE)
+    });
+    1 + i32::from(gravity) + i32::from(faction(seen, me) == "ghost")
 }
 
 /// The opening plan's third system: the transports have left home, a planet is still in reach of
@@ -880,9 +901,12 @@ fn picks_before_next(seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     Some(2 * (n - position))
 }
 
-/// Whether a seat of `faction` takes Trade over everything but Imperial in round 1.
-fn trade_lover(faction: &str) -> bool {
-    faction == "hacan"
+/// Whether `seat` takes Trade early in round 1: the Hacan, the Cruiser II plan, and a seat short
+/// of transports and of the resources to build them.
+fn wants_trade(seen: &Observed<'_>, seat: &PlayerId) -> bool {
+    faction(seen, seat) == "hacan"
+        || cruiser_plan(seen, seat)
+        || transport_plan(seen, seat).is_some_and(|(_, cost)| planet_resources(seen, seat) < cost)
 }
 
 /// Whether Trade would still be there at this seat's next draft pick: the other seats take every
@@ -895,11 +919,13 @@ fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &
     if !offered("Trade") {
         return false;
     }
+    // The seats still without a card pick before this seat's next pick.
     let lover = seen
         .players()
         .into_iter()
         .filter(|p| *p != me)
-        .any(|p| trade_lover(&faction(seen, p)));
+        .filter(|p| seen.seat(p).is_some_and(|seat| seat.strategy_cards.is_empty()))
+        .any(|p| wants_trade(seen, p));
     let before_trade = choice
         .options
         .iter()
@@ -928,10 +954,15 @@ fn faction_card_score(
     };
     let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
     if cruiser_plan(seen, me) {
+        // Diplomacy readies the planets the carrier takes first: the six resources without Trade.
+        let next_pick_now = picks_before_next(seen, me) == Some(0);
+        let offered = |name: &str| choice.options.iter().any(|o| card_is(seen, &o.id, name));
         match name.as_str() {
             "Trade" if holds("Technology") => return Some(30.0),
-            "Technology" if holds("Trade") => return Some(30.0),
+            "Diplomacy" if holds("Technology") => return Some(28.0),
+            "Technology" if holds("Trade") || holds("Diplomacy") => return Some(30.0),
             "Technology" if trade_survives(choice, seen, me, card) => return Some(30.0),
+            "Technology" if next_pick_now && offered("Diplomacy") => return Some(30.0),
             _ => {}
         }
     }
@@ -1012,8 +1043,15 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
         if let Some(index) = play("Trade") {
             return Some(index);
         }
-        if seen.available_spend(me, Spend::Resources) >= SECOND_RESEARCH {
+        let resources = seen.available_spend(me, Spend::Resources);
+        if resources >= SECOND_RESEARCH {
             return play("Technology");
+        }
+        // Without Trade: Diplomacy readies the planets the carrier took, once that pays for it.
+        if resources + best_two_exhausted(seen, me) >= SECOND_RESEARCH
+            && let Some(index) = play("Diplomacy")
+        {
+            return Some(index);
         }
     }
     None
@@ -2039,9 +2077,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to ready two planets") {
         // The transport plan's home build is still to come: the planets just taken (and home)
         // are its resources.
-        if short_of_transports(seen, me)
-            && home_builder_ahead(seen, me)
-            && exhausted_resources(seen, me) > 0
+        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0
         {
             return answer(true);
         }
@@ -2081,7 +2117,14 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         let pools = seen
             .seat(me)
             .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens);
-        return answer(pools < ENOUGH_TOKENS && (!mecatol_in_reach(seen, me) || spare >= 6));
+        // Nor while a round-1 plan still needs its planets' resources (they pay influence too).
+        let saving = reserved_resources(seen, me) > 0
+            || transport_plan(seen, me).is_some_and(|(_, cost)| {
+                home_builder_ahead(seen, me) && spare_resources(seen, me) < cost
+            });
+        return answer(
+            pools < ENOUGH_TOKENS && !saving && (!mecatol_in_reach(seen, me) || spare >= 6),
+        );
     }
     None
 }
@@ -2098,10 +2141,32 @@ fn exhausted_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
         .sum()
 }
 
-/// Which planet to ready: while the transport plan has a home build to pay for, the one with the
-/// most resources; otherwise no opinion.
+/// Resources the two richest exhausted planets would give back when readied (Diplomacy).
+fn best_two_exhausted(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    let mut values: Vec<i64> = seen
+        .controlled_planets(me)
+        .into_iter()
+        .filter(|(_, planet)| !seen.planet_is_ready(planet))
+        .filter_map(|(_, planet)| {
+            ti4_content::galaxy::planet(seen.content(), planet.as_str(), seen.sources())
+        })
+        .map(|record| record.resources())
+        .collect();
+    values.sort_unstable_by(|a, b| b.cmp(a));
+    values.into_iter().take(2).sum()
+}
+
+/// Whether readying planets now pays for a round-1 plan: the transport plan's home build or the
+/// Cruiser II research still to come.
+fn readying_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    (short_of_transports(seen, me) && home_builder_ahead(seen, me))
+        || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
+}
+
+/// Which planet to ready: while a round-1 plan has resources to find ([`readying_pays`]), the one
+/// with the most resources; otherwise no opinion.
 fn pick_ready_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    if transport_plan(seen, me).is_none() || !home_builder_ahead(seen, me) {
+    if !readying_pays(seen, me) {
         return None;
     }
     choice
