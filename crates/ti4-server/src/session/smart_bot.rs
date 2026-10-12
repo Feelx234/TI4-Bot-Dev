@@ -140,6 +140,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("status_redistribute_tokens" | "warfare_redistribute_tokens") => {
             return pick_redistribution(choice, observed, &me);
         }
+        Some("ready_planet") => return pick_ready_planet(choice, observed, &me),
         Some("answer_transaction") => return pick_answer(choice),
         Some("propose_transaction") => return pick_proposal(choice),
         _ => {}
@@ -687,7 +688,9 @@ fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
 /// short (at most three systems' worth) and what building them and a troop each at home costs.
 /// `None` when it has enough, or outside round 1.
 fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
-    if seen.round() > 1 || cruiser_plan(seen, me) {
+    if seen.round() > 1
+        || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
+    {
         return None;
     }
     let tokens = seen
@@ -702,6 +705,12 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     Some((missing, CARRIER_COST * missing + (troops + 1) / 2))
 }
 
+/// Whether the transport plan needs two or more new transports: a single transport, whose
+/// Warfare route (a free activation, then a tactical one) reaches two systems at most.
+fn short_of_transports(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    transport_plan(seen, me).is_some_and(|(missing, _)| missing >= 2)
+}
+
 /// Whether a token-free production at home is still to come this round: Construction or Warfare
 /// held unplayed, or Warfare's secondary while another seat has it to play and a strategy token
 /// is left.
@@ -712,10 +721,13 @@ fn home_builder_ahead(seen: &Observed<'_>, me: &PlayerId) -> bool {
             && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0))
 }
 
-/// Whether the seat's home has as many ships as its fleet pool allows, so nothing can be built
-/// there until some leave.
-fn home_fleet_blocked(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    home_system(seen, me).is_some_and(|home| home_fleet_room(seen, me, &home) <= 0)
+/// Whether the seat's home is full for fleet supply while a transport with troops waits there:
+/// it leaves first, or nothing could be built.
+fn loaded_transport_blocks_home(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    home_system(seen, me).is_some_and(|home| {
+        let (waiting, lift) = waiting_and_lift(seen, me, &home);
+        home_fleet_room(seen, me, &home) <= 0 && lift > 0 && waiting > 0
+    })
 }
 
 /// Own transports (non-fighter ships with capacity) and ground forces outside the
@@ -923,6 +935,29 @@ fn faction_card_score(
             _ => {}
         }
     }
+    // Short of transports and of the resources for them: Trade's goods for the home build, with
+    // Construction or Warfare when the seat has one (or takes one first when Trade will still be
+    // there), else beside Warfare's secondary; and then Diplomacy, to act early.
+    if let Some((_, cost)) = transport_plan(seen, me)
+        && planet_resources(seen, me) < cost
+    {
+        let builder = holds("Construction") || holds("Warfare");
+        let builder_offered = choice
+            .options
+            .iter()
+            .find(|o| card_is(seen, &o.id, "Construction") || card_is(seen, &o.id, "Warfare"));
+        match name.as_str() {
+            "Trade" if builder => return Some(25.0),
+            "Trade"
+                if builder_offered
+                    .is_none_or(|taken| !trade_survives(choice, seen, me, &taken.id)) =>
+            {
+                return Some(9.0);
+            }
+            "Diplomacy" if holds("Trade") => return Some(7.5),
+            _ => {}
+        }
+    }
     None
 }
 
@@ -941,8 +976,9 @@ fn spare_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
     seen.available_spend(me, Spend::Resources) - reserved_resources(seen, me)
 }
 
-/// A faction opening's next strategic action in round 1, before any tactical action: the
-/// Cruiser II plan plays Trade, then Technology once six resources are there.
+/// A faction opening's next strategic action in round 1, before any tactical action: Trade first
+/// when the transport plan cannot pay for its home build yet; the Cruiser II plan plays Trade, then
+/// Technology once six resources are there.
 fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let play = |name: &str| {
         ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
@@ -953,19 +989,24 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
         && ready_card(seen, me, "Trade").is_some()
         && home_builder_ahead(seen, me)
         && spare_resources(seen, me) < cost
-        && !home_fleet_blocked(seen, me)
+        && !loaded_transport_blocks_home(seen, me)
     {
         return play("Trade");
     }
-    // Short of transports and of the resources to build them: Trade's goods first, before the
-    // token-free production at home (unless the home must first be emptied for fleet supply).
+    // Warfare is the home build but cannot pay for the transports yet, and Diplomacy's secondary
+    // (readying the planets just taken) is still to come: another card first, to wait for it.
     if let Some((_, cost)) = transport_plan(seen, me)
-        && ready_card(seen, me, "Trade").is_some()
-        && home_builder_ahead(seen, me)
+        && ready_card(seen, me, "Warfare").is_some()
         && spare_resources(seen, me) < cost
-        && !home_fleet_blocked(seen, me)
+        && secondary_to_come(seen, me, "Diplomacy")
+        && exhausted_resources(seen, me) > 0
+        && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0)
     {
-        return play("Trade");
+        for name in ["Leadership", "Politics", "Imperial", "Technology"] {
+            if let Some(index) = play(name) {
+                return Some(index);
+            }
+        }
     }
     if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
         if let Some(index) = play("Trade") {
@@ -1078,7 +1119,11 @@ fn pick_action(
     }
     // Warfare while there is a planet to take (or no tactic token left for it): its tactical
     // action places no token, so the carrier that lands there can move on again this round.
+    // Short of transports, Warfare is the home build: the transports leave by tactical actions
+    // first, so the build has fleet supply and the free production comes after.
+    let warfare_builds = short_of_transports(seen, me) && !out_of_tokens;
     if expanding(seen)
+        && !warfare_builds
         && (worth >= EAGER_WORTH || (out_of_tokens && worth >= ACTIVATION_THRESHOLD))
         && let Some(index) = play("Warfare")
     {
@@ -1224,7 +1269,16 @@ fn ground_shortfall(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, extra
         // Troops are scarce in the opening: the best planet first, the system's others only with
         // a troop left over for each other transport, which can take a system of its own.
         let (transports, ground) = free_transports_and_ground(seen, me);
-        let mut spare = ground - (transports - 1).max(0);
+        let mut others = (transports - 1).max(0);
+        // Round 1 with a home build still to come: a troop stays behind for each transport the
+        // remaining tactic tokens will send, built ones included.
+        if seen.round() <= 1 && home_builder_ahead(seen, me) {
+            let tokens = seen
+                .seat(me)
+                .map_or(0, |seat| i64::from(seat.tactic_tokens.min(2)));
+            others = others.max(tokens);
+        }
+        let mut spare = ground - others;
         need = 0;
         for (i, (_, _, n)) in wanted.iter().enumerate() {
             let n = i64::try_from(*n).unwrap_or(i64::MAX);
@@ -1359,9 +1413,9 @@ fn escort_from_home(
     active: &SystemId,
 ) -> Option<usize> {
     let home = home_system(seen, me)?;
-    if transport_plan(seen, me).is_none()
-        || !home_builder_ahead(seen, me)
-        || home_fleet_room(seen, me, &home) > 0
+    let (missing, _) = transport_plan(seen, me)?;
+    if !home_builder_ahead(seen, me)
+        || home_fleet_room(seen, me, &home) >= missing
         || home_fleet_room(seen, me, active) <= 0
     {
         return None;
@@ -1983,6 +2037,14 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         });
     }
     if prompt.starts_with("spend a strategy token to ready two planets") {
+        // The transport plan's home build is still to come: the planets just taken (and home)
+        // are its resources.
+        if short_of_transports(seen, me)
+            && home_builder_ahead(seen, me)
+            && exhausted_resources(seen, me) > 0
+        {
+            return answer(true);
+        }
         // Diplomacy: the influence back for the custodians when Mecatol Rex is in reach.
         if mecatol_in_reach(seen, me)
             && seen.available_spend(me, Spend::Influence) < 6
@@ -2022,6 +2084,36 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         return answer(pools < ENOUGH_TOKENS && (!mecatol_in_reach(seen, me) || spare >= 6));
     }
     None
+}
+
+/// Resources on the seat's exhausted planets: what readying them could give back.
+fn exhausted_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    seen.controlled_planets(me)
+        .into_iter()
+        .filter(|(_, planet)| !seen.planet_is_ready(planet))
+        .filter_map(|(_, planet)| {
+            ti4_content::galaxy::planet(seen.content(), planet.as_str(), seen.sources())
+        })
+        .map(|record| record.resources())
+        .sum()
+}
+
+/// Which planet to ready: while the transport plan has a home build to pay for, the one with the
+/// most resources; otherwise no opinion.
+fn pick_ready_planet(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    if transport_plan(seen, me).is_none() || !home_builder_ahead(seen, me) {
+        return None;
+    }
+    choice
+        .options
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| {
+            let record = ti4_content::galaxy::planet(seen.content(), &o.id, seen.sources())?;
+            Some((i, record.resources()))
+        })
+        .max_by_key(|&(i, r)| (r, std::cmp::Reverse(i)))
+        .map(|(i, _)| i)
 }
 
 /// Influence on the seat's exhausted planets: what readying them could give back.
