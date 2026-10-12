@@ -7,6 +7,7 @@ import {
   MapChoice,
   StrategyCardSetId,
 } from "../protocol/types.ts";
+import { AlphaNotice, BuildFooter } from "./AlphaNotice.tsx";
 import { MapPicker } from "./MapPicker.tsx";
 import { mapChangeNotice, mapName } from "../presentation/mapPicker.ts";
 import {
@@ -72,6 +73,7 @@ export const CreateLobby: React.FC<{
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
+        <AlphaNotice />
         <h1>Twilight Imperium 4</h1>
         <p className="text-muted">Create a table and share its game URL.</p>
         <form className="lobby-form" onSubmit={create}>
@@ -146,6 +148,7 @@ export const CreateLobby: React.FC<{
             {creating ? "Creating lobby…" : "Create lobby"}
           </button>
         </form>
+        <BuildFooter />
       </section>
     </main>
   );
@@ -314,6 +317,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
+        <AlphaNotice />
         <h1>{lobby.phase === "running" ? "Game in progress" : "Game lobby"}</h1>
         <button
           type="button"
@@ -706,6 +710,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             {pendingAction === "leave" ? "Leaving…" : "Leave lobby"}
           </button>
         )}
+        <BuildFooter />
       </section>
     </main>
   );

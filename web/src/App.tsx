@@ -7,6 +7,11 @@ import { useTurnRedo } from "./hooks/useTurnRedo.ts";
 import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
 import { TurnStatusBar, TurnStatusDetails } from "./components/TurnStatusBar.tsx";
+import { useBuildInfo } from "./buildInfo.ts";
+import { PasswordScreen } from "./access/PasswordScreen.tsx";
+import { probeAccess, useAccessRequired } from "./access/accessGate.ts";
+import { FeedbackLauncher, openFeedback } from "./feedback/FeedbackLauncher.tsx";
+import { useRegisterFeedbackSource } from "./feedback/source.ts";
 import { MobileTopMenu, menuAttention } from "./components/MobileTopMenu.tsx";
 import { MobileMenuSlotContext } from "./presentation/MobileMenuSlot.tsx";
 import { useCompactLayout } from "./hooks/useCompactLayout.ts";
@@ -94,7 +99,22 @@ const pathGameId = () =>
     ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1])
     : null;
 
+/** The app, behind the playtest password screen and with the Feedback button on top. */
 export const App: React.FC = () => {
+  const accessRequired = useAccessRequired();
+  useEffect(() => {
+    void probeAccess();
+  }, []);
+  if (accessRequired) return <PasswordScreen />;
+  return (
+    <>
+      <AppRoutes />
+      <FeedbackLauncher />
+    </>
+  );
+};
+
+const AppRoutes: React.FC = () => {
   const [gameId, setGameId] = useState(pathGameId);
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState(() =>
@@ -207,6 +227,10 @@ const GameRoute: React.FC<{
   const [watching, setWatching] = useState(false);
   const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
   usePresence(gameId, token, invalidate);
+  useRegisterFeedbackSource("lobby", () => ({
+    gameId,
+    viewer: token && playerId ? { role: "player", seat: playerId, playerSession: token } : { role: "spectator" },
+  }));
   useEffect(() => {
     if (invalidCredential) onCredentialInvalid();
   }, [invalidCredential, onCredentialInvalid]);
@@ -339,6 +363,14 @@ const GameViewContainer: React.FC<{
     resumeBatch,
     dismissBatchResume,
   } = useGameSession({ gameId, viewer });
+  const buildInfo = useBuildInfo();
+  useRegisterFeedbackSource("game", () => ({
+    gameId,
+    viewer,
+    snapshot,
+    pendingChoice: realPendingChoice,
+    events,
+  }));
   const reconnecting = useAfterDelay(
     (status !== "connected" || Boolean(reconnectingState) || Boolean(lobbyConnectionLost)) && !fatal,
     1_200,
@@ -641,6 +673,7 @@ const GameViewContainer: React.FC<{
               trailing={
                 compactLayout ? (
                   <MobileTopMenu
+                    onOpenFeedback={buildInfo.isPublic ? openFeedback : undefined}
                     attention={menuAttention({
                       connected: status === "connected",
                       yourDecision: Boolean(

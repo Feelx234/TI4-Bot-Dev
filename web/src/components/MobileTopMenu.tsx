@@ -37,6 +37,8 @@ export interface MobileTopMenuProps {
   status: React.ReactNode;
   onOpenTechnologies: () => void;
   onOpenObjectives: () => void;
+  /** Present on the public playtest server: opens the feedback sheet. */
+  onOpenFeedback?: () => void;
 }
 
 /**
@@ -49,6 +51,7 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
   status,
   onOpenTechnologies,
   onOpenObjectives,
+  onOpenFeedback,
 }) => {
   const [open, setOpen] = useState(false);
   const slot = useMobileMenuSlot();
@@ -112,6 +115,16 @@ export const MobileTopMenu: React.FC<MobileTopMenuProps> = ({
             >
               Objectives
             </button>
+            {onOpenFeedback && (
+              <button
+                type="button"
+                data-testid="feedback-menu-button"
+                className="button button--secondary"
+                onClick={openThen(onOpenFeedback)}
+              >
+                Send feedback
+              </button>
+            )}
           </div>
           <div className="top-menu__layout" role="group" aria-label="Layout" data-testid="top-menu-layout">
             <span className="top-menu__layout-label">Layout</span>
