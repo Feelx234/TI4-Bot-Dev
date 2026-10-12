@@ -435,7 +435,7 @@ describe("lobby UI", () => {
     });
 
     it("lists the chosen factions and lets the host change a bot seat's faction", () => {
-      const onSetBotFaction = vi.fn().mockResolvedValue(true);
+      const onSetSeatFaction = vi.fn().mockResolvedValue(true);
       const botLobby: LobbyDto = {
         ...withFactions,
         slots: withFactions.slots.map((slot) =>
@@ -445,18 +445,18 @@ describe("lobby UI", () => {
         ),
       };
       const { rerender } = render(
-        <LobbyStatus lobby={botLobby} playerId="player_a" onSetBotFaction={onSetBotFaction} {...props} />,
+        <LobbyStatus lobby={botLobby} playerId="player_a" onSetSeatFaction={onSetSeatFaction} {...props} />,
       );
-      expect(screen.getByTestId("bot-faction-2-button")).toHaveTextContent("Emirates of Hacan");
-      fireEvent.click(screen.getByTestId("bot-faction-2-button"));
-      fireEvent.click(screen.getByTestId("bot-faction-2-option-jolnar"));
-      expect(onSetBotFaction).toHaveBeenLastCalledWith("player_b", "jolnar");
-      fireEvent.click(screen.getByTestId("bot-faction-2-button"));
-      fireEvent.click(screen.getByTestId("bot-faction-2-option-random"));
-      expect(onSetBotFaction).toHaveBeenLastCalledWith("player_b", null);
+      expect(screen.getByTestId("seat-faction-picker-2-button")).toHaveTextContent("Emirates of Hacan");
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-button"));
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-option-jolnar"));
+      expect(onSetSeatFaction).toHaveBeenLastCalledWith("player_b", "jolnar");
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-button"));
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-option-random"));
+      expect(onSetSeatFaction).toHaveBeenLastCalledWith("player_b", null);
       // Others see it as text; a bot with no choice reads Random faction.
       rerender(<LobbyStatus lobby={botLobby} playerId="player_c" {...props} />);
-      expect(screen.queryByTestId("bot-faction-2-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("seat-faction-picker-2-button")).not.toBeInTheDocument();
       expect(screen.getByTestId("seat-faction-2")).toHaveTextContent("Emirates of Hacan");
       rerender(
         <LobbyStatus
@@ -501,6 +501,93 @@ describe("lobby UI", () => {
       const remove = screen.getByRole("button", { name: "Remove bot at position 2" });
       fireEvent.click(remove);
       expect(onRemoveBot).toHaveBeenCalledWith("player_b");
+    });
+  });
+
+  describe("seat factions", () => {
+    const POOL = [
+      "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "mentak", "muaat", "naalu",
+      "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "ghost", "argent", "cabal", "empyrean",
+      "mahact", "naaz", "nomad", "titans",
+    ];
+    const wide: LobbyDto = { ...lobby, bot_kinds: ["smart"], factions: POOL };
+
+    it("defaults the create dialog to four players", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ game_id: "g", player_session: "s", player: { id: "player_a" }, lobby }),
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      render(<CreateLobby onCreated={vi.fn()} onError={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Host" } });
+      expect(screen.getByLabelText("Players")).toHaveValue("4");
+      fireEvent.click(screen.getByTestId("create-game-button"));
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[0] === "/api/games")).toBe(true));
+      const call = fetchMock.mock.calls.find((c) => c[0] === "/api/games")!;
+      expect(JSON.parse(call[1].body).player_count).toBe(4);
+    });
+
+    it("lists all 24 factions grouped base game / Prophecy of Kings and filters by search", () => {
+      render(<LobbyStatus lobby={wide} playerId="player_a" onSetSeatFaction={vi.fn()} {...props} />);
+      fireEvent.click(screen.getByTestId("seat-faction-picker-1-button"));
+      expect(screen.getAllByRole("option")).toHaveLength(25);
+      expect(screen.getByText("Base game")).toBeInTheDocument();
+      expect(screen.getByText("Prophecy of Kings")).toBeInTheDocument();
+      expect(screen.getByTestId("seat-faction-picker-1-option-titans")).toHaveTextContent("UT");
+      fireEvent.change(screen.getByTestId("seat-faction-picker-1-search"), {
+        target: { value: "nek" },
+      });
+      expect(screen.getAllByRole("option")).toHaveLength(1);
+      expect(screen.getByTestId("seat-faction-picker-1-option-nekro")).toBeInTheDocument();
+      expect(screen.queryByText("Prophecy of Kings")).not.toBeInTheDocument();
+    });
+
+    it("lets a non-host person choose their own seat only", () => {
+      const onSetSeatFaction = vi.fn().mockResolvedValue(true);
+      render(
+        <LobbyStatus lobby={wide} playerId="player_b" onSetSeatFaction={onSetSeatFaction} {...props} />,
+      );
+      expect(screen.queryByTestId("seat-faction-picker-1-button")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-button"));
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-option-mahact"));
+      expect(onSetSeatFaction).toHaveBeenCalledWith("player_b", "mahact");
+    });
+
+    it("lets the host choose for another person and greys what a seat holds", () => {
+      const onSetSeatFaction = vi.fn().mockResolvedValue(true);
+      const held: LobbyDto = {
+        ...wide,
+        slots: wide.slots.map((slot) =>
+          slot.position === 1 ? { ...slot, faction: "nomad" } : slot,
+        ),
+      };
+      render(
+        <LobbyStatus lobby={held} playerId="player_a" onSetSeatFaction={onSetSeatFaction} {...props} />,
+      );
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-button"));
+      const nomad = screen.getByTestId("seat-faction-picker-2-option-nomad");
+      expect(nomad).toHaveAttribute("aria-disabled", "true");
+      expect(nomad).toHaveTextContent("taken by Same name");
+      fireEvent.click(nomad);
+      expect(onSetSeatFaction).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId("seat-faction-picker-2-option-cabal"));
+      expect(onSetSeatFaction).toHaveBeenCalledWith("player_b", "cabal");
+    });
+
+    it("shows everyone's choice to a watcher and offers no picker after the start", () => {
+      const chosen: LobbyDto = {
+        ...wide,
+        slots: wide.slots.map((slot) => (slot.position === 2 ? { ...slot, faction: "yin" } : slot)),
+      };
+      const { rerender } = render(
+        <LobbyStatus lobby={chosen} playerId={null} onSetSeatFaction={vi.fn()} {...props} />,
+      );
+      expect(screen.getByTestId("seat-faction-2")).toHaveTextContent("Yin");
+      expect(screen.queryByTestId("seat-faction-picker-2-button")).not.toBeInTheDocument();
+      rerender(
+        <LobbyStatus lobby={{ ...chosen, phase: "running" }} playerId="player_a" onSetSeatFaction={vi.fn()} {...props} />,
+      );
+      expect(screen.queryByTestId("seat-faction-picker-2-button")).not.toBeInTheDocument();
     });
   });
 });

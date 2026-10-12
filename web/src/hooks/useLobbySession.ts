@@ -37,7 +37,7 @@ export interface LobbySessionState {
     faction?: string;
   }) => Promise<boolean>;
   /** Host only, before Start: choose (or, with `null`, clear) the faction of a bot seat. */
-  setBotFaction: (playerId: string, faction: string | null) => Promise<boolean>;
+  setSeatFaction: (playerId: string, faction: string | null) => Promise<boolean>;
 }
 
 /** A single dropped background poll is noise; the indicator shows after this many in a row. */
@@ -304,13 +304,13 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     [base, gameId, headers, playerSession, run],
   );
 
-  const setBotFaction = useCallback(
+  const setSeatFaction = useCallback(
     async (targetPlayerId: string, faction: string | null): Promise<boolean> => {
       if (!playerSession) return false;
       return run(
-        "bot_faction",
+        "seat_faction",
         async () => {
-          const response = await fetch(`${base}/bot-faction`, {
+          const response = await fetch(`${base}/seat-faction`, {
             method: "POST",
             headers: { "Content-Type": "application/json", ...headers },
             body: JSON.stringify({ player_id: targetPlayerId, faction }),
@@ -381,6 +381,6 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     addBot,
     removeBot,
     addRandomBots,
-    setBotFaction,
+    setSeatFaction,
   };
 }

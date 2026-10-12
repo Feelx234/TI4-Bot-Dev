@@ -155,7 +155,7 @@ pub const IN_SCOPE_FACTIONS: [&str; 6] = ["sol", "hacan", "letnev", "xxcha", "jo
 /// factions (their home tiles are not in the Prophecy of Kings source set every server game uses).
 pub const LOBBY_FACTIONS: [&str; 24] = [
     "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "mentak", "muaat", "naalu",
-    "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "argent", "cabal", "empyrean", "ghost",
+    "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "ghost", "argent", "cabal", "empyrean",
     "mahact", "naaz", "nomad", "titans",
 ];
 

@@ -2,6 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import {
   FACTION_HUE,
   factionMonogram,
+  groupFactions,
   lobbyFactionName,
 } from "../presentation/lobbyFactions.ts";
 
@@ -41,10 +42,14 @@ export const FactionPicker: React.FC<FactionPickerProps> = ({
   compact,
 }) => {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const listId = useId();
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setQuery("");
+      return;
+    }
     const away = (event: Event) => {
       if (!root.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -61,6 +66,39 @@ export const FactionPicker: React.FC<FactionPickerProps> = ({
   const choose = (faction: string | null) => {
     setOpen(false);
     if (faction !== value) onChange(faction);
+  };
+  const needle = query.trim().toLowerCase();
+  const matches = (id: string, name: string) =>
+    !needle || id.includes(needle) || name.toLowerCase().includes(needle);
+  const option = (faction: string | null) => {
+    const holder = faction ? taken?.get(faction) : undefined;
+    return (
+      <li
+        key={faction ?? "random"}
+        role="option"
+        aria-selected={faction === value}
+        aria-disabled={!!holder}
+        tabIndex={holder ? -1 : 0}
+        className={`faction-picker__option${faction === value ? " is-selected" : ""}${holder ? " is-taken" : ""}`}
+        data-testid={`${testId}-option-${faction ?? "random"}`}
+        onClick={() => !holder && choose(faction)}
+        onKeyDown={(event) => {
+          if (!holder && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            choose(faction);
+          }
+        }}
+      >
+        <FactionSigil faction={faction} />
+        <span>{faction ? lobbyFactionName(faction) : "Random"}</span>
+        {holder && (
+          <span className="faction-picker__taken">
+            taken by {holder.nickname ?? "another seat"}
+          </span>
+        )}
+        {!faction && <span className="faction-picker__taken">dealt by the seed</span>}
+      </li>
+    );
   };
   return (
     <div
@@ -84,38 +122,35 @@ export const FactionPicker: React.FC<FactionPickerProps> = ({
         <span aria-hidden="true">▾</span>
       </button>
       {open && (
-        <ul className="faction-picker__list" role="listbox" id={listId} aria-label={label}>
-          {[null, ...pool].map((faction) => {
-            const holder = faction ? taken?.get(faction) : undefined;
-            return (
-              <li
-                key={faction ?? "random"}
-                role="option"
-                aria-selected={faction === value}
-                aria-disabled={!!holder}
-                tabIndex={holder ? -1 : 0}
-                className={`faction-picker__option${faction === value ? " is-selected" : ""}${holder ? " is-taken" : ""}`}
-                data-testid={`${testId}-option-${faction ?? "random"}`}
-                onClick={() => !holder && choose(faction)}
-                onKeyDown={(event) => {
-                  if (!holder && (event.key === "Enter" || event.key === " ")) {
-                    event.preventDefault();
-                    choose(faction);
-                  }
-                }}
-              >
-                <FactionSigil faction={faction} />
-                <span>{faction ? lobbyFactionName(faction) : "Random"}</span>
-                {holder && (
-                  <span className="faction-picker__taken">
-                    taken by {holder.nickname ?? "another seat"}
-                  </span>
-                )}
-                {!faction && <span className="faction-picker__taken">dealt by the seed</span>}
-              </li>
-            );
-          })}
-        </ul>
+        <div className="faction-picker__list" id={listId}>
+          {pool.length > 8 && (
+            <input
+              className="input faction-picker__search"
+              type="search"
+              autoFocus
+              placeholder="Search factions"
+              aria-label="Search factions"
+              data-testid={`${testId}-search`}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          )}
+          <ul className="faction-picker__options" role="listbox" aria-label={label}>
+            {matches("random", "Random") && option(null)}
+            {groupFactions(pool).map((group) => {
+              const shown = group.factions.filter((f) => matches(f, lobbyFactionName(f)));
+              if (shown.length === 0) return null;
+              return (
+                <React.Fragment key={group.label}>
+                  <li role="presentation" className="faction-picker__group">
+                    {group.label}
+                  </li>
+                  {shown.map((faction) => option(faction))}
+                </React.Fragment>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );

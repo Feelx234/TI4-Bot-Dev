@@ -177,7 +177,7 @@ it("sends the chosen faction with an added bot, changes it later, and surfaces a
   const sent: { url: string; body: unknown }[] = [];
   let botCalls = 0;
   const fetchMock = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
-    if (init?.body && /\/(bots|bot-faction)$/.test(url)) sent.push({ url, body: JSON.parse(init.body) });
+    if (init?.body && /\/(bots|seat-faction)$/.test(url)) sent.push({ url, body: JSON.parse(init.body) });
     if (url.endsWith("/bots") && ++botCalls > 1)
       return Promise.resolve({
         ok: false,
@@ -197,11 +197,11 @@ it("sends the chosen faction with an added bot, changes it later, and surfaces a
     body: { kind: "smart", count: 1, faction: "sol" },
   });
   await act(async () => {
-    await result.current.setBotFaction("player_b", "hacan");
-    await result.current.setBotFaction("player_b", null);
+    await result.current.setSeatFaction("player_b", "hacan");
+    await result.current.setSeatFaction("player_b", null);
   });
   expect(sent[1]).toEqual({
-    url: "/api/games/game/lobby/bot-faction",
+    url: "/api/games/game/lobby/seat-faction",
     body: { player_id: "player_b", faction: "hacan" },
   });
   expect(sent[2].body).toEqual({ player_id: "player_b", faction: null });

@@ -28,7 +28,7 @@ export const CreateLobby: React.FC<{
   onCreated: (created: CreateGameResponse) => void;
   onError: (message: string) => void;
 }> = ({ onCreated, onError }) => {
-  const [count, setCount] = useState(3);
+  const [count, setCount] = useState(4);
   const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
   // it exists only in dev builds (the API field itself is unchanged).
@@ -178,8 +178,8 @@ interface LobbyStatusProps {
     kind?: InProcessBotKind;
     faction?: string;
   }) => Promise<boolean | void>;
-  /** Host only: change the faction of a bot seat (`null`: back to random). */
-  onSetBotFaction?: (playerId: string, faction: string | null) => Promise<boolean | void>;
+  /** Change a seat's faction (`null`: back to random): the host for any seat, a person for their own. */
+  onSetSeatFaction?: (playerId: string, faction: string | null) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
   onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
@@ -220,7 +220,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onAddBot,
   onRemoveBot,
   onAddRandomBots,
-  onSetBotFaction,
+  onSetSeatFaction,
   onChooseMap,
   watching,
   pendingAction,
@@ -546,9 +546,11 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   </button>
                 </span>
               )}
-              {slot.bot && slot.occupant && canChooseFactions && (
+              {slot.occupant && canChooseFactions && (
                 <span className="lobby-list__faction" data-testid={`seat-faction-${slot.position}`}>
-                  {isHost && lobby.phase === "lobby" && onSetBotFaction ? (
+                  {lobby.phase === "lobby" &&
+                  onSetSeatFaction &&
+                  (isHost || slot.occupant === playerId) ? (
                     <FactionPicker
                       compact
                       pool={factionPool}
@@ -556,8 +558,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       taken={takenFactions(lobby, slot.position)}
                       disabled={!!pendingAction}
                       label={`Faction of position ${slot.position}`}
-                      testId={`bot-faction-${slot.position}`}
-                      onChange={(faction) => void onSetBotFaction(slot.occupant!, faction)}
+                      testId={`seat-faction-picker-${slot.position}`}
+                      onChange={(faction) => void onSetSeatFaction(slot.occupant!, faction)}
                     />
                   ) : (
                     <>
