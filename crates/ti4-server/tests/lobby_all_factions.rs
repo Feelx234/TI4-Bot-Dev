@@ -1,6 +1,6 @@
 //! Every faction of the lobby pool ([`ti4_engine::seating::LOBBY_FACTIONS`]) as a chosen seat: the
 //! game builds on every map template that seats the table, the seat starts with its units and home
-//! planets, and smart bots play it. Also all factions undecided over many seeds, determinism by
+//! planets, and rule bots play it. Also all factions undecided over many seeds, determinism by
 //! seed, and a longer smart-bot game for the factions with special setup.
 
 use std::collections::BTreeSet;

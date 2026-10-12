@@ -312,7 +312,7 @@ async fn public_mode_refuses_ml_bots_presets_and_keeps_the_small_body_cap() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
-    // The in-process smart bot still works.
+    // The in-process rule bot still works.
     let r = c
         .post(format!("http://{base}/api/games/{id}/lobby/bots"))
         .header("x-ti4-player-session", token)

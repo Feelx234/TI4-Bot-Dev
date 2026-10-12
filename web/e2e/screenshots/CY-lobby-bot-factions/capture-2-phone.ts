@@ -35,10 +35,10 @@ test("phone: seats with chosen factions", async ({ page }, testInfo) => {
 });
 
 test("phone: duplicate refused", async ({ page }, testInfo) => {
-  await openFactionLobby(page, { hiddenHolder: { faction: "sol", name: "Smart bot 9" } });
+  await openFactionLobby(page, { hiddenHolder: { faction: "sol", name: "Rule bot 9" } });
   await page.getByTestId("new-bot-faction-button").click();
   await page.getByTestId("new-bot-faction-option-sol").click();
   await page.getByTestId("add-smart-bot-button").click();
-  await expect(page.getByTestId("lobby-error")).toContainText("already taken by Smart bot 9");
+  await expect(page.getByTestId("lobby-error")).toContainText("already taken by Rule bot 9");
   await shot(page, testInfo, "11-phone-duplicate-refused");
 });

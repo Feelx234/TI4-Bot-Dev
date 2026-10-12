@@ -20,7 +20,7 @@ export interface LobbySlot {
   connected: boolean;
   can_take_over: boolean;
   /**
-   * `"random"` for an in-process random bot, `"smart"` for an in-process smart bot; absent for a
+   * `"random"` for an in-process random bot, `"smart"` for an in-process rule bot; absent for a
    * person (and for an MLP bot).
    */
   bot?: string;

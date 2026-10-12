@@ -17,18 +17,18 @@ test("phone: host with open seats", async ({ page }, testInfo) => {
   await shot(page, testInfo, "5-phone-open");
 });
 
-test("phone: filled with smart bots", async ({ page }, testInfo) => {
+test("phone: filled with rule bots", async ({ page }, testInfo) => {
   await openBotLobby(page, { botKinds: BOTH, players: 5, guest: true });
   await page.getByTestId("fill-smart-bots-button").click();
-  await expect(page.getByTestId("bot-badge-5")).toHaveText("Smart bot");
+  await expect(page.getByTestId("bot-badge-5")).toHaveText("Rule bot");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await shot(page, testInfo, "6-phone-filled");
 });
 
-test("guest sees the smart bot badges but no host controls", async ({ page }, testInfo) => {
+test("guest sees the rule bot badges but no host controls", async ({ page }, testInfo) => {
   await openBotLobby(page, { botKinds: BOTH, viewer: "guest_1", initialBots: 2, initialKind: "smart" });
-  await expect(page.getByTestId("bot-badge-3")).toHaveText("Smart bot");
+  await expect(page.getByTestId("bot-badge-3")).toHaveText("Rule bot");
   await expect(page.getByTestId("add-smart-bot-button")).toHaveCount(0);
   await shot(page, testInfo, "7-guest");
 });

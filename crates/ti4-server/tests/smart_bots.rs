@@ -1,4 +1,4 @@
-//! Smart bot seats (`SeatController::BotSmart`): whole games without illegal answers or stalls,
+//! Rule bot seats (`SeatController::BotSmart`): whole games without illegal answers or stalls,
 //! determinism, and a strength comparison against the plain random bot. Delay 0 everywhere.
 
 use std::time::{Duration, Instant};

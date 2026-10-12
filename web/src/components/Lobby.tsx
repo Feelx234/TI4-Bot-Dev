@@ -459,7 +459,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                     className={`lobby-bot-badge lobby-bot-badge--${slot.bot}`}
                     data-testid={`bot-badge-${slot.position}`}
                   >
-                    {slot.bot === "smart" ? "Smart bot" : "Random bot"}
+                    {slot.bot === "smart" ? "Rule bot" : "Random bot"}
                   </span>
                 )}
               </strong>

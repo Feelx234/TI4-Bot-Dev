@@ -1,10 +1,10 @@
-# Community faction strategies (TI4) and what the smart bot could use
+# Community faction strategies (TI4) and what the rule bot could use
 
 What the Twilight Imperium 4 community says about playing each faction, gathered in October 2026
 from BoardGameGeek (strategy forum guides and threads), r/twilightimperium (faction guides,
 "how do I play X" threads, tier-list threads, async win-rate data posts) and the podcasts and
 blogs those threads link to. Each faction section ends with a **Bot feasibility** note for the
-smart bot (`crates/ti4-server/src/session/smart_bot.rs`). The doc ends with a ranked list of the
+rule bot (`crates/ti4-server/src/session/smart_bot.rs`). The doc ends with a ranked list of the
 ideas worth building and a list of ideas a rule-based bot cannot realistically follow.
 
 This is input for bot work, not a bot spec. It is meant to sit next to the mid/late-game plan doc
@@ -68,12 +68,12 @@ Checked against `crates/ti4-content/content/*.json` and the engine/server code:
   Arborec Mitosis, Yssaril Stall Tactics and Naalu Telepathic do have faction modules.
 - The Nekro Virus cannot research (Propagation: research gives 3 command tokens instead), as
   printed.
-- The smart bot's fight model (`ti4_policy::fleet_strength`) knows only two faction combat
+- The rule bot's fight model (`ti4_policy::fleet_strength`) knows only two faction combat
   modifiers: Jol-Nar -1 and Sardakk +1 (plus the Jol-Nar flagship's extra hits). It does not value
   Mentak Ambush, Letnev Munitions Reserves, Argent anti-fighter barrage, the Yin, Winnu, Mahact or
   Sardakk flagships, or Naaz-Rokha mechs in space.
 
-### What the smart bot can act on today
+### What the rule bot can act on today
 
 From the module docs and the `pick` dispatcher: it has opinions on scoring (always), the action
 choice, system activation, movement, loading, landing, retreat, production, payment, command-token
@@ -252,7 +252,7 @@ minority says PoK made them good.
   Arborec, lower that bar to "can pay for two infantry" so the bot activates its own forward
   systems to grow. Value high, effort S.
 - Opening: use the agent on the home cruiser in round 1 (component action
-  `component|leader|arborecagent`), which the smart bot never picks today (component actions are
+  `component|leader|arborecagent`), which the rule bot never picks today (component actions are
   only reached through the random fallback). Value high, effort M (needs a component-action hook,
   shared with Sol, Muaat and others below).
 - Draft: Technology first in round 1, then Trade/Leadership. Effort S (per-faction weights in
@@ -646,7 +646,7 @@ swarms (disputed: Destroyer II and early pressure fix it).
 PoK data.
 
 **Bot feasibility.**
-- Star Forge is a component action (`faction|star_forge` style option); the smart bot never takes
+- Star Forge is a component action (`faction|star_forge` style option); the rule bot never takes
   component actions. Using it when a strategy token is spare and the war sun is about to fight is
   the faction's main engine. Value high, effort M (component-action hook).
 - Agent in round 1 (carrier plus destroyer at home): effort M, value high.
@@ -1382,7 +1382,7 @@ Bot feasibility: none needed until they can be seated.
 
 ## Ranked: the 15 most worthwhile ideas to implement
 
-Ranked by expected value for the smart bot per unit of effort, given the bot's current shape
+Ranked by expected value for the rule bot per unit of effort, given the bot's current shape
 (greedy per-decision rules, own-seat observation). None needs engine changes.
 
 1. **Per-faction research wish lists** (replacing "Gravity Drive whenever offered"): an ordered
@@ -1392,7 +1392,7 @@ Ranked by expected value for the smart bot per unit of effort, given the bot's c
 2. **A component-action hook in `pick_action`**: let the bot choose `component` options (Sol
    Orbital Drop, Muaat Star Forge, Sling Relay for Nomad/Ghosts/anyone who owns it, the Arborec
    agent's cruiser-to-carrier in round 1, the Hacan agent, Yssaril Stall Tactics), each with a
-   simple "worth it now" rule; today the smart bot never takes a component action deliberately.
+   simple "worth it now" rule; today the rule bot never takes a component action deliberately.
    Value high, effort M.
 3. **Per-faction draft weights** in `opening_card_score`: Trade allowed in round 1 for Ghosts,
    Nekro, Empyrean, Cabal, Titans, Arborec (not only Hacan); Diplomacy high for Xxcha (Peace

@@ -88,7 +88,7 @@ friend's browser --HTTPS/WSS--> Caddy on the Hetzner box (ports 80/443, automati
   a restart replays games (about 60 s of start-up with many games on the debug build).
 - Keep the nightly sweep and agent builds off the public instance's CPU (cgroup weights or run
   the public instance with higher priority).
-- Bots: the smart bot is in-process Rust and needs nothing extra. The ML advisor/bot-agent path
+- Bots: the rule bot is in-process Rust and needs nothing extra. The ML advisor/bot-agent path
   (`TI4_BOT_PASSWORD`, `TI4_ADVISOR_URL`, `TI4_BOT_AGENT_BIN`) needs libtorch; leave it disabled.
 
 ### D. Feedback button (medium, ~1.5-2 days)
@@ -158,5 +158,5 @@ link after about 2-3 days.
 1. Hosting on Hetzner: this box (isolated by systemd slice) vs. a separate small Hetzner server (recommended), and which domain/subdomain to use.
 2. Access: closed invite (recommended) vs. open link.
 3. Feedback delivery: Discord webhook, email, or GitHub issues.
-4. Whether to keep the ML advisor/bots disabled (recommended) and the smart bot as the only AI.
+4. Whether to keep the ML advisor/bots disabled (recommended) and the rule bot as the only AI.
 5. Policy for resetting games across incompatible updates.

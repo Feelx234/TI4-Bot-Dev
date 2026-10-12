@@ -260,8 +260,8 @@ async fn smart_bots_are_added_named_and_started_as_smart_seats() {
         .post(&game, "bots", Some(&host), json!({"kind": "smart", "count": 2}))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    assert_eq!(body["slots"][1]["nickname"], "Smart bot 1");
-    assert_eq!(body["slots"][2]["nickname"], "Smart bot 2");
+    assert_eq!(body["slots"][1]["nickname"], "Rule bot 1");
+    assert_eq!(body["slots"][2]["nickname"], "Rule bot 2");
     assert_eq!(body["slots"][1]["bot"], "smart");
     assert_eq!(body["slots"][1]["can_take_over"], false);
     let (status, body) = server

@@ -1,7 +1,7 @@
 # Faction plans: mid- and late-game strategy per faction
 
 What each faction should aim for from round 3 on, and in particular **which technologies to
-research and which units to build**. Written as the basis for the smart bot's faction plans
+research and which units to build**. Written as the basis for the rule bot's faction plans
 (`crates/ti4-server/src/session/smart_bot_faction_plans.rs`), so every claim was checked
 against this engine's content (`crates/ti4-content/content/{factions,technologies,units,
 abilities,leaders}.json`). Where the engine differs from the printed game, the engine wins and
@@ -445,11 +445,11 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Build**: mid destroyers (3), carriers; late dreadnoughts (2), destroyers.
 - **Pitfalls**: reactive moves that gain nothing.
 
-## In the smart bot
+## In the rule bot
 
 `crates/ti4-server/src/session/smart_bot_faction_plans.rs` holds every profile above as data
 (`PLANS`: technology order, unit emphasis per phase, fleet size, preferred strategy cards) and
-four hooks the smart bot calls (`smart_bot.rs`):
+four hooks the rule bot calls (`smart_bot.rs`):
 
 - **Research** (any round, after Gravity Drive): the first plan entry offered; if the next entry
   is out of reach, the offered technology of a colour it still lacks (on the plan first, then

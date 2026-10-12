@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { shot } from "../_shared/shot";
 import { openFactionLobby } from "./scene";
 
-test("host: picker closed, Random by default, only the smart bot offered", async ({ page }, testInfo) => {
+test("host: picker closed, Random by default, only the rule bot offered", async ({ page }, testInfo) => {
   await openFactionLobby(page);
   await expect(page.getByTestId("new-bot-faction-button")).toContainText("Random");
   await expect(page.getByTestId("add-smart-bot-button")).toHaveText("Add bot");
@@ -45,11 +45,11 @@ test("host: changing the faction of a bot seat after adding it", async ({ page }
 });
 
 test("host: a duplicate the lobby view did not show yet is refused with the server's reason", async ({ page }, testInfo) => {
-  await openFactionLobby(page, { hiddenHolder: { faction: "sol", name: "Smart bot 9" } });
+  await openFactionLobby(page, { hiddenHolder: { faction: "sol", name: "Rule bot 9" } });
   await page.getByTestId("new-bot-faction-button").click();
   await page.getByTestId("new-bot-faction-option-sol").click();
   await page.getByTestId("add-smart-bot-button").click();
-  await expect(page.getByTestId("lobby-error")).toContainText("already taken by Smart bot 9");
+  await expect(page.getByTestId("lobby-error")).toContainText("already taken by Rule bot 9");
   await expect(page.getByTestId("bot-badge-3")).toHaveCount(0);
   await shot(page, testInfo, "6-duplicate-refused");
 });

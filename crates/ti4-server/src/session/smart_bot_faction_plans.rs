@@ -1,8 +1,8 @@
-//! Faction plans for the smart bot ([`crate::session::smart_bot`]): what each faction researches
+//! Faction plans for the rule bot ([`crate::session::smart_bot`]): what each faction researches
 //! and builds from round 3 on.
 //!
 //! The profiles behind the data are written up in `crates/ti4-server/docs/FACTION_PLANS.md`.
-//! Each [`Plan`] is an ordered technology priority (after Gravity Drive, which the smart bot
+//! Each [`Plan`] is an ordered technology priority (after Gravity Drive, which the rule bot
 //! already takes whenever offered) and a unit emphasis per phase: a weight on each base unit
 //! type and how many of it the faction wants on the board. Three hooks read it:
 //!
@@ -52,7 +52,7 @@ pub struct Plan {
     pub units: &'static [Emphasis],
     /// Non-fighter ships wanted on the board: mid game, late game.
     pub ships: [usize; 2],
-    /// Strategy cards it takes from round 3 when no rule of the smart bot decides (no Imperial
+    /// Strategy cards it takes from round 3 when no rule of the rule bot decides (no Imperial
     /// to score, no card with trade goods on it), by name, best first.
     pub cards: &'static [&'static str],
 }

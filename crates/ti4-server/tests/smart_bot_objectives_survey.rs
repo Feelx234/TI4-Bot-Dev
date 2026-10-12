@@ -1,4 +1,4 @@
-//! How the smart bots score objectives, for tuning the objective layer
+//! How the rule bots score objectives, for tuning the objective layer
 //! (`session::smart_bot_objectives`): `cargo test --release --test smart_bot_objectives_survey --
 //! --ignored --nocapture`.
 //!
@@ -12,7 +12,7 @@
 //! objectives and its own secrets. `left` counts objectives still scoreable when the status phase
 //! scoring window opened in a category the seat then did not score: a choice error, never a rule.
 //!
-//! The seats are smart bots exactly as `BotSmart` plays them (random pick drawn first, then
+//! The seats are rule bots exactly as `BotSmart` plays them (random pick drawn first, then
 //! [`ti4_server::session::smart_bot::pick`]); the driver is the engine's own `Game::step`.
 //! `SURVEY_OBJ_LAYER=off` switches the objective layer off for a before/after comparison.
 
@@ -340,7 +340,7 @@ fn survey_objectives() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(8);
-    // `SURVEY_OBJ_LAYER=off` plays the smart bot without its objective layer, for comparison;
+    // `SURVEY_OBJ_LAYER=off` plays the rule bot without its objective layer, for comparison;
     // `SURVEY_OBJ_LAYER=p1,p3` plays it for those seats only.
     let layer = std::env::var("SURVEY_OBJ_LAYER").unwrap_or_else(|_| "on".to_owned());
     match layer.as_str() {

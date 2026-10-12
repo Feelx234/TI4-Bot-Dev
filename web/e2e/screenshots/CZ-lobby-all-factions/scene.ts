@@ -54,7 +54,7 @@ export async function openFactionLobby(page: Page, options: FactionLobbyOptions 
     slots[index] = {
       ...slots[index],
       occupant: `bot_${botNumber}`,
-      nickname: `Smart bot ${botNumber}`,
+      nickname: `Rule bot ${botNumber}`,
       ready: true,
       connected: true,
       bot: "smart",

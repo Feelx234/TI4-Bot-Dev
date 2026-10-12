@@ -95,7 +95,7 @@ pub enum SeatController {
 }
 
 impl SeatController {
-    /// Whether the seat is answered inside the game worker (a random or smart bot): no
+    /// Whether the seat is answered inside the game worker (a random or rule bot): no
     /// credential, no connection, never taken over.
     #[must_use]
     pub const fn is_in_process_bot(&self) -> bool {

@@ -3073,7 +3073,7 @@ impl GameRegistry {
     }
 
     /// [`Self::add_random_bots`] for any in-process bot kind ([`IN_PROCESS_BOT_KINDS`]): `random`
-    /// seats are named "Random bot N", `smart` seats "Smart bot N".
+    /// seats are named "Random bot N", `smart` seats "Rule bot N".
     ///
     /// # Errors
     /// As [`Self::add_random_bots`]; an unknown `kind` is [`LobbyError::InvalidCapability`]
@@ -3091,7 +3091,7 @@ impl GameRegistry {
             return Err(LobbyError::InvalidCapability);
         }
         let name_stem = if kind == SMART_BOT_KIND {
-            "Smart bot"
+            "Rule bot"
         } else {
             "Random bot"
         };

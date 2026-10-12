@@ -182,7 +182,7 @@ it("sends the chosen faction with an added bot, changes it later, and surfaces a
       return Promise.resolve({
         ok: false,
         status: 409,
-        text: async () => "Faction 'sol' is already taken by Smart bot 1",
+        text: async () => "Faction 'sol' is already taken by Rule bot 1",
       });
     return Promise.resolve(json({ player: { id: "player_a" }, lobby }));
   });
@@ -208,5 +208,5 @@ it("sends the chosen faction with an added bot, changes it later, and surfaces a
   await act(async () => {
     await result.current.addRandomBots({ count: 1, kind: "smart", faction: "sol" });
   });
-  expect(result.current.error).toContain("already taken by Smart bot 1");
+  expect(result.current.error).toContain("already taken by Rule bot 1");
 });

@@ -1,4 +1,4 @@
-//! The smart bot: the random bot ([`crate::session::random_bot`]) with an opinion on the board.
+//! The rule bot: the random bot ([`crate::session::random_bot`]) with an opinion on the board.
 //!
 //! # Plan
 //!

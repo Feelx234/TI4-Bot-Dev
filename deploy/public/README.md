@@ -85,7 +85,7 @@ The last 4 releases are kept. The commit is baked into the binary and shown in `
 the page footer.
 
 Check: `curl https://play.example.org/health` -> `{"status":"ok","protocol_version":...,"commit":"...","public":true}`.
-Open the site on your phone, enter the password, create a game, add a Smart bot.
+Open the site on your phone, enter the password, create a game, add a Rule bot.
 
 Updates can break running games (alpha): a protocol bump needs a page reload, an engine change can
 stop an old game from replaying. Tell the testers when you deploy.

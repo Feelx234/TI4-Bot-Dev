@@ -333,7 +333,7 @@ describe("lobby UI", () => {
       factions: ["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"],
     };
 
-    it("gives the host add and fill buttons for the smart bot only, and nobody else", () => {
+    it("gives the host add and fill buttons for the rule bot only, and nobody else", () => {
       const onAddRandomBots = vi.fn().mockResolvedValue(true);
       const { rerender } = render(
         <LobbyStatus lobby={withBots} playerId={null} onAddRandomBots={onAddRandomBots} {...props} />,
@@ -359,7 +359,7 @@ describe("lobby UI", () => {
       expect(screen.queryByTestId("new-bot-faction")).not.toBeInTheDocument();
     });
 
-    it("offers nothing on a server that lists no smart bot, or when no seat is open, or after start", () => {
+    it("offers nothing on a server that lists no rule bot, or when no seat is open, or after start", () => {
       const onAddRandomBots = vi.fn();
       const { rerender } = render(
         <LobbyStatus
@@ -420,7 +420,7 @@ describe("lobby UI", () => {
         ...withFactions,
         slots: withFactions.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Smart bot 1", bot: "smart", faction: "sol", ready: true, connected: true, can_take_over: false }
+            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "sol", ready: true, connected: true, can_take_over: false }
             : slot,
         ),
       };
@@ -429,7 +429,7 @@ describe("lobby UI", () => {
       fireEvent.click(screen.getByTestId("new-bot-faction-button"));
       const sol = screen.getByTestId("new-bot-faction-option-sol");
       expect(sol).toHaveAttribute("aria-disabled", "true");
-      expect(sol).toHaveTextContent("taken by Smart bot 1");
+      expect(sol).toHaveTextContent("taken by Rule bot 1");
       fireEvent.click(sol);
       expect(screen.getByTestId("new-bot-faction-button")).toHaveTextContent("Random");
     });
@@ -440,7 +440,7 @@ describe("lobby UI", () => {
         ...withFactions,
         slots: withFactions.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Smart bot 1", bot: "smart", faction: "hacan", ready: true, connected: true, can_take_over: false }
+            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "hacan", ready: true, connected: true, can_take_over: false }
             : slot,
         ),
       };
@@ -468,17 +468,17 @@ describe("lobby UI", () => {
       expect(screen.getByTestId("seat-faction-2")).toHaveTextContent("Random faction");
     });
 
-    it("labels a smart bot seat as a smart bot", () => {
+    it("labels a rule bot seat as a rule bot", () => {
       const botLobby: LobbyDto = {
         ...withBots,
         slots: withBots.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Smart bot 1", ready: true, connected: true, can_take_over: false, bot: "smart" }
+            ? { ...slot, nickname: "Rule bot 1", ready: true, connected: true, can_take_over: false, bot: "smart" }
             : slot,
         ),
       };
       render(<LobbyStatus lobby={botLobby} playerId="player_a" {...props} />);
-      expect(screen.getByTestId("bot-badge-2")).toHaveTextContent("Smart bot");
+      expect(screen.getByTestId("bot-badge-2")).toHaveTextContent("Rule bot");
       expect(screen.getByText("● Plays itself")).toBeInTheDocument();
     });
 

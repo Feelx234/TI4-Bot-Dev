@@ -156,7 +156,7 @@ async fn duplicates_unknown_and_unavailable_factions_are_refused_with_a_reason()
     let (status, body) =
         server.post(&game, "bots", &host, json!({"kind": "smart", "faction": "hacan"})).await;
     assert_eq!(status, StatusCode::CONFLICT);
-    assert!(body.as_str().unwrap().contains("already taken by Smart bot 1"), "{body}");
+    assert!(body.as_str().unwrap().contains("already taken by Rule bot 1"), "{body}");
     for bad in ["nonsense", "bastion", "keleresm", "obsidian"] {
         let (status, body) =
             server.post(&game, "bots", &host, json!({"kind": "smart", "faction": bad})).await;

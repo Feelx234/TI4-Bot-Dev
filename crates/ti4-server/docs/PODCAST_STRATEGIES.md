@@ -1,7 +1,7 @@
 # What the TI4 podcasts teach: strategies, openings and bot-feasible heuristics
 
 Research notes distilled from the two Twilight Imperium 4th edition strategy podcasts with the
-largest back catalogues, and an assessment of which ideas the rule-based smart bot
+largest back catalogues, and an assessment of which ideas the rule-based rule bot
 (`crates/ti4-server/src/session/smart_bot.rs`) could adopt.
 
 Everything below is a **paraphrased summary** with episode references (number, date, and the
@@ -746,7 +746,7 @@ underrated and Crimson slightly overrated. Faction-specific opening tables are i
 
 ## 4. Bot feasibility
 
-### 4.1 What the smart bot does today (read-only review of `smart_bot.rs`)
+### 4.1 What the rule bot does today (read-only review of `smart_bot.rs`)
 
 `pick()` overrides the random bot on a few windows and leaves everything else random:
 score whenever offered (first `score` option), activation/movement/landing/retreat valued by

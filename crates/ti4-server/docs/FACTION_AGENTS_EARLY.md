@@ -1,7 +1,7 @@
 # Faction agents in the early rounds (1-3)
 
 How each faction's agent can help in rounds 1-3, how this engine implements and offers it, what
-the smart bot did with it before this work, and the rule the bot now follows. Written as the basis
+the rule bot did with it before this work, and the rule the bot now follows. Written as the basis
 for `crates/ti4-server/src/session/smart_bot_agents.rs`.
 
 Sources: the card texts are `crates/ti4-content/content/leaders.json` (every claim below was

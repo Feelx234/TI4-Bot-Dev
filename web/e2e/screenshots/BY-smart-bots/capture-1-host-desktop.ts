@@ -10,24 +10,24 @@ test("host: both bot kinds offered", async ({ page }, testInfo) => {
   await expect(page.getByTestId("add-smart-bot-button")).toBeVisible();
   await expect(page.getByTestId("fill-smart-bots-button")).toBeVisible();
   await expect(page.getByTestId("add-random-bot-button")).toBeVisible();
-  await expect(page.getByTestId("random-bot-actions")).toContainText("Smart bots claim nearby planets");
+  await expect(page.getByTestId("random-bot-actions")).toContainText("Rule bots claim nearby planets");
   await shot(page, testInfo, "1-host-both-kinds");
 });
 
-test("host: one smart bot added", async ({ page }, testInfo) => {
+test("host: one rule bot added", async ({ page }, testInfo) => {
   await openBotLobby(page, { botKinds: BOTH, guest: true });
   await page.getByTestId("add-smart-bot-button").click();
-  await expect(page.getByTestId("bot-badge-3")).toHaveText("Smart bot");
-  await expect(page.getByText("Smart bot 1")).toBeVisible();
+  await expect(page.getByTestId("bot-badge-3")).toHaveText("Rule bot");
+  await expect(page.getByText("Rule bot 1")).toBeVisible();
   await shot(page, testInfo, "2-one-smart-bot");
 });
 
-test("host: a random and a smart bot side by side", async ({ page }, testInfo) => {
+test("host: a random and a rule bot side by side", async ({ page }, testInfo) => {
   await openBotLobby(page, { botKinds: BOTH, guest: true });
   await page.getByTestId("add-random-bot-button").click();
   await expect(page.getByTestId("bot-badge-3")).toHaveText("Random bot");
   await page.getByTestId("fill-smart-bots-button").click();
-  await expect(page.getByTestId("bot-badge-4")).toHaveText("Smart bot");
+  await expect(page.getByTestId("bot-badge-4")).toHaveText("Rule bot");
   // No seat left: the add buttons are gone.
   await expect(page.getByTestId("add-smart-bot-button")).toHaveCount(0);
   await shot(page, testInfo, "3-mixed-table");

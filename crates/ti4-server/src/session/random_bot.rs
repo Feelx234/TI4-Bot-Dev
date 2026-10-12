@@ -167,7 +167,7 @@ impl RandomBotDecider {
         }
     }
 
-    /// The same seat played by the smart bot: heuristics where it has an opinion, else random.
+    /// The same seat played by the rule bot: heuristics where it has an opinion, else random.
     #[must_use]
     pub const fn smart(mut self) -> Self {
         self.smart = true;

@@ -1,4 +1,4 @@
-//! The smart bot's agent layer: when to use a faction agent, and the questions that follow.
+//! The rule bot's agent layer: when to use a faction agent, and the questions that follow.
 //!
 //! Plan and per-faction reasoning: `crates/ti4-server/docs/FACTION_AGENTS_EARLY.md`. In short:
 //!

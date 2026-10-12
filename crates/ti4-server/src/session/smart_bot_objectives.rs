@@ -1,9 +1,9 @@
-//! The smart bot's objective layer: from round three ([`OBJECTIVE_ROUND`]) it plays for victory
+//! The rule bot's objective layer: from round three ([`OBJECTIVE_ROUND`]) it plays for victory
 //! points and for keeping them.
 //!
-//! A child module of [`super`] (the smart bot), consulted by [`super::pick`] before its own
+//! A child module of [`super`] (the rule bot), consulted by [`super::pick`] before its own
 //! opinions through one hook, [`pick`]. It returns `Some(index)` only where an objective changes
-//! the answer and `None` otherwise, so everything else stays exactly as the smart bot plays it.
+//! the answer and `None` otherwise, so everything else stays exactly as the rule bot plays it.
 //! It reads only the seat's own observation: the revealed public objectives, its own secrets
 //! (through the engine's bound-seat progress, [`SeatObservation::held_secret_progress`]) and the
 //! public board. It is deterministic.
@@ -80,7 +80,7 @@ pub fn set_enabled(enabled: bool) {
 }
 
 /// Switch the objective layer on for the seats named `seats` only, process-wide (surveys only):
-/// the others play the smart bot without it.
+/// the others play the rule bot without it.
 pub fn set_enabled_for(seats: &[&str]) {
     *ENABLED.lock().expect("objective layer switch") =
         Some(seats.iter().map(|s| (*s).to_owned()).collect());
@@ -99,7 +99,7 @@ fn active(seen: &Observed<'_>) -> bool {
     seen.round() >= OBJECTIVE_ROUND
 }
 
-/// The objective layer's answer to `choice`, or `None` to leave it to the smart bot.
+/// The objective layer's answer to `choice`, or `None` to leave it to the rule bot.
 pub fn pick(
     choice: &Choice,
     seen: &SeatObservation<'_>,
@@ -439,7 +439,7 @@ fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
         .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens)
 }
 
-/// Production within the spare resources: the smart bot's pick among what stays affordable, or
+/// Production within the spare resources: the rule bot's pick among what stays affordable, or
 /// stop.
 fn pick_produce(
     choice: &Choice,
@@ -687,7 +687,7 @@ fn threatens_own(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool 
             .any(|s| *s == system.as_str())
 }
 
-/// One system's worth to activate from round three: the smart bot's value, plus what it does for
+/// One system's worth to activate from round three: the rule bot's value, plus what it does for
 /// the objectives, plus planets taken from a rival about to win; minus a fight that wins nothing.
 fn system_value(
     seen: &SeatObservation<'_>,
@@ -795,7 +795,7 @@ fn pick_activation(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -
         })
         .collect();
     // Nothing worth a token (an empty fight scores zero now): the least harmful system rather
-    // than the smart bot's own pick, which would take that fight.
+    // than the rule bot's own pick, which would take that fight.
     best_above(&scored, ACTIVATION_THRESHOLD).or_else(|| best_above(&scored, 0.0))
 }
 
@@ -960,7 +960,7 @@ fn protected(goals: &[Goal]) -> Vec<&Goal> {
 
 /// Movement from round three: never the ship that holds a met objective
 /// ([`breaks_a_met_objective`]); into a system activated for a presence objective, the cheapest
-/// ship ([`pick_presence_move`]); otherwise the smart bot's movement among the moves left.
+/// ship ([`pick_presence_move`]); otherwise the rule bot's movement among the moves left.
 fn pick_move(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
     let observed = seen.observed();
     let active = observed.active_system()?.clone();
@@ -1113,7 +1113,7 @@ fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId
         .enumerate()
         .map(|(i, o)| (i, card_score(seen, me, &o.id, &goals)))
         .collect();
-    // Without an objective or trade goods to tip it, the smart bot's own draft decides.
+    // Without an objective or trade goods to tip it, the rule bot's own draft decides.
     if scored.iter().all(|(_, s)| *s < 1.0) {
         return None;
     }
@@ -1283,7 +1283,7 @@ mod tests {
         ))
     }
 
-    /// What the smart bot (objective layer first) answers, through the engine's private ask.
+    /// What the rule bot (objective layer first) answers, through the engine's private ask.
     struct Probe(Option<usize>);
     impl Decider for Probe {
         fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
