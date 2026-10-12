@@ -6,6 +6,7 @@ pub mod decider;
 pub mod preview;
 pub mod random_bot;
 pub mod smart_bot;
+pub mod smart_bot_faction_plans;
 pub mod registry;
 pub mod replay;
 pub mod rng_force;

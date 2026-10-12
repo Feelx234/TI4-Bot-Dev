@@ -41,8 +41,9 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **When the next tech is out of reach**, research the cheapest offered tech of a colour it is
   missing (e.g. `amd` or `sr` for a blue-blue upgrade, `nm`/`dxa` for green, `ps`/`sar` red,
   `st`/`gls` yellow), preferring one that is itself on the faction's list.
-- **Tech specialty planets** count as one prerequisite of their colour while ready; the plan's
-  key colour (named per faction) makes such planets worth more.
+- **Tech specialty planets** count as one prerequisite of their colour while ready; planets
+  with the plan's key colour (named per faction) are the ones worth a detour. (The bot does not
+  value this yet: its planet worth already favours any specialty a little.)
 - **Fleets**: dreadnoughts are the efficient sustain-damage backbone (4 resources, one slot);
   carriers with fighters add cheap hit absorbers; destroyers counter fighter screens (anti-
   fighter barrage); cruisers are cheap cubes for objectives and fleet supply; a war sun (needs
@@ -56,6 +57,9 @@ and PoK factions; the others have profiles and data but are not measured by the 
   (Propagation). Before this branch the engine never let the Muaat produce a war sun (the
   production gate only accepted a technology ending in `ws`; Muaat's war sun is on its faction
   sheet and its upgrade is `pws2`): fixed in `ti4_engine::production::buildable_for`.
+  Suspected, not fixed: the Keleres faction techs are tagged `"faction": "keleres"` while the
+  seats are `keleresm`/`keleresx`/`keleresa`, and `technology::can_research` compares the two
+  literally, so a Keleres seat may never be offered `iihq`/`asn` (the plan then skips them).
 
 ---
 
@@ -69,7 +73,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   activating its system. Mech deploys through Mitosis. Commander at 12 ground forces on planets.
 - **Mid**: spread infantry to every planet, build a second dock-equivalent through the flagship,
   fill carriers. **Late**: flagship-led production at the front, dreadnought escort.
-- **Tech**: `nm`, `dxa`, `lw2`, `cv2` (needs `amd|sr`), `bio`, `hm`, `sar`, `da`.
+- **Tech**: `nm`, `dxa`, `lw2`, `amd|sr`, `cv2`, `bio`, `hm`, `sar`, `da`.
   Key colour green, then blue.
 - **Build**: mid carriers (2-3), mechs, flagship once 8 resources free; late dreadnoughts (2+),
   flagship. Fighters only as fodder.
@@ -139,8 +143,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   repairs. Commander: 5 non-fighter ships in one system.
 - **Mid**: dreadnoughts plus carriers out of the 6-resource home. **Late**: deathball of
   dreadnoughts (Armada lets one system hold more) on the objectives.
-- **Tech**: `sar`, `nes`, `st`, `dn2`, `da`, `l4`, `asc`, `cv2`. Key colour red, blue for
-  `dn2`.
+- **Tech**: `sar`, `nes`, `st`, `dn2`, `da`, `l4`, `asc`, `cv2`. Key colour red, blue for `dn2`.
 - **Build**: mid dreadnoughts (3), carrier, fighters; late dreadnoughts (4+), flagship.
 - **Cards/tokens**: Warfare/Leadership; fleet pool for the deathball.
 - **Pitfalls**: a fleet that does not score; leaving the home exposed.
@@ -166,7 +169,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   Reactor (RR). Commander: produce a war sun.
 - **Mid**: second war sun as soon as 12 resources come together (commander); carriers for the
   infantry. **Late**: `pws2` war suns move 3: they reach anything.
-- **Tech**: `sar`, `st`, `da`, `pws2`, `mr`, `gls`, `amd`, `cv2`, `asc`. Key colour red.
+- **Tech**: `sar`, `st`, `da`, `pws2`, `mr`, `gls`, `amd|sr`, `cv2`, `asc`. Key colour red.
 - **Build**: mid war sun (second), carriers, fighters; late war suns, dreadnoughts, fighters.
 - **Cards/tokens**: Warfare; strategy pool for Star Forge.
 - **Pitfalls**: the war sun stranded at move 1 before `pws2`; no carriers or infantry.
@@ -180,7 +183,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   ground forces. Commander: ground forces in or next to Mecatol Rex.
 - **Mid**: `hcf2`, then carriers full of fighters. **Late**: fighter swarm with a dreadnought
   anchor.
-- **Tech**: `hcf2`, `dxa`, `amd|sr`, `cv2`, `bs`, `ng`, `sar`, `da`, `gls`. Key colours green
+- **Tech**: `hcf2`, `dxa`, `amd|sr`, `cv2`, `bs`, `ng`, `ps`, `sar`, `gls`. Key colours green
   and blue.
 - **Build**: mid carriers (2-3), fighters (fill capacity); late fighters, dreadnoughts (2),
   flagship.
@@ -206,7 +209,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   (score without the home), Scavenge. `ffac2` Floating Factory II (YY), `cm` Chaos Mapping (B).
   Mech deploys for a trade good. Commander at 3 docks.
 - **Mid**: factories forward, carriers out of them. **Late**: dreadnoughts from forward docks.
-- **Tech**: `cv2`, `st`, `gls`, `ffac2`, `cm`, `sar`, `da`, `dn2`. Key colours blue and yellow.
+- **Tech**: `cv2`, `st`, `gls`, `ffac2`, `cm`, `ps`, `sar`, `da`, `dn2`. Key colours blue and
+  yellow.
 - **Build**: mid carriers (3), destroyers, mechs; late dreadnoughts (2), carriers.
 - **Cards/tokens**: Construction (docks), Leadership.
 - **Pitfalls**: lone factories blockaded; one fleet for two objectives.
@@ -218,7 +222,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   Flagship +1 to others' rolls. Mech hits after sustaining. Commander: 5 non-home planets.
 - **Mid**: carriers and infantry into neighbours, Valkyrie Weave for ground fights. **Late**:
   Exotrireme dreadnoughts plus the flagship.
-- **Tech**: `ps`, `sar`, `vpw`, `st`, `amd`, `exo2`, `da`, `dd2`, `asc`. Key colour red, blue
+- **Tech**: `ps`, `sar`, `vpw`, `st`, `amd|sr`, `exo2`, `da`, `dd2`, `asc`. Key colour red, blue
   for `exo2` (starts with nothing: every step counts).
 - **Build**: mid carriers (2), dreadnoughts (2), mechs; late dreadnoughts (4), flagship.
 - **Cards/tokens**: Warfare; tactic tokens.
@@ -232,7 +236,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   phase. Commander at 12 resources.
 - **Mid**: `ac2`, carriers full of infantry on every reachable planet. **Late**: flagship
   with infantry, dreadnought escort.
-- **Tech**: `ac2`, `dxa`, `so2`, `st`, `dn2`, `hm`, `sar`, `ff2`, `da`. Key colours blue and
+- **Tech**: `ac2`, `dxa`, `so2`, `st`, `dn2`, `hm`, `ps`, `sar`, `ff2`. Key colours blue and
   green.
 - **Build**: mid carriers (3), infantry; late flagship, dreadnoughts (2), carriers.
 - **Cards/tokens**: Leadership (extra tokens suit Versatile), Warfare.
@@ -245,7 +249,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
   opponent non-fighter ship. Commander: control Mecatol or fight there (+2 there and at home).
 - **Mid**: take and hold Mecatol, dock and PDS there (Reclamation). **Late**: dreadnoughts
   around Mecatol, Imperial.
-- **Tech**: `st`, `amd|sr`, `lgf`, `gls`, `htp`, `sar`, `da`, `dn2`. Key colours blue and
+- **Tech**: `st`, `amd|sr`, `lgf`, `gls`, `htp`, `ps`, `sar`, `da`, `dn2`. Key colours blue and
   yellow.
 - **Build**: mid carriers (2), infantry, mechs; late dreadnoughts (3), flagship.
 - **Cards/tokens**: Imperial whenever Mecatol is held.
@@ -258,7 +262,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   Flagship and mech fire space cannon into adjacent systems. Commander at 12 influence.
 - **Mid**: take the free planets, PDS cover, cruisers for cheap presence. **Late**: dreadnoughts
   and the flagship as the space-cannon anchor.
-- **Tech**: `st`, `nf`, `nm`, `it`, `ps`, `pds2`, `cr2`, `sar`, `dn2`. Key colour yellow.
+- **Tech**: `st`, `nf`, `nm`, `it`, `ps`, `pds2`, `cr2`, `sar`, `amd|sr`, `dn2`. Key colour
+  yellow.
 - **Build**: mid cruisers (3), carriers, mechs; late dreadnoughts (2), flagship.
 - **Cards/tokens**: Politics late, Diplomacy; strategy pool for Quash and Nullification.
 - **Pitfalls**: over-defending planets nobody attacks; no fleet for control objectives.
@@ -270,7 +275,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   destroys all ships when destroyed. Commander: use a faction ability (a green prerequisite).
 - **Mid**: Yin Spinner, carriers full of infantry, cruisers/destroyers as Devotion shots.
   **Late**: dreadnoughts with cheap escorts.
-- **Tech**: `nm`, `dxa`, `yso`, `gls`, `ic`, `sar`, `cv2`, `ff2`, `hm`. Key colour green.
+- **Tech**: `nm`, `dxa`, `yso`, `gls`, `ic`, `ps`, `sar`, `amd|sr`, `cv2`, `ff2`, `hm`. Key
+  colour green.
 - **Build**: mid carriers (2), destroyers/cruisers, infantry; late dreadnoughts (2), cruisers.
 - **Cards/tokens**: Construction, Warfare.
 - **Pitfalls**: sacrificing ships for nothing.
@@ -282,7 +288,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   moves 2 through enemy ships. Commander at 7 action cards.
 - **Mid**: carriers and infantry for planet objectives. **Late**: dreadnoughts plus the
   flagship for a decisive move.
-- **Tech**: `dxa`, `tp`, `mi`, `st`, `sar`, `hm`, `cv2`, `dn2`. Key colour green.
+- **Tech**: `dxa`, `tp`, `mi`, `st`, `ps`, `sar`, `hm`, `amd|sr`, `cv2`, `dn2`. Key colour
+  green.
 - **Build**: mid carriers (2), cruisers, mechs; late dreadnoughts (2), flagship.
 - **Cards/tokens**: Politics (cards), strategy pool.
 - **Pitfalls**: stalling without a payoff; no board presence.
@@ -297,7 +304,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   capacity 6, costs others 2 influence to activate.
 - **Mid**: Mecatol neighbourhood, production twice per action (`asn`). **Late**: dreadnoughts,
   flagship.
-- **Tech**: `st`, `iihq`, `asn`, `sdn|pi`, `sar`, `cv2`, `dn2`, `da`. Key colour yellow.
+- **Tech**: `st`, `iihq`, `asn`, `sdn|pi`, `ps`, `sar`, `amd|sr`, `cv2`, `dn2`, `da`. Key colour
+  yellow.
 - **Build**: mid carriers (2), cruisers, infantry; late dreadnoughts (3), flagship.
 - **Cards/tokens**: Imperial with Mecatol, Politics.
 - **Pitfalls**: few starting units: over-extending.
@@ -312,7 +320,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   cannon/bombardment.
 - **Mid**: Strike Wing destroyers (commander count), PDS. **Late**: dreadnoughts behind a
   destroyer screen.
-- **Tech**: `ps`, `sar`, `swa2`, `st`, `ah`, `pds2`, `da`, `cv2`, `dn2`. Key colour red.
+- **Tech**: `ps`, `sar`, `swa2`, `st`, `ah`, `pds2`, `da`, `amd|sr`, `cv2`, `dn2`. Key colour
+  red.
 - **Build**: mid destroyers (4), carriers; late dreadnoughts (2), destroyers, flagship.
 - **Cards/tokens**: Politics/agenda-heavy cards; Warfare.
 - **Pitfalls**: destroyers against capital ships.
@@ -324,7 +333,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   II (YY), `vtx` Vortex (R). Flagship (combat 5) captures everything destroyed in its system.
   Commander: units in 3 gravity rifts.
 - **Mid**: dreadnoughts and fighters into fights it can win. **Late**: flagship-led fleet.
-- **Tech**: `vtx`, `da`, `st`, `gls`, `dt2`, `asc`, `cv2`, `ff2`. Key colour red.
+- **Tech**: `vtx`, `da`, `st`, `gls`, `dt2`, `asc`, `amd|sr`, `cv2`, `nm`, `ff2`. Key colour
+  red.
 - **Build**: mid dreadnoughts (3), fighters, carrier; late flagship, dreadnoughts (4).
 - **Cards/tokens**: Warfare; a deep fleet pool.
 - **Pitfalls**: fighting everyone at once.
@@ -348,7 +358,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   factions' tokens.
 - **Mid**: win fights against each neighbour once (token each). **Late**: flagship and
   dreadnoughts.
-- **Tech**: `gr`, `cl2`, `sar`, `da`, `gls`, `amd`, `dn2`, `ff2`, `asc`. Key colour green.
+- **Tech**: `gr`, `cl2`, `ps`, `sar`, `da`, `gls`, `amd|sr`, `dn2`, `ff2`, `asc`. Key colour
+  green.
 - **Build**: mid dreadnoughts (2), carriers, infantry; late dreadnoughts (3), flagship.
 - **Cards/tokens**: Warfare.
 - **Pitfalls**: fighting every player for every colour.
@@ -359,8 +370,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   Suns, Fabrication. Mech rolls 2 dice (a ship in space); `pfa` Pre-Fab Arcologies (GGG), `sc`
   Supercharge (R). Flagship gives mechs a die more. Commander: mechs in 3 systems.
 - **Mid**: mechs on explored planets, carriers. **Late**: flagship plus mechs, dreadnoughts.
-- **Tech**: `sc`, `dxa`, `sar`, `bs`, `pfa`, `da`, `cv2`, `st`, `dn2`. Key colours green and
-  red.
+- **Tech**: `sc`, `dxa`, `sar`, `bs`, `pfa`, `da`, `amd|sr`, `cv2`, `st`, `dn2`. Key colours
+  green and red.
 - **Build**: mid mechs (4), carriers (2); late flagship, dreadnoughts (2), mechs.
 - **Cards/tokens**: Construction, Warfare.
 - **Pitfalls**: exploring low-value planets; overextended mechs.
@@ -371,7 +382,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
   Future Sight. `m2` Memoria II (GBY: flagship combat 5x2, move 2, capacity 6), `tcs` Temporal
   Command Suite (Y). Commander (one scored secret) builds the flagship free.
 - **Mid**: Memoria II, flagship forward with carriers. **Late**: flagship plus dreadnoughts.
-- **Tech**: `st`, `nm`, `m2`, `tcs`, `dn2`, `sar`, `cv2`, `da`. Key colours yellow and green.
+- **Tech**: `st`, `nm`, `m2`, `tcs`, `dn2`, `ps`, `sar`, `cv2`, `da`. Key colours yellow and
+  green.
 - **Build**: mid carriers (2), dreadnoughts (1-2); late dreadnoughts (3), flagship rebuilt.
 - **Cards/tokens**: Leadership; tactic tokens.
 - **Pitfalls**: the flagship alone.
@@ -394,7 +406,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Win path**: elite defence (Galvanize: an extra die).
 - **Kit**: one starting tech (blue or yellow); dreadnought, carrier, cruiser, 2 fighters,
   3 infantry. `proxima` Proxima Targeting VI (R), `helios2` (YY, its dock upgrade).
-- **Tech**: `st`, `gls`, `helios2`, `ps`, `proxima`, `sar`, `da`, `dn2`.
+- **Tech**: `st`, `gls`, `helios2`, `ps`, `proxima`, `sar`, `da`, `amd|sr`, `dn2`.
 - **Build**: mid dreadnoughts (2), carriers; late dreadnoughts (3), flagship.
 - **Pitfalls**: a small elite fleet cannot cover distant objectives.
 
@@ -402,7 +414,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Win path**: coexistence, ocean cards, technology sharing.
 - **Kit**: two starting techs; dreadnought, carrier, 4 fighters, 3 infantry.
   `hydrothermal` (G), `radical` Radical Advancement (G). Flagship capacity 6.
-- **Tech**: `nm`, `hydrothermal`, `radical`, `dxa`, `sar`, `ff2`, `cv2`, `st`, `dn2`.
+- **Tech**: `nm`, `hydrothermal`, `radical`, `dxa`, `ps`, `sar`, `ff2`, `amd|sr`, `cv2`, `st`,
+  `dn2`.
 - **Build**: mid carriers, fighters; late dreadnoughts (2), flagship.
 - **Pitfalls**: coexisting so widely that control objectives are blocked.
 
@@ -411,7 +424,8 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Kit**: one starting tech (green or yellow); carrier, 3 fighters, cruiser, destroyer,
   3 infantry. `parasite-firm` (GG), `planesplitter-firm` (YY); the Obsidian sides cannot be
   researched.
-- **Tech**: `nm`, `dxa`, `parasite-firm`, `st`, `gls`, `sar`, `cv2`, `dn2`, `da`.
+- **Tech**: `nm`, `dxa`, `parasite-firm`, `st`, `gls`, `ps`, `sar`, `amd|sr`, `cv2`, `dn2`,
+  `da`.
 - **Build**: mid carriers, cruisers; late dreadnoughts (2), flagship.
 - **Pitfalls**: transforming without a follow-up plan.
 
@@ -419,7 +433,7 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Win path**: breaches (epsilon wormholes only); mobility.
 - **Kit**: one starting tech (red or blue); carrier, 2 destroyers (own), 3 fighters,
   4 infantry, PDS. `exile2` Exile II (RR), `subatomic` Subatomic Splicer (Y).
-- **Tech**: `ps`, `sar`, `exile2`, `st`, `subatomic`, `da`, `cv2`, `dn2`.
+- **Tech**: `ps`, `sar`, `exile2`, `st`, `subatomic`, `da`, `amd|sr`, `cv2`, `dn2`.
 - **Build**: mid destroyers (3), carriers; late dreadnoughts (2), flagship.
 - **Pitfalls**: breaches with no scoring purpose.
 
@@ -427,9 +441,52 @@ and PoK factions; the others have profiles and data but are not measured by the 
 - **Win path**: reactive movement (Survival Instinct), transportable structures.
 - **Kit**: one starting tech (red or green); dreadnought, carrier, 2 fighters, destroyer
   (own, move 3), 4 infantry, 2 PDS. `nanomachines` (R), `linkship2` Linkship II (RR, move 4).
-- **Tech**: `ps`, `nanomachines`, `linkship2`, `sar`, `da`, `st`, `dn2`, `cv2`.
+- **Tech**: `ps`, `nanomachines`, `linkship2`, `sar`, `da`, `st`, `amd|sr`, `dn2`, `cv2`.
 - **Build**: mid destroyers (3), carriers; late dreadnoughts (2), destroyers.
 - **Pitfalls**: reactive moves that gain nothing.
+
+## In the smart bot
+
+`crates/ti4-server/src/session/smart_bot_faction_plans.rs` holds every profile above as data
+(`PLANS`: technology order, unit emphasis per phase, fleet size, preferred strategy cards) and
+four hooks the smart bot calls (`smart_bot.rs`):
+
+- **Research** (any round, after Gravity Drive): the first plan entry offered; if the next entry
+  is out of reach, the offered technology of a colour it still lacks (on the plan first, then
+  the fewest prerequisites); then the same over `GENERAL`. Unit tests check that every plan names
+  real, researchable technologies in an order whose prerequisites are met.
+- **Production** (round 3 on): each option's worth is multiplied by the unit's phase weight,
+  x1.5 while fewer than the plan wants are on the board, x1.15 for an upgraded unit.
+- **Fleet size** (round 3 on): a dock is worth a token to build at until the plan's mid/late
+  non-fighter ship count (7-11) instead of 6.
+- **Strategy cards** (round 3 on): only where the bot's own rules leave the draft open (no
+  Imperial to score, no card carrying trade goods), the plan's preferred card.
+
+Rounds 1-2 are unchanged except that research choices other than Gravity Drive follow the plan
+instead of the random pick.
+
+### Measured (survey `survey_midgame`, 4 smart seats, roster factions by seed, 96 seeds)
+
+`SURVEY_MID=1-96 SURVEY_MID_ROUNDS=12 cargo test --release -p ti4-server --test smart_bot_survey
+survey_midgame -- --ignored --nocapture`; means over all seats at the end of each round, before
+(consolidated base) vs after (this branch, engine fix included). Paired per-seed differences
+with standard errors in brackets.
+
+| | before | after |
+|---|---|---|
+| games reaching a winner | 96/96 | 96/96 |
+| last completed round (mean) | 5.78 | 5.48 (-0.30 +- 0.14) |
+| r3 VP / fleet strength / fleet cost / techs | 2.87 / 3.63 / 18.8 / 2.71 | 2.94 / 3.82 / 19.8 / 2.64 |
+| r4 VP / fleet strength / fleet cost / techs | 4.17 / 4.97 / 23.0 / 3.43 | 4.23 / 5.17 / 24.0 / 3.39 |
+| r5 VP / fleet strength / fleet cost / techs | 5.28 / 6.03 / 26.3 / 4.20 | 5.30 / 6.24 / 27.4 / 4.17 |
+
+The fleets follow the plans (round 4, favoured unit per seat, before -> after): L1Z1X and
+Letnev dreadnoughts 3.2 -> 3.4 and 3.5 -> 4.1, Muaat war suns 0.6 -> 1.2, Mentak cruisers
+0.6 -> 2.3, Titans cruisers 1.1 -> 2.9, Argent destroyers 1.3 -> 2.4, Sol carriers 1.5 -> 2.7,
+Hacan/Nomad/Sardakk/Winnu dreadnoughts +1.2 to +1.4. Victory points and technology counts do
+not move beyond noise (VP +0.07 +- 0.06 at r3; techs -0.07 +- 0.05): what is researched changes,
+how often is decided by who plays Technology. Per-faction VP and win counts (12-21 seats each)
+are too noisy to read. Round-5 rows cover fewer games (games that already ended drop out).
 
 ---
 
