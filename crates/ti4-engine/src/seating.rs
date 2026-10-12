@@ -122,6 +122,12 @@ pub enum FactionAssignmentError {
     /// The faction's own text forbids choosing it at setup (the Obsidian's Nocturne).
     #[error("faction {0:?} cannot be chosen during setup")]
     NotChoosable(String),
+    /// A lobby seat asked for a faction outside [`IN_SCOPE_FACTIONS`] (unknown, or not played here).
+    #[error("faction {0:?} is not one of the factions this server plays")]
+    UnavailableFaction(String),
+    /// Two lobby seats asked for the same faction.
+    #[error("faction {0:?} is chosen for more than one seat")]
+    DuplicateChoice(String),
 }
 
 /// The factions this project plays.
@@ -223,6 +229,59 @@ pub fn seeded_faction_assignments(
         .iter()
         .zip(shuffled)
         .map(|(player, alias)| (player.clone(), FactionId::new(alias)))
+        .collect())
+}
+
+/// Seats a lobby table: `chosen[i]` is the faction seat `i` asked for (`None`: any).
+///
+/// Chosen factions must be in [`IN_SCOPE_FACTIONS`] and distinct. The seats that chose nothing
+/// receive distinct factions from the rest of the pool, dealt in a seeded shuffle (the dedicated
+/// `seating:lobby-faction-draw:v1` stream), so the same seed and choices always give the same table.
+/// A table larger than the pool has to repeat a faction among its undecided seats (as the fixed
+/// order always did); chosen factions are never repeated.
+///
+/// # Errors
+/// [`FactionAssignmentError::UnavailableFaction`] or [`FactionAssignmentError::DuplicateChoice`].
+pub fn lobby_faction_draw(
+    chosen: &[Option<&str>],
+    seed: u64,
+) -> Result<Vec<FactionId>, FactionAssignmentError> {
+    let mut taken = BTreeSet::new();
+    for faction in chosen.iter().flatten() {
+        if !IN_SCOPE_FACTIONS.contains(faction) {
+            return Err(FactionAssignmentError::UnavailableFaction(
+                (*faction).to_owned(),
+            ));
+        }
+        if !taken.insert(*faction) {
+            return Err(FactionAssignmentError::DuplicateChoice(
+                (*faction).to_owned(),
+            ));
+        }
+    }
+    let remaining: Vec<&str> = IN_SCOPE_FACTIONS
+        .iter()
+        .copied()
+        .filter(|faction| !taken.contains(faction))
+        .collect();
+    let mut rng = crate::rng::GameRng::new(seed);
+    let deck = rng.shuffled("seating:lobby-faction-draw:v1", &remaining);
+    let mut next = 0usize;
+    Ok(chosen
+        .iter()
+        .map(|seat| {
+            FactionId::new(seat.unwrap_or_else(|| {
+                // Past the end of the pool the deck is dealt again; with every faction chosen
+                // there is no deck, and the fixed order stands in.
+                let faction = if deck.is_empty() {
+                    IN_SCOPE_FACTIONS[next % IN_SCOPE_FACTIONS.len()]
+                } else {
+                    deck[next % deck.len()]
+                };
+                next += 1;
+                faction
+            }))
+        })
         .collect())
 }
 
@@ -1541,6 +1600,48 @@ mod tests {
             }),
             "the fixed seed sample should exercise a different assignment"
         );
+    }
+
+    #[test]
+    fn lobby_draw_honours_choices_and_gives_the_rest_distinct_factions() {
+        let chosen = [None, Some("xxcha"), None, Some("sol")];
+        for seed in 0..40 {
+            let table = lobby_faction_draw(&chosen, seed).unwrap();
+            assert_eq!(table[1].as_str(), "xxcha");
+            assert_eq!(table[3].as_str(), "sol");
+            let distinct: BTreeSet<_> = table.iter().map(FactionId::as_str).collect();
+            assert_eq!(distinct.len(), 4, "seed {seed}: {table:?}");
+            assert!(table.iter().all(|f| IN_SCOPE_FACTIONS.contains(&f.as_str())));
+        }
+    }
+
+    #[test]
+    fn lobby_draw_is_deterministic_and_varies_by_seed() {
+        let chosen = [None, None, Some("hacan")];
+        let first = lobby_faction_draw(&chosen, 7).unwrap();
+        assert_eq!(first, lobby_faction_draw(&chosen, 7).unwrap());
+        assert!((8..60).any(|seed| lobby_faction_draw(&chosen, seed).unwrap() != first));
+    }
+
+    #[test]
+    fn lobby_draw_rejects_duplicates_and_factions_outside_the_pool() {
+        assert_eq!(
+            lobby_faction_draw(&[Some("sol"), None, Some("sol")], 1),
+            Err(FactionAssignmentError::DuplicateChoice("sol".to_owned()))
+        );
+        for bad in ["arborec", "keleresm", "obsidian", "nonsense"] {
+            assert_eq!(
+                lobby_faction_draw(&[Some(bad)], 1),
+                Err(FactionAssignmentError::UnavailableFaction(bad.to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn lobby_draw_seats_all_six_when_all_six_are_chosen_and_never_repeats_a_choice() {
+        let all: Vec<Option<&str>> = IN_SCOPE_FACTIONS.iter().map(|f| Some(*f)).collect();
+        let table = lobby_faction_draw(&all, 3).unwrap();
+        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), IN_SCOPE_FACTIONS);
     }
 
     #[test]
