@@ -67,6 +67,26 @@ impl Default for RateLimits {
 }
 
 impl RateLimits {
+    /// The limits from the environment: `TI4_RATE_LIMITS=off` lifts every per-IP limit except the
+    /// password attempts (brute-force protection); anything else keeps the defaults.
+    #[must_use]
+    pub fn from_env() -> Self {
+        let off = std::env::var("TI4_RATE_LIMITS")
+            .is_ok_and(|v| matches!(v.trim().to_lowercase().as_str(), "off" | "0" | "false" | "none"));
+        let mut limits = Self::default();
+        if off {
+            let open = RateSpec::new(1e9, 1e9);
+            limits.game_create = open;
+            limits.lobby_join = open;
+            limits.ws_connect = open;
+            limits.batch = open;
+            limits.heavy = open;
+            limits.feedback = open;
+            limits.general = open;
+        }
+        limits
+    }
+
     fn spec(&self, kind: LimitKind) -> RateSpec {
         match kind {
             LimitKind::GameCreate => self.game_create,

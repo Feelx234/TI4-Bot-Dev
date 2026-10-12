@@ -83,7 +83,7 @@ impl PublicConfig {
                 .and_then(|v| v.parse().ok())
                 .or(public.then_some(2 * 1024 * 1024 * 1024)),
             data_dir: Some(data_dir.to_path_buf()),
-            rate_limits: public.then(RateLimits::default),
+            rate_limits: public.then(RateLimits::from_env),
             ws_idle_timeout: parse_usize("TI4_WS_IDLE_SECS", public.then_some(300))
                 .map(|s| Duration::from_secs(s as u64)),
             build_commit: env_nonempty("TI4_BUILD_COMMIT"),
