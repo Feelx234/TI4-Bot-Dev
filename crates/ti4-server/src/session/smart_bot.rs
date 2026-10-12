@@ -924,6 +924,12 @@ fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
         .into_iter()
         .map(SystemId::new)
         .filter(|system| system != &home && !tokens.contains(system))
+        // No wormhole or anomaly: a wormhole is everyone's road (the Creuss Gate), and warships
+        // parked there block the others' moves through it.
+        .filter(|system| {
+            ti4_content::galaxy::system(seen.content(), system.as_str(), seen.sources())
+                .is_none_or(|record| record.wormholes().is_empty() && !record.is_anomaly())
+        })
         .filter(|system| !has_hostile_ships(seen, me, system))
         .filter(|system| {
             seen.movable_into(me, system)
