@@ -5359,10 +5359,10 @@ impl<'a> Game<'a> {
             self.emit_typed("AGENDA_REVEALED", payload)?;
             // Political Favor replaces the agenda the same way Veto does, so it is offered only
             // when nothing has replaced it already.
-            if self.state.agenda_veto_replacement.is_none() && self.offer_quash()? {
+            if self.state.agenda_veto_replacement.is_none() && self.offer_quash(&alias)? {
                 self.emit("QUASH_USED");
             }
-            if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor()? {
+            if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor(&alias)? {
                 self.emit("POLITICAL_FAVOR_USED");
             }
 
@@ -5370,7 +5370,7 @@ impl<'a> Game<'a> {
             // from the top of the deck: continue the chain from the replacement.
             let Some(replacement) = self.state.agenda_veto_replacement.take() else {
                 // This is the agenda players will vote on: Political Secret bars its owner here.
-                self.offer_political_secrets()?;
+                self.offer_political_secrets(&alias)?;
                 return Ok(Some((alias, choices)));
             };
             self.emit(&format!("AGENDA_DISCARDED:{alias}"));
@@ -5397,12 +5397,16 @@ impl<'a> Game<'a> {
             .collect()
     }
 
-    /// Ask a note's holder whether to use it now.
+    /// Ask a note's holder (or an ability's owner) whether to use it now, on the agenda just
+    /// revealed. The agenda rides along as display-only `details.agenda` (name, type, target,
+    /// printed text), as on every vote decision: the question is about that card, so a client
+    /// has to be able to show it before the answer.
     fn ask_to_use_note(
         &mut self,
         holder: &PlayerId,
         alias: &str,
         prompt: String,
+        agenda: &str,
     ) -> Result<bool, GameError> {
         let choice = crate::choice::Choice::new(
             holder.clone(),
@@ -5422,7 +5426,11 @@ impl<'a> Game<'a> {
             alias,
             self.state.phase,
             self.state.round,
-        ));
+        ))
+        .detailed(
+            "agenda",
+            crate::strategy_cards::agenda_details(self.content, agenda),
+        );
         let answer = self
             .table
             .ask_seeing(
@@ -5446,7 +5454,7 @@ impl<'a> Game<'a> {
     /// Offered to each holder in turn until one uses it. The replacement is handed over exactly as
     /// Veto hands its own, so the reveal loop discards this agenda and continues. Priced for
     /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_favor(&mut self) -> Result<bool, GameError> {
+    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
         for (note, holder, owner) in self.lent_notes("favor") {
             let payable = self
                 .state
@@ -5456,7 +5464,7 @@ impl<'a> Game<'a> {
                 continue;
             }
             let prompt = "Political Favor: discard this agenda and reveal the next".to_owned();
-            if !self.ask_to_use_note(&holder, "favor", prompt)? {
+            if !self.ask_to_use_note(&holder, "favor", prompt, agenda)? {
                 continue;
             }
             if let Some(seat) = self.state.player_mut(&owner) {
@@ -5485,7 +5493,7 @@ impl<'a> Game<'a> {
     /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
     /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
     /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
-    fn offer_quash(&mut self) -> Result<bool, GameError> {
+    fn offer_quash(&mut self, agenda: &str) -> Result<bool, GameError> {
         if self.state.agenda_deck.is_empty() {
             return Ok(false);
         }
@@ -5500,7 +5508,7 @@ impl<'a> Game<'a> {
         for owner in owners {
             let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
                 .to_owned();
-            if !self.ask_to_use_note(&owner, "quash", prompt)? {
+            if !self.ask_to_use_note(&owner, "quash", prompt, agenda)? {
                 continue;
             }
             if let Some(seat) = self.state.player_mut(&owner) {
@@ -5528,13 +5536,13 @@ impl<'a> Game<'a> {
     /// Offered for the agenda players will vote on. The vote bar is the marker Assassinate
     /// Representative sets; barring action cards and faction abilities is not modelled. Priced for
     /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_secrets(&mut self) -> Result<(), GameError> {
+    fn offer_political_secrets(&mut self, agenda: &str) -> Result<(), GameError> {
         for (note, holder, owner) in self.lent_notes("ps") {
             if self.state.agenda_predictions.contains_key(&owner) {
                 continue; // already cannot vote on this agenda
             }
             let prompt = format!("Political Secret: {owner} cannot vote on this agenda");
-            if !self.ask_to_use_note(&holder, "ps", prompt)? {
+            if !self.ask_to_use_note(&holder, "ps", prompt, agenda)? {
                 continue;
             }
             self.state
@@ -8193,7 +8201,7 @@ mod tests {
         let table = Table::with_default(Box::new(Scripted::new(["use".to_owned()])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table);
 
-        game.offer_political_secrets()
+        game.offer_political_secrets("secret")
             .expect("offered and answered");
 
         assert!(
@@ -8228,7 +8236,10 @@ mod tests {
         let table = Table::with_default(Box::new(Scripted::new(["use".to_owned()])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table);
 
-        assert!(game.offer_political_favor().expect("offered and answered"));
+        assert!(
+            game.offer_political_favor("secret")
+                .expect("offered and answered")
+        );
 
         assert_eq!(game.state.agenda_veto_replacement.as_deref(), Some("first"));
         assert_eq!(game.state.agenda_deck, vec!["second".to_owned()]);
@@ -8302,6 +8313,49 @@ mod tests {
             2
         );
         assert_eq!(game.state.agenda_deck.len(), 2);
+    }
+
+    #[test]
+    fn quash_is_asked_with_the_revealed_agenda_on_the_table() {
+        // Quash reads "When an agenda is revealed": the agenda is public before Xxcha decides, so
+        // the question carries the card it would discard, and the second offer the replacement.
+        let content = ContentStore::embedded();
+        let mut game = quash_game(2, &[]);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
+            ["use", "decline"].map(str::to_owned),
+        )));
+        game.table = Table::with_default(Box::new(capturing));
+        game.reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        let seen = seen.borrow();
+        let quash: Vec<&crate::choice::Choice> = seen
+            .iter()
+            .filter(|choice| choice.prompt.starts_with("Quash"))
+            .collect();
+        assert_eq!(
+            quash.len(),
+            2,
+            "offered on the agenda and on its replacement"
+        );
+        for (choice, alias) in quash.iter().zip(["secret", "committee"]) {
+            let agenda = &choice.details["agenda"];
+            assert_eq!(agenda["id"], alias);
+            let printed = content
+                .get(ti4_model::content_types::ContentType::Agendas, alias)
+                .expect("a real agenda");
+            assert_eq!(agenda["name"].as_str(), printed.text("name"));
+            assert_eq!(agenda["text1"].as_str(), printed.text("text1"));
+            assert_eq!(
+                choice
+                    .options
+                    .iter()
+                    .map(|o| o.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["use", "decline"],
+                "option ids unchanged"
+            );
+        }
     }
 
     #[test]
@@ -12597,6 +12651,18 @@ mod tests {
         deck: &[&'static str],
     ) -> (GameState, Vec<String>) {
         let content = ContentStore::embedded();
+        let mut game = Game::new(agenda_position(card, deck), content);
+        let mut guard = 0;
+        while game.state.phase == Phase::Agenda && guard < 150 {
+            assert_eq!(game.step().error, None, "no agenda step should refuse");
+            guard += 1;
+        }
+        (game.state, game.events.clone())
+    }
+
+    /// The position [`agenda_run`] plays from.
+    fn agenda_position(card: Option<(&'static str, PlayerId)>, deck: &[&'static str]) -> GameState {
+        let content = ContentStore::embedded();
         let players = [PlayerId::new("a"), PlayerId::new("b")];
         let mut state = start_game(content, &players, POK, None).unwrap();
         state.phase = Phase::Agenda;
@@ -12631,14 +12697,68 @@ mod tests {
                 vec![ti4_model::id::ActionCardId::new(alias)];
         }
         state.agenda_deck = deck.iter().map(ToString::to_string).collect();
+        state
+    }
 
-        let mut game = Game::new(state, content);
+    #[test]
+    fn decisions_on_a_revealed_or_resolved_agenda_carry_the_printed_agenda() {
+        // Veto's window (when secret is revealed), the reaction windows on the reveal and on the
+        // resolution: each question is about that agenda, so each carries it as display-only
+        // details.agenda, the same shape vote decisions carry.
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut game = Game::with_table(
+            agenda_position(Some(("veto", a)), &["secret", "execution", "prophecy"]),
+            content,
+            Table::with_default(Box::new(capturing)),
+        );
         let mut guard = 0;
         while game.state.phase == Phase::Agenda && guard < 150 {
             assert_eq!(game.step().error, None, "no agenda step should refuse");
             guard += 1;
         }
-        (game.state, game.events.clone())
+        let seen = seen.borrow();
+        let triggered: Vec<&crate::choice::Choice> = seen
+            .iter()
+            .filter(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.trigger.as_ref())
+                    .and_then(|trigger| trigger.agenda.as_ref())
+                    .is_some()
+            })
+            .collect();
+        assert!(
+            triggered.iter().any(|choice| choice
+                .context
+                .as_ref()
+                .and_then(|c| c.trigger.as_ref())
+                .and_then(|t| t.agenda.as_deref())
+                == Some("secret")),
+            "the Veto window on secret was offered"
+        );
+        for choice in triggered {
+            let named = choice
+                .context
+                .as_ref()
+                .unwrap()
+                .trigger
+                .as_ref()
+                .unwrap()
+                .agenda
+                .clone();
+            let agenda = &choice.details["agenda"];
+            assert_eq!(agenda["id"].as_str(), named.as_deref(), "{}", choice.prompt);
+            assert!(
+                agenda["name"].as_str().is_some_and(|name| !name.is_empty())
+                    && agenda["text1"]
+                        .as_str()
+                        .is_some_and(|text| !text.is_empty()),
+                "printed name and text: {agenda}"
+            );
+        }
     }
 
     fn elected_by_an_agenda(state: &GameState, player: &PlayerId) -> bool {

@@ -284,6 +284,11 @@
   font-weight: 700;
   color: #e2e8f0;
 }
+.politics-panel__eyebrow {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .politics-panel__tag {
   margin-left: 8px;
   padding: 1px 8px;

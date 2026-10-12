@@ -2378,6 +2378,23 @@ impl Table {
         if let Some(context) = associated.context.take() {
             associated.context = Some(context.about_invasion(seen.state));
         }
+        // A decision raised by an agenda being revealed or resolved (Veto, a rider, Confusing
+        // Legal Text, any reaction window on it) is about that card: it carries the printed agenda
+        // as display-only `details.agenda`, exactly as vote decisions do, unless the producer
+        // attached it already.
+        let trigger_agenda = associated
+            .context
+            .as_ref()
+            .and_then(|context| context.trigger.as_ref())
+            .and_then(|trigger| trigger.agenda.clone());
+        if let Some(agenda) = trigger_agenda {
+            if !associated.details.contains_key("agenda") {
+                associated.details.insert(
+                    "agenda".to_owned(),
+                    crate::strategy_cards::agenda_details(seen.content, &agenda),
+                );
+            }
+        }
         let choice = &associated;
         if let Some(callback) = &mut self.observed_offer {
             callback(&self.log.records, seen.state);
