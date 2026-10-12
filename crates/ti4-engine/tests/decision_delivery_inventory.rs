@@ -1023,6 +1023,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Z'eu (the Naalu's Prophecy of Kings agent): which non-home system to act in.
+        module: "game.rs",
+        function: "perform_zeu",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "game.rs",
         function: "committee_formation",
         count: 1,
@@ -1615,6 +1622,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "step_agenda_talks", 1),
     ("game.rs", "step_vote", 1),
     ("game.rs", "ask_to_use_note", 1),
+    ("game.rs", "perform_zeu", 1),
     ("game.rs", "committee_formation", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),

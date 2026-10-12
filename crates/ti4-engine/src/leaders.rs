@@ -483,9 +483,10 @@ pub fn uses_the_action(content: &ContentStore, leader: &LeaderId) -> bool {
 /// hold the two halves of the offer — "we deliver it" and "the corpus says it is an action" —
 /// against each other. Membership alone was never proof of delivery: Hacan's agent was in the
 /// `matches!` from LEADER-FIX-001 and still never reached a table.
-const DELIVERED_ACTION_LEADERS: [&str; 7] = [
+const DELIVERED_ACTION_LEADERS: [&str; 8] = [
     "xxchaagent",
     "hacanagent",
+    ZEU,
     "solhero",
     "letnevhero",
     "jolnarhero",
@@ -495,6 +496,39 @@ const DELIVERED_ACTION_LEADERS: [&str; 7] = [
 
 fn action_leader_delivered(leader: &LeaderId) -> bool {
     DELIVERED_ACTION_LEADERS.contains(&leader.as_str())
+}
+
+/// Z'eu, the Naalu's Prophecy of Kings agent: "ACTION: Exhaust this card and choose a player. That
+/// player may perform a tactical action in a non-home system without placing a command token. That
+/// system still counts as being activated."
+///
+/// A Prophecy of Kings game deals this card (the Thunder's Edge `naaluagent-te` is out of scope
+/// there), and until 2026-10-12 nothing offered or resolved it: the Naalu played without an agent.
+/// The game resolves it (`Game::perform_zeu`) for the Naalu seat itself; choosing another player,
+/// whose tactical action would run inside the Naalu's turn, is not offered.
+pub const ZEU: &str = "naaluagent";
+
+/// Systems Z'eu lets `player` perform its tactical action in: the ones it could activate, less
+/// every home system and every system already holding its command token.
+#[must_use]
+pub fn zeu_systems(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+) -> Vec<ti4_model::id::SystemId> {
+    let tokens = state.systems_with_token(player);
+    crate::tactical::activatable_with(state, content, sources, galaxy, player)
+        .into_iter()
+        .filter(|system| !tokens.contains(system))
+        .filter(|system| {
+            !state
+                .players
+                .iter()
+                .any(|seat| seat.home_system.as_ref() == Some(system))
+        })
+        .collect()
 }
 
 /// Cheap preconditions for offering an action-phase leader: only what is checkable without a map.
@@ -507,6 +541,19 @@ fn can_resolve_action(
     match leader.as_str() {
         // "Ready any planet" needs a planet to be readying.
         "xxchaagent" => !state.exhausted_planets.is_empty(),
+        // A non-home system without its token to act in (the map is checked when it resolves;
+        // a board that tracks no system yet is a map whose systems are all still open).
+        ZEU => {
+            let tokens = state.systems_with_token(player);
+            state.board.is_empty()
+                || state.board.keys().any(|system| {
+                !tokens.contains(system)
+                    && !state
+                        .players
+                        .iter()
+                        .any(|seat| seat.home_system.as_ref() == Some(system))
+            })
+        }
         // "Gain 2 commodities or replenish another player's commodities" — with every hand at its
         // cap neither branch can change anything, and offering a use that burns the agent for
         // nothing is a dead button, not an option.
@@ -637,6 +684,8 @@ fn borrowed_component_actions(
     crate::factions::hooks_cards::borrowable_agents(state, content, player)
         .into_iter()
         .map(|(_, agent)| agent)
+        // Z'eu resolves for its owner only (`Game::perform_zeu`), not as a copied text.
+        .filter(|agent| agent.as_str() != ZEU)
         .filter(|agent| is_action_window(content, agent))
         .filter(|agent| {
             action_leader_delivered(agent)
@@ -840,6 +889,8 @@ pub fn registered_abilities() -> Vec<&'static str> {
         "solcommander",
         "solhero",
         "xxchaagent",
+        // Resolved by the game (`Game::perform_zeu`): it starts a tactical action.
+        ZEU,
     ]
     .into_iter()
     .chain(crate::factions::registered_leaders())
@@ -2902,11 +2953,21 @@ mod tests {
             !missing.contains(&LeaderId::new("xxchahero")),
             "and the hero's effect lives in combines_planet_values"
         );
-        // The half that keeps this test honest now that every leader of the six trained factions
-        // is implemented: a faction outside that scope still reports its leaders, so the list is
-        // not simply always empty. Any out-of-scope faction does; Naalu is one.
+        // The half that keeps this test honest: a leader nothing handles is still reported, so
+        // the list is not simply always empty. Naalu's Prophecy of Kings agent was the example
+        // until Z'eu was delivered (2026-10-12); across every faction one is still left (the
+        // Keleres' Orlando hero, 2026-10-12), so the whole roster stands in now.
         assert!(
-            !unimplemented(ContentStore::embedded(), &["naalu"]).is_empty(),
+            !unimplemented(ContentStore::embedded(), &["naalu"])
+                .contains(&LeaderId::new(ZEU)),
+            "Z'eu is delivered by the game"
+        );
+        let all: Vec<&str> =
+            ti4_content::factions::catalogue(ContentStore::embedded(), SourceSet::all())
+                .into_keys()
+                .collect();
+        assert!(
+            !unimplemented(ContentStore::embedded(), &all).is_empty(),
             "a leader this module does not handle is still reported"
         );
     }
