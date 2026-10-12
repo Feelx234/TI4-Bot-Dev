@@ -898,6 +898,11 @@ struct TacticalWindow {
     notes_at_start: crate::combat::NoteHoldings,
 }
 
+/// Experiment switch: trade goods every seat gains at the start of each status phase. Zero, the
+/// default, is the game as printed; a trainer sets it for a whole process when asked to.
+pub static STATUS_INCOME_TRADE_GOODS: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+
 /// The stateful owner of generated choices, their decision log, and observable events.
 ///
 /// The structure mirrors the oracle's `Game`: state remains public for inspection, while all
@@ -986,6 +991,11 @@ pub struct Game<'a> {
     /// Turn sequence whose free start-of-turn technology choices have been resolved.
     prepared_turn_seq: Option<u32>,
     blocked: Option<GameError>,
+    /// Experiment only: trade goods every seat receives as each later round begins. Zero, the
+    /// default, is the game as printed. See [`Game::with_round_income`].
+    round_income_trade_goods: i32,
+    /// Experiment only: when set, only this seat receives the round income.
+    round_income_seat: Option<PlayerId>,
 }
 
 /// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary.
@@ -1035,6 +1045,8 @@ pub struct GameSnapshot<'a> {
     actions_this_turn: u8,
     prepared_turn_seq: Option<u32>,
     blocked: Option<GameError>,
+    round_income_trade_goods: i32,
+    round_income_seat: Option<PlayerId>,
 }
 
 /// A copy of `state` for a fork or snapshot. A plain `clone` shares the turn-redo deck reserve's
@@ -1091,6 +1103,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         } = self;
         Game {
             state: detached_state(state),
@@ -1127,6 +1141,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn: *actions_this_turn,
             prepared_turn_seq: *prepared_turn_seq,
             blocked: blocked.clone(),
+            round_income_trade_goods: *round_income_trade_goods,
+            round_income_seat: round_income_seat.clone(),
         }
     }
 
@@ -1168,6 +1184,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         } = self;
         Game {
             state,
@@ -1204,6 +1222,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         }
     }
 
@@ -1288,6 +1308,8 @@ impl<'a> Game<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         } = self;
         let mut rng = rng.clone();
         rng.set_sync(None);
@@ -1330,6 +1352,8 @@ impl<'a> Game<'a> {
             actions_this_turn: *actions_this_turn,
             prepared_turn_seq: *prepared_turn_seq,
             blocked: blocked.clone(),
+            round_income_trade_goods: *round_income_trade_goods,
+            round_income_seat: round_income_seat.clone(),
         }
     }
 
@@ -1474,7 +1498,25 @@ impl<'a> Game<'a> {
             actions_this_turn: 0,
             prepared_turn_seq: None,
             blocked: None,
+            round_income_trade_goods: 0,
+            round_income_seat: None,
         }
+    }
+
+    /// Experiment only, not a rule: every seat gains `trade_goods` as each round after the first
+    /// begins. The first round's income is the caller's to grant before play, since this game may
+    /// already be inside round one when it is built.
+    #[must_use]
+    pub const fn with_round_income(mut self, trade_goods: i32) -> Self {
+        self.round_income_trade_goods = trade_goods;
+        self
+    }
+
+    /// Experiment only: restrict [`Game::with_round_income`] to one seat (`None`: every seat).
+    #[must_use]
+    pub fn with_round_income_seat(mut self, seat: Option<PlayerId>) -> Self {
+        self.round_income_seat = seat;
+        self
     }
 
     /// The map this game is played on, when it has one.
@@ -6243,6 +6285,14 @@ impl<'a> Game<'a> {
             PhaseOutcome::ActionBegan(_) => self.emit("ACTION_PHASE_BEGAN"),
             PhaseOutcome::StatusBegan => {
                 self.emit("STATUS_PHASE_BEGAN");
+                // Experiment only: every seat gains this many trade goods as the status phase
+                // begins. Zero, the default, is the game as printed.
+                let income = STATUS_INCOME_TRADE_GOODS.load(std::sync::atomic::Ordering::Relaxed);
+                if income != 0 {
+                    for player in &mut self.state.players {
+                        player.trade_goods += income;
+                    }
+                }
                 // "At the start of the status phase" (Mitosis). Typed for faction modules; no
                 // reaction card maps a status-phase window. The resolver learns the new phase
                 // first, so per-phase limits count in the status phase.
@@ -6260,6 +6310,17 @@ impl<'a> Game<'a> {
             }
             PhaseOutcome::RoundEnded => {
                 begin_next_round(&mut self.state, self.strategy_cards.clone());
+                if self.round_income_trade_goods != 0 {
+                    for player in &mut self.state.players {
+                        if self
+                            .round_income_seat
+                            .as_ref()
+                            .is_none_or(|only| *only == player.id)
+                        {
+                            player.trade_goods += self.round_income_trade_goods;
+                        }
+                    }
+                }
                 self.status_resolved = false;
                 self.agenda_resolved = false;
                 self.emit("ROUND_BEGAN");
