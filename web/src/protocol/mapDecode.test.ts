@@ -82,4 +82,15 @@ describe("map protocol decoding", () => {
     expect(decodeLobby(raw("base_game"), "gallery-map").strategy_card_set).toBeUndefined();
     expect(decodeLobby(raw(undefined), "gallery-map").strategy_card_set).toBeUndefined();
   });
+
+  it("reads the faction pool and a bot seat's chosen faction, and tolerates their absence", () => {
+    const base = JSON.parse(JSON.stringify(fixtureLobby(3)));
+    base.slots[1] = { ...base.slots[1], occupant: base.slots[1].occupant ?? "player_x", bot: "smart", faction: "sol" };
+    const decoded = decodeLobby({ ...base, factions: ["sol", "hacan", 3] }, "gallery-map");
+    expect(decoded.factions).toEqual(["sol", "hacan"]);
+    expect(decoded.slots[1].faction).toBe("sol");
+    const old = decodeLobby(JSON.parse(JSON.stringify(fixtureLobby(3))), "gallery-map");
+    expect(old.factions).toBeUndefined();
+    expect(old.slots[0]).not.toHaveProperty("faction");
+  });
 });

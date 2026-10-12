@@ -24,6 +24,8 @@ export interface LobbySlot {
    * person (and for an MLP bot).
    */
   bot?: string;
+  /** The faction the host chose for a bot seat; absent for random (and for every person). */
+  faction?: string;
 }
 
 /** The bots a server plays itself: uniformly random, or random with simple board heuristics. */
@@ -41,6 +43,8 @@ export interface LobbyDto {
    * password). Absent from servers that predate random bots, which offer neither random bot.
    */
   bot_kinds?: string[];
+  /** Faction ids a bot seat can be given; absent from servers that predate the choice. */
+  factions?: string[];
   /** What the table plays on; absent from servers that predate the map choice. Never a seed. */
   map?: MapChoiceDto;
   /** Changes whenever the previewed board changes (new choice, re-roll, new seat order). */

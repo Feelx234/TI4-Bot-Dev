@@ -9,6 +9,8 @@ import {
 } from "../protocol/types.ts";
 import { AlphaNotice, BuildFooter } from "./AlphaNotice.tsx";
 import { MapPicker } from "./MapPicker.tsx";
+import { FactionPicker, FactionSigil } from "./FactionPicker.tsx";
+import { lobbyFactionName, lobbyFactionPool, takenFactions } from "../presentation/lobbyFactions.ts";
 import { mapChangeNotice, mapName } from "../presentation/mapPicker.ts";
 import {
   DEFAULT_STRATEGY_CARD_SET,
@@ -167,14 +169,17 @@ interface LobbyStatusProps {
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
   /**
-   * Host only: seat in-process bots (one, or every open seat with `fill`) of `kind` (random when
-   * absent).
+   * Host only: seat in-process bots (one, or every open seat with `fill`) of `kind`. `faction`
+   * names the faction of the one bot being added (random when absent).
    */
   onAddRandomBots?: (options: {
     fill?: boolean;
     count?: number;
     kind?: InProcessBotKind;
+    faction?: string;
   }) => Promise<boolean | void>;
+  /** Host only: change the faction of a bot seat (`null`: back to random). */
+  onSetBotFaction?: (playerId: string, faction: string | null) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
   onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
@@ -215,6 +220,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onAddBot,
   onRemoveBot,
   onAddRandomBots,
+  onSetBotFaction,
   onChooseMap,
   watching,
   pendingAction,
@@ -231,6 +237,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   const [rememberBotPassword, setRememberBotPassword] = useState(true);
   const [botError, setBotError] = useState<string | null>(null);
   const [addingBot, setAddingBot] = useState(false);
+  const [newBotFaction, setNewBotFaction] = useState<string | null>(null);
   const viewer =
     playerId === null ? undefined : lobby.slots.find((slot) => slot.occupant === playerId);
   const isHost = playerId !== null && playerId === lobby.host_player_id;
@@ -251,13 +258,20 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     if (!isHost) setMapNotice((old) => mapChangeNotice(previousMap.current, now) ?? old);
     previousMap.current = now;
   }, [lobby.map_revision, lobby.map, isHost]);
-  // An older server lists no bot kinds: it has no random bots, so offer none.
+  // The only bot a lobby offers is the smart one; an older server lists no kinds and gets none.
   const canAddInProcessBots =
     isHost &&
     lobby.phase === "lobby" &&
     !!onAddRandomBots &&
     lobby.slots.some((slot) => !slot.occupant);
-  const canAddRandomBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("random");
+  const factionPool = lobbyFactionPool(lobby);
+  const canChooseFactions = factionPool.length > 0;
+  const heldFactions = takenFactions(lobby);
+  // A faction that was taken since it was picked falls back to random.
+  const pendingFaction =
+    newBotFaction && !heldFactions.has(newBotFaction) && factionPool.includes(newBotFaction)
+      ? newBotFaction
+      : null;
   const canAddSmartBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("smart");
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
@@ -376,56 +390,55 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             onClose={closePicker}
           />
         )}
-        {(canAddRandomBots || canAddSmartBots) && (
+        {canAddSmartBots && (
           <div className="lobby-bot-actions" data-testid="random-bot-actions">
-            {canAddRandomBots && (
-              <>
-                <button
-                  type="button"
-                  className="button button--outline"
-                  data-testid="add-random-bot-button"
+            {canChooseFactions && (
+              <div className="lobby-bot-actions__faction">
+                <span id="new-bot-faction-label">Faction for the next bot</span>
+                <FactionPicker
+                  pool={factionPool}
+                  value={pendingFaction}
+                  taken={heldFactions}
                   disabled={!!pendingAction}
-                  onClick={() => void onAddRandomBots?.({ count: 1 })}
-                >
-                  {pendingAction === "add_random_bots" ? "Adding…" : "Add random bot"}
-                </button>
-                <button
-                  type="button"
-                  className="button button--outline"
-                  data-testid="fill-random-bots-button"
-                  disabled={!!pendingAction}
-                  onClick={() => void onAddRandomBots?.({ fill: true })}
-                >
-                  Fill empty seats with random bots
-                </button>
-              </>
+                  label="Faction for the next bot"
+                  testId="new-bot-faction"
+                  onChange={setNewBotFaction}
+                />
+              </div>
             )}
-            {canAddSmartBots && (
-              <>
-                <button
-                  type="button"
-                  className="button button--outline"
-                  data-testid="add-smart-bot-button"
-                  disabled={!!pendingAction}
-                  onClick={() => void onAddRandomBots?.({ count: 1, kind: "smart" })}
-                >
-                  Add smart bot
-                </button>
-                <button
-                  type="button"
-                  className="button button--outline"
-                  data-testid="fill-smart-bots-button"
-                  disabled={!!pendingAction}
-                  onClick={() => void onAddRandomBots?.({ fill: true, kind: "smart" })}
-                >
-                  Fill empty seats with smart bots
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="add-smart-bot-button"
+              disabled={!!pendingAction}
+              onClick={() =>
+                void (async () => {
+                  const done = await onAddRandomBots?.({
+                    count: 1,
+                    kind: "smart",
+                    ...(pendingFaction ? { faction: pendingFaction } : {}),
+                  });
+                  if (done !== false) setNewBotFaction(null);
+                })()
+              }
+            >
+              {pendingAction === "add_random_bots" ? "Adding…" : "Add bot"}
+            </button>
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="fill-smart-bots-button"
+              disabled={!!pendingAction}
+              onClick={() => void onAddRandomBots?.({ fill: true, kind: "smart" })}
+            >
+              Fill empty seats with bots
+            </button>
             <p className="text-faint lobby-bot-actions__hint">
-              {canAddRandomBots && "Random bots play legal moves at random. "}
-              {canAddSmartBots &&
-                "Smart bots claim nearby planets, invade Mecatol Rex when they can, only take fights they expect to win, build when short of units and accept only trades in their favour; the rest they play at random. "}
+              Bots claim nearby planets, invade Mecatol Rex when they can, only take fights they
+              expect to win, build when short of units and accept only trades in their favour; the
+              rest they play at random.{" "}
+              {canChooseFactions &&
+                "Pick a faction for a bot, or leave it on Random: the seed deals the other seats a different faction each. "}
               They need no password and cannot be taken over.
             </p>
           </div>
@@ -450,6 +463,27 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   </span>
                 )}
               </strong>
+              {slot.bot && slot.occupant && canChooseFactions && (
+                <span className="lobby-list__faction" data-testid={`seat-faction-${slot.position}`}>
+                  {isHost && lobby.phase === "lobby" && onSetBotFaction ? (
+                    <FactionPicker
+                      compact
+                      pool={factionPool}
+                      value={slot.faction ?? null}
+                      taken={takenFactions(lobby, slot.position)}
+                      disabled={!!pendingAction}
+                      label={`Faction of position ${slot.position}`}
+                      testId={`bot-faction-${slot.position}`}
+                      onChange={(faction) => void onSetBotFaction(slot.occupant!, faction)}
+                    />
+                  ) : (
+                    <>
+                      <FactionSigil faction={slot.faction ?? null} />
+                      <span>{slot.faction ? lobbyFactionName(slot.faction) : "Random faction"}</span>
+                    </>
+                  )}
+                </span>
+              )}
               <span className="lobby-list__status">
                 {slot.occupant ? (
                   <>

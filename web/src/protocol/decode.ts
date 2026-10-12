@@ -78,11 +78,21 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       connected: entry.connected,
       can_take_over: entry.can_take_over,
       ...(typeof entry.bot === "string" && entry.occupant !== null ? { bot: entry.bot } : {}),
+      ...(typeof entry.faction === "string" && entry.occupant !== null
+        ? { faction: entry.faction }
+        : {}),
     })),
     bot_service_enabled: Boolean(value.bot_service_enabled),
     bot_kinds: Array.isArray(value.bot_kinds)
       ? value.bot_kinds.filter((kind: unknown): kind is string => typeof kind === "string")
       : [],
+    ...(Array.isArray(value.factions)
+      ? {
+          factions: value.factions.filter(
+            (faction: unknown): faction is string => typeof faction === "string",
+          ),
+        }
+      : {}),
     ...(isStrategyCardSetId(value.strategy_card_set)
       ? { strategy_card_set: value.strategy_card_set }
       : {}),

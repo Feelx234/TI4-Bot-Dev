@@ -29,7 +29,15 @@ export interface LobbySessionState {
   addBot: (password: string, nickname?: string, temperature?: number) => Promise<boolean>;
   removeBot: (playerId: string) => Promise<boolean>;
   /** Host only, before Start: seat random bots (no password). `fill` takes every open seat. */
-  addRandomBots: (options?: { fill?: boolean; count?: number; nickname?: string }) => Promise<boolean>;
+  addRandomBots: (options?: {
+    fill?: boolean;
+    count?: number;
+    nickname?: string;
+    kind?: InProcessBotKind;
+    faction?: string;
+  }) => Promise<boolean>;
+  /** Host only, before Start: choose (or, with `null`, clear) the faction of a bot seat. */
+  setBotFaction: (playerId: string, faction: string | null) => Promise<boolean>;
 }
 
 /** A single dropped background poll is noise; the indicator shows after this many in a row. */
@@ -258,7 +266,13 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
 
   const addRandomBots = useCallback(
     async (
-      options: { fill?: boolean; count?: number; nickname?: string; kind?: InProcessBotKind } = {},
+      options: {
+        fill?: boolean;
+        count?: number;
+        nickname?: string;
+        kind?: InProcessBotKind;
+        faction?: string;
+      } = {},
     ): Promise<boolean> => {
       if (!playerSession) return false;
       return run(
@@ -272,11 +286,38 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
               ...(options.fill ? { fill: true } : {}),
               ...(options.count !== undefined && !options.fill ? { count: options.count } : {}),
               ...(options.nickname ? { nickname: options.nickname } : {}),
+              ...(options.faction ? { faction: options.faction } : {}),
             }),
           });
           if (!response.ok) {
             const msg = await response.text();
             throw new Error(`Add ${options.kind ?? "random"} bot failed (${response.status}): ${msg}`);
+          }
+          const updated = decodeLobby(await response.json(), gameId);
+          setLobby(updated);
+          setError(null);
+          return true;
+        },
+        false,
+      );
+    },
+    [base, gameId, headers, playerSession, run],
+  );
+
+  const setBotFaction = useCallback(
+    async (targetPlayerId: string, faction: string | null): Promise<boolean> => {
+      if (!playerSession) return false;
+      return run(
+        "bot_faction",
+        async () => {
+          const response = await fetch(`${base}/bot-faction`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...headers },
+            body: JSON.stringify({ player_id: targetPlayerId, faction }),
+          });
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(`Choose faction failed (${response.status}): ${msg}`);
           }
           const updated = decodeLobby(await response.json(), gameId);
           setLobby(updated);
@@ -340,5 +381,6 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     addBot,
     removeBot,
     addRandomBots,
+    setBotFaction,
   };
 }

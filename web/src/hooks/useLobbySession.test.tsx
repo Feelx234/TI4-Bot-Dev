@@ -172,3 +172,41 @@ it("does not stack lobby polls while one is still in flight", async () => {
     vi.useRealTimers();
   }
 });
+
+it("sends the chosen faction with an added bot, changes it later, and surfaces a refusal", async () => {
+  const sent: { url: string; body: unknown }[] = [];
+  let botCalls = 0;
+  const fetchMock = vi.fn().mockImplementation((url: string, init?: { body?: string }) => {
+    if (init?.body && /\/(bots|bot-faction)$/.test(url)) sent.push({ url, body: JSON.parse(init.body) });
+    if (url.endsWith("/bots") && ++botCalls > 1)
+      return Promise.resolve({
+        ok: false,
+        status: 409,
+        text: async () => "Faction 'sol' is already taken by Smart bot 1",
+      });
+    return Promise.resolve(json({ player: { id: "player_a" }, lobby }));
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  const { result } = renderHook(() => useLobbySession("game", "session_secret"));
+  await waitFor(() => expect(result.current.playerId).toBe("player_a"));
+  await act(async () => {
+    await result.current.addRandomBots({ count: 1, kind: "smart", faction: "sol" });
+  });
+  expect(sent[0]).toEqual({
+    url: "/api/games/game/lobby/bots",
+    body: { kind: "smart", count: 1, faction: "sol" },
+  });
+  await act(async () => {
+    await result.current.setBotFaction("player_b", "hacan");
+    await result.current.setBotFaction("player_b", null);
+  });
+  expect(sent[1]).toEqual({
+    url: "/api/games/game/lobby/bot-faction",
+    body: { player_id: "player_b", faction: "hacan" },
+  });
+  expect(sent[2].body).toEqual({ player_id: "player_b", faction: null });
+  await act(async () => {
+    await result.current.addRandomBots({ count: 1, kind: "smart", faction: "sol" });
+  });
+  expect(result.current.error).toContain("already taken by Smart bot 1");
+});

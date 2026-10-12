@@ -223,6 +223,7 @@ const GameRoute: React.FC<{
     addBot,
     removeBot,
     addRandomBots,
+    setBotFaction,
   } = useLobbySession(gameId, token);
   const [watching, setWatching] = useState(false);
   const invalidate = useCallback(() => onCredentialInvalid(), [onCredentialInvalid]);
@@ -305,6 +306,7 @@ const GameRoute: React.FC<{
           onAddBot={(password, name) => addBot(password, name)}
           onRemoveBot={(targetId) => removeBot(targetId)}
           onAddRandomBots={(options) => addRandomBots(options)}
+          onSetBotFaction={(targetId, faction) => setBotFaction(targetId, faction)}
         />
       )}
     </>

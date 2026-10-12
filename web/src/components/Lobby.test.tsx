@@ -326,36 +326,50 @@ describe("lobby UI", () => {
     fireEvent.click(removeBtn);
     expect(onRemoveBot).toHaveBeenCalledWith("player_b");
   });
-  describe("random bots", () => {
-    const withBots: LobbyDto = { ...lobby, bot_kinds: ["random"] };
+  describe("bots", () => {
+    const withBots: LobbyDto = { ...lobby, bot_kinds: ["random", "smart"] };
+    const withFactions: LobbyDto = {
+      ...withBots,
+      factions: ["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"],
+    };
 
-    it("gives the host add and fill buttons that call the handler, and nobody else", () => {
+    it("gives the host add and fill buttons for the smart bot only, and nobody else", () => {
       const onAddRandomBots = vi.fn().mockResolvedValue(true);
       const { rerender } = render(
         <LobbyStatus lobby={withBots} playerId={null} onAddRandomBots={onAddRandomBots} {...props} />,
       );
-      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
       rerender(
         <LobbyStatus lobby={withBots} playerId="player_b" onAddRandomBots={onAddRandomBots} {...props} />,
       );
-      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
       rerender(
         <LobbyStatus lobby={withBots} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
       );
-      fireEvent.click(screen.getByTestId("add-random-bot-button"));
-      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1 });
-      fireEvent.click(screen.getByTestId("fill-random-bots-button"));
-      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true });
-      // No password prompt: random bots need none.
+      fireEvent.click(screen.getByTestId("add-smart-bot-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1, kind: "smart" });
+      fireEvent.click(screen.getByTestId("fill-smart-bots-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true, kind: "smart" });
+      // The random bot is not offered, and no password prompt: in-process bots need none.
+      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("fill-random-bots-button")).not.toBeInTheDocument();
+      expect(screen.queryByText(/random bot/i)).not.toBeInTheDocument();
       expect(screen.queryByTestId("add-bot-modal")).not.toBeInTheDocument();
+      // A server without the faction pool offers no picker.
+      expect(screen.queryByTestId("new-bot-faction")).not.toBeInTheDocument();
     });
 
-    it("offers nothing on a server that lists no random bots, or when no seat is open, or after start", () => {
+    it("offers nothing on a server that lists no smart bot, or when no seat is open, or after start", () => {
       const onAddRandomBots = vi.fn();
       const { rerender } = render(
-        <LobbyStatus lobby={lobby} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+        <LobbyStatus
+          lobby={{ ...lobby, bot_kinds: ["random"] }}
+          playerId="player_a"
+          onAddRandomBots={onAddRandomBots}
+          {...props}
+        />,
       );
-      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
       const full: LobbyDto = {
         ...withBots,
         slots: withBots.slots.map((slot, i) =>
@@ -365,7 +379,7 @@ describe("lobby UI", () => {
       rerender(
         <LobbyStatus lobby={full} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
       );
-      expect(screen.queryByTestId("fill-random-bots-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("fill-smart-bots-button")).not.toBeInTheDocument();
       rerender(
         <LobbyStatus
           lobby={{ ...withBots, phase: "running" }}
@@ -374,30 +388,84 @@ describe("lobby UI", () => {
           {...props}
         />,
       );
-      expect(screen.queryByTestId("add-random-bot-button")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
     });
 
-    it("offers smart bots beside random ones when the server lists them, with their kind", () => {
+    it("adds a bot with the chosen faction, then goes back to Random", async () => {
       const onAddRandomBots = vi.fn().mockResolvedValue(true);
-      const { rerender } = render(
-        <LobbyStatus lobby={withBots} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
+      render(
+        <LobbyStatus lobby={withFactions} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />,
       );
-      expect(screen.queryByTestId("add-smart-bot-button")).not.toBeInTheDocument();
+      expect(screen.getByTestId("new-bot-faction-button")).toHaveTextContent("Random");
+      // Closed: no list; open: Random plus every faction by printed name.
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("new-bot-faction-button"));
+      expect(screen.getAllByRole("option")).toHaveLength(7);
+      expect(screen.getByTestId("new-bot-faction-option-letnev")).toHaveTextContent("Barony of Letnev");
+      fireEvent.click(screen.getByTestId("new-bot-faction-option-xxcha"));
+      expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+      expect(screen.getByTestId("new-bot-faction-button")).toHaveTextContent("Xxcha");
+      fireEvent.click(screen.getByTestId("add-smart-bot-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1, kind: "smart", faction: "xxcha" });
+      await waitFor(() =>
+        expect(screen.getByTestId("new-bot-faction-button")).toHaveTextContent("Random"),
+      );
+      // Fill never carries a faction.
+      fireEvent.click(screen.getByTestId("fill-smart-bots-button"));
+      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true, kind: "smart" });
+    });
+
+    it("disables a faction another seat holds, naming the seat", () => {
+      const held: LobbyDto = {
+        ...withFactions,
+        slots: withFactions.slots.map((slot) =>
+          slot.position === 2
+            ? { ...slot, nickname: "Smart bot 1", bot: "smart", faction: "sol", ready: true, connected: true, can_take_over: false }
+            : slot,
+        ),
+      };
+      const onAddRandomBots = vi.fn();
+      render(<LobbyStatus lobby={held} playerId="player_a" onAddRandomBots={onAddRandomBots} {...props} />);
+      fireEvent.click(screen.getByTestId("new-bot-faction-button"));
+      const sol = screen.getByTestId("new-bot-faction-option-sol");
+      expect(sol).toHaveAttribute("aria-disabled", "true");
+      expect(sol).toHaveTextContent("taken by Smart bot 1");
+      fireEvent.click(sol);
+      expect(screen.getByTestId("new-bot-faction-button")).toHaveTextContent("Random");
+    });
+
+    it("lists the chosen factions and lets the host change a bot seat's faction", () => {
+      const onSetBotFaction = vi.fn().mockResolvedValue(true);
+      const botLobby: LobbyDto = {
+        ...withFactions,
+        slots: withFactions.slots.map((slot) =>
+          slot.position === 2
+            ? { ...slot, nickname: "Smart bot 1", bot: "smart", faction: "hacan", ready: true, connected: true, can_take_over: false }
+            : slot,
+        ),
+      };
+      const { rerender } = render(
+        <LobbyStatus lobby={botLobby} playerId="player_a" onSetBotFaction={onSetBotFaction} {...props} />,
+      );
+      expect(screen.getByTestId("bot-faction-2-button")).toHaveTextContent("Emirates of Hacan");
+      fireEvent.click(screen.getByTestId("bot-faction-2-button"));
+      fireEvent.click(screen.getByTestId("bot-faction-2-option-jolnar"));
+      expect(onSetBotFaction).toHaveBeenLastCalledWith("player_b", "jolnar");
+      fireEvent.click(screen.getByTestId("bot-faction-2-button"));
+      fireEvent.click(screen.getByTestId("bot-faction-2-option-random"));
+      expect(onSetBotFaction).toHaveBeenLastCalledWith("player_b", null);
+      // Others see it as text; a bot with no choice reads Random faction.
+      rerender(<LobbyStatus lobby={botLobby} playerId="player_c" {...props} />);
+      expect(screen.queryByTestId("bot-faction-2-button")).not.toBeInTheDocument();
+      expect(screen.getByTestId("seat-faction-2")).toHaveTextContent("Emirates of Hacan");
       rerender(
         <LobbyStatus
-          lobby={{ ...lobby, bot_kinds: ["random", "smart"] }}
-          playerId="player_a"
-          onAddRandomBots={onAddRandomBots}
+          lobby={{ ...botLobby, slots: botLobby.slots.map((s) => (s.faction ? { ...s, faction: undefined } : s)) }}
+          playerId="player_c"
           {...props}
         />,
       );
-      fireEvent.click(screen.getByTestId("add-smart-bot-button"));
-      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1, kind: "smart" });
-      fireEvent.click(screen.getByTestId("fill-smart-bots-button"));
-      expect(onAddRandomBots).toHaveBeenLastCalledWith({ fill: true, kind: "smart" });
-      fireEvent.click(screen.getByTestId("add-random-bot-button"));
-      expect(onAddRandomBots).toHaveBeenLastCalledWith({ count: 1 });
-      expect(screen.getByTestId("random-bot-actions")).toHaveTextContent("Smart bots claim nearby planets");
+      expect(screen.getByTestId("seat-faction-2")).toHaveTextContent("Random faction");
     });
 
     it("labels a smart bot seat as a smart bot", () => {
