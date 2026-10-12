@@ -269,3 +269,60 @@ impl Decider for RandomBotDecider {
         self.answer(choice, Some(seen))
     }
 }
+
+/// The rule bot without a session around it: for headless benchmarks and the replayer, which seat
+/// deciders directly on an engine `Table`. Same picks as a `BotSmart` seat (random pick drawn
+/// first, then [`crate::session::smart_bot::pick`]), no think delay. The decision index is this
+/// seat's own count rather than the game's, so it is deterministic per (seed, seat) but not
+/// stream-identical to a server game.
+pub struct RuleBotDecider {
+    seat: PlayerId,
+    game_seed: u64,
+    answered: usize,
+}
+
+impl RuleBotDecider {
+    #[must_use]
+    pub const fn new(seat: PlayerId, game_seed: u64) -> Self {
+        Self {
+            seat,
+            game_seed,
+            answered: 0,
+        }
+    }
+
+    fn answer(
+        &mut self,
+        choice: &Choice,
+        seen: Option<&SeatObservation<'_>>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        if choice.options.is_empty() {
+            return Err(IllegalChoice::NoOptions {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+            });
+        }
+        let mut rng = decision_rng(self.game_seed, &self.seat, self.answered);
+        self.answered += 1;
+        let random_pick = pick_index(choice, &mut rng);
+        let picked = seen
+            .and_then(|seen| crate::session::smart_bot::pick(choice, seen, &mut rng))
+            .filter(|&index| index < choice.options.len())
+            .unwrap_or(random_pick);
+        Ok(choice.options[picked].clone())
+    }
+}
+
+impl Decider for RuleBotDecider {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.answer(choice, None)
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        self.answer(choice, Some(seen))
+    }
+}
