@@ -862,13 +862,20 @@ fn systems_taken_this_round(seen: &Observed<'_>, me: &PlayerId) -> i64 {
     i64::try_from(taken).unwrap_or(i64::MAX)
 }
 
+/// The Creuss: their home lies beyond the wormhole everyone else uses too, so their warships
+/// have nowhere to wait out of the others' way (the Gate itself is their road); they escort the
+/// first carrier instead of a separate clearing move.
+fn gate_bound(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    faction(seen, me) == "ghost"
+}
+
 /// Whether the seat should clear its home before Warfare's home build: a tactical action that
 /// only moves its warships without capacity out of home, so fleet supply lets the build place a
 /// transport for every remaining token. The loaded transport has already left; Warfare's
 /// redistribution gives the token back (the spread-out fleet needs fewer fleet tokens), so the
 /// tokens still send every new transport. It also waits a turn for Diplomacy's readying.
 fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    if exp_off("B") {
+    if exp_off("B") || gate_bound(seen, me) {
         return false;
     }
     let Some((missing, _)) = transport_plan(seen, me) else {
@@ -1765,7 +1772,11 @@ fn escort_from_home(
     let (missing, _) = transport_plan(seen, me)?;
     // Warfare's own build: the warships leave by a move of their own later
     // ([`wait_move_pays`]), so this transport's system keeps a small fleet.
-    if !exp_off("D") && ready_card(seen, me, "Warfare").is_some() && !ground_produces(seen, me) {
+    if !exp_off("D")
+        && ready_card(seen, me, "Warfare").is_some()
+        && !ground_produces(seen, me)
+        && !gate_bound(seen, me)
+    {
         return None;
     }
     if !home_builder_ahead(seen, me)
