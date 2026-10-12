@@ -10,6 +10,7 @@ import {
   strongUnselected,
   isUnstage,
   classifyControl,
+  serverProgressed,
   classifyCandidate,
   turnBarPool,
   isBarControl,
@@ -588,5 +589,13 @@ describe("preferTechWindowUse (optional technology windows)", () => {
   it("leaves other subtypes and a disabled policy alone", () => {
     expect(preferTechWindowUse("draft_strategy_card", "", options, 99)).toBe(options);
     expect(preferTechWindowUse("chaos_mapping_choose_system", "", options, 99, false)).toBe(options);
+  });
+});
+
+describe("serverProgressed (smoke harness)", () => {
+  it("counts a version bump and a game-over push without one", () => {
+    expect(serverProgressed({ game_version: 5, turn_status: { kind: "active_turn" } }, 5)).toBe(false);
+    expect(serverProgressed({ game_version: 6, turn_status: { kind: "active_turn" } }, 5)).toBe(true);
+    expect(serverProgressed({ game_version: 5, turn_status: { kind: "game_over" } }, 5)).toBe(true);
   });
 });

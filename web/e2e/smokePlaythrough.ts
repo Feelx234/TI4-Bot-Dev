@@ -37,6 +37,7 @@ import {
   steerWeight as policySteerWeight,
   strongUnselected,
   classifyControl,
+  serverProgressed,
   classifyCandidate,
   isBarControl,
   turnBarPool,
@@ -1156,8 +1157,10 @@ export async function randomUiPlaythrough(
           }
           await page.waitForTimeout(100);
           if (
-            (await gameSnapshot(request, gameId, players[0].session))
-              .game_version > before
+            serverProgressed(
+              await gameSnapshot(request, gameId, players[0].session),
+              before,
+            )
           ) {
             progressed = true;
             break;
@@ -1208,7 +1211,7 @@ export async function randomUiPlaythrough(
                 // gameSnapshot retries once with a longer timeout; if that fails too the run ends with
                 // failure.txt, report.json and a best-effort final snapshot (not a bare timeout).
                 gameSnapshot(request, gameId, players[0].session).then(
-                  (latest) => latest.game_version > before,
+                  (latest) => serverProgressed(latest, before),
                   (err: Error) =>
                     fail(
                       page,

@@ -403,3 +403,15 @@ export function preferTechWindowUse<T extends PolicyCandidate>(
       return candidates;
   }
 }
+
+/**
+ * Whether the server moved on from `before`. The game-over push carries the version of the last
+ * action, so a finished game counts as progress without a version bump (found by smoke s2-20:
+ * "no actionable control" after the winning action).
+ */
+export function serverProgressed(
+  latest: { game_version: number; turn_status: { kind: string } },
+  before: number,
+): boolean {
+  return latest.game_version > before || latest.turn_status.kind === "game_over";
+}

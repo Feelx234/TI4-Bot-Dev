@@ -150,6 +150,22 @@ const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
  * Keeps a paused plan only while it can still be continued: the engine is asking for a reaction,
  * or is back at a decision the plan answers. Anything else means the game moved on.
  */
+function withFinalScores(
+  snapshot: SnapshotState,
+  scores: Record<string, number>,
+): SnapshotState {
+  return {
+    ...snapshot,
+    view: {
+      ...snapshot.view,
+      finished: true,
+      players: snapshot.view.players.map((p) =>
+        typeof scores[p.id] === "number" ? { ...p, victory_points: scores[p.id] } : p,
+      ),
+    },
+  };
+}
+
 export function settleBatchResume(state: GameSessionState): GameSessionState {
   const resume = state.batchResume;
   if (!resume) return state;
@@ -383,6 +399,9 @@ export function reduceServerMessage(
         gameVersion: message.game_version,
         turnStatus: { kind: "game_over", winner: message.winner ?? null },
         pendingChoice: null,
+        // The last state_update can predate the final score (the winning point is scored by the
+        // action that ended the game), so the final scores replace the players' victory points.
+        snapshot: state.snapshot ? withFinalScores(state.snapshot, message.final_scores) : state.snapshot,
       };
     case "pong":
       return state;

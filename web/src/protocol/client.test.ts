@@ -118,6 +118,31 @@ describe("GameSessionClient reducer", () => {
     expect(next.gameVersion).toBe(9);
   });
 
+  it("applies the final scores to the players' victory points on game_over", () => {
+    const withPlayers = {
+      ...state,
+      snapshot: {
+        view: {
+          finished: false,
+          players: [
+            { id: "seat_a", victory_points: 7 },
+            { id: "seat_b", victory_points: 9 },
+          ],
+        },
+      },
+    } as unknown as GameSessionState;
+    const next = reduceServerMessage(withPlayers, {
+      type: "game_over",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      game_version: 9,
+      winner: "seat_b",
+      final_scores: { seat_a: 8, seat_b: 10 },
+    });
+    expect(next.snapshot?.view.players.map((p) => p.victory_points)).toEqual([8, 10]);
+    expect(next.snapshot?.view.finished).toBe(true);
+  });
+
   it("carries the server's display details into the pending choice", () => {
     const next = reduceServerMessage(state, {
       type: "pending_choice",
