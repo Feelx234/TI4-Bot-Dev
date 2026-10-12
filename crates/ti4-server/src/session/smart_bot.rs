@@ -2496,7 +2496,10 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to ready two planets") {
         // The transport plan's home build is still to come: the planets just taken (and home)
         // are its resources.
-        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 {
+        // Not with the last token while another seat's Warfare (the build itself) is to come.
+        let keep_for_warfare = i32::from(expanding(seen) && secondary_to_come(seen, me, "Warfare"));
+        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 && tokens > keep_for_warfare
+        {
             return answer(true);
         }
         // Diplomacy: the influence back for the custodians when Mecatol Rex is in reach.
