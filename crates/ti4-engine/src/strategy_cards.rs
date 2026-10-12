@@ -2295,11 +2295,19 @@ pub fn primary(
         let Some(galaxy) = galaxy else {
             return Ok(Ability::Resolved);
         };
-        let systems: Vec<String> = galaxy
+        // "Any system": the printed map and every system in play beside it (the Creuss home
+        // system, the Fracture), as an ordinary activation offers them.
+        let mut systems: Vec<String> = galaxy
             .system_ids_holding_things()
             .into_iter()
             .map(ToOwned::to_owned)
             .collect();
+        for system in state.board.keys() {
+            if !galaxy.is_hyperlane(system.as_str()) && !systems.iter().any(|s| s == system.as_str())
+            {
+                systems.push(system.to_string());
+            }
+        }
         if systems.is_empty() {
             return Ok(Ability::Resolved);
         }
