@@ -130,7 +130,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("announce_retreat") => return pick_retreat(choice, observed, &me),
         Some("draft_strategy_card") => return pick_strategy_card(choice, observed, &me),
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
-        Some("research_technology") => return pick_research(choice),
+        Some("research_technology") => return pick_research(choice, observed, &me),
+        // Shuffling tokens between pools at random can empty the fleet pool: keep them.
+        Some("predictive_intelligence_redistribute") => {
+            return choice.options.iter().position(|o| o.id == "done");
+        }
         Some("warfare_free_tactical") => return pick_free_tactical(choice, observed, &me),
         Some("construction_choose_ability") => return pick_construction(choice, observed, &me),
         Some("status_redistribute_tokens" | "warfare_redistribute_tokens") => {
@@ -529,7 +533,8 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     if !contested && has_own_production(seen, me, system) {
         // A command token only to build is worth it with plenty to spend; otherwise Warfare's
         // secondary or Construction builds without one.
-        let build = seen.available_spend(me, Spend::Resources) >= PLENTY_RESOURCES
+        let build = spare_resources(seen, me)
+            >= PLENTY_RESOURCES
             && wants_to_build(seen, me, system);
         let ferry = needs_transport(seen, me, system)
             && movable.iter().any(|m| {
@@ -644,7 +649,7 @@ fn wants_home_transport(seen: &Observed<'_>, me: &PlayerId) -> bool {
     }
     let (waiting, _) = waiting_and_lift(seen, me, &home);
     let need = CARRIER_COST + if waiting == 0 { 2 } else { 0 };
-    seen.available_spend(me, Spend::Resources) >= need && target_near(seen, me, &home)
+    spare_resources(seen, me) >= need && target_near(seen, me, &home)
 }
 
 /// Whether a token-free production at home (Warfare's free tactical action, Construction's
@@ -664,7 +669,7 @@ fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
     let (transports, _) = free_transports_and_ground(seen, me);
     !seen.systems_with_token(me).contains(&home)
         && transports < 3
-        && seen.available_spend(me, Spend::Resources) >= CARRIER_COST + 2
+        && spare_resources(seen, me) >= CARRIER_COST + 2
         && target_near(seen, me, &home)
 }
 
@@ -716,6 +721,196 @@ fn gravity_drive_open(seen: &Observed<'_>, me: &PlayerId) -> bool {
             )
             .is_some_and(|record| record.strings("types").contains(&"PROPULSION"))
     })
+}
+
+// -- faction openings ----------------------------------------------------------------------------
+
+/// Cruiser II's alias: capacity 1 and move 3 for every cruiser the seat owns.
+const CRUISER_II: &str = "cr2";
+/// Trade goods the Trade primary gives.
+const TRADE_GOODS: i64 = 3;
+/// What the Technology primary's second research costs.
+const SECOND_RESEARCH: i64 = 6;
+
+/// A technology's colour letter (`G`, `Y`, `R`, `B`), if it has one.
+fn tech_colour(seen: &Observed<'_>, tech: &str) -> Option<char> {
+    let record = seen
+        .content()
+        .get(ti4_model::content_types::ContentType::Technologies, tech)?;
+    let types = record.strings("types");
+    [
+        ("BIOTIC", 'G'),
+        ("CYBERNETIC", 'Y'),
+        ("WARFARE", 'R'),
+        ("PROPULSION", 'B'),
+    ]
+    .into_iter()
+    .find(|(name, _)| types.contains(name))
+    .map(|(_, letter)| letter)
+}
+
+/// The prerequisite colours `tech` needs that the seat's technologies do not cover yet.
+fn missing_colours(seen: &Observed<'_>, me: &PlayerId, tech: &str) -> Vec<char> {
+    let Some(record) = seen
+        .content()
+        .get(ti4_model::content_types::ContentType::Technologies, tech)
+    else {
+        return Vec::new();
+    };
+    let mut owned: Vec<char> = seen.seat(me).map_or_else(Vec::new, |seat| {
+        seat.technologies
+            .iter()
+            .filter_map(|t| tech_colour(seen, t.as_str()))
+            .collect()
+    });
+    let mut missing = Vec::new();
+    for letter in record.text("requirements").unwrap_or("").chars() {
+        if let Some(i) = owned.iter().position(|c| *c == letter) {
+            owned.remove(i);
+        } else if "GYRB".contains(letter) {
+            missing.push(letter);
+        }
+    }
+    missing
+}
+
+/// Own units of type `id` on the board.
+fn own_units(seen: &Observed<'_>, me: &PlayerId, id: &str) -> usize {
+    seen.board()
+        .values()
+        .flat_map(|s| s.units.iter())
+        .filter(|u| &u.owner == me && u.type_id.as_str() == id)
+        .count()
+}
+
+/// Resources on the seat's planets (ready or not): what it could spend in a round.
+fn planet_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    seen.controlled_planets(me)
+        .into_iter()
+        .filter_map(|(_, planet)| {
+            ti4_content::galaxy::planet(seen.content(), planet.as_str(), seen.sources())
+        })
+        .map(|record| record.resources())
+        .sum()
+}
+
+/// The Cruiser II opening (the Mentak, with two cruisers and a red and a yellow technology): in
+/// round 1 Trade's goods and Technology's primary research the missing colour for free and then
+/// Cruiser II for six, so both cruisers carry a ground force (capacity 1, move 3) beside the
+/// carrier: three transports for the three tactic tokens without building anything at home.
+fn cruiser_plan(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    seen.round() <= 1
+        && own_units(seen, me, "cruiser") >= 2
+        && missing_colours(seen, me, CRUISER_II).len() == 1
+        && planet_resources(seen, me) + TRADE_GOODS >= SECOND_RESEARCH
+}
+
+/// Draft picks the other seats make before this seat's next one, in the snake draft (1..n, n..1),
+/// while it still has none: `None` once it holds a card or the draft is not a two-pass one.
+fn picks_before_next(seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let players = seen.players();
+    let n = players.len();
+    let made: usize = players
+        .iter()
+        .filter_map(|p| seen.seat(p))
+        .map(|seat| seat.strategy_cards.len())
+        .sum();
+    let mine = seen.seat(me)?.strategy_cards.len();
+    if mine > 0 || made >= n || n > 4 {
+        return None;
+    }
+    let position = made + 1;
+    Some(2 * (n - position))
+}
+
+/// Whether a seat of `faction` takes Trade over everything but Imperial in round 1.
+fn trade_lover(faction: &str) -> bool {
+    faction == "hacan"
+}
+
+/// Whether Trade would still be there at this seat's next draft pick: the other seats take every
+/// card but Imperial before Trade in round 1 (unless one loves Trade).
+fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &str) -> bool {
+    let Some(between) = picks_before_next(seen, me) else {
+        return false;
+    };
+    let offered = |name: &str| choice.options.iter().any(|o| card_is(seen, &o.id, name));
+    if !offered("Trade") {
+        return false;
+    }
+    let lover = seen
+        .players()
+        .into_iter()
+        .filter(|p| *p != me)
+        .any(|p| trade_lover(&faction(seen, p)));
+    let before_trade = choice
+        .options
+        .iter()
+        .filter(|o| o.id != taking)
+        .filter(|o| !card_is(seen, &o.id, "Trade") && !card_is(seen, &o.id, "Imperial"))
+        .count();
+    !lover && before_trade >= between
+}
+
+/// A faction opening's draft score for `card` in round 1, overriding the default, or `None`.
+fn faction_card_score(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    card: &str,
+) -> Option<f64> {
+    if seen.round() > 1 {
+        return None;
+    }
+    let holds = |name: &str| {
+        seen.seat(me).is_some_and(|seat| {
+            seat.strategy_cards
+                .iter()
+                .any(|held| card_is(seen, held.as_str(), name))
+        })
+    };
+    let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
+    if cruiser_plan(seen, me) {
+        match name.as_str() {
+            "Trade" if holds("Technology") => return Some(30.0),
+            "Technology" if holds("Trade") => return Some(30.0),
+            "Technology" if trade_survives(choice, seen, me, card) => return Some(30.0),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Resources a faction opening keeps for a strategic action still to come: the Cruiser II plan's
+/// six for Technology's second research.
+fn reserved_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
+        SECOND_RESEARCH
+    } else {
+        0
+    }
+}
+
+/// Resources free for building: what the seat can spend less what its opening keeps back.
+fn spare_resources(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    seen.available_spend(me, Spend::Resources) - reserved_resources(seen, me)
+}
+
+/// A faction opening's next strategic action in round 1, before any tactical action: the
+/// Cruiser II plan plays Trade, then Technology once six resources are there.
+fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let play = |name: &str| {
+        ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
+    };
+    if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
+        if let Some(index) = play("Trade") {
+            return Some(index);
+        }
+        if seen.available_spend(me, Spend::Resources) >= SECOND_RESEARCH {
+            return play("Technology");
+        }
+    }
+    None
 }
 
 /// The fleet pool the bot needs during the action phase of the opening rounds, once its ships are
@@ -802,6 +997,11 @@ fn pick_action(
             (hold_imperial && imperial, *i)
         })
         .map(|(i, _)| i);
+    if expanding(seen)
+        && let Some(index) = faction_card_play(choice, seen, me)
+    {
+        return Some(index);
+    }
     // A new transport and troops at home without placing a token there (Warfare's free tactical
     // action, Construction's production): the third system.
     if home_build_wanted(seen, me) {
@@ -877,7 +1077,7 @@ fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
             let mut value = activation_value(seen, me, &system);
             // No token is placed, so building at home costs nothing but resources.
             if home.as_ref() == Some(&system)
-                && seen.available_spend(me, Spend::Resources) >= CARRIER_COST
+                && spare_resources(seen, me) >= CARRIER_COST
                 && wants_to_build(seen, me, &system)
             {
                 value = value.max(2.0);
@@ -906,8 +1106,33 @@ fn pick_construction(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
 
 /// Research: Gravity Drive whenever it is on offer (one more hex for a ship each activation);
 /// otherwise no opinion.
-fn pick_research(choice: &Choice) -> Option<usize> {
-    choice.options.iter().position(|o| o.id == GRAVITY_DRIVE)
+fn pick_research(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let offered = |id: &str| choice.options.iter().position(|o| o.id == id);
+    // The Cruiser II plan: Cruiser II as soon as it is open, before it the missing colour (a
+    // technology of that colour without prerequisites).
+    if own_units(seen, me, "cruiser") >= 2 && seen.round() <= 1 {
+        if let Some(index) = offered(CRUISER_II) {
+            return Some(index);
+        }
+        if let [colour] = missing_colours(seen, me, CRUISER_II)[..]
+            && let Some(index) = choice.options.iter().position(|o| {
+                tech_colour(seen, &o.id) == Some(colour)
+                    && missing_colours(seen, me, &o.id).is_empty()
+                    && seen
+                        .content()
+                        .get(ti4_model::content_types::ContentType::Technologies, &o.id)
+                        .is_some_and(|r| {
+                            !r.text("requirements")
+                                .unwrap_or("")
+                                .chars()
+                                .any(|c| "GYRB".contains(c))
+                        })
+            })
+        {
+            return Some(index);
+        }
+    }
+    offered(GRAVITY_DRIVE)
 }
 
 fn payload_str<'o>(option: &'o ChoiceOption, key: &str) -> Option<&'o str> {
@@ -1458,7 +1683,11 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
         .options
         .iter()
         .enumerate()
-        .map(|(i, o)| (i, opening_card_score(seen, me, &o.id)))
+        .map(|(i, o)| {
+            let score = faction_card_score(choice, seen, me, &o.id)
+                .unwrap_or_else(|| opening_card_score(seen, me, &o.id));
+            (i, score)
+        })
         .collect();
     best_above(&scored, f64::NEG_INFINITY)
 }
@@ -1600,7 +1829,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     let answer = |follow: bool| Some(if follow { yes } else { no });
     if prompt.starts_with("spend a strategy token to produce at home") {
         // Warfare: a production at home without a token there, the opening plan's new transport.
-        let resources = seen.available_spend(me, Spend::Resources);
+        let resources = spare_resources(seen, me);
         // In the opening any token-free production at home is another transport or more
         // ground forces for the planets still in reach.
         let useful = wants_home_transport(seen, me)
@@ -2355,8 +2584,13 @@ mod tests {
                     .collect(),
             )
         };
-        assert_eq!(pick_research(&research(&["amd", "gd", "sar"])), Some(1));
-        assert_eq!(pick_research(&research(&["amd", "sar"])), None);
+        let (state, hub, _, _) = board();
+        let seen = observe(&state, &hub);
+        assert_eq!(
+            pick_research(&research(&["amd", "gd", "sar"]), &seen, &me()),
+            Some(1)
+        );
+        assert_eq!(pick_research(&research(&["amd", "sar"]), &seen, &me()), None);
     }
 
     #[test]
