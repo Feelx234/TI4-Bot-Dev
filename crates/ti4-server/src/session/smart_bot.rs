@@ -644,7 +644,7 @@ fn wants_home_transport(seen: &Observed<'_>, me: &PlayerId) -> bool {
         return false;
     }
     let (_, lift) = ships_and_lift(seen, me, &home);
-    if lift >= 2 {
+    if lift >= 2 || home_fleet_room(seen, me, &home) <= 0 {
         return false;
     }
     let (waiting, _) = waiting_and_lift(seen, me, &home);
@@ -666,14 +666,59 @@ fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
     let Some(home) = home_system(seen, me) else {
         return false;
     };
-    let (transports, _) = free_transports_and_ground(seen, me);
+    let (transports, ground) = free_transports_and_ground(seen, me);
+    // Two infantry (one resource) only when the new transport would have no troop of its own.
+    let troops = if ground > transports { 0 } else { 1 };
     !seen.systems_with_token(me).contains(&home)
         && transports < 3
-        && spare_resources(seen, me) >= CARRIER_COST + 2
+        && home_fleet_room(seen, me, &home) > 0
+        && spare_resources(seen, me) >= CARRIER_COST + troops
         && target_near(seen, me, &home)
 }
 
-/// Own transports (non-fighter ships with capacity for two or more) and ground forces outside the
+/// How many more non-fighter ships fleet supply lets the seat build in `home` now.
+fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
+    let (ships, _) = ships_and_lift(seen, me, home);
+    let fleet = seen.seat(me).map_or(0, |seat| i64::from(seat.fleet_tokens));
+    fleet - i64::try_from(ships).unwrap_or(i64::MAX)
+}
+
+/// The round-1 transport plan of a seat with fewer transports than tactic tokens: how many it is
+/// short (at most three systems' worth) and what building them and a troop each at home costs.
+/// `None` when it has enough, or outside round 1.
+fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
+    if seen.round() > 1 || cruiser_plan(seen, me) {
+        return None;
+    }
+    let tokens = seen
+        .seat(me)
+        .map_or(0, |seat| i64::from(seat.tactic_tokens.min(3)));
+    let (transports, ground) = free_transports_and_ground(seen, me);
+    let missing = tokens - transports;
+    if missing <= 0 {
+        return None;
+    }
+    let troops = (missing + transports - ground).max(0);
+    Some((missing, CARRIER_COST * missing + (troops + 1) / 2))
+}
+
+/// Whether a token-free production at home is still to come this round: Construction or Warfare
+/// held unplayed, or Warfare's secondary while another seat has it to play and a strategy token
+/// is left.
+fn home_builder_ahead(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    ready_card(seen, me, "Construction").is_some()
+        || ready_card(seen, me, "Warfare").is_some()
+        || (secondary_to_come(seen, me, "Warfare")
+            && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0))
+}
+
+/// Whether the seat's home has as many ships as its fleet pool allows, so nothing can be built
+/// there until some leave.
+fn home_fleet_blocked(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    home_system(seen, me).is_some_and(|home| home_fleet_room(seen, me, &home) <= 0)
+}
+
+/// Own transports (non-fighter ships with capacity) and ground forces outside the
 /// systems holding its command token: what can still move this round.
 fn free_transports_and_ground(seen: &Observed<'_>, me: &PlayerId) -> (i64, i64) {
     let tokens = seen.systems_with_token(me);
@@ -693,7 +738,7 @@ fn free_transports_and_ground(seen: &Observed<'_>, me: &PlayerId) -> (i64, i64) 
             };
             if kind.is_ground_force() {
                 ground += 1;
-            } else if kind.is_ship() && !kind.is_fighter() && kind.capacity() >= 2 {
+            } else if kind.is_ship() && !kind.is_fighter() && kind.capacity() >= 1 {
                 transports += 1;
             }
         }
@@ -902,6 +947,26 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     let play = |name: &str| {
         ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
     };
+    // Short of transports and of the resources to build them: Trade's goods first, before the
+    // token-free production at home (unless the home must first be emptied for fleet supply).
+    if let Some((_, cost)) = transport_plan(seen, me)
+        && ready_card(seen, me, "Trade").is_some()
+        && home_builder_ahead(seen, me)
+        && spare_resources(seen, me) < cost
+        && !home_fleet_blocked(seen, me)
+    {
+        return play("Trade");
+    }
+    // Short of transports and of the resources to build them: Trade's goods first, before the
+    // token-free production at home (unless the home must first be emptied for fleet supply).
+    if let Some((_, cost)) = transport_plan(seen, me)
+        && ready_card(seen, me, "Trade").is_some()
+        && home_builder_ahead(seen, me)
+        && spare_resources(seen, me) < cost
+        && !home_fleet_blocked(seen, me)
+    {
+        return play("Trade");
+    }
     if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
         if let Some(index) = play("Trade") {
             return Some(index);
@@ -1230,6 +1295,9 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     if let Some(index) = carrier_for_ground(&moves, seen, me, &active) {
         return Some(index);
     }
+    if let Some(index) = escort_from_home(&moves, seen, me, &active) {
+        return Some(index);
+    }
     if !targets(seen, me, &active).is_empty() || !present.is_empty() {
         return Some(done);
     }
@@ -1278,6 +1346,39 @@ fn carrier_for_ground(
                 })
         })
         .max_by_key(|(i, _, t)| (t.capacity(), std::cmp::Reverse(*i)))
+        .map(|(i, _, _)| *i)
+}
+
+/// A warship without capacity leaving home beside the transport, while home is full for fleet
+/// supply and the transport plan still wants new transports built there: each one that leaves
+/// is room for one more.
+fn escort_from_home(
+    moves: &[(usize, &ChoiceOption, UnitType<'_>)],
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    active: &SystemId,
+) -> Option<usize> {
+    let home = home_system(seen, me)?;
+    if transport_plan(seen, me).is_none()
+        || !home_builder_ahead(seen, me)
+        || home_fleet_room(seen, me, &home) > 0
+        || home_fleet_room(seen, me, active) <= 0
+    {
+        return None;
+    }
+    let (_, lift) = ships_and_lift(seen, me, active);
+    if lift == 0 {
+        return None;
+    }
+    moves
+        .iter()
+        .filter(|(_, o, t)| {
+            t.is_ship()
+                && !t.is_fighter()
+                && t.capacity() == 0
+                && payload_str(o, "origin") == Some(home.as_str())
+        })
+        .min_by_key(|(i, _, _)| *i)
         .map(|(i, _, _)| *i)
 }
 
@@ -1517,6 +1618,41 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
     let (free_transports, free_ground) = free_transports_and_ground(seen, me);
     let need_ground = free_ground < 2 * free_transports.max(1);
     let need_transport = free_transports < 3 && !need_ground;
+    // Round 1, short of transports: a transport whenever its troop is there or affordable with
+    // it, then troops for every transport.
+    if seen.round() <= 1 && expanding(seen) && free_transports < 3 {
+        let option_of = |want: &dyn Fn(UnitType<'_>) -> bool| {
+            choice.options.iter().position(|o| {
+                o.kind == "produce"
+                    && payload_str(o, "unit")
+                        .and_then(|id| unit_type(seen, id))
+                        .is_some_and(|kind| want(kind))
+                    && payload_f64(o, "fleet_excess_after").unwrap_or(0.0) <= 0.0
+                    && payload_f64(o, "owed").unwrap_or(0.0)
+                        <= payload_f64(o, "available_resources").unwrap_or(f64::MAX)
+            })
+        };
+        let money = choice
+            .options
+            .iter()
+            .find_map(|o| payload_f64(o, "available_resources"))
+            .unwrap_or(0.0);
+        let troop_short = free_ground <= free_transports;
+        #[expect(clippy::cast_precision_loss, reason = "small cost")]
+        let carrier_and_troops = (CARRIER_COST + 1) as f64;
+        let transport = option_of(&|k| {
+            k.is_ship() && !k.is_fighter() && k.capacity() >= 2 && k.cost() <= 4.0
+        });
+        let troops = option_of(&|k| k.is_ground_force() && k.cost() <= 1.0);
+        if let Some(index) = transport
+            && (!troop_short || money >= carrier_and_troops)
+        {
+            return Some(index);
+        }
+        if troop_short && let Some(index) = troops {
+            return Some(index);
+        }
+    }
     for (index, option) in choice.options.iter().enumerate() {
         if option.kind != "produce" {
             continue;
