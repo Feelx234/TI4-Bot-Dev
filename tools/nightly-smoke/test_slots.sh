@@ -7,6 +7,8 @@
 #
 #   tools/nightly-smoke/test_slots.sh
 set -uo pipefail
+export NIGHTLY_PREFLIGHT=0 # the fake repos have no node_modules
+export MAX_ZERO_DECISION_RUNS=0 # the stub games write no harness report
 HERE=$(cd "$(dirname "$0")" && pwd)
 TMP=$(mktemp -d)
 trap 'kill $(jobs -p) 2>/dev/null; [ -n "${KEEP_TMP:-}" ] || rm -rf "$TMP"' EXIT

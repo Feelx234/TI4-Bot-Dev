@@ -195,13 +195,37 @@ link_node_modules() { # link_node_modules <worktree> [copy]
       # cache (node_modules/.vite) private to the slot instead of shared with the live checkout, the
       # phone-play instance and the other slots, and keeps the modules inside the vite root.
       cp -a "$REPO/web/node_modules" "$wt/web/node_modules" 2> /dev/null
-      rm -rf "$wt"/web/node_modules/.vite/deps_temp_* 2> /dev/null
+      # A node_modules/node_modules self-link in the source (a stray one broke two nights) would
+      # load Playwright twice in the copy; and a vite cache pre-bundled in the live checkout may
+      # hold a second React. The slot starts with neither.
+      [ ! -L "$wt/web/node_modules/node_modules" ] || rm -f "$wt/web/node_modules/node_modules"
+      rm -rf "$wt/web/node_modules/.vite" 2> /dev/null
     else
-      ln -sfn "$REPO/web/node_modules" "$wt/web/node_modules"
+      ln -sfnT "$REPO/web/node_modules" "$wt/web/node_modules"
     fi
     exclude=$(git -C "$wt" rev-parse --git-path info/exclude)
     grep -qxF '/web/node_modules' "$exclude" 2>/dev/null || echo '/web/node_modules' >> "$exclude"
   fi
+}
+
+# Before a slot plays: Playwright must find the smoke test (a doubled Playwright reports "No tests
+# found") and vite must serve the app. NIGHTLY_PREFLIGHT=0 skips it (tests without node).
+slot_preflight() {
+  [ "${NIGHTLY_PREFLIGHT:-1}" != 0 ] || return 0
+  [ -d "$SREPO/web/node_modules" ] || { echo "preflight: $SREPO/web/node_modules is missing" >> "$SDIR/prepare.log"; return 1; }
+  local port=$(( 20000 + RANDOM % 20000 )) vpid ok=0 i
+  if ! (cd "$SREPO/web" && timeout 120 npx playwright test --list) >> "$SDIR/prepare.log" 2>&1; then
+    echo "preflight: playwright test --list failed" >> "$SDIR/prepare.log"; return 1
+  fi
+  (cd "$SREPO/web" && exec setsid npx vite --port "$port" --strictPort --host 127.0.0.1) >> "$SDIR/prepare.log" 2>&1 < /dev/null &
+  vpid=$!
+  for i in $(seq 1 30); do
+    if curl -sf "http://127.0.0.1:$port/src/main.tsx" > /dev/null 2>&1 && curl -sf "http://127.0.0.1:$port/" > /dev/null 2>&1; then ok=1; break; fi
+    sleep 2
+  done
+  kill -- "-$vpid" 2> /dev/null || kill "$vpid" 2> /dev/null
+  [ "$ok" = 1 ] || echo "preflight: vite did not serve the app on port $port" >> "$SDIR/prepare.log"
+  [ "$ok" = 1 ]
 }
 
 # Create (or, after a restart, refresh) this slot's worktree. A restarted slot drops the half-done
@@ -227,6 +251,7 @@ slot_prepare() {
     sleep 2 # a half-created worktree is taken as it is and refreshed by the next attempt
   done
   link_node_modules "$SREPO" copy
+  slot_preflight || return 1
   mkdir -p "$STARGET" || { echo "cannot create $STARGET" >> "$SDIR/prepare.log"; return 1; }
 }
 
@@ -427,8 +452,18 @@ branch_note() { # the sentence about the branch in the proctor prompt
 }
 
 # --- one slot's loop ----------------------------------------------------------------------------
+run_made_decisions() { # run_made_decisions <run-dir>: the harness report counted at least one decision
+  python3 - "$1/trace/report.json" << 'PY' 2> /dev/null
+import json, sys
+try:
+    sys.exit(0 if int(json.load(open(sys.argv[1])).get("decisions", 0)) > 0 else 1)
+except Exception:
+    sys.exit(1)
+PY
+}
+
 slot_loop() {
-  local n disk_waits=0 run_name run_dir prompt status r proctor_pid proctor_seconds
+  local zero_runs=0 n disk_waits=0 run_name run_dir prompt status r proctor_pid proctor_seconds
   n=$(highest_run_number "$NIGHT_DIR/runs" "$SLOT_TAG")
   BASE_COMMIT=$(git -C "$SREPO" rev-parse HEAD)
   while time_left; do
@@ -531,6 +566,13 @@ slot_loop() {
       } | report_append
     fi
     log "run $run_name: done (proctor exit $status)"
+    # Circuit breaker: runs that never reach a decision mean the environment is broken (it burned
+    # two nights); a fixer cannot help, so stop instead of spending proctors.
+    if run_made_decisions "$run_dir"; then zero_runs=0; else zero_runs=$((zero_runs + 1)); fi
+    if [ "${MAX_ZERO_DECISION_RUNS:-3}" -gt 0 ] && [ "$zero_runs" -ge "${MAX_ZERO_DECISION_RUNS:-3}" ]; then
+      note_report "## Sweep stopped$SUFFIX: $zero_runs consecutive runs reached no decision (broken environment?)"
+      log "sweep stopped: $zero_runs consecutive zero-decision runs$SUFFIX"; break
+    fi
     # A run that never started (e.g. the proctor failed immediately) must not spin the loop.
     [ -f "$run_dir/meta.json" ] || nap "${NIGHTLY_FAILED_RUN_SLEEP:-60}"
   done
@@ -896,6 +938,8 @@ case "${1:-}" in
   loop) cmd_loop "${2:-}" ;;
   highest-run-number) highest_run_number "${2:?usage: nightly.sh highest-run-number <runs-dir>}" ;; # test hook
   mem-needed) mem_needed_mb ;; # test hook
+  link-node-modules) link_node_modules "${2:?usage: nightly.sh link-node-modules <worktree> [copy]}" "${3:-}" ;; # test hook
+  run-made-decisions) run_made_decisions "${2:?usage: nightly.sh run-made-decisions <run-dir>}" ;; # test hook
   fix) cmd_fix "${2:-}" "${3:-}" ;;
   summary) cmd_summary "${2:-}" ;;
   *) echo "usage: $0 tick|tick-decide|loop [night]|fix <round> [night]|summary [night]" >&2; exit 2 ;;
