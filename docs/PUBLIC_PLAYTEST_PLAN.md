@@ -60,7 +60,7 @@ friend's browser --HTTPS/WSS--> Caddy on the Hetzner box (ports 80/443, automati
 1. Gate `/api/dev/*` behind an env flag (`TI4_ENABLE_DEV=1`, off in the public instance).
 2. CORS: allow only the public origin (or none, since same-origin).
 3. Rate limits per client IP (use the `CF-Connecting-IP` header only when the request really
-   comes through the tunnel): game create, lobby join, WebSocket connect, batch submissions,
+   comes through the proxy): game create, lobby join, WebSocket connect, batch submissions,
    feedback. Use `tower_governor` or a small token bucket in the registry.
 4. Caps: max concurrent games, max lobbies per IP, max players per game (existing 8), max active
    bots (`TI4_MAX_ACTIVE_BOTS` exists), WebSocket max message size and idle timeout, disk quota
@@ -131,7 +131,7 @@ and private Artifact for the new UI.
 | 1 | A: serve web from the server, release build, run locally | 0.5 d |
 | 2 | B1-B5: dev routes off, CORS, rate limits, caps, invite gate | 1-2 d |
 | 3 | C: systemd, data dir, backup, deploy script, build id on the client | 1 d |
-| 4 | First friend test through a quick tunnel (no feedback yet; feedback via chat) | 0.5 d |
+| 4 | First friend test on the public URL (Caddy + sslip.io or your domain; feedback via chat) | 0.5 d |
 | 5 | D: feedback button + endpoint + notification | 1.5-2 d |
 | 6 | B6-B8 hardening review, load check with 3-4 concurrent games | 1 d |
 | 7 | E: friends' guide, then invite | 0.5 d |
@@ -149,7 +149,7 @@ link after about 2-3 days.
   decide the policy: a version bump may reset games, tell testers.
 - Shared machine: the nightly sweep and agent builds can starve the server; separate cgroup or a
   separate small VPS removes this risk entirely.
-- Cloudflare's free tunnel supports WebSockets, but long idle connections need heartbeats
+- Caddy and Cloudflare both pass WebSockets, but long idle connections need heartbeats
   (the lobby heartbeat exists; verify the game socket pings).
 - Legal/IP: public hosting of a Twilight Imperium implementation, card text and map art.
 
