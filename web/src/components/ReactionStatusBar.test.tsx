@@ -320,6 +320,37 @@ describe("ReactionStatusBar", () => {
     );
   });
 
+  it("shows a faction ability or leader reaction by its printed name, with no raw engine id", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "55",
+      prompt: "after SYSTEM_ACTIVATED",
+      context: {
+        subtype: "reaction_after_SYSTEM_ACTIVATED",
+        optional: true,
+        source: { Reaction: "SYSTEM_ACTIVATED" },
+      },
+      options: [
+        {
+          id: "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after",
+          kind: "ability",
+          label: "Aetherpassage (after system activated)",
+        },
+        {
+          id: "leader:l1z1x:l1z1xagent:SYSTEM_ACTIVATED:after",
+          kind: "ability",
+          label: "Agent I48S (after system activated)",
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+    render(<ReactionStatusBar isOpen choice={choice} viewerSeat="seat_1" onSubmit={vi.fn()} events={[]} />);
+    const bar = screen.getByTestId("reaction-status-bar");
+    expect(bar).toHaveTextContent("Aetherpassage");
+    expect(bar).toHaveTextContent("I48S");
+    expect(bar.textContent ?? "").not.toMatch(/\b[A-Z]{3,}_[A-Z_]{3,}\b/);
+  });
+
   describe("Phase 2: typed trigger, card text controls", () => {
     const offer = (): PendingChoiceDto => ({
       actor: "seat_1",
