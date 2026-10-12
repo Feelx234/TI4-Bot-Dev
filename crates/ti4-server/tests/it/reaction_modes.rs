@@ -84,11 +84,17 @@ fn wait_for_decisions(session: &GameSession, at_least: usize) {
     }
 }
 
-fn skipped_notes(client: &MockClient) -> Vec<String> {
+/// The reason of each note of a skipped window, and the cards that the note names.
+fn skipped_notes(client: &MockClient) -> Vec<(String, Vec<String>)> {
     let mut notes = Vec::new();
     while let Ok(message) = client.try_recv() {
         if let ServerMessage::StateUpdate(update) = message {
-            notes.extend(update.auto_resolved.into_iter().map(|note| note.reason));
+            notes.extend(
+                update
+                    .auto_resolved
+                    .into_iter()
+                    .map(|note| (note.reason, note.passed)),
+            );
         }
     }
     notes
@@ -168,11 +174,11 @@ fn never_declines_the_window_unasked_journals_it_and_survives_a_restart() {
         .find(|record| record.player == seats.letnev && record.prompt == "when ACTION_CARD_PLAYED")
         .expect("the skipped window is journaled");
     assert_eq!(skipped.chosen, "decline");
-    // The seat is told why, once; the other seat is not.
+    // The seat is told why, once, with the cards by name; the other seat is not.
     assert!(
         skipped_notes(&letnev_client)
             .iter()
-            .any(|reason| reason.contains("Sabotage")),
+            .any(|(reason, passed)| reason.contains("Sabotage") && passed == &["Sabotage"]),
         "the owner gets a skip note"
     );
     assert!(skipped_notes(&sol_client).is_empty());

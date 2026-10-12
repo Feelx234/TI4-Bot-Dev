@@ -90,7 +90,14 @@ pub fn project_initial_snapshot_with_map(
         secret_objectives,
         score,
         agendas,
+        content: content_digest().to_owned(),
     }
+}
+
+/// The digest of the corpus of this build. It is the same for every snapshot.
+fn content_digest() -> &'static str {
+    static DIGEST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DIGEST.get_or_init(|| ti4_content::provenance::embedded_digest().corpus)
 }
 
 /// Projects an initial snapshot for a connecting viewer.

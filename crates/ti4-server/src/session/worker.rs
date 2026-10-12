@@ -199,6 +199,19 @@ impl SessionShared {
         selected: &str,
         reason: &str,
     ) {
+        self.note_passed_window(seat, prompt, selected, reason, &[]);
+    }
+
+    /// [`Self::note_auto_resolved`] for a reaction window that was declined because the seat
+    /// set each of `cards` to never offer.
+    pub fn note_passed_window(
+        &mut self,
+        seat: &PlayerId,
+        prompt: &str,
+        selected: &str,
+        reason: &str,
+        cards: &[String],
+    ) {
         if let Some((_, existing)) = self
             .pending_auto_resolved
             .iter_mut()
@@ -222,6 +235,7 @@ impl SessionShared {
                 selected: selected.to_owned(),
                 reason: reason.to_owned(),
                 count: 1,
+                passed: cards.to_vec(),
             },
         ));
     }
@@ -889,11 +903,12 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                             return;
                         }
                         let names = cards.join(", ");
-                        lock.note_auto_resolved(
+                        lock.note_passed_window(
                             &choice.player,
                             &format!("Reaction window ({names})"),
                             "Pass",
                             &format!("you set {names} to never offer"),
+                            cards,
                         );
                     }))
                 }

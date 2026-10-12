@@ -322,6 +322,8 @@ The owner chose this design on 2026-10-11: the build first, then the payment, bo
 - A screen is tested over an update that the engine recorded (`src/session/fixtures/`), not over data written by hand, so the test sees what the engine sends. Such a test imports the session and the components, so it is in `src/dev/` (`src/dev/productionSheet.test.tsx`; the layers are in `src/boundaries.test.ts`). A fixture is recorded again with its command when the facts change; it is not edited.
 - The page takes its facts from `src/session/ti4.wasm`, which is not in the repository. After a change of a fact in `ti4-view`, build it again (`scripts/build-wasm.sh`); `wasmTransport.test.ts` checks the shape that the screens read.
 - The tests of a local game (`e2e/local.spec.ts`) collect the errors of the page and expect none. A new part of a screen that opens (a card, a sheet, a menu) is opened once there.
+- What a `Transport` promises is tested once for both transports (`src/session/transportContract.test.ts`): the engine in the page, and a real server. The server is `target/debug/server`; build it with `cargo build -p ti4-server --bin server` after a change of the server, or the suite tests the old one (without it the server cases are skipped). A case that only one transport has (undo, steps) is not in this suite.
+- `e2e/online.spec.ts` plays a game on a real server. `playwright.config.ts` starts it with `cargo run`, so the first run of the e2e builds the server.
 
 ## Rust builds
 
@@ -331,6 +333,16 @@ The owner chose this design on 2026-10-11: the build first, then the payment, bo
 - Before you commit Rust changes, all three must be clean: `cargo fmt --all -- --check`, `cargo l-web` (Clippy, no warnings), and `cargo t-web`.
 - The server integration tests are one binary. Run one file with `cargo test -p ti4-server --test it <file name>::`.
 - Temporary (2026-10-09): update this section when the other crates are fixed.
+
+## Online play
+
+- `?online` starts a game of eight on the server and goes to `?online=<game_id>`; that address is the game (`src/dev/OnlineApp.tsx`). The page has the first seat, the other seats decide at random. `/` stays the local game. The plan is `plans/2026-10-11-ONLINE_MULTIPLAYER_PLAN.md`.
+- The server is at the address of the page: `/api` and `/ws`, through the proxy of `vite.config.ts` in development (the port is `TI4_E2E_BACKEND_PORT`, 8080 by default). Start it with `cargo run -p ti4-server --bin server`.
+- The page is the same code as in a local game: `src/session/wsTransport.ts` is a `Transport`. Nothing in `game/`, `ui/` or `useLiveSession` asks which transport it has. A game on the server has no capability, so it has no Dev sheet. It has no Undo yet.
+- A lost connection has one signal (pattern 6): the status of the toolbar says "Offline · reconnecting". The game stays in view, no choice is open, and the page tries again by itself. It is not an error. The panel says "The game cannot be reached." in the place where it says who the game waits for.
+- An answer that the server did not take is a toast with the reason, and the same choice is open again. It is never silent.
+- The printed cards are those of the engine of the page, also online. The page refuses a server with another corpus or another protocol, with both versions in the text.
+- What is staged is kept for each game (`onlineKeys` in `wsTransport.ts`), with the player of this browser. The Never cards are kept by the server.
 
 ## Local play
 

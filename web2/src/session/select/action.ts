@@ -43,6 +43,8 @@ export interface LocalState {
   sent: string | null;
   /** Why the game stopped, if it did. */
   error: string | null;
+  /** The game cannot be reached: the update is the last one, and nothing can be sent. */
+  offline?: boolean;
   /** The game is played again up to where it was; the update is out of date until it is there. */
   replaying: { done: number; total: number } | null;
   /** The last answer can be taken back. */
@@ -85,6 +87,7 @@ export const openChoice = (update: SessionUpdate, local: LocalState): Choice | n
   update.pending_choice &&
   update.pending_choice.nonce !== local.sent &&
   !local.error &&
+  !local.offline &&
   !local.replaying
     ? update.pending_choice.choice
     : null;
@@ -146,13 +149,15 @@ export function selectAction(
         : "The draft has nothing to decide here."))
     : local.error
       ? local.error
-      : local.replaying
-        ? `Playing the saved game again: answer ${local.replaying.done} of ${local.replaying.total}.`
-        : status.kind === "game_over"
-          ? "The game is over."
-          : stepping
-            ? `${faction(stepping)} decides next.`
-            : "The other seats are playing.";
+      : local.offline
+        ? "The game cannot be reached. The page tries again by itself."
+        : local.replaying
+          ? `Playing the saved game again: answer ${local.replaying.done} of ${local.replaying.total}.`
+          : status.kind === "game_over"
+            ? "The game is over."
+            : stepping
+              ? `${faction(stepping)} decides next.`
+              : "The other seats are playing.";
   return {
     kind: "flow",
     title: local.draft ? "Tactical action" : choice ? "Decision" : "Waiting",

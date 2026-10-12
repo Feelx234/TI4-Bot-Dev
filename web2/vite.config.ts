@@ -16,6 +16,14 @@ export default defineConfig({
     headers: { "CDN-Cache-Control": "no-store" },
     host: "127.0.0.1",
     port: 3100,
+    // A game on the server is at the address of the page: `/api/...` and `/ws/games/<id>`.
+    proxy: {
+      "/api": `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`,
+      "/ws": {
+        target: `ws://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8080"}`,
+        ws: true,
+      },
+    },
   },
   test: {
     // Two kinds of test. A `*.test.ts` has no DOM and runs in node, as the engine does. A

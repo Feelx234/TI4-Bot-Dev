@@ -72,6 +72,19 @@ fn fixture_actor_snapshot_has_choice_and_private_cards() {
 }
 
 #[test]
+fn a_snapshot_names_the_corpus_of_the_catalogue() {
+    let ServerMessage::InitialSnapshot(snapshot) = sample_actor_snapshot() else {
+        panic!("a snapshot");
+    };
+    let catalog = ti4_view::components::catalog(
+        ti4_content::ContentStore::embedded(),
+        ti4_model::content_types::POK,
+    );
+    assert_eq!(snapshot.content.len(), 64, "a SHA-256 in hex");
+    assert_eq!(snapshot.content, catalog.content);
+}
+
+#[test]
 fn fixture_opponent_snapshot_has_no_private_cards_or_choice() {
     let msg = sample_opponent_snapshot();
 

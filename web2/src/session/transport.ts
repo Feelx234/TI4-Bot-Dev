@@ -44,7 +44,17 @@ export type TransportEvent =
   /** The printed names of the cards that this side is never offered, after each change. */
   | { kind: "cards"; never: string[] }
   /** A window was declined for this side, because it offered only these cards and each is never offered. */
-  | { kind: "passed"; cards: string[] };
+  | { kind: "passed"; cards: string[] }
+  /**
+   * The game cannot be reached, and the transport tries again. The last update stays in view and
+   * nothing can be sent; the next update ends it. A game in this page is never offline.
+   */
+  | { kind: "offline" }
+  /**
+   * The game did not take what this side sent, and is as it was: another answer was there
+   * first, or the choice is no longer open. The update that follows is the game as it is.
+   */
+  | { kind: "rejected"; reason: string };
 
 /**
  * What a game can do besides play. Each is a tool for testing a local game, and absent from a
@@ -72,8 +82,9 @@ export interface Capabilities {
 }
 
 /**
- * Where the game runs. The wasm engine in this page implements it now; the websocket to the
- * server will later, with `StateUpdateMsg` as the update and `SubmitChoice` as the answer.
+ * Where the game runs: the wasm engine in this page (`wasmTransport.ts`), or the server behind
+ * a websocket (`wsTransport.ts`), with `StateUpdateMsg` as the update and `SubmitChoice` as the
+ * answer.
  */
 export interface Transport {
   /** The printed cards. An update names them by id only. */

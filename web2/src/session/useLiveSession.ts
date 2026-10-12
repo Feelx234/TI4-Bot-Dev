@@ -152,6 +152,7 @@ const menuNonce = (update: SessionUpdate, local: LocalState): string | null => {
   const pending = update.pending_choice;
   return pending &&
     pending.nonce !== local.sent &&
+    !local.offline &&
     pending.choice.context?.subtype === "action_menu" &&
     pending.choice.options.some((option) => option.id === "tactical")
     ? pending.nonce
@@ -394,6 +395,13 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           text: `${passed.join(", ")}: never offered. The window was passed.`,
         }));
       }
+      if (event.kind === "offline") {
+        return setLocal((now) => ({ ...now, offline: true }));
+      }
+      if (event.kind === "rejected") {
+        const { reason } = event;
+        return setToast((now) => ({ id: (now?.id ?? 0) + 1, text: reason }));
+      }
       setUpdate(event.update);
       // The landings open at the active system when their step opens, and so does the build of
       // a production.
@@ -485,6 +493,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           staged: null,
           sent: null,
           error: null,
+          offline: false,
           replaying: null,
           canUndo: event.canUndo,
           movement,
@@ -589,7 +598,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         : null;
     const shown = drafted?.update ?? update;
     const state = drafted?.local ?? live;
-    const pending = state.sent === shown.pending_choice?.nonce ? null : shown.pending_choice;
+    // Nothing is sent while the game cannot be reached: the next update says what is open.
+    const pending =
+      state.sent === shown.pending_choice?.nonce || state.offline ? null : shown.pending_choice;
     /** Opens or closes the draft. What was staged for the other workspace is dropped. */
     const workspace = (open: boolean, draft: Draft | null) => {
       setPlan({ open, draft, stage: null });

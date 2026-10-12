@@ -161,6 +161,10 @@ pub struct ComponentCatalog {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Catalog {
+    /// The digest of the corpus that the texts are of ([`ti4_content::provenance::digest_of`]).
+    /// A page compares it with `content` of the snapshot of a server: with another corpus the
+    /// ids of a game could name other cards.
+    pub content: String,
     pub exploration: ExplorationCatalog,
     pub components: ComponentCatalog,
 }
@@ -169,6 +173,7 @@ pub struct Catalog {
 #[must_use]
 pub fn catalog(content: &ContentStore, sources: SourceSet) -> Catalog {
     Catalog {
+        content: ti4_content::provenance::digest_of(content).corpus,
         exploration: exploration_catalog(content, sources),
         components: component_catalog(content, sources),
     }

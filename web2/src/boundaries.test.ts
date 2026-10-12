@@ -10,7 +10,7 @@ const ALLOWED: Record<string, string[]> = {
   model: [],
   game: ["ui", "model"],
   mock: ["model", "ui"],
-  // The game from a transport (the wasm engine now, the server later), as the view models.
+  // The game from a transport (the wasm engine, or the server), as the view models.
   session: ["model"],
   dev: ["ui", "model", "game", "mock", "session"],
 };

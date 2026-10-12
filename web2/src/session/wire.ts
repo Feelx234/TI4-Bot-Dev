@@ -2,6 +2,7 @@
  * The part of the wire protocol that web2 reads. The shapes are the serde output of the Rust
  * types named in each comment (`crates/ti4-view`, `crates/ti4-engine`). The server sends them in
  * `StateUpdateMsg`, the wasm build hands them over as `SessionUpdate`: same names, same shapes.
+ * The messages of the websocket are at the end.
  */
 
 /** `ti4_view::status::ViewerRole` */
@@ -479,6 +480,12 @@ export interface ActionCardFacts {
 
 /** `ti4_view::components::Catalog`: everything printed. The host asks for it once. */
 export interface Catalog {
+  /**
+   * The digest of the corpus that the texts are of. A game on the server is played only when
+   * the server has the same (`InitialSnapshotMsg.content`). Absent from an engine that is older
+   * than the fact, and from the demo.
+   */
+  content?: string;
   exploration: ExplorationCatalog;
   components: ComponentCatalog;
 }
@@ -522,16 +529,108 @@ export interface SessionUpdate {
   view: GameView;
   pending_choice?: PendingChoiceEnvelope;
   turn_status: PublicTurnStatus;
-  /** What the engine says about the pending choice of a tactical action. The wasm host fills it. */
+  /** What the engine says about the pending choice of a tactical action. Only the seat that is asked has it. */
   tactical?: TacticalFacts;
-  /** The exploration decks and the planets that are still explored. The wasm host fills it. */
+  /** The exploration decks and the planets that are still explored. */
   exploration?: ExplorationFacts;
-  /** The action card deck, its discard pile and the hand limit. The wasm host fills it. */
+  /** The action card deck, its discard pile and the hand limit. */
   action_cards?: ActionCardFacts;
-  /** The secret objective deck and what each seat has scored of it. The wasm host fills it. */
+  /** The secret objective deck and what each seat has scored of it. */
   secret_objectives?: SecretObjectiveFacts;
-  /** Where the victory points of every seat come from. The wasm host fills it. */
+  /** Where the victory points of every seat come from. */
   score?: ScoreFacts;
-  /** The agenda deck. The laws in play are in the table of the view. The wasm host fills it. */
+  /** The agenda deck. The laws in play are in the table of the view. */
   agendas?: AgendaFacts;
 }
+
+// The messages of the websocket (`crates/ti4-server/src/protocol`), as far as web2 reads them.
+
+/** `ti4_server::protocol::PROTOCOL_VERSION`. Every message has it. */
+export const PROTOCOL_VERSION = 3;
+
+/** `ti4_view::status::RejectionReason` */
+export type RejectionReason =
+  | { reason: "stale_version"; expected: number; current: number }
+  | { reason: "stale_nonce" }
+  | { reason: "unauthorized_seat"; seat: string | null }
+  | { reason: "no_pending_choice" }
+  | { reason: "unknown_option"; option_id: string }
+  | { reason: "validation_failed"; message: string };
+
+/**
+ * `InitialSnapshotMsg` and `StateUpdateMsg`: a `SessionUpdate` with the version of the game.
+ * Not read for now: `state`, `galaxy_layout`, `events`, `history` and `current_path`.
+ */
+export interface StateMsg extends SessionUpdate {
+  protocol_version: number;
+  game_id: string;
+  game_version: number;
+  /** The cards that the seat of this connection set, by printed name. Absent when it set none. */
+  reaction_modes?: Record<string, "always" | "never">;
+  /**
+   * `AutoResolvedNote`, of a `state_update` only. Read for `passed` alone: the cards of a
+   * window that was declined because the seat set each of them to never offer.
+   */
+  auto_resolved?: { id: string; passed?: string[] }[];
+  /** Of an `initial_snapshot` only: the digest of the corpus of the server (`Catalog.content`). */
+  content?: string;
+}
+
+/** `ScriptStopped`: where a script that was sent stopped, counted in entries of the script. */
+export interface ScriptStopped {
+  applied: number;
+  remaining: DraftStep[];
+  interrupted: boolean;
+  reason: string;
+}
+
+/**
+ * `ti4_server::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
+ * `pending_choice` and `turn_status` (an update has both), `action_accepted`, `game_over` (the
+ * update before it says so), `pong`, and the messages of the planning runner (`planning_update`,
+ * `planning_status`, `planning_result`).
+ */
+export type ServerMessage =
+  | ({ type: "initial_snapshot" } & StateMsg)
+  | ({ type: "state_update" } & StateMsg)
+  | { type: "action_rejected"; protocol_version: number; reason: RejectionReason }
+  | {
+      type: "error";
+      protocol_version: number;
+      /** `ErrorKind`: "unauthorized", "malformed_message", "unsupported_version", ... */
+      kind: string;
+      message: string;
+    }
+  | {
+      type: "draft_outcome";
+      protocol_version: number;
+      request_id: string;
+      base_version: number;
+      outcome: DraftOutcome;
+    }
+  | { type: "draft_applied"; protocol_version: number; nonce: string; stopped?: ScriptStopped }
+  | { type: "other"; protocol_version: number };
+
+/** `ti4_server::protocol::ClientMessage`, without the messages of the planning runner. */
+export type ClientMessage = ClientRequest & { protocol_version: number };
+
+/** A message to the server, before it has the version of the protocol. */
+export type ClientRequest =
+  | { type: "subscribe"; game_id: string; player_session?: string }
+  | {
+      type: "submit_choice";
+      game_id: string;
+      nonce: string;
+      expected_version: number;
+      option_id: string;
+    }
+  | { type: "set_reaction_mode"; game_id: string; card: string; mode: "always" | "never" }
+  | { type: "run_draft"; game_id: string; request_id: string; script: DraftStep[] }
+  | {
+      type: "apply_draft";
+      game_id: string;
+      nonce: string;
+      expected_version: number;
+      script: DraftStep[];
+    }
+  | { type: "ping"; sequence: number };

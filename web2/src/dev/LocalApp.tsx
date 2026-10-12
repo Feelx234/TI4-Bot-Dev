@@ -24,7 +24,7 @@ import { Button, Drawer, Hint, Segmented } from "../ui";
 
 // Not an import: the file is built by scripts/build-wasm.sh and is not in the repository. Without
 // it the rest of web2 still builds, and this page says how to build it.
-const wasmUrl = new URL("../session/ti4.wasm", import.meta.url).href;
+export const wasmUrl = new URL("../session/ti4.wasm", import.meta.url).href;
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -406,7 +406,7 @@ function readNever(game: LocalGame): string[] {
   }
 }
 
-function Notice({ tone, children }: { tone: "quiet" | "error"; children: ReactNode }) {
+export function Notice({ tone, children }: { tone: "quiet" | "error"; children: ReactNode }) {
   return (
     <p role="status" className={tone === "error" ? "p-5 text-red" : "p-5 text-muted"}>
       {children}

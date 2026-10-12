@@ -20,6 +20,9 @@ function status(update: SessionUpdate, local: LocalState): string {
   if (local.error) {
     return "The game stopped";
   }
+  if (local.offline) {
+    return "Offline · reconnecting";
+  }
   if (local.replaying) {
     return `Replaying ${local.replaying.done} of ${local.replaying.total}`;
   }

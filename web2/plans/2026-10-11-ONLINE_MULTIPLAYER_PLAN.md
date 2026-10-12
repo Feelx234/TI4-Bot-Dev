@@ -1,8 +1,9 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a and phase 1b (2026-10-12); see
-"Phase 0: what was built", "Phase 1a: what was built" and "Phase 1b: what was built". Next:
-phase 2. Nothing else is built yet.
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b and phase 2
+(2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built", "Phase 1b: what was
+built" and "Phase 2: what was built". Next: phase 3 (the undo of a seat) and the rest of phase 4
+(the entry: phase 2 built the least of it). Nothing else is built yet.
 
 ## Goal
 
@@ -341,6 +342,81 @@ against the websocket transport with a real server: an update after an answer, a
 plan that another question stops, a draft, a draft that is applied, a Never card. A case that
 only one mode has (undo, stepping) is outside the suite.
 
+#### Phase 2: what was built (2026-10-12)
+
+- **`session/wsTransport.ts`**: `createWsTransport(engine, { gameId, playerSession }, play?)`.
+  It subscribes, and `InitialSnapshot` and `StateUpdate` become the `update` event (the fields
+  of a `SessionUpdate`; `state` is dropped). `capabilities` is empty, `canUndo` is always false
+  and `undo()` does nothing (phase 3). The messages are named in `wire.ts` (`ServerMessage`,
+  `ClientRequest`, `PROTOCOL_VERSION`), with what is not read.
+- **Two events are new**, for both transports to tell and only this one does:
+  `{ kind: "offline" }` and `{ kind: "rejected", reason }`.
+  - Offline is the status of the toolbar ("Offline · reconnecting"), and the panel says "The
+    game cannot be reached." where it says who the game waits for. No choice is open while
+    offline (`openChoice`), so nothing is sent; the next update ends it.
+  - `ActionRejected` is a toast with the reason, and the last update is told again, so the
+    main button is free again. After a stale answer the transport waits one second for the
+    update that explains it; when none comes it subscribes again on a new socket, and the
+    snapshot is the game as it is. A protocol error after the first update is a toast too;
+    before it (the server does not know the player) it is an `error` event.
+- **A plan and a draft** are sent as `ApplyDraft`. `DraftApplied` becomes `plan` of an update:
+  a refusal (`interrupted: false`) is told at once with the last update, because the server has
+  no new one; a stop (`interrupted: true`) is told with the next update. `applied` and
+  `remaining` are counted in steps: the answers by id before them are taken off.
+- **A draft** is `RunDraft` with a number as `request_id`; only the answer to the newest
+  request is told, with its script.
+  - **Not as the plan says: the transport does not send the script again when `game_version`
+    changes.** The page does (`useLiveSession` asks again with each update, in both modes), and
+    `Transport` has no way to say that a draft is closed, so the transport would run a closed
+    draft for ever. A draft that is asked while offline is not sent; the update after the
+    reconnect makes the page ask again.
+- **Never cards**: `SetReactionMode` is sent, and `cards` is told from `reaction_modes` of the
+  next message. The server tells the game again for such a change; the transport tells no
+  update for a message with the version and the nonce that it has, so what is staged stays.
+  **One field is new on the server**: `AutoResolvedNote.passed`, the cards of a window that
+  was declined for a Never card. The transport tells `passed` from it. (`auto_resolved` is
+  read for this only.)
+- **Reconnect**: a lost socket is `offline`; the next try is after 0.5 s, then twice as long
+  each time, up to 15 s; at once when the server replaced the game (close code 4001). A ping
+  every 10 s keeps the player present.
+- **Handshake**: `InitialSnapshotMsg.content` is the digest of the corpus of the server
+  (`ti4_content::provenance::embedded_digest`), and `Catalog.content` is the same of the wasm
+  (`ti4_catalog`). The transport refuses to play when they differ (an `error` event with both,
+  no reconnect), and so when the protocol version of any message is another. `Engine.hash` is
+  of the whole file and has no content part, so the catalogue has the field. The digest is of
+  the parsed records: it does not see the groups that are written by hand in `ti4-content`.
+- **`localStorage`**: `onlineKeys(gameId)` (`ti4.online.<game_id>.session`, `.movement`,
+  `.draft`). The Never cards are kept by the server, so there is no key for them.
+- **The proxy** of decision 4 is in `vite.config.ts` (`/api`, `/ws`).
+- **The least of phase 4, because the e2e needs a page** (`dev/OnlineApp.tsx`, `main.tsx`):
+  `?online` asks the server for a game of eight with random seats and goes to
+  `?online=<game_id>`; that address opens the game as the player that the browser kept, or as
+  a spectator. The header has "Local game". Still phase 4: the row of the Dev sheet, the
+  nickname, the seed and the map, and what the page says of a game that the server no longer
+  knows (it says "Connecting to the game…" and tries for ever).
+- **Tests.**
+  - `wsTransport.test.ts`: a socket of the test replays the five fixtures of
+    `ti4-server/fixtures` and the script messages; fake timers for the reconnect.
+  - `transportContract.test.ts`: the same five cases against the wasm transport and against a
+    real server (`target/debug/server`, started by the suite; skipped when it is not built):
+    an update after an answer, a refused plan, a plan that the landings stop, a draft and a
+    draft that is applied, a Never card. The games are not the same game, so a case finds its
+    system and its ship in the facts. The Never case is the setting only: the server cannot
+    start the late-game scenario that has the window; `tests/it/reaction_modes.rs` has the
+    window on the server.
+  - `liveOnline.test.tsx`: the page over a fake transport, for `offline` and `rejected`.
+  - `e2e/online.spec.ts`: `playwright.config.ts` starts the server with `cargo run`. A seeded
+    game through the proxy (the first turn, a draft with a reload, Apply, four sheets),
+    `?online`, and a connection that the test cuts.
+- **Found by the contract suite, not changed: a plan that the action ends before.** A plan
+  with a step after the end of its action (a movement, then a purchase where nothing is
+  produced) is refused whole by the server (`check_script` plays it on a copy) and is played
+  by a local game, which then says "interrupted" with the movement in the game. The server is
+  right; the wasm transport has no copy to check on. The page does not send such a plan.
+- **Found, not changed:** the seats of a game on the server have ids like `player_1`, and the
+  page names a seat by its id ("Seat PLAYER_1", cut to "Seat PLAY…" in the table). The
+  nickname is in the lobby view only. This is for the lobby screen.
+
 ### Phase 3: undo for the seat (Rust + web2)
 
 Rule: a seat may undo its own decisions back to, but not past, the first of: a hidden
@@ -503,7 +579,7 @@ phase 2 for online.
 | 0 seam (built) | web2, ti4-wasm | large (the async draft; plans and Never cards move to Rust) |
 | 1a facts in one place (built) | ti4-view, ti4-wasm | small |
 | 1b facts, random seats, script messages (built) | ti4-server | large |
-| 2 transport | web2 | medium |
+| 2 transport (built) | web2, ti4-server and ti4-view (two fields) | medium |
 | 3 undo | ti4-server, ti4-engine (one line), web2 | medium |
 | 4 entry | web2 | small |
 | 5 secondary draft | ti4-view, ti4-wasm, ti4-server, web2 | large |

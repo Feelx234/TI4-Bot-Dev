@@ -60,6 +60,11 @@ pub struct InitialSnapshotMsg {
     /// The agenda deck ([`ti4_view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agendas: Option<ti4_view::agendas::AgendaFacts>,
+    /// The digest of the corpus that this server plays with
+    /// ([`ti4_content::provenance::embedded_digest`]). A client that has the printed texts of
+    /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1504,6 +1509,10 @@ pub struct AutoResolvedNote {
     /// How many identical notes this one stands for (a bill paid in several steps).
     #[serde(default = "one", skip_serializing_if = "is_one")]
     pub count: u32,
+    /// The printed names of the cards of a reaction window that was declined because the seat
+    /// set each of them to never offer. Empty for every other note.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub passed: Vec<String>,
 }
 
 const fn one() -> u32 {
