@@ -10487,6 +10487,154 @@ mod tests {
         );
     }
 
+    /// Nightly report 2026-10-11 finding 2 (s2-06): Reveal Prototype played from
+    /// `after COMBAT_ROUND_STARTED` by an L1Z1X carrier owner, the research paid, and then the game
+    /// had no decision (the combat stayed at `pre_roll` with nothing pending). The combat must go on
+    /// to its next decision with the upgrade in place. This engine-level run (attacker and defender
+    /// as the card's holder, the payment a real decision) does NOT reproduce the stall; the server
+    /// path (payment through `/batches`) is where it still has to be looked for.
+    #[test]
+    fn reveal_prototype_from_the_round_start_window_does_not_stall_the_combat() {
+        for defender in [false, true] {
+            reveal_prototype_in_round_start_window(defender);
+        }
+    }
+
+    fn reveal_prototype_in_round_start_window(defender: bool) {
+        struct RevealDecider {
+            holder: PlayerId,
+            seen: std::rc::Rc<std::cell::RefCell<SeenLog>>,
+            script: std::collections::VecDeque<String>,
+        }
+        impl Decider for RevealDecider {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                self.seen.borrow_mut().push((
+                    choice.player.to_string(),
+                    choice.prompt.clone(),
+                    choice.ids().into_iter().map(str::to_owned).collect(),
+                ));
+                let pick = |id: &str| choice.options.iter().find(|o| o.id == id).cloned();
+                if let Some(next) = self.script.pop_front() {
+                    return pick(&next).ok_or_else(|| IllegalChoice::ScriptDiverged {
+                        player: choice.player.clone(),
+                        wanted: next,
+                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                    });
+                }
+                if choice.prompt.starts_with("after COMBAT_ROUND_STARTED")
+                    && choice.player == self.holder
+                    && let Some(card) = choice
+                        .options
+                        .iter()
+                        .find(|o| o.id.starts_with("reaction:"))
+                {
+                    return Ok(card.clone());
+                }
+                if choice.prompt.starts_with("Reveal Prototype: which")
+                    && let Some(tech) = pick("cv2")
+                {
+                    return Ok(tech);
+                }
+                if let Some(option) = choice.options.iter().find(|o| o.is_decline()) {
+                    return Ok(option.clone());
+                }
+                choice
+                    .options
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    })
+            }
+        }
+
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        // The seat that reveals the prototype (the attacker, or the defender), and its opponent.
+        let (holder, foe) = if defender { (&b, &a) } else { (&a, &b) };
+        let (mut state, galaxy, ids) = if defender {
+            combat_fixture(&[], &["reveal_prototype"])
+        } else {
+            combat_fixture(&["reveal_prototype"], &[])
+        };
+        state.player_mut(holder).unwrap().trade_goods = 2;
+        // Four resources to pay come from a planet and trade goods: the payment is a decision (as
+        // in the smoke run, which paid it through a batch), not an automatic spend.
+        state
+            .system_mut(&SystemId::new("18"))
+            .set_control(ti4_model::id::PlanetId::new("jord"), holder.clone());
+        // Carrier II needs two blue prerequisites.
+        for tech in ["amd", "gd"] {
+            state
+                .player_mut(holder)
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new(tech));
+        }
+        assert!(
+            crate::technology::researchable(&state, ContentStore::embedded(), POK, holder)
+                .iter()
+                .any(|t| t.as_str() == "cv2"),
+            "the fixture must make Carrier II researchable"
+        );
+        crate::fixtures::put(&mut state, &ids[0], "carrier", holder, 1);
+        crate::fixtures::put(&mut state, &ids[0], "cruiser", holder, 2);
+        crate::fixtures::put(&mut state, &ids[0], "destroyer", foe, 1);
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let script = [TACTICAL_ACTION_ID, ids[0].as_str(), "done_moving"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let table = Table::with_default(Box::new(RevealDecider {
+            holder: holder.clone(),
+            seen: seen.clone(),
+            script,
+        }));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        // Every die misses, so both fleets survive the round.
+        game.dice = Dice::from_faces([1_u32; 60]);
+        let prompts = |seen: &SeenLog| -> Vec<String> {
+            seen.iter().map(|(_, prompt, _)| prompt.clone()).collect()
+        };
+        for _ in 0..60 {
+            assert_eq!(game.step().error, None, "seen: {:?}", seen.borrow());
+            if prompts(&seen.borrow())
+                .iter()
+                .any(|prompt| prompt.starts_with("announce a retreat"))
+            {
+                break;
+            }
+        }
+        let asked = prompts(&seen.borrow());
+        assert!(
+            asked
+                .iter()
+                .any(|prompt| prompt.starts_with("announce a retreat")),
+            "after the reveal the combat asks its next question: {asked:?}"
+        );
+        assert!(
+            game.state
+                .player(holder)
+                .unwrap()
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("cv2"))
+        );
+        let carriers: Vec<String> = game
+            .state
+            .system_state(&ids[0])
+            .units
+            .iter()
+            .filter(|unit| &unit.owner == holder && unit.type_id.as_str().starts_with("carrier"))
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        assert_eq!(
+            carriers,
+            ["carrier2"],
+            "the upgrade replaced the carrier in the combat"
+        );
+    }
+
     #[test]
     #[allow(
         clippy::too_many_lines,
