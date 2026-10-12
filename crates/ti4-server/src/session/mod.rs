@@ -5,6 +5,7 @@ pub mod registry;
 pub mod replay;
 pub(crate) mod script;
 pub mod transport;
+pub(crate) mod undo;
 pub mod worker;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -116,6 +117,9 @@ pub struct SessionConfig {
     pub replay_boundary_state: Option<GameState>,
     /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
+    /// The steps that the undo of a seat took back, when this session is what that undo left.
+    /// The seat is told them with its next snapshot.
+    pub undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
 }
 
 impl SessionConfig {
@@ -149,6 +153,7 @@ impl SessionConfig {
             batches: Vec::new(),
             replay_boundary_state: None,
             reaction_modes: BTreeMap::new(),
+            undone: BTreeMap::new(),
         }
     }
 
@@ -412,6 +417,7 @@ impl GameSession {
             lock.redo_decisions.len(),
             lock.history_generation,
         );
+        snapshot.history.can_undo = lock.can_undo(viewer);
         snapshot.reaction_modes = lock.reaction_modes_for(viewer);
         snapshot.current_path = crate::protocol::server::current_log_path(
             &lock.latest_state,
@@ -524,7 +530,39 @@ impl GameSession {
             cursor: lock.decision_log.len(),
             redo_count: lock.redo_decisions.len(),
             generation: lock.history_generation,
+            can_undo: false,
         }
+    }
+
+    /// What an undo of `seat` does now: how many decisions the game keeps, and the steps of a
+    /// plan that are taken back ([`undo`]). The game is not changed.
+    ///
+    /// # Errors
+    ///
+    /// [`RejectionReason::UndoBarrier`] when the last decision lies behind a barrier for the
+    /// seat; as [`Self::submit_choice`] when the game is not at `expected_version` or does not
+    /// wait for the seat.
+    pub fn undo_plan(
+        &self,
+        seat: &PlayerId,
+        expected_version: u64,
+    ) -> Result<(usize, Vec<ti4_view::planning::steps::PlanStep>), RejectionReason> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .undo_plan(seat, expected_version)
+    }
+
+    /// The steps that the undo before this session took back for `seat`. They are told once,
+    /// with the first snapshot of the seat, as a local game tells them with one update.
+    #[must_use]
+    pub fn take_undone(&self, seat: &PlayerId) -> Vec<ti4_view::planning::steps::PlanStep> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .undone
+            .remove(seat)
+            .unwrap_or_default()
     }
 
     /// Set one seat's handling of one action card, by printed name.
@@ -1108,6 +1146,8 @@ impl GameSession {
         // Callers can replace the decision prefix (batch commit, undo, redo).
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
+        // What an undo took back is told by the session that the undo left, and by no other.
+        config.undone = BTreeMap::new();
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
         config.reaction_modes = self
             .shared

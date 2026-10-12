@@ -457,6 +457,54 @@ async fn handle_socket(
                     let _ = outbound_tx.send(message).await;
                 });
             }
+            ClientMessage::Undo {
+                game_id: message_game_id,
+                expected_version,
+                ..
+            } => {
+                let rejected = |reason| {
+                    ServerMessage::ActionRejected(ActionRejectedMsg {
+                        protocol_version: PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        game_version: expected_version,
+                        reason,
+                    })
+                };
+                let (Some(ViewerRole::Player(player)), Some(token), true) =
+                    (&current_role, &current_token, message_game_id == game_id)
+                else {
+                    let _ = outbound_tx
+                        .send(rejected(RejectionReason::UnauthorizedSeat { seat: None }))
+                        .await;
+                    continue;
+                };
+                // The game is played again without the decision: this connection waits for it.
+                let undone = {
+                    let registry = registry.clone();
+                    let session = session.clone();
+                    let game_id = game_id.clone();
+                    let token = token.clone();
+                    let player = player.clone();
+                    tokio::task::spawn_blocking(move || {
+                        registry.undo_player(&game_id, &token, &player, &session, expected_version)
+                    })
+                    .await
+                };
+                match undone {
+                    Ok(Ok(())) => {
+                        // The game is another session now. The page subscribes to it again,
+                        // and its snapshot has what was taken back.
+                        if let Some(tx) = replacement_tx.take() {
+                            let _ = tx.send(());
+                        }
+                        break;
+                    }
+                    Ok(Err(reason)) => {
+                        let _ = outbound_tx.send(rejected(reason)).await;
+                    }
+                    Err(error) => warn!(%game_id, %error, "undo task failed"),
+                }
+            }
             ClientMessage::Ping { sequence, .. } => {
                 if let (Some(token), Some(connection)) = (&current_token, connection_id) {
                     if registry.ping_player(&game_id, token, connection).is_err() {
@@ -524,7 +572,10 @@ async fn handle_socket(
                 let subscription = session.subscribe(role.clone());
 
                 // Send immediate snapshot upon subscription
-                let snapshot = session.get_snapshot(&role);
+                let mut snapshot = session.get_snapshot(&role);
+                if let ViewerRole::Player(seat) = &role {
+                    snapshot.undone = session.take_undone(seat);
+                }
                 let _ = outbound_tx
                     .send(ServerMessage::InitialSnapshot(snapshot))
                     .await;

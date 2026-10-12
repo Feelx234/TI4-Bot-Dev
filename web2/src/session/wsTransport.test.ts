@@ -448,6 +448,80 @@ it("comes back at once when the server replaced the game", () => {
   expect(game.sockets).toHaveLength(2);
 });
 
+it("takes back the last decision when the server says that the seat may", () => {
+  const game = server();
+  game.open();
+  // The server says nothing of an undo: there is none, and nothing is sent.
+  game.tell(actor);
+  game.transport.undo();
+  expect(game.sent()).toHaveLength(1);
+  const may = { ...actor, game_version: actor.game_version + 1, history: { can_undo: true } };
+  game.tell(may);
+  const [open] = game.take().slice(-1);
+  expect(open.kind === "update" && open.canUndo).toBe(true);
+  // One undo at a time, with the version of the game that it is of.
+  game.transport.undo();
+  game.transport.undo();
+  expect(game.sent().slice(1)).toEqual([
+    {
+      type: "undo",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: GAME.gameId,
+      expected_version: may.game_version,
+    },
+  ]);
+  // The server plays the game again and closes the socket as replaced. That is not offline.
+  game.drop(4001);
+  vi.advanceTimersByTime(0);
+  expect(game.sockets).toHaveLength(2);
+  expect(game.take()).toEqual([]);
+  game.open();
+  // The snapshot of the game that the undo left has the steps that it took back, told once.
+  const undone: PlanStep[] = [
+    {
+      kind: "move",
+      origin: "18",
+      unit: "cruiser",
+      damaged: false,
+      gravity_drive: false,
+      ionian: false,
+    },
+    { kind: "done_moving" },
+  ];
+  game.tell({ ...actor, game_version: may.game_version + 2, undone });
+  const [event] = game.take();
+  if (event.kind !== "update") {
+    throw new Error(event.kind);
+  }
+  expect(event.undone).toEqual(undone);
+  expect(event.canUndo).toBe(false);
+  const late: TransportEvent[] = [];
+  game.transport.subscribe((told) => late.push(told));
+  expect(late.at(-1)).not.toHaveProperty("undone");
+});
+
+it("says the barrier when the server does not take an undo back", () => {
+  const game = server();
+  game.open();
+  game.tell({ ...actor, history: { can_undo: true } });
+  game.take();
+  game.transport.undo();
+  game.tell({
+    type: "action_rejected",
+    protocol_version: PROTOCOL_VERSION,
+    reason: { reason: "undo_barrier", barrier: "random" },
+  });
+  const [rejected, again] = game.take();
+  expect(rejected).toEqual({
+    kind: "rejected",
+    reason: "Dice were rolled since your last decision. It cannot be taken back.",
+  });
+  expect(again.kind).toBe("update");
+  // The undo is over: a socket that ends now is a lost connection.
+  game.drop(4001);
+  expect(game.take()).toEqual([{ kind: "offline" }]);
+});
+
 it("pings while it is connected, and stops when it is closed", () => {
   const game = server();
   game.open();

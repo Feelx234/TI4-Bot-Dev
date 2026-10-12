@@ -74,7 +74,7 @@ pub(crate) fn asked(session: &GameSession, seat: &PlayerId) -> (Choice, String, 
     }
 }
 
-fn subtype(choice: &Choice) -> &str {
+pub(crate) fn subtype(choice: &Choice) -> &str {
     choice
         .context
         .as_ref()
@@ -88,7 +88,7 @@ pub(crate) fn passive(choice: &Choice) -> String {
 }
 
 /// Plays `seat` passively until the game asks it for the action of its turn.
-fn to_the_turn_menu(session: &GameSession, seat: &PlayerId) -> (Choice, String, u64) {
+pub(crate) fn to_the_turn_menu(session: &GameSession, seat: &PlayerId) -> (Choice, String, u64) {
     loop {
         let (choice, nonce, version) = asked(session, seat);
         if subtype(&choice) == "action_menu" {
@@ -109,7 +109,10 @@ fn draft(session: &GameSession, seat: &PlayerId, script: &[DraftStep]) -> DraftO
 }
 
 /// The script of a whole tactical action with one ship moved, and the system and the ship.
-fn movement_script(session: &GameSession, seat: &PlayerId) -> (Vec<DraftStep>, String, String) {
+pub(crate) fn movement_script(
+    session: &GameSession,
+    seat: &PlayerId,
+) -> (Vec<DraftStep>, String, String) {
     let mut script = vec![choose("tactical")];
     let activation = draft(session, seat, &script);
     assert_eq!(activation.stop, DraftStop::Open);
@@ -166,7 +169,7 @@ fn applied(client: &MockClient) -> ti4_server::protocol::server::DraftAppliedMsg
     }
 }
 
-fn ships_at(session: &GameSession, system: &str, seat: &PlayerId, unit: &str) -> usize {
+pub(crate) fn ships_at(session: &GameSession, system: &str, seat: &PlayerId, unit: &str) -> usize {
     let state = session.current_state();
     state
         .system_state(&SystemId::new(system))
@@ -342,7 +345,10 @@ fn a_script_that_the_game_would_refuse_changes_nothing() {
     session.stop();
 }
 
-async fn next_message<S>(stream: &mut S, wanted: impl Fn(&ServerMessage) -> bool) -> ServerMessage
+pub(crate) async fn next_message<S>(
+    stream: &mut S,
+    wanted: impl Fn(&ServerMessage) -> bool,
+) -> ServerMessage
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {

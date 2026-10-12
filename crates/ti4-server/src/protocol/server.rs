@@ -65,6 +65,11 @@ pub struct InitialSnapshotMsg {
     /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
+    /// The steps of a movement, of the landings or of a production that the undo of the
+    /// viewer took back, in order, for the page to stage them again. Told once, with the
+    /// first snapshot of the seat after its undo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undone: Vec<ti4_view::planning::steps::PlanStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +117,11 @@ pub struct HistoryStatus {
     pub redo_count: usize,
     #[serde(default)]
     pub generation: u64,
+    /// The viewer may take back its last decision (`ClientMessage::Undo`): it is its own, and
+    /// since it nothing hidden was shown, nothing was rolled and no other seat decided. It is
+    /// not the host's history: `cursor` and `redo_count` say nothing of it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_undo: bool,
 }
 
 fn is_default_history(value: &HistoryStatus) -> bool {
@@ -131,6 +141,7 @@ impl InitialSnapshotMsg {
             cursor,
             redo_count,
             generation,
+            can_undo: false,
         };
         self
     }
@@ -1540,6 +1551,7 @@ impl StateUpdateMsg {
             cursor,
             redo_count,
             generation,
+            can_undo: false,
         };
         self
     }

@@ -101,6 +101,16 @@ pub enum ClientMessage {
         expected_version: u64,
         script: Vec<ti4_view::planning::draft::DraftStep>,
     },
+    /// Take back the last decision of this connection's seat, when the last update said that
+    /// it may (`HistoryStatus::can_undo`): a movement, the landings and a purchase go back
+    /// whole. The game is then another session: the connection is closed as replaced, and the
+    /// next snapshot of the seat has the steps that were taken back. A refusal is
+    /// `ServerMessage::ActionRejected`, with the barrier when one is the cause.
+    Undo {
+        protocol_version: u16,
+        game_id: String,
+        expected_version: u64,
+    },
     /// Keep-alive ping message.
     Ping {
         protocol_version: u16,
@@ -254,6 +264,15 @@ impl std::fmt::Debug for ClientMessage {
                 .field("expected_version", expected_version)
                 .field("entries", &script.len())
                 .finish(),
+            Self::Undo {
+                game_id,
+                expected_version,
+                ..
+            } => f
+                .debug_struct("Undo")
+                .field("game_id", game_id)
+                .field("expected_version", expected_version)
+                .finish(),
             Self::Ping {
                 protocol_version,
                 sequence,
@@ -287,6 +306,9 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::ApplyDraft {
+                protocol_version, ..
+            }
+            | Self::Undo {
                 protocol_version, ..
             }
             | Self::StartPlanning {
@@ -386,6 +408,7 @@ impl ClientMessage {
                 bounded(nonce, MAX_NONCE_BYTES, "nonce")?;
                 bounded_script(script)?;
             }
+            Self::Undo { game_id, .. } => bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?,
             Self::Ping { .. } => {}
         }
         Ok(())

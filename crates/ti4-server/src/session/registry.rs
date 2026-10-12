@@ -391,6 +391,15 @@ mod committed_worker_tests {
     }
 }
 
+/// The decisions and the events of a session, with what the host can redo.
+struct Timeline {
+    current: Vec<ti4_engine::choice::DecisionRecord>,
+    redo: Vec<ti4_engine::choice::DecisionRecord>,
+    events: Vec<crate::protocol::server::GameEvent>,
+    redo_events: Vec<crate::protocol::server::GameEvent>,
+    event_counter: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryError {
     NotFound,
@@ -1254,6 +1263,176 @@ impl GameRegistry {
             snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
         })
     }
+    /// Replaces the session by one whose game has the first `target` decisions of `timeline`:
+    /// the rest waits as redo of the host. The caller holds the gate of the game and has
+    /// checked that `session` is at `expected_version` and may be rewound. `undone` is what
+    /// the replacement tells a seat with its next snapshot.
+    fn rewind(
+        &self,
+        game_id: &str,
+        session: &Arc<GameSession>,
+        expected_version: u64,
+        target: usize,
+        timeline: Timeline,
+        undone: Option<(PlayerId, Vec<ti4_view::planning::steps::PlanStep>)>,
+    ) -> Result<Arc<GameSession>, HistoryError> {
+        let Timeline {
+            current,
+            redo,
+            events,
+            redo_events,
+            event_counter,
+        } = timeline;
+        let original_count = current.len();
+        let all: Vec<_> = current.into_iter().chain(redo).collect();
+        let mut config = session.restart_config();
+        let report = crate::session::replay::replay_session(
+            &config.state,
+            config.galaxy.as_ref(),
+            &all[..target],
+        )
+        .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
+        if !report.hashes_match || report.decision_count != target {
+            return Err(HistoryError::Conflict("Replay diverged".to_owned()));
+        }
+        // This stable boundary excludes all events after the selected decision. Legacy
+        // events have no cursor, so their decision_resolved ordering supplies one.
+        let all_events: Vec<_> = events.into_iter().chain(redo_events).collect();
+        let mut count = 0;
+        let mut split = 0;
+        for event in &all_events {
+            if matches!(
+                event.event,
+                crate::protocol::server::GameEventKind::DecisionResolved
+            ) {
+                count += 1;
+            }
+            if event.decision_count.unwrap_or(count) > target {
+                break;
+            }
+            split += 1;
+        }
+        let revision = expected_version.checked_add(1).ok_or_else(|| {
+            HistoryError::Conflict("the game version counter is exhausted".to_owned())
+        })?;
+        let history = GameHistory {
+            decisions: all[..target].to_vec(),
+            redo: all[target..].to_vec(),
+            events: all_events[..split].to_vec(),
+            redo_events: all_events[split..].to_vec(),
+            event_counter: event_counter.max(all_events.len() as u64),
+            revision,
+            generation: session.history_status().generation.saturating_add(1),
+            batches: session.batches(),
+        };
+        // A live worker must be quiescent before publishing the new authoritative branch.
+        let mut state = self.state.lock().expect("registry lock");
+        if !state
+            .sessions
+            .get(game_id)
+            .is_some_and(|live| Arc::ptr_eq(live, session))
+            || session.game_version() != expected_version
+            || !session.history_ready()
+        {
+            return Err(HistoryError::Conflict(
+                "Game advanced during rewind".to_owned(),
+            ));
+        }
+        session.stop();
+        config.plans = session.plans();
+        if session.decision_log().len() != original_count {
+            // This branch is only reachable for an autonomous bot decision; keep the
+            // original timeline alive instead of committing an outdated cursor.
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(HistoryError::Conflict(
+                "Game advanced during rewind".to_owned(),
+            ));
+        }
+        if let Some(store) = &config.store
+            && let Err(error) = store.save_history(game_id, &history)
+        {
+            let replacement = Arc::new(GameSession::start_recovered(
+                config.clone(),
+                session.decision_log(),
+                session.event_log(),
+            ));
+            state.sessions.insert(game_id.to_owned(), replacement);
+            return Err(HistoryError::Storage(error.to_string()));
+        }
+        let mut next = config;
+        next.undone = undone.into_iter().collect();
+        next.prior_decisions.clone_from(&history.decisions);
+        next.prior_events.clone_from(&history.events);
+        next.redo_decisions = history.redo;
+        next.redo_events = history.redo_events;
+        next.event_counter = history.event_counter;
+        next.initial_version = revision;
+        next.history_active = true;
+        next.history_generation = history.generation;
+        next.batches = history.batches;
+        let replacement = Arc::new(GameSession::start(next));
+        let replay = replacement.wait_replayed();
+        state
+            .sessions
+            .insert(game_id.to_owned(), replacement.clone());
+        replay.map_err(|error| {
+            HistoryError::Conflict(format!(
+                "history committed, replacement session failed to replay: {error}"
+            ))
+        })?;
+        Ok(replacement)
+    }
+
+    /// Takes back the last decision of `player` ([`crate::session::undo`]): the seat's own
+    /// undo, bounded by what it learned since. The session is replaced as a change of the
+    /// host's history replaces it, and the decisions that are taken back wait as its redo.
+    ///
+    /// # Errors
+    ///
+    /// [`RejectionReason::UndoBarrier`] when the decision lies behind a barrier; as
+    /// [`Self::submit_player_choice`] for a credential, a version or a game that does not fit.
+    pub fn undo_player(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &Arc<GameSession>,
+        expected_version: u64,
+    ) -> Result<(), RejectionReason> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        self.current_player_session(game_id, credential, player, session)
+            .ok_or_else(|| RejectionReason::UnauthorizedSeat {
+                seat: Some(player.clone()),
+            })?;
+        let (target, undone) = session.undo_plan(player, expected_version)?;
+        let (redo_events, event_counter) = session.history_events();
+        let timeline = Timeline {
+            current: session.decision_log(),
+            redo: session.redo_decisions(),
+            events: session.event_log(),
+            redo_events,
+            event_counter,
+        };
+        self.rewind(
+            game_id,
+            session,
+            expected_version,
+            target,
+            timeline,
+            Some((player.clone(), undone)),
+        )
+        .map(|_| ())
+        .map_err(|error| RejectionReason::ValidationFailed {
+            message: error.message(),
+        })
+    }
+
     /// Serializes a host rewind against credential rotation and human submissions.
     #[expect(
         clippy::too_many_lines,
@@ -1316,8 +1495,7 @@ impl GameRegistry {
         let redo = session.redo_decisions();
         let events = session.event_log();
         let (redo_events, event_counter) = session.history_events();
-        let original_count = current.len();
-        let total = original_count + redo.len();
+        let total = current.len() + redo.len();
         let target = match action {
             HistoryAction::Undo => current.len().checked_sub(1).ok_or_else(|| {
                 HistoryError::InvalidTarget("there is nothing to undo".to_owned())
@@ -1481,107 +1659,16 @@ impl GameRegistry {
                 "decision {target} is beyond the recorded history of {total} decisions"
             )));
         }
-        let all: Vec<_> = current.into_iter().chain(redo).collect();
-        let mut config = session.restart_config();
         drop(state);
-        let report = crate::session::replay::replay_session(
-            &config.state,
-            config.galaxy.as_ref(),
-            &all[..target],
-        )
-        .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
-        if !report.hashes_match || report.decision_count != target {
-            return Err(HistoryError::Conflict("Replay diverged".to_owned()));
-        }
-        // This stable boundary excludes all events after the selected decision. Legacy
-        // events have no cursor, so their decision_resolved ordering supplies one.
-        let all_events: Vec<_> = events.into_iter().chain(redo_events).collect();
-        let mut count = 0;
-        let mut split = 0;
-        for event in &all_events {
-            if matches!(
-                event.event,
-                crate::protocol::server::GameEventKind::DecisionResolved
-            ) {
-                count += 1;
-            }
-            if event.decision_count.unwrap_or(count) > target {
-                break;
-            }
-            split += 1;
-        }
-        let revision = expected_version.checked_add(1).ok_or_else(|| {
-            HistoryError::Conflict("the game version counter is exhausted".to_owned())
-        })?;
-        let history = GameHistory {
-            decisions: all[..target].to_vec(),
-            redo: all[target..].to_vec(),
-            events: all_events[..split].to_vec(),
-            redo_events: all_events[split..].to_vec(),
-            event_counter: event_counter.max(all_events.len() as u64),
-            revision,
-            generation: session.history_status().generation.saturating_add(1),
-            batches: session.batches(),
+        let timeline = Timeline {
+            current,
+            redo,
+            events,
+            redo_events,
+            event_counter,
         };
-        // A live worker must be quiescent before publishing the new authoritative branch.
-        let mut state = self.state.lock().expect("registry lock");
-        if !state
-            .sessions
-            .get(game_id)
-            .is_some_and(|live| Arc::ptr_eq(live, &session))
-            || session.game_version() != expected_version
-            || !session.history_ready()
-        {
-            return Err(HistoryError::Conflict(
-                "Game advanced during rewind".to_owned(),
-            ));
-        }
-        session.stop();
-        config.plans = session.plans();
-        if session.decision_log().len() != original_count {
-            // This branch is only reachable for an autonomous bot decision; keep the
-            // original timeline alive instead of committing an outdated cursor.
-            let replacement = Arc::new(GameSession::start_recovered(
-                config.clone(),
-                session.decision_log(),
-                session.event_log(),
-            ));
-            state.sessions.insert(game_id.to_owned(), replacement);
-            return Err(HistoryError::Conflict(
-                "Game advanced during rewind".to_owned(),
-            ));
-        }
-        if let Some(store) = &config.store
-            && let Err(error) = store.save_history(game_id, &history)
-        {
-            let replacement = Arc::new(GameSession::start_recovered(
-                config.clone(),
-                session.decision_log(),
-                session.event_log(),
-            ));
-            state.sessions.insert(game_id.to_owned(), replacement);
-            return Err(HistoryError::Storage(error.to_string()));
-        }
-        let mut next = config;
-        next.prior_decisions.clone_from(&history.decisions);
-        next.prior_events.clone_from(&history.events);
-        next.redo_decisions = history.redo;
-        next.redo_events = history.redo_events;
-        next.event_counter = history.event_counter;
-        next.initial_version = revision;
-        next.history_active = true;
-        next.history_generation = history.generation;
-        next.batches = history.batches;
-        let replacement = Arc::new(GameSession::start(next));
-        let replay = replacement.wait_replayed();
-        state
-            .sessions
-            .insert(game_id.to_owned(), replacement.clone());
-        replay.map_err(|error| {
-            HistoryError::Conflict(format!(
-                "history committed, replacement session failed to replay: {error}"
-            ))
-        })?;
+        let replacement =
+            self.rewind(game_id, &session, expected_version, target, timeline, None)?;
         Ok(replacement.get_snapshot(&ViewerRole::Player(host)))
     }
     #[must_use]
@@ -3675,6 +3762,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         batches: Vec::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        undone: BTreeMap::new(),
     })
 }
 
@@ -3789,6 +3877,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         batches: Vec::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        undone: BTreeMap::new(),
     })
 }
 

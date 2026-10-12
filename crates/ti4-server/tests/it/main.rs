@@ -30,4 +30,5 @@ mod session_recovery_replay;
 mod session_rejections;
 mod session_secondary_planning;
 mod size_bounds;
+mod undo;
 mod ws_lifecycle;

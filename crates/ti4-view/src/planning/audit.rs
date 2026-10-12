@@ -332,12 +332,44 @@ pub fn validate_knowledge(
     let view = &publication.position;
     // Public movement and token costs may change. Newly learned identities may
     // not. Counts use multisets so duplicating a known card is also rejected.
+    if learned_identity(baseline, view) {
+        return Err(StopReason::KnowledgeChanged);
+    }
     for player in &view.players {
         let known = baseline
             .players
             .iter()
             .find(|known| known.id == player.id)
             .ok_or(StopReason::KnowledgeChanged)?;
+        if (!player.technologies.is_subset(&known.technologies)
+            && !(may_research && &player.id == actor))
+            || player.action_cards_count > known.action_cards_count
+            || player.secret_objectives_count > known.secret_objectives_count
+            || (&player.id != actor
+                && (player.action_cards_count != known.action_cards_count
+                    || player.secret_objectives_count != known.secret_objectives_count))
+        {
+            return Err(StopReason::KnowledgeChanged);
+        }
+    }
+    if view.table.scored_objectives != baseline.table.scored_objectives
+        || view.board.combat.is_some()
+    {
+        return Err(StopReason::KnowledgeChanged);
+    }
+    Ok(())
+}
+
+/// Whether `view` shows its seat a card, a relic, an attachment or a public objective that
+/// `baseline`, an earlier view of the same seat, does not: something that was hidden and is
+/// known now. A draft may not show it ([`validate_knowledge`]), and a seat may not undo a
+/// decision that showed it.
+#[must_use]
+pub fn learned_identity(baseline: &GameView, view: &GameView) -> bool {
+    for player in &view.players {
+        let Some(known) = baseline.players.iter().find(|known| known.id == player.id) else {
+            return true;
+        };
         if !contained(&player.held_action_cards, &known.held_action_cards)
             || !contained(
                 &player.held_secret_objectives,
@@ -348,15 +380,8 @@ pub fn validate_knowledge(
                 &known.scored_secret_objectives,
             )
             || !contained(&player.relics, &known.relics)
-            || (!player.technologies.is_subset(&known.technologies)
-                && !(may_research && &player.id == actor))
-            || player.action_cards_count > known.action_cards_count
-            || player.secret_objectives_count > known.secret_objectives_count
-            || (&player.id != actor
-                && (player.action_cards_count != known.action_cards_count
-                    || player.secret_objectives_count != known.secret_objectives_count))
         {
-            return Err(StopReason::KnowledgeChanged);
+            return true;
         }
     }
     for (system, current) in &view.board.systems {
@@ -370,17 +395,11 @@ pub fn validate_knowledge(
                 &current.attachments,
                 known.map_or(&[], |planet| planet.attachments.as_slice()),
             ) {
-                return Err(StopReason::KnowledgeChanged);
+                return true;
             }
         }
     }
-    if view.table.revealed_objectives != baseline.table.revealed_objectives
-        || view.table.scored_objectives != baseline.table.scored_objectives
-        || view.board.combat.is_some()
-    {
-        return Err(StopReason::KnowledgeChanged);
-    }
-    Ok(())
+    view.table.revealed_objectives != baseline.table.revealed_objectives
 }
 
 pub fn contained<T: PartialEq>(values: &[T], known: &[T]) -> bool {

@@ -14,7 +14,10 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
 - the sheet of a player: a faction ability has no state, because the engine keeps no fact for "used" (only its own marks in `faction_marks`); a locked commander says its condition, not how far the seat is; promissory notes in the play area and the technology that Nekro copied are not cards yet
 - the server sends the six facts of an update (2026-10-12, `exploration` among them); the catalogue is the one of the wasm
 - a game on the server is played from the page (2026-10-12, `?online`, `wsTransport.ts`; phase 2 of `plans/2026-10-11-ONLINE_MULTIPLAYER_PLAN.md`). Still open:
-  - no Undo online (phase 3), and no row "Multiplayer" in the Dev sheet (phase 4)
+  - no row "Multiplayer" in the Dev sheet (phase 4)
+  - the undo of a seat (2026-10-12, phase 3) plays the whole game again from its first decision, twice (the check and the new session), as a change of the host's history does: slow in a late game, not measured
+  - the undo of a seat ends where the game asks another seat, also before that seat answered; the plan allows it until the answer. A game with several people may want that back
+  - `stepOf` of the page (`movementPlan.ts`) and `PlanStep::of_option` of `ti4-view` are two copies now: the wasm transport still makes `undone` in the page. One export of the wasm would remove the TypeScript one
   - a game that the server no longer knows: the page says "Connecting to the game…" and tries for ever (phase 4)
   - the seats are named by their ids ("Seat PLAYER_1", cut in the table to "Seat PLAY…"): the nickname of a player is in the lobby view only
   - a plan with a step after the end of its action is refused whole by the server and is played up to that end by a local game (`transportContract.test.ts` says why its case uses the landings). The page sends no such plan

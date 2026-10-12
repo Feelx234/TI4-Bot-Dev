@@ -1428,7 +1428,8 @@ impl<'a> Game<'a> {
         self.galaxy.as_ref()
     }
 
-    /// Bind only on a disposable fork, before preparing its hypothetical turn.
+    /// Bind on a disposable fork, before preparing its hypothetical turn, or on a game whose
+    /// host reads the activity after each decision ([`crate::observation::ExecutionObservation::take`]).
     pub fn bind_observation(&mut self, observation: crate::observation::ExecutionObservation) {
         self.rng.bind_observation(Some(observation));
     }

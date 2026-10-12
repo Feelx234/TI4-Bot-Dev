@@ -91,6 +91,7 @@ pub fn project_initial_snapshot_with_map(
         score,
         agendas,
         content: content_digest().to_owned(),
+        undone: Vec::new(),
     }
 }
 

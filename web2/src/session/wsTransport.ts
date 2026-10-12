@@ -1,4 +1,5 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
+import type { PlanStep } from "./movementPlan";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import {
   type Catalog,
@@ -45,7 +46,7 @@ export const onlineKeys = (gameId: string) => ({
 });
 
 const HEARTBEAT_MS = 10_000;
-/** The server closes a socket with this code when the game was replaced (a restore of the host). */
+/** The server closes a socket with this code when the game was replaced (a restore of the host, an undo of a seat). */
 const REPLACED = 4001;
 /** After a stale answer the update that explains it is on its way. Without it, the game is asked again. */
 const RESYNC_MS = 1_000;
@@ -89,6 +90,12 @@ function rejection(reason: RejectionReason): string {
       return `The game does not offer "${reason.option_id}". Nothing was sent.`;
     case "validation_failed":
       return reason.message;
+    case "undo_barrier":
+      return {
+        revealed: "Something hidden was shown since your last decision. It cannot be taken back.",
+        random: "Dice were rolled since your last decision. It cannot be taken back.",
+        other_seat: "Another player decided since your last decision. It cannot be taken back.",
+      }[reason.barrier];
   }
 }
 
@@ -142,6 +149,11 @@ export function createWsTransport(
   let sent: { nonce: string; destination: string; lead: number } | null = null;
   /** Told with the next update: where the last plan stopped. */
   let stopped: PlanStopped | null = null;
+  /**
+   * An undo was sent. The server plays the game again without the decision and closes the
+   * socket as replaced: that is no loss of the game, and the snapshot after it is the answer.
+   */
+  let undoing = false;
   /** The notes of the server that were told. A note has an id so that a repeat can be dropped. */
   const noted = new Set<string>();
 
@@ -181,11 +193,14 @@ export function createWsTransport(
     stop();
     say({ kind: "error", message });
   };
-  /** Tells the game as it is now, once more: what was staged against it starts again. */
-  const again = (plan?: PlanStopped) => {
+  /**
+   * Tells the game as it is now, once more: what was staged against it starts again. `plan`
+   * and `undone` are told this once, and no listener that comes later gets them.
+   */
+  const again = (plan?: PlanStopped, undone?: PlanStep[]) => {
     if (latest) {
       const { version: _, ...event } = latest;
-      say(plan ? { ...event, plan } : event);
+      say({ ...event, ...(plan ? { plan } : {}), ...(undone?.length ? { undone } : {}) });
     }
   };
 
@@ -226,13 +241,18 @@ export function createWsTransport(
       !stopped &&
       latest?.version === message.game_version &&
       latest.update.pending_choice?.nonce === update.pending_choice?.nonce;
-    // The undo of a seat is not on the server yet (phase 3 of the plan).
-    latest = { kind: "update", update, canUndo: false, version: message.game_version };
+    latest = {
+      kind: "update",
+      update,
+      canUndo: message.history?.can_undo === true,
+      version: message.game_version,
+    };
     offline = false;
+    undoing = false;
     if (!same) {
       const plan = stopped ?? undefined;
       stopped = null;
-      again(plan);
+      again(plan, message.undone);
     }
   };
 
@@ -255,6 +275,7 @@ export function createWsTransport(
         return onState(message, false);
       case "action_rejected": {
         sent = null;
+        undoing = false;
         say({ kind: "rejected", reason: rejection(message.reason) });
         again();
         const { reason } = message.reason;
@@ -354,7 +375,11 @@ export function createWsTransport(
       // What was on its way is lost. The snapshot after the next subscription says where the game is.
       sent = null;
       asked = null;
-      if (!offline) {
+      // The server replaced the game for the undo of this side: the game is not lost, and the
+      // snapshot of the next subscription is what the undo left. Any other end is a loss.
+      const undone = undoing && event.code === REPLACED;
+      undoing = false;
+      if (!offline && !undone) {
         offline = true;
         say({ kind: "offline" });
       }
@@ -445,7 +470,11 @@ export function createWsTransport(
       }
     },
     undo() {
-      // `canUndo` is never true: the undo of a seat is phase 3 of the plan.
+      // One undo at a time: the answer is the snapshot of the game that the server plays again.
+      if (!latest?.canUndo || undoing) {
+        return;
+      }
+      undoing = send({ type: "undo", game_id: game.gameId, expected_version: latest.version });
     },
     close() {
       closed = true;

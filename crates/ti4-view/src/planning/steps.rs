@@ -156,6 +156,67 @@ impl PlanStep {
         }
     }
 
+    /// The step that an offered option is: the inverse of [`Self::matches_option`]. `None` for
+    /// an option that no step asks for (an answer to a card, the start of an action).
+    #[must_use]
+    pub fn of_option(option: &ChoiceOption) -> Option<Self> {
+        let text = |key: &str| {
+            option
+                .payload
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let flag = |key: &str| {
+            option
+                .payload
+                .get(key)
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+        };
+        let step = match option.kind.as_str() {
+            ti4_engine::tactical::MOVE_KIND => Self::Move {
+                origin: text("origin")?,
+                unit: text("unit")?,
+                damaged: flag("damaged"),
+                gravity_drive: flag("gravity_drive"),
+                ionian: flag("ionian"),
+            },
+            ti4_engine::transit::LOAD_KIND => Self::Load {
+                origin: text("system")?,
+                pickup_system: text("pickup_system")?,
+                unit: text("unit")?,
+                source: text("source"),
+                damaged: flag("damaged"),
+                galvanized: flag("galvanized"),
+            },
+            ti4_engine::invasion::COMMIT_KIND => Self::Land {
+                planet: text("planet")?,
+                unit: text("unit")?,
+                damaged: flag("damaged"),
+                from_system: text("from_system"),
+                from_planet: text("from_planet"),
+            },
+            ti4_engine::production::PRODUCE_KIND if !flag("exchange") => Self::Produce {
+                unit: text("unit")?,
+            },
+            ti4_engine::production::PLACE_KIND => Self::Place {
+                destination: text("destination")?,
+            },
+            ti4_engine::production::PAY_KIND => Self::Pay {
+                source: option.id.clone(),
+            },
+            _ => match option.id.as_str() {
+                "done_loading" => Self::DoneLoading,
+                "done_moving" => Self::DoneMoving,
+                "done_committing" => Self::DoneCommitting,
+                "done_producing" => Self::DoneProducing,
+                _ => return None,
+            },
+        };
+        Some(step)
+    }
+
     fn describe(&self) -> String {
         match self {
             Self::Move { unit, origin, .. } => format!("move {unit} from {origin}"),
@@ -535,5 +596,57 @@ mod tests {
             plan_answer(&steps, 0, &other, &seat()),
             PlanAnswer::Interrupted { .. }
         ));
+    }
+
+    #[test]
+    fn an_option_is_the_step_that_asks_for_it() {
+        let options = [
+            ChoiceOption::new("m1", "move")
+                .with("origin", "18")
+                .with("unit", "cruiser")
+                .with("gravity_drive", true),
+            ChoiceOption::new("l1", "load")
+                .with("system", "18")
+                .with("pickup_system", "19")
+                .with("unit", "infantry")
+                .with("source", "jord")
+                .with("damaged", true),
+            ChoiceOption::new("c1", "commit")
+                .with("planet", "jord")
+                .with("unit", "infantry")
+                .with("from_system", "19"),
+            ChoiceOption::new("p1", "produce").with("unit", "cruiser2"),
+            ChoiceOption::new("place|jord", "place").with("destination", "jord"),
+            ChoiceOption::new("exhaust|jord", "pay"),
+            ChoiceOption::new("done_loading", "decline"),
+            ChoiceOption::new("done_moving", "decline"),
+            ChoiceOption::new("done_committing", "decline"),
+            ChoiceOption::new("done_producing", "decline"),
+        ];
+        for option in &options {
+            let step = PlanStep::of_option(option).expect("a step");
+            assert!(step.matches_option(option), "{step:?}");
+        }
+        assert_eq!(
+            PlanStep::of_option(&options[1]),
+            Some(PlanStep::Load {
+                origin: "18".to_owned(),
+                pickup_system: "19".to_owned(),
+                unit: "infantry".to_owned(),
+                source: Some("jord".to_owned()),
+                damaged: true,
+                galvanized: false,
+            })
+        );
+        // An exchange is no purchase, and an answer to a card is no step.
+        let exchange = ChoiceOption::new("x", "produce")
+            .with("unit", "cruiser")
+            .with("exchange", true);
+        assert_eq!(PlanStep::of_option(&exchange), None);
+        assert_eq!(PlanStep::of_option(&ChoiceOption::decline()), None);
+        assert_eq!(
+            PlanStep::of_option(&ChoiceOption::new("tactical", "action")),
+            None
+        );
     }
 }

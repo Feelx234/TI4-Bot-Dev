@@ -555,11 +555,14 @@ export type RejectionReason =
   | { reason: "unauthorized_seat"; seat: string | null }
   | { reason: "no_pending_choice" }
   | { reason: "unknown_option"; option_id: string }
-  | { reason: "validation_failed"; message: string };
+  | { reason: "validation_failed"; message: string }
+  /** `UndoBarrier`: the decision that the seat asked to take back lies behind it. */
+  | { reason: "undo_barrier"; barrier: "revealed" | "random" | "other_seat" };
 
 /**
  * `InitialSnapshotMsg` and `StateUpdateMsg`: a `SessionUpdate` with the version of the game.
- * Not read for now: `state`, `galaxy_layout`, `events`, `history` and `current_path`.
+ * Not read for now: `state`, `galaxy_layout`, `events`, `current_path`, and `cursor`,
+ * `redo_count` and `generation` of `history` (the history of the host).
  */
 export interface StateMsg extends SessionUpdate {
   protocol_version: number;
@@ -574,6 +577,16 @@ export interface StateMsg extends SessionUpdate {
   auto_resolved?: { id: string; passed?: string[] }[];
   /** Of an `initial_snapshot` only: the digest of the corpus of the server (`Catalog.content`). */
   content?: string;
+  /**
+   * `HistoryStatus`, read for `can_undo` alone: the seat of this connection may take back its
+   * last decision (`undo`). Absent when it may not.
+   */
+  history?: { can_undo?: boolean };
+  /**
+   * Of an `initial_snapshot` only: the steps of a plan that the undo of this seat took back,
+   * in order. The server tells them once, with the first snapshot after the undo.
+   */
+  undone?: import("./movementPlan").PlanStep[];
 }
 
 /** `ScriptStopped`: where a script that was sent stopped, counted in entries of the script. */
@@ -633,4 +646,6 @@ export type ClientRequest =
       expected_version: number;
       script: DraftStep[];
     }
+  /** Takes back the last decision of the seat. The server then closes the socket as replaced. */
+  | { type: "undo"; game_id: string; expected_version: number }
   | { type: "ping"; sequence: number };

@@ -105,6 +105,11 @@ pub struct SessionShared {
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
     pub reaction_modes: BTreeMap<PlayerId, ti4_engine::reaction_modes::NeverSet>,
+    /// The decisions that their seat may take back ([`super::undo`]).
+    pub(crate) undo: super::undo::UndoTrack,
+    /// The steps that the undo before this session took back, for the next snapshot of the
+    /// seat ([`super::GameSession::take_undone`]).
+    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
 }
 
 impl SessionShared {
@@ -303,7 +308,73 @@ impl SessionShared {
             batches: Vec::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
+            undo: super::undo::UndoTrack::new(),
+            undone: BTreeMap::new(),
         }
+    }
+
+    /// Whether the game waits for `seat` with nothing on its way: no answer that is sent and
+    /// not yet in the log, and no script. Only then may the seat take a decision back.
+    fn waits_for(&self, seat: &PlayerId) -> bool {
+        !self.stopped
+            && !self.finished
+            && self.error.is_none()
+            && self.replay_complete
+            && self.in_flight_submissions.is_empty()
+            && !self.scripts.contains_key(seat)
+            && self.decision_log.len() == self.undo.count()
+            && self.pending_decision.as_ref().is_some_and(|pending| {
+                &pending.seat == seat
+                    && pending.submission_state == PendingSubmissionState::AwaitingSubmission
+            })
+    }
+
+    fn never_of(&self, seat: &PlayerId) -> std::collections::BTreeSet<String> {
+        self.reaction_modes
+            .get(seat)
+            .map(|set| set.lock().expect("never set lock").clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether `viewer` may take back its last decision now ([`super::undo`]).
+    ///
+    /// The game must wait for the seat. The rule would allow an undo while another seat is
+    /// asked and has not answered; but that the seat is asked can tell what it holds (a window
+    /// of a card), so the undo ends where the game asks another seat.
+    #[must_use]
+    pub fn can_undo(&self, viewer: &ViewerRole) -> bool {
+        let ViewerRole::Player(seat) = viewer else {
+            return false;
+        };
+        self.waits_for(seat) && self.undo.can_undo(seat, &self.never_of(seat))
+    }
+
+    /// What an undo of `seat` does ([`super::undo::UndoTrack::plan`]), when the game is at
+    /// `expected_version` and waits for the seat.
+    pub(crate) fn undo_plan(
+        &self,
+        seat: &PlayerId,
+        expected_version: u64,
+    ) -> Result<
+        (usize, Vec<ti4_view::planning::steps::PlanStep>),
+        crate::protocol::status::RejectionReason,
+    > {
+        use crate::protocol::status::RejectionReason;
+        if self.game_version != expected_version {
+            return Err(RejectionReason::StaleVersion {
+                expected: expected_version,
+                current: self.game_version,
+            });
+        }
+        if !self.waits_for(seat) {
+            return Err(RejectionReason::NoPendingChoice);
+        }
+        self.undo
+            .plan(seat, &self.never_of(seat))
+            .map_err(|barrier| match barrier {
+                Some(barrier) => RejectionReason::UndoBarrier { barrier },
+                None => RejectionReason::NoPendingChoice,
+            })
     }
 
     fn publish(&mut self, message: impl Fn(&ViewerRole) -> ServerMessage) {
@@ -534,6 +605,12 @@ impl SessionShared {
                 )
             })
             .collect();
+        // At most one seat may undo: the one that the game waits for.
+        let may_undo = self
+            .pending_decision
+            .as_ref()
+            .map(|pending| ViewerRole::Player(pending.seat.clone()))
+            .filter(|viewer| self.can_undo(viewer));
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -548,6 +625,7 @@ impl SessionShared {
                 galaxy.as_deref(),
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
+            update.history.can_undo = may_undo.as_ref() == Some(viewer);
             update.current_path = path.clone();
             update.reaction_modes = modes_by_seat
                 .get(match viewer {
@@ -813,6 +891,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
+    initial_shared.undone.clone_from(&config.undone);
     for seat in config.seats.keys() {
         let never = config.reaction_modes.get(seat).cloned().unwrap_or_default();
         initial_shared
@@ -919,20 +998,26 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 inner,
                 selected: selected_options.clone(),
             });
-            if prior_count > 0 {
-                table.seat(
-                    seat,
-                    Box::new(ReplayingDecider {
-                        prior_queue: prior_queue.clone(),
-                        inner,
-                        shared: worker_shared.clone(),
-                        has_boundary_state: boundary_state.is_some(),
-                        random,
-                    }),
-                );
+            let inner: Box<dyn Decider> = if prior_count > 0 {
+                Box::new(ReplayingDecider {
+                    prior_queue: prior_queue.clone(),
+                    inner,
+                    shared: worker_shared.clone(),
+                    has_boundary_state: boundary_state.is_some(),
+                    random,
+                })
             } else {
-                table.seat(seat, inner);
-            }
+                inner
+            };
+            // Outside the replay: the undo of a seat is told every answer, a replayed one too.
+            table.seat(
+                seat,
+                Box::new(super::undo::Watched {
+                    inner,
+                    shared: worker_shared.clone(),
+                    human: inner_human,
+                }),
+            );
         }
 
         // Nested combat windows can ask another human before `game.step()` returns. Publish
@@ -957,6 +1042,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         });
         table.on_observed_offer(move |records, state| {
             let mut lock = offer_shared.lock().expect("shared lock");
+            lock.undo.observe(records.len(), state);
             let mut published = offer_published.lock().expect("published count lock");
             if lock.stopped || records.len() <= *published {
                 return;
@@ -1074,6 +1160,14 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         if let Some(galaxy) = config.galaxy {
             game = game.with_galaxy(galaxy);
         }
+        // The undo of a seat reads what the engine latches: a die, a shuffle, a hidden card.
+        game.bind_observation(
+            worker_shared
+                .lock()
+                .expect("shared lock")
+                .undo
+                .observation(),
+        );
         // Followers may draft their secondary as soon as the card is certain to
         // resolve. The step holds no session lock while its primary is asked.
         let announced = worker_shared.clone();
@@ -1128,11 +1222,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     );
                     return;
                 }
-                worker_shared
-                    .lock()
-                    .expect("shared lock")
-                    .planning
-                    .completed_step(&game);
+                let mut lock = worker_shared.lock().expect("shared lock");
+                lock.undo.observe(game.table.log.records.len(), &game.state);
+                lock.planning.completed_step(&game);
             }
             if game.table.log.records.get(..prior_count) != Some(prior_records.as_slice()) {
                 worker_shared.lock().expect("shared lock").error =
@@ -1197,6 +1289,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 if lock.stopped {
                     break 'worker;
                 }
+                lock.undo.observe(game.table.log.records.len(), &game.state);
                 let mut accepted_replies = Vec::new();
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();

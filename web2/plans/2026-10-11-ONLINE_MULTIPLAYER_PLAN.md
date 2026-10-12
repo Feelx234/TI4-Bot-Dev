@@ -1,9 +1,9 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b and phase 2
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b, phase 2 and phase 3
 (2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built", "Phase 1b: what was
-built" and "Phase 2: what was built". Next: phase 3 (the undo of a seat) and the rest of phase 4
-(the entry: phase 2 built the least of it). Nothing else is built yet.
+built", "Phase 2: what was built" and "Phase 3: what was built". Next: the rest of phase 4 (the
+entry: phase 2 built the least of it). Nothing else is built yet.
 
 ## Goal
 
@@ -489,6 +489,83 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
 4. The wasm transport keeps its undo with no barrier (decision 3). So single player undoes
    further than multiplayer: this difference is wanted.
 
+#### Phase 3: what was built (2026-10-12)
+
+- **The track of a session** (`ti4-server/src/session/undo.rs`, `UndoTrack`): the decisions
+  after the last barrier, each with the choice that was asked and the option that answered
+  it. They are all of one seat that a person plays. It is kept while the game is played and
+  while its log is replayed, so a recovered game and the session after an undo know the same.
+  - Every seat's decider is wrapped (`Watched`, outside the replay): it tells the track each
+    answer. An answer of another seat, or of a seat that the server plays, empties the track
+    (`other_seat`).
+  - The track looks at the game where it asks a seat (`Table::on_observed_offer`) and after
+    each step. There it reads the latch (`random`, `revealed`), and compares the view of the
+    seat with its view at the look before (`revealed`).
+  - `can_undo` of a viewer: the track is of its seat, the game waits for the seat, and no
+    answer or script is on its way.
+- **Not as the plan says: the latch is read and cleared, not bound again.** The game asks
+  several decisions in one step, and nothing can bind a new `ExecutionObservation` between
+  them. So `ExecutionObservation::take` reads the bits and clears them (`ti4-engine`,
+  `observation.rs`). It is no mark; `Game::bind_observation` is now called on the live game
+  of a session too.
+- **Not as the plan says: the line of the engine is at three callers, not in
+  `hooks_cards::reveal`.** `reveal` has the state only, and the latch is of the `GameRng` of
+  the game. The callers have both: `action_cards::show_action_card`,
+  `action_cards::look_at_hand_and_take` and the commander of the Yssaril
+  (`factions/yssaril.rs`) call `observe_hidden_information`. The hero of the Yssaril shows
+  cards through `show_action_card`. Nothing else of the engine changed, and no test of a
+  draft changed.
+- **Not as the plan says: the undo ends where the game asks another seat**, also before that
+  seat answered. That a seat is asked can tell what it holds (a window of a card), so a seat
+  could play, see who is asked, and take it back. With random seats it makes no difference:
+  they answer at once.
+- **The view of the seat**: `learned_identity` in `ti4-view/src/planning/audit.rs` is the
+  part of `validate_knowledge` that compares the cards, the relics, the attachments and the
+  revealed objectives; `validate_knowledge` calls it and keeps its rules for technologies,
+  counts and an open combat.
+- **What one undo takes back** is what one undo of a local game takes back (`insideMovement`
+  of the wasm transport): the last answer, and then on while the choice that is open again is
+  in a movement, in the landings or in a purchase. It is decided on the track, from the
+  subtype of each choice and the kind of each answer, with no replay. A window that the Never
+  cards of the seat decline now is no answer of the player: the undo goes back over it, as
+  the game would decline it again. The setting of now counts, not the one of then.
+- **The undo replaces the session**, with the code of the host's history
+  (`GameRegistry::rewind`, taken out of `change_history`; `GameRegistry::undo_player`). The
+  decisions that are taken back wait as the redo of the host.
+- **Protocol** (`PROTOCOL_VERSION` is still 3: fields and a message are added):
+  - `ClientMessage::Undo { game_id, expected_version }`.
+  - `HistoryStatus.can_undo`, per viewer, absent when false.
+  - `RejectionReason::UndoBarrier { barrier }` (`revealed`, `random`, `other_seat`) in
+    `ActionRejected`. A game that does not wait for the seat is `NoPendingChoice`, a version
+    that is not the game's `StaleVersion`.
+  - `InitialSnapshotMsg.undone`: the steps (`PlanStep::of_option` of `ti4-view`, the inverse
+    of `matches_option`). **Not with an update:** the session is replaced, so the server
+    closes the sockets of the game as replaced (4001), and the steps are in the first
+    snapshot of the seat after it. They are told once, as a local game tells them: a second
+    connection and a reload do not get them.
+- **web2** (`wsTransport.ts`): `canUndo` is `history.can_undo`; `undo()` sends the message,
+  one at a time; `undone` of the snapshot is told with its update and to no listener that
+  comes later. The close of the socket after an undo of this side is not told as `offline`.
+  A refusal is the `rejected` event with the barrier in words. Nothing above the transport
+  changed: the Undo button was there for a local game.
+- **Tests.**
+  - `session/undo.rs`: what one undo takes back, a Never window, each barrier, and a card of
+    the seat against a card of another seat.
+  - `tests/it/undo.rs`: a game with random seats through the registry (a movement that is
+    sent, three undos back to the turn menu, a barrier before it, and the game goes on); a
+    seat that passes for 120 decisions (the undo is offered only after a decision of its own,
+    a card that is drawn ends it, and a game that is recovered from its log plans the same
+    undo); the messages over a websocket. `protocol_roundtrip.rs` has the wire forms.
+  - `wsTransport.test.ts` (a socket of the test), one new case of
+    `transportContract.test.ts` on both transports (a movement is taken back whole and its
+    steps are told), and `e2e/online.spec.ts` (Undo after "Apply to Live": the movement is
+    staged again and sent again).
+- **Not tested against the real engine: the latch after a decision of the seat itself.** A
+  seat that passes rolls nothing. The latch reaches the track (seen with the random seats of
+  the test game), and the unit tests set it by hand.
+- **Found, not changed:** an undo plays the game again twice from its first decision, as a
+  change of the host's history does. The cost in a late game is not measured (`NEXT.md`).
+
 ### Phase 4: the entry
 
 1. **Entry** (decision 5): `main.tsx` routes `?online` and `?online=<game_id>` to the online
@@ -580,7 +657,7 @@ phase 2 for online.
 | 1a facts in one place (built) | ti4-view, ti4-wasm | small |
 | 1b facts, random seats, script messages (built) | ti4-server | large |
 | 2 transport (built) | web2, ti4-server and ti4-view (two fields) | medium |
-| 3 undo | ti4-server, ti4-engine (one line), web2 | medium |
+| 3 undo (built) | ti4-server, ti4-engine (a latch that is cleared, three lines), ti4-view, web2 | medium |
 | 4 entry | web2 | small |
 | 5 secondary draft | ti4-view, ti4-wasm, ti4-server, web2 | large |
 

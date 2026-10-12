@@ -20,7 +20,8 @@ import { createWsTransport, openSocket } from "./wsTransport";
 // What a transport promises, checked on both: the engine in this page, and a real server. The
 // page above a transport is one code, so this is what it relies on. The two games are not the
 // same game (the server draws its own map), so a case finds its system and its ship in the facts.
-// Not here, because only one has it: the undo, the steps, the seat changes, the saved game.
+// Not here, because only one has it: the steps, the seat changes, the saved game, and how far
+// an undo goes (a local game has no barrier, the server ends at one).
 //
 // Both are built outside this suite, and a case is skipped without its build:
 // `scripts/build-wasm.sh`, and `cargo build -p ti4-server --bin server`.
@@ -208,6 +209,30 @@ function contract(start: () => Promise<Side>) {
     game.transport.submitPlan(nonce(refused), { destination: system, steps });
     const after = await game.until((event) => shipsIn(event.update, system).includes(ship.unit));
     expect(after.plan).toBeUndefined();
+    game.transport.close();
+  }, 60_000);
+
+  it("takes a movement back whole with one undo, and tells its steps", async () => {
+    const game = await start();
+    const { system, open, facts } = await toMovement(game);
+    const { ship, steps } = oneShip(facts);
+    game.transport.submitPlan(nonce(open), { destination: system, steps });
+    const moved = await game.until(
+      (event) => !!choiceOf(event) && shipsIn(event.update, system).includes(ship.unit),
+    );
+    expect(moved.canUndo).toBe(true);
+    game.transport.undo();
+    const back = await game.until((event) => !!event.undone);
+    // The movement is open again with nothing moved, and its steps are the ones that were sent
+    // (the game does not ask to close a hold that closed itself).
+    expect(subtype(back)).toBe("movement_step");
+    expect((back.update.tactical as MovementFacts).moved).toBe(0);
+    expect(shipsIn(back.update, system)).toEqual(shipsIn(open.update, system));
+    expect(back.undone![0]).toEqual(steps[0]);
+    expect(back.undone!.at(-1)).toEqual({ kind: "done_moving" });
+    expect(steps).toEqual(expect.arrayContaining(back.undone!));
+    // The activation is the seat's own too, and nothing was shown since: it can go back.
+    expect(back.canUndo).toBe(true);
     game.transport.close();
   }, 60_000);
 

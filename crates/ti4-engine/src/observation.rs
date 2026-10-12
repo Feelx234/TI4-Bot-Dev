@@ -35,7 +35,17 @@ impl ExecutionObservation {
 
     #[must_use]
     pub fn activity(&self) -> ObservedActivity {
-        let bits = self.0.load(Ordering::SeqCst);
+        Self::read(self.0.load(Ordering::SeqCst))
+    }
+
+    /// The activity since the last call, for a caller that asks after each decision of a game
+    /// that goes on (the undo of a seat on the server). A latch that is taken is clear again.
+    #[must_use]
+    pub fn take(&self) -> ObservedActivity {
+        Self::read(self.0.swap(0, Ordering::SeqCst))
+    }
+
+    const fn read(bits: u8) -> ObservedActivity {
         ObservedActivity {
             randomness: bits & 1 != 0,
             hidden_information: bits & 2 != 0,

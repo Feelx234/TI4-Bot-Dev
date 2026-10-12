@@ -46,7 +46,8 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
   await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(8);
   await expect(heading(page)).toHaveText("Choose a strategy card");
-  // The tools of a local game are not there, and the header leads back to it.
+  // The tools of a local game are not there, and the header leads back to it. The seat has
+  // no decision of its own to take back yet.
   await expect(page.getByRole("button", { name: "Dev", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Local game" })).toBeVisible();
@@ -99,6 +100,18 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
   await expect(heading(page)).not.toHaveText("Movement");
   await page.screenshot({ path: "shots/online/after-draft.png", animations: "disabled" });
+
+  // The seat may take its movement back: nothing was rolled or shown since, and no other seat
+  // decided. One undo takes it back whole, and it is staged again as it was sent.
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(heading(page)).toHaveText("Movement");
+  await expect(status(page)).toHaveText("Your decision");
+  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await page.screenshot({ path: "shots/online/after-undo.png", animations: "disabled" });
+  await expect(send(page)).toHaveText(/Move fleet/);
+  await send(page).click();
+  await expect(heading(page)).not.toHaveText("Movement");
+  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
 
   // The sheets have the facts that the server sends, as in a local game.
   await page.getByRole("button", { name: "Cards", exact: true }).click();

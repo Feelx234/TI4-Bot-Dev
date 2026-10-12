@@ -404,3 +404,63 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
         assert_eq!(message.game_version(), None);
     }
 }
+
+#[test]
+fn the_undo_of_a_seat_round_trips_and_is_absent_from_a_message_without_it() {
+    use ti4_server::protocol::server::{ActionRejectedMsg, HistoryStatus};
+    use ti4_server::protocol::status::UndoBarrier;
+
+    let json = serde_json::json!({
+        "type": "undo",
+        "protocol_version": PROTOCOL_VERSION,
+        "game_id": "game_abc",
+        "expected_version": 7,
+    })
+    .to_string();
+    let undo = ClientMessage::Undo {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: "game_abc".to_owned(),
+        expected_version: 7,
+    };
+    assert_eq!(parse_client_message(&json).unwrap(), undo);
+    assert!(undo.validate_bounds().is_ok());
+
+    // A refusal names the barrier in the words of the plan.
+    for (barrier, word) in [
+        (UndoBarrier::Revealed, "revealed"),
+        (UndoBarrier::Random, "random"),
+        (UndoBarrier::OtherSeat, "other_seat"),
+    ] {
+        let message = ServerMessage::ActionRejected(ActionRejectedMsg {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: "game_abc".to_owned(),
+            game_version: 7,
+            reason: RejectionReason::UndoBarrier { barrier },
+        });
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["reason"]["reason"], "undo_barrier");
+        assert_eq!(json["reason"]["barrier"], word);
+        assert_eq!(parse_server_message(&json.to_string()).unwrap(), message);
+    }
+
+    // `can_undo` is a field of the history status only when it is true: a message of a game
+    // without it is as before.
+    let status = |can_undo| HistoryStatus {
+        cursor: 3,
+        redo_count: 0,
+        generation: 0,
+        can_undo,
+    };
+    let without = serde_json::to_value(status(false)).unwrap();
+    assert!(without.get("can_undo").is_none());
+    assert_eq!(
+        serde_json::from_value::<HistoryStatus>(without).unwrap(),
+        status(false)
+    );
+    let with = serde_json::to_value(status(true)).unwrap();
+    assert_eq!(with["can_undo"], true);
+    assert_eq!(
+        serde_json::from_value::<HistoryStatus>(with).unwrap(),
+        status(true)
+    );
+}

@@ -79,4 +79,19 @@ pub enum RejectionReason {
     UnknownOption { option_id: String },
     /// Engine validation refused the choice.
     ValidationFailed { message: String },
+    /// The seat may not take back its last decision: it lies behind this barrier.
+    UndoBarrier { barrier: UndoBarrier },
+}
+
+/// What a seat cannot undo past: after it, the seat knows something that it did not know
+/// when it decided, or the game is no longer its own to take back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UndoBarrier {
+    /// Something hidden was shown: a card that was drawn, an exploration, an objective.
+    Revealed,
+    /// A die was rolled or a deck was shuffled.
+    Random,
+    /// Another seat decided.
+    OtherSeat,
 }

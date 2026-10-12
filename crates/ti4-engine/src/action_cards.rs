@@ -301,6 +301,8 @@ pub fn show_action_card(
     else {
         return Ok(None);
     };
+    // A seat is shown a card of another seat: what follows is not known before.
+    context.rng.observe_hidden_information();
     Ok(crate::factions::hooks_cards::reveal(
         context.state,
         viewer,
@@ -396,6 +398,8 @@ pub fn look_at_hand_and_take(
     if reveal_hand(context.state, taker, owner, RevealScope::Choice, source) == 0 {
         return Ok(None);
     }
+    // The taker sees the hand of another seat: what follows is not known before.
+    context.rng.observe_hidden_information();
     let taken = take_from_revealed_hand(context, taker, owner, source, optional);
     clear_reveal_between(context.state, source, taker, owner);
     let taken = taken?;
