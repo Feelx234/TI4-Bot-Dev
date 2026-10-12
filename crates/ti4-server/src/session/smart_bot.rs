@@ -908,10 +908,11 @@ fn pick_wait_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> 
         .map(|(i, _)| i)
 }
 
-/// Systems the waiting move may go to: no planets (nothing anyone would take there), no
-/// hostile ships, not home, and reachable by a home warship without capacity; each with the
-/// number of neighbouring systems holding another seat's units (fewer is better: the warships
-/// stay out of the others' way).
+/// Systems the waiting move may go to: no hostile ships, not home, reachable by a home warship
+/// without capacity, and either without planets or with no other seat's units next to it (they
+/// would want its planets); each scored by the neighbouring systems holding another seat's units,
+/// planet systems after the planet-less ones (lower is better: the warships stay out of the
+/// others' way).
 fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
     let (Some(galaxy), Some(home)) = (seen.galaxy(), home_system(seen, me)) else {
         return Vec::new();
@@ -922,10 +923,6 @@ fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
         .into_iter()
         .map(SystemId::new)
         .filter(|system| system != &home && !tokens.contains(system))
-        .filter(|system| {
-            ti4_content::galaxy::planets_in(seen.content(), system.as_str(), seen.sources())
-                .is_empty()
-        })
         .filter(|system| !has_hostile_ships(seen, me, system))
         .filter(|system| {
             seen.movable_into(me, system)
@@ -933,20 +930,29 @@ fn wait_systems(seen: &Observed<'_>, me: &PlayerId) -> Vec<(SystemId, usize)> {
                 .any(|m| m.origin == home && m.capacity == 0 && is_ship(seen, &m.unit))
         })
         .map(|system| {
-            let crowd = galaxy
-                .adjacent(system.as_str())
+            // Other seats' ships within two moves: the warships would sit in their way.
+            let mut ring: BTreeSet<&str> = galaxy.adjacent(system.as_str());
+            for near in ring.clone() {
+                ring.extend(galaxy.adjacent(near));
+            }
+            let crowd = ring
                 .into_iter()
                 .filter(|near| {
-                    let board = seen.system(&SystemId::new(*near));
-                    board
+                    seen.system(&SystemId::new(*near))
                         .units
                         .iter()
-                        .chain(board.planet_units.values().flatten())
-                        .any(|u| &u.owner != me)
+                        .any(|u| &u.owner != me && is_ship(seen, u))
                 })
                 .count();
-            (system, crowd)
+            let planets =
+                !ti4_content::galaxy::planets_in(seen.content(), system.as_str(), seen.sources())
+                    .is_empty();
+            // A system with planets only where no other seat is near (it would want them).
+            (system, crowd + 10 * usize::from(planets), planets)
         })
+        // Never next to another seat's units: warships there would block its moves.
+        .filter(|(_, crowd, planets)| *crowd == 10 * usize::from(*planets))
+        .map(|(system, crowd, _)| (system, crowd))
         .collect()
 }
 
