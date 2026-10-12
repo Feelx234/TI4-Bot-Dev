@@ -93,9 +93,34 @@ fn placeholder_players(count: usize) -> Vec<PlayerId> {
 /// # Errors
 /// A message when the template is unknown, seats another number of players, or does not build.
 pub fn preview(choice: &MapChoice, player_count: usize, seed: u64) -> Result<MapPreview, String> {
+    let fixed: Vec<ti4_model::id::FactionId> = seating::IN_SCOPE_FACTIONS
+        .iter()
+        .cycle()
+        .take(player_count)
+        .map(|f| ti4_model::id::FactionId::new(*f))
+        .collect();
+    preview_seated(choice, seed, &fixed)
+}
+
+/// [`preview`] with the faction of every seat given (one per seat, in seat order): the board a
+/// lobby's table gets once its bots' chosen factions are seated.
+///
+/// # Errors
+/// As [`preview`].
+pub fn preview_seated(
+    choice: &MapChoice,
+    seed: u64,
+    factions: &[ti4_model::id::FactionId],
+) -> Result<MapPreview, String> {
     let content = ContentStore::embedded();
+    let player_count = factions.len();
     let players = placeholder_players(player_count);
-    let (_, galaxy) = crate::map::create_game_with_template(
+    let assignments: std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId> = players
+        .iter()
+        .cloned()
+        .zip(factions.iter().cloned())
+        .collect();
+    let (_, galaxy) = crate::map::create_game_with_template_seated(
         content,
         &players,
         seed,
@@ -103,21 +128,22 @@ pub fn preview(choice: &MapChoice, player_count: usize, seed: u64) -> Result<Map
             MapChoice::Template { alias } => Some(alias.as_str()),
             MapChoice::Random => None,
         },
+        &assignments,
+        None,
     )?;
     let tiles = crate::map::build_board_tiles(content, &galaxy);
-    let seats = seating::IN_SCOPE_FACTIONS
+    let seats = factions
         .iter()
-        .cycle()
-        .take(player_count)
-        .zip(super::placeholder_homes(content, player_count))
         .enumerate()
-        .map(|(index, (faction, home))| SeatPreview {
+        .map(|(index, faction)| SeatPreview {
             seat: index + 1,
-            faction: (*faction).to_owned(),
-            faction_name: ti4_content::factions::get(content, faction)
+            faction: faction.as_str().to_owned(),
+            faction_name: ti4_content::factions::get(content, faction.as_str())
                 .and_then(|f| f.name().map(str::to_owned))
-                .unwrap_or_else(|| (*faction).to_owned()),
-            home_system_id: home.as_str().to_owned(),
+                .unwrap_or_else(|| faction.as_str().to_owned()),
+            home_system_id: ti4_content::factions::get(content, faction.as_str())
+                .and_then(|f| f.home_system().map(str::to_owned))
+                .unwrap_or_default(),
         })
         .collect();
     Ok(MapPreview {

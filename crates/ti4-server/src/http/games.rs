@@ -492,6 +492,18 @@ pub struct AddBotsRequest {
     pub count: Option<usize>,
     #[serde(default)]
     pub fill: bool,
+    /// The faction for the one bot being added (`None`: the seed deals it at start).
+    #[serde(default)]
+    pub faction: Option<String>,
+}
+
+/// Body of `POST /api/games/{game_id}/lobby/bot-faction`: `faction: null` goes back to random.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetBotFactionRequest {
+    pub player_id: PlayerId,
+    #[serde(default)]
+    pub faction: Option<String>,
 }
 
 /// Handler for `POST /api/games/{game_id}/lobby/bots`.
@@ -524,7 +536,14 @@ pub async fn add_bots_to_lobby(
     };
     Ok(Json(
         registry
-            .add_in_process_bots(&game_id, token, &payload.kind, payload.nickname, count)
+            .add_in_process_bots(
+                &game_id,
+                token,
+                &payload.kind,
+                payload.nickname,
+                count,
+                payload.faction.as_deref(),
+            )
             .map_err(lobby_error)?,
     ))
 }
@@ -575,6 +594,26 @@ pub async fn remove_bot_from_lobby(
     ))
 }
 
+/// Handler for `POST /api/games/{game_id}/lobby/bot-faction`.
+pub async fn set_lobby_bot_faction(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<SetBotFactionRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        registry
+            .set_bot_faction(
+                &game_id,
+                token,
+                &payload.player_id,
+                payload.faction.as_deref(),
+            )
+            .map_err(lobby_error)?,
+    ))
+}
+
 fn player_session(headers: &HeaderMap) -> Result<Option<&str>, (StatusCode, String)> {
     headers
         .get("x-ti4-player-session")
@@ -594,6 +633,8 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
     let message = error.message();
     let status = match error {
         LobbyError::NotFound => StatusCode::NOT_FOUND,
+        LobbyError::FactionTaken(_) => StatusCode::CONFLICT,
+        LobbyError::InvalidFaction(_) => StatusCode::BAD_REQUEST,
         LobbyError::InvalidCapability
         | LobbyError::HumanSeatRequired
         | LobbyError::HostRequired => StatusCode::FORBIDDEN,

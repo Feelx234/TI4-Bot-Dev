@@ -526,6 +526,9 @@ pub struct PlayerLobbyView {
     pub strategy_card_set: String,
     /// Who opens as speaker: `random` (drawn from the seed) or `seat` (the first seat).
     pub speaker_order: String,
+    /// The factions a seat can be given (`ti4_engine::seating::IN_SCOPE_FACTIONS`): what the host's
+    /// faction picker offers. A seat that chose none is dealt one of the rest by the seed.
+    pub factions: Vec<String>,
 }
 
 /// Configuration for running bot agents on this server.
@@ -556,6 +559,9 @@ pub struct PlayerSlotView {
     /// connects like a person).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bot: Option<String>,
+    /// The faction the host chose for a bot seat; absent for "random".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub faction: Option<String>,
 }
 
 impl PlayerLobbyRecord {
@@ -578,6 +584,7 @@ impl PlayerLobbyRecord {
             host_player_id.clone(),
             PlayerLobbyMember {
                 bot: None,
+                faction: None,
                 ready: false,
                 session: session.clone(),
                 nickname: nickname.to_owned(),
@@ -606,6 +613,48 @@ impl PlayerLobbyRecord {
         };
         lobby.validate()?;
         Ok((lobby, host_player_id, session))
+    }
+
+    /// The faction each seat asked for, in slot order (`None`: any, and every open seat).
+    #[must_use]
+    pub fn seat_factions(&self) -> Vec<Option<String>> {
+        self.slots
+            .iter()
+            .map(|slot| {
+                slot.occupant
+                    .as_ref()
+                    .and_then(|id| self.players[id].faction.clone())
+            })
+            .collect()
+    }
+
+    /// Checks that `faction` can be seated for `except` (the seat being set, if any): it must be
+    /// in the pool and no other seat may hold it.
+    ///
+    /// # Errors
+    /// [`LobbyError::InvalidFaction`] or [`LobbyError::FactionTaken`], with a message for the host.
+    pub fn check_faction_free(
+        &self,
+        faction: &str,
+        except: Option<&PlayerId>,
+    ) -> Result<(), LobbyError> {
+        if !ti4_engine::seating::IN_SCOPE_FACTIONS.contains(&faction) {
+            return Err(LobbyError::InvalidFaction(format!(
+                "Faction '{faction}' is not available: choose one of {}",
+                ti4_engine::seating::IN_SCOPE_FACTIONS.join(", ")
+            )));
+        }
+        if let Some((_, holder)) = self
+            .players
+            .iter()
+            .find(|(id, member)| Some(*id) != except && member.faction.as_deref() == Some(faction))
+        {
+            return Err(LobbyError::FactionTaken(format!(
+                "Faction '{faction}' is already taken by {}",
+                holder.nickname
+            )));
+        }
+        Ok(())
     }
 
     /// Only this explicit projection is suitable for public HTTP/WS output.
@@ -640,6 +689,10 @@ impl PlayerLobbyRecord {
                         .occupant
                         .as_ref()
                         .and_then(|id| self.players[id].bot.clone()),
+                    faction: slot
+                        .occupant
+                        .as_ref()
+                        .and_then(|id| self.players[id].faction.clone()),
                 })
                 .collect(),
             lobby_version: self.lobby_version,
@@ -658,6 +711,10 @@ impl PlayerLobbyRecord {
             speaker_order: crate::map::SpeakerOrder::from_stored(self.speaker_order.as_deref())
                 .as_str()
                 .to_owned(),
+            factions: ti4_engine::seating::IN_SCOPE_FACTIONS
+                .iter()
+                .map(|faction| (*faction).to_owned())
+                .collect(),
         }
     }
 }
@@ -761,6 +818,10 @@ pub enum LobbyError {
     InvalidPlayerId,
     InvalidSlotOrder,
     InvalidNickname,
+    /// A faction the lobby cannot seat (unknown, outside the pool, or asked for a person's seat).
+    InvalidFaction(String),
+    /// A faction another seat already holds; the text names the faction and the seat.
+    FactionTaken(String),
     /// A map choice the lobby cannot use (unknown, wrong size, or does not build).
     InvalidMap(String),
     Map(String),
@@ -783,6 +844,7 @@ impl LobbyError {
             Self::InvalidPlayerId => "Invalid player ID".to_owned(),
             Self::InvalidSlotOrder => "Slot order must be a complete permutation".to_owned(),
             Self::InvalidNickname => "Nickname must be trimmed, nonempty Unicode text of at most 64 UTF-8 bytes without control or formatting characters".to_owned(),
+            Self::InvalidFaction(error) | Self::FactionTaken(error) => error.clone(),
             Self::InvalidMap(error) => format!("Invalid map choice: {error}"),
             Self::Map(error) => format!("Failed to start game with map: {error}"),
             Self::Storage(error) => format!("Failed to persist lobby lifecycle: {error}"),
@@ -2391,6 +2453,7 @@ impl GameRegistry {
             player.clone(),
             PlayerLobbyMember {
                 bot: None,
+                faction: None,
                 ready: false,
                 session: session.clone(),
                 nickname: nickname.expect("new admission has nickname").to_owned(),
@@ -2712,7 +2775,7 @@ impl GameRegistry {
         &self,
         game_id: &str,
     ) -> Result<crate::maps::MapPreview, LobbyError> {
-        let (choice, count, seed) = {
+        let (choice, factions, count, seed) = {
             let state = self.state.lock().expect("registry lock");
             let lobby = state
                 .player_lobbies
@@ -2720,11 +2783,24 @@ impl GameRegistry {
                 .ok_or(LobbyError::NotFound)?;
             (
                 crate::maps::MapChoice::from_stored(lobby.map_template.as_deref()),
+                // With a start preset the preset seats the factions: show the fixed order.
+                match lobby.start_preset {
+                    Some(_) => None,
+                    None => Some(lobby.seat_factions()),
+                },
                 lobby.slots.len(),
                 lobby.seed,
             )
         };
-        crate::maps::catalog::preview(&choice, count, seed).map_err(LobbyError::Map)
+        match factions {
+            Some(chosen) => {
+                let seated =
+                    crate::map::lobby_seat_factions(&chosen, seed).map_err(LobbyError::Map)?;
+                crate::maps::catalog::preview_seated(&choice, seed, &seated)
+                    .map_err(LobbyError::Map)
+            }
+            None => crate::maps::catalog::preview(&choice, count, seed).map_err(LobbyError::Map),
+        }
     }
 
     pub fn set_player_ready(
@@ -2788,7 +2864,7 @@ impl GameRegistry {
         let content = ContentStore::embedded();
         // The drawn speaker is part of `initial_state`, which the init record stores, so replay
         // and recovery start from the same speaker without re-deriving it.
-        let (initial_state, galaxy) = crate::map::create_game_with_speaker(
+        let (initial_state, galaxy) = crate::map::create_game_with_factions(
             content,
             &players,
             lobby.seed,
@@ -2796,6 +2872,7 @@ impl GameRegistry {
             lobby.start_preset.as_deref(),
             Some(crate::card_set::resolve(lobby.strategy_card_set.as_deref())),
             crate::map::SpeakerOrder::from_stored(lobby.speaker_order.as_deref()),
+            Some(&lobby.seat_factions()),
         )
         .map_err(LobbyError::Map)?;
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
@@ -2985,7 +3062,14 @@ impl GameRegistry {
         nickname: Option<String>,
         count: Option<usize>,
     ) -> Result<PlayerLobbyView, LobbyError> {
-        self.add_in_process_bots(game_id, host_credential, RANDOM_BOT_KIND, nickname, count)
+        self.add_in_process_bots(
+            game_id,
+            host_credential,
+            RANDOM_BOT_KIND,
+            nickname,
+            count,
+            None,
+        )
     }
 
     /// [`Self::add_random_bots`] for any in-process bot kind ([`IN_PROCESS_BOT_KINDS`]): `random`
@@ -3001,6 +3085,7 @@ impl GameRegistry {
         kind: &str,
         nickname: Option<String>,
         count: Option<usize>,
+        faction: Option<&str>,
     ) -> Result<PlayerLobbyView, LobbyError> {
         if !IN_PROCESS_BOT_KINDS.contains(&kind) {
             return Err(LobbyError::InvalidCapability);
@@ -3038,6 +3123,14 @@ impl GameRegistry {
         if nickname.is_some() && wanted != 1 {
             return Err(LobbyError::InvalidNickname);
         }
+        if let Some(faction) = faction {
+            if wanted != 1 {
+                return Err(LobbyError::InvalidFaction(
+                    "A faction can be chosen for one bot at a time".to_owned(),
+                ));
+            }
+            lobby.check_faction_free(faction, None)?;
+        }
         let mut updated = lobby.clone();
         let mut next_number = 1;
         for &slot in open.iter().take(wanted) {
@@ -3067,6 +3160,7 @@ impl GameRegistry {
                 player,
                 PlayerLobbyMember {
                     bot: Some(kind.to_owned()),
+                    faction: faction.map(str::to_owned),
                     ready: true,
                     session,
                     nickname: name,
@@ -3076,6 +3170,57 @@ impl GameRegistry {
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;
         *lobby = updated;
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Host-only, lobby phase only: choose (`Some`) or clear (`None`, back to random) the faction of
+    /// a bot seat. A person's seat keeps drawing its faction from the seed.
+    ///
+    /// # Errors
+    /// The usual lobby errors, [`LobbyError::InvalidFaction`] for an unknown faction or a seat that
+    /// is not a bot, and [`LobbyError::FactionTaken`] when another seat holds it.
+    pub fn set_bot_faction(
+        &self,
+        game_id: &str,
+        host_credential: &str,
+        player_id: &PlayerId,
+        faction: Option<&str>,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, host_credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let member = lobby
+            .players
+            .get(player_id)
+            .ok_or(LobbyError::InvalidPlayerId)?;
+        if member.bot.is_none() {
+            return Err(LobbyError::InvalidFaction(
+                "Only a bot seat can be given a faction".to_owned(),
+            ));
+        }
+        if let Some(faction) = faction {
+            lobby.check_faction_free(faction, Some(player_id))?;
+        }
+        if member.faction.as_deref() != faction {
+            let mut updated = lobby.clone();
+            updated
+                .players
+                .get_mut(player_id)
+                .expect("checked above")
+                .faction = faction.map(str::to_owned);
+            updated.lobby_version += 1;
+            updated.map_revision += 1;
+            self.save_player_lobby(&updated)?;
+            *lobby = updated;
+        }
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 

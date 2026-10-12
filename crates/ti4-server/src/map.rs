@@ -540,10 +540,63 @@ pub fn create_game_with_speaker(
     card_set: Option<&str>,
     speaker: SpeakerOrder,
 ) -> Result<(GameState, Galaxy), String> {
+    create_game_with_factions(
+        content, player_ids, seed, template, preset, card_set, speaker, None,
+    )
+}
+
+/// The factions a lobby table plays: `chosen[i]` is what seat `i` asked for, and the undecided seats
+/// get distinct factions from the rest of the pool, dealt by `seed`
+/// ([`seating::lobby_faction_draw`]). Indexed by seat, so a map preview made before anyone has an
+/// id seats the same factions the game will.
+///
+/// # Errors
+/// A message for an unknown or repeated choice.
+pub fn lobby_seat_factions(
+    chosen: &[Option<String>],
+    seed: u64,
+) -> Result<Vec<ti4_model::id::FactionId>, String> {
+    let chosen: Vec<Option<&str>> = chosen.iter().map(Option::as_deref).collect();
+    seating::lobby_faction_draw(&chosen, seed).map_err(|e| e.to_string())
+}
+
+/// As [`create_game_with_speaker`], seating a lobby's table: with `lobby_factions` (one entry per
+/// seat, `None` for "any") and no start preset the factions come from [`lobby_seat_factions`].
+/// A start preset seats its own factions, so the lobby's choices do not apply to it. Without
+/// `lobby_factions` the fixed in-scope order seats (what fixtures and tests pin their games to).
+///
+/// # Errors
+/// As [`create_game_with_speaker`], or an unknown or repeated faction choice.
+#[allow(clippy::too_many_arguments)]
+pub fn create_game_with_factions(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: Option<&str>,
+    card_set: Option<&str>,
+    speaker: SpeakerOrder,
+    lobby_factions: Option<&[Option<String>]>,
+) -> Result<(GameState, Galaxy), String> {
     let rotation = preset.map_or(0, |name| crate::preset::rotation(name, seed));
+    let lobby_roster = match (preset, lobby_factions) {
+        (None, Some(chosen)) => {
+            if chosen.len() != player_ids.len() {
+                return Err("one faction entry per seat is required".to_owned());
+            }
+            Some(
+                player_ids
+                    .iter()
+                    .cloned()
+                    .zip(lobby_seat_factions(chosen, seed)?)
+                    .collect::<std::collections::BTreeMap<_, _>>(),
+            )
+        }
+        _ => None,
+    };
     // A preset that seats factions outside the in-scope six names them itself (`+fac`, `world`).
-    let mut assignments = preset
-        .and_then(|name| crate::preset::roster(name, seed, player_ids))
+    let mut assignments = lobby_roster
+        .or_else(|| preset.and_then(|name| crate::preset::roster(name, seed, player_ids)))
         .unwrap_or_else(|| seating::seat_in_scope_rotated(player_ids, rotation));
     if let Some(name) = preset {
         crate::preset::seat_roster(name, seed, player_ids, &mut assignments);

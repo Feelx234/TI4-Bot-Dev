@@ -159,6 +159,10 @@ pub struct PlayerLobbyMember {
     /// (authentication skips it) and the game answers it itself. Absent for people.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot: Option<String>,
+    /// The faction the host chose for a bot seat (`ti4_engine::seating::IN_SCOPE_FACTIONS`); absent
+    /// for "random", which the seed deals at start. Never set on a person's seat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faction: Option<String>,
 }
 
 impl std::fmt::Debug for PlayerLobbyMember {
@@ -219,6 +223,7 @@ impl PlayerLobbyRecord {
         let mut slots = std::collections::BTreeSet::new();
         let mut occupants = std::collections::BTreeSet::new();
         let mut credentials = std::collections::BTreeSet::new();
+        let mut factions = std::collections::BTreeSet::new();
         for slot in &self.slots {
             if slot.slot_id.0.len() > 32
                 || slot.slot_id.0.is_empty()
@@ -248,6 +253,13 @@ impl PlayerLobbyRecord {
             validate_nickname(&player.nickname)?;
             if !credentials.insert(player.session.as_str()) {
                 return Err(StorageError::InvalidPlayerRecord("duplicate session"));
+            }
+            if let Some(faction) = &player.faction
+                && (player.bot.is_none()
+                    || !ti4_engine::seating::IN_SCOPE_FACTIONS.contains(&faction.as_str())
+                    || !factions.insert(faction.as_str()))
+            {
+                return Err(StorageError::InvalidPlayerRecord("chosen faction"));
             }
         }
         Ok(())
@@ -1472,6 +1484,7 @@ mod player_record_tests {
                         id,
                         PlayerLobbyMember {
                             bot: None,
+                            faction: None,
                             ready: false,
                             session: PlayerSession::generate(),
                             nickname: "Test".into(),
@@ -1558,6 +1571,7 @@ mod player_record_tests {
             PlayerId::new(hex_random_256("player_")),
             PlayerLobbyMember {
                 bot: None,
+                faction: None,
                 ready: false,
                 session: lobby.players[&id].session.clone(),
                 nickname: "Test".into(),

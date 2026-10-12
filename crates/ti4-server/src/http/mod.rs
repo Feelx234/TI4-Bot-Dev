@@ -102,6 +102,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::add_bot_to_lobby),
         )
         .route(
+            "/api/games/{game_id}/lobby/bot-faction",
+            axum::routing::post(games::set_lobby_bot_faction),
+        )
+        .route(
             "/api/games/{game_id}/lobby/remove-bot",
             axum::routing::post(games::remove_bot_from_lobby),
         )
