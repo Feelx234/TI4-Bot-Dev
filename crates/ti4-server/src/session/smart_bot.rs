@@ -689,7 +689,7 @@ fn home_build_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
     };
     let (transports, ground) = free_transports_and_ground(seen, me);
     // Two infantry (one resource) only when the new transport would have no troop of its own.
-    let troops = if ground > transports { 0 } else { 1 };
+    let troops = i64::from(ground <= transports);
     !seen.systems_with_token(me).contains(&home)
         && transports < 3
         && home_fleet_room(seen, me, &home) > 0
@@ -1736,30 +1736,16 @@ fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
     (idle, lift)
 }
 
-/// Production: the most useful affordable unit per resource (per production slot when resources
-/// are plentiful), within fleet supply and capacity. Ground forces only while fewer are waiting
-/// at its docks than its ships can carry; when nothing useful is left, stop.
-fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    let (ships, ground) = own_counts(seen, me);
-    let enough_ground = enough_ground(seen, me);
-    let carriers = seen
-        .board()
-        .values()
-        .flat_map(|s| s.units.iter())
-        .filter(|u| &u.owner == me)
-        .filter(|u| unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.capacity() >= 4))
-        .count();
-    let mut scored = Vec::new();
-    // Ground forces that only fill the production limit, cheapest first.
-    let mut filler: Vec<(usize, f64)> = Vec::new();
-    let (idle, lift) = idle_ground_and_lift(seen, me);
-    let ground_glut = idle >= usize::try_from(2 * lift.max(MIN_IDLE_GROUND)).unwrap_or(0);
-    // The opening: transports and troops free to move this round (outside activated systems).
-    // Troops first while there are fewer than two per transport, then another transport while
-    // there are fewer than three.
-    let (free_transports, free_ground) = free_transports_and_ground(seen, me);
-    let need_ground = free_ground < 2 * free_transports.max(1);
-    let need_transport = free_transports < 3 && !need_ground;
+/// Round-1 production while short of transports (see [`pick_produce`]): declined where a command
+/// token keeps the new units this round while a home build is still to come, otherwise a
+/// transport whenever its troop is there or affordable with it, then troops for every transport.
+fn opening_production(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    free_transports: i64,
+    free_ground: i64,
+) -> Option<usize> {
     // Round 1, short of transports: nothing where its command token keeps the new units this
     // round (the Arborec's troops produce where they land) while a home build is still to come.
     let producing_in = choice
@@ -1782,7 +1768,7 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
                 o.kind == "produce"
                     && payload_str(o, "unit")
                         .and_then(|id| unit_type(seen, id))
-                        .is_some_and(|kind| want(kind))
+                        .is_some_and(want)
                     && payload_f64(o, "fleet_excess_after").unwrap_or(0.0) <= 0.0
                     && payload_f64(o, "owed").unwrap_or(0.0)
                         <= payload_f64(o, "available_resources").unwrap_or(f64::MAX)
@@ -1807,6 +1793,36 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         if troop_short && let Some(index) = troops {
             return Some(index);
         }
+    }
+    None
+}
+
+/// Production: the most useful affordable unit per resource (per production slot when resources
+/// are plentiful), within fleet supply and capacity. Ground forces only while fewer are waiting
+/// at its docks than its ships can carry; when nothing useful is left, stop.
+fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let (ships, ground) = own_counts(seen, me);
+    let enough_ground = enough_ground(seen, me);
+    let carriers = seen
+        .board()
+        .values()
+        .flat_map(|s| s.units.iter())
+        .filter(|u| &u.owner == me)
+        .filter(|u| unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.capacity() >= 4))
+        .count();
+    let mut scored = Vec::new();
+    // Ground forces that only fill the production limit, cheapest first.
+    let mut filler: Vec<(usize, f64)> = Vec::new();
+    let (idle, lift) = idle_ground_and_lift(seen, me);
+    let ground_glut = idle >= usize::try_from(2 * lift.max(MIN_IDLE_GROUND)).unwrap_or(0);
+    // The opening: transports and troops free to move this round (outside activated systems).
+    // Troops first while there are fewer than two per transport, then another transport while
+    // there are fewer than three.
+    let (free_transports, free_ground) = free_transports_and_ground(seen, me);
+    let need_ground = free_ground < 2 * free_transports.max(1);
+    let need_transport = free_transports < 3 && !need_ground;
+    if let Some(index) = opening_production(choice, seen, me, free_transports, free_ground) {
+        return Some(index);
     }
     for (index, option) in choice.options.iter().enumerate() {
         if option.kind != "produce" {
