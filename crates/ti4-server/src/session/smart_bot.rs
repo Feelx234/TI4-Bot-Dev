@@ -726,6 +726,17 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     Some((missing, CARRIER_COST * missing + (troops + 1) / 2))
 }
 
+/// Whether the seat's ground forces have Production (the Arborec): a transport can be built where
+/// they land.
+fn ground_produces(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    seen.board()
+        .values()
+        .flat_map(|s| s.units.iter().chain(s.planet_units.values().flatten()))
+        .filter(|u| &u.owner == me)
+        .filter_map(|u| unit_type(seen, u.type_id.as_str()))
+        .any(|t| t.is_ground_force() && t.has_production())
+}
+
 /// Whether the transport plan needs two or more new transports: a single transport, whose
 /// Warfare route (a free activation, then a tactical one) reaches two systems at most.
 fn short_of_transports(seen: &Observed<'_>, me: &PlayerId) -> bool {
@@ -1024,10 +1035,40 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     {
         return play("Trade");
     }
-    // Warfare is the home build but cannot pay for the transports yet, and Diplomacy's secondary
-    // (readying the planets just taken) is still to come: another card first, to wait for it.
+    if short_of_transports(seen, me)
+        && let Some((_, cost)) = transport_plan(seen, me)
+        && spare_resources(seen, me) < cost
+        && (ready_card(seen, me, "Warfare").is_some()
+            || ready_card(seen, me, "Construction").is_some())
+    {
+        // Diplomacy of its own readies the planets just taken: before the build.
+        if best_two_exhausted(seen, me) > 0
+            && let Some(index) = play("Diplomacy")
+        {
+            return Some(index);
+        }
+        // Diplomacy (its own or another seat's) or Trade still to come: the loaded transport
+        // leaves first, and the build waits for their resources.
+        let more = ready_card(seen, me, "Diplomacy").is_some()
+            || ready_card(seen, me, "Trade").is_some()
+            || secondary_to_come(seen, me, "Diplomacy");
+        let eager_warfare = ground_produces(seen, me) && ready_card(seen, me, "Warfare").is_some();
+        if more
+            && !eager_warfare
+            && seen.seat(me).is_some_and(|seat| seat.tactic_tokens > 1)
+            && home_system(seen, me).is_some_and(|home| {
+                let (waiting, lift) = waiting_and_lift(seen, me, &home);
+                lift > 0 && waiting > 0 && !seen.systems_with_token(me).contains(&home)
+            })
+        {
+            return choice.options.iter().position(|o| o.id == "tactical");
+        }
+    }
+    // The home build cannot pay for the transports yet, and Diplomacy's secondary (readying the
+    // planets just taken) is still to come: another card first, to wait for it.
     if let Some((_, cost)) = transport_plan(seen, me)
-        && ready_card(seen, me, "Warfare").is_some()
+        && (ready_card(seen, me, "Warfare").is_some()
+            || ready_card(seen, me, "Construction").is_some())
         && spare_resources(seen, me) < cost
         && secondary_to_come(seen, me, "Diplomacy")
         && exhausted_resources(seen, me) > 0
@@ -1159,7 +1200,8 @@ fn pick_action(
     // action places no token, so the carrier that lands there can move on again this round.
     // Short of transports, Warfare is the home build: the transports leave by tactical actions
     // first, so the build has fleet supply and the free production comes after.
-    let warfare_builds = short_of_transports(seen, me) && !out_of_tokens;
+    // (Not when its ground forces produce: the Arborec build the transport where they land.)
+    let warfare_builds = short_of_transports(seen, me) && !out_of_tokens && !ground_produces(seen, me);
     if expanding(seen)
         && !warfare_builds
         && (worth >= EAGER_WORTH || (out_of_tokens && worth >= ACTIVATION_THRESHOLD))
@@ -1710,6 +1752,20 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
     let (free_transports, free_ground) = free_transports_and_ground(seen, me);
     let need_ground = free_ground < 2 * free_transports.max(1);
     let need_transport = free_transports < 3 && !need_ground;
+    // Round 1, short of transports: nothing where its command token keeps the new units this
+    // round (the Arborec's troops produce where they land) while a home build is still to come.
+    let producing_in = choice
+        .options
+        .iter()
+        .find_map(|o| payload_str(o, "system"))
+        .map(SystemId::new);
+    if seen.round() <= 1
+        && transport_plan(seen, me).is_some()
+        && home_builder_ahead(seen, me)
+        && producing_in.is_some_and(|system| seen.systems_with_token(me).contains(&system))
+    {
+        return choice.options.iter().position(ChoiceOption::is_decline);
+    }
     // Round 1, short of transports: a transport whenever its troop is there or affordable with
     // it, then troops for every transport.
     if seen.round() <= 1 && expanding(seen) && free_transports < 3 {
