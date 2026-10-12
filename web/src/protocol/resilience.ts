@@ -24,6 +24,8 @@ export const UNREACHABLE_MESSAGE =
 export const GONE_MESSAGE =
   "This game was not found on the server. It may have been removed, or the server was reset.";
 
+export const TERMINATED_MESSAGE = "This game was ended by its host.";
+
 /** `fetch` rejected before any HTTP answer: offline, tunnel down, DNS, connection reset, CORS. */
 export function isNetworkError(error: unknown): boolean {
   if (error instanceof ServerUnreachableError) return true;

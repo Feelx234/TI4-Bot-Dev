@@ -3,6 +3,7 @@ import {
   describeError,
   fetchWithRetry,
   GONE_MESSAGE,
+  TERMINATED_MESSAGE,
   isNetworkError,
   onResume,
   type ResumeEvent,
@@ -1244,6 +1245,11 @@ export class GameSessionClient {
         this.socket = null;
         this.rejectSubmission("Submission disconnected before confirmation");
         this.settlePreviews(new Error("Disconnected"));
+        if (event?.code === 4002) {
+          // The host ended the game on purpose; do not reconnect.
+          this.giveUp("gone", TERMINATED_MESSAGE);
+          return;
+        }
         // The last known game stays on screen (and with it every local draft) while reconnecting;
         // the reconnect brings a fresh snapshot, and nothing can be sent without an open socket.
         this.setState({ ...this.state, status: "disconnected", reconnecting: true, reactionIntent: null });
