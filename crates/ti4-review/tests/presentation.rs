@@ -362,6 +362,7 @@ fn started_session() -> ReviewSession {
         temperature: 0.5,
         diplomacy: false,
         lineup: None,
+        rule_seats: Vec::new(),
     };
     let review = LiveReview::start(&config).expect("the committed example inputs start a review");
     let session = review.session;
@@ -779,6 +780,7 @@ fn combat_dice_reach_the_frames_with_their_roller() {
         temperature: 0.5,
         diplomacy: false,
         lineup: None,
+        rule_seats: Vec::new(),
     };
     let mut review = LiveReview::start(&config).expect("the example table starts");
     let content = ContentStore::embedded();
@@ -903,6 +905,7 @@ fn a_rift_die_says_whether_the_ship_survived() {
         temperature: 0.5,
         diplomacy: false,
         lineup: None,
+        rule_seats: Vec::new(),
     };
     let review = LiveReview::start(&config).expect("the example table starts");
     let frame = review.session.frames.last().expect("a first frame");
@@ -937,6 +940,7 @@ fn the_agenda_under_vote_is_found_and_shown() {
         temperature: 0.5,
         diplomacy: false,
         lineup: None,
+        rule_seats: Vec::new(),
     };
     let review = LiveReview::start(&config).expect("the example table starts");
     let base = review.session.frames.last().expect("a first frame").clone();
