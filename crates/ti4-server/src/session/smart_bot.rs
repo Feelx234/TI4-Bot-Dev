@@ -538,9 +538,8 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     if !contested && has_own_production(seen, me, system) {
         // A command token only to build is worth it with plenty to spend; otherwise Warfare's
         // secondary or Construction builds without one.
-        let build = spare_resources(seen, me)
-            >= PLENTY_RESOURCES
-            && wants_to_build(seen, me, system);
+        let build =
+            spare_resources(seen, me) >= PLENTY_RESOURCES && wants_to_build(seen, me, system);
         let ferry = needs_transport(seen, me, system)
             && movable.iter().any(|m| {
                 m.capacity > 0
@@ -709,8 +708,7 @@ fn home_fleet_room(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
 /// short (at most three systems' worth) and what building them and a troop each at home costs.
 /// `None` when it has enough, or outside round 1.
 fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
-    if seen.round() > 1
-        || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
+    if seen.round() > 1 || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
     {
         return None;
     }
@@ -935,7 +933,10 @@ fn trade_survives(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, taking: &
         .players()
         .into_iter()
         .filter(|p| *p != me)
-        .filter(|p| seen.seat(p).is_some_and(|seat| seat.strategy_cards.is_empty()))
+        .filter(|p| {
+            seen.seat(p)
+                .is_some_and(|seat| seat.strategy_cards.is_empty())
+        })
         .any(|p| wants_trade(seen, p));
     let before_trade = choice
         .options
@@ -1175,10 +1176,9 @@ fn pick_action(
         .enumerate()
         .filter(|(_, o)| o.kind == "action" && o.id.starts_with("strategic"))
         .min_by_key(|(i, o)| {
-            let imperial = o
-                .id
-                .strip_prefix("strategic|")
-                .is_some_and(|card| card_is(seen, card, "Imperial"));
+            let imperial =
+                o.id.strip_prefix("strategic|")
+                    .is_some_and(|card| card_is(seen, card, "Imperial"));
             (hold_imperial && imperial, *i)
         })
         .map(|(i, _)| i);
@@ -1206,7 +1206,8 @@ fn pick_action(
     // Short of transports, Warfare is the home build: the transports leave by tactical actions
     // first, so the build has fleet supply and the free production comes after.
     // (Not when its ground forces produce: the Arborec build the transport where they land.)
-    let warfare_builds = short_of_transports(seen, me) && !out_of_tokens && !ground_produces(seen, me);
+    let warfare_builds =
+        short_of_transports(seen, me) && !out_of_tokens && !ground_produces(seen, me);
     if expanding(seen)
         && !warfare_builds
         && (worth >= EAGER_WORTH || (out_of_tokens && worth >= ACTIVATION_THRESHOLD))
@@ -1795,9 +1796,8 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         let troop_short = free_ground <= free_transports;
         #[expect(clippy::cast_precision_loss, reason = "small cost")]
         let carrier_and_troops = (CARRIER_COST + 1) as f64;
-        let transport = option_of(&|k| {
-            k.is_ship() && !k.is_fighter() && k.capacity() >= 2 && k.cost() <= 4.0
-        });
+        let transport =
+            option_of(&|k| k.is_ship() && !k.is_fighter() && k.capacity() >= 2 && k.cost() <= 4.0);
         let troops = option_of(&|k| k.is_ground_force() && k.cost() <= 1.0);
         if let Some(index) = transport
             && (!troop_short || money >= carrier_and_troops)
@@ -2140,8 +2140,7 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to ready two planets") {
         // The transport plan's home build is still to come: the planets just taken (and home)
         // are its resources.
-        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0
-        {
+        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 {
             return answer(true);
         }
         // Diplomacy: the influence back for the custodians when Mecatol Rex is in reach.
@@ -2877,6 +2876,10 @@ mod tests {
     fn the_first_draft_takes_expansion_cards_never_trade_imperial_or_politics() {
         let (mut state, hub, _, _) = board();
         assert_eq!(state.round, 1);
+        // Transports enough for the three tactic tokens: no transport plan of its own (that one
+        // takes Trade; see the next test).
+        let spare = outer(&hub, 0);
+        put(&mut state, &spare, "carrier", &me(), 3);
         let all = [
             "pok1leadership",
             "pok3politics",
@@ -2907,6 +2910,46 @@ mod tests {
         // ... unless the seat is the Hacan, who take it first.
         state.player_mut(&me()).expect("seat").faction = ti4_model::id::FactionId::new("hacan");
         assert_eq!(picked(&state, &hub, &draft(&all)), Some(3), "Hacan: Trade");
+    }
+
+    #[test]
+    fn short_of_transports_and_resources_the_draft_takes_trade_once_no_builder_is_left() {
+        let (mut state, hub, home, _) = opening_board();
+        state.phase = ti4_model::state::Phase::Strategy;
+        put(&mut state, &home, "carrier", &me(), 1);
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "infantry",
+            &me(),
+            4,
+        );
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.trade_goods = 0;
+        seat.tactic_tokens = 3;
+        let seen = observe(&state, &hub);
+        let (_, cost) = transport_plan(&seen, &me()).expect("one transport, three tokens");
+        assert!(
+            planet_resources(&seen, &me()) < cost,
+            "four resources, two carriers"
+        );
+        // Construction and Warfare gone: Trade's goods for Warfare's secondary.
+        let late = draft(&[
+            "pok1leadership",
+            "pok2diplomacy",
+            "pok5trade",
+            "pok7technology",
+        ]);
+        assert_eq!(picked(&state, &hub, &late), Some(2), "Trade");
+        // Holding Construction: Trade with it.
+        state.player_mut(&me()).expect("seat").strategy_cards =
+            vec![ti4_model::id::StrategyCardId::new("te4construction")];
+        assert_eq!(
+            picked(&state, &hub, &late),
+            Some(2),
+            "Trade beside Construction"
+        );
     }
 
     #[test]
@@ -2947,7 +2990,10 @@ mod tests {
             pick_research(&research(&["amd", "gd", "sar"]), &seen, &me()),
             Some(1)
         );
-        assert_eq!(pick_research(&research(&["amd", "sar"]), &seen, &me()), None);
+        assert_eq!(
+            pick_research(&research(&["amd", "sar"]), &seen, &me()),
+            None
+        );
     }
 
     #[test]
@@ -3016,8 +3062,22 @@ mod tests {
     #[test]
     fn the_transports_gone_a_token_free_production_builds_one_at_home() {
         let (mut state, hub, home, _) = opening_board();
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "infantry", &me(), 2);
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "spacedock", &me(), 1);
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "infantry",
+            &me(),
+            2,
+        );
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "spacedock",
+            &me(),
+            1,
+        );
         let seen = observe(&state, &hub);
         assert!(wants_home_transport(&seen, &me()));
         let free = Choice::new(
@@ -3126,8 +3186,22 @@ mod tests {
         let (mut state, hub, home, target) = opening_board();
         put(&mut state, &home, "carrier", &me(), 1);
         put(&mut state, &home, "cruiser", &me(), 2);
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "infantry", &me(), 4);
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "spacedock", &me(), 1);
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "infantry",
+            &me(),
+            4,
+        );
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "spacedock",
+            &me(),
+            1,
+        );
         let seat = state.player_mut(&me()).expect("seat");
         seat.faction = ti4_model::id::FactionId::new("mentak");
         seat.trade_goods = 0;
@@ -3145,9 +3219,7 @@ mod tests {
             "action phase",
             cards
                 .iter()
-                .map(|card| {
-                    ChoiceOption::labelled(format!("strategic|{card}"), "action", *card)
-                })
+                .map(|card| ChoiceOption::labelled(format!("strategic|{card}"), "action", *card))
                 .chain(std::iter::once(ChoiceOption::labelled(
                     "tactical", "action", "tactical",
                 )))
@@ -3160,7 +3232,10 @@ mod tests {
         let (mut state, hub, _, _) = mentak_board();
         state.phase = ti4_model::state::Phase::Strategy;
         let seen = observe(&state, &hub);
-        assert!(cruiser_plan(&seen, &me()), "two cruisers, one colour short of Cruiser II");
+        assert!(
+            cruiser_plan(&seen, &me()),
+            "two cruisers, one colour short of Cruiser II"
+        );
         assert_eq!(missing_colours(&seen, &me(), CRUISER_II), vec!['G']);
         // Holding Trade, Technology is the second pick, ahead of Warfare.
         let trade = ti4_model::id::StrategyCardId::new("pok5trade");
@@ -3184,7 +3259,11 @@ mod tests {
         seat.trade_goods = 3;
         let seen = observe(&state, &hub);
         let tech_only = action_choice(&["pok7technology"]);
-        assert_eq!(pick_action(&tech_only, &seen, &me(), &mut rng), Some(0), "Technology");
+        assert_eq!(
+            pick_action(&tech_only, &seen, &me(), &mut rng),
+            Some(0),
+            "Technology"
+        );
     }
 
     #[test]
@@ -3215,8 +3294,22 @@ mod tests {
     fn short_of_transports_trade_comes_before_the_home_build_and_the_build_is_carriers_first() {
         let (mut state, hub, home, _) = opening_board();
         put(&mut state, &home, "carrier", &me(), 1);
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "infantry", &me(), 4);
-        put_on_planet(&mut state, &home, &PlanetId::new("jord"), "spacedock", &me(), 1);
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "infantry",
+            &me(),
+            4,
+        );
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "spacedock",
+            &me(),
+            1,
+        );
         let seat = state.player_mut(&me()).expect("seat");
         seat.trade_goods = 0;
         seat.tactic_tokens = 3;
@@ -3230,7 +3323,11 @@ mod tests {
         assert!(short_of_transports(&seen, &me()));
         let mut rng = ChaCha8Rng::seed_from_u64(1);
         let cards = action_choice(&["te4construction", "pok5trade"]);
-        assert_eq!(pick_action(&cards, &seen, &me(), &mut rng), Some(1), "Trade first");
+        assert_eq!(
+            pick_action(&cards, &seen, &me(), &mut rng),
+            Some(1),
+            "Trade first"
+        );
 
         // At the build: a carrier while its troop waits at home.
         let build = |unit: &str, cost: f64| {
@@ -3321,13 +3418,15 @@ mod tests {
                 .with("owed", 2)
                 .with("kind", "resources")
         };
-        let rich = ["mehar", "wellon", "lodor", "quann", "abyz", "fria", "lazar", "sakulag"]
-            .into_iter()
-            .filter_map(|id| {
-                let record = ti4_content::galaxy::planet(ContentStore::embedded(), id, POK)?;
-                Some((id, record.resources(), record.influence()))
-            })
-            .collect::<Vec<_>>();
+        let rich = [
+            "mehar", "wellon", "lodor", "quann", "abyz", "fria", "lazar", "sakulag",
+        ]
+        .into_iter()
+        .filter_map(|id| {
+            let record = ti4_content::galaxy::planet(ContentStore::embedded(), id, POK)?;
+            Some((id, record.resources(), record.influence()))
+        })
+        .collect::<Vec<_>>();
         let (a, b) = rich
             .iter()
             .flat_map(|x| rich.iter().map(move |y| (x, y)))
@@ -3336,7 +3435,11 @@ mod tests {
         let choice = Choice::new(me(), "pay 2", vec![pay(b.0), pay(a.0)]);
         let seen = observe(&state, &hub);
         assert!(mecatol_in_reach(&seen, &me()));
-        assert_eq!(pick_pay(&choice, &seen, &me()), Some(1), "the low-influence one");
+        assert_eq!(
+            pick_pay(&choice, &seen, &me()),
+            Some(1),
+            "the low-influence one"
+        );
     }
 
     #[test]
