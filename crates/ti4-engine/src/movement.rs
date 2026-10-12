@@ -313,6 +313,10 @@ impl<'a> MovementRules<'a> {
         let Some(mover) = self.board.mover.clone() else {
             return;
         };
+        // Antimass Deflectors: the mover's ships may move into and through asteroid fields.
+        if crate::technology::has_technology_text(state, &mover, "amd") {
+            self.asteroid_fields_open = true;
+        }
         for (a, b) in hooks::linked_systems(state, content, sources, &self.galaxy, &mover) {
             self.extra_adjacency
                 .entry(a.clone())
@@ -1552,6 +1556,47 @@ mod tests {
         assert!(rules.can_enter(&asteroid));
         assert!(rules.can_reach(&near_a, 2));
         assert!(!rules.can_enter(&supernova), "supernovae are still barred");
+    }
+
+    #[test]
+    fn owning_antimass_deflectors_opens_asteroid_fields_for_the_mover() {
+        // The flag existed but nothing ever set it from the technology, so a player who owned
+        // Antimass Deflectors was still barred from asteroid fields.
+        let asteroid = a_system_where("asteroid field");
+        let hub = hub_with_centre(&asteroid);
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let mover = PlayerId::new("a");
+        let near = hub.outer[0].clone();
+        let rules = |state: &GameState| {
+            MovementRules::with_laws(
+                &hub.galaxy,
+                ContentStore::embedded(),
+                POK,
+                &hub.across(&near),
+                Board::for_player(state, ContentStore::embedded(), POK, &mover),
+                Some(state),
+            )
+        };
+        assert!(!rules(&state).can_enter(&asteroid), "without the technology");
+        state
+            .player_mut(&mover)
+            .expect("seat")
+            .technologies
+            .insert(ti4_model::TechnologyId::new("amd"));
+        let with = rules(&state);
+        assert!(with.can_enter(&asteroid), "with Antimass Deflectors");
+        assert!(with.can_reach(&near, 2), "and through it");
+        let other = PlayerId::new("b");
+        let board = Board::for_player(&state, ContentStore::embedded(), POK, &other);
+        let theirs = MovementRules::with_laws(
+            &hub.galaxy,
+            ContentStore::embedded(),
+            POK,
+            &hub.across(&near),
+            board,
+            Some(&state),
+        );
+        assert!(!theirs.can_enter(&asteroid), "only the owner's ships");
     }
 
     #[test]
