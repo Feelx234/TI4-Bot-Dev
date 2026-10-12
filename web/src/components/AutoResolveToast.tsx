@@ -6,8 +6,8 @@ import "./AutoResolveToast.css";
 
 export interface AutoResolveNotification {
   id: string;
-  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. "recap": a summary of another player's finished turn. "agenda": the result of an agenda vote, for every seat. "invasion": the result of a bombardment, Space Cannon Defense or a whole invasion. */
-  kind?: "auto-resolve" | "action" | "recap" | "invasion" | "agenda";
+  /** "auto-resolve" (default): the game took the only legal option. "action": another player acted. "recap": a summary of another player's finished turn. "agenda": the result of an agenda vote, for every seat. "invasion": the result of a bombardment, Space Cannon Defense or a whole invasion. "notice": something the viewer's own play did not do and why (Imperial scored nothing). */
+  kind?: "auto-resolve" | "action" | "recap" | "invasion" | "agenda" | "notice";
   decisionType: string;
   selectedValue: string;
   /** Auto-resolve toasts: why there was only one choice (default "the only legal option"). */
@@ -22,7 +22,7 @@ export interface AutoResolveNotification {
 }
 
 /** How long a toast stays, in ms. */
-export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000, recap: 8000, invasion: 10000, agenda: 10000 } as const;
+export const TOAST_DURATION_MS = { "auto-resolve": 3500, action: 5000, recap: 8000, invasion: 10000, agenda: 10000, notice: 12000 } as const;
 
 interface AutoResolveToastProps {
   notification: AutoResolveNotification;
@@ -64,10 +64,10 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
       style={actor ? ({ "--toast-accent": actor.color } as React.CSSProperties) : undefined}
       onClick={() => setIsDismissing(true)}
     >
-      {kind === "invasion" || kind === "agenda" ? (
+      {kind === "invasion" || kind === "agenda" || kind === "notice" ? (
         <>
           <span className="toast-recap-tag" data-testid={`toast-${kind}-tag`}>
-            {notification.tag ?? (kind === "agenda" ? "Agenda" : "Invasion")}
+            {notification.tag ?? (kind === "agenda" ? "Agenda" : kind === "notice" ? "Note" : "Invasion")}
           </span>
           <span className="toast-value toast-value--lines">{present(notification.text ?? "")}</span>
         </>

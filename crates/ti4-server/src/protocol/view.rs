@@ -258,6 +258,10 @@ pub struct TableView {
     pub scored_objectives: BTreeMap<PlayerId, BTreeSet<ObjectiveId>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub objective_progress: BTreeMap<PlayerId, BTreeMap<ObjectiveId, ObjectiveProgressView>>,
+    /// Rule 61.16: the home planets a seat does not control, for each seat that may therefore
+    /// score no public objective. Seats that may score are absent. Planet control is public.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub home_system_lost: BTreeMap<PlayerId, Vec<PlanetId>>,
     pub unclaimed_strategy_cards: Vec<StrategyCardId>,
     pub strategy_card_goods: BTreeMap<StrategyCardId, i32>,
     pub laws: BTreeMap<String, String>,

@@ -26,6 +26,7 @@ import { ValueUnit } from "./PlanetValueIcons.tsx";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
 import { NeighbourProgress } from "./NeighbourProgress.tsx";
 import { secretProgressOf } from "../presentation/secretProgress.ts";
+import { homeBlockSentence, lostHomePlanets, lostHomeText } from "../presentation/publicScoringBlock.ts";
 import "./ObjectivesModal.css";
 
 /**
@@ -69,6 +70,8 @@ export interface ObjectivesModalProps {
   isScoringMode?: boolean;
   /** Names the systems a secret's progress counts (Learn the Secrets of the Cosmos). */
   board?: BoardView | null;
+  /** Rule 61.16: seats barred from public objectives, with the home planets they do not control. */
+  homeSystemLost?: Record<string, string[]>;
 }
 
 export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
@@ -88,8 +91,12 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
   onSelectOption,
   isScoringMode = false,
   board,
+  homeSystemLost,
 }) => {
   const display = usePlayerIdentity();
+  const label = (seat: string) => display(seat).label;
+  const homeLost = (seat: string) => lostHomePlanets({ home_system_lost: homeSystemLost }, board, seat);
+  const viewerHomeLost = homeLost(viewerSeat ?? "");
   const imperial = choice ? describeImperialOutcome(choice) : null;
 
   const activeScoringMode = Boolean(
@@ -387,6 +394,19 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
                   <span className="objectives-matrix__icon-check">●</span>
                   <span>Selected</span>
                 </div>
+              ) : progress?.satisfied && !(isCurrentActor && isScoreable) && homeLost(player.id).length > 0 ? (
+                <div
+                  className="objectives-matrix__status-blocked"
+                  data-testid={`status-blocked-${objectiveId}-${player.id}`}
+                  title={`Met, but public objectives cannot be scored without ${lostHomeText(homeLost(player.id), label)} (rule 61.16)`}
+                >
+                  <span className="objectives-matrix__icon-blocked" aria-hidden="true">
+                    !
+                  </span>
+                  <span>
+                    Met ({progress.have}/{progress.threshold}) · home system lost
+                  </span>
+                </div>
               ) : progress?.satisfied || (isCurrentActor && isScoreable) ? (
                 <div
                   className="objectives-matrix__status-ready"
@@ -623,6 +643,13 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
               </Dialog.Close>
             )}
           </header>
+
+          {viewerHomeLost.length > 0 && (
+            <div className="objectives-modal__home-lost" role="note" data-testid="home-system-lost">
+              <span className="objectives-modal__outcome-tag">Home system lost</span>
+              <span>{homeBlockSentence(viewerHomeLost, label)}</span>
+            </div>
+          )}
 
           {imperial && (
             <div

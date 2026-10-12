@@ -625,6 +625,7 @@ const GameViewContainer: React.FC<{
         localNotes={localNotes}
         explorations={explorationLog}
         agendas={agendaLog}
+        table={snapshot?.view.table}
       />
       <MobileMenuSlotContext.Provider value={compactLayout ? menuSlotValue : null}>
       <GameShell
@@ -804,6 +805,7 @@ const GameViewContainer: React.FC<{
         revealedObjectives={snapshot?.view.table.revealed_objectives}
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
+        homeSystemLost={snapshot?.view.table.home_system_lost}
         onSubmitChoice={prep.preparing ? prep.prepareSubmit : submitChoice}
         prepOverlay={
           <SecondaryPrepHost prep={prep} busy={historyBusy} />
@@ -840,6 +842,7 @@ const GameViewContainer: React.FC<{
         revealedObjectives={snapshot?.view.table.revealed_objectives}
         scoredObjectives={snapshot?.view.table.scored_objectives}
         objectiveProgress={snapshot?.view.table.objective_progress}
+        homeSystemLost={snapshot?.view.table.home_system_lost}
         players={snapshot?.view.players}
         viewerSeat={userSeat}
         board={snapshot?.view.board}

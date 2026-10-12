@@ -77,3 +77,6 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Objective progress (CU-objective-progress)
 
 `CU-objective-progress` shows Push Boundaries' per-neighbor comparison (ours/theirs, blue ▲ ahead, red = tied or ▼ behind, "Ahead of N of M neighbors · need 2") for ahead-of-2, ahead-of-1 and tied tables, and Learn the Secrets of the Cosmos at 0, 1, 2 and 3 counted systems with the systems named, desktop and 390x844. `npm run screenshots -- CU` asserts the rows, standings, summaries, the system list and no horizontal scroll on the phone.
+## Imperial with nothing scoreable (CV-imperial-no-score)
+
+`CV-imperial-no-score` shows why Imperial scored nothing in game 8261fb3f: a home planet was lost (rule 61.16). The Objectives dialog gets an amber "Home system lost" banner and met objectives read "Met (6/6) · home system lost" instead of "Ready"; playing Imperial with nothing scoreable shows an "Imperial" corner notice (home planet lost, or every unscored objective's progress when none is met), desktop and 390x844. `npm run screenshots -- CV` asserts the texts, the amber accent, that a met objective with the home intact stays "Ready" and gets no notice, and no horizontal scroll on the phone.

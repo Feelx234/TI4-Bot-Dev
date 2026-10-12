@@ -723,4 +723,43 @@ describe("ObjectivesModal", () => {
       "Counting: #26 [Lodor], #25 [Quann]",
     );
   });
+
+  it("marks met objectives blocked and explains it while a home planet is lost (61.16)", () => {
+    render(
+      <ObjectivesModal
+        isOpen={true}
+        onClose={vi.fn()}
+        revealedObjectives={["unify_colonies"]}
+        objectiveProgress={{
+          p1: { unify_colonies: { have: 6, threshold: 6, satisfied: true } },
+          p2: { unify_colonies: { have: 6, threshold: 6, satisfied: true } },
+        }}
+        homeSystemLost={{ p1: ["archonren"] }}
+        board={{
+          systems: {
+            "14": {
+              system_id: "14",
+              command_tokens: [],
+              units: [],
+              planets: {
+                archonren: { planet_id: "archonren", controlled_by: "p2", exhausted: true },
+                archontau: { planet_id: "archontau", controlled_by: "p1", exhausted: false },
+              },
+            },
+          },
+        }}
+        players={mockPlayers}
+        viewerSeat="p1"
+      />,
+    );
+    expect(screen.getByTestId("home-system-lost")).toHaveTextContent(
+      /cannot score public objectives: you do not control Archon Ren \(held by .+\) in your home system/,
+    );
+    expect(screen.getByTestId("status-blocked-unify_colonies-p1")).toHaveTextContent(
+      "Met (6/6) · home system lost",
+    );
+    expect(screen.queryByTestId("status-ready-unify_colonies-p1")).toBeNull();
+    // The other seat holds its home: still ready.
+    expect(screen.getByTestId("status-ready-unify_colonies-p2")).toBeInTheDocument();
+  });
 });

@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{Planet, all_planets};
 use ti4_model::content_types::{ContentType, SourceSet};
-use ti4_model::id::{ObjectiveId, PlayerId};
+use ti4_model::id::{ObjectiveId, PlanetId, PlayerId};
 use ti4_model::state::GameState;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, validate};
@@ -1400,26 +1400,36 @@ pub fn unregistered_objectives(state: &GameState) -> Vec<ObjectiveId> {
 /// once factions are set up.
 #[must_use]
 pub fn controls_home_system(position: &Position<'_>) -> bool {
+    position.state.player(position.player).is_some()
+        && home_planets_not_controlled(position).is_empty()
+}
+
+/// The home planets whose loss bars this player from scoring public objectives (61.16).
+///
+/// Empty when nothing bars them: every home planet is theirs, the faction scores without its home
+/// (Saar Nomadic), or there is no faction home at all. Display reads this to say *why* nothing
+/// could be scored; [`controls_home_system`] is the same test as a yes/no.
+#[must_use]
+pub fn home_planets_not_controlled(position: &Position<'_>) -> Vec<PlanetId> {
     let Some(player) = position.state.player(position.player) else {
-        return false;
+        return Vec::new();
     };
     if crate::factions::hooks_strategy::scores_without_home(position.state, position.player) {
-        return true; // Saar Nomadic
+        return Vec::new(); // Saar Nomadic
     }
     // No faction record, or a faction with no listed homeworlds (the neutral placeholder),
     // means there is no home system to lose.
     let Some(faction) = ti4_content::factions::get(position.content, player.faction.as_str())
     else {
-        return true;
+        return Vec::new();
     };
-    let home_planets = faction.home_planets();
-    if home_planets.is_empty() {
-        return true;
-    }
     let controlled = position.state.controlled_planets(position.player);
-    home_planets
+    faction
+        .home_planets()
         .iter()
-        .all(|planet| controlled.iter().any(|(_, held)| held.as_str() == *planet))
+        .filter(|planet| !controlled.iter().any(|(_, held)| held.as_str() == **planet))
+        .map(|planet| PlanetId::new(*planet))
+        .collect()
 }
 
 /// What an objective scored by spending costs (61.10).

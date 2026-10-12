@@ -132,6 +132,7 @@ export interface GameShellProps {
   revealedObjectives?: readonly string[];
   scoredObjectives?: Record<string, string[]>;
   objectiveProgress?: Record<string, Record<string, ObjectiveProgressView>>;
+  homeSystemLost?: Record<string, string[]>;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -191,6 +192,7 @@ export interface ChoiceRendererDispatcherProps {
   revealedObjectives?: readonly string[];
   scoredObjectives?: Record<string, string[]>;
   objectiveProgress?: Record<string, Record<string, ObjectiveProgressView>>;
+  homeSystemLost?: Record<string, string[]>;
   productionQueue?: readonly string[];
   productionError?: string | null;
   onQueueProduction?: (units: string[]) => void;
@@ -488,6 +490,7 @@ function renderObjectiveScoring({
   revealedObjectives,
   scoredObjectives,
   objectiveProgress,
+  homeSystemLost,
   selectedOptionId,
   onSelectOption,
   boardView,
@@ -499,6 +502,7 @@ function renderObjectiveScoring({
       revealedObjectives={revealedObjectives}
       scoredObjectives={scoredObjectives}
       objectiveProgress={objectiveProgress}
+      homeSystemLost={homeSystemLost}
       players={players}
       viewerSeat={viewerSeat}
       choice={choice}
@@ -673,6 +677,7 @@ export const ChoiceRendererDispatcher: React.FC<
   revealedObjectives,
   scoredObjectives,
   objectiveProgress,
+  homeSystemLost,
   productionQueue,
   productionError,
   onQueueProduction,
@@ -890,6 +895,7 @@ export const ChoiceRendererDispatcher: React.FC<
     revealedObjectives,
     scoredObjectives,
     objectiveProgress,
+    homeSystemLost,
     productionQueue,
     productionError,
     onQueueProduction,
@@ -1025,6 +1031,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   revealedObjectives,
   scoredObjectives,
   objectiveProgress,
+  homeSystemLost,
   turn,
   prepOverlay,
   productionSubmitRef,
@@ -1466,6 +1473,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             revealedObjectives={revealedObjectives}
             scoredObjectives={scoredObjectives}
             objectiveProgress={objectiveProgress}
+            homeSystemLost={homeSystemLost}
             turn={turn}
             events={events}
             onSubmit={onSubmitChoice}

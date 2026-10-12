@@ -557,11 +557,16 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
     let galaxy_opt = placed_galaxy(map_tiles);
 
     let mut objective_progress = BTreeMap::new();
+    let mut home_system_lost = BTreeMap::new();
     for player in &state.players {
         let mut position =
             ti4_engine::objectives::Position::new(state, content, sources, &player.id);
         if let Some(ref galaxy) = galaxy_opt {
             position = position.with_galaxy(galaxy);
+        }
+        let lost = ti4_engine::objectives::home_planets_not_controlled(&position);
+        if !lost.is_empty() {
+            home_system_lost.insert(player.id.clone(), lost);
         }
         let mut player_progress = BTreeMap::new();
         for raw_alias in &state.revealed_objectives {
@@ -614,6 +619,7 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
         revealed_objectives: state.revealed_objectives.clone(),
         scored_objectives: state.scored_objectives.clone(),
         objective_progress,
+        home_system_lost,
         unclaimed_strategy_cards: state.unclaimed_strategy_cards.clone(),
         strategy_card_goods: state.strategy_card_goods.clone(),
         laws: state.laws.clone(),
@@ -928,7 +934,7 @@ pub fn project_state_update(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ti4_model::id::{FactionId, ObjectiveId, PlayerId};
+    use ti4_model::id::{FactionId, ObjectiveId, PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
 
     fn reaction_offer() -> (Choice, String) {
@@ -1096,5 +1102,40 @@ mod tests {
         assert_eq!(lead.have, 3);
         assert_eq!(lead.threshold, 3);
         assert!(lead.satisfied);
+    }
+
+    /// Game 8261fb3f: Letnev held Archon Ren when the Xxcha played Imperial. The table says so,
+    /// for every viewer, so the client can explain why nothing was scored (61.16).
+    #[test]
+    fn project_table_view_names_the_lost_home_planets() {
+        let xxcha = PlayerId::new("player_1");
+        let letnev = PlayerId::new("player_2");
+        let mut state = GameState::new(
+            &[xxcha.clone(), letnev.clone()],
+            &[],
+            BTreeMap::new(),
+            None,
+            1,
+        );
+        let mut first = Player::new(xxcha.clone());
+        first.faction = FactionId::new("xxcha");
+        let mut second = Player::new(letnev.clone());
+        second.faction = FactionId::new("letnev");
+        state.players = vec![first, second];
+        let home = state.system_mut(&SystemId::new("14"));
+        home.set_control(PlanetId::new("archontau"), xxcha.clone());
+        home.set_control(PlanetId::new("archonren"), letnev.clone());
+
+        let table = project_table_view(&state);
+        assert_eq!(
+            table.home_system_lost.get(&xxcha),
+            Some(&vec![PlanetId::new("archonren")])
+        );
+        // Letnev's own home planets are not on this board at all, so it is listed too.
+        assert!(table.home_system_lost.contains_key(&letnev));
+
+        let home = state.system_mut(&SystemId::new("14"));
+        home.set_control(PlanetId::new("archonren"), xxcha.clone());
+        assert!(!project_table_view(&state).home_system_lost.contains_key(&xxcha));
     }
 }

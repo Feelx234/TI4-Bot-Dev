@@ -349,6 +349,8 @@ export interface TableView {
   revealed_objectives: string[];
   scored_objectives: Record<string, string[]>;
   objective_progress?: Record<string, Record<string, ObjectiveProgressView>>;
+  /** Rule 61.16: per seat barred from scoring public objectives, the home planets it does not control. */
+  home_system_lost?: Record<string, string[]>;
   unclaimed_strategy_cards: string[];
   strategy_card_goods: Record<string, number>;
   laws: Record<string, string>;

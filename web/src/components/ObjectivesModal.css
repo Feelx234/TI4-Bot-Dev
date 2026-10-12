@@ -534,3 +534,35 @@
 .objectives-matrix__card-content .secret-progress {
   max-width: 420px;
 }
+
+/* Rule 61.16: a home planet is lost, so no public objective can be scored. */
+.objectives-modal__home-lost {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  border: 1px solid var(--color-warning, #f59e0b);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+/* Met, but not scoreable while the home system is lost: amber, no pulse. */
+.objectives-matrix__status-blocked {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.14);
+  border: 1px solid var(--color-warning, #f59e0b);
+  color: #fcd34d;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.objectives-matrix__icon-blocked {
+  font-weight: 800;
+}

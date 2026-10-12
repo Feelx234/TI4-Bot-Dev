@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AutoResolveNotification } from "../components/AutoResolveToast.tsx";
-import type { AutoResolvedNote, BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
+import type { AutoResolvedNote, BoardView, GameEvent, PendingChoiceDto, PlayerView, TableView } from "../protocol/types.ts";
+import { imperialNoScoreNotice, ownImperialPlay } from "../presentation/publicScoringBlock.ts";
 import {
   ActionToast,
   actionToastFromEvent,
@@ -38,6 +39,8 @@ export interface CornerToastsInput {
   explorations?: readonly ExplorationRecordDto[];
   /** The engine's public agenda log: every finished vote toasts, for every seat (voters too). */
   agendas?: readonly AgendaRecordDto[];
+  /** The table of the latest snapshot: why the viewer's Imperial scored nothing is read from it. */
+  table?: TableView | null;
   /** False until the first snapshot arrived: what is already in the log is history, not news. */
   ready: boolean;
 }
@@ -70,6 +73,7 @@ export function useCornerToasts({
   board,
   explorations,
   agendas,
+  table,
   ready,
 }: CornerToastsInput) {
   const { muted } = useToastMute();
@@ -85,6 +89,11 @@ export function useCornerToasts({
   const [actions, setActions] = useState<Shown[]>([]);
   const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
   const [agendaToastList, setAgendaToasts] = useState<AgendaToast[]>([]);
+  const [notices, setNotices] = useState<{ id: string; text: string; tag: string }[]>([]);
+  const tableRef = useRef(table);
+  tableRef.current = table;
+  const pendingRef = useRef(pendingChoice);
+  pendingRef.current = pendingChoice;
   const invasionTracker = useRef<InvasionTracker | null>(null);
   // The first board a client sees (load, undo) shows history, not news.
   const invasionQuiet = useRef(true);
@@ -163,6 +172,18 @@ export function useCornerToasts({
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
     const live = recapRef.current ? fresh.filter((e) => !turns.tracked.has(e.id)) : fresh;
     push(live.flatMap((e) => actionToastFromEvent(e, viewerSeat, board) ?? []));
+    // The viewer's own Imperial with nothing scoreable: the engine asks nothing, so say why.
+    const imperial = ownImperialPlay(fresh, viewerSeat);
+    if (imperial && viewerSeat) {
+      const text = imperialNoScoreNotice({
+        viewerSeat,
+        table: tableRef.current,
+        board,
+        pendingChoice: pendingRef.current,
+        label: (seat) => displayRef.current(seat).label,
+      });
+      if (text) setNotices((prev) => [...prev.filter((n) => n.id !== imperial.id), { id: imperial.id, text, tag: "Imperial" }].slice(-2));
+    }
   }, [events, ready, viewerSeat, push, emitRecap, board]);
 
   // The viewer's own action menu means the previous player's turn is over.
@@ -261,6 +282,7 @@ export function useCornerToasts({
       setActions([]);
       setInvasionToasts([]);
       setAgendaToasts([]);
+      setNotices([]);
     }
   }, [muted]);
   useEffect(() => {
@@ -277,6 +299,7 @@ export function useCornerToasts({
       setRecaps((prev) => prev.filter((r) => r.id !== id));
       setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
       setAgendaToasts((prev) => prev.filter((t) => t.id !== id));
+      setNotices((prev) => prev.filter((t) => t.id !== id));
       dismissAction(id);
       dismissToast(id);
     },
@@ -317,6 +340,16 @@ export function useCornerToasts({
           tag: "Agenda",
         }),
       ),
+      ...notices.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "notice",
+          decisionType: "",
+          selectedValue: "",
+          text: t.text,
+          tag: t.tag,
+        }),
+      ),
       ...actions.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -329,7 +362,7 @@ export function useCornerToasts({
         }),
       ),
     ],
-    [auto.toasts, actions, recaps, invasionToasts, agendaToastList],
+    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, notices],
   );
 
   return { notifications, dismiss, muted };

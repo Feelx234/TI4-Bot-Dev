@@ -4581,6 +4581,76 @@ mod tests {
         assert_eq!(with["controls_mecatol"], true);
     }
 
+    /// Game 8261fb3f (round 5): the Xxcha played Imperial with Push Boundaries and Unify the
+    /// Colonies met, but Letnev had just taken Archon Ren. Rule 61.16 bars every public objective,
+    /// so no scoring question is asked and only the Mecatol Rex point follows.
+    #[test]
+    fn imperial_asks_nothing_while_a_home_planet_is_lost() {
+        let content = ContentStore::embedded();
+        let xxcha = PlayerId::new("a");
+        let letnev = PlayerId::new("b");
+        let upgrades: Vec<_> = content
+            .records(ContentType::Technologies)
+            .iter()
+            .filter(|record| record.strings("types").contains(&"UNITUPGRADE"))
+            .filter_map(|record| record.text("alias"))
+            .take(2)
+            .map(ToOwned::to_owned)
+            .collect();
+        let imperial = |archon_ren_holder: &PlayerId| {
+            let mut state = game(&["a", "b"]);
+            state.player_mut(&xxcha).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+            state.player_mut(&letnev).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+            state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new("develop")];
+            for alias in &upgrades {
+                state
+                    .player_mut(&xxcha)
+                    .unwrap()
+                    .technologies
+                    .insert(ti4_model::id::TechnologyId::new(alias.clone()));
+            }
+            let home = state.system_mut(&SystemId::new("14"));
+            home.set_control(PlanetId::new("archontau"), xxcha.clone());
+            home.set_control(PlanetId::new("archonren"), archon_ren_holder.clone());
+            state
+                .system_mut(&SystemId::new(crate::seating::MECATOL))
+                .set_control(PlanetId::new("mecatol_rex"), xxcha.clone());
+            let lost = crate::objectives::home_planets_not_controlled(
+                &crate::objectives::Position::new(&state, content, POK, &xxcha),
+            );
+            let before = state.player(&xxcha).unwrap().victory_points;
+            let (capturing, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+            let mut table = Table::with_default(Box::new(capturing));
+            primary(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut table,
+                &xxcha,
+                &card("Imperial"),
+            )
+            .unwrap();
+            let asked = seen
+                .borrow()
+                .iter()
+                .any(|choice| choice.prompt == "score a public objective with Imperial");
+            let gained = state.player(&xxcha).unwrap().victory_points - before;
+            (lost, asked, gained)
+        };
+
+        let (lost, asked, gained) = imperial(&letnev);
+        assert_eq!(lost, vec![PlanetId::new("archonren")]);
+        assert!(!asked, "61.16: no public objective while Archon Ren is Letnev's");
+        assert_eq!(gained, 1, "the Mecatol Rex point still follows");
+
+        let (lost, asked, gained) = imperial(&xxcha);
+        assert!(lost.is_empty());
+        assert!(asked, "with the home system whole the objective is offered");
+        assert_eq!(gained, 2, "Develop Weaponry plus the Mecatol Rex point");
+    }
+
     #[test]
     fn the_simple_secondaries_apply_their_effects() {
         let content = ContentStore::embedded();

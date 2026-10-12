@@ -68,6 +68,29 @@ describe("useCornerToasts", () => {
     expect(spectator.result.current.notifications[0].text).toContain("Mutiny: For wins");
   });
 
+  it("says why the viewer's own Imperial scored nothing (home planet lost, 61.16)", () => {
+    const table = {
+      revealed_objectives: ["unify_colonies"],
+      scored_objectives: {},
+      objective_progress: { p1: { unify_colonies: { have: 6, threshold: 6, satisfied: true } } },
+      home_system_lost: { p1: ["archonren"] },
+      unclaimed_strategy_cards: [],
+      strategy_card_goods: {},
+      laws: {},
+    };
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, table },
+    });
+    rerender({ ...base, table, events: [ev("i", "p1", "played Imperial")] });
+    const notice = result.current.notifications.find((n) => n.kind === "notice");
+    expect(notice).toMatchObject({ tag: "Imperial" });
+    expect(notice?.text).toContain("you do not control Archon Ren");
+    // Another seat's Imperial is not the viewer's notice.
+    const other = renderHook((p: Props) => useCornerToasts(p), { initialProps: { ...base, table } });
+    other.rerender({ ...base, table, events: [ev("j", "p2", "played Imperial")] });
+    expect(other.result.current.notifications.some((n) => n.kind === "notice")).toBe(false);
+  });
+
   it("waits for the first snapshot before treating the log as history", () => {
     const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
       initialProps: { ...base, ready: false },
