@@ -165,7 +165,8 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("warfare_free_tactical") => return pick_free_tactical(choice, observed, &me),
         Some("construction_choose_ability") => return pick_construction(choice, observed, &me),
         Some("status_redistribute_tokens" | "warfare_redistribute_tokens") => {
-            return pick_redistribution(choice, observed, &me);
+            let warfare = subtype == Some("warfare_redistribute_tokens");
+            return pick_redistribution(choice, observed, &me, warfare);
         }
         Some("ready_planet") => return pick_ready_planet(choice, observed, &me),
         // Round 1's trade goods pay for transports, not an action card.
@@ -2352,13 +2353,21 @@ fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
 }
 
 /// Whether the seat's round-1 transports need every token: it is short of them (the plan builds
-/// more), or more transports wait to move than it has tactic tokens (just built).
+/// more).
 fn transports_need_tokens(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    let (transports, _) = free_transports_and_ground(seen, me);
     short_of_transports(seen, me)
-        || seen
+}
+
+/// Round 1, Warfare's redistribution around its home build: as many transports wait at home to
+/// move as there are tactic tokens (or more), so no token stays in the strategy pool unless a
+/// secondary worth one is still to come.
+fn warfare_build_needs_tokens(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    let (transports, _) = free_transports_and_ground(seen, me);
+    seen.round() <= 1
+        && strategy_reserve(seen, me) == 0
+        && seen
             .seat(me)
-            .is_some_and(|seat| transports > i64::from(seat.tactic_tokens))
+            .is_some_and(|seat| transports >= i64::from(seat.tactic_tokens))
 }
 
 /// The fleet and strategy pools the opening wants, every other token going to tactics: mid-round
@@ -2413,8 +2422,16 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
 ///
 /// In the opening ([`opening_pools`]) the fleet pool shrinks to what the spread-out fleet needs and
 /// every spare token goes to tactics: each tactic token is another system.
-fn pick_redistribution(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
-    let opening = opening_pools(seen, me);
+fn pick_redistribution(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    warfare: bool,
+) -> Option<usize> {
+    let opening = opening_pools(seen, me).map(|(fleet, strategy)| {
+        let zero = warfare && !exp_off("I") && warfare_build_needs_tokens(seen, me);
+        (fleet, if zero { 0 } else { strategy })
+    });
     let fleet = opening.map_or_else(|| fleet_wanted(seen, me), |(fleet, _)| fleet);
     choice
         .options
