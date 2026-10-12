@@ -526,8 +526,8 @@ pub struct PlayerLobbyView {
     pub strategy_card_set: String,
     /// Who opens as speaker: `random` (drawn from the seed) or `seat` (the first seat).
     pub speaker_order: String,
-    /// The factions a seat can be given (`ti4_engine::seating::IN_SCOPE_FACTIONS`): what the host's
-    /// faction picker offers. A seat that chose none is dealt one of the rest by the seed.
+    /// The factions a seat can be given (`ti4_engine::seating::LOBBY_FACTIONS`, base game first): what
+    /// every seat's faction picker offers. A seat that chose none is dealt one of the rest by the seed.
     pub factions: Vec<String>,
 }
 
@@ -559,7 +559,7 @@ pub struct PlayerSlotView {
     /// connects like a person).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bot: Option<String>,
-    /// The faction the host chose for a bot seat; absent for "random".
+    /// The faction chosen for this seat (by the host, or by the person in it); absent for "random".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub faction: Option<String>,
 }
@@ -638,10 +638,10 @@ impl PlayerLobbyRecord {
         faction: &str,
         except: Option<&PlayerId>,
     ) -> Result<(), LobbyError> {
-        if !ti4_engine::seating::IN_SCOPE_FACTIONS.contains(&faction) {
+        if !ti4_engine::seating::LOBBY_FACTIONS.contains(&faction) {
             return Err(LobbyError::InvalidFaction(format!(
                 "Faction '{faction}' is not available: choose one of {}",
-                ti4_engine::seating::IN_SCOPE_FACTIONS.join(", ")
+                ti4_engine::seating::LOBBY_FACTIONS.join(", ")
             )));
         }
         if let Some((_, holder)) = self
@@ -711,7 +711,7 @@ impl PlayerLobbyRecord {
             speaker_order: crate::map::SpeakerOrder::from_stored(self.speaker_order.as_deref())
                 .as_str()
                 .to_owned(),
-            factions: ti4_engine::seating::IN_SCOPE_FACTIONS
+            factions: ti4_engine::seating::LOBBY_FACTIONS
                 .iter()
                 .map(|faction| (*faction).to_owned())
                 .collect(),
@@ -3173,16 +3173,18 @@ impl GameRegistry {
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
-    /// Host-only, lobby phase only: choose (`Some`) or clear (`None`, back to random) the faction of
-    /// a bot seat. A person's seat keeps drawing its faction from the seed.
+    /// Lobby phase only: choose (`Some`) or clear (`None`, back to random) the faction of a seat.
+    /// The host may set any seat, bot or person; a person may set their own seat only. Ready state
+    /// is untouched.
     ///
     /// # Errors
-    /// The usual lobby errors, [`LobbyError::InvalidFaction`] for an unknown faction or a seat that
-    /// is not a bot, and [`LobbyError::FactionTaken`] when another seat holds it.
-    pub fn set_bot_faction(
+    /// The usual lobby errors, [`LobbyError::HostRequired`] for someone else's seat,
+    /// [`LobbyError::InvalidFaction`] for an unknown faction, and [`LobbyError::FactionTaken`] when
+    /// another seat holds it.
+    pub fn set_seat_faction(
         &self,
         game_id: &str,
-        host_credential: &str,
+        credential: &str,
         player_id: &PlayerId,
         faction: Option<&str>,
     ) -> Result<PlayerLobbyView, LobbyError> {
@@ -3194,17 +3196,13 @@ impl GameRegistry {
         if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
             return Err(LobbyError::AlreadyRunning);
         }
-        if authenticate_player(lobby, host_credential)? != lobby.host_player_id {
-            return Err(LobbyError::HostRequired);
-        }
+        let caller = authenticate_player(lobby, credential)?;
         let member = lobby
             .players
             .get(player_id)
             .ok_or(LobbyError::InvalidPlayerId)?;
-        if member.bot.is_none() {
-            return Err(LobbyError::InvalidFaction(
-                "Only a bot seat can be given a faction".to_owned(),
-            ));
+        if caller != lobby.host_player_id && &caller != player_id {
+            return Err(LobbyError::HostRequired);
         }
         if let Some(faction) = faction {
             lobby.check_faction_free(faction, Some(player_id))?;

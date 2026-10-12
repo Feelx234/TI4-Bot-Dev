@@ -122,7 +122,7 @@ pub enum FactionAssignmentError {
     /// The faction's own text forbids choosing it at setup (the Obsidian's Nocturne).
     #[error("faction {0:?} cannot be chosen during setup")]
     NotChoosable(String),
-    /// A lobby seat asked for a faction outside [`IN_SCOPE_FACTIONS`] (unknown, or not played here).
+    /// A lobby seat asked for a faction outside [`LOBBY_FACTIONS`] (unknown, or not played here).
     #[error("faction {0:?} is not one of the factions this server plays")]
     UnavailableFaction(String),
     /// Two lobby seats asked for the same faction.
@@ -147,6 +147,20 @@ pub enum FactionAssignmentError {
 /// abilities at all — in every rollout a trainer would have learned from. Alphabetical order is
 /// not a scope decision, and a scope decision should not be alphabetical order.
 pub const IN_SCOPE_FACTIONS: [&str; 6] = ["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"];
+
+/// The factions a lobby table can seat: the 24 base and Prophecy of Kings factions the smart-bot
+/// survey roster plays (`ti4_server::preset::ROSTER`, a server test keeps the two in step), base
+/// game first. Left out: the three Keleres variants (each takes another faction's home system, a
+/// table-dependent rule), the Obsidian (cannot be chosen during setup) and the Thunder's Edge
+/// factions (their home tiles are not in the Prophecy of Kings source set every server game uses).
+pub const LOBBY_FACTIONS: [&str; 24] = [
+    "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "mentak", "muaat", "naalu",
+    "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "argent", "cabal", "empyrean", "ghost",
+    "mahact", "naaz", "nomad", "titans",
+];
+
+/// How many [`LOBBY_FACTIONS`] belong to the base game (the first ones); the rest are Prophecy of Kings.
+pub const LOBBY_BASE_FACTIONS: usize = 17;
 
 /// Faction assignments for a table, taking the in-scope factions in order.
 ///
@@ -234,7 +248,7 @@ pub fn seeded_faction_assignments(
 
 /// Seats a lobby table: `chosen[i]` is the faction seat `i` asked for (`None`: any).
 ///
-/// Chosen factions must be in [`IN_SCOPE_FACTIONS`] and distinct. The seats that chose nothing
+/// Chosen factions must be in [`LOBBY_FACTIONS`] and distinct. The seats that chose nothing
 /// receive distinct factions from the rest of the pool, dealt in a seeded shuffle (the dedicated
 /// `seating:lobby-faction-draw:v1` stream), so the same seed and choices always give the same table.
 /// A table larger than the pool has to repeat a faction among its undecided seats (as the fixed
@@ -248,7 +262,7 @@ pub fn lobby_faction_draw(
 ) -> Result<Vec<FactionId>, FactionAssignmentError> {
     let mut taken = BTreeSet::new();
     for faction in chosen.iter().flatten() {
-        if !IN_SCOPE_FACTIONS.contains(faction) {
+        if !LOBBY_FACTIONS.contains(faction) {
             return Err(FactionAssignmentError::UnavailableFaction(
                 (*faction).to_owned(),
             ));
@@ -259,7 +273,7 @@ pub fn lobby_faction_draw(
             ));
         }
     }
-    let remaining: Vec<&str> = IN_SCOPE_FACTIONS
+    let remaining: Vec<&str> = LOBBY_FACTIONS
         .iter()
         .copied()
         .filter(|faction| !taken.contains(faction))
@@ -274,7 +288,7 @@ pub fn lobby_faction_draw(
                 // Past the end of the pool the deck is dealt again; with every faction chosen
                 // there is no deck, and the fixed order stands in.
                 let faction = if deck.is_empty() {
-                    IN_SCOPE_FACTIONS[next % IN_SCOPE_FACTIONS.len()]
+                    LOBBY_FACTIONS[next % LOBBY_FACTIONS.len()]
                 } else {
                     deck[next % deck.len()]
                 };
@@ -1611,7 +1625,7 @@ mod tests {
             assert_eq!(table[3].as_str(), "sol");
             let distinct: BTreeSet<_> = table.iter().map(FactionId::as_str).collect();
             assert_eq!(distinct.len(), 4, "seed {seed}: {table:?}");
-            assert!(table.iter().all(|f| IN_SCOPE_FACTIONS.contains(&f.as_str())));
+            assert!(table.iter().all(|f| LOBBY_FACTIONS.contains(&f.as_str())));
         }
     }
 
@@ -1629,7 +1643,7 @@ mod tests {
             lobby_faction_draw(&[Some("sol"), None, Some("sol")], 1),
             Err(FactionAssignmentError::DuplicateChoice("sol".to_owned()))
         );
-        for bad in ["arborec", "keleresm", "obsidian", "nonsense"] {
+        for bad in ["keleresm", "obsidian", "bastion", "nonsense"] {
             assert_eq!(
                 lobby_faction_draw(&[Some(bad)], 1),
                 Err(FactionAssignmentError::UnavailableFaction(bad.to_owned()))
@@ -1638,10 +1652,18 @@ mod tests {
     }
 
     #[test]
-    fn lobby_draw_seats_all_six_when_all_six_are_chosen_and_never_repeats_a_choice() {
-        let all: Vec<Option<&str>> = IN_SCOPE_FACTIONS.iter().map(|f| Some(*f)).collect();
+    fn lobby_draw_seats_the_whole_pool_when_all_are_chosen_and_never_repeats_a_choice() {
+        let all: Vec<Option<&str>> = LOBBY_FACTIONS.iter().map(|f| Some(*f)).collect();
         let table = lobby_faction_draw(&all, 3).unwrap();
-        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), IN_SCOPE_FACTIONS);
+        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), LOBBY_FACTIONS);
+    }
+
+    #[test]
+    fn lobby_pool_has_the_in_scope_six_first_and_no_repeats() {
+        assert_eq!(&LOBBY_FACTIONS[..6], &IN_SCOPE_FACTIONS[..]);
+        let distinct: BTreeSet<_> = LOBBY_FACTIONS.iter().collect();
+        assert_eq!(distinct.len(), LOBBY_FACTIONS.len());
+        assert!(LOBBY_BASE_FACTIONS < LOBBY_FACTIONS.len());
     }
 
     #[test]

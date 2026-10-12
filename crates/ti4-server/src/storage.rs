@@ -159,8 +159,8 @@ pub struct PlayerLobbyMember {
     /// (authentication skips it) and the game answers it itself. Absent for people.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot: Option<String>,
-    /// The faction the host chose for a bot seat (`ti4_engine::seating::IN_SCOPE_FACTIONS`); absent
-    /// for "random", which the seed deals at start. Never set on a person's seat.
+    /// The faction chosen for this seat (`ti4_engine::seating::LOBBY_FACTIONS`), by the host or by the
+    /// person in it; absent for "random", which the seed deals at start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub faction: Option<String>,
 }
@@ -255,8 +255,7 @@ impl PlayerLobbyRecord {
                 return Err(StorageError::InvalidPlayerRecord("duplicate session"));
             }
             if let Some(faction) = &player.faction
-                && (player.bot.is_none()
-                    || !ti4_engine::seating::IN_SCOPE_FACTIONS.contains(&faction.as_str())
+                && (!ti4_engine::seating::LOBBY_FACTIONS.contains(&faction.as_str())
                     || !factions.insert(faction.as_str()))
             {
                 return Err(StorageError::InvalidPlayerRecord("chosen faction"));

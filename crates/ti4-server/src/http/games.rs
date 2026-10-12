@@ -497,10 +497,10 @@ pub struct AddBotsRequest {
     pub faction: Option<String>,
 }
 
-/// Body of `POST /api/games/{game_id}/lobby/bot-faction`: `faction: null` goes back to random.
+/// Body of `POST /api/games/{game_id}/lobby/seat-faction`: `faction: null` goes back to random.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct SetBotFactionRequest {
+pub struct SetSeatFactionRequest {
     pub player_id: PlayerId,
     #[serde(default)]
     pub faction: Option<String>,
@@ -594,17 +594,18 @@ pub async fn remove_bot_from_lobby(
     ))
 }
 
-/// Handler for `POST /api/games/{game_id}/lobby/bot-faction`.
-pub async fn set_lobby_bot_faction(
+/// Handler for `POST /api/games/{game_id}/lobby/seat-faction`: the host for any seat, a person for
+/// their own.
+pub async fn set_lobby_seat_faction(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-    Json(payload): Json<SetBotFactionRequest>,
+    Json(payload): Json<SetSeatFactionRequest>,
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
     Ok(Json(
         registry
-            .set_bot_faction(
+            .set_seat_faction(
                 &game_id,
                 token,
                 &payload.player_id,

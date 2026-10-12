@@ -125,7 +125,7 @@ async fn a_chosen_bot_faction_is_seated_and_the_others_are_distinct() {
     assert_eq!(factions[3], "sol");
     assert_eq!(factions.iter().collect::<BTreeSet<_>>().len(), 5, "{factions:?}");
     for f in &factions {
-        assert!(["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"].contains(&f.as_str()));
+        assert!(ti4_engine::seating::LOBBY_FACTIONS.contains(&f.as_str()));
     }
 }
 
@@ -151,13 +151,13 @@ async fn duplicates_unknown_and_unavailable_factions_are_refused_with_a_reason()
         server.post(&game, "bots", &host, json!({"kind": "smart", "faction": "hacan"})).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["slots"][1]["faction"], "hacan");
-    assert_eq!(body["factions"].as_array().unwrap().len(), 6);
+    assert_eq!(body["factions"].as_array().unwrap().len(), 24);
 
     let (status, body) =
         server.post(&game, "bots", &host, json!({"kind": "smart", "faction": "hacan"})).await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert!(body.as_str().unwrap().contains("already taken by Smart bot 1"), "{body}");
-    for bad in ["nonsense", "arborec", "keleresm", "obsidian"] {
+    for bad in ["nonsense", "bastion", "keleresm", "obsidian"] {
         let (status, body) =
             server.post(&game, "bots", &host, json!({"kind": "smart", "faction": bad})).await;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
@@ -183,32 +183,32 @@ async fn the_host_changes_and_clears_a_bot_faction_and_only_for_bots() {
     assert!(body["slots"][2].get("faction").is_none());
 
     let (status, body) = server
-        .post(&game, "bot-faction", &host, json!({"player_id": second, "faction": "sol"}))
+        .post(&game, "seat-faction", &host, json!({"player_id": second, "faction": "sol"}))
         .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body}");
     let (status, body) = server
-        .post(&game, "bot-faction", &host, json!({"player_id": second, "faction": "jolnar"}))
+        .post(&game, "seat-faction", &host, json!({"player_id": second, "faction": "jolnar"}))
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["slots"][2]["faction"], "jolnar");
     // Re-choosing a bot's own faction is not a clash; sol is free once its bot clears it.
     let (status, _) = server
-        .post(&game, "bot-faction", &host, json!({"player_id": first, "faction": "sol"}))
+        .post(&game, "seat-faction", &host, json!({"player_id": first, "faction": "sol"}))
         .await;
     assert_eq!(status, StatusCode::OK);
     let (status, body) =
-        server.post(&game, "bot-faction", &host, json!({"player_id": first})).await;
+        server.post(&game, "seat-faction", &host, json!({"player_id": first})).await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["slots"][1].get("faction").is_none());
-    // The host's own seat is a person's: random.
+    // The host's own seat takes a choice like any other.
     let host_id = body["host_player_id"].as_str().unwrap().to_owned();
     let (status, _) = server
-        .post(&game, "bot-faction", &host, json!({"player_id": host_id, "faction": "sol"}))
+        .post(&game, "seat-faction", &host, json!({"player_id": host_id, "faction": "sol"}))
         .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(status, StatusCode::OK);
     // Only the host may.
     let (status, _) = server
-        .post(&game, "bot-faction", "not-a-session", json!({"player_id": first, "faction": "sol"}))
+        .post(&game, "seat-faction", "not-a-session", json!({"player_id": first, "faction": "sol"}))
         .await;
     assert!(status.is_client_error());
 }
