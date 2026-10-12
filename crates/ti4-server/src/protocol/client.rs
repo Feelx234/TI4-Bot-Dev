@@ -9,6 +9,8 @@ pub const MAX_PLAYER_SESSION_BYTES: usize = 128;
 pub const MAX_NONCE_BYTES: usize = 128;
 pub const MAX_OPTION_ID_BYTES: usize = 1024;
 pub const MAX_CARD_NAME_BYTES: usize = 128;
+/// The most entries a script may have. A whole tactical action is some tens of entries.
+pub const MAX_SCRIPT_ENTRIES: usize = 512;
 
 /// Messages submitted from a client to the authoritative server.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +79,27 @@ pub enum ClientMessage {
         game_id: String,
         card: String,
         mode: ReactionMode,
+    },
+    /// Play `script` as the next turn of this connection's seat on a copy of the game, and
+    /// tell where the run ended (`ServerMessage::DraftOutcome` with this `request_id`). The game
+    /// is not changed and the server keeps nothing of the script. Of the requests that wait on
+    /// one connection only the newest is run: an older one gets no answer.
+    RunDraft {
+        protocol_version: u16,
+        game_id: String,
+        request_id: String,
+        script: Vec<ti4_view::planning::draft::DraftStep>,
+    },
+    /// Answer the pending choice of this connection's seat, and the choices after it, with
+    /// `script`: a draft or a plan that is sent to the live game. A script that the game would
+    /// refuse changes nothing; where a script stopped, or that it was played whole, is told
+    /// with `ServerMessage::DraftApplied`.
+    ApplyDraft {
+        protocol_version: u16,
+        game_id: String,
+        nonce: String,
+        expected_version: u64,
+        script: Vec<ti4_view::planning::draft::DraftStep>,
     },
     /// Keep-alive ping message.
     Ping {
@@ -207,6 +230,30 @@ impl std::fmt::Debug for ClientMessage {
                 .field("card", card)
                 .field("mode", mode)
                 .finish(),
+            Self::RunDraft {
+                game_id,
+                request_id,
+                script,
+                ..
+            } => f
+                .debug_struct("RunDraft")
+                .field("game_id", game_id)
+                .field("request_id", request_id)
+                .field("entries", &script.len())
+                .finish(),
+            Self::ApplyDraft {
+                game_id,
+                nonce,
+                expected_version,
+                script,
+                ..
+            } => f
+                .debug_struct("ApplyDraft")
+                .field("game_id", game_id)
+                .field("nonce", nonce)
+                .field("expected_version", expected_version)
+                .field("entries", &script.len())
+                .finish(),
             Self::Ping {
                 protocol_version,
                 sequence,
@@ -234,6 +281,12 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::Ping {
+                protocol_version, ..
+            }
+            | Self::RunDraft {
+                protocol_version, ..
+            }
+            | Self::ApplyDraft {
                 protocol_version, ..
             }
             | Self::StartPlanning {
@@ -313,8 +366,38 @@ impl ClientMessage {
                 bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
                 bounded(card, MAX_CARD_NAME_BYTES, "card")?;
             }
+            Self::RunDraft {
+                game_id,
+                request_id,
+                script,
+                ..
+            } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                bounded(request_id, MAX_NONCE_BYTES, "request_id")?;
+                bounded_script(script)?;
+            }
+            Self::ApplyDraft {
+                game_id,
+                nonce,
+                script,
+                ..
+            } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                bounded(nonce, MAX_NONCE_BYTES, "nonce")?;
+                bounded_script(script)?;
+            }
             Self::Ping { .. } => {}
         }
+        Ok(())
+    }
+}
+
+/// A script may be empty: a draft with nothing chosen opens the turn menu. Its texts are
+/// bounded by the size of a message.
+fn bounded_script(script: &[ti4_view::planning::draft::DraftStep]) -> Result<(), &'static str> {
+    if script.len() > MAX_SCRIPT_ENTRIES {
+        Err("script")
+    } else {
         Ok(())
     }
 }

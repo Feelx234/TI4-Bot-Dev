@@ -74,6 +74,8 @@ pub(crate) struct SessionPlanning {
     // Game isn't Send. This engine-provided factory carries its copied driver
     // state across threads and creates fresh input bindings when called.
     checkpoint: Option<Box<dyn FnOnce() -> Game<'static> + Send>>,
+    /// How many decisions the log of the game had at the checkpoint.
+    checkpoint_decisions: usize,
     pub(crate) checkpoint_id: u64,
     pub(crate) available: bool,
     closed: bool,
@@ -89,6 +91,7 @@ impl SessionPlanning {
     pub fn new(saved: BTreeMap<PlayerId, PlayerPlan>) -> Self {
         Self {
             checkpoint: None,
+            checkpoint_decisions: 0,
             checkpoint_id: 0,
             available: false,
             closed: false,
@@ -108,6 +111,7 @@ impl SessionPlanning {
         self.checkpoint_id = NEXT_CHECKPOINT.fetch_add(1, Ordering::Relaxed);
         self.available = game.state.phase == Phase::Action && !game.state.finished;
         self.checkpoint = Some(Box::new(game.fork_for_worker()));
+        self.checkpoint_decisions = game.table.log.records.len();
         self.refresh_secondary(game);
         if !self.available {
             self.retire_runners();
@@ -125,6 +129,17 @@ impl SessionPlanning {
                 PlanningRunner::start(game, player, plan, STEP_BOUND),
             );
         }
+    }
+
+    /// A copy of the game at its last completed step, and how many decisions its log had
+    /// there. The copy is made on the thread that asks. `None` once the session is closed.
+    pub fn fork(&mut self) -> Option<(Game<'static>, usize)> {
+        if self.closed {
+            return None;
+        }
+        let game = self.checkpoint.take()?();
+        self.checkpoint = Some(Box::new(game.fork_for_worker()));
+        Some((game, self.checkpoint_decisions))
     }
 
     pub fn start(&mut self, player: &PlayerId) -> Result<(), PlanningError> {

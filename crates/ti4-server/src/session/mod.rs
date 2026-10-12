@@ -3,6 +3,7 @@ pub mod decider;
 mod planning;
 pub mod registry;
 pub mod replay;
+pub(crate) mod script;
 pub mod transport;
 pub mod worker;
 
@@ -80,6 +81,11 @@ pub enum SeatController {
     BotAlwaysDecline,
     /// Automated bot following a scripted sequence of option IDs.
     BotScripted(Vec<String>),
+    /// Automated seat that draws among the offered options, as a random seat of a local game
+    /// does (`ti4_engine::choice::SeededRandom`). Its stream is seeded from the seed of the game
+    /// and the seat, and a replay of the decision log moves it on, so a recovered game goes on
+    /// as the game that was never stopped.
+    BotRandom,
 }
 
 /// Configuration used to spawn an authoritative game session.
@@ -398,6 +404,7 @@ impl GameSession {
             pending,
             &lock.map_tiles,
             &lock.galaxy_layout,
+            lock.galaxy.as_deref(),
             &lock.event_log,
         )
         .with_history(
@@ -674,6 +681,201 @@ impl GameSession {
         lock.planning
             .begin_application(player, plan, activation_seq);
         Ok(())
+    }
+
+    /// Plays `script` as the next turn of `player` on a copy of the game at its last completed
+    /// step, as a local game does (`ti4_view::planning::draft::run_draft`). The game is not
+    /// changed and nothing of the script is kept. Returns the version of the game that the
+    /// script was played on.
+    ///
+    /// A session that cannot be copied (stopped, finished, failed, or still in its replay)
+    /// answers with a failed run on the position as the seat sees it.
+    pub fn run_draft(
+        &self,
+        player: &PlayerId,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> (u64, ti4_view::planning::draft::DraftOutcome) {
+        use ti4_view::planning::draft::{DraftBase, DraftOutcome, DraftStop, run_draft};
+        let (copy, version, tiles, galaxy, state) = {
+            let mut lock = self.shared.lock().expect("shared lock");
+            let playable = !lock.stopped
+                && !lock.finished
+                && lock.error.is_none()
+                && lock.replay_complete
+                && lock.seats.contains_key(player);
+            let copy = playable
+                .then(|| lock.planning.fork())
+                .flatten()
+                .map(|(game, _)| game);
+            (
+                copy,
+                lock.game_version,
+                lock.map_tiles.clone(),
+                lock.galaxy.clone(),
+                lock.latest_state.clone(),
+            )
+        };
+        let content = ti4_content::ContentStore::embedded();
+        let Some(game) = copy else {
+            let update = crate::projection::project_session_update(
+                &state,
+                &ViewerRole::Player(player.clone()),
+                None,
+                &tiles,
+                &crate::projection::facts_context(galaxy.as_deref()),
+            );
+            let outcome = DraftOutcome {
+                update,
+                movement: None,
+                invasion: None,
+                production: None,
+                consumed: 0,
+                stop: DraftStop::Failed {
+                    reason: "The game cannot be drafted on now.".to_owned(),
+                },
+            };
+            return (version, outcome);
+        };
+        let base = DraftBase {
+            game: &game,
+            content,
+            sources: ti4_model::content_types::POK,
+            tiles: &tiles,
+            galaxy: galaxy.as_deref(),
+        };
+        (version, run_draft(&base, player, script))
+    }
+
+    /// Sends `script` to the live game: the pending choice of `player` and the choices after
+    /// it are answered from it, as a local game answers them (`script_answer` of `ti4-view`).
+    ///
+    /// The script is first played on a copy of the game. When the game would refuse an entry,
+    /// nothing is sent and the refusal is returned: the game is as before. Otherwise the first
+    /// answer is given here and `Ok(None)` is returned; where the script stops, or that it was
+    /// played whole, is told to the seat later (`ServerMessage::DraftApplied`). The copy cannot
+    /// tell what another seat decides, so a script can still stop after such a decision, with
+    /// its earlier entries in the game.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RejectionReason`] as [`Self::submit_choice`] does when the choice of the
+    /// request is not the one that the game waits in.
+    pub fn apply_draft(
+        &self,
+        player: &PlayerId,
+        nonce: &str,
+        expected_version: u64,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
+        use ti4_view::planning::draft::{ScriptAnswer, script_answer};
+        // The choice is reserved while the copy plays, so no other answer can take it.
+        let (choice, copy, tail, never) = {
+            let mut lock = self.shared.lock().expect("shared lock");
+            if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
+                return Err(RejectionReason::NoPendingChoice);
+            }
+            let Some(pending) = &lock.pending_decision else {
+                return Err(RejectionReason::NoPendingChoice);
+            };
+            if &pending.seat != player {
+                return Err(RejectionReason::UnauthorizedSeat {
+                    seat: Some(player.clone()),
+                });
+            }
+            if pending.submission_state == PendingSubmissionState::Reserved
+                || lock.planning.has_application(player)
+            {
+                return Err(RejectionReason::NoPendingChoice);
+            }
+            if pending.nonce != nonce {
+                return Err(RejectionReason::StaleNonce);
+            }
+            if pending.game_version != expected_version {
+                return Err(RejectionReason::StaleVersion {
+                    expected: expected_version,
+                    current: pending.game_version,
+                });
+            }
+            let choice = pending.choice.clone();
+            let copy = lock.planning.fork();
+            let tail = copy
+                .as_ref()
+                .and_then(|(_, decisions)| lock.decision_log.get(*decisions..))
+                .map(<[DecisionRecord]>::to_vec);
+            lock.pending_decision
+                .as_mut()
+                .expect("pending decision")
+                .submission_state = PendingSubmissionState::Reserved;
+            let never = lock
+                .reaction_modes
+                .get(player)
+                .map(|set| set.lock().expect("never set lock").clone())
+                .unwrap_or_default();
+            (choice, copy.map(|(game, _)| game), tail, never)
+        };
+        let release = |lock: &mut SessionShared| {
+            if let Some(pending) = lock
+                .pending_decision
+                .as_mut()
+                .filter(|pending| pending.seat == *player && pending.nonce == nonce)
+            {
+                pending.submission_state = PendingSubmissionState::AwaitingSubmission;
+            }
+        };
+        let first = script_answer(script, 0, &choice, player);
+        let refusal = match &first {
+            ScriptAnswer::Answer { .. } => match copy.zip(tail) {
+                Some((game, tail)) => {
+                    match script::check_script(game, tail, &choice, script, player, never) {
+                        script::Check::Refused { reason, .. } => Some(reason),
+                        script::Check::Plays | script::Check::Unknown => None,
+                    }
+                }
+                None => None,
+            },
+            ScriptAnswer::Done => Some("The script has no answer for this choice.".to_owned()),
+            ScriptAnswer::Interrupted { reason } | ScriptAnswer::Mismatch { reason, .. } => {
+                Some(reason.clone())
+            }
+        };
+        let mut lock = self.shared.lock().expect("shared lock");
+        if let Some(reason) = refusal {
+            release(&mut lock);
+            return Ok(Some(script::refused(script, reason)));
+        }
+        let ScriptAnswer::Answer {
+            option,
+            next,
+            script: reordered,
+        } = first
+        else {
+            unreachable!("every other answer is a refusal");
+        };
+        let Some(inbox) = lock.seat_inboxes.get(player).cloned() else {
+            release(&mut lock);
+            return Err(RejectionReason::NoPendingChoice);
+        };
+        let (reply_tx, _reply_rx) = mpsc::channel();
+        if inbox
+            .send(ChoiceSubmission {
+                seat: player.clone(),
+                nonce: nonce.to_owned(),
+                expected_version,
+                option_id: option.id,
+                reply_tx,
+            })
+            .is_err()
+        {
+            release(&mut lock);
+            return Err(RejectionReason::NoPendingChoice);
+        }
+        lock.begin_script(
+            player,
+            nonce,
+            reordered.unwrap_or_else(|| script.to_vec()),
+            next,
+        );
+        Ok(None)
     }
 
     /// One operation on a follower's secondary draft. Unlike a tactical draft it
@@ -990,6 +1192,7 @@ impl GameSession {
         let mut lock = self.shared.lock().expect("shared lock");
         lock.pending_decision = None;
         lock.in_flight_submissions.clear();
+        lock.scripts.clear();
     }
 }
 

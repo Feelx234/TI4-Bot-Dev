@@ -579,5 +579,64 @@
     "phase": "action",
     "round": 2,
     "stage": "Waiting for player"
+  },
+  "action_cards": {
+    "deck": 0,
+    "discard": [],
+    "hand_limit": 7
+  },
+  "secret_objectives": {
+    "deck": 0,
+    "scored": {},
+    "hand_limit": 3
+  },
+  "score": {
+    "target": 10,
+    "public": [
+      {
+        "id": "corner_the_market",
+        "name": "corner_the_market",
+        "points": 1,
+        "text": "",
+        "scored": []
+      },
+      {
+        "id": "develop_weaponry",
+        "name": "develop_weaponry",
+        "points": 1,
+        "text": "",
+        "scored": []
+      }
+    ],
+    "sources": [
+      {
+        "kind": "secrets",
+        "name": "",
+        "points": {}
+      },
+      {
+        "kind": "custodians",
+        "name": "",
+        "points": {}
+      },
+      {
+        "kind": "imperial",
+        "name": "",
+        "points": {}
+      },
+      {
+        "kind": "support",
+        "name": "",
+        "points": {}
+      }
+    ],
+    "unexplained": {
+      "seat_a": 3,
+      "seat_b": 2,
+      "seat_c": 1
+    }
+  },
+  "agendas": {
+    "deck": 0
   }
 }

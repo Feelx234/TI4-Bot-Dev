@@ -1,6 +1,7 @@
 //! Projections that wrap a redacted view in a protocol message. The views are made in `ti4-view`.
 
 use std::collections::BTreeMap;
+use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
 use ti4_model::state::GameState;
 
@@ -12,7 +13,30 @@ use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::ViewerRole;
 use crate::protocol::view::BoardTileView;
 
+/// What the facts of a message are made from: the games of the server are of one content.
+/// Without the map of the game a message has no `tactical` and no `exploration`.
+#[must_use]
+pub fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
+    FactsContext {
+        content: ti4_content::ContentStore::embedded(),
+        sources: ti4_model::content_types::POK,
+        galaxy,
+    }
+}
+
+fn empty_layout() -> GalaxyLayout {
+    GalaxyLayout {
+        version: 1,
+        active_sources: Vec::new(),
+        placements: Vec::new(),
+        off_map_system_ids: Vec::new(),
+    }
+}
+
 /// Projects an initial snapshot for a connecting viewer with static map tiles.
+///
+/// `state` is the full state of the game: the view and the facts are made for `viewer` from it
+/// ([`project_session_update`]), and `state` of the message is redacted.
 #[must_use]
 pub fn project_initial_snapshot_with_map(
     game_id: &str,
@@ -22,24 +46,37 @@ pub fn project_initial_snapshot_with_map(
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
     galaxy_layout: &GalaxyLayout,
+    galaxy: Option<&Galaxy>,
     events: &[GameEvent],
 ) -> InitialSnapshotMsg {
+    let SessionUpdate {
+        viewer: _,
+        view,
+        pending_choice: pending,
+        turn_status,
+        tactical,
+        exploration,
+        action_cards,
+        secret_objectives,
+        score,
+        agendas,
+    } = project_session_update(
+        state,
+        viewer,
+        pending_choice,
+        map_tiles,
+        &facts_context(galaxy),
+    );
     InitialSnapshotMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         game_version,
         viewer: viewer.clone(),
-        view: project_game_view_full(
-            state,
-            viewer,
-            map_tiles,
-            pending_choice.map(|(c, _)| c),
-            &[],
-        ),
+        view,
         state: redacted_state(state, viewer),
         galaxy_layout: galaxy_layout.clone(),
-        pending_choice: project_pending_choice(viewer, pending_choice),
-        turn_status: project_turn_status(state, pending_choice.map(|(c, _)| c)),
+        pending_choice: pending,
+        turn_status,
         events: events
             .iter()
             .filter_map(|event| event.for_viewer(viewer))
@@ -47,6 +84,12 @@ pub fn project_initial_snapshot_with_map(
         history: crate::protocol::server::HistoryStatus::default(),
         current_path: None,
         reaction_modes: BTreeMap::new(),
+        tactical,
+        exploration,
+        action_cards,
+        secret_objectives,
+        score,
+        agendas,
     }
 }
 
@@ -66,17 +109,14 @@ pub fn project_initial_snapshot(
         viewer,
         pending_choice,
         &[],
-        &GalaxyLayout {
-            version: 1,
-            active_sources: Vec::new(),
-            placements: Vec::new(),
-            off_map_system_ids: Vec::new(),
-        },
+        &empty_layout(),
+        None,
         &[],
     )
 }
 
-/// Projects a versioned state update message with static map tiles.
+/// Projects a versioned state update message with static map tiles, as
+/// [`project_initial_snapshot_with_map`] does.
 #[must_use]
 pub fn project_state_update_with_map(
     game_id: &str,
@@ -86,20 +126,26 @@ pub fn project_state_update_with_map(
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
     galaxy_layout: &GalaxyLayout,
+    galaxy: Option<&Galaxy>,
 ) -> StateUpdateMsg {
     let SessionUpdate {
         viewer: _,
         view,
         pending_choice: pending,
         turn_status,
-        // The server does not send these yet.
-        tactical: _,
-        exploration: _,
-        action_cards: _,
-        secret_objectives: _,
-        score: _,
-        agendas: _,
-    } = project_session_update(state, viewer, pending_choice, map_tiles, None);
+        tactical,
+        exploration,
+        action_cards,
+        secret_objectives,
+        score,
+        agendas,
+    } = project_session_update(
+        state,
+        viewer,
+        pending_choice,
+        map_tiles,
+        &facts_context(galaxy),
+    );
     StateUpdateMsg {
         history: crate::protocol::server::HistoryStatus::default(),
         current_path: None,
@@ -114,6 +160,12 @@ pub fn project_state_update_with_map(
         turn_status,
         auto_resolved: Vec::new(),
         reaction_modes: BTreeMap::new(),
+        tactical,
+        exploration,
+        action_cards,
+        secret_objectives,
+        score,
+        agendas,
     }
 }
 
@@ -133,11 +185,7 @@ pub fn project_state_update(
         viewer,
         pending_choice,
         &[],
-        &GalaxyLayout {
-            version: 1,
-            active_sources: Vec::new(),
-            placements: Vec::new(),
-            off_map_system_ids: Vec::new(),
-        },
+        &empty_layout(),
+        None,
     )
 }

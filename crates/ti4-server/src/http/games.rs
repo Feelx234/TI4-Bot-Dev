@@ -80,6 +80,9 @@ pub struct CreateGameRequest {
     /// Opening-state preset for smoke runs (see [`crate::preset`]); unknown names are a 400.
     /// Like the `/api/dev/scenarios` endpoints, this is not gated.
     pub start_preset: Option<String>,
+    /// `"random"` fills every other seat with a random decider and starts the game in this
+    /// request: there is no lobby to ready and start. The seats decide from the seed of the game.
+    pub fill_seats: Option<String>,
 }
 
 /// Response after creating a game.
@@ -298,9 +301,36 @@ pub async fn create_game(
         ));
     }
 
+    let fill_random = match payload.fill_seats.as_deref() {
+        None => false,
+        Some("random") => true,
+        Some(other) => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("unknown fill_seats {other:?}: only \"random\" is known"),
+            ));
+        }
+    };
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
-    let (lobby, player, session) = registry
-        .create_player_lobby_with_options(
+    let (lobby, player, session) = if fill_random {
+        // The start builds the board: not on the async runtime.
+        let registry = registry.clone();
+        let game_id = game_id.clone();
+        tokio::task::spawn_blocking(move || {
+            registry.create_player_game_with_random_seats(
+                game_id,
+                payload.player_count,
+                seed,
+                &payload.nickname,
+                map_template,
+                payload.start_preset,
+            )
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    } else {
+        registry.create_player_lobby_with_options(
             game_id.clone(),
             payload.player_count,
             seed,
@@ -308,7 +338,8 @@ pub async fn create_game(
             map_template,
             payload.start_preset,
         )
-        .map_err(lobby_error)?;
+    }
+    .map_err(lobby_error)?;
 
     Ok(Json(CreateGameResponse {
         game_id,
@@ -702,6 +733,7 @@ mod template_request_tests {
             map_template: template.map(str::to_owned),
             map: None,
             start_preset: None,
+            fill_seats: None,
         })
     }
 
@@ -713,7 +745,63 @@ mod template_request_tests {
             map_template: None,
             map: None,
             start_preset: Some(preset.to_owned()),
+            fill_seats: None,
         })
+    }
+
+    #[tokio::test]
+    async fn fill_seats_starts_the_game_with_random_seats_and_one_human() {
+        use crate::session::SeatController;
+        // No grace: a seat that never connected could be taken over at once.
+        let registry = Arc::new(GameRegistry::new().with_presence_grace(std::time::Duration::ZERO));
+        let filled = |fill: &str| {
+            let mut request = request(8, None);
+            request.0.fill_seats = Some(fill.to_owned());
+            request
+        };
+        let unknown = create_game(State(registry.clone()), filled("bots")).await;
+        assert_eq!(unknown.unwrap_err().0, StatusCode::BAD_REQUEST);
+
+        let created = create_game(State(registry.clone()), filled("random"))
+            .await
+            .expect("a started game")
+            .0;
+        assert!(matches!(
+            created.lobby.phase,
+            crate::session::registry::LobbyPhase::Running
+        ));
+        assert!(created.lobby.slots.iter().all(|slot| slot.ready));
+        let session = registry.get_game(&created.game_id).expect("the game runs");
+        let (order, seats, _, seed) = session.lobby_details();
+        assert_eq!((order.len(), seed), (8, Some(1)));
+        assert_eq!(
+            order[0], created.player.id,
+            "the creator has the first seat"
+        );
+        for (seat, controller) in &seats {
+            let expected = if *seat == created.player.id {
+                SeatController::Human
+            } else {
+                SeatController::BotRandom
+            };
+            assert_eq!(*controller, expected, "{seat}");
+        }
+        // The credential of the response is the one of the human seat.
+        assert_eq!(
+            session.viewer_for_seat_token(&created.player_session),
+            Some(crate::protocol::status::ViewerRole::Player(
+                created.player.id.clone()
+            ))
+        );
+        // A seat that the server plays cannot be taken over.
+        let random = order[1].clone();
+        assert_eq!(
+            registry
+                .take_over_player(&created.game_id, &random, "Guest")
+                .map(|_| ())
+                .unwrap_err(),
+            crate::session::registry::LobbyError::TakeoverUnavailable
+        );
     }
 
     #[tokio::test]

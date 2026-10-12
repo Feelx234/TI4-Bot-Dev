@@ -670,7 +670,7 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
         viewer,
         Some((choice, nonce)),
         &latest.tiles,
-        Some(&facts_context(latest.galaxy.as_ref())),
+        &facts_context(latest.galaxy.as_ref()),
     );
     store(
         &mut UPDATE.lock().expect("update lock"),
@@ -841,7 +841,7 @@ fn play(
         &viewer,
         None,
         &tiles,
-        Some(&facts_context(game.galaxy())),
+        &facts_context(game.galaxy()),
     );
     store(
         &mut UPDATE.lock().expect("update lock"),

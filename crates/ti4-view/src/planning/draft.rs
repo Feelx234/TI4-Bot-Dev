@@ -190,6 +190,24 @@ pub fn script_answer(
     }
 }
 
+/// Whether the game needs no answer for these entries once the action is over: an end that it
+/// did not ask for, a payment that it did not need.
+#[must_use]
+pub fn needless(entries: &[DraftStep]) -> bool {
+    entries.iter().all(|entry| {
+        matches!(
+            entry,
+            DraftStep::Step(
+                PlanStep::DoneLoading
+                    | PlanStep::DoneCommitting
+                    | PlanStep::Pay { .. }
+                    | PlanStep::Place { .. }
+                    | PlanStep::DoneProducing
+            )
+        )
+    })
+}
+
 /// Why a run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -347,19 +365,7 @@ impl Run {
     /// The action is over. The entries that are left must be such that the game needs no answer
     /// for them: an end that it did not ask for, a payment that it did not need.
     fn complete(&mut self) {
-        let needless = |entry: &DraftStep| {
-            matches!(
-                entry,
-                DraftStep::Step(
-                    PlanStep::DoneLoading
-                        | PlanStep::DoneCommitting
-                        | PlanStep::Pay { .. }
-                        | PlanStep::Place { .. }
-                        | PlanStep::DoneProducing
-                )
-            )
-        };
-        if self.script[self.next..].iter().all(needless) {
+        if needless(&self.script[self.next..]) {
             self.next = self.script.len();
             self.end(DraftStop::Complete);
         } else {
@@ -531,9 +537,8 @@ pub fn run_draft(
         sources: base.sources,
         galaxy: base.galaxy,
     };
-    let closed = |state: &GameState| {
-        project_session_update(state, &viewer, None, base.tiles, Some(&context))
-    };
+    let closed =
+        |state: &GameState| project_session_update(state, &viewer, None, base.tiles, &context);
     let shown = |offer: &Offer, open: bool| {
         if !open {
             return closed(&offer.state);
@@ -543,7 +548,7 @@ pub fn run_draft(
             &viewer,
             Some((&offer.choice, DRAFT_NONCE)),
             base.tiles,
-            Some(&context),
+            &context,
         )
     };
     let first = |offer: &Option<Offer>| offer.as_ref().map(|offer| shown(offer, true));
@@ -833,6 +838,89 @@ mod tests {
                 .iter()
                 .any(|unit| unit.owner.as_str() == "a" && unit.unit_type.as_str() == ship.unit)
         );
+
+        assert_eq!(game.state, before, "a draft changes nothing");
+    }
+
+    /// Seat A holds Flank Speed: the card is taken from wherever the game dealt it.
+    fn with_flank_speed(game: &mut Game<'static>) {
+        let card = ti4_model::id::ActionCardId::new("fs1");
+        game.state.action_card_deck.retain(|held| *held != card);
+        game.state
+            .discarded_action_cards
+            .retain(|held| *held != card);
+        for seat in &mut game.state.players {
+            seat.action_cards.retain(|held| *held != card);
+        }
+        let seat = game.state.player_mut(&PlayerId::new("a")).expect("seat a");
+        seat.action_cards.push(card);
+    }
+
+    #[test]
+    fn a_card_of_the_seat_is_asked_after_the_activation_and_played_or_declined() {
+        let (mut game, tiles) = game();
+        with_flank_speed(&mut game);
+        let before = game.state.clone();
+        let activation = run(&game, &tiles, &[choose("tactical")]);
+        let Some(TacticalFacts::Activation(facts)) = &activation.update.tactical else {
+            panic!("no activation facts");
+        };
+        let target = facts
+            .systems
+            .iter()
+            .find(|reach| reach.ships > 0)
+            .expect("a system in range");
+        let mut script = vec![choose("tactical"), choose(&target.system)];
+
+        // The window of the card is open: the script has no answer for it.
+        let window = run(&game, &tiles, &script);
+        assert_eq!(window.stop, DraftStop::Open);
+        assert_eq!(window.consumed, 2);
+        assert_eq!(window.movement, None, "the movement is not reached");
+        let offered = &window.update.pending_choice.as_ref().unwrap().choice;
+        let play = offered
+            .options
+            .iter()
+            .find(|option| !option.is_decline())
+            .expect("the card is offered");
+        assert_eq!(
+            play.payload.get("card").and_then(|card| card.as_str()),
+            Some("fs1"),
+            "{play:?}"
+        );
+        assert!(offered.options.iter().any(ChoiceOption::is_decline));
+
+        // How far the ships of the seat come, with the card declined and with it played.
+        let reach = |outcome: &DraftOutcome| {
+            assert_eq!(outcome.stop, DraftStop::Open);
+            assert_eq!(subtype(&outcome.update), "movement_step");
+            let Some(TacticalFacts::Movement(facts)) = &outcome.update.tactical else {
+                panic!("no movement facts");
+            };
+            facts
+                .ships
+                .iter()
+                .filter(|ship| ship.r#move.is_some())
+                .count()
+        };
+        script.push(choose("decline"));
+        let declined = run(&game, &tiles, &script);
+        assert_eq!(declined.consumed, 3);
+        let hand = |outcome: &DraftOutcome| {
+            let seats = &outcome.update.view.players;
+            let seat = seats.iter().find(|seat| seat.id.as_str() == "a").unwrap();
+            seat.held_action_cards.clone()
+        };
+        assert!(hand(&declined).iter().any(|card| card.as_str() == "fs1"));
+
+        *script.last_mut().unwrap() = choose(&play.id);
+        let played = run(&game, &tiles, &script);
+        assert_eq!(played.consumed, 3);
+        assert!(
+            !hand(&played).iter().any(|card| card.as_str() == "fs1"),
+            "the copy played the card"
+        );
+        assert!(reach(&played) >= reach(&declined));
 
         assert_eq!(game.state, before, "a draft changes nothing");
     }

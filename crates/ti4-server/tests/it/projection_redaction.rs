@@ -355,7 +355,7 @@ fn a_session_update_is_the_shared_part_of_a_state_update() {
             viewer,
             pending,
             &[],
-            None,
+            &ti4_server::projection::facts_context(None),
         ))
         .expect("session update");
         let fields = update.as_object().expect("an object");
@@ -363,7 +363,15 @@ fn a_session_update_is_the_shared_part_of_a_state_update() {
         for (name, value) in fields {
             assert_eq!(&message[name], value, "{name} for {viewer:?}");
         }
-        for name in ["viewer", "view", "turn_status"] {
+        for name in [
+            "viewer",
+            "view",
+            "turn_status",
+            "action_cards",
+            "secret_objectives",
+            "score",
+            "agendas",
+        ] {
             assert!(fields.contains_key(name), "{name} for {viewer:?}");
         }
         assert_eq!(
@@ -485,6 +493,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             placements: Vec::new(),
             off_map_system_ids: Vec::new(),
         },
+        None,
         &events,
     );
     let opponent = ti4_server::projection::project_initial_snapshot_with_map(
@@ -500,6 +509,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             placements: Vec::new(),
             off_map_system_ids: Vec::new(),
         },
+        None,
         &events,
     );
 
@@ -533,6 +543,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             placements: Vec::new(),
             off_map_system_ids: Vec::new(),
         },
+        None,
         &events,
     );
     assert!(spectator.events[0].private_detail.is_none());
@@ -540,5 +551,240 @@ fn event_history_is_projected_to_its_explicit_audience() {
         !serde_json::to_string(&spectator.events)
             .unwrap()
             .contains("hidden_test")
+    );
+}
+
+/// A game of eight on its map in the late game of the scenarios, where every seat holds action
+/// cards and secret objectives, with what the facts are made from.
+fn late_game() -> (
+    ti4_model::state::GameState,
+    ti4_content::galaxy::Galaxy,
+    Vec<ti4_server::protocol::view::BoardTileView>,
+) {
+    use ti4_model::content_types::POK;
+    let content = ti4_content::ContentStore::embedded();
+    let ids: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f", "g", "h"]
+        .iter()
+        .map(|name| PlayerId::new(*name))
+        .collect();
+    let loader = ti4_server::maps::TemplateLoader::load().expect("the templates load");
+    let template = ti4_server::maps::default_template_for(content, &loader, 8, POK)
+        .expect("a template for eight");
+    let (mut state, mut galaxy) =
+        ti4_server::map::create_game_with_template(content, &ids, 42, Some(&template))
+            .expect("a game");
+    ti4_view::scenario::apply(
+        ti4_view::scenario::LATE_GAME,
+        &mut state,
+        &mut galaxy,
+        content,
+        POK,
+    )
+    .expect("the scenario applies");
+    // Every seat has something to hide, also where the scenario gives it nothing.
+    for index in 0..state.players.len() {
+        if state.players[index].action_cards.is_empty() {
+            let card = state.action_card_deck.remove(0);
+            state.players[index].action_cards.push(card);
+        }
+        if state.players[index].secret_objectives.is_empty() {
+            let secret = state.secret_deck.remove(0);
+            state.players[index].secret_objectives.push(secret);
+        }
+    }
+    let tiles = ti4_server::map::build_board_tiles(content, &galaxy);
+    (state, galaxy, tiles)
+}
+
+/// The facts of a message and the hands of its player views, as they are sent.
+fn facts_and_hands(message: &serde_json::Value) -> String {
+    let mut sent = serde_json::Map::new();
+    for name in [
+        "tactical",
+        "exploration",
+        "action_cards",
+        "secret_objectives",
+        "score",
+        "agendas",
+    ] {
+        if let Some(fact) = message.get(name) {
+            sent.insert(name.to_owned(), fact.clone());
+        }
+    }
+    let hands: Vec<serde_json::Value> = message["view"]["players"]
+        .as_array()
+        .expect("the players")
+        .iter()
+        .map(|player| {
+            serde_json::json!([
+                player["held_action_cards"],
+                player["held_secret_objectives"],
+                player["scored_secret_objectives"],
+            ])
+        })
+        .collect();
+    sent.insert("hands".to_owned(), hands.into());
+    serde_json::Value::Object(sent).to_string()
+}
+
+#[test]
+fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
+    let (state, galaxy, tiles) = late_game();
+    let layout = ti4_server::map::GalaxyLayout::from_galaxy(&galaxy, ti4_model::content_types::POK);
+    let quoted = |id: &str| format!("\"{id}\"");
+    let mut viewers = vec![ViewerRole::Spectator];
+    viewers.extend(
+        state
+            .players
+            .iter()
+            .map(|p| ViewerRole::Player(p.id.clone())),
+    );
+    for viewer in &viewers {
+        let snapshot = ti4_server::projection::project_initial_snapshot_with_map(
+            "g",
+            1,
+            &state,
+            viewer,
+            None,
+            &tiles,
+            &layout,
+            Some(&galaxy),
+            &[],
+        );
+        let update = ti4_server::projection::project_state_update_with_map(
+            "g",
+            1,
+            &state,
+            viewer,
+            None,
+            &tiles,
+            &layout,
+            Some(&galaxy),
+        );
+        // A snapshot and an update have the same facts.
+        let snapshot = serde_json::to_value(&snapshot).expect("the snapshot");
+        let update = serde_json::to_value(&update).expect("the update");
+        let sent = facts_and_hands(&update);
+        assert_eq!(facts_and_hands(&snapshot), sent, "{viewer:?}");
+        for name in [
+            "exploration",
+            "action_cards",
+            "secret_objectives",
+            "score",
+            "agendas",
+        ] {
+            assert!(update.get(name).is_some(), "{name} for {viewer:?}");
+        }
+        assert!(update.get("tactical").is_none(), "nobody is asked");
+
+        // No card of a hand of another seat, and no objective that it has not scored.
+        for player in &state.players {
+            let own = viewer.is_actor(&player.id);
+            assert!(!player.action_cards.is_empty() && !player.secret_objectives.is_empty());
+            for card in &player.action_cards {
+                assert_eq!(
+                    sent.contains(&quoted(card.as_str())),
+                    own,
+                    "{card} of {} for {viewer:?}",
+                    player.id
+                );
+            }
+            for secret in &player.secret_objectives {
+                assert_eq!(
+                    sent.contains(&quoted(secret.as_str())),
+                    own,
+                    "{secret} of {} for {viewer:?}",
+                    player.id
+                );
+            }
+        }
+        // No card of a deck whose cards are hidden: these facts have the count only.
+        assert!(!state.action_card_deck.is_empty() && !state.secret_deck.is_empty());
+        for card in &state.action_card_deck {
+            assert!(
+                !sent.contains(&quoted(card.as_str())),
+                "{card} for {viewer:?}"
+            );
+        }
+        for secret in &state.secret_deck {
+            assert!(
+                !sent.contains(&quoted(secret.as_str())),
+                "{secret} for {viewer:?}"
+            );
+        }
+        for agenda in &state.agenda_deck {
+            assert!(
+                !update["agendas"]
+                    .to_string()
+                    .contains(&quoted(agenda.as_str())),
+                "{agenda} for {viewer:?}"
+            );
+        }
+        assert_eq!(update["action_cards"]["deck"], state.action_card_deck.len());
+        assert_eq!(update["secret_objectives"]["deck"], state.secret_deck.len());
+        // An exploration deck is sent as what it holds, sorted: its order is not.
+        let mut shuffled = false;
+        for (deck, cards) in &state.exploration_decks {
+            let sent: Vec<String> =
+                serde_json::from_value(update["exploration"]["decks"][deck.as_str()].clone())
+                    .expect("the cards of the deck");
+            let mut sorted = cards.clone();
+            sorted.sort();
+            assert_eq!(sent, sorted, "{deck} for {viewer:?}");
+            shuffled |= *cards != sorted;
+        }
+        assert!(
+            shuffled,
+            "a deck of the game is in another order than it is sent"
+        );
+        // The limit of a hand is of the viewer: a spectator has none.
+        assert_eq!(
+            update["action_cards"].get("hand_limit").is_some(),
+            matches!(viewer, ViewerRole::Player(_)),
+            "{viewer:?}"
+        );
+    }
+}
+
+/// How large an update of a game of eight is with its facts. web2 reads the view and the facts;
+/// `state` is for `web/`.
+#[test]
+fn an_update_of_eight_seats_with_its_facts_stays_small() {
+    let (state, galaxy, tiles) = late_game();
+    let layout = ti4_server::map::GalaxyLayout::from_galaxy(&galaxy, ti4_model::content_types::POK);
+    let update = ti4_server::projection::project_state_update_with_map(
+        "g",
+        1,
+        &state,
+        &ViewerRole::Player(PlayerId::new("a")),
+        None,
+        &tiles,
+        &layout,
+        Some(&galaxy),
+    );
+    let whole = serde_json::to_value(ServerMessage::StateUpdate(update)).expect("the update");
+    let size = |value: &serde_json::Value| value.to_string().len();
+    let facts: usize = [
+        "exploration",
+        "action_cards",
+        "secret_objectives",
+        "score",
+        "agendas",
+    ]
+    .iter()
+    .map(|name| size(&whole[*name]))
+    .sum();
+    println!(
+        "update of eight seats: {} bytes; facts {facts}, view {}, state {}, galaxy_layout {}",
+        size(&whole),
+        size(&whole["view"]),
+        size(&whole["state"]),
+        size(&whole["galaxy_layout"]),
+    );
+    assert!(facts < 32 * 1024, "the facts are {facts} bytes");
+    assert!(
+        size(&whole) < 256 * 1024,
+        "the update is {} bytes",
+        size(&whole)
     );
 }

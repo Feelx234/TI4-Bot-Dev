@@ -9,9 +9,10 @@ pub mod view;
 pub use client::ClientMessage;
 pub use error::{ErrorKind, ProtocolError};
 pub use server::{
-    ActionAcceptedMsg, ActionRejectedMsg, EventVisibility, GameEvent, GameEventKind, GameEventMsg,
-    GameOverMsg, InitialSnapshotMsg, PendingChoiceEnvelope, PendingChoiceMsg, PongMsg,
-    ProtocolErrorMsg, ServerMessage, StateUpdateMsg, TurnStatusMsg,
+    ActionAcceptedMsg, ActionRejectedMsg, DraftAppliedMsg, DraftOutcomeMsg, EventVisibility,
+    GameEvent, GameEventKind, GameEventMsg, GameOverMsg, InitialSnapshotMsg, PendingChoiceEnvelope,
+    PendingChoiceMsg, PongMsg, ProtocolErrorMsg, ScriptStopped, ServerMessage, StateUpdateMsg,
+    TurnStatusMsg,
 };
 pub use status::{PublicTurnStatus, RejectionReason, ViewerRole};
 pub use view::{

@@ -689,15 +689,15 @@ pub struct FactsContext<'a> {
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
 ///
-/// With `facts` the update has its six facts ([`fill_facts`]); every host that shows them
-/// gives the context. Without, they are all absent.
+/// The update has its six facts ([`fill_facts`]), made from `state` as it is: the caller gives
+/// the full state of the game, and each fact shows `viewer` only what that seat may know.
 #[must_use]
 pub fn project_session_update(
     state: &GameState,
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
-    facts: Option<&FactsContext<'_>>,
+    facts: &FactsContext<'_>,
 ) -> SessionUpdate {
     let choice = pending_choice.map(|(choice, _)| choice);
     let mut update = SessionUpdate {
@@ -712,9 +712,7 @@ pub fn project_session_update(
         score: None,
         agendas: None,
     };
-    if let Some(context) = facts {
-        fill_facts(&mut update, state, context);
-    }
+    fill_facts(&mut update, state, facts);
     update
 }
 
@@ -815,15 +813,10 @@ mod tests {
     }
 
     #[test]
-    fn the_facts_are_filled_with_a_context_and_only_then() {
+    fn an_update_has_its_facts_and_those_of_the_board_only_with_the_map() {
         let seat = PlayerId::new("player_1");
         let state = GameState::new(std::slice::from_ref(&seat), &[], BTreeMap::new(), None, 1);
         let viewer = ViewerRole::Player(seat);
-
-        let bare = project_session_update(&state, &viewer, None, &[], None);
-        assert!(bare.tactical.is_none() && bare.exploration.is_none());
-        assert!(bare.action_cards.is_none() && bare.secret_objectives.is_none());
-        assert!(bare.score.is_none() && bare.agendas.is_none());
 
         // Without the map there is nothing to say about the board.
         let context = FactsContext {
@@ -831,11 +824,13 @@ mod tests {
             sources: POK,
             galaxy: None,
         };
-        let filled = project_session_update(&state, &viewer, None, &[], Some(&context));
+        let filled = project_session_update(&state, &viewer, None, &[], &context);
         assert!(filled.tactical.is_none() && filled.exploration.is_none());
         assert!(filled.action_cards.is_some() && filled.secret_objectives.is_some());
         assert!(filled.score.is_some() && filled.agendas.is_some());
-        let mut again = bare;
+        let mut again = filled.clone();
+        again.action_cards = None;
+        again.score = None;
         fill_facts(&mut again, &state, &context);
         assert_eq!(again, filled);
     }

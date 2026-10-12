@@ -7,7 +7,7 @@ use std::thread::{self, JoinHandle};
 use ti4_content::ContentStore;
 use ti4_engine::choice::{
     AlwaysDecline, Choice, ChoiceOption, Decider, DecisionRecord, FirstOption, IllegalChoice,
-    Scripted, SeatObservation, Table,
+    Scripted, SeatObservation, SeededRandom, Table,
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
@@ -65,6 +65,8 @@ pub struct Subscriber {
 /// Shared session state accessible across threads.
 pub struct SessionShared {
     pub(crate) planning: super::planning::SessionPlanning,
+    /// The scripts that are being sent to the game, by their seat ([`super::script`]).
+    pub(crate) scripts: BTreeMap<PlayerId, super::script::ScriptApplication>,
     pub game_id: String,
     pub game_version: u64,
     pub latest_state: GameState,
@@ -84,6 +86,9 @@ pub struct SessionShared {
     pub error: Option<String>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
     pub galaxy_layout: crate::map::GalaxyLayout,
+    /// The map of the game, for the facts of a message and for a draft. `None` in a session
+    /// that was made without one: its messages have no `tactical` and no `exploration`.
+    pub galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
     pub event_log: Vec<GameEvent>,
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
@@ -247,6 +252,7 @@ impl SessionShared {
     pub fn new(game_id: String, initial_state: GameState) -> Self {
         Self {
             planning: super::planning::SessionPlanning::new(BTreeMap::new()),
+            scripts: BTreeMap::new(),
             game_id,
             game_version: 1,
             latest_state: initial_state,
@@ -272,6 +278,7 @@ impl SessionShared {
                 placements: Vec::new(),
                 off_map_system_ids: Vec::new(),
             },
+            galaxy: None,
             store: None,
             snapshot_decision_count: 0,
             redo_decisions: Vec::new(),
@@ -493,6 +500,7 @@ impl SessionShared {
         let state = self.latest_state.clone();
         let map_tiles = self.map_tiles.clone();
         let galaxy_layout = self.galaxy_layout.clone();
+        let galaxy = self.galaxy.clone();
         let self_decision_count = self.decision_log.len();
         let self_redo_count = self.redo_decisions.len();
         let self_generation = self.history_generation;
@@ -523,6 +531,7 @@ impl SessionShared {
                     .map(|(choice, nonce)| (choice, nonce.as_str())),
                 &map_tiles,
                 &galaxy_layout,
+                galaxy.as_deref(),
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
             update.current_path = path.clone();
@@ -608,6 +617,29 @@ struct ReplayingDecider {
     inner: Box<dyn Decider>,
     shared: Arc<Mutex<SessionShared>>,
     has_boundary_state: bool,
+    /// The stream of a random seat. A replayed decision draws from it and drops the draw, so
+    /// the first decision after the replay is the one that the seat would have made next.
+    random: Option<RandomSeat>,
+}
+
+/// The stream of one random seat ([`SeatController::BotRandom`]), shared between the seat and
+/// the replay in front of it.
+#[derive(Clone)]
+struct RandomSeat(Arc<Mutex<SeededRandom>>);
+
+impl RandomSeat {
+    /// The stream of the seat at place `index` of a game with this seed.
+    fn new(seed: u64, index: usize) -> Self {
+        // One stream for each seat: an odd multiplier keeps the seeds of the seats apart.
+        let seat = (index as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        Self(Arc::new(Mutex::new(SeededRandom::new(seed ^ seat))))
+    }
+}
+
+impl Decider for RandomSeat {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.0.lock().expect("random seat lock").choose(choice)
+    }
 }
 
 struct ClosePlanningOnExit(Arc<Mutex<SessionShared>>);
@@ -674,6 +706,9 @@ impl ReplayingDecider {
         };
 
         next_prior.map(|record| {
+            if let Some(random) = &self.random {
+                let _ = random.clone().choose(choice);
+            }
             if let Some(opt) = choice.options.iter().find(|o| o.id == record.chosen) {
                 Ok(opt.clone())
             } else {
@@ -753,6 +788,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared
         .galaxy_layout
         .clone_from(&config.galaxy_layout);
+    initial_shared.galaxy = config.galaxy.clone().map(Arc::new);
     initial_shared.store.clone_from(&config.store);
     initial_shared.game_version = config.initial_version.max(1);
     initial_shared
@@ -796,9 +832,17 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         let _planning_cleanup = ClosePlanningOnExit(worker_shared.clone());
         let mut table = Table::new();
 
+        // The place of a seat at the table, for the stream of a random seat.
+        let order: Vec<PlayerId> = if config.player_ids.is_empty() {
+            config.seats.keys().cloned().collect()
+        } else {
+            config.player_ids.clone()
+        };
+
         // Configure table deciders
         for (seat, controller) in config.seats {
             let inner_human = matches!(controller, SeatController::Human);
+            let mut random = None;
             let never_set = worker_shared
                 .lock()
                 .expect("shared lock")
@@ -823,6 +867,15 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 SeatController::BotFirstOption => Box::new(FirstOption),
                 SeatController::BotAlwaysDecline => Box::new(AlwaysDecline),
                 SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
+                SeatController::BotRandom => {
+                    let index = order
+                        .iter()
+                        .position(|id| id == &seat)
+                        .unwrap_or(order.len());
+                    let stream = RandomSeat::new(config.seed.unwrap_or(0), index);
+                    random = Some(stream.clone());
+                    Box::new(stream)
+                }
             };
 
             // A human seat's "never offer" choices are applied here, below the replay layer: a
@@ -859,6 +912,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         inner,
                         shared: worker_shared.clone(),
                         has_boundary_state: boundary_state.is_some(),
+                        random,
                     }),
                 );
             } else {
@@ -1114,6 +1168,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             }
 
             // Step the engine (will block if human decision is required)
+            let events_before = game.events.len();
             let result = game.step();
 
             // Record outcome
@@ -1358,6 +1413,10 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                 lock.publish_history_events_since(event_start);
 
                 lock.planning.completed_step(&game);
+                let action_over = super::script::tactical_complete(
+                    game.events.get(events_before..).unwrap_or_default(),
+                );
+                lock.scripts_after_step(action_over);
                 for (reply_tx, accepted) in accepted_replies {
                     let _ = reply_tx.send(Ok(accepted));
                 }

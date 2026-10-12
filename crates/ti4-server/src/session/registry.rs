@@ -2160,6 +2160,16 @@ impl GameRegistry {
         if !self.disconnected_since(&state, game_id, player) {
             return Err(LobbyError::TakeoverUnavailable);
         }
+        // A seat that the server plays has nobody to take over from.
+        if state.sessions.get(game_id).is_some_and(|session| {
+            session
+                .lobby_details()
+                .1
+                .get(player)
+                .is_some_and(|controller| *controller != SeatController::Human)
+        }) {
+            return Err(LobbyError::TakeoverUnavailable);
+        }
         if state
             .sessions
             .get(game_id)
@@ -2264,6 +2274,65 @@ impl GameRegistry {
         reply
             .recv()
             .unwrap_or(Err(RejectionReason::NoPendingChoice))
+    }
+
+    /// A script that is sent shares the takeover/history gate with live answers
+    /// ([`GameSession::apply_draft`]). The gate is held while the script is checked on a copy.
+    pub fn apply_player_draft(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        nonce: &str,
+        version: u64,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        self.current_player_session(game_id, credential, player, session)
+            .ok_or_else(|| RejectionReason::UnauthorizedSeat {
+                seat: Some(player.clone()),
+            })?;
+        session.apply_draft(player, nonce, version, script)
+    }
+
+    /// A run of a draft for the seat of this credential ([`GameSession::run_draft`]). `None`
+    /// when the credential is not of `player`, or `session` is no longer the game.
+    pub fn run_player_draft(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> Option<(u64, ti4_view::planning::draft::DraftOutcome)> {
+        self.current_player_session(game_id, credential, player, session)?;
+        Some(session.run_draft(player, script))
+    }
+
+    /// `Some` when `credential` is of `player` and `session` is the running game.
+    fn current_player_session(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+    ) -> Option<()> {
+        let state = self.state.lock().expect("registry lock");
+        let authenticated = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential).ok()
+        } else {
+            state
+                .lobbies
+                .get(game_id)
+                .and_then(|lobby| authenticated_seat(lobby, credential).ok())
+        };
+        (authenticated.as_ref() == Some(player)
+            && state.sessions.get(game_id).is_some_and(|current| {
+                std::ptr::eq(Arc::as_ptr(current), std::ptr::from_ref(session))
+            }))
+        .then_some(())
     }
 
     /// Planning authorization shares the takeover/history gate with live answers.
@@ -2654,10 +2723,78 @@ impl GameRegistry {
         ))
     }
 
+    /// As [`Self::create_player_lobby_with_options`], with every other seat played by a random
+    /// decider ([`SeatController::BotRandom`]), and started at once: the creator is the only
+    /// human of the game. The seats of the game are kept with it (`init.json`), so a recovered
+    /// game has the same random seats.
+    pub fn create_player_game_with_random_seats(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        let (_, player, credential) = self.create_player_lobby_with_options(
+            game_id.clone(),
+            count,
+            seed,
+            nickname,
+            map_template,
+            start_preset,
+        )?;
+        let random = {
+            let mut state = self.state.lock().expect("registry lock");
+            let lobby = state
+                .player_lobbies
+                .get_mut(&game_id)
+                .ok_or(LobbyError::NotFound)?;
+            let mut filled = lobby.clone();
+            let mut random = BTreeSet::new();
+            for index in 0..filled.slots.len() {
+                if filled.slots[index].occupant.is_some() {
+                    continue;
+                }
+                let seat = generate_player_id(&filled.players);
+                filled.slots[index].occupant = Some(seat.clone());
+                filled.players.insert(
+                    seat.clone(),
+                    PlayerLobbyMember {
+                        ready: true,
+                        // Nobody is given this credential: the seat has no inbox.
+                        session: PlayerSession::generate(),
+                        nickname: format!("Random {}", index + 1),
+                    },
+                );
+                random.insert(seat);
+            }
+            for member in filled.players.values_mut() {
+                member.ready = true;
+            }
+            filled.lobby_version += 1;
+            self.save_player_lobby(&filled)?;
+            *lobby = filled;
+            random
+        };
+        let view = self.start_player_lobby_with(&game_id, credential.as_str(), &random)?;
+        Ok((view, player, credential))
+    }
+
     pub fn start_player_lobby(
         &self,
         game_id: &str,
         credential: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        self.start_player_lobby_with(game_id, credential, &BTreeSet::new())
+    }
+
+    /// Starts the lobby with the seats of `random` played by a random decider.
+    fn start_player_lobby_with(
+        &self,
+        game_id: &str,
+        credential: &str,
+        random: &BTreeSet<PlayerId>,
     ) -> Result<PlayerLobbyView, LobbyError> {
         let mut state = self.state.lock().expect("registry lock");
         let lobby = state
@@ -2696,7 +2833,14 @@ impl GameRegistry {
             .with_galaxy(galaxy, map_tiles.clone());
         config.seats = players
             .iter()
-            .map(|p| (p.clone(), SeatController::Human))
+            .map(|p| {
+                let controller = if random.contains(p) {
+                    SeatController::BotRandom
+                } else {
+                    SeatController::Human
+                };
+                (p.clone(), controller)
+            })
             .collect();
         config.seat_tokens = lobby
             .players

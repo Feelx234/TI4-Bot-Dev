@@ -1,7 +1,8 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Built: phase 0 (2026-10-11) and phase 1a (2026-10-12); see "Phase 0:
-what was built" and "Phase 1a: what was built". Next: phase 1b. Nothing else is built yet.
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a and phase 1b (2026-10-12); see
+"Phase 0: what was built", "Phase 1a: what was built" and "Phase 1b: what was built". Next:
+phase 2. Nothing else is built yet.
 
 ## Goal
 
@@ -240,6 +241,67 @@ unchanged in meaning; add a test for a late draft outcome that must be dropped.
    played and declined, as `tests/it/planning_runner.rs` has for the runner. `ti4-view` has no
    such test yet.
 
+#### Phase 1b: what was built (2026-10-12)
+
+- **Facts.** `StateUpdateMsg` and `InitialSnapshotMsg` have the six facts as optional fields.
+  Both go through `project_session_update` with `facts_context` of `ti4-server/src/projection.rs`;
+  the session keeps the `Galaxy` for it (`SessionShared.galaxy`). The context is no longer
+  optional (`project_session_update(…, &FactsContext)`): a message of a session without a map
+  has four facts and no `tactical` and no `exploration`, as the fixtures have. The facts are made
+  from the full state; `state` of a message stays redacted. `PROTOCOL_VERSION` is still 3: every
+  change adds an optional field or a message.
+- **Redaction** (`tests/it/projection_redaction.rs`): for every seat and a spectator, on the
+  late-game scenario of eight, the facts and the three hand fields of `PlayerView` name no
+  action card and no unscored secret objective of another seat, no card of the action card,
+  secret objective or agenda deck, and the exploration decks sorted. `tactical` is sent to the
+  seat that is asked only (`tests/it/draft_scripts.rs`).
+- **Fixtures.** The three snapshot fixtures have `action_cards`, `secret_objectives`, `score` and
+  `agendas` (their game has no map). The fixture test of `web/` is green.
+- **Size.** One update of the late game of eight is 80 kB: the view 35 kB, `state` 38 kB, the
+  facts 5 kB, the layout 2 kB. The facts of an open movement add 0.6 kB (six seats, round 1).
+  No problem; nothing was done.
+- **Random seats.** `SeatController::BotRandom`: one `SeededRandom` for each seat, seeded from
+  the seed of the game and the place of the seat. The answers of the seats are in the decision
+  log as every answer is. A recovery replays the log and, for each replayed answer of a random
+  seat, draws from its stream and drops the draw, so the seat draws next what it would have
+  drawn (`RandomSeat` in `session/worker.rs`). `tests/it/random_seats.rs`: a game that is
+  recovered from its log goes on as the game that was never stopped.
+- `fill_seats: "random"` of `POST /api/games` fills the other seats, readies every seat and
+  starts the game in the request (`create_player_game_with_random_seats`); the response has
+  the lobby as running. The seats of a game are in `init.json`, so a recovered game has them. A
+  seat that the server plays cannot be taken over. **Not done:** the lobby view does not mark a
+  random seat (it reads as a player "Random 2" who is not connected); web2 has no lobby screen.
+- **`RunDraft`** `{ game_id, request_id, script }` is answered with `DraftOutcome`
+  `{ request_id, base_version, outcome }`. The copy is the planning checkpoint of the session
+  (the game at its last completed step), also in the strategy phase and on the turn of the
+  seat. A connection runs one draft at a time and only the newest request waits: an older one
+  gets no answer. A session that cannot be copied answers with a failed run. A script has at
+  most 512 entries, and a client message 64 kB now (it was 4 kB).
+- **`ApplyDraft`** `{ game_id, nonce, expected_version, script }`. The answer is not a field of
+  an update: it is a message of its own, `DraftApplied { nonce, stopped? }`, to the seat.
+  `stopped` is `{ applied, remaining, interrupted, reason }` as `PlanStopped`, counted in
+  entries of the script (the transport takes off the answers before the steps, and adds
+  `destination`). Without `stopped` the game played the whole script. A stale nonce or version
+  is `ActionRejected`, as for `SubmitChoice`.
+  - **Refused whole, with no undo.** The script is first played on a copy of the game
+    (`check_script` in `session/script.rs`): the checkpoint, the decisions since it, then the
+    script, with the dice of the live game. When the game would refuse an entry, nothing is
+    sent, and `stopped` has `applied: 0` and `interrupted: false`. The copy cannot tell what
+    another seat decides. So after such a decision a script can still stop with its earlier
+    entries in the game: `interrupted: true`, the rest staged again. When the copy does not
+    come to the open choice, the script is sent with no check.
+  - While a script answers, the seat gets no update for the choices in between. `DraftApplied`
+    comes before the update of the choice that is open after it.
+  - A script ends when the game asks its seat something that it does not answer, when another
+    seat that a person plays is asked (a random seat does not end it, as in a local game),
+    when the action is over, or when the turn passes.
+- Tests: `tests/it/draft_scripts.rs` plays the scripts of the tests of `draft.rs` against a
+  session and over a websocket; `session/script.rs` has the cases of a script that stops. The
+  test of Flank Speed is in `draft.rs`
+  (`a_card_of_the_seat_is_asked_after_the_activation_and_played_or_declined`).
+- Phase 2 reads from this: `DraftOutcome.outcome` needs no mapping; `DraftApplied` becomes
+  `plan` of the next update; the handshake field for the content version is still to add.
+
 ### Phase 2: the websocket transport (web2)
 
 New `session/wsTransport.ts` implementing `Transport`:
@@ -440,7 +502,7 @@ phase 2 for online.
 | --- | --- | --- |
 | 0 seam (built) | web2, ti4-wasm | large (the async draft; plans and Never cards move to Rust) |
 | 1a facts in one place (built) | ti4-view, ti4-wasm | small |
-| 1b facts, random seats, script messages | ti4-server | large |
+| 1b facts, random seats, script messages (built) | ti4-server | large |
 | 2 transport | web2 | medium |
 | 3 undo | ti4-server, ti4-engine (one line), web2 | medium |
 | 4 entry | web2 | small |

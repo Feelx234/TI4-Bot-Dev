@@ -333,3 +333,74 @@ fn subscribe_accepts_only_the_v3_player_session_field() {
         Err(ProtocolError::UnsupportedVersion { .. })
     ));
 }
+
+#[test]
+fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
+    use ti4_server::protocol::client::MAX_SCRIPT_ENTRIES;
+    use ti4_server::protocol::server::{DraftAppliedMsg, ScriptStopped};
+    use ti4_view::planning::draft::DraftStep;
+    use ti4_view::planning::steps::PlanStep;
+
+    // The script of the page: an answer by its id, then the steps as `submitPlan` has them.
+    let json = serde_json::json!({
+        "type": "apply_draft",
+        "protocol_version": PROTOCOL_VERSION,
+        "game_id": "game_abc",
+        "nonce": "n1",
+        "expected_version": 7,
+        "script": [
+            { "kind": "choose", "option_id": "tactical" },
+            { "kind": "done_moving" },
+        ],
+    })
+    .to_string();
+    let script = vec![
+        DraftStep::choose("tactical"),
+        DraftStep::Step(PlanStep::DoneMoving),
+    ];
+    let apply = ClientMessage::ApplyDraft {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: "game_abc".to_owned(),
+        nonce: "n1".to_owned(),
+        expected_version: 7,
+        script: script.clone(),
+    };
+    assert_eq!(parse_client_message(&json).expect("parse"), apply);
+    assert!(apply.validate_bounds().is_ok());
+
+    let run = |script: Vec<DraftStep>| ClientMessage::RunDraft {
+        protocol_version: PROTOCOL_VERSION,
+        game_id: "game_abc".to_owned(),
+        request_id: "r1".to_owned(),
+        script,
+    };
+    let json = serde_json::to_string(&run(script.clone())).unwrap();
+    assert!(json.contains("\"type\":\"run_draft\""));
+    assert_eq!(parse_client_message(&json).unwrap(), run(script.clone()));
+    // A draft with nothing chosen is a script too; one that is too long is not taken.
+    assert!(run(Vec::new()).validate_bounds().is_ok());
+    let long = vec![DraftStep::choose("x"); MAX_SCRIPT_ENTRIES + 1];
+    assert_eq!(run(long).validate_bounds(), Err("script"));
+    assert!(!format!("{:?}", run(script.clone())).contains("tactical"));
+
+    for stopped in [
+        None,
+        Some(ScriptStopped {
+            applied: 1,
+            remaining: script[1..].to_vec(),
+            interrupted: true,
+            reason: "The game asks for another decision first.".to_owned(),
+        }),
+    ] {
+        let message = ServerMessage::DraftApplied(DraftAppliedMsg {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: "game_abc".to_owned(),
+            nonce: "n1".to_owned(),
+            stopped,
+        });
+        let json = serde_json::to_string(&message).unwrap();
+        assert!(json.contains("\"type\":\"draft_applied\""));
+        assert_eq!(parse_server_message(&json).unwrap(), message);
+        assert_eq!(message.game_version(), None);
+    }
+}

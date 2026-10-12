@@ -39,6 +39,27 @@ pub struct InitialSnapshotMsg {
     /// none. Always empty for spectators and for every other seat's view.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reaction_modes: BTreeMap<String, ReactionMode>,
+    /// What the viewer needs to stage the pending choice of a tactical action
+    /// ([`ti4_view::tactical`]). Only the seat that is asked has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tactical: Option<ti4_view::tactical::TacticalFacts>,
+    /// The exploration decks and the planets that are still explored ([`ti4_view::exploration`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration: Option<ti4_view::exploration::ExplorationFacts>,
+    /// The action card deck, its discard pile and the hand limit of the viewer
+    /// ([`ti4_view::action_cards`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_cards: Option<ti4_view::action_cards::ActionCardFacts>,
+    /// The secret objective deck and what each seat has scored of it
+    /// ([`ti4_view::secret_objectives`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_objectives: Option<ti4_view::secret_objectives::SecretObjectiveFacts>,
+    /// Where the victory points of every seat come from ([`ti4_view::score`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<ti4_view::score::ScoreFacts>,
+    /// The agenda deck ([`ti4_view::agendas`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agendas: Option<ti4_view::agendas::AgendaFacts>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1445,6 +1466,27 @@ pub struct StateUpdateMsg {
     /// none. Always empty for spectators and for every other seat's view.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reaction_modes: BTreeMap<String, ReactionMode>,
+    /// What the viewer needs to stage the pending choice of a tactical action
+    /// ([`ti4_view::tactical`]). Only the seat that is asked has it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tactical: Option<ti4_view::tactical::TacticalFacts>,
+    /// The exploration decks and the planets that are still explored ([`ti4_view::exploration`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration: Option<ti4_view::exploration::ExplorationFacts>,
+    /// The action card deck, its discard pile and the hand limit of the viewer
+    /// ([`ti4_view::action_cards`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_cards: Option<ti4_view::action_cards::ActionCardFacts>,
+    /// The secret objective deck and what each seat has scored of it
+    /// ([`ti4_view::secret_objectives`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret_objectives: Option<ti4_view::secret_objectives::SecretObjectiveFacts>,
+    /// Where the victory points of every seat come from ([`ti4_view::score`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<ti4_view::score::ScoreFacts>,
+    /// The agenda deck ([`ti4_view::agendas`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agendas: Option<ti4_view::agendas::AgendaFacts>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.
@@ -1674,6 +1716,49 @@ pub struct PlanningResultMsg {
     pub rejection: Option<PlanningRejection>,
 }
 
+/// The answer to `ClientMessage::RunDraft`: where the run of the script ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftOutcomeMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    /// The `request_id` of the request.
+    pub request_id: String,
+    /// The version of the game that the script was played on. When the game has a newer one,
+    /// the same script may end elsewhere.
+    pub base_version: u64,
+    /// Boxed: an outcome has up to four updates, and a message is moved through queues.
+    pub outcome: Box<ti4_view::planning::draft::DraftOutcome>,
+}
+
+/// Where a script that was sent to the live game stopped before its end.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScriptStopped {
+    /// How many entries of the script are in the game. 0 when the script was refused: the game
+    /// is as before.
+    pub applied: usize,
+    /// The entries that are not in the game.
+    pub remaining: Vec<ti4_view::planning::draft::DraftStep>,
+    /// True when the game asked something else first, or went on without the rest; false when
+    /// it refused an entry and nothing was sent.
+    pub interrupted: bool,
+    pub reason: String,
+}
+
+/// What became of `ClientMessage::ApplyDraft`, for the seat that sent it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DraftAppliedMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    /// The nonce of the request: the choice that the script began with.
+    pub nonce: String,
+    /// Absent when the game played the whole script.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<ScriptStopped>,
+}
+
 /// Messages emitted from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -1691,6 +1776,8 @@ pub enum ServerMessage {
     GameOver(GameOverMsg),
     Pong(PongMsg),
     Event(GameEventMsg),
+    DraftOutcome(DraftOutcomeMsg),
+    DraftApplied(DraftAppliedMsg),
 }
 
 impl ServerMessage {
@@ -1711,6 +1798,8 @@ impl ServerMessage {
             Self::GameOver(m) => m.protocol_version,
             Self::Pong(m) => m.protocol_version,
             Self::Event(m) => m.protocol_version,
+            Self::DraftOutcome(m) => m.protocol_version,
+            Self::DraftApplied(m) => m.protocol_version,
         }
     }
 
@@ -1729,6 +1818,8 @@ impl ServerMessage {
             Self::ActionRejected(m) => Some(&m.game_id),
             Self::GameOver(m) => Some(&m.game_id),
             Self::Event(m) => Some(&m.game_id),
+            Self::DraftOutcome(m) => Some(&m.game_id),
+            Self::DraftApplied(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1749,7 +1840,9 @@ impl ServerMessage {
             | Self::Pong(_)
             | Self::PlanningUpdate(_)
             | Self::PlanningStatus(_)
-            | Self::PlanningResult(_) => None,
+            | Self::PlanningResult(_)
+            | Self::DraftOutcome(_)
+            | Self::DraftApplied(_) => None,
         }
     }
 }
