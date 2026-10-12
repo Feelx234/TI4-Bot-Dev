@@ -85,6 +85,14 @@ pub struct Replayer {
     show_players: bool,
     show_decision: bool,
     show_branches: bool,
+    /// The Power window: every seat's immediate defence and one-activation projection.
+    show_power: bool,
+    /// The last power report, keyed by branch and frame so it is computed once per frame shown.
+    power: Option<PowerCached>,
+    /// What the map shows on top of the board: nothing, one seat's power view, or every seat's.
+    overlay: ti4_review::power::Overlay,
+    /// A save asked for during the paint, performed once the paint has put the project back.
+    pending_save: Option<PendingSave>,
     /// The table the operator can start instead of opening something: the same seven knobs the
     /// reviewer offers, in the reviewer's own words, because "I want to play a game" should not
     /// require knowing what a session file is first.
@@ -100,6 +108,21 @@ pub struct Replayer {
     host_code: Option<String>,
     /// Start hosting by itself as soon as a table is live (`--host` on the command line).
     auto_host: bool,
+}
+
+/// Which save button was pressed.
+#[derive(Clone, Copy, Debug)]
+enum PendingSave {
+    Known,
+    As,
+}
+
+/// A power report and the map it was computed on, for one branch's frame.
+struct PowerCached {
+    branch: String,
+    frame: usize,
+    galaxy: Option<ti4_content::galaxy::Galaxy>,
+    report: Option<ti4_review::power::PowerReport>,
 }
 
 /// Hosting asked for on the command line: `ti4-replayer --host <port> [--code <code>]`.
@@ -139,6 +162,13 @@ struct SetupForm {
     temperature: f64,
     diplomacy: bool,
     take_a_seat: bool,
+    /// The six factions the table seats, in the order the rotation turns them round the seats.
+    lineup: Vec<String>,
+}
+
+/// The standard six, the lineup every table used before any other could be picked.
+fn standard_lineup() -> Vec<String> {
+    ti4_review::FACTIONS.map(str::to_owned).to_vec()
 }
 
 impl Default for SetupForm {
@@ -158,6 +188,7 @@ impl Default for SetupForm {
             temperature: 0.5,
             diplomacy: false,
             take_a_seat: true,
+            lineup: standard_lineup(),
         }
     }
 }
@@ -189,6 +220,10 @@ impl SetupForm {
             form.temperature = remembered.temperature;
         }
         form.diplomacy = remembered.diplomacy;
+        // A remembered lineup is kept only if it can still be seated; otherwise the standard six.
+        if ti4_review::check_lineup(ContentStore::embedded(), &remembered.lineup).is_ok() {
+            form.lineup.clone_from(&remembered.lineup);
+        }
         form
     }
 
@@ -205,6 +240,9 @@ impl SetupForm {
             .trim()
             .parse::<u64>()
             .map_err(|_| "The seed has to be a whole number.".to_owned())?;
+        ti4_review::check_lineup(ContentStore::embedded(), &self.lineup)
+            .map_err(|reason| format!("The lineup cannot be seated: {reason}."))?;
+        let lineup = (self.lineup != standard_lineup()).then(|| self.lineup.clone());
         Ok(SimulationConfig {
             checkpoint: PathBuf::from(self.checkpoint.trim()),
             map_pool: PathBuf::from(self.map_pool.trim()),
@@ -213,6 +251,7 @@ impl SetupForm {
             table: self.table,
             temperature: self.temperature,
             diplomacy: self.diplomacy,
+            lineup,
         })
     }
 }
@@ -292,6 +331,10 @@ impl Replayer {
             show_players: settings.players_open,
             show_decision: settings.decisions_open,
             show_branches: settings.branches_open,
+            show_power: false,
+            power: None,
+            overlay: ti4_review::power::Overlay::Off,
+            pending_save: None,
             setup: SetupForm::remembered(settings),
             window: [settings.window_width, settings.window_height],
             // With nothing to look at, say what starting a table means instead of leaving a blank
@@ -483,6 +526,8 @@ impl Replayer {
                         .session
                         .rsplit(['/', '\\'])
                         .next()
+                        // A table started here has no recording to name it after: ask instead.
+                        .filter(|name| !name.trim().is_empty())
                         .map(|name| {
                             let stem = name
                                 .trim_end_matches(".zst")
@@ -945,6 +990,50 @@ impl Replayer {
             if !self.setup.diplomacy {
                 ui.weak("Off: nobody at this table can offer a deal or a transaction.");
             }
+            ui.label("Lineup");
+            let seatable = ti4_review::seatable_factions(ContentStore::embedded());
+            for (index, faction) in self.setup.lineup.iter_mut().enumerate() {
+                egui::ComboBox::from_id_salt(("setup-lineup", index))
+                    .selected_text(faction.clone())
+                    .width(92.0)
+                    .show_ui(ui, |ui| {
+                        for option in &seatable {
+                            ui.selectable_value(faction, (*option).to_owned(), *option);
+                        }
+                    });
+            }
+            if ui
+                .button("Standard six")
+                .on_hover_text("The six factions the policy trained on.")
+                .clicked()
+            {
+                self.setup.lineup = standard_lineup();
+            }
+            if ui
+                .button("Draw from seed")
+                .on_hover_text(
+                    "Six different factions drawn from every seatable faction with this seed, the                      same draw a wide-roster trainer makes for it.",
+                )
+                .clicked()
+            {
+                match self.setup.seed.trim().parse::<u64>().map_err(|_| {
+                    "The seed has to be a whole number.".to_owned()
+                }) {
+                    Ok(seed) => match ti4_review::drawn_lineup(ContentStore::embedded(), seed) {
+                        Ok(lineup) => self.setup.lineup = lineup,
+                        Err(reason) => self.status = reason,
+                    },
+                    Err(reason) => self.status = reason,
+                }
+            }
+            if let Err(reason) = ti4_review::check_lineup(ContentStore::embedded(), &self.setup.lineup)
+            {
+                ui.colored_label(egui::Color32::from_rgb(230, 140, 110), reason);
+            } else if self.setup.lineup != standard_lineup() {
+                ui.weak(
+                    "Factions outside the standard six play an untrained policy row unless the                      checkpoint was trained with them.",
+                );
+            }
             ui.checkbox(&mut self.setup.take_a_seat, "Take seat 0 now")
                 .on_hover_text(
                     "Seat 0 waits for you at its first decision. Any other seat is taken by toggling \
@@ -1014,17 +1103,22 @@ impl Replayer {
                     "A replayer file holds the inputs, the branches and the answers you gave - the \
                      recipe a fork needs, not the frames themselves.",
                 );
+                // Recorded, not performed: the open project is taken out of `self` for the length
+                // of the paint, so saving from here found "nothing open". It runs after the paint,
+                // once the project is back, the same way starting a table does.
                 if ui.button("Save project").clicked() {
-                    self.save_known();
+                    self.pending_save = Some(PendingSave::Known);
                 }
                 if ui.button("Save As…").clicked() {
-                    self.save_as_dialog();
+                    self.pending_save = Some(PendingSave::As);
                 }
                 ui.separator();
                 let mut changed = false;
                 changed |= ui.toggle_value(&mut self.show_branches, "⎇ Branches").changed();
                 changed |= ui.toggle_value(&mut self.show_players, "◧ Players").changed();
                 changed |= ui.toggle_value(&mut self.show_decision, "◨ Choices").changed();
+                ui.toggle_value(&mut self.show_power, "⚔ Power")
+                    .on_hover_text("Each seat's defence and one-activation projection, per system.");
                 if changed {
                     self.persist();
                 }
@@ -1591,6 +1685,61 @@ impl Replayer {
             });
     }
 
+    /// Compute the power report for the frame on screen, once per frame: it runs a movement search
+    /// for every seat and system.
+    fn ensure_power(
+        &mut self,
+        session: &ReviewSession,
+        frame: &ReviewFrame,
+        branch: &str,
+        index: usize,
+    ) {
+        let stale = self.power.as_ref().is_none_or(|cached| {
+            cached.branch != branch || cached.frame != index || cached.report.is_none()
+        });
+        if stale {
+            let galaxy = match self.power.take() {
+                Some(cached) if cached.branch == branch && cached.galaxy.is_some() => cached.galaxy,
+                _ => ti4_review::power::galaxy_of(session, ContentStore::embedded()),
+            };
+            let report = galaxy
+                .as_ref()
+                .map(|galaxy| ti4_review::power::report(galaxy, frame));
+            self.power = Some(PowerCached {
+                branch: branch.to_owned(),
+                frame: index,
+                galaxy,
+                report,
+            });
+        }
+    }
+
+    /// The Power window: every seat's totals, and the selected system in full.
+    fn power_window(&mut self, root: &mut egui::Ui, session: &ReviewSession, frame: &ReviewFrame) {
+        let mut open = self.show_power;
+        egui::Window::new("⚔ Power")
+            .open(&mut open)
+            .default_size([900.0, 640.0])
+            .resizable(true)
+            .show(root.ctx(), |ui| {
+                egui::ScrollArea::both().show(ui, |ui| {
+                    match self.power.as_ref().and_then(|cached| cached.report.as_ref()) {
+                        Some(report) => ti4_review::power::power_sheet(
+                            ui,
+                            session,
+                            frame,
+                            report,
+                            self.selected_tile.as_deref(),
+                        ),
+                        None => {
+                            ui.weak("The map of this session could not be rebuilt, so there is no power report.");
+                        }
+                    }
+                });
+            });
+        self.show_power = open;
+    }
+
     /// The map, with the reviewer's own seat row and legend over it.
     fn centre(&mut self, root: &mut egui::Ui, session: &ReviewSession, frame: &ReviewFrame) {
         egui::CentralPanel::default().show(root, |ui| {
@@ -1609,12 +1758,54 @@ impl Replayer {
             ui.small(
                 "Thick outer edge = space control; thin inner edge = planet control (split when mixed). Wormholes: lettered rings; white outer rim = placed token; red slash = suppressed. IN/OUT portals connect the galaxy to the Fracture. Planet: resources/influence · C/H/I trait · B/G/R/Y specialty · ★ legendary · S station · × destroyed. Gray units are neutral; red slash = damaged; yellow ring = galvanized.",
             );
+            ui.horizontal_wrapped(|ui| {
+                use ti4_review::power::Overlay;
+                ui.strong("Power overlay:");
+                ui.selectable_value(&mut self.overlay, Overlay::Off, "off");
+                for player in &frame.state.players {
+                    ui.selectable_value(
+                        &mut self.overlay,
+                        Overlay::Seat(player.id.clone()),
+                        egui::RichText::new(player.id.as_str()).color(view::player_color(&player.id)),
+                    );
+                }
+                ui.selectable_value(&mut self.overlay, Overlay::All, "all seats");
+                if let Overlay::Seat(_) = self.overlay {
+                    ui.small(
+                        "green fill = can take (≥60%), amber = contested (30–60%) · red/amber ring = threatened · dark = out of reach · ⚔ projection index, +ships arriving",
+                    );
+                } else if self.overlay == Overlay::All {
+                    ui.small("one bar per seat: its one-activation projection into the hex (log scale)");
+                }
+            });
             let available = ui.available_size();
             let (response, painter) = ui.allocate_painter(available, Sense::click());
-            let layout = BoardLayout::new(response.rect, available, frame.state.fracture_in_play);
             let tiles = board_view(content, session, frame, self.selected_tile.as_deref());
+            let layout = BoardLayout::fitted(response.rect, available, &tiles);
             if let Some(system) = draw_board(&painter, &response, &layout, &tiles) {
                 self.selected_tile = Some(system);
+            }
+            let report = self.power.as_ref().and_then(|cached| cached.report.as_ref());
+            if let (Some(report), true) = (report, self.overlay != ti4_review::power::Overlay::Off) {
+                ti4_review::power::draw_overlay(&painter, &layout, &tiles, report, &self.overlay);
+                if let Some(pointer) = response.hover_pos() {
+                    let hovered = tiles.iter().find(|tile| {
+                        view::tile_point(&layout, tile).distance(pointer) <= layout.radius * 0.9
+                    });
+                    if let Some(tile) = hovered {
+                        let lines = ti4_review::power::hover_lines(frame, report, &tile.system);
+                        let title = view::system_label(session, &tile.system);
+                        response.clone().on_hover_ui_at_pointer(|ui| {
+                            ui.strong(title);
+                            if lines.is_empty() {
+                                ui.weak("No seat holds or reaches anything here.");
+                            }
+                            for (player, line) in &lines {
+                                ui.colored_label(view::player_color(player), line);
+                            }
+                        });
+                    }
+                }
             }
         });
     }
@@ -1727,6 +1918,7 @@ impl Replayer {
                 profile_table: profile_table_text(self.setup.table).to_owned(),
                 temperature: self.setup.temperature,
                 diplomacy: self.setup.diplomacy,
+                lineup: self.setup.lineup.clone(),
             },
         };
         if let Err(error) = settings.save(Path::new(SETTINGS_PATH)) {
@@ -1804,12 +1996,28 @@ impl eframe::App for Replayer {
                     if self.show_decision {
                         self.choice_panel(opened, root, session, store.frames(branch), frame);
                     }
+                    if self.show_power || self.overlay != ti4_review::power::Overlay::Off {
+                        self.ensure_power(
+                            session,
+                            frame,
+                            &format!("{branch:?}"),
+                            viewed.unwrap_or(0),
+                        );
+                    }
+                    if self.show_power {
+                        self.power_window(root, session, frame);
+                    }
                     self.centre(root, session, frame);
                 }
             }
             opened.store = store;
         }
         self.opened = opened;
+        match self.pending_save.take() {
+            Some(PendingSave::Known) => self.save_known(),
+            Some(PendingSave::As) => self.save_as_dialog(),
+            None => {}
+        }
         if std::mem::take(&mut start) {
             self.start_table();
         }

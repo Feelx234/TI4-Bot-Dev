@@ -1836,6 +1836,12 @@ fn dispatch_leader(
                             seat.technologies.remove(alias);
                             seat.technologies.insert(replacement);
                         }
+                        crate::technology::apply_unit_upgrades(
+                            context.state,
+                            context.content,
+                            context.sources,
+                            player,
+                        );
                     }
                     None => return false,
                 }
