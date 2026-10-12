@@ -2222,7 +2222,8 @@ fn best_two_exhausted(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 /// Whether readying planets now pays for a round-1 plan: the transport plan's home build or the
 /// Cruiser II research still to come.
 fn readying_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    (short_of_transports(seen, me) && home_builder_ahead(seen, me))
+    (home_builder_ahead(seen, me)
+        && transport_plan(seen, me).is_some_and(|(_, cost)| spare_resources(seen, me) < cost))
         || (cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some())
 }
 
