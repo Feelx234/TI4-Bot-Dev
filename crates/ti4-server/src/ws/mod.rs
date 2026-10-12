@@ -1,6 +1,7 @@
 //! WebSocket connection lifecycle and routing for live multiplayer sessions.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
@@ -16,9 +17,11 @@ use crate::protocol::client::ClientMessage;
 use crate::protocol::error::ErrorKind;
 use crate::protocol::server::{
     ActionRejectedMsg, DraftAppliedMsg, DraftKind, DraftOutcomeMsg, PlanningRejection,
-    PlanningResultMsg, PlanningUpdateMsg, PongMsg, ProtocolErrorMsg, ServerMessage,
+    PlanningResultMsg, PlanningUpdateMsg, PongMsg, PreviewRefusal, PreviewResult, ProtocolErrorMsg,
+    SecondaryPreviewMsg, ServerMessage,
 };
 use crate::protocol::status::{RejectionReason, ViewerRole};
+use crate::session::preview::PreviewRequest;
 use crate::session::{GameRegistry, GameSession};
 
 /// WebSocket upgrade handler for `GET /ws/games/{game_id}`.
@@ -49,6 +52,10 @@ type DraftRequest = Option<(
     ti4_view::planning::audit::PlanScope,
     Vec<ti4_view::planning::draft::DraftStep>,
 )>;
+/// Least time between two reaction declarations on one connection.
+const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);
+/// Least time between two secondary previews on one connection (and only one runs at a time).
+const MIN_PREVIEW_INTERVAL: Duration = Duration::from_millis(200);
 
 #[allow(clippy::too_many_lines)]
 async fn handle_socket(
@@ -126,10 +133,15 @@ async fn handle_socket(
     let mut current_role: Option<ViewerRole> = None;
     let mut current_token: Option<String> = None;
     let mut connection_id: Option<u64> = None;
+    let mut last_intent: Option<std::time::Instant> = None;
+    let mut last_preview: Option<std::time::Instant> = None;
+    let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
     // The draft requests of this connection. One is run at a time and only the newest waits,
     // so a page that sends a script for each change cannot queue work.
     let mut drafts: Option<tokio::sync::watch::Sender<DraftRequest>> = None;
+    let idle_timeout = registry.public().config.ws_idle_timeout;
+    let mut last_inbound = std::time::Instant::now();
 
     // Inbound processing loop
     loop {
@@ -137,6 +149,9 @@ async fn handle_socket(
             msg = ws_receiver.next() => match msg { Some(msg) => msg, None => break },
             _ = auth_check.tick() => {
                 if session.error().is_some() {
+                    break;
+                }
+                if idle_timeout.is_some_and(|limit| last_inbound.elapsed() > limit) {
                     break;
                 }
                 if registry.get_game(&game_id).is_none_or(|current| !Arc::ptr_eq(&current, &session)) {
@@ -151,6 +166,7 @@ async fn handle_socket(
                 continue;
             }
         };
+        last_inbound = std::time::Instant::now();
         let ws_msg = match msg_result {
             Ok(msg) => msg,
             Err(err) => {
@@ -723,6 +739,142 @@ async fn handle_socket(
                             message,
                         }))
                         .await;
+                }
+            }
+            ClientMessage::SetReactionIntent {
+                game_id: message_game_id,
+                triggers,
+                ..
+            } => {
+                let refusal = if message_game_id != game_id {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "set_reaction_intent game_id does not match the WebSocket path".to_owned(),
+                    ))
+                } else if last_intent.is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL) {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "too many reaction declarations; wait a moment".to_owned(),
+                    ))
+                } else {
+                    last_intent = Some(std::time::Instant::now());
+                    match &current_role {
+                        // The seat is the connection's own, never taken from the message.
+                        Some(ViewerRole::Player(seat)) => session
+                            .set_reaction_intent(seat, &triggers)
+                            .err()
+                            .map(|message| (ErrorKind::MalformedMessage, message)),
+                        Some(ViewerRole::Spectator) | None => Some((
+                            ErrorKind::Unauthorized,
+                            "only a seated player can declare reactions".to_owned(),
+                        )),
+                    }
+                };
+                if let Some((kind, message)) = refusal {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind,
+                            message,
+                        }))
+                        .await;
+                    // Re-sync the seat's own view of its settings after a refusal.
+                    if let Some(ViewerRole::Player(seat)) = &current_role {
+                        let _ = outbound_tx
+                            .send(ServerMessage::ReactionIntentState(
+                                session.reaction_intent_state(seat),
+                            ))
+                            .await;
+                    }
+                }
+            }
+            ClientMessage::PreviewSecondary {
+                game_id: message_game_id,
+                request_id,
+                card,
+                primary,
+                answers,
+                ..
+            } => {
+                if message_game_id != game_id {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind: ErrorKind::MalformedMessage,
+                            message: "preview_secondary game_id does not match the WebSocket path"
+                                .to_owned(),
+                        }))
+                        .await;
+                    continue;
+                }
+                let refused = |reason: PreviewRefusal, detail: String| {
+                    ServerMessage::SecondaryPreview(SecondaryPreviewMsg {
+                        protocol_version: PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        request_id,
+                        as_of_version: session.game_version(),
+                        as_of_decisions: 0,
+                        card: card.clone(),
+                        outcome: PreviewResult::Refused { reason, detail },
+                    })
+                };
+                // The seat is the connection's own, never taken from the message.
+                let Some(ViewerRole::Player(seat)) = current_role.clone() else {
+                    let _ = outbound_tx
+                        .send(refused(
+                            PreviewRefusal::NotSeated,
+                            "only a seated player can preview a secondary".to_owned(),
+                        ))
+                        .await;
+                    continue;
+                };
+                // Bounded request rate: one at a time, and not more often than the interval.
+                let too_soon = last_preview
+                    .is_some_and(|at: std::time::Instant| at.elapsed() < MIN_PREVIEW_INTERVAL);
+                if too_soon || preview_running.swap(true, Ordering::AcqRel) {
+                    // (A request that found one running did not take the flag; one that was
+                    // merely too soon never touched it.)
+                    let _ = outbound_tx
+                        .send(refused(
+                            PreviewRefusal::RateLimited,
+                            format!(
+                                "too many previews; retry in {} ms",
+                                MIN_PREVIEW_INTERVAL.as_millis()
+                            ),
+                        ))
+                        .await;
+                    continue;
+                }
+                last_preview = Some(std::time::Instant::now());
+                let request = PreviewRequest {
+                    request_id,
+                    card,
+                    primary,
+                    answers,
+                };
+                let session = session.clone();
+                let outbound_tx = outbound_tx.clone();
+                let running = preview_running.clone();
+                tokio::spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        session.preview_secondary(&seat, &request)
+                    })
+                    .await;
+                    running.store(false, Ordering::Release);
+                    if let Ok(message) = result {
+                        let _ = outbound_tx.send(ServerMessage::SecondaryPreview(message)).await;
+                    }
+                });
+            }
+            ClientMessage::PassReactionHold {
+                game_id: message_game_id,
+                ..
+            } => {
+                // Silent: a Pass from anyone but the held seat, or with nothing held, does nothing.
+                if message_game_id == game_id {
+                    if let Some(ViewerRole::Player(seat)) = &current_role {
+                        session.pass_reaction_hold(seat);
+                    }
                 }
             }
             ClientMessage::SubmitChoice {

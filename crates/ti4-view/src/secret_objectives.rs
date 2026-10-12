@@ -65,7 +65,7 @@ mod tests {
     use ti4_model::content_types::POK;
     use ti4_model::id::ObjectiveId;
 
-    fn game() -> GameState {
+    fn game() -> (GameState, ti4_content::galaxy::Galaxy) {
         let content = ContentStore::embedded();
         let ids: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f"]
             .iter()
@@ -74,16 +74,22 @@ mod tests {
         let loader = crate::maps::TemplateLoader::load().expect("the templates load");
         let template =
             crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::map::create_game_with_template(content, &ids, 42, Some(&template))
-            .expect("a game")
-            .0
+        crate::map::create_game_with_template(content, &ids, 42, Some(&template)).expect("a game")
     }
 
     #[test]
     fn every_objective_of_the_catalogue_is_in_the_deck_or_in_a_hand() {
         let content = ContentStore::embedded();
-        let state = game();
+        let (state, galaxy) = game();
         let facts = project_secret_objective_facts(&state, content);
+        // Setup deals out what this map can never satisfy (the board's census).
+        let homes: Vec<ti4_model::id::SystemId> = state
+            .players
+            .iter()
+            .filter_map(|player| player.home_system.clone())
+            .collect();
+        let census = ti4_engine::map_feasibility::census(content, POK, &galaxy, &homes);
+        let dealt_out = ti4_engine::map_feasibility::unsatisfiable_secret(&census).len();
         let held: usize = state
             .players
             .iter()
@@ -91,7 +97,7 @@ mod tests {
             .sum();
         let printed = crate::components::component_catalog(content, POK).secret_objectives;
 
-        assert_eq!(facts.deck + held, printed.len());
+        assert_eq!(facts.deck + held + dealt_out, printed.len());
         assert!(facts.scored.is_empty());
         assert_eq!(facts.hand_limit, 3);
     }
@@ -99,7 +105,7 @@ mod tests {
     #[test]
     fn a_scored_secret_is_listed_for_its_seat_and_a_public_objective_is_not() {
         let content = ContentStore::embedded();
-        let mut state = game();
+        let mut state = game().0;
         let seat = PlayerId::new("b");
         let secret = state
             .players

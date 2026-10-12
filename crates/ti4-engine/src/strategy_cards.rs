@@ -480,7 +480,33 @@ fn research_option(
     option
 }
 
+/// The Technology primary's research, inside Doctor Carrina's window (every research route opens
+/// it: see `factions/deepwrought_research.rs`).
 fn offer_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+) -> Result<Option<TechnologyId>, IllegalChoice> {
+    use crate::factions::deepwrought_research as carrina;
+    let window = carrina::open(
+        &mut carrina::Host::new(&mut *state, content, sources, galaxy, &mut *table),
+        player,
+        &carrina::any,
+    )?;
+    let result = offer_research_inner(state, content, sources, galaxy, table, player);
+    carrina::settle(
+        &mut carrina::Host::new(&mut *state, content, sources, galaxy, &mut *table),
+        player,
+        window,
+        result.is_ok(),
+    )?;
+    result
+}
+
+fn offer_research_inner(
     state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -723,11 +749,28 @@ fn specialist_compounds(
 
     // "must research a technology of that color" -- so the second offer carries no decline. The
     // planet is exhausted first: the price is paid whichever technology is chosen.
+    state.exhaust_planet(planet.clone());
+    // Doctor Carrina: this is a research too. Her window opens once the colour is fixed, because
+    // the waiver widens the technologies of that colour the player can take.
+    let wanted = *colour;
+    let window = crate::factions::deepwrought_research::open(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
+        player,
+        &move |content, id| {
+            crate::technology::colour_type(content, id).is_some_and(|had| had == wanted)
+        },
+    )?;
+    let open = crate::technology::researchable(state, content, sources, player);
     let of_colour: Vec<TechnologyId> = open
         .into_iter()
-        .filter(|id| crate::technology::colour_type(content, id).is_some_and(|had| had == *colour))
+        .filter(|id| crate::technology::colour_type(content, id).is_some_and(|had| had == wanted))
         .collect();
-    state.exhaust_planet(planet.clone());
     let choice = Choice::new(
         player.clone(),
         format!("research which {} technology", colour.to_lowercase()),
@@ -749,14 +792,29 @@ fn specialist_compounds(
         state.phase,
         state.round,
     ));
-    let answer = ask(state, content, sources, galaxy, table, &choice)?;
-    crate::technology::research(
-        state,
-        content,
-        sources,
+    let answer = ask(state, content, sources, galaxy, table, &choice);
+    if let Ok(answer) = &answer {
+        crate::technology::research(
+            state,
+            content,
+            sources,
+            player,
+            &TechnologyId::new(answer.id.clone()),
+        );
+    }
+    crate::factions::deepwrought_research::settle(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
         player,
-        &TechnologyId::new(answer.id),
-    );
+        window,
+        answer.is_ok(),
+    )?;
+    answer?;
     Ok(true)
 }
 
@@ -919,6 +977,8 @@ fn deepwrought_commander(
         }
         if convert {
             crate::supply::note_trade_goods_gained(state, &holder, 1, "deepwroughtcommander");
+        } else {
+            crate::supply::note_commodities_gained(state, &holder, 1);
         }
     }
     Ok(reduced)
@@ -1236,6 +1296,7 @@ fn paid_research(
     adjustment.cost -= reduced;
     let cost = adjustment.cost;
     let mut agent_window = false;
+    let mut carrina_window = crate::factions::deepwrought_research::Window::default();
     let outcome = (|| -> Result<bool, IllegalChoice> {
         // Xander Alexin Victori III (Keleres): this research is one payment window; the agent is
         // offered before the affordability gate, which is what its commodities can open.
@@ -1260,6 +1321,18 @@ fn paid_research(
         if !crate::payment::affordable(state, content, sources, player, cost, Spend::Resources) {
             return Ok(false);
         }
+        // Doctor Carrina is asked as the research begins, once it can be paid for.
+        carrina_window = crate::factions::deepwrought_research::open(
+            &mut crate::factions::deepwrought_research::Host::new(
+                &mut *state,
+                content,
+                sources,
+                galaxy,
+                &mut *table,
+            ),
+            player,
+            &crate::factions::deepwrought_research::any,
+        )?;
         // Choose before paying. A declined optional prerequisite waiver returns here, restoring
         // the resource plan too, so the player may choose another legal technology or decline.
         loop {
@@ -1326,6 +1399,20 @@ fn paid_research(
     if agent_window {
         crate::factions::keleres::close_agent_window(state, player);
     }
+    // Doctor Carrina: close the waiver, and settle the holder's placement for a research that landed.
+    let settled = crate::factions::deepwrought_research::settle(
+        &mut crate::factions::deepwrought_research::Host::new(
+            &mut *state,
+            content,
+            sources,
+            galaxy,
+            &mut *table,
+        ),
+        player,
+        carrina_window,
+        outcome.is_ok(),
+    );
+    let outcome = outcome.and_then(|researched| settled.map(|()| researched));
     match outcome {
         Ok(true) => {
             if let Some(source) = adjustment.borrowed_source {
@@ -1348,6 +1435,64 @@ fn paid_research(
             Err(error)
         }
     }
+}
+
+/// Display only: what a seat weighing Diplomacy's "ready planets" needs in front of it. The
+/// exhausted planets it could ready (with their values), and, for the other strategy cards that
+/// spend resources or influence (Leadership, Technology, Warfare), whether each has been played
+/// this round, is still held unplayed by some seat, or is not in this game's round at all. Only
+/// public facts: strategy-card holdings and their exhausted state are on the table for everyone.
+/// Never read by the engine.
+#[must_use]
+pub fn ready_hints(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> serde_json::Value {
+    let planets: Vec<serde_json::Value> = state
+        .controlled_planets(player)
+        .into_iter()
+        .map(|(_, planet)| planet)
+        .filter(|planet| state.exhausted_planets.contains(*planet))
+        .map(|planet| {
+            let record = ti4_content::galaxy::planet(content, planet.as_str(), sources);
+            serde_json::json!({
+                "id": planet.as_str(),
+                "name": record.as_ref().and_then(|r| r.name()).unwrap_or(planet.as_str()),
+                "resources": record.as_ref().map(|r| r.resources()),
+                "influence": record.as_ref().map(|r| r.influence()),
+            })
+        })
+        .collect();
+    let spenders: Vec<serde_json::Value> = [
+        ("Leadership", "influence"),
+        ("Technology", "resources"),
+        ("Warfare", "resources"),
+    ]
+    .iter()
+    .map(|(name, spends)| {
+        let mut held = false;
+        let mut played = false;
+        for seat in &state.players {
+            for card in &seat.strategy_cards {
+                if card_name(content, card.as_str()).as_deref() == Some(*name) {
+                    held = true;
+                    played |= seat.exhausted_strategy_cards.contains(card);
+                }
+            }
+        }
+        let status = if !held {
+            "not_in_play"
+        } else if played {
+            "played"
+        } else {
+            "to_come"
+        };
+        serde_json::json!({ "card": name, "spends": spends, "status": status })
+    })
+    .collect();
+    serde_json::json!({ "planets": planets, "spenders": spenders })
 }
 
 fn ready_planets(
@@ -1389,7 +1534,8 @@ fn ready_planets(
             "ready_planet",
             state.phase,
             state.round,
-        ));
+        ))
+        .detailed("ready_hints", ready_hints(state, content, sources, player));
         let answer = ask(state, content, sources, galaxy, table, &choice)?;
         state.ready_planet(&PlanetId::new(answer.id));
     }
@@ -1518,7 +1664,14 @@ fn politics_primary(
     }
     crate::action_cards::draw(state, content, table, player, 2)?;
     let looked: Vec<String> = (0..state.agenda_deck.len().min(2))
-        .map(|_| state.agenda_deck.remove(0))
+        .map_while(|_| {
+            ti4_model::deck_reserve::take_top(
+                &mut state.deck_reserve,
+                "agenda",
+                &mut state.agenda_deck,
+                None,
+            )
+        })
         .collect();
     for agenda in looked {
         let choice = Choice::new(
@@ -1579,8 +1732,25 @@ fn commodity_map(
     )
 }
 
+/// Display only: one seat's own commodities now, its printed limit and its trade goods, for a
+/// question that offers to gain, replenish, spend or convert commodities (`details.commodities`).
+pub(crate) fn commodity_standing(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+) -> serde_json::Value {
+    let (have, goods) = state
+        .player(player)
+        .map_or((0, 0), |seat| (seat.commodities, seat.trade_goods));
+    serde_json::json!({
+        "have": have,
+        "max": commodity_limit(state, content, player),
+        "trade_goods": goods,
+    })
+}
+
 /// Display only: the agenda card being placed, as printed.
-fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
+pub(crate) fn agenda_details(content: &ContentStore, alias: &str) -> serde_json::Value {
     let record = content.get(ContentType::Agendas, alias);
     let field = |key: &str| {
         record
@@ -1892,9 +2062,13 @@ pub(crate) fn commander_payment_offer(
 
 pub(crate) fn replenish(state: &mut GameState, content: &ContentStore, player: &PlayerId) {
     let limit = commodity_limit(state, content, player);
+    let mut gained = 0;
     if let Some(seat) = state.player_mut(player) {
+        gained = (limit - seat.commodities).max(0);
         seat.commodities = limit;
     }
+    // Siphon (Obsidian plot): the commodities gained, announced before Trade Agreement can take them.
+    crate::supply::note_commodities_gained(state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(state, player);
 }
@@ -2072,6 +2246,39 @@ fn warfare_primary(
     Ok(())
 }
 
+/// Thunder's Edge Warfare: "You may redistribute your command tokens before and after this
+/// action." The `before` half is asked from the card's primary ability, the other when the free
+/// tactical action ends. Both reuse the PoK Warfare redistribution decision, so a policy that
+/// knows that choice scores these too.
+pub(crate) fn redistribute_around_te_warfare(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    before: bool,
+) -> Result<Ability, IllegalChoice> {
+    redistribute_tokens(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        player,
+        &DecisionSource::StrategyCard {
+            card: "Warfare".to_owned(),
+            secondary: false,
+        },
+        "warfare_redistribute_tokens",
+        if before {
+            "Warfare: redistribute your command tokens before the tactical action"
+        } else {
+            "Warfare: redistribute your command tokens after the tactical action"
+        },
+    )
+}
+
 /// Move command tokens between a player's own pools under the caller's named rule/effect.
 ///
 /// Offered as one choice over every legal final distribution, so the policy scores the complete
@@ -2210,14 +2417,25 @@ pub fn primary(
         let Some(galaxy) = galaxy else {
             return Ok(Ability::Resolved);
         };
-        let systems: Vec<String> = galaxy
-            .system_ids()
+        // "Any system": the printed map and every system in play beside it (the Creuss home
+        // system, the Fracture), as an ordinary activation offers them.
+        let mut systems: Vec<String> = galaxy
+            .system_ids_holding_things()
             .into_iter()
             .map(ToOwned::to_owned)
             .collect();
+        for system in state.board.keys() {
+            if !galaxy.is_hyperlane(system.as_str())
+                && !systems.iter().any(|s| s == system.as_str())
+            {
+                systems.push(system.to_string());
+            }
+        }
         if systems.is_empty() {
             return Ok(Ability::Resolved);
         }
+        // "You may redistribute your command tokens before and after this action."
+        redistribute_around_te_warfare(state, content, sources, Some(galaxy), table, player, true)?;
         let choice = Choice::new(
             player.clone(),
             "Warfare: a tactical action without a command token",
@@ -2375,6 +2593,31 @@ pub fn primary(
         _ => return Ok(Ability::Unresolved),
     }
     Ok(Ability::Resolved)
+}
+
+/// What a follower does once the window recorded "follow": the card's secondary, or its
+/// primary for a faction whose ability substitutes it (Jol-Nar Brilliant on Technology).
+///
+/// Shared by the game driver and the read-only secondary preview
+/// ([`crate::secondary_preview`]) so the preview asks exactly what the real flow asks.
+///
+/// # Errors
+/// [`IllegalChoice`] when a decider answers with something not offered.
+pub fn follow(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    follower: &PlayerId,
+    card: &str,
+) -> Result<Ability, IllegalChoice> {
+    let name = card_name(content, card).unwrap_or_else(|| card.to_owned());
+    if crate::faction_abilities::substitutes_primary(state, content, follower, &name) {
+        primary(state, content, sources, galaxy, table, follower, card)
+    } else {
+        secondary(state, content, sources, galaxy, table, follower, card)
+    }
 }
 
 /// Resolve one follower's secondary after the shared follower window has charged its token.
@@ -4338,6 +4581,76 @@ mod tests {
         assert_eq!(with["controls_mecatol"], true);
     }
 
+    /// Game 8261fb3f (round 5): the Xxcha played Imperial with Push Boundaries and Unify the
+    /// Colonies met, but Letnev had just taken Archon Ren. Rule 61.16 bars every public objective,
+    /// so no scoring question is asked and only the Mecatol Rex point follows.
+    #[test]
+    fn imperial_asks_nothing_while_a_home_planet_is_lost() {
+        let content = ContentStore::embedded();
+        let xxcha = PlayerId::new("a");
+        let letnev = PlayerId::new("b");
+        let upgrades: Vec<_> = content
+            .records(ContentType::Technologies)
+            .iter()
+            .filter(|record| record.strings("types").contains(&"UNITUPGRADE"))
+            .filter_map(|record| record.text("alias"))
+            .take(2)
+            .map(ToOwned::to_owned)
+            .collect();
+        let imperial = |archon_ren_holder: &PlayerId| {
+            let mut state = game(&["a", "b"]);
+            state.player_mut(&xxcha).unwrap().faction = ti4_model::id::FactionId::new("xxcha");
+            state.player_mut(&letnev).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+            state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new("develop")];
+            for alias in &upgrades {
+                state
+                    .player_mut(&xxcha)
+                    .unwrap()
+                    .technologies
+                    .insert(ti4_model::id::TechnologyId::new(alias.clone()));
+            }
+            let home = state.system_mut(&SystemId::new("14"));
+            home.set_control(PlanetId::new("archontau"), xxcha.clone());
+            home.set_control(PlanetId::new("archonren"), archon_ren_holder.clone());
+            state
+                .system_mut(&SystemId::new(crate::seating::MECATOL))
+                .set_control(PlanetId::new("mecatol_rex"), xxcha.clone());
+            let lost = crate::objectives::home_planets_not_controlled(
+                &crate::objectives::Position::new(&state, content, POK, &xxcha),
+            );
+            let before = state.player(&xxcha).unwrap().victory_points;
+            let (capturing, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+            let mut table = Table::with_default(Box::new(capturing));
+            primary(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut table,
+                &xxcha,
+                &card("Imperial"),
+            )
+            .unwrap();
+            let asked = seen
+                .borrow()
+                .iter()
+                .any(|choice| choice.prompt == "score a public objective with Imperial");
+            let gained = state.player(&xxcha).unwrap().victory_points - before;
+            (lost, asked, gained)
+        };
+
+        let (lost, asked, gained) = imperial(&letnev);
+        assert_eq!(lost, vec![PlanetId::new("archonren")]);
+        assert!(!asked, "61.16: no public objective while Archon Ren is Letnev's");
+        assert_eq!(gained, 1, "the Mecatol Rex point still follows");
+
+        let (lost, asked, gained) = imperial(&xxcha);
+        assert!(lost.is_empty());
+        assert!(asked, "with the home system whole the objective is offered");
+        assert_eq!(gained, 2, "Develop Weaponry plus the Mecatol Rex point");
+    }
+
     #[test]
     fn the_simple_secondaries_apply_their_effects() {
         let content = ContentStore::embedded();
@@ -4498,7 +4811,154 @@ mod tests {
         let hub = plain_hub();
         state.phase = ti4_model::state::Phase::Action;
         let tokens = state.player(&player).unwrap().tactic_tokens;
+        let system = hub.galaxy.system_ids()[0].to_owned();
+        let keep = held_distribution(&state, &player);
 
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(crate::choice::Scripted::new(vec![
+                keep,
+                system.clone(),
+            ]))),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+
+        assert_eq!(result, Ability::FreeTactical(SystemId::new(system)));
+        assert_eq!(state.player(&player).unwrap().tactic_tokens, tokens);
+    }
+
+    /// The tactic/fleet/strategy distribution the player holds, as a redistribution answer id.
+    fn held_distribution(state: &GameState, player: &PlayerId) -> String {
+        let seat = state.player(player).unwrap();
+        format!(
+            "{}|{}|{}",
+            seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+        )
+    }
+
+    /// "You may redistribute your command tokens before and after this action": the first half is
+    /// offered by the card's primary ability, ahead of the choice of system, and applies.
+    #[test]
+    fn thunders_edge_warfare_offers_redistribution_before_the_system_is_chosen() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let hub = plain_hub();
+        state.phase = ti4_model::state::Phase::Action;
+        let (tactic, fleet, strategic) = {
+            let seat = state.player(&player).unwrap();
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens)
+        };
+        let system = hub.galaxy.system_ids()[0].to_owned();
+        let moved = format!("0|{fleet}|{}", strategic + tactic);
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(vec![
+                moved, system,
+            ])));
+
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(capturing)),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+
+        assert!(matches!(result, Ability::FreeTactical(_)));
+        let seat = state.player(&player).unwrap();
+        assert_eq!(
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
+            (0, fleet, strategic + tactic),
+            "every token moved, none minted"
+        );
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 2, "redistribute, then the system");
+        let first = asked[0].context.as_ref().expect("typed context");
+        assert_eq!(first.subtype, "warfare_redistribute_tokens");
+        assert!(asked[0].prompt.contains("before"), "{}", asked[0].prompt);
+        assert_eq!(
+            asked[1].context.as_ref().unwrap().subtype,
+            "warfare_free_tactical"
+        );
+    }
+
+    /// "Any system" includes a system in play off the printed map, such as the Creuss home
+    /// system: an ordinary activation offers it, and so must Warfare's free tactical action.
+    #[test]
+    fn thunders_edge_warfare_offers_a_system_off_the_printed_map() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        let hub = plain_hub();
+        state.phase = ti4_model::state::Phase::Action;
+        let off_map = SystemId::new("51");
+        assert!(
+            !hub.galaxy
+                .system_ids_holding_things()
+                .contains(&off_map.as_str()),
+            "the fixture's map does not place it"
+        );
+        let _ = state.system_mut(&off_map);
+        let held = held_distribution(&state, &player);
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(vec![
+                held,
+                off_map.to_string(),
+            ])));
+        let result = primary(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut Table::with_default(Box::new(capturing)),
+            &player,
+            "te6warfare",
+        )
+        .unwrap();
+        assert!(matches!(result, Ability::FreeTactical(system) if system == off_map));
+        assert!(
+            seen.borrow()[1]
+                .options
+                .iter()
+                .any(|o| o.id == off_map.as_str())
+        );
+    }
+
+    #[test]
+    fn ready_hints_report_which_spending_cards_were_played() {
+        let store = ContentStore::embedded();
+        let mut state = game(&["a", "b"]);
+        let player = PlayerId::new("a");
+        let leadership = ti4_model::id::StrategyCardId::new("pok1leadership");
+        assert_eq!(
+            card_name(store, "pok1leadership").as_deref(),
+            Some("Leadership")
+        );
+        state.players[1].strategy_cards = vec![leadership.clone()];
+        let hints = ready_hints(&state, store, POK, &player);
+        assert_eq!(hints["spenders"][0]["card"], "Leadership");
+        assert_eq!(hints["spenders"][0]["status"], "to_come");
+        assert_eq!(hints["spenders"][1]["status"], "not_in_play");
+        state.players[1].exhausted_strategy_cards.insert(leadership);
+        let hints = ready_hints(&state, store, POK, &player);
+        assert_eq!(hints["spenders"][0]["status"], "played");
+        assert!(hints["planets"].as_array().unwrap().is_empty());
+    }
+
+    /// The PoK card is unchanged: it still recalls a token and redistributes once, and never asks
+    /// for a free tactical action.
+    #[test]
+    fn pok_warfare_does_not_return_a_free_tactical_directive() {
+        let mut state = game(&["a"]);
+        let player = PlayerId::new("a");
+        state.phase = ti4_model::state::Phase::Action;
+        let hub = plain_hub();
         let result = primary(
             &mut state,
             ContentStore::embedded(),
@@ -4506,12 +4966,9 @@ mod tests {
             Some(&hub.galaxy),
             &mut Table::new(),
             &player,
-            "te6warfare",
-        )
-        .unwrap();
-
-        assert!(matches!(result, Ability::FreeTactical(_)));
-        assert_eq!(state.player(&player).unwrap().tactic_tokens, tokens);
+            "pok6warfare",
+        );
+        assert!(!matches!(result, Ok(Ability::FreeTactical(_))));
     }
 
     /// Two distinct placed planets, in the order `controlled_planets` yields them.

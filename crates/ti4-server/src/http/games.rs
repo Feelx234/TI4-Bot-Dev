@@ -83,6 +83,12 @@ pub struct CreateGameRequest {
     /// `"random"` fills every other seat with a random decider and starts the game in this
     /// request: there is no lobby to ready and start. The seats decide from the seed of the game.
     pub fill_seats: Option<String>,
+    /// Strategy card set: `"te"` (default), `"pok"` or `"base_game_codex1"`; see
+    /// [`crate::card_set`]. Anything else is a 400.
+    pub strategy_card_set: Option<String>,
+    /// Who opens as speaker: `"random"` (default; a seat drawn from the seed, so the same seed
+    /// gives the same speaker) or `"seat"` (the first seat). Anything else is a 400.
+    pub speaker_order: Option<String>,
 }
 
 /// Response after creating a game.
@@ -292,6 +298,12 @@ pub async fn create_game(
         ),
     };
 
+    if payload.start_preset.is_some() && registry.public().is_public() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "start_preset is not available on the public server".to_owned(),
+        ));
+    }
     if let Some(preset) = &payload.start_preset
         && !crate::preset::is_known(preset)
     {
@@ -312,6 +324,18 @@ pub async fn create_game(
         }
     };
 
+    let strategy_card_set = match payload.strategy_card_set.as_deref() {
+        Some(name) => crate::card_set::validate(name)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?,
+        None => crate::card_set::DEFAULT,
+    };
+
+    let speaker_order = match payload.speaker_order.as_deref() {
+        Some(name) => crate::map::SpeakerOrder::parse(name)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?,
+        None => crate::map::SpeakerOrder::default(),
+    };
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = if fill_random {
         // The start builds the board: not on the async runtime.
@@ -325,18 +349,22 @@ pub async fn create_game(
                 &payload.nickname,
                 map_template,
                 payload.start_preset,
+                strategy_card_set,
+                speaker_order,
             )
         })
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
-        registry.create_player_lobby_with_options(
+        registry.create_player_lobby_with_speaker(
             game_id.clone(),
             payload.player_count,
             seed,
             &payload.nickname,
             map_template,
             payload.start_preset,
+            strategy_card_set,
+            speaker_order,
         )
     }
     .map_err(lobby_error)?;
@@ -485,6 +513,74 @@ pub struct RemoveBotRequest {
     pub player_id: PlayerId,
 }
 
+/// Body of `POST /api/games/{game_id}/lobby/bots`.
+///
+/// `kind` is `random` or `smart` (in-process, authorized by the host's own credential, no password). With
+/// `fill: true` every open slot gets a bot; otherwise `count` bots (default 1) are added.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AddBotsRequest {
+    pub kind: String,
+    pub nickname: Option<String>,
+    pub count: Option<usize>,
+    #[serde(default)]
+    pub fill: bool,
+    /// The faction for the one bot being added (`None`: the seed deals it at start).
+    #[serde(default)]
+    pub faction: Option<String>,
+}
+
+/// Body of `POST /api/games/{game_id}/lobby/seat-faction`: `faction: null` goes back to random.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetSeatFactionRequest {
+    pub player_id: PlayerId,
+    #[serde(default)]
+    pub faction: Option<String>,
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/bots`.
+pub async fn add_bots_to_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<AddBotsRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    if !crate::session::registry::IN_PROCESS_BOT_KINDS.contains(&payload.kind.as_str()) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "Unknown bot kind '{}': only 'random' or 'smart' can be added here (MLP bots use /lobby/add-bot)",
+                payload.kind
+            ),
+        ));
+    }
+    if payload.fill && payload.count.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Use either fill or count, not both".to_owned(),
+        ));
+    }
+    let count = if payload.fill {
+        None
+    } else {
+        Some(payload.count.unwrap_or(1))
+    };
+    Ok(Json(
+        registry
+            .add_in_process_bots(
+                &game_id,
+                token,
+                &payload.kind,
+                payload.nickname,
+                count,
+                payload.faction.as_deref(),
+            )
+            .map_err(lobby_error)?,
+    ))
+}
+
 /// Handler for `POST /api/games/{game_id}/lobby/add-bot`.
 pub async fn add_bot_to_lobby(
     Path(game_id): Path<String>,
@@ -493,6 +589,12 @@ pub async fn add_bot_to_lobby(
     Json(payload): Json<AddBotRequest>,
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     let token = require_player_session(&headers)?;
+    if registry.public().is_public() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "ML bots are disabled on the public server; use the smart or random bots".to_owned(),
+        ));
+    }
     if !registry.bot_service_enabled() {
         return Err((
             StatusCode::FORBIDDEN,
@@ -525,6 +627,27 @@ pub async fn remove_bot_from_lobby(
     ))
 }
 
+/// Handler for `POST /api/games/{game_id}/lobby/seat-faction`: the host for any seat, a person for
+/// their own.
+pub async fn set_lobby_seat_faction(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<SetSeatFactionRequest>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        registry
+            .set_seat_faction(
+                &game_id,
+                token,
+                &payload.player_id,
+                payload.faction.as_deref(),
+            )
+            .map_err(lobby_error)?,
+    ))
+}
+
 fn player_session(headers: &HeaderMap) -> Result<Option<&str>, (StatusCode, String)> {
     headers
         .get("x-ti4-player-session")
@@ -544,6 +667,8 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
     let message = error.message();
     let status = match error {
         LobbyError::NotFound => StatusCode::NOT_FOUND,
+        LobbyError::FactionTaken(_) => StatusCode::CONFLICT,
+        LobbyError::InvalidFaction(_) => StatusCode::BAD_REQUEST,
         LobbyError::InvalidCapability
         | LobbyError::HumanSeatRequired
         | LobbyError::HostRequired => StatusCode::FORBIDDEN,
@@ -721,6 +846,117 @@ pub async fn change_history(
     Ok(Json(ServerMessage::InitialSnapshot(snapshot)))
 }
 
+/// Host-only, read-only dry run of removing or changing one past decision.
+///
+/// `POST /api/games/{game_id}/history/splice-preview`. Nothing in the game, its history or its
+/// storage changes; the response says how many later decisions would still fit and where the
+/// first one that does not is.
+pub async fn splice_preview(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<crate::protocol::splice::SplicePreviewRequest>,
+) -> Result<Json<crate::protocol::splice::SplicePreview>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    let preview = tokio::task::spawn_blocking(move || {
+        registry.splice_preview(&game_id, &token, &payload.edit)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Splice preview worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| {
+        let status = match error {
+            HistoryError::NotFound => StatusCode::NOT_FOUND,
+            HistoryError::Forbidden(_) => StatusCode::FORBIDDEN,
+            HistoryError::InvalidTarget(_) => StatusCode::BAD_REQUEST,
+            HistoryError::Conflict(_) => StatusCode::CONFLICT,
+            HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        (status, error.message())
+    })?;
+    Ok(Json(preview))
+}
+
+fn history_status_code(error: &HistoryError) -> StatusCode {
+    match error {
+        HistoryError::NotFound => StatusCode::NOT_FOUND,
+        HistoryError::Forbidden(_) => StatusCode::FORBIDDEN,
+        HistoryError::InvalidTarget(_) => StatusCode::BAD_REQUEST,
+        HistoryError::Conflict(_) => StatusCode::CONFLICT,
+        HistoryError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+/// Where a turn redo stands (`null` status when none is in flight). Any authenticated player.
+///
+/// `GET /api/games/{game_id}/turn-redo`.
+pub async fn turn_redo_status(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<crate::protocol::turn_redo::TurnRedoStatusResponse>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    let status = tokio::task::spawn_blocking(move || registry.turn_redo_status(&game_id, &token))
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Turn redo worker failed: {error}"),
+            )
+        })?
+        .map_err(|error| (history_status_code(&error), error.message()))?;
+    Ok(Json(crate::protocol::turn_redo::TurnRedoStatusResponse {
+        status,
+    }))
+}
+
+/// Turn redo: request (rewind my last turn), auto-play the round after the new turn, restore the
+/// original timeline, or keep the new one.
+///
+/// `POST /api/games/{game_id}/turn-redo` with `{expected_version, action: ...}`. Every action but
+/// `keep` answers with the replacement snapshot like the history endpoint, so clients resync;
+/// `keep` answers `{"kept": true}`.
+pub async fn turn_redo(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<crate::protocol::turn_redo::TurnRedoRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    use crate::protocol::turn_redo::TurnRedoCommand;
+    let token = require_player_session(&headers)?.to_owned();
+    let version = payload.expected_version;
+    let outcome = tokio::task::spawn_blocking(move || match payload.command {
+        TurnRedoCommand::Request { seat, turns } => registry
+            .turn_redo_request(&game_id, &token, version, seat.as_deref(), turns)
+            .map(Some),
+        TurnRedoCommand::Autoplay => registry
+            .turn_redo_autoplay(&game_id, &token, version)
+            .map(Some),
+        TurnRedoCommand::Restore => registry
+            .turn_redo_restore(&game_id, &token, version)
+            .map(Some),
+        TurnRedoCommand::Keep => registry.turn_redo_keep(&game_id, &token).map(|()| None),
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Turn redo worker failed: {error}"),
+        )
+    })?
+    .map_err(|error| (history_status_code(&error), error.message()))?;
+    let body = match outcome {
+        Some(snapshot) => serde_json::to_value(ServerMessage::InitialSnapshot(snapshot))
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?,
+        None => serde_json::json!({ "kept": true }),
+    };
+    Ok(Json(body))
+}
+
 #[cfg(test)]
 mod template_request_tests {
     use super::*;
@@ -734,6 +970,8 @@ mod template_request_tests {
             map: None,
             start_preset: None,
             fill_seats: None,
+            strategy_card_set: None,
+            speaker_order: None,
         })
     }
 
@@ -746,6 +984,8 @@ mod template_request_tests {
             map: None,
             start_preset: Some(preset.to_owned()),
             fill_seats: None,
+            strategy_card_set: None,
+            speaker_order: None,
         })
     }
 

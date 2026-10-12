@@ -91,6 +91,8 @@ impl Fixture {
                 (
                     player,
                     PlayerLobbyMember {
+                        bot: None,
+                        faction: None,
                         ready: true,
                         session: credential,
                         nickname: if id == A { "A" } else { "B" }.into(),
@@ -117,6 +119,8 @@ impl Fixture {
             map_template: None,
             start_preset: None,
             map_revision: 0,
+            strategy_card_set: None,
+            speaker_order: None,
         };
         let registry =
             Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(200)));

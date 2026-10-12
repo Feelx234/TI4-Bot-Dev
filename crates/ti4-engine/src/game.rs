@@ -589,6 +589,20 @@ impl AftermathWindow {
                             &self.system,
                         )
                         .is_empty();
+                    // The Crimson Revenant's DEPLOY: "you may commit 1 mech, even if you have no
+                    // units in the system", so the step opens for it when no ship holds the space.
+                    let nobody_there =
+                        crate::combat::combatants(state, ctx.content, ctx.sources, &self.system)
+                            .is_empty();
+                    let holds = holds
+                        || (nobody_there
+                            && crate::factions::crimson::can_deploy(
+                                state,
+                                ctx.content,
+                                ctx.sources,
+                                &self.player,
+                                &self.system,
+                            ));
                     if let Some(outcome) = window.outcome()
                         && !self.feats_noted
                     {
@@ -987,7 +1001,391 @@ pub struct Game<'a> {
     strategic_observer: Option<StrategicObserver>,
 }
 
+/// A copy of everything a [`Game`] needs to continue identically, taken at a step boundary.
+///
+/// Unlike a `Game` (whose table holds deciders that may be thread-local) a snapshot is plain
+/// data, so a session worker can publish one for other threads. Turn it back into a game with
+/// [`GameSnapshot::instantiate`] or [`GameSnapshot::into_game`].
+///
+/// FORK RULE (see AGENTS.md): `Game::snapshot`, `GameSnapshot::instantiate` and
+/// `GameSnapshot::into_game` destructure `Game` / `GameSnapshot` WITHOUT `..`. Adding a field to
+/// `Game` is a compile error here until it is copied or listed as deliberately not copied. The
+/// fork-equivalence tests (`crates/ti4-engine/tests/fork_equivalence.rs`) then prove a fork
+/// continues exactly like the original on real recorded games.
+#[derive(Clone)]
+pub struct GameSnapshot<'a> {
+    state: GameState,
+    table: crate::choice::TableState,
+    events: Vec<String>,
+    timing: crate::timing::ResolverSnapshot,
+    event_sequence: EventSequence,
+    content: &'a ContentStore,
+    sources: SourceSet,
+    strategy_cards: Vec<StrategyCardId>,
+    secondary: Option<StrategySecondaryWindow>,
+    secondary_after_tactical: Option<StrategySecondaryWindow>,
+    leader_strategy: Option<(PlayerId, ti4_model::id::LeaderId, StrategyCardId)>,
+    leader_followers: Option<(Vec<Choice>, Vec<PlayerId>)>,
+    scoring: Option<ScoringWindow>,
+    event_scoring: Option<ScoringWindow>,
+    tokens: Option<(TokenGain, Box<StatusPhaseReport>)>,
+    voting: Option<(Box<VoteWindow>, Vec<String>)>,
+    executive_order: Option<(PlayerId, PlayerId)>,
+    agenda_queue_after_event_scoring: Option<Vec<String>>,
+    galaxy: Option<Galaxy>,
+    tactical: Option<TacticalWindow>,
+    aftermath: Option<AftermathWindow>,
+    trade: Option<crate::transactions::TradeWindow>,
+    diplomacy: Option<Box<crate::diplomacy::window::DiplomacyWindow>>,
+    agenda_talks: Option<AgendaTalks>,
+    rng: GameRng,
+    dice: Dice,
+    status_resolved: bool,
+    agenda_resolved: bool,
+    strategy_phase_announced: bool,
+    failed_component_actions: std::collections::BTreeSet<String>,
+    turn_closing: Option<PlayerId>,
+    actions_this_turn: u8,
+    prepared_turn_seq: Option<u32>,
+    blocked: Option<GameError>,
+}
+
+/// A copy of `state` for a fork or snapshot. A plain `clone` shares the turn-redo deck reserve's
+/// cursor (an `Arc<AtomicUsize>` the replay driver moves), so a fork stepping forward would move
+/// the live game's cursor. The copy gets its own cursor at the same position instead; the
+/// reservations and the draw log are copied by value with the rest of the state. (Rollback clones
+/// inside the engine keep sharing the cursor on purpose: the same game rewinds.)
+pub(crate) fn detached_state(state: &GameState) -> GameState {
+    let mut copy = state.clone();
+    copy.deck_reserve = state
+        .deck_reserve
+        .as_ref()
+        .map(ti4_model::deck_reserve::DeckReserve::detached);
+    copy
+}
+
+impl<'a> GameSnapshot<'a> {
+    /// A new game from this snapshot (the snapshot stays usable). First-option deciders, no
+    /// callbacks, no RNG side channel.
+    #[must_use]
+    pub fn instantiate(&self) -> Game<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        } = self;
+        Game {
+            state: detached_state(state),
+            table: Table::from_state(table.clone()),
+            events: events.clone(),
+            timing: timing.instantiate(),
+            event_sequence: event_sequence.clone(),
+            content: *content,
+            sources: *sources,
+            strategy_cards: strategy_cards.clone(),
+            secondary: secondary.clone(),
+            secondary_after_tactical: secondary_after_tactical.clone(),
+            leader_strategy: leader_strategy.clone(),
+            leader_followers: leader_followers.clone(),
+            scoring: scoring.clone(),
+            event_scoring: event_scoring.clone(),
+            tokens: tokens.clone(),
+            voting: voting.clone(),
+            executive_order: executive_order.clone(),
+            agenda_queue_after_event_scoring: agenda_queue_after_event_scoring.clone(),
+            galaxy: galaxy.clone(),
+            tactical: tactical.clone(),
+            aftermath: aftermath.clone(),
+            trade: trade.clone(),
+            diplomacy: diplomacy.clone(),
+            agenda_talks: agenda_talks.clone(),
+            rng: rng.clone(),
+            dice: dice.clone(),
+            status_resolved: *status_resolved,
+            agenda_resolved: *agenda_resolved,
+            strategy_phase_announced: *strategy_phase_announced,
+            failed_component_actions: failed_component_actions.clone(),
+            turn_closing: turn_closing.clone(),
+            actions_this_turn: *actions_this_turn,
+            prepared_turn_seq: *prepared_turn_seq,
+            blocked: blocked.clone(),
+            aftermath_observer: None,
+            strategic_observer: None,
+        }
+    }
+
+    /// Like [`GameSnapshot::instantiate`], consuming the snapshot (no second copy).
+    #[must_use]
+    pub fn into_game(self) -> Game<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+        } = self;
+        Game {
+            state,
+            table: Table::from_state(table),
+            events,
+            timing: timing.into_resolver(),
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+            aftermath_observer: None,
+            strategic_observer: None,
+        }
+    }
+
+    /// The decisions recorded when the snapshot was taken.
+    #[must_use]
+    pub fn decisions(&self) -> &[crate::choice::DecisionRecord] {
+        &self.table.log.records
+    }
+
+    /// The state when the snapshot was taken.
+    #[must_use]
+    pub const fn state(&self) -> &GameState {
+        &self.state
+    }
+}
+
 impl<'a> Game<'a> {
+    /// Copy everything this game needs to continue identically, as plain data.
+    ///
+    /// Take it BETWEEN steps (before `step()` or after it returned): the control flow of a step
+    /// lives on the call stack and cannot be copied. Copied: the state, the timing resolver
+    /// (registered abilities, usage, event log), open windows and reactions, the decision log
+    /// and failure counters, the dice and every RNG stream position, the per-turn fields
+    /// (`leader_strategy`, `leader_followers`, `executive_order`, `turn_closing`, ...), the
+    /// galaxy and the content handle.
+    ///
+    /// NOT copied (input wiring, chosen by whoever drives the copy): the deciders, the
+    /// observation callbacks, and the RNG side channel (`RngSync`): a copy sharing the
+    /// original's channel would consume its pending forced positions. Attach a channel of
+    /// your own with [`Game::set_rng_sync`]; [`Game::rng_sync_pending`] says whether the
+    /// original had a forced position or capture that no draw has applied yet (a snapshot
+    /// taken then would lose it).
+    ///
+    /// Destructures `Game` without `..`: a new field is a compile error until decided.
+    #[must_use]
+    pub fn snapshot(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(true)
+    }
+
+    /// [`Game::snapshot`] without the decision log (the game's own and the resolver's table
+    /// log are left empty), for a holder that already has the log and puts it back with
+    /// `game.table.log.records = ...` before stepping the instantiated game. The log is the
+    /// largest single part of a late-game snapshot and grows with every decision.
+    #[must_use]
+    pub fn snapshot_unlogged(&self) -> GameSnapshot<'a> {
+        self.snapshot_with(false)
+    }
+
+    fn snapshot_with(&self, keep_log: bool) -> GameSnapshot<'a> {
+        let Self {
+            state,
+            table,
+            events,
+            timing,
+            event_sequence,
+            content,
+            sources,
+            strategy_cards,
+            secondary,
+            secondary_after_tactical,
+            leader_strategy,
+            leader_followers,
+            scoring,
+            event_scoring,
+            tokens,
+            voting,
+            executive_order,
+            agenda_queue_after_event_scoring,
+            galaxy,
+            tactical,
+            aftermath,
+            trade,
+            diplomacy,
+            agenda_talks,
+            rng,
+            dice,
+            status_resolved,
+            agenda_resolved,
+            strategy_phase_announced,
+            failed_component_actions,
+            turn_closing,
+            actions_this_turn,
+            prepared_turn_seq,
+            blocked,
+            // Input wiring, chosen by whoever drives the copy: never copied.
+            aftermath_observer: _,
+            strategic_observer: _,
+        } = self;
+        let mut rng = rng.clone();
+        // A copy is a separate execution: it must never mark the activity of its source.
+        rng.bind_observation(None);
+        rng.set_sync(None);
+        GameSnapshot {
+            state: detached_state(state),
+            table: if keep_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
+            events: events.clone(),
+            timing: timing.snapshot_with(keep_log),
+            event_sequence: event_sequence.clone(),
+            content: *content,
+            sources: *sources,
+            strategy_cards: strategy_cards.clone(),
+            secondary: secondary.clone(),
+            secondary_after_tactical: secondary_after_tactical.clone(),
+            leader_strategy: leader_strategy.clone(),
+            leader_followers: leader_followers.clone(),
+            scoring: scoring.clone(),
+            event_scoring: event_scoring.clone(),
+            tokens: tokens.clone(),
+            voting: voting.clone(),
+            executive_order: executive_order.clone(),
+            agenda_queue_after_event_scoring: agenda_queue_after_event_scoring.clone(),
+            galaxy: galaxy.clone(),
+            tactical: tactical.clone(),
+            aftermath: aftermath.clone(),
+            trade: trade.clone(),
+            diplomacy: diplomacy.clone(),
+            agenda_talks: agenda_talks.clone(),
+            rng,
+            dice: dice.clone(),
+            status_resolved: *status_resolved,
+            agenda_resolved: *agenda_resolved,
+            strategy_phase_announced: *strategy_phase_announced,
+            failed_component_actions: failed_component_actions.clone(),
+            turn_closing: turn_closing.clone(),
+            actions_this_turn: *actions_this_turn,
+            prepared_turn_seq: *prepared_turn_seq,
+            blocked: blocked.clone(),
+        }
+    }
+
+    /// Replace the game's table (its deciders and callbacks) with `table`, carrying over the
+    /// current table's decision log and counters, so a forked game can be wired to a session's
+    /// deciders and keep going.
+    pub fn install_table(&mut self, mut table: Table) {
+        table.restore_state(self.table.state());
+        self.table = table;
+    }
+
+    /// A new game that continues exactly like this one (see [`Game::snapshot`]), decision log
+    /// and counters included. Wire its own deciders into [`Game::table`] before stepping.
+    ///
+    /// [`Game::fork`] is the disposable-copy variant: it starts with an empty log.
+    #[must_use]
+    pub fn fork_keeping_log(&self) -> Game<'a> {
+        self.snapshot().into_game()
+    }
+
+    /// Apply any forced RNG position (and resolve any capture) that waits for the next draw,
+    /// right now. Changes nothing observable (see [`GameRng::flush_sync`]); call it at a step
+    /// boundary before [`Game::snapshot`] so the snapshot holds no deferred work.
+    pub fn flush_rng_sync(&mut self) {
+        self.rng.flush_sync();
+    }
+
+    /// Whether the RNG side channel holds a forced position or capture that no draw has
+    /// applied yet. A snapshot taken now would not carry it (see [`Game::flush_rng_sync`]).
+    #[must_use]
+    pub fn rng_sync_pending(&self) -> bool {
+        self.rng.sync_pending()
+    }
+
     /// Create a game with the default first-option table.
     #[must_use]
     pub fn new(state: GameState, content: &'a ContentStore) -> Self {
@@ -1011,6 +1409,22 @@ impl<'a> Game<'a> {
         // Recorded on the state too, so a game saved from here says which dice it rolled.
         game.state.rng_seed = seed;
         game
+    }
+
+    /// Where every random stream of this game stands (see [`crate::rng::RngPositions`]).
+    #[must_use]
+    pub fn rng_positions(&self) -> crate::rng::RngPositions {
+        self.rng.positions()
+    }
+
+    /// Put the game's random streams at recorded positions. The game seed is never changed.
+    pub fn set_rng_positions(&mut self, positions: &crate::rng::RngPositions) {
+        self.rng.set_positions(positions);
+    }
+
+    /// Attach a side channel for forcing or reading random positions from a decider.
+    pub fn set_rng_sync(&mut self, sync: Option<std::sync::Arc<crate::rng::RngSync>>) {
+        self.rng.set_sync(sync);
     }
 
     /// Create a game with explicit deciders for generated choices.
@@ -1098,50 +1512,12 @@ impl<'a> Game<'a> {
     ///
     /// Both decision tables start fresh, with first-option deciders, empty decision logs, and no
     /// observation callbacks. Replace [`Game::table`] before stepping to use different inputs.
+    /// [`Game::fork_keeping_log`] keeps the log and the counters instead.
     #[must_use]
     pub fn fork(&self) -> Self {
-        let mut rng = self.rng.clone();
-        // Clones made during a step share activity. A new game is a separate
-        // execution and must never mark its source attempt or the live game.
-        rng.bind_observation(None);
-        Self {
-            state: self.state.clone(),
-            table: Table::new(),
-            events: self.events.clone(),
-            timing: self.timing.fork(),
-            event_sequence: self.event_sequence.clone(),
-            content: self.content,
-            sources: self.sources,
-            strategy_cards: self.strategy_cards.clone(),
-            secondary: self.secondary.clone(),
-            secondary_after_tactical: self.secondary_after_tactical.clone(),
-            leader_strategy: self.leader_strategy.clone(),
-            leader_followers: self.leader_followers.clone(),
-            scoring: self.scoring.clone(),
-            event_scoring: self.event_scoring.clone(),
-            tokens: self.tokens.clone(),
-            voting: self.voting.clone(),
-            executive_order: self.executive_order.clone(),
-            agenda_queue_after_event_scoring: self.agenda_queue_after_event_scoring.clone(),
-            galaxy: self.galaxy.clone(),
-            tactical: self.tactical.clone(),
-            aftermath: self.aftermath.clone(),
-            trade: self.trade.clone(),
-            diplomacy: self.diplomacy.clone(),
-            agenda_talks: self.agenda_talks.clone(),
-            rng,
-            dice: self.dice.clone(),
-            status_resolved: self.status_resolved,
-            agenda_resolved: self.agenda_resolved,
-            strategy_phase_announced: self.strategy_phase_announced,
-            failed_component_actions: self.failed_component_actions.clone(),
-            turn_closing: self.turn_closing.clone(),
-            actions_this_turn: self.actions_this_turn,
-            prepared_turn_seq: self.prepared_turn_seq,
-            blocked: self.blocked.clone(),
-            aftermath_observer: None,
-            strategic_observer: None,
-        }
+        let mut game = self.snapshot_unlogged().into_game();
+        game.table = Table::new();
+        game
     }
 
     /// The names of the windows that are open now: rules state that is not in [`GameState`].
@@ -1464,6 +1840,12 @@ impl<'a> Game<'a> {
         self.strategic_observer = Some(std::sync::Arc::new(observer));
     }
 
+    /// The source scope this game is played under.
+    #[must_use]
+    pub const fn sources(&self) -> SourceSet {
+        self.sources
+    }
+
     /// Give the game its map, which is what makes a tactical action possible.
     #[must_use]
     pub fn with_galaxy(mut self, galaxy: Galaxy) -> Self {
@@ -1633,6 +2015,10 @@ impl<'a> Game<'a> {
         // cards." The technology and the breakthrough reach a seat from many places, none of which
         // announces it, so the planet card is reconciled here, as station control is.
         crate::factions::keleres::reconcile(&mut self.state);
+        // Sundered: "Other players' units that move or are placed into your home system are
+        // destroyed." Units reach a system by too many routes to hook each, so it is reconciled here
+        // as station control is (and again when a movement step finishes, before anything fires).
+        crate::factions::crimson::enforce_sundered(&mut self.state, self.content, self.sources);
         if let Some(galaxy) = self.galaxy.as_mut() {
             crate::laws::apply_to_galaxy(&self.state, galaxy);
             // Tiles a faction effect changed (Nova Seed), replayed onto the owned map. A recorded
@@ -1937,7 +2323,33 @@ impl<'a> Game<'a> {
                 }))
             })
             .collect();
+        // Display only: what a card's play would touch, keyed by the option that plays it.
+        let mut card_effects = serde_json::Map::new();
+        for option in &choice.options {
+            let Some(alias) = option
+                .id
+                .strip_prefix(crate::action_cards::PLAY_PREFIX)
+                .and_then(|index| index.parse::<usize>().ok())
+                .and_then(|index| seat.action_cards.get(index))
+            else {
+                continue;
+            };
+            if alias.as_str() == "economic_initiative" {
+                card_effects.insert(
+                    option.id.clone(),
+                    json!({
+                        "kind": "ready_cultural",
+                        "planets": crate::action_cards::cultural_planets_preview(
+                            &self.state, self.content, self.sources, &player),
+                    }),
+                );
+            }
+        }
         choice
+            .detailed(
+                "action_card_effects",
+                serde_json::Value::Object(card_effects),
+            )
             .detailed("kind", "turn_menu")
             .detailed("closing", closing)
             .detailed("actions_taken", self.actions_this_turn)
@@ -2263,6 +2675,9 @@ impl<'a> Game<'a> {
                     return Ok(());
                 }
                 if let Some(leader) = answer.id.strip_prefix("component|leader|") {
+                    if leader == crate::leaders::ZEU {
+                        return self.perform_zeu(&active, &answer.id);
+                    }
                     let leader = ti4_model::id::LeaderId::new(leader.to_owned());
                     // "During the action phase:" is not "ACTION:" (OP-07): Carth and the other
                     // Prophecy of Kings agents printed that way are used without spending the turn,
@@ -2610,7 +3025,7 @@ impl<'a> Game<'a> {
         // The punishment discards every action card left in the hand, and every discarded
         // component action is a moment another player's Reverse Engineer may take.
         for card in discarded {
-            self.state.discarded_action_cards.push(card.clone());
+            crate::action_cards::discarded(&mut self.state, player, &card, true);
             self.sync_timing_context();
             let mut payload = BTreeMap::new();
             payload.insert(
@@ -3135,6 +3550,64 @@ impl<'a> Game<'a> {
         }
         self.emit("FREE_TACTICAL_ACTION");
         Ok(())
+    }
+
+    /// Z'eu (`leaders::ZEU`): the Naalu choose a non-home system without their token, exhaust the
+    /// agent and perform a tactical action there without placing a command token. Declining (or
+    /// no such system) fails the component action, which then is not offered again this turn.
+    fn perform_zeu(&mut self, player: &PlayerId, option_id: &str) -> Result<(), GameError> {
+        let systems = self.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
+            crate::leaders::zeu_systems(&self.state, self.content, self.sources, galaxy, player)
+        });
+        let mut options: Vec<ChoiceOption> = systems
+            .iter()
+            .map(|system| {
+                ChoiceOption::labelled(
+                    system.to_string(),
+                    crate::tactical::ACTIVATE_KIND,
+                    format!("activate {system} without a command token"),
+                )
+            })
+            .collect();
+        options.push(ChoiceOption::decline());
+        let choice = Choice::new(
+            player.clone(),
+            "Z'eu: perform a tactical action without placing a command token",
+            options,
+        )
+        .contextualized(
+            crate::decision_context::DecisionContext::new(
+                player.clone(),
+                crate::decision_context::DecisionSource::Content(crate::leaders::ZEU.to_owned()),
+                "zeu_activate_system",
+                self.state.phase,
+                self.state.round,
+            )
+            .optional(true),
+        );
+        let answer = self.table.ask_seeing(
+            &choice,
+            &crate::choice::Observed::new(
+                &self.state,
+                self.content,
+                self.sources,
+                self.galaxy.as_ref(),
+            ),
+        )?;
+        let agent = ti4_model::id::LeaderId::new(crate::leaders::ZEU);
+        if answer.is_decline()
+            || !systems.iter().any(|system| system.as_str() == answer.id)
+            || !crate::leaders::exhaust(&mut self.state, player, &agent)
+        {
+            self.emit("COMPONENT_ACTION_FAILED");
+            self.failed_component_actions.insert(option_id.to_owned());
+            return Ok(());
+        }
+        self.settle_extreme_duress(player, false)?;
+        self.emit("COMPONENT_ACTION_RESOLVED");
+        // The tactical action is the component action's effect: it ends the turn when it closes
+        // (`close_tactical` finishes a plain tactical action).
+        self.begin_free_tactical(player.clone(), SystemId::new(answer.id))
     }
 
     fn perform_leader_action(
@@ -4362,7 +4835,12 @@ impl<'a> Game<'a> {
             )
             .iter()
             .any(|(_, agent)| agent.as_str() == "sardakkagent")
-        });
+        }) || crate::factions::obsidian::listens_for_tactical_end(&self.state)
+            || crate::factions::ralnel::listens_for_tactical_end(
+                &self.state,
+                self.content,
+                self.sources,
+            );
         if tro_window
             && let (Some(player), Some(system)) =
                 (self.state.active.clone(), self.state.active_system.clone())
@@ -4394,10 +4872,25 @@ impl<'a> Game<'a> {
         self.state.pending = None;
         self.emit("TACTICAL_ACTION_COMPLETE");
         if self.leader_strategy.is_some() {
+            // Thunder's Edge Warfare: "...redistribute your command tokens ... after this action."
+            if let Some(player) = self
+                .leader_strategy
+                .as_ref()
+                .map(|(player, ..)| player.clone())
+                && let Err(error) = self.redistribute_after_te_warfare(&player)
+            {
+                return self.result(false, Some(error));
+            }
             let outcome = self.select_leader_strategy_followers();
             return self.result(false, outcome.err());
         }
         if let Some(window) = self.secondary_after_tactical.take() {
+            // Only Thunder's Edge Warfare returns a free tactical action from a primary ability.
+            if let Some(player) = self.state.active.clone()
+                && let Err(error) = self.redistribute_after_te_warfare(&player)
+            {
+                return self.result(false, Some(error));
+            }
             self.secondary = Some(window);
             return self.result(false, None);
         }
@@ -4407,6 +4900,24 @@ impl<'a> Game<'a> {
             return self.result(false, Some(error));
         }
         self.result(false, None)
+    }
+
+    /// The second half of Thunder's Edge Warfare's "redistribute your command tokens before and
+    /// after this action", once the free tactical action has ended.
+    fn redistribute_after_te_warfare(&mut self, player: &PlayerId) -> Result<(), GameError> {
+        if self.state.finished {
+            return Ok(());
+        }
+        crate::strategy_cards::redistribute_around_te_warfare(
+            &mut self.state,
+            self.content,
+            self.sources,
+            self.galaxy.as_ref(),
+            &mut self.table,
+            player,
+            false,
+        )?;
+        Ok(())
     }
 
     /// Open a structured diplomatic contact from `actor` to `partner`.
@@ -4709,34 +5220,15 @@ impl<'a> Game<'a> {
             SecondaryResolution::Ineligible => unreachable!("ineligible followers are automatic"),
         });
         if resolution == SecondaryResolution::Followed {
-            let name = crate::strategy_cards::card_name(self.content, &card)
-                .unwrap_or_else(|| card.clone());
-            let outcome = if crate::faction_abilities::substitutes_primary(
-                &self.state,
+            let outcome = crate::strategy_cards::follow(
+                &mut self.state,
                 self.content,
+                self.sources,
+                self.galaxy.as_ref(),
+                &mut self.table,
                 &follower,
-                &name,
-            ) {
-                crate::strategy_cards::primary(
-                    &mut self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                    &mut self.table,
-                    &follower,
-                    &card,
-                )
-            } else {
-                crate::strategy_cards::secondary(
-                    &mut self.state,
-                    self.content,
-                    self.sources,
-                    self.galaxy.as_ref(),
-                    &mut self.table,
-                    &follower,
-                    &card,
-                )
-            };
+                &card,
+            );
             if let Err(error) = outcome {
                 if let Some((state, secondary, events)) = before {
                     self.state = state;
@@ -5105,6 +5597,7 @@ impl<'a> Game<'a> {
                         .is_some_and(|target| target.starts_with("Elect Player"));
                     if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
                         self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
+                        self.push_agenda_record(&alias, Some(&chosen), BTreeMap::new(), false, false);
                         if is_law(self.content, &alias) {
                             self.state.enact_law(&alias, &chosen);
                             self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
@@ -5307,10 +5800,10 @@ impl<'a> Game<'a> {
             self.emit_typed("AGENDA_REVEALED", payload)?;
             // Political Favor replaces the agenda the same way Veto does, so it is offered only
             // when nothing has replaced it already.
-            if self.state.agenda_veto_replacement.is_none() && self.offer_quash()? {
+            if self.state.agenda_veto_replacement.is_none() && self.offer_quash(&alias)? {
                 self.emit("QUASH_USED");
             }
-            if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor()? {
+            if self.state.agenda_veto_replacement.is_none() && self.offer_political_favor(&alias)? {
                 self.emit("POLITICAL_FAVOR_USED");
             }
 
@@ -5318,7 +5811,7 @@ impl<'a> Game<'a> {
             // from the top of the deck: continue the chain from the replacement.
             let Some(replacement) = self.state.agenda_veto_replacement.take() else {
                 // This is the agenda players will vote on: Political Secret bars its owner here.
-                self.offer_political_secrets()?;
+                self.offer_political_secrets(&alias)?;
                 return Ok(Some((alias, choices)));
             };
             self.emit(&format!("AGENDA_DISCARDED:{alias}"));
@@ -5345,12 +5838,16 @@ impl<'a> Game<'a> {
             .collect()
     }
 
-    /// Ask a note's holder whether to use it now.
+    /// Ask a note's holder (or an ability's owner) whether to use it now, on the agenda just
+    /// revealed. The agenda rides along as display-only `details.agenda` (name, type, target,
+    /// printed text), as on every vote decision: the question is about that card, so a client
+    /// has to be able to show it before the answer.
     fn ask_to_use_note(
         &mut self,
         holder: &PlayerId,
         alias: &str,
         prompt: String,
+        agenda: &str,
     ) -> Result<bool, GameError> {
         let choice = crate::choice::Choice::new(
             holder.clone(),
@@ -5370,7 +5867,11 @@ impl<'a> Game<'a> {
             alias,
             self.state.phase,
             self.state.round,
-        ));
+        ))
+        .detailed(
+            "agenda",
+            crate::strategy_cards::agenda_details(self.content, agenda),
+        );
         let answer = self
             .table
             .ask_seeing(
@@ -5394,7 +5895,7 @@ impl<'a> Game<'a> {
     /// Offered to each holder in turn until one uses it. The replacement is handed over exactly as
     /// Veto hands its own, so the reveal loop discards this agenda and continues. Priced for
     /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_favor(&mut self) -> Result<bool, GameError> {
+    fn offer_political_favor(&mut self, agenda: &str) -> Result<bool, GameError> {
         for (note, holder, owner) in self.lent_notes("favor") {
             let payable = self
                 .state
@@ -5404,14 +5905,21 @@ impl<'a> Game<'a> {
                 continue;
             }
             let prompt = "Political Favor: discard this agenda and reveal the next".to_owned();
-            if !self.ask_to_use_note(&holder, "favor", prompt)? {
+            if !self.ask_to_use_note(&holder, "favor", prompt, agenda)? {
                 continue;
             }
             if let Some(seat) = self.state.player_mut(&owner) {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
             crate::supply::note_strategy_token_spent(&mut self.state, &owner, "political_favor");
-            let replacement = self.state.agenda_deck.remove(0);
+            let Some(replacement) = ti4_model::deck_reserve::take_top(
+                &mut self.state.deck_reserve,
+                "agenda",
+                &mut self.state.agenda_deck,
+                None,
+            ) else {
+                return Ok(false);
+            };
             self.state.agenda_veto_replacement = Some(replacement);
             crate::promissory::give_back(&mut self.state, &note);
             return Ok(true);
@@ -5426,7 +5934,7 @@ impl<'a> Game<'a> {
     /// Offered to each seat with the ability and a strategy token, in seat order, until one uses
     /// it. The replacement is handed over exactly as Veto and Political Favor hand theirs, so the
     /// reveal loop discards this agenda and continues (and offers Quash again on the new one).
-    fn offer_quash(&mut self) -> Result<bool, GameError> {
+    fn offer_quash(&mut self, agenda: &str) -> Result<bool, GameError> {
         if self.state.agenda_deck.is_empty() {
             return Ok(false);
         }
@@ -5441,14 +5949,21 @@ impl<'a> Game<'a> {
         for owner in owners {
             let prompt = "Quash: spend 1 strategy token to discard this agenda and reveal the next"
                 .to_owned();
-            if !self.ask_to_use_note(&owner, "quash", prompt)? {
+            if !self.ask_to_use_note(&owner, "quash", prompt, agenda)? {
                 continue;
             }
             if let Some(seat) = self.state.player_mut(&owner) {
                 seat.gain_token_uncapped(ti4_model::state::TokenPool::Strategic, -1);
             }
             crate::supply::note_strategy_token_spent(&mut self.state, &owner, "quash");
-            let replacement = self.state.agenda_deck.remove(0);
+            let Some(replacement) = ti4_model::deck_reserve::take_top(
+                &mut self.state.deck_reserve,
+                "agenda",
+                &mut self.state.agenda_deck,
+                None,
+            ) else {
+                return Ok(false);
+            };
             self.state.agenda_veto_replacement = Some(replacement);
             return Ok(true);
         }
@@ -5462,13 +5977,13 @@ impl<'a> Game<'a> {
     /// Offered for the agenda players will vote on. The vote bar is the marker Assassinate
     /// Representative sets; barring action cards and faction abilities is not modelled. Priced for
     /// trading since the port, the card was never offered and could not be used.
-    fn offer_political_secrets(&mut self) -> Result<(), GameError> {
+    fn offer_political_secrets(&mut self, agenda: &str) -> Result<(), GameError> {
         for (note, holder, owner) in self.lent_notes("ps") {
             if self.state.agenda_predictions.contains_key(&owner) {
                 continue; // already cannot vote on this agenda
             }
             let prompt = format!("Political Secret: {owner} cannot vote on this agenda");
-            if !self.ask_to_use_note(&holder, "ps", prompt)? {
+            if !self.ask_to_use_note(&holder, "ps", prompt, agenda)? {
                 continue;
             }
             self.state
@@ -5940,6 +6455,58 @@ impl<'a> Game<'a> {
         self.emit(&format!("STRATEGY_CARDS_SWAPPED:{owner}:{holder}"));
     }
 
+    /// The public record of a finished vote, for viewers only (no rule reads it). Written once
+    /// the outcome and a Deadly Plot discard are settled, before the agenda's effect is asked.
+    fn log_agenda(&mut self, window: &crate::vote::VoteWindow, outcome: Option<&str>, discarded: bool) {
+        let ballot = window.ballot();
+        let speaker_decided =
+            outcome.is_some() && crate::vote::undisputed_winner(ballot, window.choices()).is_none();
+        self.push_agenda_record(
+            window.alias(),
+            outcome,
+            ballot.counts.clone(),
+            speaker_decided,
+            discarded,
+        );
+    }
+
+    fn push_agenda_record(
+        &mut self,
+        alias: &str,
+        outcome: Option<&str>,
+        votes: BTreeMap<String, i64>,
+        speaker_decided: bool,
+        discarded: bool,
+    ) {
+        let law = is_law(self.content, alias);
+        let record = ti4_model::state::AgendaRecord {
+            round: self.state.round,
+            agenda: alias.to_owned(),
+            name: self
+                .content
+                .get(ti4_model::content_types::ContentType::Agendas, alias)
+                .and_then(|record| record.text("name"))
+                .unwrap_or_default()
+                .to_owned(),
+            outcome: outcome.map(str::to_owned),
+            votes,
+            speaker_decided,
+            law,
+            enacted: law && !discarded && outcome.is_some_and(|o| o != AGAINST),
+            discarded,
+            redirected_to: if discarded {
+                None
+            } else {
+                self.state
+                    .agenda_elected_override
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .filter(|to| Some(to.as_str()) != outcome)
+            },
+        };
+        self.state.agenda_log.push(record);
+    }
+
     fn close_vote(&mut self) -> StepResult {
         let Some((window, queue)) = self.voting.take() else {
             unreachable!("a vote was open");
@@ -5947,6 +6514,7 @@ impl<'a> Game<'a> {
         let alias = window.alias().to_owned();
         self.state.agenda_choices.clear();
         if window.winner().is_none() {
+            self.log_agenda(&window, None, false);
             // No outcome, so nobody predicted correctly — but the cards were still spent, and a
             // prediction left behind would pay out on the next agenda.
             self.state.agenda_predictions.clear();
@@ -5997,6 +6565,7 @@ impl<'a> Game<'a> {
                 .transient_flags
                 .clear(TransientFlags::AGENDA_DISCARDED);
 
+            self.log_agenda(&window, Some(&outcome), discarded);
             let elected_player: Option<ti4_model::id::PlayerId> = if discarded {
                 // Deadly Plot: "discard the agenda instead. The agenda is resolved with no
                 // effect and it is not replaced." The vote still happened, so the
@@ -6905,6 +7474,123 @@ mod tests {
     }
 
     #[test]
+    fn a_snapshot_is_plain_data_that_can_cross_threads() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<GameSnapshot<'static>>();
+    }
+
+    #[test]
+    fn fork_keeps_the_log_and_takes_new_deciders_without_touching_the_original() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        let table = Table::with_default(Box::new(Scripted::new(["pok1leadership", "decline"])));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+        game.timing.register([Ability::stateful(
+            "strategy-point",
+            players[0].clone(),
+            "STRATEGY_CARD_CHOSEN",
+            Relation::When,
+            Arc::new(|_, _, context| {
+                context
+                    .state
+                    .player_mut(&PlayerId::new("a"))
+                    .unwrap()
+                    .victory_points += 1;
+                Ok(())
+            }),
+        )
+        .with_optional(true)]);
+
+        let mut fork = game.fork_keeping_log();
+        assert!(fork.table.log.records.is_empty());
+        // The fork has its own (first-option) deciders: it takes the optional ability, the
+        // original's script declines it.
+        assert_eq!(fork.step().error, None);
+        assert_eq!(fork.state.player(&players[0]).unwrap().victory_points, 1);
+        assert!(game.table.log.records.is_empty());
+        assert_eq!(game.state.player(&players[0]).unwrap().victory_points, 0);
+        assert_eq!(game.step().error, None);
+        assert_eq!(game.state.player(&players[0]).unwrap().victory_points, 0);
+        assert_eq!(game.table.log.records.len(), fork.table.log.records.len());
+
+        // A fork taken later carries the log recorded so far.
+        let later = game.fork_keeping_log();
+        assert_eq!(later.table.log, game.table.log);
+        assert_eq!(later.events, game.events);
+        assert_eq!(later.timing.log(), game.timing.log());
+    }
+
+    #[test]
+    fn snapshot_fork_preserves_rng_positions_and_dice_history() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        state.rng_seed = 42;
+        let mut game = Game::new(state, ContentStore::embedded());
+        game.dice = Dice::with_sides(6);
+        let deck: Vec<u32> = (0..40).collect();
+        let _ = game.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        game.dice.roll(&mut game.rng, 7, "before fork", Some(5));
+        assert_eq!(game.step().error, None);
+        let history = game.rolls().to_vec();
+
+        let mut fork = game.fork();
+        assert_eq!(fork.rolls(), history);
+        assert_eq!(fork.rng_positions(), game.rng_positions());
+        let fork_roll = fork.dice.roll(&mut fork.rng, 12, "after fork", Some(5));
+        let fork_deck = fork.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        assert_eq!(
+            game.rolls(),
+            history,
+            "fork rolls leave the original untouched"
+        );
+        assert_eq!(
+            game.dice.roll(&mut game.rng, 12, "after fork", Some(5)),
+            fork_roll
+        );
+        assert_eq!(
+            game.rng.shuffled(crate::rng::domain::AGENDAS, &deck),
+            fork_deck
+        );
+        assert_eq!(game.rolls(), fork.rolls());
+    }
+
+    #[test]
+    fn a_fork_does_not_share_the_rng_side_channel_and_flushing_it_is_equivalent() {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        state.rng_seed = 9;
+        let mut game = Game::new(state, ContentStore::embedded());
+        let sync = crate::rng::RngSync::new();
+        game.set_rng_sync(Some(sync.clone()));
+        let deck: Vec<u32> = (0..40).collect();
+        let _ = game.rng.shuffled(crate::rng::domain::AGENDAS, &deck);
+        let at = game.rng_positions();
+        for _ in 0..5 {
+            game.rng.die(crate::rng::domain::DICE, 10);
+        }
+        sync.restore_at_next_draw(at.clone());
+        assert!(game.rng_sync_pending());
+        let mut fork = game.fork();
+        assert!(
+            !fork.rng_sync_pending(),
+            "the fork must not carry the original's channel"
+        );
+        // Flushing applies the forced position now; the next draw is what it would have been.
+        let mut reference = GameRng::new(9);
+        let _ = reference.shuffled(crate::rng::domain::AGENDAS, &deck);
+        game.flush_rng_sync();
+        assert!(!game.rng_sync_pending());
+        assert_eq!(game.rng_positions(), at);
+        assert_eq!(
+            game.rng.die(crate::rng::domain::DICE, 10),
+            reference.die(crate::rng::domain::DICE, 10)
+        );
+        // The fork was taken before the flush, so it still sits at the unforced position.
+        assert_ne!(fork.rng_positions(), at);
+        let _ = fork.rng.die(crate::rng::domain::DICE, 10);
+    }
+
+    #[test]
     fn one_step_resolves_exactly_one_generated_strategy_choice() {
         let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
         let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
@@ -7444,6 +8130,16 @@ mod tests {
     }
 
     /// A one-ring map plus a fleet, ready to take a tactical action.
+    /// The answer that keeps a player's command tokens where they are, for the redistribution a
+    /// Thunder's Edge Warfare offers before (and after) its free tactical action.
+    fn keep_tokens(state: &GameState, player: &PlayerId) -> String {
+        let seat = state.player(player).unwrap();
+        format!(
+            "{}|{}|{}",
+            seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+        )
+    }
+
     fn tactical_fixture() -> (GameState, ti4_content::galaxy::Galaxy, Vec<SystemId>) {
         let players = [PlayerId::new("a"), PlayerId::new("b")];
         let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
@@ -8021,6 +8717,53 @@ mod tests {
         }
     }
 
+    /// Run 04-0023 (2026-10-07): a seat holding Chaos Mapping was offered its start-of-turn
+    /// production twice every turn, once from the technology's start window and again from a
+    /// `TURN_BEGAN` reaction, and produced two units.
+    #[test]
+    fn chaos_mapping_is_offered_once_at_the_start_of_a_turn() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let a = PlayerId::new("a");
+        state
+            .player_mut(&a)
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("cm"));
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), a.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "spacedock", &a, 1);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
+            ["decline", "decline", "decline"].map(str::to_owned),
+        )));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..10 {
+            if game.step().error.is_some() || game.prepared_turn_seq.is_some() {
+                break;
+            }
+        }
+        let chaos: Vec<String> = seen
+            .borrow()
+            .iter()
+            .filter(|choice| {
+                choice.prompt.contains("Chaos Mapping")
+                    || choice.options.iter().any(|o| o.id.contains(":cm:"))
+            })
+            .map(|choice| choice.prompt.clone())
+            .collect();
+        assert_eq!(
+            chaos.len(),
+            1,
+            "one Chaos Mapping offer per turn: {chaos:?}"
+        );
+    }
+
     /// OP-08 with Fleet Logistics: after the first action the seat may take a second one or end
     /// the turn; after the second, with nothing else open, the turn passes on its own.
     #[test]
@@ -8226,6 +8969,101 @@ mod tests {
         }
         assert_eq!(game.state.active.as_ref(), Some(&b));
         assert!(!game.events.iter().any(|event| event == "TURN_CLOSING"));
+    }
+
+    /// Z'eu (`naaluagent`), the agent a Prophecy of Kings game deals the Naalu, was never offered
+    /// before 2026-10-12. Now: offered as a component action; the Naalu perform a tactical action
+    /// in a non-home system without placing a command token, and the agent exhausts.
+    fn zeu_fixture() -> (GameState, ti4_content::galaxy::Galaxy, Vec<SystemId>) {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let seat = state.player_mut(&PlayerId::new("a")).unwrap();
+        seat.faction = ti4_model::id::FactionId::new("naalu");
+        seat.tactic_tokens = 3;
+        seat.home_system = Some(ids[2].clone());
+        seat.leaders.insert(
+            ti4_model::id::LeaderId::new("naaluagent"),
+            ti4_model::state::LeaderStatus::Readied,
+        );
+        (state, galaxy, ids)
+    }
+
+    #[test]
+    fn zeu_performs_a_tactical_action_without_a_command_token() {
+        let (state, galaxy, ids) = zeu_fixture();
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(Scripted::new(vec![
+                "component|leader|naaluagent".to_owned(),
+                ids[0].to_string(),
+                "done_moving".to_owned(),
+            ]))),
+        )
+        .with_galaxy(galaxy);
+        let menu = game.legal_options().expect("a's action");
+        assert!(
+            menu.options.iter().any(|o| o.id == "component|leader|naaluagent"),
+            "Z'eu is offered: {:?}",
+            menu.ids()
+        );
+        for _ in 0..20 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.state.active.as_ref() == Some(&b) {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "FREE_TACTICAL_ACTION"));
+        assert_eq!(game.state.active.as_ref(), Some(&b), "the action ended a's turn");
+        let seat = game.state.player(&a).unwrap();
+        assert_eq!(seat.tactic_tokens, 3, "no token spent");
+        assert!(!game.state.system_state(&ids[0]).command_tokens.contains(&a), "none placed");
+        assert_eq!(
+            seat.leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            Some(&ti4_model::state::LeaderStatus::Exhausted)
+        );
+    }
+
+    #[test]
+    fn zeu_offers_no_home_or_tokened_system_and_may_be_declined() {
+        let (mut state, galaxy, ids) = zeu_fixture();
+        let a = PlayerId::new("a");
+        state.system_mut(&ids[1]).command_tokens.insert(a.clone());
+        crate::fixtures::put(&mut state, &ids[0], "carrier", &a, 1);
+        let offered = crate::leaders::zeu_systems(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            &galaxy,
+            &a,
+        );
+        assert!(offered.contains(&ids[0]));
+        assert!(!offered.contains(&ids[1]), "already holds a's token");
+        assert!(!offered.contains(&ids[2]), "a home system");
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(Scripted::new(vec![
+                "component|leader|naaluagent".to_owned(),
+                "decline".to_owned(),
+            ]))),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..3 {
+            assert_eq!(game.step().error, None, "log: {:?}", game.events);
+            if game.events.iter().any(|e| e == "COMPONENT_ACTION_FAILED") {
+                break;
+            }
+        }
+        assert!(game.events.iter().any(|e| e == "COMPONENT_ACTION_FAILED"));
+        assert_eq!(game.state.active.as_ref(), Some(&a), "still a's turn");
+        assert_eq!(
+            game.state.player(&a).unwrap().leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            Some(&ti4_model::state::LeaderStatus::Readied)
+        );
+        let menu = game.legal_options().expect("a is asked again");
+        assert!(!menu.options.iter().any(|o| o.id == "component|leader|naaluagent"));
     }
 
     /// OP-07: Carth of Golden Sands prints "During the action phase:", not "ACTION:". Using it
@@ -8647,7 +9485,7 @@ mod tests {
         let table = Table::with_default(Box::new(Scripted::new(["use".to_owned()])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table);
 
-        game.offer_political_secrets()
+        game.offer_political_secrets("secret")
             .expect("offered and answered");
 
         assert!(
@@ -8682,7 +9520,10 @@ mod tests {
         let table = Table::with_default(Box::new(Scripted::new(["use".to_owned()])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table);
 
-        assert!(game.offer_political_favor().expect("offered and answered"));
+        assert!(
+            game.offer_political_favor("secret")
+                .expect("offered and answered")
+        );
 
         assert_eq!(game.state.agenda_veto_replacement.as_deref(), Some("first"));
         assert_eq!(game.state.agenda_deck, vec!["second".to_owned()]);
@@ -8756,6 +9597,49 @@ mod tests {
             2
         );
         assert_eq!(game.state.agenda_deck.len(), 2);
+    }
+
+    #[test]
+    fn quash_is_asked_with_the_revealed_agenda_on_the_table() {
+        // Quash reads "When an agenda is revealed": the agenda is public before Xxcha decides, so
+        // the question carries the card it would discard, and the second offer the replacement.
+        let content = ContentStore::embedded();
+        let mut game = quash_game(2, &[]);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(
+            ["use", "decline"].map(str::to_owned),
+        )));
+        game.table = Table::with_default(Box::new(capturing));
+        game.reveal_agenda("secret")
+            .expect("reveals")
+            .expect("an agenda to vote on");
+        let seen = seen.borrow();
+        let quash: Vec<&crate::choice::Choice> = seen
+            .iter()
+            .filter(|choice| choice.prompt.starts_with("Quash"))
+            .collect();
+        assert_eq!(
+            quash.len(),
+            2,
+            "offered on the agenda and on its replacement"
+        );
+        for (choice, alias) in quash.iter().zip(["secret", "committee"]) {
+            let agenda = &choice.details["agenda"];
+            assert_eq!(agenda["id"], alias);
+            let printed = content
+                .get(ti4_model::content_types::ContentType::Agendas, alias)
+                .expect("a real agenda");
+            assert_eq!(agenda["name"].as_str(), printed.text("name"));
+            assert_eq!(agenda["text1"].as_str(), printed.text("text1"));
+            assert_eq!(
+                choice
+                    .options
+                    .iter()
+                    .map(|o| o.id.as_str())
+                    .collect::<Vec<_>>(),
+                ["use", "decline"],
+                "option ids unchanged"
+            );
+        }
     }
 
     #[test]
@@ -8899,11 +9783,14 @@ mod tests {
         state.system_mut(&ids[0]).units.clear();
         state.system_mut(&ids[0]).planet_units.clear();
         let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let keep = keep_tokens(&state, &owner);
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
             "component|leader|winnuhero".to_owned(),
             "te6warfare".to_owned(),
+            keep.clone(),
             ids[0].to_string(),
             "done_moving".to_owned(),
+            keep,
             "no|b".to_owned(),
         ])));
         let mut game = Game::with_table(
@@ -8980,11 +9867,14 @@ mod tests {
         state.system_mut(&ids[0]).units.clear();
         state.system_mut(&ids[0]).planet_units.clear();
         let tactic_tokens = state.player(&owner).unwrap().tactic_tokens;
+        let keep = keep_tokens(&state, &owner);
         let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
             "component|leader|winnuhero".to_owned(),
             "te6warfare".to_owned(),
+            keep.clone(),
             ids[0].to_string(),
             "done_moving".to_owned(),
+            keep,
             "invalid-follower".to_owned(),
             "no|b".to_owned(),
         ])));
@@ -9062,6 +9952,61 @@ mod tests {
         );
     }
 
+    /// "You may redistribute your command tokens before and after this action": the second offer
+    /// comes when the free tactical action has ended, before the secondary window opens.
+    #[test]
+    fn thunders_edge_warfare_offers_a_second_redistribution_after_the_free_tactical_action() {
+        let (mut state, galaxy, ids) = tactical_fixture();
+        let player = PlayerId::new("a");
+        state.player_mut(&player).unwrap().strategy_cards =
+            vec![ti4_model::id::StrategyCardId::new("te6warfare")];
+        state.system_mut(&ids[0]).units.clear();
+        state.system_mut(&ids[0]).planet_units.clear();
+        let (tactic, fleet, strategic) = {
+            let seat = state.player(&player).unwrap();
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens)
+        };
+        let keep = keep_tokens(&state, &player);
+        let after = format!("0|{fleet}|{}", strategic + tactic);
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(Scripted::new([
+            "strategic".to_owned(),
+            keep,
+            ids[0].to_string(),
+            "done_moving".to_owned(),
+            after,
+        ])));
+        let mut game = Game::with_table(
+            state,
+            ContentStore::embedded(),
+            Table::with_default(Box::new(capturing)),
+        )
+        .with_galaxy(galaxy);
+        for _ in 0..30 {
+            assert_eq!(game.step().error, None, "log {:?}", game.events);
+            if game.secondary.is_some() {
+                break;
+            }
+        }
+        assert!(game.secondary.is_some(), "the secondary window opened");
+        let seat = game.state.player(&player).unwrap();
+        assert_eq!(
+            (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens),
+            (0, fleet, strategic + tactic),
+            "the redistribution after the action applied"
+        );
+        let prompts: Vec<String> = seen.borrow().iter().map(|c| c.prompt.clone()).collect();
+        let before_at = prompts
+            .iter()
+            .position(|p| p.contains("before the tactical action"));
+        let after_at = prompts
+            .iter()
+            .position(|p| p.contains("after the tactical action"));
+        assert!(
+            before_at.is_some() && after_at > before_at,
+            "before, then after: {prompts:?}"
+        );
+    }
+
     #[test]
     fn a_warfare_free_tactical_into_the_owners_system_returns_support() {
         // Thunder's Edge Warfare's free tactical action is an activation like any other, so the
@@ -9081,8 +10026,10 @@ mod tests {
         crate::fixtures::put(&mut state, &ids[0], "cruiser", &owner, 1);
         let points_with_support = state.player(&holder).unwrap().victory_points;
 
+        let keep = keep_tokens(&state, &PlayerId::new("a"));
         let table = Table::with_default(Box::new(Scripted::new([
             "strategic".to_owned(),
+            keep,
             ids[0].to_string(),
         ])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
@@ -9137,8 +10084,10 @@ mod tests {
             .unwrap();
         state.diplomacy.active_deals.get_mut(&deal).unwrap().status = ti4_model::DealStatus::Active;
 
+        let keep = keep_tokens(&state, &PlayerId::new("a"));
         let table = Table::with_default(Box::new(Scripted::new([
             "strategic".to_owned(),
+            keep,
             ids[0].to_string(),
         ])));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
@@ -10663,6 +11612,154 @@ mod tests {
             "B's cruiser died in the combat, so its fighters have nothing to sit in and must be \
              gone already; found {stranded:?}; log: {:?}",
             game.events
+        );
+    }
+
+    /// Nightly report 2026-10-11 finding 2 (s2-06): Reveal Prototype played from
+    /// `after COMBAT_ROUND_STARTED` by an L1Z1X carrier owner, the research paid, and then the game
+    /// had no decision (the combat stayed at `pre_roll` with nothing pending). The combat must go on
+    /// to its next decision with the upgrade in place. This engine-level run (attacker and defender
+    /// as the card's holder, the payment a real decision) does NOT reproduce the stall; the server
+    /// path (payment through `/batches`) is where it still has to be looked for.
+    #[test]
+    fn reveal_prototype_from_the_round_start_window_does_not_stall_the_combat() {
+        for defender in [false, true] {
+            reveal_prototype_in_round_start_window(defender);
+        }
+    }
+
+    fn reveal_prototype_in_round_start_window(defender: bool) {
+        struct RevealDecider {
+            holder: PlayerId,
+            seen: std::rc::Rc<std::cell::RefCell<SeenLog>>,
+            script: std::collections::VecDeque<String>,
+        }
+        impl Decider for RevealDecider {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                self.seen.borrow_mut().push((
+                    choice.player.to_string(),
+                    choice.prompt.clone(),
+                    choice.ids().into_iter().map(str::to_owned).collect(),
+                ));
+                let pick = |id: &str| choice.options.iter().find(|o| o.id == id).cloned();
+                if let Some(next) = self.script.pop_front() {
+                    return pick(&next).ok_or_else(|| IllegalChoice::ScriptDiverged {
+                        player: choice.player.clone(),
+                        wanted: next,
+                        offered: choice.ids().into_iter().map(str::to_owned).collect(),
+                    });
+                }
+                if choice.prompt.starts_with("after COMBAT_ROUND_STARTED")
+                    && choice.player == self.holder
+                    && let Some(card) = choice
+                        .options
+                        .iter()
+                        .find(|o| o.id.starts_with("reaction:"))
+                {
+                    return Ok(card.clone());
+                }
+                if choice.prompt.starts_with("Reveal Prototype: which")
+                    && let Some(tech) = pick("cv2")
+                {
+                    return Ok(tech);
+                }
+                if let Some(option) = choice.options.iter().find(|o| o.is_decline()) {
+                    return Ok(option.clone());
+                }
+                choice
+                    .options
+                    .first()
+                    .cloned()
+                    .ok_or_else(|| IllegalChoice::NoOptions {
+                        player: choice.player.clone(),
+                        prompt: choice.prompt.clone(),
+                    })
+            }
+        }
+
+        let a = PlayerId::new("a");
+        let b = PlayerId::new("b");
+        // The seat that reveals the prototype (the attacker, or the defender), and its opponent.
+        let (holder, foe) = if defender { (&b, &a) } else { (&a, &b) };
+        let (mut state, galaxy, ids) = if defender {
+            combat_fixture(&[], &["reveal_prototype"])
+        } else {
+            combat_fixture(&["reveal_prototype"], &[])
+        };
+        state.player_mut(holder).unwrap().trade_goods = 2;
+        // Four resources to pay come from a planet and trade goods: the payment is a decision (as
+        // in the smoke run, which paid it through a batch), not an automatic spend.
+        state
+            .system_mut(&SystemId::new("18"))
+            .set_control(ti4_model::id::PlanetId::new("jord"), holder.clone());
+        // Carrier II needs two blue prerequisites.
+        for tech in ["amd", "gd"] {
+            state
+                .player_mut(holder)
+                .unwrap()
+                .technologies
+                .insert(ti4_model::id::TechnologyId::new(tech));
+        }
+        assert!(
+            crate::technology::researchable(&state, ContentStore::embedded(), POK, holder)
+                .iter()
+                .any(|t| t.as_str() == "cv2"),
+            "the fixture must make Carrier II researchable"
+        );
+        crate::fixtures::put(&mut state, &ids[0], "carrier", holder, 1);
+        crate::fixtures::put(&mut state, &ids[0], "cruiser", holder, 2);
+        crate::fixtures::put(&mut state, &ids[0], "destroyer", foe, 1);
+        let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let script = [TACTICAL_ACTION_ID, ids[0].as_str(), "done_moving"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let table = Table::with_default(Box::new(RevealDecider {
+            holder: holder.clone(),
+            seen: seen.clone(),
+            script,
+        }));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
+        // Every die misses, so both fleets survive the round.
+        game.dice = Dice::from_faces([1_u32; 60]);
+        let prompts = |seen: &SeenLog| -> Vec<String> {
+            seen.iter().map(|(_, prompt, _)| prompt.clone()).collect()
+        };
+        for _ in 0..60 {
+            assert_eq!(game.step().error, None, "seen: {:?}", seen.borrow());
+            if prompts(&seen.borrow())
+                .iter()
+                .any(|prompt| prompt.starts_with("announce a retreat"))
+            {
+                break;
+            }
+        }
+        let asked = prompts(&seen.borrow());
+        assert!(
+            asked
+                .iter()
+                .any(|prompt| prompt.starts_with("announce a retreat")),
+            "after the reveal the combat asks its next question: {asked:?}"
+        );
+        assert!(
+            game.state
+                .player(holder)
+                .unwrap()
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("cv2"))
+        );
+        let carriers: Vec<String> = game
+            .state
+            .system_state(&ids[0])
+            .units
+            .iter()
+            .filter(|unit| &unit.owner == holder && unit.type_id.as_str().starts_with("carrier"))
+            .map(|unit| unit.type_id.to_string())
+            .collect();
+        assert_eq!(
+            carriers,
+            ["carrier2"],
+            "the upgrade replaced the carrier in the combat"
         );
     }
 
@@ -12824,6 +13921,70 @@ mod tests {
     }
 
     #[test]
+    fn every_finished_agenda_vote_is_logged_once_for_viewers() {
+        let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let content = ContentStore::embedded();
+        for seed in [11, 12, 13, 14] {
+            let mut state = start_game(content, &players, POK, None).unwrap();
+            state.phase = Phase::Agenda;
+            state.custodians_removed = true;
+            state.agenda_deck = content
+                .records(ti4_model::content_types::ContentType::Agendas)
+                .iter()
+                .filter_map(|record| record.text("alias"))
+                .take(2)
+                .map(ToOwned::to_owned)
+                .collect();
+            let round = state.round;
+            let mut game = Game::with_seeded_random(state, content, seed);
+            let mut guard = 0;
+            while game.state.phase == Phase::Agenda && guard < 200 {
+                assert_eq!(game.step().error, None);
+                guard += 1;
+            }
+            let resolved: Vec<String> = game
+                .events
+                .iter()
+                .filter_map(|event| event.strip_prefix("AGENDA_RESOLVED:"))
+                .map(ToOwned::to_owned)
+                .collect();
+            assert!(!resolved.is_empty(), "seed {seed} resolves an agenda");
+            let logged: Vec<String> = game
+                .state
+                .agenda_log
+                .iter()
+                .map(|record| {
+                    format!("{}:{}", record.agenda, record.outcome.as_deref().unwrap_or(""))
+                })
+                .collect();
+            assert_eq!(logged, resolved, "one record per resolved agenda, in order");
+            for record in &game.state.agenda_log {
+                let outcome = record.outcome.as_deref().unwrap();
+                assert_eq!(record.round, round);
+                assert_eq!(record.law, is_law(content, &record.agenda));
+                assert!(!record.name.is_empty(), "the printed name travels with it");
+                assert_eq!(record.enacted, record.law && outcome != AGAINST);
+                let best = record.votes.values().copied().max().unwrap_or(0);
+                let leaders = record.votes.values().filter(|v| **v == best && best > 0).count();
+                assert_eq!(
+                    record.speaker_decided,
+                    leaders != 1,
+                    "the speaker decides exactly a tie or a silent table: {record:?}"
+                );
+                if !record.speaker_decided {
+                    assert_eq!(record.votes.get(outcome), Some(&best), "{record:?}");
+                }
+            }
+            // Display only: the record travels in the state JSON but nothing reads it back.
+            let json = serde_json::to_value(&game.state).unwrap();
+            assert!(json.get("agenda_log").is_some_and(serde_json::Value::is_array));
+        }
+        let fresh = start_game(content, &players, POK, None).unwrap();
+        let json = serde_json::to_value(&fresh).unwrap();
+        assert!(json.get("agenda_log").is_none(), "an empty log is not serialised");
+    }
+
+    #[test]
     fn an_agenda_vote_records_only_offered_options() {
         let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
         let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
@@ -12925,6 +14086,18 @@ mod tests {
         deck: &[&'static str],
     ) -> (GameState, Vec<String>) {
         let content = ContentStore::embedded();
+        let mut game = Game::new(agenda_position(card, deck), content);
+        let mut guard = 0;
+        while game.state.phase == Phase::Agenda && guard < 150 {
+            assert_eq!(game.step().error, None, "no agenda step should refuse");
+            guard += 1;
+        }
+        (game.state, game.events.clone())
+    }
+
+    /// The position [`agenda_run`] plays from.
+    fn agenda_position(card: Option<(&'static str, PlayerId)>, deck: &[&'static str]) -> GameState {
+        let content = ContentStore::embedded();
         let players = [PlayerId::new("a"), PlayerId::new("b")];
         let mut state = start_game(content, &players, POK, None).unwrap();
         state.phase = Phase::Agenda;
@@ -12959,14 +14132,68 @@ mod tests {
                 vec![ti4_model::id::ActionCardId::new(alias)];
         }
         state.agenda_deck = deck.iter().map(ToString::to_string).collect();
+        state
+    }
 
-        let mut game = Game::new(state, content);
+    #[test]
+    fn decisions_on_a_revealed_or_resolved_agenda_carry_the_printed_agenda() {
+        // Veto's window (when secret is revealed), the reaction windows on the reveal and on the
+        // resolution: each question is about that agenda, so each carries it as display-only
+        // details.agenda, the same shape vote decisions carry.
+        let content = ContentStore::embedded();
+        let a = PlayerId::new("a");
+        let (capturing, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut game = Game::with_table(
+            agenda_position(Some(("veto", a)), &["secret", "execution", "prophecy"]),
+            content,
+            Table::with_default(Box::new(capturing)),
+        );
         let mut guard = 0;
         while game.state.phase == Phase::Agenda && guard < 150 {
             assert_eq!(game.step().error, None, "no agenda step should refuse");
             guard += 1;
         }
-        (game.state, game.events.clone())
+        let seen = seen.borrow();
+        let triggered: Vec<&crate::choice::Choice> = seen
+            .iter()
+            .filter(|choice| {
+                choice
+                    .context
+                    .as_ref()
+                    .and_then(|context| context.trigger.as_ref())
+                    .and_then(|trigger| trigger.agenda.as_ref())
+                    .is_some()
+            })
+            .collect();
+        assert!(
+            triggered.iter().any(|choice| choice
+                .context
+                .as_ref()
+                .and_then(|c| c.trigger.as_ref())
+                .and_then(|t| t.agenda.as_deref())
+                == Some("secret")),
+            "the Veto window on secret was offered"
+        );
+        for choice in triggered {
+            let named = choice
+                .context
+                .as_ref()
+                .unwrap()
+                .trigger
+                .as_ref()
+                .unwrap()
+                .agenda
+                .clone();
+            let agenda = &choice.details["agenda"];
+            assert_eq!(agenda["id"].as_str(), named.as_deref(), "{}", choice.prompt);
+            assert!(
+                agenda["name"].as_str().is_some_and(|name| !name.is_empty())
+                    && agenda["text1"]
+                        .as_str()
+                        .is_some_and(|text| !text.is_empty()),
+                "printed name and text: {agenda}"
+            );
+        }
     }
 
     fn elected_by_an_agenda(state: &GameState, player: &PlayerId) -> bool {
@@ -13382,6 +14609,175 @@ mod tests {
             Some(PlayerId::new("a")),
             "the turn ended and moved on to the next seat"
         );
+    }
+
+    /// Picks the first offered "yes"/"strategic"/trade opening and declines everything else,
+    /// recording what each seat was asked (seat, prompt, `costs_token`).
+    #[derive(Clone, Default)]
+    struct TradeSeats(Arc<Mutex<Vec<(String, String, Option<bool>)>>>);
+
+    impl Decider for TradeSeats {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            self.0.lock().unwrap().push((
+                choice.player.to_string(),
+                choice.prompt.clone(),
+                choice
+                    .details
+                    .get("costs_token")
+                    .and_then(serde_json::Value::as_bool),
+            ));
+            choice
+                .options
+                .iter()
+                .find(|o| {
+                    o.id == "strategic" || o.id == "yes" || o.id.starts_with("component|trade|")
+                })
+                .or_else(|| choice.options.iter().find(|o| o.is_decline()))
+                .or_else(|| choice.options.first())
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
+                    player: choice.player.clone(),
+                    wanted: String::new(),
+                    offered: Vec::new(),
+                })
+        }
+    }
+
+    /// Sol "a", Hacan "b", Xxcha "c"; `holder` plays Trade and every seat has `tokens` strategy tokens.
+    fn trade_table(holder: &str, tokens: i32) -> (Vec<(String, String, Option<bool>)>, GameState) {
+        let content = ContentStore::embedded();
+        let ids = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let mut state = start_game(content, &ids, POK, None).unwrap();
+        for (id, faction) in [("a", "sol"), ("b", "hacan"), ("c", "xxcha")] {
+            let seat = state.player_mut(&PlayerId::new(id)).unwrap();
+            seat.faction = ti4_model::id::FactionId::new(faction);
+            seat.commodities = 0;
+            seat.strategic_tokens = tokens;
+            seat.strategy_cards = Vec::new();
+        }
+        state.phase = Phase::Action;
+        state.active = Some(PlayerId::new(holder));
+        state
+            .player_mut(&PlayerId::new(holder))
+            .unwrap()
+            .strategy_cards = vec![ti4_model::id::StrategyCardId::new("pok5trade")];
+        let seen = TradeSeats::default();
+        let mut game =
+            Game::with_table(state, content, Table::with_default(Box::new(seen.clone())));
+        let mut guard = 0;
+        while !game.events.iter().any(|e| e == "STRATEGIC_ACTION_COMPLETE") && guard < 60 {
+            assert_eq!(game.step().error, None, "log {:?}", game.events);
+            guard += 1;
+        }
+        let asked = seen.0.lock().unwrap().clone();
+        (asked, game.state)
+    }
+
+    /// H1 audit (2026-10-07): Hacan plays Trade. Primary gives 3 goods and Hacan's printed 6
+    /// commodities; the other seats are offered the replenish, Hacan is not offered itself.
+    #[test]
+    fn hacan_playing_trade_gains_goods_and_replenishes_to_six() {
+        let (asked, state) = trade_table("b", 2);
+        let hacan = state.player(&PlayerId::new("b")).unwrap();
+        assert_eq!((hacan.trade_goods, hacan.commodities), (3, 6));
+        assert!(
+            asked.iter().any(|(seat, prompt, _)| seat == "b"
+                && prompt == "let another player replenish commodities"),
+            "the Trade player chooses who else replenishes: {asked:?}"
+        );
+        // The followers pay their strategy token, as the secondary always costs one.
+        for seat in ["a", "c"] {
+            assert_eq!(
+                state.player(&PlayerId::new(seat)).unwrap().strategic_tokens,
+                1
+            );
+        }
+        assert_eq!(hacan.strategic_tokens, 2, "the primary costs no token");
+    }
+
+    /// Masters of Trade: Hacan follows Trade without spending a token, is asked even with none left,
+    /// and the question says so (`costs_token: false`) while the same question costs Xxcha one.
+    #[test]
+    fn hacan_follows_trade_for_free_even_with_no_tokens() {
+        let (asked, state) = trade_table("a", 1);
+        let question = |seat: &str| {
+            asked
+                .iter()
+                .find(|(who, prompt, _)| {
+                    who == seat
+                        && prompt.contains("replenish commodities")
+                        && !prompt.contains("another")
+                })
+                .unwrap_or_else(|| panic!("{seat} was not asked the Trade secondary: {asked:?}"))
+                .2
+        };
+        assert_eq!(question("b"), Some(false), "Masters of Trade");
+        assert_eq!(question("c"), Some(true));
+        let hacan = state.player(&PlayerId::new("b")).unwrap();
+        assert_eq!((hacan.commodities, hacan.strategic_tokens), (6, 1));
+        assert_eq!(
+            state.player(&PlayerId::new("c")).unwrap().strategic_tokens,
+            0
+        );
+
+        let (asked, _) = trade_table("a", 0);
+        assert!(
+            asked.iter().any(|(who, ..)| who == "b"),
+            "a tokenless Hacan still gets the free secondary: {asked:?}"
+        );
+        assert!(
+            !asked.iter().any(|(who, ..)| who == "c"),
+            "a tokenless Xxcha does not: {asked:?}"
+        );
+    }
+
+    /// Guild Ships in the turn menu (no diplomacy): far apart, Sol may open a transaction with Hacan and
+    /// Hacan with Sol, and the window that follows is the transaction window.
+    #[test]
+    fn a_distant_hacan_and_sol_can_open_a_transaction_either_way() {
+        let (mut state, galaxy, _) = tactical_fixture();
+        let content = ContentStore::embedded();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("sol");
+        state.player_mut(&b).unwrap().faction = ti4_model::id::FactionId::new("hacan");
+        assert!(!crate::transactions::are_neighbours(
+            &state, &galaxy, &a, &b
+        ));
+        for seat in [&a, &b] {
+            let seat = state.player_mut(seat).unwrap();
+            seat.trade_goods = 2;
+            seat.commodities = 3;
+        }
+        for (active, partner) in [(&a, "hacan"), (&b, "sol")] {
+            state.active = Some(active.clone());
+            let seen = TradeSeats::default();
+            let table = Table::with_default(Box::new(seen.clone()));
+            let mut game =
+                Game::with_table(state.clone(), content, table).with_galaxy(galaxy.clone());
+            let menu = game.legal_options().expect("the turn menu");
+            assert!(
+                menu.ids()
+                    .contains(&format!("component|trade|{partner}").as_str()),
+                "{active} may open a transaction with {partner}: {:?}",
+                menu.ids()
+            );
+            let partners = menu
+                .details
+                .get("partners")
+                .and_then(|p| p.as_array())
+                .expect("partners");
+            assert_eq!(partners[0]["available"], true, "{partners:?}");
+            assert_eq!(partners[0]["in_contact"], true, "{partners:?}");
+            for _ in 0..2 {
+                assert_eq!(game.step().error, None, "log {:?}", game.events);
+            }
+            let asked = seen.0.lock().unwrap().clone();
+            assert_eq!(
+                asked[1].1,
+                format!("transaction with {partner}"),
+                "{asked:?}"
+            );
+        }
     }
 
     #[test]
@@ -15240,9 +16636,9 @@ mod tests {
     #[test]
     fn reparations_do_nothing_when_the_holder_never_controlled_the_planet() {
         // The no-op branch: b holds Reparations but the planet a captures was owned by
-        // nobody, so it was never a planet b controlled. The card still plays (the window
-        // is coarse) and the effect verifies and declines: nothing is exhausted or
-        // readied beyond the capture's own LRR 42.3 exhaustion.
+        // nobody, so it was never a planet b controlled. The window names the former holder
+        // (`previous_owner`), so the card is not even offered: it stays in hand and nothing is
+        // exhausted or readied beyond the capture's own LRR 42.3 exhaustion.
         let (mut state, galaxy, system, planet) = invasion_fixture();
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
@@ -15287,9 +16683,10 @@ mod tests {
             state.exhausted_planets.contains(&b_planet),
             "the no-op effect readied nothing; log {events:?}"
         );
-        assert!(
-            state.player(&b).unwrap().action_cards.is_empty(),
-            "the card was spent even though the effect declined; log {events:?}"
+        assert_eq!(
+            state.player(&b).unwrap().action_cards,
+            vec![ti4_model::id::ActionCardId::new("reparations")],
+            "the card is not offered for a planet b never controlled; log {events:?}"
         );
     }
 

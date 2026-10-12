@@ -751,6 +751,78 @@ fn the_facts_show_no_hand_of_another_seat_and_no_order_of_a_deck() {
     }
 }
 
+#[test]
+fn secret_objective_progress_reaches_only_the_holding_seat() {
+    use ti4_model::id::SecretObjectiveId;
+
+    let mut game = create_sample_game();
+    // seat_a holds a countable secret and a feat secret; seat_b holds a countable one whose
+    // identity Search Warrant turns face up for everybody.
+    game.player_mut(&PlayerId::new("seat_a"))
+        .unwrap()
+        .secret_objectives = vec![
+        SecretObjectiveId::new("ctr"),
+        SecretObjectiveId::new("dtgs"),
+    ];
+    game.player_mut(&PlayerId::new("seat_b"))
+        .unwrap()
+        .secret_objectives = vec![SecretObjectiveId::new("eap")];
+    game.laws.insert("warrant".to_owned(), "seat_b".to_owned());
+
+    let progress_of = |viewer: ViewerRole, seat: &str| {
+        let snapshot = project_initial_snapshot("test_game", 1, &game, &viewer, None);
+        snapshot
+            .view
+            .players
+            .iter()
+            .find(|player| player.id == PlayerId::new(seat))
+            .unwrap()
+            .secret_objective_progress
+            .clone()
+    };
+
+    let own_a = progress_of(ViewerRole::Player(PlayerId::new("seat_a")), "seat_a");
+    let ctr = own_a
+        .get(&SecretObjectiveId::new("ctr"))
+        .expect("own countable secret has progress");
+    assert_eq!(ctr.threshold, 6);
+    assert_eq!(ctr.satisfied, ctr.have >= 6);
+    assert!(
+        !own_a.contains_key(&SecretObjectiveId::new("dtgs")),
+        "event-conditioned secrets have no running count"
+    );
+
+    let own_b = progress_of(ViewerRole::Player(PlayerId::new("seat_b")), "seat_b");
+    assert_eq!(own_b[&SecretObjectiveId::new("eap")].threshold, 4);
+
+    // Nobody else learns either seat's progress, not even for a law-revealed secret.
+    for (viewer, seat) in [
+        (ViewerRole::Player(PlayerId::new("seat_b")), "seat_a"),
+        (ViewerRole::Player(PlayerId::new("seat_c")), "seat_a"),
+        (ViewerRole::Spectator, "seat_a"),
+        (ViewerRole::Player(PlayerId::new("seat_a")), "seat_b"),
+        (ViewerRole::Player(PlayerId::new("seat_c")), "seat_b"),
+        (ViewerRole::Spectator, "seat_b"),
+    ] {
+        assert!(
+            progress_of(viewer.clone(), seat).is_empty(),
+            "{viewer:?} must not see {seat}'s secret progress"
+        );
+    }
+    for viewer in [
+        ViewerRole::Player(PlayerId::new("seat_b")),
+        ViewerRole::Player(PlayerId::new("seat_c")),
+        ViewerRole::Spectator,
+    ] {
+        let snapshot = project_initial_snapshot("test_game", 1, &game, &viewer, None);
+        let json = serde_json::to_string(&snapshot.view).expect("serialize");
+        assert!(
+            !json.contains("\"ctr\""),
+            "{viewer:?} learned seat_a's secret"
+        );
+    }
+}
+
 /// How large an update of a game of eight is with its facts. web2 reads the view and the facts;
 /// `state` is for `web/`.
 #[test]
@@ -793,4 +865,134 @@ fn an_update_of_eight_seats_with_its_facts_stays_small() {
         "the update is {} bytes",
         size(&whole)
     );
+}
+
+#[test]
+fn objective_progress_details_follow_the_redaction_split() {
+    use ti4_content::ContentStore;
+    use ti4_model::content_types::POK;
+    use ti4_model::id::{ObjectiveId, PlanetId, SecretObjectiveId};
+
+    let content = ContentStore::embedded();
+    let seats: Vec<PlayerId> = ["seat_a", "seat_b", "seat_c"]
+        .into_iter()
+        .map(PlayerId::new)
+        .collect();
+    let (mut game, galaxy) =
+        ti4_server::map::create_game_with_map(content, &seats, 7).expect("map game");
+    // The generated map has no anomaly; swap one blue tile for a gravity rift so Learn the
+    // Secrets has something to count. The projection rebuilds adjacency from these tiles.
+    let mut tiles = ti4_server::map::build_board_tiles(content, &galaxy);
+    let rift = tiles
+        .iter_mut()
+        .find(|tile| tile.system_id == "19")
+        .expect("tile 19 is on the map");
+    rift.system_id = "41".to_owned();
+    // The real board's tiles include the Fracture and the parked Wormhole Nexus; the projection
+    // must still rebuild a galaxy from them, or every map-shaped count goes missing.
+    let galaxy = ti4_server::projection::placed_galaxy(&tiles).expect("tiles rebuild a galaxy");
+    assert!(galaxy.adjacent("18").len() >= 6, "Mecatol keeps its ring");
+    let layout = ti4_server::map::GalaxyLayout::from_galaxy(&galaxy, POK);
+
+    // Everyone shares Mecatol Rex, so all three are neighbours; seat_a also holds it.
+    let mecatol = SystemId::new("18");
+    for seat in &seats {
+        game.system_mut(&mecatol)
+            .units
+            .push(Unit::new(UnitTypeId::new("cruiser"), seat.clone()));
+    }
+    game.system_mut(&mecatol)
+        .planet_control
+        .insert(PlanetId::new("mr"), seats[0].clone());
+    game.revealed_objectives
+        .push(ObjectiveId::new("push_boundaries"));
+
+    // seat_a holds Learn the Secrets of the Cosmos and parks a ship beside the rift.
+    let beside_anomaly = galaxy
+        .adjacent("41")
+        .into_iter()
+        .find(|id| *id != "18")
+        .map(SystemId::new)
+        .expect("the rift has a neighbour");
+    game.system_mut(&beside_anomaly)
+        .units
+        .push(Unit::new(UnitTypeId::new("destroyer"), seats[0].clone()));
+    game.player_mut(&seats[0]).unwrap().secret_objectives = vec![SecretObjectiveId::new("lsc")];
+
+    let view_of = |viewer: &ViewerRole| {
+        ti4_server::projection::project_initial_snapshot_with_map(
+            "test_game",
+            1,
+            &game,
+            viewer,
+            None,
+            &tiles,
+            &layout,
+            None,
+            None,
+            &[],
+        )
+        .view
+    };
+
+    // Push Boundaries: every seat's per-neighbour comparison reaches every viewer (planet control
+    // is public), and the rows agree with the count beside them.
+    for viewer in [
+        ViewerRole::Player(seats[0].clone()),
+        ViewerRole::Player(seats[1].clone()),
+        ViewerRole::Spectator,
+    ] {
+        let view = view_of(&viewer);
+        for seat in &seats {
+            let progress =
+                &view.table.objective_progress[seat][&ObjectiveId::new("push_boundaries")];
+            assert_eq!(progress.neighbours.len(), 2, "{seat} has two neighbours");
+            for row in &progress.neighbours {
+                assert_ne!(&row.player, seat);
+                assert_eq!(row.ahead, row.mine > row.theirs);
+            }
+            let ahead = progress.neighbours.iter().filter(|row| row.ahead).count();
+            assert_eq!(u32::try_from(ahead).unwrap(), progress.have);
+        }
+        let a = &view.table.objective_progress[&seats[0]][&ObjectiveId::new("push_boundaries")];
+        let b = &view.table.objective_progress[&seats[1]][&ObjectiveId::new("push_boundaries")];
+        let a_vs_b = a
+            .neighbours
+            .iter()
+            .find(|row| row.player == seats[1])
+            .unwrap();
+        let b_vs_a = b
+            .neighbours
+            .iter()
+            .find(|row| row.player == seats[0])
+            .unwrap();
+        assert_eq!((a_vs_b.mine, a_vs_b.theirs), (b_vs_a.theirs, b_vs_a.mine));
+    }
+
+    // Learn the Secrets: the holder sees the qualifying systems; nobody else sees anything.
+    let own = view_of(&ViewerRole::Player(seats[0].clone()));
+    let lsc = &own
+        .players
+        .iter()
+        .find(|player| player.id == seats[0])
+        .unwrap()
+        .secret_objective_progress[&SecretObjectiveId::new("lsc")];
+    assert_eq!(lsc.threshold, 3);
+    assert!(lsc.systems.contains(&beside_anomaly));
+    assert_eq!(u32::try_from(lsc.systems.len()).unwrap(), lsc.have);
+    assert!(lsc.neighbours.is_empty());
+    for viewer in [ViewerRole::Player(seats[1].clone()), ViewerRole::Spectator] {
+        let view = view_of(&viewer);
+        let held = view
+            .players
+            .iter()
+            .find(|player| player.id == seats[0])
+            .unwrap();
+        assert!(held.secret_objective_progress.is_empty());
+        assert!(
+            !serde_json::to_string(&view.players)
+                .unwrap()
+                .contains("\"lsc\"")
+        );
+    }
 }

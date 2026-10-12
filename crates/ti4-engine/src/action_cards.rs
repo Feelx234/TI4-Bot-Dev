@@ -83,7 +83,14 @@ pub fn draw(
         if state.action_card_deck.is_empty() {
             break;
         }
-        let top = state.action_card_deck.remove(0);
+        let Some(top) = ti4_model::deck_reserve::take_top(
+            &mut state.deck_reserve,
+            "action_card",
+            &mut state.action_card_deck,
+            Some(player.as_str()),
+        ) else {
+            break;
+        };
         if let Some(seat) = state.player_mut(player) {
             seat.action_cards.push(top.clone());
         }
@@ -197,8 +204,31 @@ pub fn enforce_hand_limit(
         ));
         let answer = table.ask_seeing(&choice, &Observed::new(state, content, POK, None))?;
         let index = answer.id.parse::<usize>().unwrap_or(0);
-        discard(state, player, index);
+        if let Some(card) = discard(state, player, index) {
+            discarded(state, player, &card, false);
+        }
     }
+}
+
+/// The one place an action card that has left `discarder`'s hand by discarding lands.
+///
+/// Data Skimmer (Ral Nel): during the action phase, another player's discard is placed on the
+/// breakthrough instead of going anywhere else. Returns whether it was taken there. Otherwise,
+/// with `to_pile`, the card goes on the discard pile; without it the card is simply gone, as the
+/// callers that never kept a pile have always done (hand limit, agenda effects, Expedition).
+pub fn discarded(
+    state: &mut GameState,
+    discarder: &PlayerId,
+    card: &ActionCardId,
+    to_pile: bool,
+) -> bool {
+    if crate::factions::ralnel_cards::skimmer_takes(state, discarder, card) {
+        return true;
+    }
+    if to_pile {
+        state.discarded_action_cards.push(card.clone());
+    }
+    false
 }
 
 /// Remove one card from a hand by index.
@@ -415,7 +445,7 @@ pub fn look_at_hand_and_take(
 pub const ACTION_KIND: &str = "component";
 
 /// The prefix of an option that plays an action card as a turn action.
-const PLAY_PREFIX: &str = "action_card|";
+pub(crate) const PLAY_PREFIX: &str = "action_card|";
 
 /// Playing a card off Garbozia rather than out of hand.
 ///
@@ -457,6 +487,106 @@ pub fn is_playable(
             && state.players.len() > 1;
     }
     true
+}
+
+/// 22.3 for reaction cards: whether this card's effect could act on anything in the window
+/// `event` opened, for `player`.
+///
+/// The window table decides whether a card speaks to an event at all; several cards share one
+/// printed window ("At the start of an invasion" is both Bunker's and Blitz's), so what each
+/// card needs beyond the window is answered here, per card. A card not listed has no further
+/// requirement.
+#[must_use]
+pub fn reaction_can_matter(
+    state: &GameState,
+    content: &ContentStore,
+    player: &PlayerId,
+    alias: &ActionCardId,
+    event: &crate::event::Event,
+) -> bool {
+    let unit_kind = |unit: &Unit| {
+        content
+            .get(ContentType::Units, unit.type_id.as_str())
+            .map(UnitType::new)
+    };
+    let actor = event.text("player");
+    let is_actor = actor == Some(player.as_str());
+    let Some(system) = event.text("system").map(ti4_model::id::SystemId::new) else {
+        return true;
+    };
+    let board = state.system_state(&system);
+    let has_own_ship = board
+        .units_of(player)
+        .into_iter()
+        .any(|unit| unit_kind(unit).is_some_and(|kind| kind.is_ship()));
+    match alias.as_str() {
+        // Bunker: "-4 to each BOMBARDMENT roll against planets you control". Only the invader
+        // bombards, so the holder must not be the invader and must control a planet here.
+        "bunker" => actor.is_some() && !is_actor && board.controls_a_planet(player),
+        // Blitz: "Each of your non-fighter ships in the active system that do not have
+        // BOMBARDMENT gain BOMBARDMENT 6". Only the invader bombards, and only a ship that
+        // lacks BOMBARDMENT gains anything.
+        "blitz" => {
+            is_actor
+                && board.units_of(player).into_iter().any(|unit| {
+                    unit_kind(unit).is_some_and(|kind| {
+                        kind.is_ship() && !kind.is_fighter() && kind.bombard_hits_on().is_none()
+                    })
+                })
+        }
+        // Disable: "Your opponents' PDS units lose PLANETARY SHIELD and SPACE CANNON during
+        // this invasion" -- the printed window promises opponents' PDS in the system, and it
+        // only helps the invader.
+        "disable" => {
+            is_actor
+                && board
+                    .planet_units
+                    .values()
+                    .flatten()
+                    .chain(&board.units)
+                    .any(|unit| {
+                        &unit.owner != player
+                            && unit_kind(unit).is_some_and(|kind| kind.base_type() == "pds")
+                    })
+        }
+        // Fighter Prototype: "+2 to each of your fighters' combat rolls" -- a combatant with
+        // fighters in the combat.
+        "f_prototype" => board
+            .units_of(player)
+            .into_iter()
+            .any(|unit| unit_kind(unit).is_some_and(|kind| kind.is_fighter())),
+        // Upgrade: "replace 1 of your cruisers in that system with 1 dreadnought".
+        "upgrade" => board
+            .units_of(player)
+            .into_iter()
+            .any(|unit| unit_kind(unit).is_some_and(|kind| kind.base_type() == "cruiser")),
+        // Rally: the printed window needs another player's ships in the activated system.
+        "rally" => board.units.iter().any(|unit| {
+            &unit.owner != player && unit_kind(unit).is_some_and(|kind| kind.is_ship())
+        }),
+        // Harness Energy: "After you activate an anomaly".
+        "harness" => {
+            ti4_content::galaxy::system(content, system.as_str(), ti4_model::content_types::FULL)
+                .is_some_and(|tile| tile.is_anomaly())
+                || crate::factions::hooks_movement::extra_gravity_rifts(state)
+                    .contains(system.as_str())
+        }
+        // Rescue: "After a player moves ships into a system that contains your ships" -- another
+        // player's move (the effect refuses the holder's own), into a system holding the
+        // holder's ships.
+        "rescue" => !is_actor && has_own_ship,
+        // Intercept: "After your opponent declares a retreat" -- the holder fights in that
+        // combat, so has ships in the system.
+        "intercept" => !is_actor && has_own_ship,
+        // Emergency Repairs: "Repair all of your units that have SUSTAIN DAMAGE in the active
+        // system" -- only a damaged unit gains anything.
+        "emergency" => board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+            .any(|unit| &unit.owner == player && unit.sustained_damage),
+        _ => true,
+    }
 }
 
 /// Component actions this player could take with the cards in hand (22.1).
@@ -691,10 +821,14 @@ fn sabotage(_: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {}
 /// An empty agenda deck has nothing to reveal, and the card then does nothing: a corner that
 /// cannot arise in a full game, where the 63-card deck sheds two agendas a phase.
 fn veto(context: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {
-    let Some(replacement) = context.state.agenda_deck.first().cloned() else {
+    let Some(replacement) = ti4_model::deck_reserve::take_top(
+        &mut context.state.deck_reserve,
+        "agenda",
+        &mut context.state.agenda_deck,
+        None,
+    ) else {
         return;
     };
-    context.state.agenda_deck.remove(0);
     context.state.agenda_veto_replacement = Some(replacement);
 }
 
@@ -1478,7 +1612,7 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
         if alive.is_empty() {
             break;
         }
-        let Ok(casualty) = crate::combat::choose_casualty(
+        let Ok(casualty) = crate::combat::choose_casualty_as(
             context.state,
             context.content,
             context.sources,
@@ -1489,6 +1623,12 @@ fn courageous(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
             &played_card_source("courageous"),
             "courageous_to_the_end_assign_casualty",
             Some(&system),
+            crate::decision_context::HitDetail {
+                cause: crate::decision_context::HitCause::CourageousToTheEnd,
+                destroy: true,
+                restriction: crate::decision_context::HitRestriction::Any,
+                producer: Some(player.clone()),
+            },
         ) else {
             break; // the decider refused to choose a loss; the card stops where it is
         };
@@ -1576,12 +1716,15 @@ fn crashlanding(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
         .entry(planet_id.clone())
         .or_default()
         .push(Unit::new(landed.type_id, player.clone()));
-    if others_there {
-        board
+    let began = others_there
+        && board
             .coexisting
             .entry(planet_id)
             .or_default()
             .insert(player.clone());
+    // Oceanbound: "When your units begin coexisting on a planet".
+    if began {
+        crate::factions::deepwrought::note_coexistence_began(context.state, player);
     }
 }
 
@@ -2197,10 +2340,14 @@ fn rider_payoff(
                 let _ = draw(state, content, table, player, 3);
             } else {
                 for _ in 0..3 {
-                    if state.action_card_deck.is_empty() {
+                    let Some(top) = ti4_model::deck_reserve::take_top(
+                        &mut state.deck_reserve,
+                        "action_card",
+                        &mut state.action_card_deck,
+                        Some(player.as_str()),
+                    ) else {
                         break;
-                    }
-                    let top = state.action_card_deck.remove(0);
+                    };
                     if let Some(seat) = state.player_mut(player) {
                         seat.action_cards.push(top);
                     }
@@ -2308,8 +2455,12 @@ fn rider_payoff(
         Some(crate::factions::keleres_units::RIDER_ALIAS) => {
             if let Some((content, table)) = table {
                 let _ = draw(state, content, table, player, 1);
-            } else if !state.action_card_deck.is_empty() {
-                let top = state.action_card_deck.remove(0);
+            } else if let Some(top) = ti4_model::deck_reserve::take_top(
+                &mut state.deck_reserve,
+                "action_card",
+                &mut state.action_card_deck,
+                Some(player.as_str()),
+            ) {
                 if let Some(seat) = state.player_mut(player) {
                     seat.action_cards.push(top);
                 }
@@ -3303,6 +3454,22 @@ fn reveal_prototype(context: &mut crate::timing::TimingContext<'_>, player: &Pla
     if lines.is_empty() {
         return; // no unit of the player's is in the combat
     }
+    // Doctor Carrina's window: this is a research (see `factions/deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::unit_upgrades,
+        |context| reveal_prototype_research(context, player, &lines),
+    );
+}
+
+/// Reveal Prototype's research, once the units in the combat are known.
+fn reveal_prototype_research(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    lines: &[&str],
+) {
+    let types = ti4_content::units::catalogue(context.content, context.sources);
     let open =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     let options: Vec<(String, String)> = open
@@ -3447,11 +3614,44 @@ fn pirate_systems_off_homes(
 /// the faction's limit.
 fn harness_energy(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let limit = crate::strategy_cards::commodity_limit(context.state, context.content, player);
+    let mut gained = 0;
     if let Some(seat) = context.state.player_mut(player) {
+        gained = (limit - seat.commodities).max(0);
         seat.commodities = limit;
     }
+    crate::supply::note_commodities_gained(context.state, player, gained);
     // Trade Agreement: "When the <color> player replenishes commodities".
     crate::promissory::trade_agreement_on_replenish(context.state, player);
+}
+
+/// Display only: the cultural planets `player` controls, which Economic Initiative readies, with
+/// whether each is exhausted now (so whether the card will actually change it). Never read by the
+/// engine; shown beside the card in the turn menu.
+#[must_use]
+pub fn cultural_planets_preview(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<serde_json::Value> {
+    state
+        .controlled_planets(player)
+        .into_iter()
+        .filter_map(|(_, planet)| {
+            let record = ti4_content::galaxy::planet(content, planet.as_str(), sources)?;
+            record
+                .planet_type()
+                .is_some_and(|kind| kind.eq_ignore_ascii_case("cultural"))
+                .then(|| {
+                    serde_json::json!({
+                        "id": planet.as_str(),
+                        "name": record.name().unwrap_or_else(|| planet.as_str()),
+                        "trait": "cultural",
+                        "exhausted": state.exhausted_planets.contains(planet),
+                    })
+                })
+        })
+        .collect()
 }
 
 /// Economic Initiative: "Ready each cultural planet you control."
@@ -3785,6 +3985,17 @@ fn divert_funding(context: &mut crate::timing::TimingContext<'_>, player: &Playe
         seat.technologies
             .remove(&ti4_model::TechnologyId::new(&alias));
     }
+    // Doctor Carrina's window: the research half is a research (see `deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::any,
+        |context| divert_funding_research(context, player),
+    );
+}
+
+/// Divert Funding's "then, research another technology".
+fn divert_funding_research(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let open =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     if open.is_empty() {
@@ -4889,22 +5100,15 @@ pub fn place_units(
     base_type: &str,
     count: usize,
 ) {
-    let faction = context
-        .state
-        .player(player)
-        .map(|seat| seat.faction.to_string())
-        .unwrap_or_default();
-    let generic = ti4_content::units::catalogue(context.content, context.sources)
-        .get(base_type)
-        .map(|unit| unit.id().to_owned());
-    let Some(id) =
-        ti4_content::units::faction_unit(context.content, &faction, base_type, context.sources)
-            .map(|unit| unit.id().to_owned())
-            .or(generic)
-    else {
+    let Some(type_id) = placed_unit_id(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        base_type,
+    ) else {
         return;
     };
-    let type_id = ti4_model::id::UnitTypeId::new(id);
     if crate::factions::hooks_economy::effect_placement_forbidden(
         context.state,
         context.content,
@@ -5525,12 +5729,41 @@ fn manipulate_investments(context: &mut crate::timing::TimingContext<'_>, player
     const DISTINCT: usize = 3;
 
     // Strategy cards key on `id`, not `alias` -- the one content category that does.
-    let cards: Vec<String> = context
+    let mut cards: Vec<String> = context
         .content
         .from_sources(ContentType::StrategyCards, context.sources)
         .filter_map(|record| record.text("id"))
         .map(std::borrow::ToOwned::to_owned)
         .collect();
+    // A game whose card set is wider than its source scope (a Thunder's Edge set in a PoK-scoped
+    // server game) must offer the cards on its own table, not the scope's. Games whose cards are
+    // all in the scope-derived list keep that list unchanged, so recorded games replay as before.
+    let in_play: std::collections::BTreeSet<&str> = context
+        .state
+        .unclaimed_strategy_cards
+        .iter()
+        .chain(
+            context
+                .state
+                .players
+                .iter()
+                .flat_map(|p| p.strategy_cards.iter()),
+        )
+        .map(ti4_model::id::StrategyCardId::as_str)
+        .collect();
+    if in_play
+        .iter()
+        .any(|id| !cards.iter().any(|card| card == id))
+    {
+        cards = context
+            .content
+            .records(ContentType::StrategyCards)
+            .iter()
+            .filter_map(|record| record.text("id"))
+            .filter(|id| in_play.contains(id))
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
+    }
     if cards.len() < DISTINCT {
         return; // 22.3: a card that cannot fully resolve is not played
     }
@@ -6135,6 +6368,17 @@ fn focused_research_spend(context: &mut crate::timing::TimingContext<'_>, player
     if held < i64::from(FOCUSED_RESEARCH_COST) {
         return; // 22.3: it cannot resolve, so it does nothing
     }
+    // Doctor Carrina's window: this is a research (see `factions/deepwrought_research.rs`).
+    crate::factions::deepwrought_research::around(
+        context,
+        player,
+        &crate::factions::deepwrought_research::any,
+        |context| focused_research_chosen(context, player),
+    );
+}
+
+/// Focused Research's choice and payment, once the four trade goods are known to be there.
+fn focused_research_chosen(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let available =
         crate::technology::researchable(context.state, context.content, context.sources, player);
     let options: Vec<(String, String)> = available
@@ -9145,6 +9389,43 @@ mod tests {
         );
     }
 
+    /// A game on the Thunder's Edge set offers its own eight cards even though the source scope
+    /// (PoK, as server games use) would list the PoK Construction and Warfare instead.
+    #[test]
+    fn manipulate_investments_offers_the_cards_on_this_games_table() {
+        let player = PlayerId::new("a");
+        let ids = [player.clone(), PlayerId::new("b")];
+        let offered = |set: &str| {
+            let mut state = crate::setup::start_game_seeded_with_card_set(
+                ContentStore::embedded(),
+                &ids,
+                ti4_model::content_types::POK,
+                None,
+                1,
+                Some(set),
+            )
+            .unwrap();
+            let seen = resolve_card_capturing(&mut state, "investments", &player, &[]);
+            let mut ids: Vec<String> = seen.borrow()[0]
+                .options
+                .iter()
+                .map(|option| option.id.clone())
+                .collect();
+            ids.sort();
+            ids
+        };
+        let te = offered("te");
+        assert_eq!(te.len(), 8, "{te:?}");
+        assert!(
+            te.contains(&"te6warfare".to_owned()) && te.contains(&"te4construction".to_owned())
+        );
+        assert!(!te.contains(&"pok6warfare".to_owned()));
+        // Recorded PoK games keep the scope-derived list they were recorded with.
+        let pok = offered("pok");
+        assert!(pok.contains(&"pok6warfare".to_owned()));
+        assert!(!pok.contains(&"te6warfare".to_owned()));
+    }
+
     /// Each placement question says which of the five it is and how many different cards are
     /// still owed, so a client can show the progress (display only).
     #[test]
@@ -9626,6 +9907,53 @@ mod tests {
             state.player(&player).unwrap().technologies.len(),
             before + 1,
             "and one gained"
+        );
+    }
+
+    /// Doctor Carrina reaches an action-card research (Focused Research): the holder ignores the
+    /// prerequisite the researcher lacks and places an infantry into coexistence.
+    #[test]
+    fn doctor_carrina_reaches_focused_research() {
+        use crate::factions::deepwrought::testkit as dw;
+        let mut state = dw::game();
+        let researcher = dw::b();
+        state.player_mut(&researcher).unwrap().technologies.clear();
+        state.player_mut(&researcher).unwrap().trade_goods = 6;
+        let (system, planet) = dw::plain_planet();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), researcher.clone());
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &researcher, 1);
+        let place = format!("{system}|{planet}");
+        let effect = effect_for(&ActionCardId::new("f_researched")).expect("a registered effect");
+        let mut table = dw::scripted(&["use", "dxa", place.as_str()]);
+        crate::fixtures::with_context(
+            &mut state,
+            ti4_model::content_types::DEFAULT,
+            None,
+            &mut table,
+            |context| effect(context, &researcher),
+        );
+        assert!(
+            state
+                .player(&researcher)
+                .unwrap()
+                .technologies
+                .contains(&ti4_model::id::TechnologyId::new("dxa")),
+            "researched past the prerequisite"
+        );
+        assert_eq!(state.player(&researcher).unwrap().trade_goods, 2);
+        assert!(crate::coexistence::is_coexisting(
+            &state,
+            &system,
+            &planet,
+            &dw::a()
+        ));
+        assert_eq!(dw::infantry_on(&state, &system, &planet, &dw::a()), 1);
+        assert_eq!(
+            crate::factions::deepwrought::oceans(&state, &dw::a()),
+            vec![ti4_model::id::PlanetId::new("ocean1")],
+            "Oceanbound answered"
         );
     }
 
@@ -10452,6 +10780,36 @@ mod tests {
     }
 
     #[test]
+    fn economic_initiative_preview_lists_cultural_planets_and_their_state() {
+        let player = PlayerId::new("a");
+        let store = ContentStore::embedded();
+        let cultural = ti4_content::galaxy::all_planets(store, POK)
+            .iter()
+            .find(|(_, p)| {
+                p.planet_type()
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("cultural"))
+            })
+            .map(|(id, _)| id.to_string())
+            .expect("the corpus has a cultural planet");
+        let planet = planet(&cultural);
+        let system = system_of(store, &cultural);
+        let mut state = crate::fixtures::game(&["a"]);
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player.clone());
+        assert_eq!(
+            cultural_planets_preview(&state, store, POK, &player)[0]["exhausted"],
+            false
+        );
+        state.exhausted_planets.insert(planet);
+        let preview = cultural_planets_preview(&state, store, POK, &player);
+        assert_eq!(preview.len(), 1);
+        assert_eq!(preview[0]["id"], cultural.as_str());
+        assert_eq!(preview[0]["exhausted"], true);
+        assert_eq!(preview[0]["trait"], "cultural");
+    }
+
+    #[test]
     fn industrial_initiative_pays_one_good_per_industrial_planet() {
         let player = PlayerId::new("a");
         let store = ContentStore::embedded();
@@ -11256,11 +11614,20 @@ mod tests {
         crate::fixtures::put(&mut state, &system, "cruiser", &owner, 1);
         let points_with_support = state.player(&me).unwrap().victory_points;
 
+        // Thunder's Edge Warfare first offers a redistribution of command tokens; keep them.
+        let keep = {
+            let seat = state.player(&me).unwrap();
+            format!(
+                "{}|{}|{}",
+                seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens
+            )
+        };
         {
             let effect = effect_for(&ActionCardId::new("overrule")).expect("a registered effect");
             let mut table =
                 crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([
                     "te6warfare".to_owned(),
+                    keep,
                     hub.centre.clone(),
                 ])));
             let mut dice = crate::dice::Dice::new();

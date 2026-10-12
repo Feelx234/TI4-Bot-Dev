@@ -1,9 +1,20 @@
 pub mod batch;
+pub mod bluff;
+pub mod bluff_hold;
+pub mod reaction_modes;
 pub mod decider;
 mod planning;
+pub mod preview;
+pub mod random_bot;
 pub mod registry;
 pub mod replay;
+pub mod rng_force;
 pub(crate) mod script;
+pub mod smart_bot;
+pub mod smart_bot_faction_plans;
+pub mod splice;
+pub mod step_snapshot;
+pub mod turn_redo;
 pub mod transport;
 pub(crate) mod undo;
 pub mod worker;
@@ -67,8 +78,10 @@ use serde::{Deserialize, Serialize};
 
 pub use decider::RemoteHumanDecider;
 pub use planning::PlanningError;
+pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use replay::{ReplayError, ReplayReport, replay_session};
+pub use replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
+pub use rng_force::{RngForce, RngMarks};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
@@ -82,11 +95,24 @@ pub enum SeatController {
     BotAlwaysDecline,
     /// Automated bot following a scripted sequence of option IDs.
     BotScripted(Vec<String>),
-    /// Automated seat that draws among the offered options, as a random seat of a local game
-    /// does (`ti4_engine::choice::SeededRandom`). Its stream is seeded from the seed of the game
-    /// and the seat, and a replay of the decision log moves it on, so a recovered game goes on
-    /// as the game that was never stopped.
+    /// In-process bot choosing uniformly among the legal options, reproducibly from
+    /// (game seed, seat, decision index) with a think delay between decisions. See
+    /// [`random_bot`].
     BotRandom,
+    /// In-process bot like [`SeatController::BotRandom`] that answers the board questions it has
+    /// an opinion on with simple heuristics (claim nearby planets, fight battles it expects to
+    /// win, build when short of units, take favourable trades) and the rest at random. See
+    /// [`smart_bot`].
+    BotSmart,
+}
+
+impl SeatController {
+    /// Whether the seat is answered inside the game worker (a random or rule bot): no
+    /// credential, no connection, never taken over.
+    #[must_use]
+    pub const fn is_in_process_bot(&self) -> bool {
+        matches!(self, Self::BotRandom | Self::BotSmart)
+    }
 }
 
 /// Configuration used to spawn an authoritative game session.
@@ -113,13 +139,33 @@ pub struct SessionConfig {
     pub event_counter: u64,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
+    /// Stream positions forced while replaying `prior_decisions` and `redo_decisions`
+    /// (set only on a timeline made by a turn redo).
+    pub rng_marks: RngMarks,
     /// State at the first unplanned choice, computed by private replay for a committed batch.
     pub replay_boundary_state: Option<GameState>,
-    /// Card names each seat asked never to be offered (see `ti4_engine::reaction_modes`).
+    /// The worker stops being `replaying` when the last recorded decision is handed to the engine
+    /// (a batch commit: whatever the engine settles after the batch is new to the players).
+    /// Otherwise it stops at the first live question: the stretch between the last recorded
+    /// decision and that question was already shown when the position was first live (a
+    /// recovery, an undo, a redo), so its auto-resolve notes and bluff holds are not repeated.
+    pub announce_tail: bool,
+    /// Card names each seat asked never to be offered (see `reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
     /// The steps that the undo of a seat took back, when this session is what that undo left.
     /// The seat is told them with its next snapshot.
     pub undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
+    /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
+    /// `step_snapshot`). Off only in tests that compare against the full-replay path.
+    pub step_snapshots: bool,
+    /// Think delay of the `BotRandom` seats in milliseconds; `None` reads
+    /// `TI4_RANDOM_BOT_DELAY_MS` (default 600). Tests and soaks set `Some(0)`.
+    pub random_bot_delay_ms: Option<u64>,
+    /// A copy of the game at an earlier step boundary of this same history: the worker forks it
+    /// and replays only the decisions after it, instead of replaying the whole game. Used when a
+    /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
+    /// and ignored when it does not fit.
+    pub resume: Option<Arc<step_snapshot::StepSnapshot>>,
 }
 
 impl SessionConfig {
@@ -151,9 +197,14 @@ impl SessionConfig {
             event_counter: 0,
             history_generation: 0,
             batches: Vec::new(),
+            rng_marks: RngMarks::new(),
             replay_boundary_state: None,
+            announce_tail: false,
             reaction_modes: BTreeMap::new(),
             undone: BTreeMap::new(),
+            step_snapshots: true,
+            random_bot_delay_ms: None,
+            resume: None,
         }
     }
 
@@ -184,6 +235,12 @@ impl SessionConfig {
             self.galaxy.as_ref().expect("galaxy just assigned"),
             ti4_model::content_types::POK,
         );
+        self
+    }
+
+    #[must_use]
+    pub fn with_random_bot_delay_ms(mut self, delay_ms: u64) -> Self {
+        self.random_bot_delay_ms = Some(delay_ms);
         self
     }
 
@@ -433,7 +490,10 @@ impl GameSession {
     pub fn viewer_for_seat_token(&self, token: &str) -> Option<ViewerRole> {
         let lock = self.shared.lock().expect("shared lock");
         lock.seat_tokens.iter().find_map(|(seat, candidate)| {
-            (candidate == token).then(|| ViewerRole::Player(seat.clone()))
+            // A bot seat has no usable credential, whatever its record holds.
+            (candidate == token
+                && !lock.seats.get(seat).is_some_and(SeatController::is_in_process_bot))
+                .then(|| ViewerRole::Player(seat.clone()))
         })
     }
 
@@ -512,6 +572,33 @@ impl GameSession {
             .clone()
     }
 
+    /// The decision log together with the worker's newest step-boundary copy of the game, read
+    /// under one lock so the two belong to the same moment. The copy is only a hint: a batch
+    /// check uses it when `StepSnapshot::is_valid_for` accepts it and replays in full otherwise.
+    #[must_use]
+    pub fn batch_basis(&self) -> (Vec<DecisionRecord>, Option<Arc<step_snapshot::StepSnapshot>>) {
+        let lock = self.shared.lock().expect("shared lock");
+        (lock.decision_log.clone(), lock.step_snapshot.clone())
+    }
+
+    /// Diagnostic: the number of decisions this session did not have to replay because it
+    /// started from a copy of the game (`None`: it replayed from the opening state).
+    #[must_use]
+    pub fn resumed_from(&self) -> Option<usize> {
+        self.shared.lock().expect("shared lock").resumed_from
+    }
+
+    /// Diagnostic: the decision count of the worker's newest step-boundary copy of the game.
+    #[must_use]
+    pub fn step_snapshot_len(&self) -> Option<usize> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .step_snapshot
+            .as_ref()
+            .map(|copy| copy.log_len)
+    }
+
     /// Returns the canonical hashes of all recorded decisions.
     #[must_use]
     pub fn decision_hashes(&self) -> Vec<CanonicalHash> {
@@ -580,6 +667,55 @@ impl GameSession {
             .lock()
             .expect("shared lock")
             .set_reaction_mode(seat, card, mode)
+    }
+
+    /// Declare which reaction windows this seat bluffs about (ephemeral; see `session::bluff`).
+    ///
+    /// # Errors
+    /// A client-facing message when the declaration is refused.
+    pub fn set_reaction_intent(&self, seat: &PlayerId, triggers: &[String]) -> Result<(), String> {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .set_reaction_intent(seat, triggers)
+    }
+
+    /// What `seat` would be asked for the strategy-card secondary in progress if its window
+    /// opened now (see `session::preview`). Read only: copies the newest published position
+    /// under the lock and computes on the copy.
+    #[must_use]
+    pub fn preview_secondary(
+        &self,
+        seat: &PlayerId,
+        request: &preview::PreviewRequest,
+    ) -> crate::protocol::server::SecondaryPreviewMsg {
+        preview::answer(&self.shared, &self.game_id, seat, request)
+    }
+
+    /// Let the seat end its running bluff hold early; the seat's current bluff state is
+    /// returned so a refused request can still re-sync the client.
+    pub fn pass_reaction_hold(&self, seat: &PlayerId) {
+        self.shared.lock().expect("shared lock").pass_reaction_hold(seat);
+    }
+
+    /// The seat's own bluff state, as the protocol sends it to that seat only.
+    #[must_use]
+    pub fn reaction_intent_state(
+        &self,
+        seat: &PlayerId,
+    ) -> crate::protocol::server::ReactionIntentStateMsg {
+        self.shared.lock().expect("shared lock").reaction_intent_state(seat)
+    }
+
+    /// Replace the bluff limits (tests use short durations; a running hold keeps its own).
+    pub fn set_bluff_policy(&self, policy: bluff::BluffPolicy) {
+        self.shared.lock().expect("shared lock").bluff.policy = policy;
+    }
+
+    /// The seat whose bluff hold is running right now, if any.
+    #[must_use]
+    pub fn bluff_holding(&self) -> Option<PlayerId> {
+        self.shared.lock().expect("shared lock").bluff.holding().cloned()
     }
 
     pub fn game_version(&self) -> u64 {
@@ -1138,6 +1274,7 @@ impl GameSession {
                 revision: lock.game_version.saturating_add(1),
                 generation: lock.history_generation,
                 batches: lock.batches.clone(),
+                rng_marks: lock.rng_marks.clone(),
             },
             lock.seed,
             lock.player_ids.clone(),
@@ -1152,13 +1289,38 @@ impl GameSession {
         config.replay_boundary_state = None;
         // What an undo took back is told by the session that the undo left, and by no other.
         config.undone = BTreeMap::new();
+        config.announce_tail = false;
+        // A copy of the game belongs to one history; whatever replaces this one gets its own.
+        config.resume = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
-        config.reaction_modes = self
-            .shared
-            .lock()
-            .expect("shared lock")
-            .reaction_modes_snapshot();
+        {
+            let lock = self.shared.lock().expect("shared lock");
+            config.reaction_modes = lock.reaction_modes_snapshot();
+            // A timeline made by a turn redo replays with forced random positions.
+            config.rng_marks.clone_from(&lock.rng_marks);
+        }
         config
+    }
+
+    /// The forced random positions of the live timeline (empty unless a turn redo made it).
+    #[must_use]
+    pub fn rng_marks(&self) -> RngMarks {
+        self.shared.lock().expect("shared lock").rng_marks.clone()
+    }
+
+    /// The decision the engine is waiting on, as `(seat, prompt)`, if any.
+    #[must_use]
+    pub fn pending_prompt(&self) -> Option<(PlayerId, String)> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.pending_decision
+            .as_ref()
+            .map(|p| (p.seat.clone(), p.choice.prompt.clone()))
+    }
+
+    /// The worker is still replaying recorded decisions (see `SessionShared::replaying`).
+    #[must_use]
+    pub fn is_replaying(&self) -> bool {
+        self.shared.lock().expect("shared lock").replaying
     }
 
     pub fn history_ready(&self) -> bool {
@@ -1170,9 +1332,18 @@ impl GameSession {
             // outer engine step to return. Rewinding stops that step and discards
             // those unpublished decisions; the new offer must itself be unreserved.
             && (lock.finished
+                || lock.bot_deciding
                 || lock.pending_decision.as_ref().is_some_and(|pending| {
                     pending.submission_state == PendingSubmissionState::AwaitingSubmission
                 }))
+    }
+
+    /// Hold back random bot answers until the returned guard drops. A history change takes it
+    /// before it compares versions so a bot cannot act during the rewind.
+    #[must_use]
+    pub fn pause_bots(self: &Arc<Self>) -> BotPause {
+        self.shared.lock().expect("shared lock").history_pause = true;
+        BotPause(self.clone())
     }
 
     pub(crate) fn choice_in_flight(&self) -> bool {
@@ -1185,7 +1356,9 @@ impl GameSession {
     }
 
     pub fn wait_replayed(&self) -> Result<(), String> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs(15)
+            + batch::replay_budget(self.initial_config.prior_decisions.len());
         loop {
             let lock = self.shared.lock().expect("shared lock");
             if let Some(error) = &lock.error {
@@ -1225,6 +1398,8 @@ impl GameSession {
             let mut lock = self.shared.lock().expect("shared lock");
             lock.stopped = true;
             lock.planning.close();
+            // A running bluff hold ends at once instead of at its next poll.
+            lock.bluff.wake();
             // Dropping inboxes unblocks any waiting RemoteHumanDecider
             lock.seat_inboxes.clear();
         }
@@ -1237,6 +1412,16 @@ impl GameSession {
         lock.pending_decision = None;
         lock.in_flight_submissions.clear();
         lock.scripts.clear();
+        lock.step_snapshot = None;
+    }
+}
+
+/// Guard from [`GameSession::pause_bots`]; bots resume when it drops.
+pub struct BotPause(Arc<GameSession>);
+
+impl Drop for BotPause {
+    fn drop(&mut self) {
+        self.0.shared.lock().expect("shared lock").history_pause = false;
     }
 }
 

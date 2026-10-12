@@ -18,7 +18,8 @@ use ti4_model::units::Unit;
 
 use crate::choice::{Choice, ChoiceOption, IllegalChoice, Observed, Resolving, Table, Window};
 use crate::decision_context::{
-    ConstraintKind, DecisionContext, DecisionSource, DecisionTarget, OutstandingConstraint,
+    ConstraintKind, DecisionContext, DecisionSource, DecisionTarget, HitCause, HitDetail,
+    HitRestriction, OutstandingConstraint,
 };
 use crate::dice::Dice;
 use crate::factions::hooks_combat::{AfbExcess, CombatMoment, HitSite, ProducedHits};
@@ -39,6 +40,17 @@ pub const CASUALTY_KIND: &str = "casualty";
 pub enum HitOrigin {
     CombatRoll,
     UnitAbility,
+}
+
+/// The display cause of hits whose engine `cause` string is given (see `absorb_hits_seeing_with_context`).
+fn hit_cause_of(cause: &str) -> HitCause {
+    if cause.contains("anti_fighter_barrage") {
+        HitCause::AntiFighterBarrage
+    } else if cause.contains("space_cannon") {
+        HitCause::SpaceCannon
+    } else {
+        HitCause::Other
+    }
 }
 
 /// A combat could not be resolved.
@@ -237,6 +249,7 @@ pub(crate) fn planetary_maximum_participates(
 /// area; Eidolon Maximum is the sole current exception and remains on its planet while joining
 /// the battle.
 pub(crate) fn remove_combat_ship(state: &mut GameState, system: &SystemId, unit: &Unit) {
+    crate::factions::bastion::note_ship_lost(state, system, unit);
     let voltron = unit.type_id.as_str() == "naaz_voltron";
     // An Alastor participant is a ground force standing on its planet: it leaves from there, and
     // the choice that made it a participant shrinks by one.
@@ -383,6 +396,15 @@ fn effective_from(
         None,
     );
 
+    // Assail (Obsidian plot): +1 to each of the owner's combat rolls against a puppeted player.
+    let assail = crate::factions::firmament_plots::assail_space(
+        state,
+        content,
+        sources,
+        player,
+        state.active_system.as_ref(),
+    );
+
     Some(
         threshold
             - i64::from(morale_is_current)
@@ -391,7 +413,8 @@ fn effective_from(
             - i64::from(nebula_defender)
             - module
             - mahact_flagship
-            - nekro_mech,
+            - nekro_mech
+            - assail,
     )
 }
 
@@ -1199,6 +1222,8 @@ fn fleet_groups(
             dice += 1;
             extra_die_added = true;
         }
+        // A galvanized unit rolls 1 additional die for its combat rolls (Last Bastion).
+        dice += i64::try_from(crate::factions::bastion::extra_die(&unit)).unwrap_or(0);
         dice += crate::factions::borrowed_round_agents::extra_die_for(
             state,
             content,
@@ -1519,10 +1544,16 @@ pub fn roll_barrage_side(
         crate::factions::hooks_combat::borrowed_stats(state, content, sources, player, system)
             .and_then(|borrowed| borrowed.barrage.map(|barrage| (borrowed.unit, barrage)));
     let mut borrower_used = false;
+    // Quietus: units in an active breach beside another player's Quietus have lost every unit
+    // ability, ANTI-FIGHTER BARRAGE among them.
+    let abilities_lost = crate::factions::crimson::abilities_lost(state, player, system);
     for unit in ships_of(state, content, sources, player, system) {
         let Some(kind) = types.get(unit.type_id.as_str()) else {
             continue;
         };
+        if abilities_lost {
+            continue;
+        }
         let lent = borrower
             .as_ref()
             .filter(|(ship, _)| !borrower_used && *ship == unit)
@@ -1536,6 +1567,8 @@ pub fn roll_barrage_side(
         if count == 0 {
             continue;
         }
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
         // Fighter Prototype names "each of your fighters' combat rolls": the barrage is a
         // fighters' combat roll, so it gets the same +2 per copy as the fleet rolls do.
         let value = if kind.is_fighter() {
@@ -1543,6 +1576,16 @@ pub fn roll_barrage_side(
         } else {
             value
         };
+        // Assail: +1 to the owner's unit ability rolls against a puppeted player.
+        let value = (value
+            - crate::factions::firmament_plots::assail_space(
+                state,
+                content,
+                sources,
+                player,
+                Some(system),
+            ))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -1885,6 +1928,7 @@ fn reaching_guns_by(
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     system: &SystemId,
     fires: impl Fn(&PlayerId) -> bool,
+    silenced_in_space: impl Fn(&Unit) -> bool,
 ) -> Vec<Unit> {
     let Some(galaxy) = galaxy else {
         return Vec::new();
@@ -1892,14 +1936,18 @@ fn reaching_guns_by(
     let mut found = Vec::new();
     for neighbour in galaxy.adjacent(system.as_str()) {
         let board = state.system_state(&SystemId::new(neighbour));
+        // Miniaturization: a Ral Nel structure in the space area has no unit abilities.
         let standing = board
             .planet_units
             .values()
             .flat_map(|units| units.iter())
-            .chain(board.units.iter());
+            .chain(board.units.iter().filter(|unit| !silenced_in_space(unit)));
+        let here = SystemId::new(neighbour);
         found.extend(
             standing
                 .filter(|unit| fires(&unit.owner))
+                // Quietus: a gun in an active breach beside another player's Quietus has lost it.
+                .filter(|unit| !crate::factions::crimson::abilities_lost(state, &unit.owner, &here))
                 .filter(|unit| {
                     types
                         .get(unit.type_id.as_str())
@@ -1958,9 +2006,13 @@ pub fn space_cannon_guns(
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
     // activation-scoped, like the card's "this tactical action" wording.
+    // Myru Vos (Firmament agent) silences SPACE CANNON against the ships that moved the same way.
     let solar_flare = state
         .player(active)
-        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq));
+        .is_some_and(|seat| seat.solar_flare.contains(&state.activation_seq))
+        || crate::factions::firmament::space_cannon_silenced(
+            state, content, sources, active, system,
+        );
     let types = catalogue(content, sources);
     let board = state.system_state(system);
     // The active player's guns fire too (as ti4calc has it; user ruling 2026-09-17), at the ships
@@ -1986,10 +2038,18 @@ pub fn space_cannon_guns(
         }
     };
 
+    // Quietus: a unit in an active breach beside another player's Quietus has lost SPACE CANNON.
+    let may_fire_here = |owner: &PlayerId| {
+        may_fire(owner) && !crate::factions::crimson::abilities_lost(state, owner, system)
+    };
+    // Miniaturization: a Ral Nel structure in the space area cannot use its own SPACE CANNON.
     let mut guns: Vec<Unit> = board
         .units
         .iter()
-        .filter(|unit| may_fire(&unit.owner))
+        .filter(|unit| {
+            may_fire_here(&unit.owner)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .cloned()
         .collect();
     for planet in board.planet_units.keys() {
@@ -1997,7 +2057,7 @@ pub fn space_cannon_guns(
             board
                 .on_planet(planet)
                 .iter()
-                .filter(|unit| may_fire(&unit.owner))
+                .filter(|unit| may_fire_here(&unit.owner))
                 .cloned(),
         );
     }
@@ -2006,7 +2066,22 @@ pub fn space_cannon_guns(
     // ships that are in adjacent systems." Two cards, one clause, and neither reached the active
     // system before: `space_cannon_offense` read only the system being activated, so an upgraded
     // PDS next door -- a technology every faction can research -- never fired at all.
-    guns.extend(reaching_guns_by(state, &types, galaxy, system, &may_fire));
+    guns.extend(reaching_guns_by(
+        state,
+        &types,
+        galaxy,
+        system,
+        &may_fire,
+        |unit| crate::factions::ralnel::silenced_in_space(state, content, sources, unit),
+    ));
+    // Linkship I / II: the SPACE CANNON of a Ral Nel structure in the space area, borrowed.
+    guns.extend(crate::factions::ralnel::linkship_guns(
+        state,
+        content,
+        sources,
+        system,
+        &may_fire_here,
+    ));
     // SPACE CANNON an attachment gives its planet "as if it were a unit" (Titans' Geoform).
     // Disable and Plasma Scoring do not apply to these dice: the attachment is not a PDS unit.
     let attachment_guns: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)> = board
@@ -2040,6 +2115,8 @@ pub fn space_cannon_offense(
         attachments: attachment_guns,
     } = space_cannon_guns(state, content, sources, system, active, galaxy);
     let types = catalogue(content, sources);
+    // The player the active player's guns fire at (Assail reads it below).
+    let opponent = opponent_with_ships(state, content, sources, active, system);
 
     let mut by_player: std::collections::BTreeMap<PlayerId, (usize, Vec<RerollEntry>)> =
         std::collections::BTreeMap::new();
@@ -2079,6 +2156,18 @@ pub fn space_cannon_offense(
             continue;
         }
         let count = count + take_plasma(&mut plasma, &unit.owner, value);
+        // A galvanized unit rolls 1 additional die for its unit abilities (Last Bastion).
+        let count = count + crate::factions::bastion::extra_die(&unit);
+        // Assail: +1 to the gunner's unit ability rolls against a puppeted player (the active
+        // player's guns fire at the opponent, every other gun at the active player).
+        let target = if unit.owner == *active {
+            opponent.clone()
+        } else {
+            Some(active.clone())
+        };
+        let value = (value
+            - crate::factions::firmament_plots::assail_against(state, &unit.owner, target.iter()))
+        .max(1);
         let roll = dice.roll_by(
             rng,
             count,
@@ -2822,6 +2911,16 @@ fn absorb_hits_seeing_with_context(
             "assign_casualty",
             Some(system),
             Some(remaining),
+            Some(HitDetail {
+                cause: hit_cause_of(cause),
+                destroy: false,
+                restriction: if non_fighters_first {
+                    HitRestriction::NonFighter
+                } else {
+                    HitRestriction::Any
+                },
+                producer: Some(producer.clone()),
+            }),
         )?;
         remove_combat_ship(state, system, &casualty);
         if crate::supply::staging_enabled(state) {
@@ -2908,7 +3007,7 @@ pub fn destroyed_during_combat(event: &crate::event::Event) -> bool {
 /// Shared by the combat window's own emissions and by the card-play path that drains
 /// [`GameState::pending_destructions`], so the two cannot drift apart on a key a listener reads.
 pub(crate) fn ship_destroyed_payload(
-    state: &GameState,
+    state: &mut GameState,
     content: &ContentStore,
     sources: SourceSet,
     system: &SystemId,
@@ -2919,6 +3018,11 @@ pub(crate) fn ship_destroyed_payload(
 ) -> std::collections::BTreeMap<String, serde_json::Value> {
     let remaining = ships_of(state, content, sources, owner, system).len();
     let mut payload = std::collections::BTreeMap::new();
+    // The galvanize token went back to the supply with the ship; the event is the only record that
+    // it was galvanized (Last Bastion). Present only when true, so other games' events are unchanged.
+    if crate::factions::bastion::take_ship_lost(state, system, owner, unit) {
+        payload.insert("galvanized".to_owned(), true.into());
+    }
     payload.insert("system".to_owned(), system.to_string().into());
     payload.insert("player".to_owned(), owner.to_string().into());
     payload.insert("unit".to_owned(), unit.to_string().into());
@@ -3353,7 +3457,42 @@ pub(crate) fn choose_casualty(
     target: Option<&SystemId>,
 ) -> Result<Unit, CombatError> {
     choose_casualty_owing(
-        state, content, sources, galaxy, table, player, units, source, subtype, target, None,
+        state, content, sources, galaxy, table, player, units, source, subtype, target, None, None,
+    )
+}
+
+/// [`choose_casualty`], telling the decision what kind of hit it assigns (display only), for the
+/// one-off losses whose kind a client cannot read from the subtype alone.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "choose_casualty's inputs plus the hit's description"
+)]
+pub(crate) fn choose_casualty_as(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    units: &[Unit],
+    source: &DecisionSource,
+    subtype: &str,
+    target: Option<&SystemId>,
+    hit: HitDetail,
+) -> Result<Unit, CombatError> {
+    choose_casualty_owing(
+        state,
+        content,
+        sources,
+        galaxy,
+        table,
+        player,
+        units,
+        source,
+        subtype,
+        target,
+        None,
+        Some(hit),
     )
 }
 
@@ -3371,6 +3510,7 @@ pub(crate) fn choose_casualty_owing(
     subtype: &str,
     target: Option<&SystemId>,
     owed: Option<usize>,
+    hit: Option<HitDetail>,
 ) -> Result<Unit, CombatError> {
     if let [only] = units {
         return Ok(only.clone());
@@ -3430,6 +3570,9 @@ pub(crate) fn choose_casualty_owing(
             0,
         ));
     }
+    if let Some(hit) = hit {
+        context = context.with_hit(hit);
+    }
     let choice = Choice::new(player.clone(), "assign a hit", options).contextualized(context);
     let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
     let index = answer
@@ -3457,9 +3600,12 @@ pub fn eligible_retreats(
     system: &SystemId,
 ) -> Vec<SystemId> {
     let types = catalogue(content, sources);
+    // A retreat is a move: Sundered and the sever token close the wormholes it may not use.
+    let galaxy = crate::factions::hooks_movement::galaxy_for_mover(state, player, galaxy);
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
@@ -3510,6 +3656,7 @@ pub fn skilled_retreat_destinations(
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             !state.system_state(adjacent).units.iter().any(|unit| {
@@ -3540,6 +3687,7 @@ pub fn det_retreat_destinations(
     galaxy
         .adjacent(system.as_str())
         .into_iter()
+        .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
@@ -3619,8 +3767,21 @@ pub fn retreat_to(
     for unit in &planetary {
         if leaving.contains(unit) {
             remove_combat_ship(state, system, unit);
+            // Leaving is not destroying: forget the galvanized-loss note the removal made.
+            let _ =
+                crate::factions::bastion::take_ship_lost(state, system, &unit.owner, &unit.type_id);
         }
     }
+    let ships_leaving: Vec<Unit> = leaving
+        .iter()
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(UnitType::is_ship)
+        })
+        .cloned()
+        .collect();
+    crate::factions::bastion::note_retreat(state, system, destination, player, &ships_leaving);
     state.move_units(system, destination, &leaving);
     // A dual-form unit is a ship only in the active system during its battle (Z-Grav Eidolon):
     // one that retreats takes its ground form again where it lands.
@@ -4157,6 +4318,14 @@ impl CombatWindow {
                 now.remove(index);
             }
         }
+        // Last Dispatch: "When this unit retreats". Only a flagship that arrived counts.
+        if crate::factions::ralnel::flagship_among(state, player, &now) {
+            let mut payload = std::collections::BTreeMap::new();
+            payload.insert("system".to_owned(), self.system.to_string().into());
+            payload.insert("player".to_owned(), player.to_string().into());
+            payload.insert("destination".to_owned(), destination.to_string().into());
+            let _ = ctx.emit(state, "FLAGSHIP_RETREATED", payload);
+        }
         self.fled.push((player.clone(), now));
     }
 
@@ -4404,6 +4573,7 @@ impl CombatWindow {
         crate::fleet::flip_to_ground_forms(state, content, sources, &sides, &self.system);
         let _ = ctx.emit(state, "SPACE_COMBAT_ENDED", payload);
         crate::factions::nekro_units::alastor_clear(state, &self.system, None);
+        crate::factions::bastion::clear_retreated(state, &self.system);
         // A mobile space dock left in a space area with another player's ships is destroyed
         // (Floating Factory); checked when the combat that could have cleared them ends.
         let _ = crate::production::destroy_blockaded_mobile_docks(
@@ -4528,12 +4698,12 @@ impl CombatWindow {
                         >= 3
                 })
                 .collect();
-                for (_, victim) in firing {
+                for (holder, victim) in firing {
                     let targets = non_fighter_ships(state, content, sources, &victim, &self.system);
                     if targets.is_empty() {
                         continue;
                     }
-                    let casualty = choose_casualty(
+                    let casualty = choose_casualty_as(
                         state,
                         content,
                         sources,
@@ -4544,6 +4714,12 @@ impl CombatWindow {
                         &DecisionSource::Content("asc".to_owned()),
                         "assault_cannon_destroy",
                         Some(&self.system),
+                        HitDetail {
+                            cause: HitCause::AssaultCannon,
+                            destroy: true,
+                            restriction: HitRestriction::NonFighter,
+                            producer: Some(holder),
+                        },
                     )?;
                     remove_combat_ship(state, &self.system, &casualty);
                     announce_ship_destroyed_type(
@@ -6037,9 +6213,14 @@ mod tests {
 
         let types = catalogue(ContentStore::embedded(), POK);
         let guns = |state: &GameState| {
-            reaching_guns_by(state, &types, Some(&hub.galaxy), &active, |owner| {
-                owner != &attacker()
-            })
+            reaching_guns_by(
+                state,
+                &types,
+                Some(&hub.galaxy),
+                &active,
+                |owner| owner != &attacker(),
+                |_| false,
+            )
             .len()
         };
 
@@ -7221,6 +7402,52 @@ mod tests {
             dice.rolled("space combat").is_empty(),
             "the fight ended before any die"
         );
+    }
+
+    #[test]
+    fn assault_cannon_choice_says_it_is_a_destroy_of_a_non_fighter_ship() {
+        let (mut state, system) = arena();
+        put(&mut state, &system, "cruiser", &attacker(), 3);
+        put(&mut state, &system, "destroyer", &defender(), 1);
+        put(&mut state, &system, "dreadnought", &defender(), 1);
+        put(&mut state, &system, "fighter", &defender(), 2);
+        state
+            .player_mut(&attacker())
+            .unwrap()
+            .technologies
+            .insert(ti4_model::id::TechnologyId::new("asc"));
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(decider));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(3);
+        resolve(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            &mut dice,
+            &mut rng,
+            &system,
+        )
+        .unwrap();
+        let asked = seen.borrow();
+        let cannon = asked
+            .iter()
+            .filter_map(|choice| choice.context.as_ref())
+            .find(|context| context.subtype == "assault_cannon_destroy")
+            .expect("the cannon asked the victim which ship goes");
+        let hit = cannon.hit.as_ref().expect("the kind of hit is stated");
+        assert_eq!(hit.cause, HitCause::AssaultCannon);
+        assert!(
+            hit.destroy,
+            "a destroy, not a hit that sustain could cancel"
+        );
+        assert_eq!(hit.restriction, HitRestriction::NonFighter);
+        assert_eq!(hit.producer, Some(attacker()));
+        assert_eq!(cannon.actor, defender(), "the victim chooses the ship");
+        // Display only: the replay fingerprint and recorded decisions do not carry it.
+        assert!(cannon.without_display_fields().hit.is_none());
+        assert!(!cannon.canonical().contains("AssaultCannon"));
     }
 
     #[test]

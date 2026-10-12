@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useWorkspace } from "./WorkspaceContext.tsx";
 import type {
   BoardView,
   GameEvent,
@@ -114,7 +113,6 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
   reactionModes,
   onSetReactionMode,
 }) => {
-  const workspace = useWorkspace();
   const display = usePlayerIdentity();
   const prefs = useCardTextPrefs();
   const isActor = Boolean(choice && viewerSeat && choice.actor === viewerSeat);
@@ -165,6 +163,9 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     return choice.options.filter((o) => o.id !== "decline" && o.kind !== "decline");
   }, [choice]);
 
+  // The second step of a multi-card window: the player already said yes and now picks the card.
+  const isCardStep = Boolean(choice?.context?.subtype?.startsWith("play_reaction_"));
+
   const handleAction = async (optionId: string) => {
     if (isSubmitting) return;
     setIsSubmitting(true);
@@ -179,15 +180,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
   // Keyboard navigation (Spacebar -> Pass, Enter -> Play Reaction)
   useEffect(() => {
-    if (
-      !workspace.active ||
-      !workspace.actionable ||
-      !isOpen ||
-      !choice ||
-      !isActor ||
-      isSubmitting
-    )
-      return;
+    if (!isOpen || !choice || !isActor || isSubmitting) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       // Ignore if focused on an input element
@@ -211,16 +204,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [
-    isOpen,
-    choice,
-    isActor,
-    isSubmitting,
-    declineOption,
-    reactionOptions,
-    workspace.active,
-    workspace.actionable,
-  ]);
+  }, [isOpen, choice, isActor, isSubmitting, declineOption, reactionOptions]);
 
   // Countdown timer for auto-pass (if configured and not pinned)
   useEffect(() => {
@@ -315,7 +299,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
 
       {!isActor ? (
         <div data-testid="spectator-reaction-notice" className="reaction-status-bar__spectator">
-          Waiting for {display(choice.actor).label}...
+          Waiting for reactions...
         </div>
       ) : (
         <>
@@ -379,7 +363,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 disabled={isSubmitting}
                 className="button button--secondary reaction-status-bar__pass"
               >
-                Pass (Spacebar)
+                {isCardStep ? "Back, do not play a card (Spacebar)" : "Pass (Spacebar)"}
               </button>
             )}
 

@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "screenshots": "node e2e/screenshots/_shared/run.mjs",
+    "test:e2e:resume": "playwright test -c e2e/resume.config.ts",
     "test:e2e:smoke": "TI4_SMOKE=1 playwright test e2e/smoke_playthrough.spec.ts --global-timeout=0 --reporter=line"
   },
   "dependencies": {

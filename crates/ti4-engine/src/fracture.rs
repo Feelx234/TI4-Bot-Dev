@@ -287,6 +287,75 @@ pub fn after_breakthrough_gained(
     Ok(true)
 }
 
+/// Rule 11: a game effect other than a breakthrough roll puts The Fracture into play. `player`,
+/// who caused it, chooses one planet with a technology specialty for each of the four colours
+/// (rule 12: one planet per system; rule 10: as many as exist when a colour has none left), then
+/// the Fracture enters play as for any entry. `source` names the effect for the decision.
+///
+/// Returns `false`, asking nothing, when the Fracture is already in play.
+///
+/// # Errors
+/// [`IllegalChoice`] when an ingress choice is not one the engine offered.
+pub fn enter_play_by_effect(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &ti4_model::id::PlayerId,
+    source: &str,
+) -> Result<bool, IllegalChoice> {
+    if state.fracture_in_play {
+        return Ok(false);
+    }
+    let mut chosen = std::collections::BTreeSet::new();
+    for colour in crate::technology::COLOURS {
+        let candidates = specialty_candidates(state, content, sources, galaxy, colour, &chosen);
+        if candidates.is_empty() {
+            continue;
+        }
+        let options: Vec<ChoiceOption> = candidates
+            .iter()
+            .map(|(system, planet)| {
+                ChoiceOption::labelled(
+                    system.to_string(),
+                    "ingress_system",
+                    format!("place a {colour} ingress in {system} ({planet})"),
+                )
+                .with("system", system.to_string())
+                .with("planet", planet.to_string())
+                .with("technology_colour", colour)
+            })
+            .collect();
+        let choice = Choice::new(
+            player.clone(),
+            format!("The Fracture: choose a {colour} technology-specialty ingress system"),
+            options,
+        )
+        .contextualized(DecisionContext::new(
+            player.clone(),
+            DecisionSource::Content(source.to_owned()),
+            "fracture_choose_ingress_system",
+            state.phase,
+            state.round,
+        ));
+        let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+        chosen.insert(SystemId::new(answer.id));
+    }
+    enter_play(
+        state,
+        content,
+        sources,
+        &chosen.into_iter().collect::<Vec<_>>(),
+    )
+    .map_err(|error| IllegalChoice::DeciderFailed {
+        player: player.clone(),
+        prompt: "put The Fracture into play".to_owned(),
+        reason: error.to_string(),
+    })?;
+    Ok(true)
+}
+
 /// Planets that may take an ingress token, one per technology-specialty colour (rules 9–12).
 ///
 /// `colours` are the colours to place for: a breakthrough's synergy under rule 9, or all four under

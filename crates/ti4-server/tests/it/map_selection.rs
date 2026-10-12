@@ -278,7 +278,15 @@ async fn the_lobby_preview_equals_the_started_games_board() {
         assert_eq!(status, StatusCode::OK);
         let preview = made.get("/map-preview").await;
         assert_eq!(preview["seats"].as_array().unwrap().len(), 4);
-        assert_eq!(preview["seats"][0]["faction"], "sol");
+        // The seats are dealt by the seed from the pool of 24, each once.
+        let dealt: std::collections::BTreeSet<&str> = preview["seats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|seat| seat["faction"].as_str().unwrap())
+            .collect();
+        assert_eq!(dealt.len(), 4, "{preview}");
+        assert!(dealt.iter().all(|f| ti4_engine::seating::LOBBY_FACTIONS.contains(f)));
 
         let mut tokens = vec![made.host.clone()];
         for _ in 0..3 {

@@ -51,7 +51,8 @@ describe("SystemInspector Component", () => {
 
     // Planet
     expect(screen.getByTestId("inspector-planet-mecatol_rex")).toBeInTheDocument();
-    expect(screen.getByText("1 Res / 6 Inf")).toBeInTheDocument();
+    expect(screen.getByLabelText("1 resource")).toBeInTheDocument();
+    expect(screen.getByLabelText("6 influence")).toBeInTheDocument();
     expect(screen.getAllByText(/Unknown participant/).length).toBeGreaterThan(0);
     expect(screen.getByTestId("system-inspector").textContent).not.toContain("seat_a");
     expect(screen.getByText("Attachments: custodians")).toBeInTheDocument();

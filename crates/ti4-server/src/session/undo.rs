@@ -15,9 +15,9 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
+use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_engine::observation::ExecutionObservation;
-use ti4_engine::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_view::planning::audit::learned_identity;

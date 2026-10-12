@@ -462,7 +462,7 @@ live game, and for the server later.
 ### Never cards
 
 A player can set an action card to "never offer". The engine applies the setting, with the
-wrapper that the server uses (`ti4_engine::reaction_modes::NeverOffer`); the page has no copy
+wrapper that the server uses (`ti4_view::reaction_modes::NeverOffer`); the page has no copy
 of the rule.
 
 - `ti4_set_reaction_mode` sets a card by its printed name. The setting is of the instance, so

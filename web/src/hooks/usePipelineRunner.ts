@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { PendingChoiceDto, ChoiceOptionDto } from "../protocol/types.ts";
-import { PlanningRefreshError } from "../protocol/planning.ts";
 
 export interface SemanticIntent {
   predicate: (option: ChoiceOptionDto) => boolean;
@@ -52,8 +51,7 @@ export function useOwnedPipelineRunner(
     }
 
     const nextIntent = activeQueue[0];
-    const matchingOptions = pendingChoice.options.filter(nextIntent.predicate);
-    const matchingOption = matchingOptions.length === 1 ? matchingOptions[0] : null;
+    const matchingOption = pendingChoice.options.find(nextIntent.predicate);
 
     if (matchingOption) {
       isSubmittingRef.current = true;
@@ -74,11 +72,6 @@ export function useOwnedPipelineRunner(
         })
         .catch((err) => {
           if (run !== runRef.current) return;
-          if (err instanceof PlanningRefreshError) {
-            setLastSubmittedNonce(null);
-            setActiveQueue((queue) => [...queue]);
-            return;
-          }
           setIsRunning(false);
           setActiveQueue([]);
           setLastError(err instanceof Error ? err.message : String(err));

@@ -10,6 +10,7 @@ import {
   TriggerKindDto,
   TriggerUnitsDto,
 } from "./types.ts";
+import { isStrategyCardSetId } from "../presentation/strategyCardSet.ts";
 import { validNickname } from "./nickname.ts";
 import { decodeMapChoice } from "./mapDecode.ts";
 
@@ -33,76 +34,6 @@ const isGameId = (value: unknown): value is string => isBoundedString(value, 64)
 const isSlotId = (value: unknown): value is string => isBoundedString(value, 64);
 const isPlayerId = (value: unknown): value is string => isBoundedString(value, 128);
 const isPlayerSession = (value: unknown): value is string => isBoundedString(value, 128);
-
-function isAttempt(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    ["checkpoint_id", "plan_revision", "generation_id"].every((key) =>
-      isNonNegativeInteger(value[key]),
-    )
-  );
-}
-
-function isDraftKind(value: unknown): boolean {
-  return value === undefined || value === "tactical" || value === "secondary";
-}
-
-function isDraftApplication(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    isNonNegativeInteger(value.applied) &&
-    isNonNegativeInteger(value.total) &&
-    value.applied <= value.total &&
-    ["applying", "waiting_for_player", "needs_decision", "applied"].includes(String(value.state)) &&
-    typeof value.message === "string"
-  );
-}
-
-function isSecondaryDraftStatus(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    typeof value.card === "string" &&
-    typeof value.played_by === "string" &&
-    [value.window_open, value.can_start, value.has_draft, value.ready].every(
-      (flag) => typeof flag === "boolean",
-    ) &&
-    (value.seats_before === null || isNonNegativeInteger(value.seats_before)) &&
-    (value.identity === null || isAttempt(value.identity)) &&
-    (value.application === null || isDraftApplication(value.application))
-  );
-}
-
-function isPlanningPublication(value: unknown): boolean {
-  if (
-    !isRecord(value) ||
-    !isRecord(value.position) ||
-    !isRecord(value.position.board) ||
-    !isRecord(value.position.board.systems) ||
-    !Array.isArray(value.position.players) ||
-    !Array.isArray(value.position.seating_order) ||
-    !isRecord(value.position.table) ||
-    !Array.isArray(value.events) ||
-    !value.events.every((event) => typeof event === "string")
-  )
-    return false;
-  const choice = value.choice;
-  return (
-    choice === null ||
-    (isRecord(choice) &&
-      typeof choice.player === "string" &&
-      typeof choice.prompt === "string" &&
-      Array.isArray(choice.options) &&
-      choice.options.every(
-        (option) =>
-          isRecord(option) &&
-          typeof option.id === "string" &&
-          typeof option.label === "string" &&
-          (option.payload === undefined || isRecord(option.payload)),
-      ) &&
-      (choice.context === undefined ||
-        (isRecord(choice.context) && typeof choice.context.subtype === "string")))
-  );
-}
 
 export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
   if (!isRecord(value) || value.game_id !== expectedGameId) fail("invalid lobby game id");
@@ -146,8 +77,25 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       ready: entry.ready,
       connected: entry.connected,
       can_take_over: entry.can_take_over,
+      ...(typeof entry.bot === "string" && entry.occupant !== null ? { bot: entry.bot } : {}),
+      ...(typeof entry.faction === "string" && entry.occupant !== null
+        ? { faction: entry.faction }
+        : {}),
     })),
     bot_service_enabled: Boolean(value.bot_service_enabled),
+    bot_kinds: Array.isArray(value.bot_kinds)
+      ? value.bot_kinds.filter((kind: unknown): kind is string => typeof kind === "string")
+      : [],
+    ...(Array.isArray(value.factions)
+      ? {
+          factions: value.factions.filter(
+            (faction: unknown): faction is string => typeof faction === "string",
+          ),
+        }
+      : {}),
+    ...(isStrategyCardSetId(value.strategy_card_set)
+      ? { strategy_card_set: value.strategy_card_set }
+      : {}),
     ...(value.map === undefined
       ? {}
       : {
@@ -281,118 +229,6 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
   if (gameScoped && value.game_id !== expectedGameId) fail("unexpected game id");
 
   switch (value.type) {
-    case "planning_status":
-      if (
-        !isNonNegativeInteger(value.checkpoint_id) ||
-        ![value.available, value.can_start, value.has_draft].every((v) => typeof v === "boolean") ||
-        (value.identity !== null && !isAttempt(value.identity)) ||
-        (value.can_apply !== undefined && typeof value.can_apply !== "boolean") ||
-        (value.application != null &&
-          (!isRecord(value.application) ||
-            !isNonNegativeInteger(value.application.applied) ||
-            !isNonNegativeInteger(value.application.total) ||
-            value.application.applied > value.application.total ||
-            !["applying", "waiting_for_player", "needs_decision", "applied"].includes(
-              String(value.application.state),
-            ) ||
-            typeof value.application.message !== "string")) ||
-        (value.secondary != null && !isSecondaryDraftStatus(value.secondary))
-      )
-        fail("invalid planning status");
-      return value as unknown as ServerMessage;
-    case "planning_result":
-      if (
-        !isDraftKind(value.draft) ||
-        (value.identity !== null && !isAttempt(value.identity)) ||
-        (value.rejection !== null &&
-          ![
-            "unauthorized",
-            "wrong_game",
-            "unavailable",
-            "unknown_seat",
-            "active_player",
-            "not_started",
-            "retired",
-            "not_waiting",
-            "unknown_option",
-            "no_action_opportunity",
-            "replay_mismatch",
-          ].includes(String(value.rejection)))
-      )
-        fail("invalid planning result");
-      return value as unknown as ServerMessage;
-    case "planning_update": {
-      const e = value.envelope;
-      if (
-        !isDraftKind(value.draft) ||
-        !isRecord(e) ||
-        !isNonNegativeInteger(e.publication_id) ||
-        !isAttempt(e.identity) ||
-        (e.reset_revision !== undefined && !isNonNegativeInteger(e.reset_revision)) ||
-        (e.editing_movement !== undefined && typeof e.editing_movement !== "boolean") ||
-        (e.movement_edit_revision !== undefined &&
-          !isNonNegativeInteger(e.movement_edit_revision)) ||
-        typeof e.awaiting_answer !== "boolean" ||
-        !Array.isArray(e.recorded_request_ids) ||
-        !e.recorded_request_ids.every((id) => typeof id === "string" && id.length > 0) ||
-        (e.recorded_decisions !== undefined &&
-          (!Array.isArray(e.recorded_decisions) ||
-            !e.recorded_decisions.every(
-              (decision) =>
-                isRecord(decision) &&
-                typeof decision.player === "string" &&
-                typeof decision.prompt === "string" &&
-                typeof decision.option_id === "string" &&
-                typeof decision.kind === "string" &&
-                isRecord(decision.payload) &&
-                (decision.context === null ||
-                  (isRecord(decision.context) && typeof decision.context.subtype === "string")),
-            ))) ||
-        !Array.isArray(e.assumptions) ||
-        !e.assumptions.every((a) => typeof a === "string") ||
-        !isRecord(e.progress) ||
-        ![
-          "recorded_answers",
-          "replayed",
-          "remaining",
-          "completed_steps",
-          "nested_answers_since_checkpoint",
-        ].every((k) => isNonNegativeInteger((e.progress as Record<string, unknown>)[k]))
-      )
-        fail("invalid planning envelope");
-      const update = e.update;
-      if (update === "Preparing") return value as unknown as ServerMessage;
-      if (!isRecord(update) || Object.keys(update).length !== 1) fail("invalid planning update");
-      if ("SafeOffer" in update || "SafeStep" in update) {
-        if (!isPlanningPublication(update.SafeOffer ?? update.SafeStep))
-          fail("invalid planning publication");
-      } else if ("Stopped" in update) {
-        const stopped = update.Stopped;
-        if (
-          !isRecord(stopped) ||
-          ![
-            "Uncertainty",
-            "UnsupportedOffer",
-            "OtherPlayerRequired",
-            "UnsupportedParticipation",
-            "UnsupportedSegment",
-            "KnowledgeChanged",
-            "ReplayMismatch",
-            "StepLimit",
-            "MovementComplete",
-            "SecondaryComplete",
-          ].includes(String(stopped.reason)) ||
-          (stopped.last_safe_publication !== null &&
-            !isPlanningPublication(stopped.last_safe_publication))
-        )
-          fail("invalid planning stop");
-      } else if (
-        !("Failed" in update) ||
-        !["Preparation", "Engine", "Worker"].includes(String(update.Failed))
-      )
-        fail("invalid planning failure");
-      return value as unknown as ServerMessage;
-    }
     case "initial_snapshot":
     case "state_update":
       if (
@@ -479,6 +315,45 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
     case "pong":
       if (!isNonNegativeInteger(value.sequence)) fail("invalid pong");
       return value as unknown as ServerMessage;
+    case "reaction_intent_state":
+      if (
+        !Array.isArray(value.triggers) ||
+        !value.triggers.every((id) => typeof id === "string") ||
+        typeof value.eligible !== "boolean" ||
+        typeof value.budget_used_up !== "boolean" ||
+        typeof value.holding !== "boolean" ||
+        (value.locked_until_round !== undefined && !isNonNegativeInteger(value.locked_until_round))
+      )
+        fail("invalid reaction intent state");
+      return value as unknown as ServerMessage;
+    case "secondary_preview": {
+      const outcome = value.outcome;
+      if (
+        !isNonNegativeInteger(value.request_id) ||
+        !isNonNegativeInteger(value.as_of_version) ||
+        !isRecord(outcome) ||
+        (outcome.result !== "preview" && outcome.result !== "refused")
+      )
+        fail("invalid secondary preview");
+      if (outcome.result === "refused") {
+        if (typeof outcome.reason !== "string") fail("invalid secondary preview refusal");
+      } else {
+        const preview = outcome.preview;
+        if (!isRecord(preview) || typeof preview.status !== "string")
+          fail("invalid secondary preview body");
+        if (preview.status === "question") {
+          const choice = preview.choice;
+          if (
+            !isRecord(choice) ||
+            typeof choice.player !== "string" ||
+            typeof choice.prompt !== "string" ||
+            !Array.isArray(choice.options)
+          )
+            fail("invalid previewed choice");
+        }
+      }
+      return value as unknown as ServerMessage;
+    }
     default:
       return fail("unknown message type");
   }

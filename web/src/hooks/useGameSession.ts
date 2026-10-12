@@ -19,55 +19,47 @@ export interface UseGameSessionOptions {
 }
 
 export interface UseGameSessionReturn {
-  planning: import("../protocol/planning.ts").PlanningState;
-  startPlanning: () => Promise<void>;
-  resetPlanning: (identity: import("../protocol/types.ts").AttemptIdentity) => Promise<void>;
-  editPlanningMovement: (identity: import("../protocol/types.ts").AttemptIdentity) => Promise<void>;
-  applyPlanning: (
-    identity: import("../protocol/types.ts").AttemptIdentity,
-    nonce: string,
-    expectedVersion: number,
-  ) => Promise<void>;
-  submitPlanningChoice: (
-    identity: import("../protocol/types.ts").AttemptIdentity,
-    optionId: string,
-  ) => Promise<void>;
-  /** The strategic action whose secondary this seat may draft, and that draft. */
-  secondaryStatus: import("../protocol/types.ts").SecondaryDraftStatus | null;
-  secondaryPlanning: import("../protocol/planning.ts").PlanningState;
-  startSecondaryPlanning: () => Promise<void>;
-  resetSecondaryPlanning: (
-    identity: import("../protocol/types.ts").AttemptIdentity,
-  ) => Promise<void>;
-  submitSecondaryPlanningChoice: (
-    identity: import("../protocol/types.ts").AttemptIdentity,
-    optionId: string,
-  ) => Promise<void>;
-  /** Ready: the server submits the draft when the live window reaches this seat. */
-  setSecondaryReady: (
-    identity: import("../protocol/types.ts").AttemptIdentity,
-    ready: boolean,
-  ) => Promise<void>;
   status: ConnectionStatus;
   gameVersion: number;
   snapshot: SnapshotState | null;
   pendingChoice: PendingChoiceDto | null;
   turnStatus: PublicTurnStatus | null;
   lastError: string | null;
+  /** Automatic reconnecting gave up, or the game is gone: show `message` with a Retry. */
+  fatal: { kind: "gone" | "unreachable"; message: string } | null;
+  /** The connection was lost and the server has not answered on a new one yet. */
+  reconnecting?: boolean;
+  /** Try to reconnect now (the Retry button). */
+  retryConnection: () => void;
   events: GameLogEntry[];
   history: import("../protocol/types.ts").HistoryStatus;
   batchResume?: import("../protocol/client.ts").BatchResume | null;
   submitChoice: (optionId: string) => Promise<void>;
+  /** This seat's bluff settings as the server holds them (null until it has answered). */
+  reactionIntent: import("../protocol/types.ts").ReactionIntentStateMsg | null;
+  /** Declare the reaction windows this seat bluffs about (whole set; empty clears). */
+  setReactionIntent: (triggers: string[]) => void;
+  /** End the running bluff hold early. */
+  passReactionHold: () => void;
   /** Never (or again) offer one action card, by printed name, to this seat. */
   setReactionMode: (card: string, mode: import("../protocol/types.ts").ReactionModeSetting) => void;
   changeHistory: (action: import("../protocol/client.ts").HistoryChange) => Promise<void>;
   /** The game's replay JSON for copying out (any seated player). */
   fetchReplay: () => Promise<{ text: string; filename: string }>;
+  /** Turn redo: where it stands (null when none is in flight), and the commands that change it. */
+  fetchTurnRedoStatus: () => Promise<import("../protocol/turnRedo.ts").TurnRedoStatus | null>;
+  turnRedoCommand: (command: import("../protocol/turnRedo.ts").TurnRedoCommand) => Promise<void>;
   submitMovementBatch: (
     destination: string,
     steps: import("../protocol/client.ts").MovementStep[],
   ) => Promise<void>;
   submitBatch: (plan: import("../protocol/client.ts").BasketPlan) => Promise<void>;
+  /** Read-only: what this seat would be asked for the secondary in progress, as of now. */
+  previewSecondary: (
+    card: string,
+    primary: string,
+    answers: readonly string[],
+  ) => Promise<import("../protocol/client.ts").SecondaryPreviewReply>;
   resumeBatch: () => Promise<void>;
   dismissBatchResume: () => void;
 }
@@ -95,25 +87,30 @@ export function useGameSession({
     [client],
   );
 
+  // Stable identities: the turn redo hook re-reads its status whenever these change, so a new
+  // function per render made every status response trigger the next request (and a re-render).
+  const fetchTurnRedoStatus = useCallback(() => client.fetchTurnRedoStatus(), [client]);
+  const turnRedoCommand = useCallback(
+    (command: import("../protocol/turnRedo.ts").TurnRedoCommand) => client.turnRedoCommand(command),
+    [client],
+  );
+
   return {
     ...state,
-    startPlanning: () => client.startPlanning(),
-    resetPlanning: (identity) => client.resetPlanning(identity),
-    editPlanningMovement: (identity) => client.editPlanningMovement(identity),
-    applyPlanning: (identity, nonce, expectedVersion) =>
-      client.applyPlanning(identity, nonce, expectedVersion),
-    submitPlanningChoice: (identity, optionId) => client.submitPlanningChoice(identity, optionId),
-    startSecondaryPlanning: () => client.startSecondaryPlanning(),
-    resetSecondaryPlanning: (identity) => client.resetSecondaryPlanning(identity),
-    submitSecondaryPlanningChoice: (identity, optionId) =>
-      client.submitSecondaryPlanningChoice(identity, optionId),
-    setSecondaryReady: (identity, ready) => client.setSecondaryReady(identity, ready),
     submitChoice,
+    fatal: state.fatal ?? null,
+    retryConnection: () => client.retryNow(),
+    reactionIntent: state.reactionIntent ?? null,
+    setReactionIntent: (triggers) => client.setReactionIntent(triggers),
+    passReactionHold: () => client.passReactionHold(),
     setReactionMode: (card, mode) => client.setReactionMode(card, mode),
     changeHistory,
     fetchReplay: () => client.fetchReplay(),
+    fetchTurnRedoStatus,
+    turnRedoCommand,
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
+    previewSecondary: (card, primary, answers) => client.previewSecondary(card, primary, answers),
     resumeBatch: () => client.resumeBatch(),
     dismissBatchResume: () => client.dismissBatchResume(),
   };

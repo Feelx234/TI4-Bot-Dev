@@ -2,70 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { usePipelineRunner, SemanticIntent } from "./usePipelineRunner.ts";
 import { PendingChoiceDto } from "../protocol/types.ts";
-import { PlanningRefreshError } from "../protocol/planning.ts";
 
 describe("usePipelineRunner", () => {
-  it("retries an unrecorded instruction only after refresh offers a fresh choice", async () => {
-    let reject!: (error: Error) => void;
-    const onSubmit = vi
-      .fn()
-      .mockImplementationOnce(
-        () =>
-          new Promise<void>((_, fail) => {
-            reject = fail;
-          }),
-      )
-      .mockResolvedValue(undefined);
-    const choice: PendingChoiceDto = {
-      actor: "p1",
-      nonce: "old",
-      prompt: "Load",
-      context: { subtype: "load_cargo" },
-      options: [{ id: "load-old", label: "Infantry", payload: { unit: "infantry" } }],
-    };
-    const { result, rerender } = renderHook(({ choice }) => usePipelineRunner(choice, onSubmit), {
-      initialProps: { choice: choice as PendingChoiceDto | null },
-    });
-    await act(async () =>
-      result.current.executePipeline([
-        { predicate: (option) => option.payload?.unit === "infantry" },
-      ]),
-    );
-    await act(async () => rerender({ choice: null }));
-    await act(async () => reject(new PlanningRefreshError("Refresh")));
-    expect(result.current.isRunning).toBe(true);
-    expect(result.current.queueLength).toBe(1);
-    expect(onSubmit).toHaveBeenCalledExactlyOnceWith("load-old");
-    await act(async () =>
-      rerender({
-        choice: {
-          ...choice,
-          nonce: "fresh",
-          options: [{ id: "load-new", label: "Infantry", payload: { unit: "infantry" } }],
-        },
-      }),
-    );
-    expect(onSubmit).toHaveBeenNthCalledWith(2, "load-new");
-    expect(result.current.isRunning).toBe(false);
-  });
-  it("pauses an ambiguous instruction rather than choosing the first matching option", async () => {
-    const onSubmit = vi.fn();
-    const choice: PendingChoiceDto = {
-      actor: "p1",
-      nonce: "fresh",
-      prompt: "Load",
-      options: [
-        { id: "one", label: "Infantry" },
-        { id: "two", label: "Infantry" },
-      ],
-    };
-    const { result } = renderHook(() => usePipelineRunner(choice, onSubmit));
-    await act(async () =>
-      result.current.executePipeline([{ predicate: (option) => option.label === "Infantry" }]),
-    );
-    expect(onSubmit).not.toHaveBeenCalled();
-    expect(result.current.lastError).toMatch(/no longer available/);
-  });
   it("executes sequential intents and resets isRunning to false on completion", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 

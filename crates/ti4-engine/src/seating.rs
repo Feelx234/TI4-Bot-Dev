@@ -72,6 +72,16 @@ pub const CREUSS_GATE: &str = "17";
 /// seat's home system -- where its units start and its planet lies -- is this tile.
 pub const CREUSS_HOME: &str = "51";
 
+/// The Sorrow (tile 94): where the Crimson Rebellion home position sits **on the map**. It prints an
+/// epsilon wormhole and no planet, and "is not a home system" (Sorrow ability).
+pub const SORROW: &str = "94";
+
+/// The Crimson Rebellion home system (tile 118, Ahk Creuxx): in the seat's play area, off the map,
+/// connected to the Sorrow (and every other epsilon wormhole) by the epsilon wormholes both print.
+/// The corpus's `homeSystem` for `crimson` names the Sorrow; the seat's home system -- where its
+/// units start and its planet lies -- is this tile.
+pub const CRIMSON_HOME: &str = "118";
+
 /// Something went wrong seating a game.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SeatingError {
@@ -109,6 +119,15 @@ pub enum FactionAssignmentError {
     DuplicatePlayer(String),
     #[error("{players} players require distinct factions, but the roster has only {candidates}")]
     InsufficientCandidates { players: usize, candidates: usize },
+    /// The faction's own text forbids choosing it at setup (the Obsidian's Nocturne).
+    #[error("faction {0:?} cannot be chosen during setup")]
+    NotChoosable(String),
+    /// A lobby seat asked for a faction outside [`LOBBY_FACTIONS`] (unknown, or not played here).
+    #[error("faction {0:?} is not one of the factions this server plays")]
+    UnavailableFaction(String),
+    /// Two lobby seats asked for the same faction.
+    #[error("faction {0:?} is chosen for more than one seat")]
+    DuplicateChoice(String),
 }
 
 /// The factions this project plays.
@@ -128,6 +147,20 @@ pub enum FactionAssignmentError {
 /// abilities at all — in every rollout a trainer would have learned from. Alphabetical order is
 /// not a scope decision, and a scope decision should not be alphabetical order.
 pub const IN_SCOPE_FACTIONS: [&str; 6] = ["sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x"];
+
+/// The factions a lobby table can seat: the 24 base and Prophecy of Kings factions the smart-bot
+/// survey roster plays (`ti4_server::preset::ROSTER`, a server test keeps the two in step), base
+/// game first. Left out: the three Keleres variants (each takes another faction's home system, a
+/// table-dependent rule), the Obsidian (cannot be chosen during setup) and the Thunder's Edge
+/// factions (their home tiles are not in the Prophecy of Kings source set every server game uses).
+pub const LOBBY_FACTIONS: [&str; 24] = [
+    "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "mentak", "muaat", "naalu",
+    "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "ghost", "argent", "cabal", "empyrean",
+    "mahact", "naaz", "nomad", "titans",
+];
+
+/// How many [`LOBBY_FACTIONS`] belong to the base game (the first ones); the rest are Prophecy of Kings.
+pub const LOBBY_BASE_FACTIONS: usize = 17;
 
 /// The factions of seats seven and eight.
 ///
@@ -153,10 +186,30 @@ pub fn seat_faction(index: usize) -> &'static str {
 /// Faction assignments for a table, by seat: see [`seat_faction`].
 #[must_use]
 pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
+    seat_in_scope_rotated(players, 0)
+}
+
+/// [`seat_in_scope`] starting `rotation` places further along [`IN_SCOPE_FACTIONS`], so a three or
+/// four player table can sit Jol-Nar or L1Z1X, which the fixed order only reaches at five seats.
+/// A rotation of 0 is exactly [`seat_in_scope`]; smoke presets use the others.
+#[must_use]
+pub fn seat_in_scope_rotated(
+    players: &[PlayerId],
+    rotation: usize,
+) -> BTreeMap<PlayerId, FactionId> {
     players
         .iter()
         .enumerate()
-        .map(|(index, player)| (player.clone(), FactionId::new(seat_faction(index))))
+        .map(|(index, player)| {
+            // The rotation moves seats along the six in-scope factions; seats seven and eight keep
+            // their extra factions (see `seat_faction`).
+            let faction = if index < IN_SCOPE_FACTIONS.len() {
+                IN_SCOPE_FACTIONS[(index + rotation) % IN_SCOPE_FACTIONS.len()]
+            } else {
+                seat_faction(index)
+            };
+            (player.clone(), FactionId::new(faction))
+        })
         .collect()
 }
 
@@ -169,7 +222,8 @@ pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
 ///
 /// # Errors
 /// Returns an error for an empty or duplicate candidate roster, duplicate players, or too few
-/// candidates to give every player a distinct faction.
+/// candidates to give every player a distinct faction, or a faction that cannot be chosen during
+/// setup (the Obsidian, Nocturne).
 pub fn seeded_faction_assignments(
     candidates: &[&str],
     players: &[PlayerId],
@@ -180,6 +234,12 @@ pub fn seeded_faction_assignments(
     }
     let mut seen_candidates = BTreeSet::new();
     for candidate in candidates {
+        // Nocturne: "This faction cannot be chosen during setup."
+        if crate::factions::obsidian::NOT_CHOOSABLE_DURING_SETUP.contains(candidate) {
+            return Err(FactionAssignmentError::NotChoosable(
+                (*candidate).to_owned(),
+            ));
+        }
         if !seen_candidates.insert(*candidate) {
             return Err(FactionAssignmentError::DuplicateCandidate(
                 (*candidate).to_owned(),
@@ -205,6 +265,59 @@ pub fn seeded_faction_assignments(
         .iter()
         .zip(shuffled)
         .map(|(player, alias)| (player.clone(), FactionId::new(alias)))
+        .collect())
+}
+
+/// Seats a lobby table: `chosen[i]` is the faction seat `i` asked for (`None`: any).
+///
+/// Chosen factions must be in [`LOBBY_FACTIONS`] and distinct. The seats that chose nothing
+/// receive distinct factions from the rest of the pool, dealt in a seeded shuffle (the dedicated
+/// `seating:lobby-faction-draw:v1` stream), so the same seed and choices always give the same table.
+/// A table larger than the pool has to repeat a faction among its undecided seats (as the fixed
+/// order always did); chosen factions are never repeated.
+///
+/// # Errors
+/// [`FactionAssignmentError::UnavailableFaction`] or [`FactionAssignmentError::DuplicateChoice`].
+pub fn lobby_faction_draw(
+    chosen: &[Option<&str>],
+    seed: u64,
+) -> Result<Vec<FactionId>, FactionAssignmentError> {
+    let mut taken = BTreeSet::new();
+    for faction in chosen.iter().flatten() {
+        if !LOBBY_FACTIONS.contains(faction) {
+            return Err(FactionAssignmentError::UnavailableFaction(
+                (*faction).to_owned(),
+            ));
+        }
+        if !taken.insert(*faction) {
+            return Err(FactionAssignmentError::DuplicateChoice(
+                (*faction).to_owned(),
+            ));
+        }
+    }
+    let remaining: Vec<&str> = LOBBY_FACTIONS
+        .iter()
+        .copied()
+        .filter(|faction| !taken.contains(faction))
+        .collect();
+    let mut rng = crate::rng::GameRng::new(seed);
+    let deck = rng.shuffled("seating:lobby-faction-draw:v1", &remaining);
+    let mut next = 0usize;
+    Ok(chosen
+        .iter()
+        .map(|seat| {
+            FactionId::new(seat.unwrap_or_else(|| {
+                // Past the end of the pool the deck is dealt again; with every faction chosen
+                // there is no deck, and the fixed order stands in.
+                let faction = if deck.is_empty() {
+                    LOBBY_FACTIONS[next % LOBBY_FACTIONS.len()]
+                } else {
+                    deck[next % deck.len()]
+                };
+                next += 1;
+                faction
+            }))
+        })
         .collect())
 }
 
@@ -326,8 +439,13 @@ pub fn deploy(
     // Creuss: "place the Creuss Gate (tile 17) where your home system would normally be placed ...
     // Then, place your home system (tile 51) in your play area." The faction record names the
     // gate; the seat's home system, with its planet and starting fleet, is tile 51.
+    // The Crimson Rebellion: "place the Sorrow (tile 94) where your home system would normally be
+    // placed, then place an inactive breach there ... Then, place your home system (tile 118) in your
+    // play area." The faction record names the Sorrow; the seat's home system is tile 118.
     let system_id = SystemId::new(if home == CREUSS_GATE {
         CREUSS_HOME
+    } else if home == SORROW {
+        CRIMSON_HOME
     } else {
         home
     });
@@ -390,6 +508,10 @@ pub fn deploy(
     if alias.as_str() == crate::factions::nekro::FACTION {
         seat.technologies.insert(TechnologyId::new("vax"));
         seat.technologies.insert(TechnologyId::new("vay"));
+    }
+    // Sorrow: "place an inactive breach there" (the Sorrow, where the home position is).
+    if home == SORROW {
+        crate::factions::crimson::place_sorrow_breach(state);
     }
     // Commodities are deliberately not set. LRR 21: the faction record's `commodities` is
     // the *capacity* a player refreshes to, not an opening balance, and a player starts
@@ -530,6 +652,7 @@ pub fn place_wormhole_nexus(
     sources: SourceSet,
 ) -> Result<(), ti4_content::galaxy::GalaxyError> {
     place_creuss_home(galaxy, content, sources)?;
+    place_crimson_home(galaxy, content, sources)?;
     if !sources.contains(ti4_model::content_types::Source::Pok) {
         return Ok(());
     }
@@ -561,6 +684,26 @@ pub fn place_creuss_home(
         return Ok(());
     }
     galaxy.place_off_map(content, CREUSS_HOME, sources)
+}
+
+/// Put the Crimson Rebellion home system beside the board when the Sorrow is on it.
+///
+/// The Sorrow occupies the Crimson seat's home position (see [`SORROW`]); the home system (tile
+/// 118) is off the hex grid and reached only through epsilon wormholes, which `Galaxy::adjacent`
+/// pairs by kind like any other wormhole. Called from [`place_wormhole_nexus`], so a board with no
+/// Sorrow -- every board without a Crimson seat -- is untouched. Idempotent.
+///
+/// # Errors
+/// Any [`GalaxyError`] from registering the tile.
+pub fn place_crimson_home(
+    galaxy: &mut Galaxy,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Result<(), ti4_content::galaxy::GalaxyError> {
+    if galaxy.coord_of(SORROW).is_none() || !galaxy.wormhole_kinds(CRIMSON_HOME).is_empty() {
+        return Ok(());
+    }
+    galaxy.place_off_map(content, CRIMSON_HOME, sources)
 }
 
 /// Whether anything has happened that opens the Wormhole Nexus.
@@ -1502,6 +1645,56 @@ mod tests {
             }),
             "the fixed seed sample should exercise a different assignment"
         );
+    }
+
+    #[test]
+    fn lobby_draw_honours_choices_and_gives_the_rest_distinct_factions() {
+        let chosen = [None, Some("xxcha"), None, Some("sol")];
+        for seed in 0..40 {
+            let table = lobby_faction_draw(&chosen, seed).unwrap();
+            assert_eq!(table[1].as_str(), "xxcha");
+            assert_eq!(table[3].as_str(), "sol");
+            let distinct: BTreeSet<_> = table.iter().map(FactionId::as_str).collect();
+            assert_eq!(distinct.len(), 4, "seed {seed}: {table:?}");
+            assert!(table.iter().all(|f| LOBBY_FACTIONS.contains(&f.as_str())));
+        }
+    }
+
+    #[test]
+    fn lobby_draw_is_deterministic_and_varies_by_seed() {
+        let chosen = [None, None, Some("hacan")];
+        let first = lobby_faction_draw(&chosen, 7).unwrap();
+        assert_eq!(first, lobby_faction_draw(&chosen, 7).unwrap());
+        assert!((8..60).any(|seed| lobby_faction_draw(&chosen, seed).unwrap() != first));
+    }
+
+    #[test]
+    fn lobby_draw_rejects_duplicates_and_factions_outside_the_pool() {
+        assert_eq!(
+            lobby_faction_draw(&[Some("sol"), None, Some("sol")], 1),
+            Err(FactionAssignmentError::DuplicateChoice("sol".to_owned()))
+        );
+        for bad in ["keleresm", "obsidian", "bastion", "nonsense"] {
+            assert_eq!(
+                lobby_faction_draw(&[Some(bad)], 1),
+                Err(FactionAssignmentError::UnavailableFaction(bad.to_owned()))
+            );
+        }
+    }
+
+    #[test]
+    fn lobby_draw_seats_the_whole_pool_when_all_are_chosen_and_never_repeats_a_choice() {
+        let all: Vec<Option<&str>> = LOBBY_FACTIONS.iter().map(|f| Some(*f)).collect();
+        let table = lobby_faction_draw(&all, 3).unwrap();
+        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), LOBBY_FACTIONS);
+    }
+
+    #[test]
+    fn lobby_pool_has_the_in_scope_six_first_and_no_repeats() {
+        assert_eq!(&LOBBY_FACTIONS[..6], &IN_SCOPE_FACTIONS[..]);
+        let distinct: BTreeSet<_> = LOBBY_FACTIONS.iter().collect();
+        assert_eq!(distinct.len(), LOBBY_FACTIONS.len());
+        assert!(LOBBY_BASE_FACTIONS < LOBBY_FACTIONS.len());
     }
 
     #[test]

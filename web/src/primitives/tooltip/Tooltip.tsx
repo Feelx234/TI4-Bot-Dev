@@ -1,6 +1,5 @@
 import React, { useState, useRef, useId, useEffect, cloneElement, isValidElement } from "react";
 import { overlayStack } from "../core/overlayStack.ts";
-import { useWorkspace } from "../../components/WorkspaceContext.tsx";
 
 export interface TooltipProps {
   content: React.ReactNode;
@@ -27,7 +26,6 @@ export const Tooltip: React.FC<TooltipProps> = ({
   wrapperStyle,
   wrapperClassName,
 }) => {
-  const workspace = useWorkspace();
   const [isVisible, setIsVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
@@ -57,7 +55,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
   // Register with overlayStack on show so Escape or tap outside dismisses tooltip
   useEffect(() => {
-    if (!isVisible || !workspace.active) return;
+    if (!isVisible) return;
     const unregister = overlayStack.register({
       id: tooltipId,
       modal: false,
@@ -66,7 +64,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       onDismiss: hide,
     });
     return unregister;
-  }, [isVisible, tooltipId, workspace.active]);
+  }, [isVisible, tooltipId]);
 
   if (!isValidElement(children)) {
     return children;

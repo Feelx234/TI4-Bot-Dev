@@ -103,6 +103,12 @@ fn combatant(event: &Event, player: &PlayerId, _state: &GameState) -> bool {
         || event.text("defender") == Some(player.as_str())
 }
 
+/// "At the start of a combat" (Reveal Prototype): a combatant, and only in the first round —
+/// the round event fires every round, but a combat starts once.
+fn combatant_in_first_round(event: &Event, player: &PlayerId, state: &GameState) -> bool {
+    combatant(event, player, state) && event.integer("round").is_none_or(|round| round == 1)
+}
+
 /// "When you would return your strategy card(s) during the status phase" — Political
 /// Stability. The window fires per seat, named by that seat, and only a seat that
 /// actually holds strategy cards has anything to keep.
@@ -183,28 +189,6 @@ fn system_contains_player_command_token(
     if let Some(system) = event.text("system") {
         let sys = state.system_state(&SystemId::new(system));
         return sys.command_tokens.contains(player);
-    }
-    false
-}
-
-fn system_contains_player_ships(event: &Event, player: &PlayerId, state: &GameState) -> bool {
-    if let Some(system) = event.text("system") {
-        let sys = state.system_state(&SystemId::new(system));
-        return sys
-            .units
-            .iter()
-            .any(|u| u.owner == *player && u.type_id.as_str().ends_with("ship"));
-    }
-    false
-}
-
-fn system_contains_other_player_ships(event: &Event, player: &PlayerId, state: &GameState) -> bool {
-    if let Some(system) = event.text("system") {
-        let sys = state.system_state(&SystemId::new(system));
-        return sys
-            .units
-            .iter()
-            .any(|u| u.owner != *player && u.type_id.as_str().ends_with("ship"));
     }
     false
 }
@@ -312,12 +296,20 @@ const fn guarded(event: &'static str, relation: Relation, guard: Guard) -> Windo
 /// Keyed by the exact corpus string, which is why [`unmapped_windows`] exists: a typo or a
 /// reworded card would otherwise silently produce a card that can never be played, which is the
 /// state this module exists to end.
+///
+/// Built once per process: the engine looks windows up several times per step.
 #[must_use]
+pub fn window_table() -> &'static BTreeMap<&'static str, Window> {
+    static TABLE: std::sync::LazyLock<BTreeMap<&'static str, Window>> =
+        std::sync::LazyLock::new(build_window_table);
+    &TABLE
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "one row per printed window: the table is the point, and splitting it hides the set"
 )]
-pub fn window_table() -> BTreeMap<&'static str, Window> {
+fn build_window_table() -> BTreeMap<&'static str, Window> {
     use Relation::{After, When};
     [
         (
@@ -342,7 +334,7 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "At the start of the first round of a space combat",
-            window("SPACE_COMBAT_STARTED", After),
+            guarded("SPACE_COMBAT_STARTED", After, combatant),
         ),
         (
             "After you activate a system",
@@ -350,9 +342,9 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "After you activate a system that contains 1 or more of your ships",
-            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
-                actor_is(e, p, s) && system_contains_player_ships(e, p, s)
-            }),
+            // Which ships are in the system is a content question (Upgrade needs a cruiser):
+            // `action_cards::reaction_can_matter`.
+            guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
             "When another player plays an action card other than 'Sabotage'",
@@ -362,9 +354,8 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         // them is whose activation it was, which is exactly what the guard is for.
         (
             "After you activate a system that contains another player's ships",
-            guarded("SYSTEM_ACTIVATED", After, |e, p, s| {
-                actor_is(e, p, s) && system_contains_other_player_ships(e, p, s)
-            }),
+            // Another player's ships: `action_cards::reaction_can_matter` (Rally).
+            guarded("SYSTEM_ACTIVATED", After, actor_is),
         ),
         (
             "After you activate an anomaly",
@@ -390,7 +381,7 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "At the start of a combat",
-            guarded("COMBAT_ROUND_STARTED", After, combatant),
+            guarded("COMBAT_ROUND_STARTED", After, combatant_in_first_round),
         ),
         (
             "When another player chooses a strategy card during the strategy phase",
@@ -459,7 +450,9 @@ pub fn window_table() -> BTreeMap<&'static str, Window> {
         ),
         (
             "After another player gains control of a planet you control",
-            guarded("PLANET_CONTROL_GAINED", After, actor_is_not),
+            guarded("PLANET_CONTROL_GAINED", After, |e, p, s| {
+                actor_is_not(e, p, s) && e.text("previous_owner") == Some(p.as_str())
+            }),
         ),
         (
             "After you cast votes on an outcome of an agenda",
@@ -642,9 +635,9 @@ pub fn window_for(content: &ContentStore, alias: &ActionCardId) -> Option<Window
 /// Cards in hand that could be played into this event's window, right now.
 ///
 /// The window decides whether the card speaks to this event at all, and the window's guard
-/// resolves "you" against "another player". A per-card playability check — 22.3, whether the
-/// effect has anything to act on — belongs here too and is not modelled yet: no card in this
-/// engine has an effect to be blocked on.
+/// resolves "you" against "another player". The per-card playability check — 22.3, whether the
+/// effect has anything to act on — is [`crate::action_cards::reaction_can_matter`]: cards that
+/// share a printed window (Bunker and Blitz) need different things from it.
 #[must_use]
 pub fn playable_now(
     state: &GameState,
@@ -678,7 +671,7 @@ pub fn playable_now(
                 window.event == event.event_type
                     && window.relation == relation
                     && window.guard.is_none_or(|guard| guard(event, player, state))
-            })
+            }) && crate::action_cards::reaction_can_matter(state, content, player, alias, event)
         })
         .cloned()
         .collect()
@@ -770,7 +763,7 @@ pub fn announce(
         context.state.last_ship_destroyed =
             Some((system.clone(), owner.clone(), unit_type.clone()));
         let payload = crate::combat::ship_destroyed_payload(
-            context.state,
+            &mut *context.state,
             context.content,
             context.sources,
             &system,
@@ -803,7 +796,8 @@ fn announce_discard(
     player: &PlayerId,
     alias: &ActionCardId,
 ) -> Result<(), TimingError> {
-    context.state.discarded_action_cards.push(alias.clone());
+    // Data Skimmer: another player's discard is placed on the breakthrough, not the pile.
+    crate::action_cards::discarded(context.state, player, alias, true);
     context.state.last_action_discarded = Some((player.clone(), alias.clone()));
     let mut payload = BTreeMap::new();
     payload.insert("player".to_owned(), player.to_string().into());
@@ -919,6 +913,10 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
             }) {
                 first
             } else {
+                // "May": the player who opened this step can still back out of it. Declining
+                // plays nothing and the window offers its slot again, so the outer Pass stays.
+                let mut card_options = reaction_card_options(context.content, &options);
+                card_options.push(crate::choice::ChoiceOption::decline());
                 let choice = crate::choice::Choice::new(
                     owner.clone(),
                     format!(
@@ -926,7 +924,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                         relation_name(relation),
                         event.event_type
                     ),
-                    reaction_card_options(context.content, &options),
+                    card_options,
                 )
                 .contextualized(
                     DecisionContext::new(
@@ -940,6 +938,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                         context.state.phase,
                         context.state.round,
                     )
+                    .optional(true)
                     .about_battle(context.state)
                     .with_trigger(
                         crate::decision_context::DecisionTrigger::from_event(
@@ -950,6 +949,7 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                     ),
                 );
                 match context.ask_seeing(&choice) {
+                    Ok(answer) if answer.is_decline() => return Ok(()),
                     Ok(answer) => ActionCardId::new(answer.id),
                     Err(_) => return Ok(()),
                 }
@@ -1417,6 +1417,219 @@ mod tests {
         );
     }
 
+    /// An `INVASION_BEGAN` event: `invader` invades system 18.
+    fn invasion_of_18(invader: &str) -> Event {
+        let mut payload = BTreeMap::new();
+        payload.insert("player".to_owned(), invader.to_owned().into());
+        payload.insert("system".to_owned(), "18".to_owned().into());
+        Event::new(1, "INVASION_BEGAN", payload)
+    }
+
+    #[test]
+    fn bunker_is_offered_only_to_a_defender_who_controls_a_planet_in_the_system() {
+        // "-4 to each BOMBARDMENT roll against planets you control": without a planet of the
+        // holder's in the invaded system, or as the invader itself, the card cannot matter.
+        let content = ContentStore::embedded();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let system = SystemId::new("18");
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        for seat in [&a, &b, &c] {
+            state.player_mut(seat).unwrap().action_cards = vec![ActionCardId::new("bunker")];
+        }
+        crate::fixtures::put(&mut state, &system, "dreadnought", &a, 1);
+        let invasion = invasion_of_18("a");
+
+        assert!(
+            playable_now(&state, content, &b, &invasion, Relation::After).is_empty(),
+            "no planet of b's in the system"
+        );
+
+        state
+            .system_mut(&system)
+            .set_control(ti4_model::id::PlanetId::new("mecatol"), b.clone());
+        assert_eq!(
+            playable_now(&state, content, &b, &invasion, Relation::After),
+            vec![ActionCardId::new("bunker")],
+            "b controls a planet the invader can bombard"
+        );
+        assert!(
+            playable_now(&state, content, &c, &invasion, Relation::After).is_empty(),
+            "a bystander with no planet there"
+        );
+
+        // The invader, even holding a planet in the system, is never bombarding itself.
+        state
+            .system_mut(&system)
+            .set_control(ti4_model::id::PlanetId::new("other"), a.clone());
+        assert!(
+            playable_now(&state, content, &a, &invasion, Relation::After).is_empty(),
+            "the invader"
+        );
+    }
+
+    #[test]
+    fn blitz_is_offered_only_to_the_invader_with_a_ship_that_lacks_bombardment() {
+        let content = ContentStore::embedded();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let system = SystemId::new("18");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        for seat in [&a, &b] {
+            state.player_mut(seat).unwrap().action_cards = vec![ActionCardId::new("blitz")];
+        }
+        crate::fixtures::put(&mut state, &system, "dreadnought", &a, 1);
+        crate::fixtures::put(&mut state, &system, "fighter", &a, 2);
+        let invasion = invasion_of_18("a");
+
+        assert!(
+            playable_now(&state, content, &a, &invasion, Relation::After).is_empty(),
+            "a dreadnought already bombards and fighters never gain it"
+        );
+        crate::fixtures::put(&mut state, &system, "cruiser", &a, 1);
+        assert_eq!(
+            playable_now(&state, content, &a, &invasion, Relation::After),
+            vec![ActionCardId::new("blitz")]
+        );
+        crate::fixtures::put(&mut state, &system, "cruiser", &b, 1);
+        assert!(
+            playable_now(&state, content, &b, &invasion, Relation::After).is_empty(),
+            "only the invader bombards"
+        );
+    }
+
+    #[test]
+    fn fighter_prototype_is_offered_only_to_a_combatant_with_fighters() {
+        // An unguarded Fighter Prototype let any seat play it at the start of any space combat;
+        // that play is what then opened Sabotage for everyone else "at the start of combat".
+        let content = ContentStore::embedded();
+        let (a, b, c) = (PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c"));
+        let system = SystemId::new("18");
+        let mut state = crate::fixtures::game(&["a", "b", "c"]);
+        for seat in [&a, &b, &c] {
+            state.player_mut(seat).unwrap().action_cards = vec![ActionCardId::new("f_prototype")];
+        }
+        crate::fixtures::put(&mut state, &system, "carrier", &a, 1);
+        crate::fixtures::put(&mut state, &system, "fighter", &a, 2);
+        crate::fixtures::put(&mut state, &system, "cruiser", &b, 1);
+        crate::fixtures::put(&mut state, &system, "fighter", &c, 1);
+        let mut payload = BTreeMap::new();
+        payload.insert("system".to_owned(), "18".to_owned().into());
+        payload.insert("player".to_owned(), "a".to_owned().into());
+        payload.insert("attacker".to_owned(), "a".to_owned().into());
+        payload.insert("defender".to_owned(), "b".to_owned().into());
+        let started = Event::new(1, "SPACE_COMBAT_STARTED", payload);
+
+        assert_eq!(
+            playable_now(&state, content, &a, &started, Relation::After),
+            vec![ActionCardId::new("f_prototype")]
+        );
+        assert!(
+            playable_now(&state, content, &b, &started, Relation::After).is_empty(),
+            "a combatant without fighters"
+        );
+        assert!(
+            playable_now(&state, content, &c, &started, Relation::After).is_empty(),
+            "a bystander"
+        );
+    }
+
+    #[test]
+    fn sabotage_is_never_offered_outside_a_played_card_window() {
+        // Sabotage hooks only the WHEN window of another player's ACTION_CARD_PLAYED: the start
+        // of a space combat, a combat round, or an invasion never offers it by itself.
+        let content = ContentStore::embedded();
+        let b = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&b).unwrap().action_cards = vec![ActionCardId::new("sabo1")];
+        let mut payload = BTreeMap::new();
+        payload.insert("system".to_owned(), "18".to_owned().into());
+        payload.insert("player".to_owned(), "a".to_owned().into());
+        payload.insert("attacker".to_owned(), "a".to_owned().into());
+        payload.insert("defender".to_owned(), "b".to_owned().into());
+        payload.insert("round".to_owned(), 1.into());
+        for event_type in [
+            "SPACE_COMBAT_STARTED",
+            "COMBAT_ROUND_STARTED",
+            "INVASION_BEGAN",
+        ] {
+            let opened = Event::new(1, event_type, payload.clone());
+            for relation in [Relation::When, Relation::After] {
+                assert!(
+                    playable_now(&state, content, &b, &opened, relation).is_empty(),
+                    "{event_type}"
+                );
+            }
+        }
+        assert!(
+            playable_now(
+                &state,
+                content,
+                &b,
+                &event_with_card("ACTION_CARD_PLAYED", "b", "fs1"),
+                Relation::When
+            )
+            .is_empty(),
+            "not the holder's own card"
+        );
+    }
+
+    #[test]
+    fn activation_cards_are_offered_only_where_their_printed_condition_holds() {
+        // Harness Energy needs an anomaly; Upgrade a cruiser of yours; Rally another player's
+        // ships. The old ship test matched only type ids ending in "ship" (the flagship).
+        let content = ContentStore::embedded();
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&a).unwrap().action_cards = ["harness", "upgrade", "rally"]
+            .map(ActionCardId::new)
+            .to_vec();
+        let offered = |state: &GameState, system: &str| {
+            playable_now(
+                state,
+                content,
+                &a,
+                &system_activation_event("a", system),
+                Relation::After,
+            )
+        };
+        assert!(
+            offered(&state, "18").is_empty(),
+            "Mecatol: no anomaly, no ships"
+        );
+        assert_eq!(
+            offered(&state, "41"),
+            vec![ActionCardId::new("harness")],
+            "a gravity rift"
+        );
+        let mecatol = SystemId::new("18");
+        crate::fixtures::put(&mut state, &mecatol, "cruiser", &a, 1);
+        crate::fixtures::put(&mut state, &mecatol, "dreadnought", &b, 1);
+        assert_eq!(
+            offered(&state, "18"),
+            vec![ActionCardId::new("upgrade"), ActionCardId::new("rally")]
+        );
+    }
+
+    #[test]
+    fn reveal_prototype_is_offered_in_the_first_round_only() {
+        let content = ContentStore::embedded();
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().action_cards =
+            vec![ActionCardId::new("reveal_prototype")];
+        let round = |n: i64| {
+            let mut payload = BTreeMap::new();
+            payload.insert("system".to_owned(), "18".to_owned().into());
+            payload.insert("round".to_owned(), n.into());
+            payload.insert("attacker".to_owned(), "a".to_owned().into());
+            payload.insert("defender".to_owned(), "b".to_owned().into());
+            Event::new(1, "COMBAT_ROUND_STARTED", payload)
+        };
+        assert_eq!(
+            playable_now(&state, content, &player(), &round(1), Relation::After),
+            vec![ActionCardId::new("reveal_prototype")]
+        );
+        assert!(playable_now(&state, content, &player(), &round(2), Relation::After).is_empty());
+    }
+
     #[test]
     fn a_card_for_a_different_window_is_not_offered() {
         let content = ContentStore::embedded();
@@ -1713,7 +1926,8 @@ mod tests {
                     "silence_space",
                     "action_card",
                     "play In The Silence Of Space"
-                )
+                ),
+                ("decline", "decline", "Decline"),
             ]
         );
 
@@ -1722,6 +1936,30 @@ mod tests {
             state.player(&player()).unwrap().action_cards,
             [ActionCardId::new("silence_space")]
         );
+    }
+
+    #[test]
+    fn the_inner_card_choice_can_be_declined_without_playing() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&player()).unwrap().action_cards =
+            vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
+        state
+            .player_mut(&PlayerId::new("b"))
+            .unwrap()
+            .action_cards
+            .clear();
+        let asked = asked_for(
+            state,
+            "SYSTEM_ACTIVATED",
+            payload(&[("player", "a".into())]),
+            &["reaction:generic:SYSTEM_ACTIVATED:after", "decline", "decline"],
+        );
+        let inner = asked
+            .iter()
+            .find(|c| c.prompt.starts_with("play an action card"))
+            .expect("the inner card choice is asked");
+        assert!(inner.options.iter().any(|o| o.is_decline()));
+        assert!(inner.context.as_ref().is_some_and(|c| c.optional));
     }
 
     /// Emit `event_type` with `payload` through an armed resolver and return every decision the
@@ -1777,138 +2015,6 @@ mod tests {
             .iter()
             .find_map(|choice| choice.context.as_ref().and_then(|c| c.trigger.clone()))
             .expect("a reaction decision carries its trigger")
-    }
-
-    /// (questions asked, decisions recorded, skip notes)
-    type Asked = (Vec<String>, Vec<(String, String)>, Vec<Vec<String>>);
-
-    /// Emit through an armed resolver with seat `reactor` answered by `NeverOffer` over a decider
-    /// that records every question it is really asked. Returns (questions asked, decisions
-    /// recorded, skip notes).
-    fn asked_with_never(
-        mut state: GameState,
-        reactor: &str,
-        never: &[&str],
-        event_type: &str,
-        payload: BTreeMap<String, serde_json::Value>,
-    ) -> Asked {
-        use std::sync::{Arc, Mutex};
-        struct Recorder(Arc<Mutex<Vec<String>>>);
-        impl crate::choice::Decider for Recorder {
-            fn choose(
-                &mut self,
-                choice: &crate::choice::Choice,
-            ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
-                self.0.lock().unwrap().push(choice.prompt.clone());
-                crate::choice::AlwaysDecline.choose(choice)
-            }
-        }
-        let asked = Arc::new(Mutex::new(Vec::new()));
-        let skipped = Arc::new(Mutex::new(Vec::new()));
-        let set: crate::reaction_modes::NeverSet = Arc::new(Mutex::new(
-            never.iter().map(|name| (*name).to_owned()).collect(),
-        ));
-        let sink = skipped.clone();
-        let wrapper =
-            crate::reaction_modes::NeverOffer::new(Box::new(Recorder(asked.clone())), set)
-                .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
-        let mut table = crate::choice::Table::with_default(Box::new(Recorder(asked.clone())));
-        table.seat(PlayerId::new(reactor), Box::new(wrapper));
-        let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
-        let mut resolver = Resolver::new(
-            seats.clone(),
-            seats.first().cloned(),
-            crate::choice::Table::default(),
-        );
-        arm(&mut resolver, &state);
-        let mut dice = crate::dice::Dice::new();
-        let mut rng = crate::rng::GameRng::new(0);
-        let mut event_sequence = crate::event::EventSequence::new();
-        let mut context = TimingContext {
-            state: &mut state,
-            content: ContentStore::embedded(),
-            sources: POK,
-            table: &mut table,
-            dice: &mut dice,
-            rng: &mut rng,
-            event_sequence: &mut event_sequence,
-            galaxy: None,
-        };
-        let event = context.event_sequence.next(event_type, payload).unwrap();
-        resolver
-            .emit_with_context(&mut context, event, |_, _| {})
-            .unwrap();
-        let recorded = table
-            .log
-            .records
-            .iter()
-            .map(|record| (record.player.to_string(), record.chosen.clone()))
-            .collect();
-        let questions = asked.lock().unwrap().clone();
-        let notes = skipped.lock().unwrap().clone();
-        (questions, recorded, notes)
-    }
-
-    #[test]
-    fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
-        let build = || {
-            let mut state = crate::fixtures::game(&["a", "b"]);
-            state
-                .player_mut(&PlayerId::new("a"))
-                .unwrap()
-                .action_cards
-                .clear();
-            state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
-                vec![ActionCardId::new("sabo1"), ActionCardId::new("sabo2")];
-            state
-        };
-        let play = || payload(&[("player", "a".into()), ("card", "fs1".into())]);
-        // Offered as before when the seat has no preference.
-        let (asked, recorded, notes) =
-            asked_with_never(build(), "b", &[], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1, "the window is asked: {asked:?}");
-        assert_eq!(recorded, vec![("b".to_owned(), "decline".to_owned())]);
-        assert!(notes.is_empty());
-        // Never: all copies by name, nothing asked, the same decline is journaled.
-        let (asked, recorded, notes) =
-            asked_with_never(build(), "b", &["Sabotage"], "ACTION_CARD_PLAYED", play());
-        assert!(asked.is_empty(), "skipped without asking: {asked:?}");
-        assert_eq!(recorded, vec![("b".to_owned(), "decline".to_owned())]);
-        assert_eq!(notes, vec![vec!["Sabotage".to_owned()]]);
-        // Another card name set to Never leaves Sabotage offered.
-        let (asked, _, notes) =
-            asked_with_never(build(), "b", &["Flank Speed"], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1);
-        assert!(notes.is_empty());
-        // The preference belongs to one seat: the wrapper sits on "a", the holder is "b".
-        let (asked, _, notes) =
-            asked_with_never(build(), "a", &["Sabotage"], "ACTION_CARD_PLAYED", play());
-        assert_eq!(asked.len(), 1);
-        assert!(notes.is_empty());
-    }
-
-    #[test]
-    fn a_never_card_leaves_the_same_seats_other_cards_offered() {
-        let mut state = crate::fixtures::game(&["a", "b"]);
-        state
-            .player_mut(&PlayerId::new("b"))
-            .unwrap()
-            .action_cards
-            .clear();
-        state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
-            vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
-        let (asked, _, notes) = asked_with_never(
-            state,
-            "a",
-            &["Sabotage"],
-            "SYSTEM_ACTIVATED",
-            payload(&[("player", "a".into()), ("system", "27".into())]),
-        );
-        assert!(
-            !asked.is_empty(),
-            "the seat is still asked about its other cards"
-        );
-        assert!(notes.is_empty());
     }
 
     #[test]

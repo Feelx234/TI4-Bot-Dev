@@ -25,7 +25,7 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeededRandom, Table};
 use ti4_engine::game::{Game, RunError};
-use ti4_engine::reaction_modes::{NeverOffer, NeverSet};
+use ti4_view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
@@ -385,7 +385,7 @@ static RANDOM: Mutex<Option<SeededRandom>> = Mutex::new(None);
 struct Seat {
     /// The host, behind its Never cards: a window that offers only such cards is declined
     /// without asking, and any other window is asked without them. The same wrapper as on the
-    /// server (`ti4_engine::reaction_modes`).
+    /// server (`ti4_view::reaction_modes`).
     host: NeverOffer,
 }
 
@@ -1228,7 +1228,7 @@ pub extern "C" fn ti4_plan(request_len: u32) -> i32 {
 /// Set the mode of an action card for the host: the request buffer holds
 /// `{"card": <printed name>, "mode": "never" | "always"}` in `request_len` bytes. A window that
 /// offers only Never cards is declined for the host without asking ([`ti4_passed`]), and any
-/// other window is asked without them (`ti4_engine::reaction_modes::NeverOffer`).
+/// other window is asked without them (`ti4_view::reaction_modes::NeverOffer`).
 ///
 /// The modes are of the instance, not of the game: the host sets them before [`ti4_play`], or
 /// while the game waits.
@@ -1678,7 +1678,7 @@ mod tests {
         set_native_host(move |update| {
             let value: serde_json::Value = serde_json::from_str(update).unwrap();
             let mut seen = sink.lock().unwrap();
-            let script = ["pok8imperial", "no", "tactical", "23", "move|01|0"];
+            let script = ["pok8imperial", "tactical", "23", "move|01|0"];
             let wanted = script.get(seen.len()).copied();
             let index = wanted.and_then(|id| options(&value).iter().position(|have| have == id));
             seen.push(value);
@@ -1687,17 +1687,17 @@ mod tests {
         let status = ti4_play(3, 8, 1);
         assert!(response(status).unwrap().contains(LEFT));
         let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 6);
+        assert_eq!(seen.len(), 5);
         assert!(
-            seen[2].get("tactical").is_none(),
+            seen[1].get("tactical").is_none(),
             "the turn menu has no facts"
         );
 
-        let activation = &seen[3]["tactical"];
+        let activation = &seen[2]["tactical"];
         assert_eq!(activation["kind"], "activation");
         assert_eq!(activation["tactic_tokens"], 3);
         let reach = activation["systems"].as_array().unwrap();
-        assert_eq!(reach.len(), options(&seen[3]).len());
+        assert_eq!(reach.len(), options(&seen[2]).len());
         let next_to_home = reach.iter().find(|fact| fact["system"] == "23").unwrap();
         // Two carriers and a destroyer; the fighters do not move on their own.
         assert_eq!(next_to_home["ships"], 3);
@@ -1711,14 +1711,14 @@ mod tests {
         assert_eq!(producing.len(), 1);
         assert!(reach.iter().all(|fact| fact.get("cannon").is_none()));
 
-        let movement = &seen[4]["tactical"];
+        let movement = &seen[3]["tactical"];
         assert_eq!(movement["kind"], "movement");
         assert_eq!(movement["active"], "23");
         assert_eq!(movement["moved"], 0);
         let ships = movement["ships"].as_array().unwrap();
         assert_eq!(ships.len(), 3, "{ships:?}");
         // Every ship that the engine offers is a ship of the facts that can move.
-        let offered = seen[4]["pending_choice"]["choice"]["options"]
+        let offered = seen[3]["pending_choice"]["choice"]["options"]
             .as_array()
             .unwrap();
         for option in offered.iter().filter(|option| option["kind"] == "move") {
@@ -1751,7 +1751,7 @@ mod tests {
                 )
             })
             .collect();
-        let mut loads: Vec<_> = seen[5]["pending_choice"]["choice"]["options"]
+        let mut loads: Vec<_> = seen[4]["pending_choice"]["choice"]["options"]
             .as_array()
             .unwrap()
             .iter()
@@ -1772,8 +1772,8 @@ mod tests {
         loads.sort_by_key(text);
         assert!(!loads.is_empty());
         assert_eq!(named, loads);
-        assert!(seen[5].get("tactical").is_none(), "a hold has no facts");
-        let live_movement = seen[4].clone();
+        assert!(seen[4].get("tactical").is_none(), "a hold has no facts");
+        let live_movement = seen[3].clone();
         drop(seen);
 
         // The landings: the carrier takes two infantry along, and the facts of each landing say
@@ -1794,14 +1794,13 @@ mod tests {
             let pick = |id: &str| ids.iter().position(|have| have == id);
             let index = match seen.len() {
                 0 => pick("pok8imperial"),
-                1 => pick("no"),
-                2 => pick("tactical"),
-                3 => pick("23"),
-                4 => pick("move|01|0"),
-                5 | 6 => infantry,
-                7 => pick("done_loading"),
-                8 => pick("done_moving"),
-                9 => pick("commit|0|saudor"),
+                1 => pick("tactical"),
+                2 => pick("23"),
+                3 => pick("move|01|0"),
+                4 | 5 => infantry,
+                6 => pick("done_loading"),
+                7 => pick("done_moving"),
+                8 => pick("commit|0|saudor"),
                 _ => None,
             };
             seen.push(value);
@@ -1810,8 +1809,8 @@ mod tests {
         let status = ti4_play(3, 8, 1);
         assert!(response(status).unwrap().contains(LEFT));
         let seen = seen.lock().unwrap();
-        assert_eq!(seen.len(), 11);
-        for (update, left) in [(&seen[9], 2), (&seen[10], 1)] {
+        assert_eq!(seen.len(), 10);
+        for (update, left) in [(&seen[8], 2), (&seen[9], 1)] {
             let facts = &update["tactical"];
             assert_eq!(facts["kind"], "invasion");
             assert_eq!(facts["active"], "23");
@@ -1851,7 +1850,7 @@ mod tests {
         set_native_host(move |update| {
             let value: serde_json::Value = serde_json::from_str(update).unwrap();
             let (asked, outcomes) = &mut *sink.lock().unwrap();
-            let script = ["pok8imperial", "no"];
+            let script = ["pok8imperial"];
             let Some(wanted) = script.get(*asked) else {
                 for script in [
                     r#"[]"#,

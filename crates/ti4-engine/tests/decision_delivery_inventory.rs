@@ -475,6 +475,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Last Bastion: which unit to galvanize (BF-bastion.md); every ask goes through this one.
+        module: "bastion.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // Mahact: Edict opponent, Scepter system (BF-mahact.md).
         module: "mahact.rs",
         function: "ask_among",
@@ -545,6 +552,68 @@ const PRODUCERS: &[Producer] = &[
         // Slumberstate Computing: fight or coexist when Coalescence forces a ground combat.
         module: "invasion.rs",
         function: "coexist_instead",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Deepwrought Research Team: fight or coexist for each committed planet (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Deepwrought: every question asked inside a timing window or component action (BF-deepwrought.md).
+        module: "deepwrought.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "deepwrought.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Crimson Rebellion: every question asked inside a timing window or component action
+        // (BF-crimson.md). Ahk Ravin's transport questions are the shared cargo hold's own.
+        module: "crimson.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "crimson.rs",
+        function: "ask_about",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Ral Nel: every question asked inside a timing window or component action (BF-ralnel.md).
+        module: "ralnel.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Doctor Carrina, in the one window every research route opens: the holder's exhaust
+        // offer, then the infantry placement (BF-deepwrought.md).
+        module: "deepwrought_research.rs",
+        function: "open",
+        count: 1,
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
+    },
+    Producer {
+        module: "deepwrought_research.rs",
+        function: "settle",
+        count: 1,
+        delivery: Delivery::ObservedVia("deepwrought_research.rs::put"),
+    },
+    Producer {
+        // Research Team on defense: the Deepwrought defender chooses to coexist (BF-deepwrought.md).
+        module: "invasion.rs",
+        function: "offer_research_team_defense",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -819,7 +888,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "exploration.rs",
-        function: "ask",
+        function: "ask_decorated",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -895,6 +964,30 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The Fracture, rule 11: a game effect (Firmament Planesplitter) puts it into play and the
+        // player who caused it chooses one ingress system per technology colour (BF-firmament.md).
+        module: "fracture.rs",
+        function: "enter_play_by_effect",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Firmament: every question asked inside a timing window, component action or leader
+        // action (BF-firmament.md).
+        module: "firmament.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // The Obsidian: every question asked inside a timing window, including the opponent's
+        // choice for Vos Hollow (BF-obsidian.md).
+        module: "obsidian.rs",
+        function: "ask",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         // The seat's action-phase turn: strategic, tactical, component, pass, contacts.
         module: "game.rs",
         function: "turn_options",
@@ -926,6 +1019,13 @@ const PRODUCERS: &[Producer] = &[
         // Political Favor and Political Secret: whether the holder uses the note at its window.
         module: "game.rs",
         function: "ask_to_use_note",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        // Z'eu (the Naalu's Prophecy of Kings agent): which non-home system to act in.
+        module: "game.rs",
+        function: "perform_zeu",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1048,9 +1148,10 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // The scoring choice, and Plots Within Plots' second step: the plot card to place.
         module: "objectives.rs",
         function: "pending_choice",
-        count: 1,
+        count: 2,
         delivery: Delivery::ObservedVia("game.rs::step_scoring"),
     },
     Producer {
@@ -1079,7 +1180,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "production.rs",
-        function: "produce_one",
+        function: "produce_one_from",
         count: 2,
         delivery: Delivery::ObservedHere,
     },
@@ -1214,7 +1315,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "strategy_cards.rs",
-        function: "offer_research",
+        function: "offer_research_inner",
         count: 1,
         delivery: Delivery::ObservedVia("strategy_cards.rs::ask"),
     },
@@ -1382,7 +1483,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "vote.rs",
-        function: "pending_choice",
+        function: "pending_choice_bare",
         // Outcome, planets, Gila's trade goods (hacancommander), tiebreak, Mahact's Recombine
         // and Tribute stages.
         count: 6,
@@ -1438,6 +1539,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("empyrean.rs", "tether_place", 1),
     ("empyrean.rs", "voidwatch", 1),
     ("mahact.rs", "ask_among", 1),
+    ("bastion.rs", "ask", 1),
     ("mahact_units.rs", "legionnaire", 1),
     ("mahact_units.rs", "legionnaire_returns", 1),
     ("mahact_units.rs", "offer_starlancer", 1),
@@ -1446,6 +1548,18 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("nomad.rs", "temporal_command_suite", 1),
     ("nomad_agents.rs", "ask", 1),
     ("invasion.rs", "coexist_instead", 1),
+    ("invasion.rs", "offer_research_team", 1),
+    ("invasion.rs", "offer_research_team_defense", 1),
+    ("deepwrought_research.rs", "put", 1),
+    ("deepwrought.rs", "ask", 1),
+    ("deepwrought.rs", "ask_about", 1),
+    ("crimson.rs", "ask", 1),
+    ("crimson.rs", "ask_about", 1),
+    ("crimson_cards.rs", "fill_hold", 1),
+    // Ral Nel's timing windows and component actions (BF-ralnel): every question is put through
+    // `ralnel::ask`; Survival Instinct's transport is the shared cargo hold (`passengers`).
+    ("ralnel.rs", "ask", 1),
+    ("ralnel.rs", "passengers", 1),
     ("titans_leaders.rs", "sleeper_allowance", 1),
     ("argent.rs", "afb_excess", 1),
     ("argent.rs", "extra_die_effect", 1),
@@ -1486,7 +1600,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "offer_sustain", 1),
     ("combat.rs", "roll_round", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
-    ("exploration.rs", "ask", 1),
+    ("exploration.rs", "ask_decorated", 1),
     ("faction_abilities.rs", "munitions_offer", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),
@@ -1508,6 +1622,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("game.rs", "step_agenda_talks", 1),
     ("game.rs", "step_vote", 1),
     ("game.rs", "ask_to_use_note", 1),
+    ("game.rs", "perform_zeu", 1),
     ("game.rs", "committee_formation", 1),
     ("game.rs", "imperial_arbiter", 2),
     ("game.rs", "minister_of_war", 1),
@@ -1516,7 +1631,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("invasion.rs", "drive", 1),
     ("production.rs", "integrated_economy", 1),
     ("production.rs", "pay_with_observation_credit", 1),
-    ("production.rs", "produce_one", 2),
+    ("production.rs", "produce_one_from", 2),
     // BF-00b: ability-driven production delivers `ProductionWindow::pending_choice` itself.
     ("production.rs", "produce_by_ability_capped", 1),
     ("production.rs", "resolve_timed", 1),
@@ -1532,6 +1647,9 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("relics.rs", "titan_prototype", 1),
     ("entropic_scars.rs", "resolve_status_start", 1),
     ("fracture.rs", "after_breakthrough_gained", 1),
+    ("fracture.rs", "enter_play_by_effect", 1),
+    ("firmament.rs", "ask", 1),
+    ("obsidian.rs", "ask", 1),
     ("invasion.rs", "apply_bombard_plan", 1),
     ("invasion.rs", "dunlain_reaper", 1),
     ("laws.rs", "offer_discard", 1),
@@ -1556,9 +1674,6 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
 ];
 
 const VIEWLESS_ASKS: &[(&str, &str, usize)] = &[("timing.rs", "pick", 1)];
-
-/// The one engine module that implements Decider around another decider.
-const DECIDER_WRAPPER: &str = "reaction_modes.rs";
 
 fn expected_sites() -> BTreeMap<Site, usize> {
     let mut expected = BTreeMap::new();
@@ -1606,21 +1721,6 @@ fn expected_sites() -> BTreeMap<Site, usize> {
                 operation,
             },
             count,
-        );
-    }
-    // NeverOffer is itself a Decider: it narrows a reaction window and hands
-    // the question to the decider it wraps. It sits behind Table like any other.
-    for (function, operation) in [
-        ("choose", Operation::ChooseDirect),
-        ("choose_seeing", Operation::ChooseObservedDirect),
-    ] {
-        expected.insert(
-            Site {
-                module: DECIDER_WRAPPER.to_owned(),
-                function: function.to_owned(),
-                operation,
-            },
-            2,
         );
     }
     expected
@@ -1714,7 +1814,6 @@ fn no_engine_module_calls_a_decider_around_table() {
                 site.operation,
                 Operation::ChooseDirect | Operation::ChooseObservedDirect
             ) && site.module != "choice.rs"
-                && site.module != DECIDER_WRAPPER
         })
         .collect();
     assert!(

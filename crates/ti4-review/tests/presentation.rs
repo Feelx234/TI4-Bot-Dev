@@ -844,6 +844,8 @@ fn exploration_draws_are_listed_for_the_round() {
             card: "mw".to_owned(),
             planet: Some(planet),
             outcome: "attached:miningworld".to_owned(),
+            system: None,
+            result: String::new(),
         },
         ti4_model::state::ExplorationRecord {
             round: frame.state.round.saturating_sub(1),
@@ -852,6 +854,8 @@ fn exploration_draws_are_listed_for_the_round() {
             card: "ds".to_owned(),
             planet: None,
             outcome: "discarded".to_owned(),
+            system: None,
+            result: String::new(),
         },
     ];
     let lines = view::exploration_lines(&session, &frame, content);

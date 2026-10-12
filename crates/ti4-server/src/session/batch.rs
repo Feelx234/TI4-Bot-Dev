@@ -12,6 +12,7 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
 use super::SessionConfig;
+use super::step_snapshot::StepSnapshot;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,6 +62,16 @@ enum TypedPlan {
     Tokens {
         steps: Vec<TokenStep>,
     },
+    ReadyPlanets {
+        steps: Vec<ReadyStep>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+enum ReadyStep {
+    /// Answer one "ready which planet" question with this planet.
+    ReadyPlanet { planet: String },
 }
 
 #[derive(Deserialize)]
@@ -107,7 +118,15 @@ enum VoteStep {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum ProductionStep {
-    Produce { unit: String, count: u32 },
+    /// `exchange` picks the Amalgamation option (return a captured unit of that type, no cost)
+    /// instead of the paid build; both are offered in the same decision with the same unit and
+    /// count, so a step that does not say which it means must never be able to match the exchange.
+    Produce {
+        unit: String,
+        count: u32,
+        #[serde(default)]
+        exchange: bool,
+    },
     DoneProducing,
 }
 
@@ -170,6 +189,11 @@ impl<'de> Deserialize<'de> for MovementPlan {
                 destination: String::new(),
                 steps: steps.into_iter().map(Into::into).collect(),
             },
+            WirePlan::Typed(TypedPlan::ReadyPlanets { steps }) => Self {
+                kind: BatchKind::ReadyPlanets,
+                destination: String::new(),
+                steps: steps.into_iter().map(Into::into).collect(),
+            },
         })
     }
 }
@@ -223,8 +247,24 @@ impl From<VoteStep> for MovementStep {
 impl From<ProductionStep> for MovementStep {
     fn from(step: ProductionStep) -> Self {
         match step {
-            ProductionStep::Produce { unit, count } => Self::Produce { unit, count },
+            ProductionStep::Produce {
+                unit,
+                count,
+                exchange,
+            } => Self::Produce {
+                unit,
+                count,
+                exchange,
+            },
             ProductionStep::DoneProducing => Self::DoneProducing,
+        }
+    }
+}
+
+impl From<ReadyStep> for MovementStep {
+    fn from(step: ReadyStep) -> Self {
+        match step {
+            ReadyStep::ReadyPlanet { planet } => Self::ReadyPlanet { planet },
         }
     }
 }
@@ -261,6 +301,8 @@ pub enum BatchKind {
     Casualties,
     /// Several command tokens gained at once, each placed into a pool of the seat's choice.
     Tokens,
+    /// Diplomacy's "ready up to 2 exhausted planets", answered together.
+    ReadyPlanets,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -292,6 +334,7 @@ pub enum MovementStep {
     Produce {
         unit: String,
         count: u32,
+        exchange: bool,
     },
     DoneProducing,
     Sustain {
@@ -307,6 +350,10 @@ pub enum MovementStep {
     /// Leadership's "spend 3 influence for a command token?" answer: `true` is yes.
     Purchase {
         buy: bool,
+    },
+    /// One "ready which planet" answer (Diplomacy).
+    ReadyPlanet {
+        planet: String,
     },
 }
 
@@ -342,6 +389,7 @@ impl MovementStep {
             Self::Destroy { .. } => "assign_casualty",
             Self::Pool { .. } => "gain_command_token",
             Self::Purchase { .. } => "buy_token_with_influence",
+            Self::ReadyPlanet { .. } => "ready_planet",
         }
     }
 
@@ -399,6 +447,7 @@ impl MovementStep {
             Self::DoneVoting => option.id == "decline",
             Self::DoneProducing => option.id == "done_producing",
             Self::Pool { pool } => option.kind == "pool" && option.id == *pool,
+            Self::ReadyPlanet { planet } => option.kind == "ready" && option.id == *planet,
             Self::Purchase { buy } => {
                 option.kind == ti4_engine::strategy::STRATEGY_KIND
                     && option.id == if *buy { "yes" } else { "no" }
@@ -418,8 +467,18 @@ impl MovementStep {
                         .unwrap_or(false)
                         == *damaged
             }
-            Self::Produce { unit, count } => {
+            Self::Produce {
+                unit,
+                count,
+                exchange,
+            } => {
                 option.kind == "produce"
+                    && option
+                        .payload
+                        .get("exchange")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                        == *exchange
                     && value("unit") == Some(unit.as_str())
                     && option
                         .payload
@@ -504,6 +563,9 @@ fn is_reaction_window(choice: &Choice) -> bool {
 
 struct Script {
     prefix: VecDeque<DecisionRecord>,
+    /// Forced random positions for the prefix (a timeline made by a turn redo), and its length.
+    force: Option<crate::session::RngForce>,
+    prefix_len: usize,
     steps: Vec<MovementStep>,
     next: usize,
     actor: PlayerId,
@@ -518,23 +580,53 @@ struct Script {
     interruption: Option<BatchInterruption>,
     /// Casualty plans: the most hits a later decision of the same assignment may still owe.
     casualty_owed: Option<i64>,
+    /// Every decision this script answered, in order, as the engine's log records it. The engine
+    /// rolls a system activation back as a whole when a nested question is refused, and the
+    /// boundary is such a refusal: the decisions that step had already answered (the activation
+    /// itself, a reaction, an ability's production) vanish from the game's log, so the log alone
+    /// cannot say what the plan recorded.
+    answered: Vec<DecisionRecord>,
 }
 
 struct PrivateDecider(Arc<Mutex<Script>>);
 
 pub struct Simulation {
+    /// How many decisions of the prefix a forked step-boundary copy covered (`None`: the whole
+    /// prefix was replayed from the opening state). Not part of the result's meaning.
+    pub forked_at: Option<usize>,
     pub interruption: Option<BatchInterruption>,
     pub decisions: Vec<DecisionRecord>,
     pub selected: Vec<ChoiceOption>,
     pub transitions: Vec<(usize, Phase, u32)>,
     pub winner: Option<Option<PlayerId>>,
     pub boundary_state: GameState,
+    /// A copy of the game at the last step boundary near the end of the prefix, when asked for
+    /// (see [`replay_boundary`]).
+    pub tail_copy: Option<StepSnapshot>,
 }
 
 impl Decider for PrivateDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        let option = self.answer(choice)?;
+        let mut log = ti4_engine::choice::DecisionLog::default();
+        log.record(choice, &option);
+        self.0
+            .lock()
+            .expect("batch script lock")
+            .answered
+            .extend(log.records);
+        Ok(option)
+    }
+}
+
+impl PrivateDecider {
+    fn answer(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let mut script = self.0.lock().expect("batch script lock");
+        let prefix_index = script.prefix_len.saturating_sub(script.prefix.len());
         if let Some(record) = script.prefix.pop_front() {
+            if let Some(force) = &script.force {
+                force.before_answer(prefix_index);
+            }
             let matching: Vec<_> = choice
                 .options
                 .iter()
@@ -566,6 +658,9 @@ impl Decider for PrivateDecider {
                     reason: "batch prefix diverged".into(),
                 })
             };
+        }
+        if let Some(force) = &script.force {
+            force.go_live();
         }
         while script.kind == BatchKind::TacticalMovement
             && matches!(
@@ -642,6 +737,7 @@ impl Decider for PrivateDecider {
                     | BatchKind::AgendaVotePlanets
                     | BatchKind::Production
                     | BatchKind::Tokens
+                    | BatchKind::ReadyPlanets
             )
             && is_reaction_window(choice)
         {
@@ -879,12 +975,45 @@ fn offered_decision(choice: &Choice, own_seat: bool) -> OfferedDecision {
     }
 }
 
+/// Diagnostic: how many batch checks (process-wide) started from a step-boundary copy instead
+/// of replaying the whole game. Tests read the difference around one request.
+pub static FORKED_CHECKS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How a batch check obtains the position the staged choices start from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulationMode {
+    /// Fork the worker's step-boundary copy when it is valid for the history, else replay in
+    /// full. `TI4_BATCH_VERIFY=1` upgrades this to [`SimulationMode::Verify`].
+    Auto,
+    /// Always replay the whole recorded prefix from the opening state (the reference).
+    FullReplay,
+    /// Run the forked path (when a valid copy exists) AND the full replay, and panic when
+    /// their results differ in any way. Used by tests and `TI4_BATCH_VERIFY=1`.
+    Verify,
+}
+
 /// Replays the prefix and proves every staged choice against a fresh engine offer.
+///
+/// With a valid step-boundary `snapshot` only the decisions recorded after it are replayed
+/// (see [`crate::session::step_snapshot`]); otherwise the whole prefix is.
 pub fn simulate(
     config: &SessionConfig,
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
+    snapshot: Option<&StepSnapshot>,
+) -> Result<Simulation, BatchFailure> {
+    simulate_with(config, prefix, actor, plan, snapshot, SimulationMode::Auto)
+}
+
+/// [`simulate`] with an explicit [`SimulationMode`].
+pub fn simulate_with(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+    actor: &PlayerId,
+    plan: &MovementPlan,
+    snapshot: Option<&StepSnapshot>,
+    mode: SimulationMode,
 ) -> Result<Simulation, BatchFailure> {
     if let Some(problem) = plan_problem(plan) {
         let mut failure =
@@ -893,14 +1022,105 @@ pub fn simulate(
         failure.message = format!("invalid batch plan: {problem}");
         return Err(failure);
     }
-    simulate_script(config, prefix, actor, plan).map_err(|failure| {
-        let planned = plan.steps.len();
-        if failure.planned_steps == 0 {
-            failure.with_planned_steps(planned)
-        } else {
-            failure
+    let mode = if mode == SimulationMode::Auto
+        && std::env::var_os("TI4_BATCH_VERIFY").is_some_and(|value| value != "0")
+    {
+        SimulationMode::Verify
+    } else {
+        mode
+    };
+    let usable = snapshot.filter(|copy| copy.is_valid_for(config.history_generation, prefix));
+    let planned = plan.steps.len();
+    let finish = |result: Result<Simulation, BatchFailure>| {
+        result.map_err(|failure| {
+            if failure.planned_steps == 0 {
+                failure.with_planned_steps(planned)
+            } else {
+                failure
+            }
+        })
+    };
+    match (mode, usable) {
+        (SimulationMode::Auto, Some(copy)) => {
+            FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            finish(simulate_script(
+                config,
+                prefix,
+                actor,
+                plan,
+                Some(copy),
+                None,
+            ))
         }
-    })
+        (SimulationMode::Verify, Some(copy)) => {
+            FORKED_CHECKS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let forked = finish(simulate_script(
+                config,
+                prefix,
+                actor,
+                plan,
+                Some(copy),
+                None,
+            ));
+            let full = finish(simulate_script(config, prefix, actor, plan, None, None));
+            if let Some(difference) = simulation_difference(&forked, &full) {
+                panic!(
+                    "batch check from a step-boundary copy (log {} of {}) disagrees with the full replay: {difference}",
+                    copy.log_len,
+                    prefix.len()
+                );
+            }
+            forked
+        }
+        _ => finish(simulate_script(config, prefix, actor, plan, None, None)),
+    }
+}
+
+fn json<T: Serialize>(value: &T) -> serde_json::Value {
+    serde_json::to_value(value).expect("serializable")
+}
+
+/// How two batch results differ, or `None` when they mean the same (the verifier's comparison:
+/// selected options, recorded decisions, boundary state, transitions, winner, interruption, and
+/// for failures every field the client sees).
+#[must_use]
+pub fn simulation_difference(
+    a: &Result<Simulation, BatchFailure>,
+    b: &Result<Simulation, BatchFailure>,
+) -> Option<String> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => {
+            if a.decisions != b.decisions {
+                return Some("recorded decisions differ".to_owned());
+            }
+            if a.selected != b.selected {
+                return Some("selected options differ".to_owned());
+            }
+            if a.transitions != b.transitions {
+                return Some(format!(
+                    "transitions differ: {:?} vs {:?}",
+                    a.transitions, b.transitions
+                ));
+            }
+            if a.winner != b.winner {
+                return Some("winner differs".to_owned());
+            }
+            if json(&a.interruption) != json(&b.interruption) {
+                return Some("interruption differs".to_owned());
+            }
+            if !a.boundary_state.identical(&b.boundary_state)
+                || json(&a.boundary_state) != json(&b.boundary_state)
+            {
+                return Some("boundary state differs".to_owned());
+            }
+            None
+        }
+        (Err(a), Err(b)) => {
+            (json(a) != json(b)).then(|| format!("failures differ: {a:?} vs {b:?}"))
+        }
+        (Ok(_), Err(b)) => Some(format!("only the other path failed: {b:?}")),
+        (Err(a), Ok(_)) => Some(format!("only one path failed: {a:?}")),
+    }
 }
 
 /// Explains why a plan cannot be a batch of its kind, or `None` when its shape is valid.
@@ -965,6 +1185,24 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
                 .any(|s| matches!(s, MovementStep::DoneProducing))
                 .then_some("done_producing may only be the last step")
         }),
+        BatchKind::ReadyPlanets => (!plan
+            .steps
+            .iter()
+            .all(|s| matches!(s, MovementStep::ReadyPlanet { .. })))
+        .then_some("a ready plan may only contain ready_planet steps")
+        .or_else(|| {
+            (plan.steps.len() > 2).then_some("a ready plan readies at most 2 planets")
+        })
+        .or_else(|| {
+            let mut seen = std::collections::BTreeSet::new();
+            plan.steps
+                .iter()
+                .any(|s| match s {
+                    MovementStep::ReadyPlanet { planet } => !seen.insert(planet.as_str()),
+                    _ => false,
+                })
+                .then_some("a ready plan names each planet once")
+        }),
         BatchKind::Casualties => (!plan
             .steps
             .iter()
@@ -1008,7 +1246,50 @@ pub fn replay_boundary_state(
         .last()
         .map(|record| record.player.clone())
         .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
-    simulate_script(config, prefix, &actor, &plan).map(|simulation| simulation.boundary_state)
+    simulate_script(config, prefix, &actor, &plan, None, None)
+        .map(|simulation| simulation.boundary_state)
+}
+
+/// How close to the end of the prefix the replays copy the game at step boundaries
+/// ([`replay_boundary`], `replay::replay_session_with_copy`). A copy costs about as much as a step,
+/// so only the last few boundaries are copied; a final step that answers more recorded decisions
+/// than this leaves an earlier copy (or none, and the worker replays the whole prefix as before).
+pub(crate) const TAIL_COPY_WINDOW: usize = 64;
+
+/// [`replay_boundary_state`], replaying only what `from` (a copy of the game at an earlier step
+/// boundary of this same prefix) does not cover, and also returning a copy of the game at the last
+/// step boundary of the replay when `generation` is given: a new session worker forks it
+/// (`SessionConfig::resume`) instead of replaying the whole prefix a second time.
+///
+/// # Errors
+/// As [`replay_boundary_state`].
+pub fn replay_boundary(
+    config: &SessionConfig,
+    prefix: &[DecisionRecord],
+    from: Option<&StepSnapshot>,
+    generation: Option<u64>,
+) -> Result<(GameState, Option<StepSnapshot>), BatchFailure> {
+    let plan = MovementPlan {
+        kind: BatchKind::TacticalMovement,
+        destination: String::new(),
+        steps: Vec::new(),
+    };
+    let actor = prefix
+        .last()
+        .map(|record| record.player.clone())
+        .ok_or_else(|| BatchFailure::new(0, "empty replay", "recorded prefix"))?;
+    simulate_script(config, prefix, &actor, &plan, from, generation)
+        .map(|simulation| (simulation.boundary_state, simulation.tail_copy))
+}
+
+/// Wall-clock budget for replaying `decisions` recorded choices from the opening state.
+///
+/// Every batch replays the whole game, so the cost grows with it: a debug server spends a few
+/// milliseconds per recorded choice, more on a loaded machine. Runaway loops are still caught by
+/// the step cap in [`simulate_script`].
+pub fn replay_budget(decisions: usize) -> Duration {
+    let per_decision = Duration::from_millis(20);
+    Duration::from_secs(15) + per_decision * u32::try_from(decisions).unwrap_or(u32::MAX / 1000)
 }
 
 fn simulate_script(
@@ -1016,9 +1297,16 @@ fn simulate_script(
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
+    from: Option<&StepSnapshot>,
+    copy_generation: Option<u64>,
 ) -> Result<Simulation, BatchFailure> {
+    let force = crate::session::RngForce::new(&config.rng_marks);
+    // Decisions the copy already covers are not replayed; the rest of the prefix is.
+    let covered = from.map_or(0, |copy| copy.log_len);
     let script = Arc::new(Mutex::new(Script {
-        prefix: prefix.iter().cloned().collect(),
+        prefix: prefix[covered..].iter().cloned().collect(),
+        force: force.clone(),
+        prefix_len: prefix.len(),
         steps: plan.steps.clone(),
         next: 0,
         actor: actor.clone(),
@@ -1031,18 +1319,31 @@ fn simulate_script(
         finished: false,
         interruption: None,
         casualty_owed: None,
+        answered: Vec::new(),
     }));
-    let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
-    let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
-    if let Some(galaxy) = &config.galaxy {
-        game = game.with_galaxy(galaxy.clone());
+    let mut game = if let Some(copy) = from {
+        let mut game = copy.fork(prefix);
+        game.table
+            .set_default(Box::new(PrivateDecider(script.clone())));
+        game
+    } else {
+        let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
+        let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
+        if let Some(galaxy) = &config.galaxy {
+            game = game.with_galaxy(galaxy.clone());
+        }
+        game
+    };
+    if let Some(force) = &force {
+        force.attach(&mut game);
     }
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let replayed = prefix.len() - covered;
+    let deadline = Instant::now() + replay_budget(replayed);
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
-    for _ in 0..(prefix
-        .len()
+    let mut tail_copy: Option<StepSnapshot> = None;
+    for _ in 0..(replayed
         .saturating_add(plan.steps.len())
         .saturating_mul(8)
         .saturating_add(128))
@@ -1053,6 +1354,19 @@ fn simulate_script(
                 "simulation timed out",
                 "next engine choice",
             ));
+        }
+        if let Some(generation) = copy_generation {
+            // Between steps: copy the game once the prefix is nearly answered (each boundary
+            // that recorded something since the last copy).
+            let remaining = script.lock().expect("script").prefix.len();
+            if remaining <= TAIL_COPY_WINDOW
+                && tail_copy
+                    .as_ref()
+                    .is_none_or(|copy| copy.log_len < game.table.log.records.len())
+                && let Some(copy) = StepSnapshot::capture(&mut game, generation)
+            {
+                tail_copy = Some(copy);
+            }
         }
         let result = game.step();
         if game.state.phase != phase || game.state.round != round {
@@ -1088,8 +1402,25 @@ fn simulate_script(
             // Every decision after the prefix must be one this batch answered. That is not one
             // per planned step: a declined cargo hold adds an answer, a skipped DoneLoading
             // removes one. `selected` is what the caller pairs with each recorded decision.
-            if game.table.log.records.get(..prefix.len()) != Some(prefix)
-                || game.table.log.records.len() != prefix.len() + guard.selected.len()
+            //
+            // A boundary inside a step the engine rolls back as a whole (a system activation
+            // with its reactions and an ability's production) takes that step's earlier answers
+            // out of the game's log; the script's own list has them.
+            let logged = &game.table.log.records;
+            let rebuilt: Vec<DecisionRecord>;
+            let records: &[DecisionRecord] = if logged.len() < covered + guard.answered.len() {
+                rebuilt = logged
+                    .iter()
+                    .take(covered)
+                    .chain(&guard.answered)
+                    .cloned()
+                    .collect();
+                &rebuilt
+            } else {
+                logged
+            };
+            if records.get(..prefix.len()) != Some(prefix)
+                || records.len() != prefix.len() + guard.selected.len()
             {
                 return Err(BatchFailure::new(0, "replay diverged", "recorded prefix"));
             }
@@ -1097,12 +1428,14 @@ fn simulate_script(
                 .then(|| ti4_engine::objectives::leader(&game.state))
                 .flatten();
             return Ok(Simulation {
+                forked_at: from.map(|copy| copy.log_len),
                 interruption: guard.interruption.clone(),
-                decisions: game.table.log.records[prefix.len()..].to_vec(),
+                decisions: records[prefix.len()..].to_vec(),
                 selected: guard.selected.clone(),
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
                 boundary_state: game.state.clone(),
+                tail_copy,
             });
         }
         if let Some(err) = result.error {
@@ -1122,6 +1455,16 @@ fn simulate_script(
 
 #[cfg(test)]
 mod tests {
+    /// Run 04-0023 (2026-10-07): a round 7 batch replayed 1650 recorded choices in a debug
+    /// server on a loaded machine and hit a flat 15 s budget ("simulation timed out"). Idle,
+    /// the same replay took 4.5 to 10 s, so the budget must grow with the game.
+    #[test]
+    fn replay_budget_grows_with_the_recorded_prefix() {
+        assert!(super::replay_budget(0) >= std::time::Duration::from_secs(15));
+        assert!(super::replay_budget(1650) >= std::time::Duration::from_secs(45));
+        assert!(super::replay_budget(3000) > super::replay_budget(1650));
+    }
+
     use super::*;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
 
@@ -1180,7 +1523,8 @@ mod tests {
             destination: String::new(),
             steps: Vec::new(),
         };
-        let simulation = simulate_script(&config, &prefix, &players[0], &plan).unwrap();
+        let simulation =
+            simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
         assert!(simulation.boundary_state.finished);
         assert!(
             simulation
@@ -1321,6 +1665,8 @@ mod tests {
     fn decider(kind: BatchKind, steps: Vec<MovementStep>) -> PrivateDecider {
         PrivateDecider(Arc::new(Mutex::new(Script {
             prefix: VecDeque::new(),
+            force: None,
+            prefix_len: 0,
             steps,
             next: 0,
             actor: PlayerId::new("p1"),
@@ -1333,6 +1679,7 @@ mod tests {
             finished: false,
             interruption: None,
             casualty_owed: None,
+            answered: Vec::new(),
         })))
     }
 
@@ -2259,5 +2606,124 @@ mod tests {
                 .collect(),
         };
         assert!(plan_problem(&many).is_none());
+    }
+
+    fn ready_ask(planets: &[&str]) -> Choice {
+        offered(
+            "ready_planet",
+            planets
+                .iter()
+                .map(|p| ChoiceOption::labelled(*p, "ready", format!("ready {p}")))
+                .collect(),
+        )
+    }
+
+    fn ready(planet: &str) -> MovementStep {
+        MovementStep::ReadyPlanet {
+            planet: planet.into(),
+        }
+    }
+
+    #[test]
+    fn ready_plan_answers_both_questions_in_the_chosen_order() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert_eq!(decider.choose(&ready_ask(&["arcturus"])).unwrap().id, "arcturus");
+        assert!(decider.choose(&ready_ask(&[])).is_err());
+        let script = decider.0.lock().unwrap();
+        assert!(script.failure.is_none());
+        assert!(script.finished);
+        assert_eq!(script.selected.len(), 2);
+    }
+
+    #[test]
+    fn ready_plan_with_one_planet_ends_at_the_boundary() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_none());
+    }
+
+    #[test]
+    fn ready_plan_rejects_a_planet_that_is_no_longer_exhausted() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
+        assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
+        let script = decider.0.lock().unwrap();
+        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+    }
+
+    #[test]
+    fn ready_plan_is_interrupted_when_the_engine_asks_something_else() {
+        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
+        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        let other = offered(
+            "gain_command_token",
+            vec![ChoiceOption::labelled("tactic_tokens", "pool", "tactic")],
+        );
+        assert!(decider.choose(&other).is_err());
+        assert!(decider.0.lock().unwrap().failure.is_some());
+    }
+
+    #[test]
+    fn ready_plans_parse_and_validate_their_shape() {
+        let plan = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"ready_planets","steps":[{"kind":"ready_planet","planet":"jord"},{"kind":"ready_planet","planet":"arcturus"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(plan.kind, BatchKind::ReadyPlanets);
+        assert!(plan_problem(&plan).is_none());
+        let with = |steps: Vec<MovementStep>| MovementPlan {
+            kind: BatchKind::ReadyPlanets,
+            destination: String::new(),
+            steps,
+        };
+        assert!(plan_problem(&with(vec![])).is_some(), "zero is not a plan");
+        assert!(plan_problem(&with(vec![ready("a"), ready("b"), ready("c")])).is_some());
+        assert!(plan_problem(&with(vec![ready("a"), ready("a")])).is_some());
+        assert!(plan_problem(&with(vec![MovementStep::TradeGood])).is_some());
+        assert!(
+            serde_json::from_str::<MovementPlan>(
+                r#"{"kind":"ready_planets","steps":[{"kind":"trade_good"}]}"#
+            )
+            .is_err(),
+            "cross-workflow steps are refused at the boundary"
+        );
+    }
+
+    /// Cabal Amalgamation: `build|carrier|1` and `exchange|carrier` are both `produce` options of
+    /// one `produce_unit` decision with the same unit and count. A plan step names which one it
+    /// means; a plain step never matches the exchange (it used to match both: "ambiguous option").
+    #[test]
+    fn a_produce_step_picks_the_build_or_the_exchange_but_never_both() {
+        let build = ChoiceOption::labelled("build|carrier|1", "produce", "produce 1x carrier")
+            .with("unit", "carrier")
+            .with("count", 1i64);
+        let exchange =
+            ChoiceOption::labelled("exchange|carrier", "produce", "produce 1x carrier by returning")
+                .with("unit", "carrier")
+                .with("count", 1i64)
+                .with("exchange", true);
+        let plain = |exchange| MovementStep::Produce {
+            unit: "carrier".into(),
+            count: 1,
+            exchange,
+        };
+        let offered = [build.clone(), exchange.clone()];
+        let hits = |step: &MovementStep| {
+            offered
+                .iter()
+                .filter(|o| step.matches_option(o))
+                .map(|o| o.id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(hits(&plain(false)), vec!["build|carrier|1".to_owned()]);
+        assert_eq!(hits(&plain(true)), vec!["exchange|carrier".to_owned()]);
+        let parsed = serde_json::from_str::<MovementPlan>(
+            r#"{"kind":"production","destination":"27","steps":[{"kind":"produce","unit":"carrier","count":1,"exchange":true},{"kind":"produce","unit":"carrier","count":1}]}"#,
+        )
+        .unwrap();
+        assert!(plan_problem(&parsed).is_none());
+        assert!(matches!(parsed.steps[0], MovementStep::Produce { exchange: true, .. }));
+        assert!(matches!(parsed.steps[1], MovementStep::Produce { exchange: false, .. }));
     }
 }

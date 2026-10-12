@@ -36,9 +36,9 @@ async function startMovement(page: Page, request: APIRequestContext) {
   expect(forward).toBeDefined();
 
   await openPlayerGame(page, gameId, session);
-  await page.getByTestId("turn-bar-tactical").click();
-  await expect(page.getByTestId("system-activation-bar")).toBeVisible();
-  await page.getByTestId(`system-hex-${border!.system_id}`).dispatchEvent("click");
+  await page.locator('[data-testid="choice-option"][data-option-id="tactical"]').click();
+  await page.getByTestId("submit-choice-button").click();
+  await page.getByTestId(`system-hex-${border!.system_id}`).click();
   await page.getByTestId("confirm-activation-btn").click();
   const tray = page.getByTestId("tactical-movement-tray");
   await expect(tray).toBeVisible();
@@ -210,7 +210,10 @@ test.describe("Tactical fleet rally", () => {
     expect(p1Action.pending_choice?.choice.player).toBe(p1.id);
 
     // Select tactical action
-    await pageP1.getByTestId("turn-bar-tactical").click();
+    await expect(pageP1.getByTestId("pending-choice-dialog")).toBeVisible();
+    await pageP1.locator('[data-testid="choice-option"][data-option-id="tactical"]').click();
+    await expect(pageP1.getByTestId("submit-choice-button")).toBeEnabled();
+    await pageP1.getByTestId("submit-choice-button").click();
 
     // Select an adjacent system at distance 1 from home system 01 to activate
     await expect

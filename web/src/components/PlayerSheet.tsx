@@ -1,5 +1,7 @@
 import React, { useState } from "react";
+import { PlanetValue } from "./PlanetValueIcons.tsx";
 import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
+import { BluffSelector, useBluffControls } from "./BluffSelector.tsx";
 import {
   getStrategyCardMeta,
   getSecretObjectiveMeta,
@@ -8,11 +10,17 @@ import {
   SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
+import { FactionInfoButton } from "./UnitInfo.tsx";
+import { SecondaryPrepModeToggle } from "./SecondaryPrepModeToggle.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { Tooltip } from "../primitives/index.ts";
 import { useTurnSound } from "../hooks/useTurnSound.ts";
 import { useToastMute } from "../hooks/useToastMute.ts";
+import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
+import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
+import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
+import { secretProgressOf } from "../presentation/secretProgress.ts";
 
 
 export interface VPBreakdown {
@@ -102,32 +110,6 @@ export const VPBreakdownTooltip: React.FC<{ breakdown: VPBreakdown }> = ({ break
   </div>
 );
 
-const ResourceIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
-  <svg
-    viewBox="0 0 16 16"
-    width="13"
-    height="13"
-    fill="currentColor"
-    aria-hidden="true"
-    style={{ display: "inline-block", verticalAlign: "-2px", color: "#fbbf24", ...style }}
-  >
-    <path d="M8 1 L14 7 L8 15 L2 7 Z" />
-  </svg>
-);
-
-const InfluenceIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
-  <svg
-    viewBox="0 0 16 16"
-    width="13"
-    height="13"
-    fill="currentColor"
-    aria-hidden="true"
-    style={{ display: "inline-block", verticalAlign: "-2px", color: "#38bdf8", ...style }}
-  >
-    <path d="M2 13h12v1.5H2zm1.5-2l2-6 2.5 3 2.5-3 2 6H3.5z" />
-  </svg>
-);
-
 const SystemIcon: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
   <svg
     viewBox="0 0 16 16"
@@ -196,9 +178,12 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
+  const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
   const { muted: toastsMuted, toggleMute: toggleToastMute } = useToastMute();
+  const { enabled: recapOn, toggle: toggleRecap } = useTurnRecapSetting();
+  const { enabled: autoSubmit, toggle: toggleAutoSubmit } = useAutoSubmitSetting();
 
   // Sort players: current player first, then by turn order
   const sortedPlayers = React.useMemo(() => {
@@ -254,7 +239,8 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
       >
         <h2 style={{ fontSize: 16, fontWeight: "bold", margin: 0, color: "#94a3b8" }}>Players</h2>
 
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+        {userSeat && <SecondaryPrepModeToggle />}
         {/* Sound Settings Toggle */}
         <button
           type="button"
@@ -309,6 +295,54 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
         >
           {toastsMuted ? "🔕 Toasts off" : "🔔 Toasts"}
         </button>
+        <button
+          type="button"
+          data-testid="turn-recap-btn"
+          aria-pressed={recapOn}
+          title={
+            recapOn
+              ? "Stop the recap after other players' turns"
+              : "Show a short recap after each other player's turn"
+          }
+          onClick={toggleRecap}
+          style={{
+            background: recapOn ? "rgba(34, 197, 94, 0.14)" : "transparent",
+            border: `1px solid ${recapOn ? "#22c55e" : "#94a3b8"}`,
+            color: recapOn ? "#22c55e" : "#94a3b8",
+            borderRadius: 4,
+            padding: "4px 8px",
+            cursor: "pointer",
+            fontSize: 12,
+            fontWeight: "500",
+          }}
+        >
+          {recapOn ? "📝 Recap on" : "📝 Recap"}
+        </button>
+        {userSeat && (
+          <button
+            type="button"
+            data-testid="auto-submit-btn"
+            aria-pressed={autoSubmit}
+            title={
+              autoSubmit
+                ? "Your only move (a lone strategic action, a lone system to activate) is taken for you. Click to be asked every time."
+                : "You are asked even when there is only one move. Click to take lone moves automatically."
+            }
+            onClick={toggleAutoSubmit}
+            style={{
+              background: autoSubmit ? "transparent" : "rgba(148, 163, 184, 0.1)",
+              border: "1px solid #94a3b8",
+              color: "#94a3b8",
+              borderRadius: 4,
+              padding: "4px 8px",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: "500",
+            }}
+          >
+            {autoSubmit ? "⚡ Auto" : "⚡ Auto off"}
+          </button>
+        )}
         </div>
       </div>
 
@@ -336,9 +370,18 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               <div>
                 <strong style={{ fontSize: 15, color: "#f8fafc" }}>
                   {identity.position && <SeatBadge position={identity.position} />} {identity.label}{" "}
-                  {isSelf && "(You)"}
+                  {isSelf && identity.label.trim().toLowerCase() !== "you" && "(You)"}
                 </strong>
-                <div style={{ fontSize: 12, color: "#94a3b8" }}>{player.faction}</div>
+                <div
+                  style={{ fontSize: 12, color: "#94a3b8", display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  {player.faction}
+                  <FactionInfoButton
+                    faction={player.faction}
+                    technologies={player.technologies}
+                    leaders={player.leaders}
+                  />
+                </div>
               </div>
               <Tooltip
                 content={<VPBreakdownTooltip breakdown={calculateVPBreakdown(player, board, table)} />}
@@ -373,14 +416,43 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               }}
             >
               <div>
-                TG: <strong>{player.trade_goods}</strong> | Comm:{" "}
-                <strong>{player.commodities}</strong>
+                <Tooltip content="Trade goods" as="span" position="bottom">
+                  <span
+                    data-testid="player-trade-goods"
+                    aria-label={`Trade goods: ${player.trade_goods}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    TG: <strong>{player.trade_goods}</strong>
+                  </span>
+                </Tooltip>{" "}
+                |{" "}
+                <Tooltip content="Commodities" as="span" position="bottom">
+                  <span
+                    data-testid="player-commodities"
+                    aria-label={`Commodities: ${player.commodities}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    Comm: <strong>{player.commodities}</strong>
+                  </span>
+                </Tooltip>
               </div>
               <div>
-                Tokens:{" "}
-                <strong>
-                  {player.tactic_tokens}/{player.fleet_tokens}/{player.strategic_tokens}
-                </strong>
+                <Tooltip
+                  content={`Tactic ${player.tactic_tokens} · Fleet ${player.fleet_tokens} · Strategy ${player.strategic_tokens}`}
+                  as="span"
+                  position="bottom"
+                >
+                  <strong
+                    data-testid="player-command-tokens"
+                    aria-label={`Command tokens: tactic ${player.tactic_tokens}, fleet ${player.fleet_tokens}, strategy ${player.strategic_tokens}`}
+                    tabIndex={0}
+                    style={{ cursor: "help" }}
+                  >
+                    {player.tactic_tokens} ◆ {player.fleet_tokens} ◆ {player.strategic_tokens}
+                  </strong>
+                </Tooltip>
               </div>
             </div>
 
@@ -415,14 +487,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <ResourceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingResources > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingResources}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalResources}</span>
-                  </span>
+                  <PlanetValue
+                    kind="resources"
+                    value={stats.remainingResources}
+                    total={stats.totalResources}
+                    alwaysTotal
+                    state={stats.remainingResources > 0 ? "ready" : "muted"}
+                    label={`Resources: ${stats.remainingResources} ready / ${stats.totalResources} total`}
+                  />
                 </div>
               </Tooltip>
 
@@ -441,14 +513,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                     cursor: "default",
                   }}
                 >
-                  <InfluenceIcon />
-                  <span style={{ fontWeight: 600 }}>
-                    <span style={{ color: stats.remainingInfluence > 0 ? "#f8fafc" : "#94a3b8" }}>
-                      {stats.remainingInfluence}
-                    </span>
-                    <span style={{ color: "#64748b" }}>/</span>
-                    <span style={{ color: "#94a3b8" }}>{stats.totalInfluence}</span>
-                  </span>
+                  <PlanetValue
+                    kind="influence"
+                    value={stats.remainingInfluence}
+                    total={stats.totalInfluence}
+                    alwaysTotal
+                    state={stats.remainingInfluence > 0 ? "ready" : "muted"}
+                    label={`Influence: ${stats.remainingInfluence} ready / ${stats.totalInfluence} total`}
+                  />
                 </div>
               </Tooltip>
 
@@ -603,6 +675,14 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 <div style={{ fontSize: 12, fontWeight: "bold", color: "#38bdf8" }}>
                   Private Hand
                 </div>
+
+                {bluff && (
+                  <BluffSelector
+                    controls={bluff}
+                    cardsCount={player.action_cards_count}
+                    neverMode={Object.values(reactionModes ?? {}).some((mode) => mode === "never")}
+                  />
+                )}
 
                 {/* Held Action Cards */}
                 {player.held_action_cards && player.held_action_cards.length > 0 ? (
@@ -813,6 +893,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                                 >
                                   {meta.description}
                                 </div>
+                                <SecretObjectiveProgress
+                                  alias={objId}
+                                  progress={secretProgressOf(player, objId)}
+                                  board={board}
+                                />
                               </div>
                             </button>
                           </li>

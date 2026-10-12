@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use ti4_content::ContentStore;
+use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlayerId, TechnologyId};
 use ti4_model::state::GameState;
 
@@ -48,8 +49,12 @@ pub const TEXT_NOT_LENDABLE: &[&str] = &["executiveorder"];
 pub const LENDABLE_FLAGSHIPS: &[&str] = &[
     "arborec_flagship",
     "argent_flagship",
+    "bastion_flagship",
     "cabal_flagship",
+    "crimson_flagship",
+    "deepwrought_flagship",
     "empyrean_flagship",
+    "firmament_flagship",
     "ghost_flagship",
     "hacan_flagship",
     "jolnar_flagship",
@@ -62,6 +67,7 @@ pub const LENDABLE_FLAGSHIPS: &[&str] = &[
     "naalu_flagship",
     "naaz_flagship",
     "nomad_flagship",
+    "ralnel_flagship",
     "sardakk_flagship",
     "sol_flagship",
     "titans_flagship",
@@ -336,6 +342,7 @@ fn propagation(owner_name: &str, seat: &PlayerId) -> Ability {
 fn assimilation_options(
     state: &GameState,
     content: &ContentStore,
+    sources: SourceSet,
     nekro: &PlayerId,
     source: &PlayerId,
 ) -> Vec<ChoiceOption> {
@@ -345,7 +352,11 @@ fn assimilation_options(
     if nekro == source {
         return Vec::new();
     }
-    let active = crate::technology::active_aliases(content);
+    let active = crate::technology::active_aliases(content, sources);
+    // Last Bastion's Nip and Tuck: "The Nekro Virus cannot place assimilator tokens on your
+    // components." Gaining a technology outright is not placing a token, so `gain` stays.
+    let tokens_forbidden =
+        crate::promissory::has_commander_ability(state, source, "bastioncommander");
     let targeted = |tech: &TechnologyId| {
         TOKENS
             .iter()
@@ -368,6 +379,7 @@ fn assimilation_options(
         // A unit upgrade's text is the stat block of a unit the Valefar card is not, so a token
         // on one would lend nothing: it is not offered (evidence: rules question 2).
         if faction.is_some()
+            && !tokens_forbidden
             && !crate::technology::is_unit_upgrade(content, tech)
             && !targeted(tech)
             && !TEXT_NOT_LENDABLE.contains(&tech.as_str())
@@ -385,6 +397,7 @@ fn assimilation_options(
     }
     let placed = z_assimilated_factions(state, nekro);
     if crate::breakthroughs::holds(state, nekro, Z_BREAKTHROUGH)
+        && !tokens_forbidden
         && placed.len() < Z_TOKEN_COUNT
         && !placed
             .iter()
@@ -404,10 +417,11 @@ fn assimilation_options(
 fn can_take_from(
     state: &GameState,
     content: &ContentStore,
+    sources: SourceSet,
     nekro: &PlayerId,
     source: &PlayerId,
 ) -> bool {
-    !assimilation_options(state, content, nekro, source).is_empty()
+    !assimilation_options(state, content, sources, nekro, source).is_empty()
 }
 
 /// Ask which gain the Nekro makes and apply it. `sources` are the players the ability allows;
@@ -423,6 +437,7 @@ fn take_from(
         options.extend(assimilation_options(
             context.state,
             context.content,
+            context.sources,
             nekro,
             source,
         ));
@@ -575,7 +590,13 @@ fn singularity_ready(
     }
     let opponent = PlayerId::new(opponent);
     (!antivirus_bars(context.state, nekro, &opponent)
-        && can_take_from(context.state, context.content, nekro, &opponent))
+        && can_take_from(
+            context.state,
+            context.content,
+            context.sources,
+            nekro,
+            &opponent,
+        ))
     .then_some((key, opponent))
 }
 
@@ -672,7 +693,15 @@ fn threat_sources(context: &TimingContext<'_>, nekro: &PlayerId, outcome: &str) 
         .iter()
         .filter(|(voter, voted)| *voter != nekro && voted.as_str() == outcome)
         .map(|(voter, _)| voter.clone())
-        .filter(|voter| can_take_from(context.state, context.content, nekro, voter))
+        .filter(|voter| {
+            can_take_from(
+                context.state,
+                context.content,
+                context.sources,
+                nekro,
+                voter,
+            )
+        })
         .collect()
 }
 
@@ -1236,7 +1265,7 @@ mod tests {
 
         // The other token may not go on the same technology, and a lost technology ends the text.
         assert!(
-            !assimilation_options(&state, content, &a(), &b())
+            !assimilation_options(&state, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id == "y|b|mi")
         );
@@ -1256,7 +1285,7 @@ mod tests {
         give(&mut state, &b(), "l4");
         give(&mut state, &b(), "executiveorder");
         assert!(!crate::combat::non_euclidean_shielding(&state, &a()));
-        let ids: Vec<String> = assimilation_options(&state, content, &a(), &b())
+        let ids: Vec<String> = assimilation_options(&state, content, DEFAULT, &a(), &b())
             .into_iter()
             .map(|option| option.id)
             .collect();
@@ -1282,12 +1311,88 @@ mod tests {
     }
 
     #[test]
+    fn a_nekro_is_offered_a_thunders_edge_faction_tech_through_the_singularity() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "bastion")], DEFAULT);
+        give(&mut state, &a(), "vax");
+        give(&mut state, &b(), "proxima");
+        let options = |sources| -> Vec<String> {
+            assimilation_options(&state, content, sources, &a(), &b())
+                .into_iter()
+                .map(|option| option.id)
+                .collect()
+        };
+        let full = options(DEFAULT);
+        assert!(full.contains(&"x|b|proxima".to_owned()), "{full:?}");
+        assert!(
+            !options(ti4_model::content_types::POK)
+                .iter()
+                .any(|id| id.ends_with("|proxima"))
+        );
+        // The real route: a destroyed Bastion ship opens the Singularity and the token goes on Proxima.
+        let system = home(&state, &a());
+        start_combat(&mut state, &system);
+        destroyed(
+            &mut state,
+            &mut scripted(&[SINGULARITY, "x|b|proxima"]),
+            &system,
+            "b",
+        );
+        assert!(crate::technology::has_technology_text(
+            &state,
+            &a(),
+            "proxima"
+        ));
+        assert!(!owned(&state, &a(), "proxima"), "assimilated, not owned");
+    }
+
+    #[test]
+    fn nip_and_tuck_bars_every_assimilator_token_on_its_owners_components() {
+        let content = ti4_content::ContentStore::embedded();
+        let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "bastion")], DEFAULT);
+        with_z_breakthrough(&mut state);
+        give(&mut state, &a(), "vax");
+        give(&mut state, &a(), "vay");
+        give(&mut state, &b(), "mi");
+        give(&mut state, &b(), "proxima");
+        give(&mut state, &b(), "aida");
+        state
+            .player_mut(&a())
+            .unwrap()
+            .technologies
+            .remove(&TechnologyId::new("aida"));
+        let ids = |state: &GameState| -> Vec<String> {
+            assimilation_options(state, content, DEFAULT, &a(), &b())
+                .into_iter()
+                .map(|option| option.id)
+                .collect()
+        };
+        let open = ids(&state);
+        for wanted in ["gain|b|aida", "x|b|mi", "y|b|mi", "z|b|bastion"] {
+            assert!(open.contains(&wanted.to_owned()), "{wanted} in {open:?}");
+        }
+        // Nip and Tuck, unlocked: gaining a technology stays, every token option goes.
+        state.player_mut(&b()).unwrap().leaders.insert(
+            ti4_model::id::LeaderId::new("bastioncommander"),
+            ti4_model::state::LeaderStatus::Unlocked,
+        );
+        let shut = ids(&state);
+        assert!(shut.contains(&"gain|b|aida".to_owned()), "{shut:?}");
+        assert!(
+            !shut
+                .iter()
+                .any(|id| id.starts_with("x|") || id.starts_with("y|") || id.starts_with("z|")),
+            "{shut:?}"
+        );
+    }
+
+    #[test]
     fn a_unit_upgrade_is_gained_but_never_assimilated() {
         let content = ti4_content::ContentStore::embedded();
         let mut state = crate::fixtures::seated_game(&[("a", FACTION), ("b", "sol")], DEFAULT);
         give(&mut state, &a(), "vax");
         give(&mut state, &b(), "ac2");
-        let ids: Vec<String> = assimilation_options(&state, content, &a(), &b())
+        let ids: Vec<String> = assimilation_options(&state, content, DEFAULT, &a(), &b())
             .into_iter()
             .map(|option| option.id)
             .collect();
@@ -1309,14 +1414,14 @@ mod tests {
         let mut state = game();
         with_z_breakthrough(&mut state);
         assert!(
-            assimilation_options(&state, content, &a(), &b())
+            assimilation_options(&state, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id == "z|b|yssaril")
         );
         // Without the breakthrough no Z option is offered.
         let bare = game();
         assert!(
-            !assimilation_options(&bare, content, &a(), &b())
+            !assimilation_options(&bare, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id.starts_with("z|"))
         );
@@ -1330,13 +1435,13 @@ mod tests {
         );
         assert_eq!(z_assimilated_factions(&state, &a()), vec!["yssaril"]);
         assert!(
-            !assimilation_options(&state, content, &a(), &b())
+            !assimilation_options(&state, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id.starts_with("z|")),
             "no second Z on one faction"
         );
         assert!(
-            assimilation_options(&state, content, &a(), &b())
+            assimilation_options(&state, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id.starts_with("gain|") || option.id.starts_with("x|")),
             "the other choices remain"
@@ -1379,7 +1484,7 @@ mod tests {
         assert!(!place_z(&mut state, &a(), "hacan"), "a faction twice");
         let content = ti4_content::ContentStore::embedded();
         assert!(
-            !assimilation_options(&state, content, &a(), &b())
+            !assimilation_options(&state, content, DEFAULT, &a(), &b())
                 .iter()
                 .any(|option| option.id.starts_with("z|")),
             "no token left to offer"

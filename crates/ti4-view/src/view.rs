@@ -50,6 +50,11 @@ pub struct PlayerView {
     /// Publicly scored secret objectives.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scored_secret_objectives: Vec<SecretObjectiveId>,
+    /// Exact progress toward this seat's own held secrets with a countable requirement.
+    /// Display-only, and present only in the view of the seat that holds them: opponents and
+    /// spectators never receive it, not even for secrets a law has turned face up.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_objective_progress: BTreeMap<SecretObjectiveId, ObjectiveProgressView>,
     pub leaders: BTreeMap<LeaderId, LeaderStatus>,
 }
 
@@ -230,12 +235,31 @@ pub struct BoardView {
 }
 
 /// Exact progress towards a public objective requirement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ObjectiveProgressView {
     pub have: u32,
     pub threshold: u32,
     pub satisfied: bool,
+    /// Push Boundaries: this player's planet count against each neighbour's. Display only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub neighbours: Vec<NeighbourProgressView>,
+    /// Learn the Secrets of the Cosmos: the systems that count right now. Display only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub systems: Vec<SystemId>,
+}
+
+/// One neighbour row of a planet-count comparison (Push Boundaries).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighbourProgressView {
+    pub player: PlayerId,
+    /// Planets the progress owner controls.
+    pub mine: u32,
+    /// Planets this neighbour controls.
+    pub theirs: u32,
+    /// Strictly more planets than this neighbour, so the row counts toward the objective.
+    pub ahead: bool,
 }
 
 /// Public table state: objectives, laws, strategy card goods.
@@ -246,6 +270,10 @@ pub struct TableView {
     pub scored_objectives: BTreeMap<PlayerId, BTreeSet<ObjectiveId>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub objective_progress: BTreeMap<PlayerId, BTreeMap<ObjectiveId, ObjectiveProgressView>>,
+    /// Rule 61.16: the home planets a seat does not control, for each seat that may therefore
+    /// score no public objective. Seats that may score are absent. Planet control is public.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub home_system_lost: BTreeMap<PlayerId, Vec<PlanetId>>,
     pub unclaimed_strategy_cards: Vec<StrategyCardId>,
     pub strategy_card_goods: BTreeMap<StrategyCardId, i32>,
     pub laws: BTreeMap<String, String>,

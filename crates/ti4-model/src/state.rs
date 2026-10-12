@@ -404,9 +404,11 @@ pub struct Player {
     /// reaches them -- so they are held separately rather than borrowing `relics` for the ride.
     #[serde(default)]
     pub exploration_cards: Vec<String>,
-    /// Firmament plot cards, represented by the control token on each facedown card.
+    /// Plot cards in this player's play area, one stored string per card (`plots::Plot`: face,
+    /// which of the five cards, the control tokens on it). The earlier forms (tokens only) still read.
     pub plots: Vec<String>,
-    /// Secret aliases scored as plots. They do not count against the secret limit.
+    /// Secret aliases scored as plots (Plots Within Plots). They are not scored objectives and do not
+    /// count against the secret limit; this set only remembers which were used.
     pub plot_objectives: BTreeSet<SecretObjectiveId>,
     /// A failed Silver Flame roll permanently forbids public-objective scoring.
     pub public_objectives_forbidden: bool,
@@ -1202,6 +1204,10 @@ pub struct GameState {
     /// no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exploration_log: Vec<ExplorationRecord>,
+    /// Every agenda vote that finished, in order, and how it came out. History for viewers (the
+    /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda_log: Vec<AgendaRecord>,
     pub relic_deck: Vec<RelicId>,
     pub agenda_deck: Vec<String>,
     pub action_card_deck: Vec<ActionCardId>,
@@ -1279,6 +1285,11 @@ pub struct GameState {
     /// position -- `Game` owns it, not the state.
     #[serde(default)]
     pub rng_seed: u64,
+    /// Card identity across a redone timeline (turn redo). Only a redo replay sets it; `None`
+    /// in every normal game, where draws are plain front-of-deck removals. Not serialized and
+    /// not compared: it steers *which* card a draw takes, it is not part of the position.
+    #[serde(skip)]
+    pub deck_reserve: Option<crate::deck_reserve::DeckReserve>,
     /// Planets placed onto a tile during play, mapped to the system they were placed in.
     ///
     /// Twelve planets in the corpus have no printed `tileId` (Mirage, Custodia Vigilia, the ocean
@@ -1735,6 +1746,7 @@ impl GameState {
             exploration_decks: BTreeMap::new(),
             planet_attachments: BTreeMap::new(),
             exploration_log: Vec::new(),
+            agenda_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
             action_card_deck: Vec::new(),
@@ -1752,6 +1764,7 @@ impl GameState {
             nexus_unlocked: false,
             styx_holder: None,
             rng_seed: 0,
+            deck_reserve: None,
             placed_planets: BTreeMap::new(),
             influence_pays_for_units: BTreeSet::new(),
             breach_tokens: BTreeSet::new(),
@@ -2227,10 +2240,12 @@ impl GameState {
 
     /// Turn the top facedown public objective faceup (LRR 81.2).
     pub fn reveal_objective(&mut self) -> Option<ObjectiveId> {
-        if self.objective_deck.is_empty() {
-            return None;
-        }
-        let top = self.objective_deck.remove(0);
+        let top = crate::deck_reserve::take_top(
+            &mut self.deck_reserve,
+            "objective",
+            &mut self.objective_deck,
+            None,
+        )?;
         self.revealed_objectives.push(top.clone());
         Some(top)
     }
@@ -3001,6 +3016,45 @@ pub struct ExplorationRecord {
     pub planet: Option<PlanetId>,
     /// `fragment`, `attached:<attachment>`, `resolved`, `unresolved` (no handler) or `discarded`.
     pub outcome: String,
+    /// The system a frontier token was explored in (`None` for a planet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    /// What the card did for the player, in plain words ("gained 1 trade good"; empty when it
+    /// did nothing). Display only: no rule reads it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub result: String,
+}
+
+/// One finished agenda vote: which agenda, the outcome, and the votes each outcome received.
+/// Display only: no rule reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgendaRecord {
+    pub round: u32,
+    /// The agenda's alias.
+    pub agenda: String,
+    /// The printed name ("Minister of Peace").
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    /// The winning outcome (`for`, `against`, a player, a planet, ...); `None` when the agenda
+    /// had nothing to vote on.
+    pub outcome: Option<String>,
+    /// Votes per outcome, as cast.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub votes: BTreeMap<String, i64>,
+    /// The speaker decided it: the vote was tied, or nobody cast a vote (8.19).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub speaker_decided: bool,
+    /// The agenda is a law (8.20); `enacted` says whether it entered play.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub law: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enacted: bool,
+    /// Deadly Plot: the agenda was discarded with no effect.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub discarded: bool,
+    /// Confusing / Confounding Legal Text: who the agenda's effect went to instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redirected_to: Option<String>,
 }
 
 /// Negotiations one player may initiate during one action (operator limit, 2026-09-22).

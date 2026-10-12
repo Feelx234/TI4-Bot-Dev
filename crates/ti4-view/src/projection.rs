@@ -59,6 +59,7 @@ pub fn project_player_view(player: &Player) -> PlayerView {
             .cloned()
             .collect(),
         scored_secret_objectives: player.plot_objectives.iter().cloned().collect(),
+        secret_objective_progress: BTreeMap::new(),
         leaders: player.leaders.clone(),
     }
 }
@@ -70,6 +71,20 @@ pub fn project_combat_view(
     pending_choice: Option<&Choice>,
     dice_rolls: &[crate::view::CombatDieRoll],
 ) -> Option<crate::view::CombatView> {
+    project_combat_view_for(state, pending_choice, dice_rolls, None)
+}
+
+/// [`project_combat_view`] as `viewer` sees it. While a reaction window is open, only the asked
+/// seat learns whose window it is: everybody else gets a view as if no question were pending.
+#[must_use]
+pub fn project_combat_view_for(
+    state: &GameState,
+    pending_choice: Option<&Choice>,
+    dice_rolls: &[crate::view::CombatDieRoll],
+    viewer: Option<&ViewerRole>,
+) -> Option<crate::view::CombatView> {
+    let pending_choice = pending_choice
+        .filter(|choice| !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player)));
     let choice_ctx = pending_choice.and_then(|c| c.context.as_ref());
     let (sys_id, attacker, defender) = state.active_space_combat.clone()?;
     state.board.get(&sys_id)?;
@@ -424,7 +439,7 @@ pub fn project_board_view_full(
         systems,
         active_system: state.active_system.clone(),
         map_tiles: map_tiles.to_vec(),
-        combat: project_combat_view(state, pending_choice, dice_rolls),
+        combat: project_combat_view_for(state, pending_choice, dice_rolls, viewer),
         invasion,
     }
 }
@@ -444,32 +459,123 @@ fn canonical_objective_alias<'a>(content: &'a ContentStore, raw: &'a str) -> Opt
     None
 }
 
+/// The placed galaxy the static map tiles describe, for map-shaped objective counts.
+///
+/// Only tiles on the hex grid count: the Fracture (`special_area: "fracture"`) is drawn beside
+/// the map at made-up coordinates and is outside the PoK catalogue, and an off-map Wormhole Nexus
+/// is parked at the origin, on top of Mecatol Rex. Feeding either to [`Galaxy::placed`] used to
+/// fail the whole build (or overwrite Mecatol), which silently dropped every map-shaped
+/// objective's progress — Push Boundaries, Intimidate Council, Learn the Secrets and the rest.
+#[must_use]
+pub fn placed_galaxy(map_tiles: &[BoardTileView]) -> Option<Galaxy> {
+    let mut taken = std::collections::BTreeSet::new();
+    let tiles: Vec<_> = map_tiles
+        .iter()
+        .filter(|tile| tile.special_area.as_deref() != Some("fracture"))
+        .filter(|tile| {
+            // On-map tiles first, so a parked nexus never displaces the tile it overlaps.
+            tile.special_area.is_none()
+                || !map_tiles.iter().any(|other| {
+                    other.special_area.is_none() && (other.q, other.r) == (tile.q, tile.r)
+                })
+        })
+        .filter(|tile| taken.insert((tile.q, tile.r)))
+        .map(|tile| {
+            (
+                tile.system_id.as_str(),
+                ti4_model::hex::Hex::new(tile.q, tile.r),
+            )
+        })
+        .collect();
+    if tiles.is_empty() {
+        return None;
+    }
+    Galaxy::placed(ContentStore::embedded(), &tiles, POK).ok()
+}
+
+/// Exact progress toward `seat`'s own held secrets, by the engine helper that backs their
+/// requirements. Event-conditioned secrets and redacted placeholders get no entry.
+///
+/// Privacy: callers pass only the viewing seat, and `state` is already that seat's redacted
+/// view, so nothing here reads another seat's hidden hand.
+#[must_use]
+pub fn project_secret_progress(
+    state: &GameState,
+    seat: &PlayerId,
+    map_tiles: &[BoardTileView],
+) -> BTreeMap<ti4_model::id::SecretObjectiveId, ObjectiveProgressView> {
+    let Some(player) = state.player(seat) else {
+        return BTreeMap::new();
+    };
+    let galaxy = placed_galaxy(map_tiles);
+    let position = ti4_engine::secrets::Position {
+        state,
+        content: ContentStore::embedded(),
+        sources: POK,
+        player: seat,
+        galaxy: galaxy.as_ref(),
+        imagined: ti4_engine::objectives::Imagined::NONE,
+    };
+    player
+        .secret_objectives
+        .iter()
+        .filter(|alias| alias.as_str() != HIDDEN)
+        .filter_map(|alias| {
+            let prog = ti4_engine::secrets::progress(alias, &position)?;
+            // Which systems count, so the holder can see where their 2 of 3 are.
+            let systems = if alias.as_str() == "lsc" {
+                ti4_engine::secrets::ship_systems_beside_anomaly(&position).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            Some((
+                alias.clone(),
+                ObjectiveProgressView {
+                    have: u32::try_from(prog.have).unwrap_or(0),
+                    threshold: u32::try_from(prog.threshold).unwrap_or(0),
+                    satisfied: prog.satisfied(),
+                    systems,
+                    ..ObjectiveProgressView::default()
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Push Boundaries' per-neighbour planet comparison for `position.player`, in seating order.
+fn neighbour_progress_views(
+    position: &ti4_engine::objectives::Position<'_>,
+) -> Vec<crate::view::NeighbourProgressView> {
+    ti4_engine::objectives::neighbour_planet_counts(position)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| crate::view::NeighbourProgressView {
+            ahead: row.ahead(),
+            mine: u32::try_from(row.mine).unwrap_or(0),
+            theirs: u32::try_from(row.theirs).unwrap_or(0),
+            player: row.neighbour,
+        })
+        .collect()
+}
+
 /// Projects table-level public objectives, laws, strategy cards, and objective progress.
 #[must_use]
 pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView]) -> TableView {
     let content = ContentStore::embedded();
     let sources = POK;
-    let galaxy_opt = if !map_tiles.is_empty() {
-        let tiles: Vec<_> = map_tiles
-            .iter()
-            .map(|tile| {
-                (
-                    tile.system_id.as_str(),
-                    ti4_model::hex::Hex::new(tile.q, tile.r),
-                )
-            })
-            .collect();
-        Galaxy::placed(content, &tiles, sources).ok()
-    } else {
-        None
-    };
+    let galaxy_opt = placed_galaxy(map_tiles);
 
     let mut objective_progress = BTreeMap::new();
+    let mut home_system_lost = BTreeMap::new();
     for player in &state.players {
         let mut position =
             ti4_engine::objectives::Position::new(state, content, sources, &player.id);
         if let Some(ref galaxy) = galaxy_opt {
             position = position.with_galaxy(galaxy);
+        }
+        let lost = ti4_engine::objectives::home_planets_not_controlled(&position);
+        if !lost.is_empty() {
+            home_system_lost.insert(player.id.clone(), lost);
         }
         let mut player_progress = BTreeMap::new();
         for raw_alias in &state.revealed_objectives {
@@ -482,12 +588,21 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                     ti4_engine::objectives::remaining_position_progress(&canonical, &position)
                 })
             {
+                // Push Boundaries: each neighbour's planet count beside ours. Planet control is
+                // public, so every viewer may see every seat's comparison.
+                let neighbours = if canonical.as_str() == "push_boundaries" {
+                    neighbour_progress_views(&position)
+                } else {
+                    Vec::new()
+                };
                 player_progress.insert(
                     raw_alias.clone(),
                     ObjectiveProgressView {
                         have: u32::try_from(prog.have).unwrap_or(0),
                         threshold: u32::try_from(prog.threshold).unwrap_or(0),
                         satisfied: prog.satisfied(),
+                        neighbours,
+                        ..ObjectiveProgressView::default()
                     },
                 );
             } else if let Some(cost) =
@@ -499,6 +614,7 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
                         have: u32::try_from(cost.have.max(0)).unwrap_or(0),
                         threshold: u32::try_from(cost.target.max(0)).unwrap_or(0),
                         satisfied: cost.satisfied(),
+                        ..ObjectiveProgressView::default()
                     },
                 );
             }
@@ -512,6 +628,7 @@ pub fn project_table_view_with_map(state: &GameState, map_tiles: &[BoardTileView
         revealed_objectives: state.revealed_objectives.clone(),
         scored_objectives: state.scored_objectives.clone(),
         objective_progress,
+        home_system_lost,
         unclaimed_strategy_cards: state.unclaimed_strategy_cards.clone(),
         strategy_card_goods: state.strategy_card_goods.clone(),
         laws: state.laws.clone(),
@@ -544,7 +661,21 @@ pub fn project_game_view_full(
     dice_rolls: &[crate::view::CombatDieRoll],
 ) -> GameView {
     let redacted = redacted_state(state, viewer);
-    let players = redacted.players.iter().map(project_player_view).collect();
+    let players = redacted
+        .players
+        .iter()
+        .map(|player| {
+            let mut view = project_player_view(player);
+            // Only the viewing seat's own hand: a law-revealed rival secret stays bare.
+            if let ViewerRole::Player(seat) = viewer
+                && *seat == player.id
+            {
+                view.secret_objective_progress =
+                    project_secret_progress(&redacted, seat, map_tiles);
+            }
+            view
+        })
+        .collect();
 
     GameView {
         round: redacted.round,
@@ -586,7 +717,62 @@ pub fn project_game_view(state: &GameState, viewer: &ViewerRole) -> GameView {
     project_game_view_with_map(state, viewer, &[])
 }
 
-/// Projects public turn status without disclosing another player's private reactions or legal choices.
+/// Whether `choice` is a reaction window: a seat is asked whether to play an action card (or a
+/// reaction ability) in response to an event. Who is asked tells everybody who holds a card.
+#[must_use]
+pub fn is_reaction_window(choice: &Choice) -> bool {
+    choice.context.as_ref().is_some_and(|context| {
+        matches!(
+            context.source,
+            ti4_engine::decision_context::DecisionSource::Reaction(_)
+        ) || context.subtype.starts_with("reaction_")
+            || context.subtype.starts_with("play_reaction_")
+            || matches!(
+                context.subtype.as_str(),
+                "instinct_training_cancel" | "l1z1x_agent_swap"
+            )
+    })
+}
+
+/// The status everybody but the asked seat sees during a reaction window, and the status a bluff
+/// hold puts up. It names no seat and carries no stage, so real windows and holds are identical.
+#[must_use]
+pub fn waiting_for_reactions_status(state: &GameState) -> PublicTurnStatus {
+    PublicTurnStatus::WaitingForReactions {
+        phase: state.phase,
+        round: state.round,
+    }
+}
+
+/// The status everybody else sees while `seat` is being waited for (not for a reaction window).
+#[must_use]
+pub fn waiting_for_player_status(state: &GameState, seat: &PlayerId) -> PublicTurnStatus {
+    PublicTurnStatus::WaitingForDecision {
+        seat: seat.clone(),
+        phase: state.phase,
+        round: state.round,
+        // The existence of a choice is public; its context can reveal a private reaction.
+        stage: "Waiting for player".to_owned(),
+    }
+}
+
+/// The turn status `viewer` is shown: the asked seat sees it named even in a reaction window.
+#[must_use]
+pub fn project_turn_status_for(
+    state: &GameState,
+    pending_choice: Option<&Choice>,
+    viewer: &ViewerRole,
+) -> PublicTurnStatus {
+    match pending_choice {
+        Some(choice) if !state.finished && viewer.is_actor(&choice.player) => {
+            waiting_for_player_status(state, &choice.player)
+        }
+        _ => project_turn_status(state, pending_choice),
+    }
+}
+
+/// Projects public turn status without disclosing another player's private reactions or legal
+/// choices. This is the view of everybody but the asked seat.
 #[must_use]
 pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -> PublicTurnStatus {
     if state.finished {
@@ -595,13 +781,10 @@ pub fn project_turn_status(state: &GameState, pending_choice: Option<&Choice>) -
     }
 
     if let Some(choice) = pending_choice {
-        return PublicTurnStatus::WaitingForDecision {
-            seat: choice.player.clone(),
-            phase: state.phase,
-            round: state.round,
-            // The existence of a choice is public; its context can reveal a private reaction.
-            stage: "Waiting for player".to_owned(),
-        };
+        if is_reaction_window(choice) {
+            return waiting_for_reactions_status(state);
+        }
+        return waiting_for_player_status(state, &choice.player);
     }
 
     if let Some(active) = &state.active {
@@ -712,7 +895,7 @@ pub fn project_session_update(
         viewer: viewer.clone(),
         view: project_game_view_full(state, viewer, map_tiles, choice, &[]),
         pending_choice: project_pending_choice(viewer, pending_choice),
-        turn_status: project_turn_status(state, choice),
+        turn_status: project_turn_status_for(state, choice, viewer),
         tactical: None,
         exploration: None,
         action_cards: None,
@@ -757,7 +940,7 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ti4_model::id::{FactionId, ObjectiveId, PlayerId};
+    use ti4_model::id::{FactionId, ObjectiveId, PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
 
     fn reaction_offer() -> (Choice, String) {
@@ -848,6 +1031,55 @@ mod tests {
     }
 
     #[test]
+    fn a_reaction_window_names_no_seat_to_anyone_but_the_asked_seat() {
+        let (reaction, _) = reaction_offer();
+        let ids = [PlayerId::new("player_1"), PlayerId::new("player_2")];
+        let state = GameState::new(&ids, &[], BTreeMap::new(), None, 1);
+        let asked = ViewerRole::Player(PlayerId::new("player_2"));
+        assert!(is_reaction_window(&reaction));
+        let generic = waiting_for_reactions_status(&state);
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
+            assert_eq!(project_turn_status_for(&state, Some(&reaction), &viewer), generic);
+        }
+        assert_eq!(project_turn_status(&state, Some(&reaction)), generic);
+        assert_eq!(
+            project_turn_status_for(&state, Some(&reaction), &asked),
+            waiting_for_player_status(&state, &PlayerId::new("player_2"))
+        );
+        let json = serde_json::to_string(&generic).unwrap();
+        assert!(!json.contains("player_2") && !json.contains("stage"));
+
+        // Any other question keeps naming its seat, for every viewer.
+        let ordinary = Choice::new(PlayerId::new("player_2"), "action phase", vec![]);
+        assert!(!is_reaction_window(&ordinary));
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator, asked] {
+            assert_eq!(
+                project_turn_status_for(&state, Some(&ordinary), &viewer),
+                waiting_for_player_status(&state, &PlayerId::new("player_2"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_reaction_window_hides_its_seat_from_the_combat_view_too() {
+        let (reaction, _) = reaction_offer();
+        let ids = [PlayerId::new("player_1"), PlayerId::new("player_2")];
+        let mut state = GameState::new(&ids, &[], BTreeMap::new(), None, 1);
+        let system = ti4_model::id::SystemId::new("18");
+        state.board.insert(system.clone(), Default::default());
+        state.active_space_combat =
+            Some((system, PlayerId::new("player_1"), PlayerId::new("player_2")));
+        let asked = ViewerRole::Player(PlayerId::new("player_2"));
+        let mine = project_combat_view_for(&state, Some(&reaction), &[], Some(&asked)).unwrap();
+        assert_eq!(mine.active_player, Some(PlayerId::new("player_2")));
+        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
+            let seen = project_combat_view_for(&state, Some(&reaction), &[], Some(&viewer)).unwrap();
+            assert_eq!(seen.active_player, None);
+            assert_eq!(seen.stage, None);
+        }
+    }
+
+    #[test]
     fn a_tied_game_goes_to_the_first_seat_in_initiative_order() {
         let ids: Vec<PlayerId> = ["player_1", "player_2", "player_3"]
             .iter()
@@ -909,5 +1141,40 @@ mod tests {
         assert_eq!(lead.have, 3);
         assert_eq!(lead.threshold, 3);
         assert!(lead.satisfied);
+    }
+
+    /// Game 8261fb3f: Letnev held Archon Ren when the Xxcha played Imperial. The table says so,
+    /// for every viewer, so the client can explain why nothing was scored (61.16).
+    #[test]
+    fn project_table_view_names_the_lost_home_planets() {
+        let xxcha = PlayerId::new("player_1");
+        let letnev = PlayerId::new("player_2");
+        let mut state = GameState::new(
+            &[xxcha.clone(), letnev.clone()],
+            &[],
+            BTreeMap::new(),
+            None,
+            1,
+        );
+        let mut first = Player::new(xxcha.clone());
+        first.faction = FactionId::new("xxcha");
+        let mut second = Player::new(letnev.clone());
+        second.faction = FactionId::new("letnev");
+        state.players = vec![first, second];
+        let home = state.system_mut(&SystemId::new("14"));
+        home.set_control(PlanetId::new("archontau"), xxcha.clone());
+        home.set_control(PlanetId::new("archonren"), letnev.clone());
+
+        let table = project_table_view(&state);
+        assert_eq!(
+            table.home_system_lost.get(&xxcha),
+            Some(&vec![PlanetId::new("archonren")])
+        );
+        // Letnev's own home planets are not on this board at all, so it is listed too.
+        assert!(table.home_system_lost.contains_key(&letnev));
+
+        let home = state.system_mut(&SystemId::new("14"));
+        home.set_control(PlanetId::new("archonren"), xxcha.clone());
+        assert!(!project_table_view(&state).home_system_lost.contains_key(&xxcha));
     }
 }

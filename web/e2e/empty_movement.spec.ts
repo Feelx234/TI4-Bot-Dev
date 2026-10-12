@@ -32,11 +32,6 @@ async function choiceAt(
 }
 
 async function choose(page: Page, optionId: string) {
-  // The turn menu is a bar whose buttons submit at once.
-  if (optionId === "tactical") {
-    await page.getByTestId("turn-bar-tactical").click();
-    return;
-  }
   await page.locator(`[data-testid="choice-option"][data-option-id="${optionId}"]`).click();
   await page.getByTestId("submit-choice-button").click();
 }
@@ -117,8 +112,6 @@ test("a real engine advances after an empty tactical movement", async ({ browser
     );
   });
   expect(distant, "seed 42 must offer a distant activation").toBeDefined();
-  // The snapshot can be ahead of the page: wait until the map is asking for a system.
-  await expect(page.getByTestId("system-activation-bar")).toBeVisible();
   await page.getByTestId(`system-hex-${distant!.id}`).click();
   await page.getByTestId("confirm-activation-btn").click();
 

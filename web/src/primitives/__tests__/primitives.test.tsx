@@ -1,47 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { Dialog, Drawer, Tooltip, Popover, SvgButton, overlayStack } from "../index.ts";
-import { WorkspaceContext } from "../../components/WorkspaceContext.tsx";
 
 describe("Accessible Primitives Suite", () => {
-  it.each(["dialog", "drawer"])(
-    "retains an inactive workspace's %s without keeping its focus trap or Escape handler",
-    (kind) => {
-      const dismiss = vi.fn();
-      const view = (active: boolean) => (
-        <>
-          <button type="button">Foreground</button>
-          <WorkspaceContext.Provider
-            value={{ active, actionable: true, draft: true, refreshKey: "", chrome: null }}
-          >
-            <div hidden={!active}>
-              {kind === "dialog" ? (
-                <Dialog.Root open onOpenChange={dismiss}>
-                  <Dialog.Content keepMounted>
-                    <Dialog.Title>Draft</Dialog.Title>
-                    <input aria-label="Draft intent" />
-                  </Dialog.Content>
-                </Dialog.Root>
-              ) : (
-                <Drawer open onClose={dismiss} title="Draft">
-                  <input aria-label="Draft intent" />
-                </Drawer>
-              )}
-            </div>
-          </WorkspaceContext.Provider>
-        </>
-      );
-      const { rerender } = render(view(true));
-      fireEvent.change(screen.getByLabelText("Draft intent"), { target: { value: "retained" } });
-      rerender(view(false));
-      screen.getByRole("button", { name: "Foreground" }).focus();
-      fireEvent.keyDown(window, { key: "Escape" });
-      expect(dismiss).not.toHaveBeenCalled();
-      expect(screen.getByRole("button", { name: "Foreground" })).toHaveFocus();
-      rerender(view(true));
-      expect(screen.getByLabelText("Draft intent")).toHaveValue("retained");
-    },
-  );
   describe("overlayStack (LIFO Dismissal)", () => {
     it("dismisses overlays in reverse order of registration when Escape is pressed", () => {
       const dismissFirst = vi.fn();
@@ -245,6 +206,35 @@ describe("Accessible Primitives Suite", () => {
       fireEvent.keyDown(window, { key: "Escape" });
       expect(screen.queryByTestId("accessible-popover")).toBeNull();
       expect(trigger).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
+  describe("Popover portal placement", () => {
+    it("keeps a tall card inside the viewport when neither side has room", () => {
+      const rect = (top: number, height: number, width: number) =>
+        ({ top, bottom: top + height, left: 500, right: 500 + width, width, height, x: 500, y: top, toJSON() {} }) as DOMRect;
+      const spy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        return this.getAttribute("role") === "dialog" ? rect(0, 576, 340) : rect(211, 28, 28);
+      });
+      const innerHeight = window.innerHeight;
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: 720 });
+      try {
+        render(
+          <Popover portal content={<p>Tall card</p>}>
+            <button type="button" data-testid="tall-trigger">Open</button>
+          </Popover>,
+        );
+        fireEvent.click(screen.getByTestId("tall-trigger"));
+        const card = screen.getByTestId("accessible-popover");
+        const top = parseFloat(card.style.top);
+        expect(top).toBeGreaterThanOrEqual(8);
+        expect(top + 576).toBeLessThanOrEqual(720 - 8);
+        // Beside the trigger (right edge 528), not over it.
+        expect(parseFloat(card.style.left)).toBeGreaterThanOrEqual(528);
+      } finally {
+        spy.mockRestore();
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: innerHeight });
+      }
     });
   });
 

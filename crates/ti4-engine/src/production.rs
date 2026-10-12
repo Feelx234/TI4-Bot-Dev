@@ -194,6 +194,11 @@ pub fn planet_value_now(
     planet_value(content, sources, planet, kind)
         + crate::laws::planet_value_bonus(state, planet, kind)
         + attachment_bonus(state, content, planet, kind)
+        + match kind {
+            // The Last Bastion's Helios dock raises the resource value of its own planet.
+            Spend::Resources => crate::factions::bastion_units::resource_bonus(state, planet),
+            Spend::Influence => 0,
+        }
 }
 
 /// The faction mark holding the [`GameState::production_seq`] a value swap was declared in.
@@ -288,6 +293,10 @@ pub fn spendable_planets(state: &GameState, player: &PlayerId) -> Vec<PlanetId> 
         .into_iter()
         .map(|(_, planet)| planet.clone())
         .filter(|planet| !state.exhausted_planets.contains(planet))
+        // The Deepwrought's ocean cards are planet cards off the map (1 resource, 1 influence).
+        .chain(crate::factions::deepwrought::spendable_oceans(
+            state, player,
+        ))
         .collect()
 }
 
@@ -1191,6 +1200,36 @@ pub fn produce_one(
     player: &PlayerId,
     system: &SystemId,
 ) -> Result<bool, IllegalChoice> {
+    produce_one_from(state, content, sources, galaxy, table, player, system, None)
+}
+
+/// The effect a single-unit production comes from, for the prompt and the decision context:
+/// `(content alias, printed name)`, e.g. `("frln1", "Freelancers")`.
+type ProduceOneSource<'a> = Option<(&'a str, &'a str)>;
+
+/// The context subtype of the "which unit" question a named single-unit production asks.
+pub const PRODUCE_ONE_SUBTYPE: &str = "produce_one_unit";
+
+/// [`produce_one`], naming the effect that grants it.
+///
+/// Every single-unit production is a "may" (Chaos Mapping, Minister of Industry, Freelancers), so
+/// the unit question always ends with a decline: answering it produces nothing and pays nothing.
+/// It is appended last, so the ids and positions of the unit options do not move.
+#[allow(
+    clippy::too_many_arguments,
+    clippy::too_many_lines,
+    reason = "single-unit production needs the complete observed rules position"
+)]
+fn produce_one_from(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    system: &SystemId,
+    source: ProduceOneSource<'_>,
+) -> Result<bool, IllegalChoice> {
     let types = catalogue(content, sources);
     let affordable = available(state, content, sources, player, Spend::Resources);
     let candidates: Vec<(String, i64)> = buildable_for(state, content, sources, player)
@@ -1225,25 +1264,43 @@ pub fn produce_one(
     if candidates.is_empty() {
         return Ok(false);
     }
-    let choice = Choice::new(
-        player.clone(),
-        format!("produce one unit in {system}"),
-        candidates
-            .iter()
-            .map(|(id, cost)| {
-                ChoiceOption::labelled(
-                    format!("build|{id}|1"),
-                    PRODUCE_KIND,
-                    format!("produce 1x {id} for {cost}"),
-                )
-                .with("unit", id.clone())
-                .with("count", 1)
-                .with("cost", *cost)
-                .with("system", system.to_string())
-            })
-            .collect(),
-    );
+    let mut options: Vec<ChoiceOption> = candidates
+        .iter()
+        .map(|(id, cost)| {
+            ChoiceOption::labelled(
+                format!("build|{id}|1"),
+                PRODUCE_KIND,
+                format!("produce 1x {id} for {cost}"),
+            )
+            .with("unit", id.clone())
+            .with("count", 1)
+            .with("cost", *cost)
+            .with("system", system.to_string())
+        })
+        .collect();
+    options.push(ChoiceOption::decline());
+    let prompt = match source {
+        Some((_, name)) => format!("{name}: produce one unit in {system}"),
+        None => format!("produce one unit in {system}"),
+    };
+    let mut choice = Choice::new(player.clone(), prompt, options);
+    if let Some((alias, _)) = source {
+        choice = choice.contextualized(
+            DecisionContext::new(
+                player.clone(),
+                DecisionSource::Content(alias.to_owned()),
+                PRODUCE_ONE_SUBTYPE,
+                state.phase,
+                state.round,
+            )
+            .optional(true)
+            .about(DecisionTarget::System(system.clone())),
+        );
+    }
     let answer = table.ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))?;
+    if answer.is_decline() {
+        return Ok(false);
+    }
     let Some((id, cost)) = candidates
         .iter()
         .find(|(id, _)| answer.id == format!("build|{id}|1"))
@@ -1328,9 +1385,10 @@ pub fn produce_one_paying_with_influence(
     ctx: &mut crate::choice::Resolving<'_>,
     player: &PlayerId,
     system: &SystemId,
+    card: &str,
 ) -> bool {
     state.influence_pays_for_units.insert(player.clone());
-    let made = produce_one(
+    let made = produce_one_from(
         state,
         ctx.content,
         ctx.sources,
@@ -1338,6 +1396,7 @@ pub fn produce_one_paying_with_influence(
         ctx.table,
         player,
         system,
+        Some((card, "Freelancers")),
     );
     state.influence_pays_for_units.remove(player);
     made.unwrap_or(false)
@@ -1399,7 +1458,11 @@ pub fn producers(
     let mut found: Vec<(Unit, Option<PlanetId>)> = board
         .units_of(player)
         .into_iter()
-        .filter(|unit| produces(unit))
+        // Miniaturization: a Ral Nel structure in the space area cannot use PRODUCTION.
+        .filter(|unit| {
+            produces(unit)
+                && !crate::factions::ralnel::silenced_in_space(state, content, sources, unit)
+        })
         .map(|unit| (unit.clone(), None))
         .collect();
     for (planet, units) in &board.planet_units {
@@ -1704,6 +1767,11 @@ pub fn placements(
     system: &SystemId,
     kind: &UnitType<'_>,
 ) -> Vec<String> {
+    // Quietus: PRODUCTION is a unit ability, and a unit in an active breach beside another player's
+    // Quietus has lost every unit ability, so its space dock produces nothing.
+    if crate::factions::crimson::abilities_lost(state, player, system) {
+        return Vec::new();
+    }
     if kind.is_ship() {
         // 68.10: "A player cannot produce ships in a system that contains other players' ships."
         // 68.10a keeps ground forces available, which is why this sits on the ship branch rather
@@ -1807,7 +1875,11 @@ pub fn buildable_for(
                 held.iter()
                     .any(|tech| tech.as_str() == *gate || tech.as_str().ends_with(*gate))
             });
-            if !has {
+            // A faction whose sheet prints its own unit of this type (the Muaat's Prototype War
+            // Sun) builds it from the start; its upgrade (`pws2`) does not end in the gate.
+            let native =
+                ti4_content::units::faction_unit(content, &faction, base, sources).is_some();
+            if !has && !native {
                 continue;
             }
         }
@@ -2127,6 +2199,21 @@ impl ProductionWindow {
                     format!("{system}{REMOTE_SEPARATOR}{at}")
                 }),
             );
+            if kind.is_ship() {
+                // The Last Bastion's Icon: "place those ships in a system that contains 1 of your
+                // command tokens, ...". Shapes the ship spots over the whole use.
+                crate::factions::bastion::adjust_ship_spots(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    &self.report.produced,
+                    &mut spots,
+                );
+                // The Crimson hero: "You may place any of those ships onto this card."
+                crate::factions::crimson_cards::offer_card_spot(state, &self.player, &mut spots);
+            }
         }
         spots
     }
@@ -2676,6 +2763,14 @@ impl ProductionWindow {
         let (target, spot) = placement_target(&self.system, where_to);
         for _ in 0..made {
             let unit = Unit::new(UnitTypeId::new(id), self.player.clone());
+            // The Crimson hero card is not a place on the board.
+            if target.as_str() == crate::factions::crimson_cards::CARD_SYSTEM {
+                crate::factions::crimson_cards::put_on_card(state, &self.player, id);
+                self.report
+                    .produced
+                    .push((UnitTypeId::new(id), where_to.to_owned()));
+                continue;
+            }
             if spot == SPACE {
                 state.system_mut(&target).units.push(unit);
             } else {
@@ -2695,6 +2790,18 @@ impl ProductionWindow {
             self.report
                 .produced
                 .push((UnitTypeId::new(id), where_to.to_owned()));
+        }
+        // The Last Bastion's Icon is exhausted by placing the ships in one of its systems.
+        if made > 0 && target != self.system {
+            crate::factions::bastion::ship_placed(
+                state,
+                content,
+                sources,
+                &self.player,
+                &self.system,
+                &target,
+                &UnitTypeId::new(id),
+            );
         }
         // Bellum Gloriosum: a capacity ship opens an allowance that fighters and ground forces
         // spend instead of the production limit. Opened after the ship is placed and spent by
@@ -2752,13 +2859,31 @@ impl Window for ProductionWindow {
                     "decline",
                     "produce nothing further",
                 ));
+                // Display only (`Choice::details`): ships charged against the fleet pool in this
+                // system and the pool's limit (LRR 37), so a client can show the room left.
+                let standing = crate::fleet::standing(
+                    state,
+                    content,
+                    sources,
+                    &self.player,
+                    &self.system,
+                    None,
+                );
+                let mut fleet_supply = serde_json::json!({
+                    "used": standing.fleet_charged,
+                    "limit": standing.fleet_limit,
+                });
+                if crate::fleet::is_unlimited(state, &self.player) {
+                    fleet_supply["unlimited"] = serde_json::Value::Bool(true);
+                }
                 Some(
                     Choice::new(
                         self.player.clone(),
                         format!("produce in {} ({} left)", self.system, self.remaining),
                         options,
                     )
-                    .contextualized(self.context(state)),
+                    .contextualized(self.context(state))
+                    .detailed("fleet_supply", fleet_supply),
                 )
             }
             Stage::Paying {
@@ -5229,6 +5354,40 @@ mod tests {
             let fighter = *types.get("fighter").unwrap();
             assert!(window.spots(&state, content, POK, fighter).is_empty());
         });
+    }
+
+    #[test]
+    fn the_produce_choice_reports_fleet_supply_used_and_limit() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        put(&mut state, &system, "cruiser", &player(), 2);
+        // Fighters ride the capacity of ships, not the pool, so they must not be charged.
+        put(&mut state, &system, "fighter", &player(), 2);
+        let window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("production choice");
+        let standing = crate::fleet::standing(&state, content, POK, &player(), &system, None);
+        let supply = choice
+            .details
+            .get("fleet_supply")
+            .expect("fleet_supply detail");
+        assert_eq!(supply["used"].as_i64(), Some(standing.fleet_charged));
+        assert_eq!(supply["limit"].as_i64(), Some(standing.fleet_limit));
+        assert_eq!(
+            supply["used"].as_i64(),
+            Some(2),
+            "two cruisers, no fighters"
+        );
+        assert_eq!(
+            supply["limit"].as_i64(),
+            Some(i64::from(crate::fleet::limit(&state, content, &player())))
+        );
+        assert!(supply.get("unlimited").is_none());
     }
 
     #[test]

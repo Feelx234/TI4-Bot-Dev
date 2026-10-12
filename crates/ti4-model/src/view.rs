@@ -67,6 +67,13 @@ pub fn redact_player_with(player: &Player, secrets_revealed: bool) -> Player {
             .map(|_| SecretObjectiveId::new(HIDDEN))
             .collect();
     }
+    // The Firmament's facedown plot cards: the count and the control tokens on them are public, which
+    // card each one is is not. A flipped (faceup) card is public.
+    redacted.plots = player
+        .plots
+        .iter()
+        .map(|stored| crate::plots::Plot::shown_to_others(stored))
+        .collect();
     redacted
 }
 
@@ -145,6 +152,11 @@ pub fn leaks(state: &GameState, viewer: &PlayerId) -> Vec<String> {
         for objective in &player.secret_objectives {
             if !is_hidden(objective.as_str()) {
                 found.push(format!("{}.secret_objectives={objective}", player.id));
+            }
+        }
+        for stored in &player.plots {
+            if crate::plots::Plot::leaks_identity(stored) {
+                found.push(format!("{}.plots={stored}", player.id));
             }
         }
     }
@@ -312,6 +324,35 @@ mod tests {
         let view = view_for(&game(), &pid("a"));
         let leaked = leaks(&view, &pid("a"));
         assert!(leaked.is_empty(), "{leaked:?}");
+    }
+
+    #[test]
+    fn facedown_plot_cards_show_their_tokens_but_never_which_card_they_are() {
+        let mut g = game();
+        g.player_mut(&pid("b")).unwrap().plots =
+            vec!["d:assail:a".to_owned(), "d:seethe:a,c".to_owned()];
+        let found = leaks(&g, &pid("a"));
+        assert!(found.iter().any(|l| l.starts_with("b.plots=")), "{found:?}");
+
+        // The tokens are public, the identity is hidden, and the count survives.
+        let for_a = view_for(&g, &pid("a"));
+        assert_eq!(
+            for_a.player(&pid("b")).unwrap().plots,
+            ["d:?:a", "d:?:a,c"]
+        );
+        assert!(leaks(&for_a, &pid("a")).is_empty());
+        // The owner sees their own cards.
+        let for_b = view_for(&g, &pid("b"));
+        assert_eq!(
+            for_b.player(&pid("b")).unwrap().plots,
+            ["d:assail:a", "d:seethe:a,c"]
+        );
+
+        // Once flipped the cards are public.
+        g.player_mut(&pid("b")).unwrap().plots = vec!["u:assail:a".to_owned()];
+        let for_c = view_for(&g, &pid("c"));
+        assert_eq!(for_c.player(&pid("b")).unwrap().plots, ["u:assail:a"]);
+        assert!(leaks(&for_c, &pid("c")).is_empty());
     }
 
     #[test]

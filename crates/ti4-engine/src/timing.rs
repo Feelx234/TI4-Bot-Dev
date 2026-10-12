@@ -152,6 +152,54 @@ pub struct Ability {
     pub option_payload: Option<OptionPayload>,
 }
 
+/// The label of a reaction option for the player: the printed name of the faction ability or the
+/// leader behind an ability id such as `ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after`
+/// or `leader:mentak:mentakagent:PILLAGE_USED:after`, plus the window in words ("after system
+/// activated"). The option's id is never changed; ids that are neither (rules, `reaction:` cards)
+/// keep their id as the label, and a card play replaces it afterwards. Without `content` the
+/// name is the id's own key, capitalised.
+pub(crate) fn ability_label(content: Option<&ti4_content::ContentStore>, id: &str) -> String {
+    let parts: Vec<&str> = id.split(':').collect();
+    let kind = parts.first().copied().unwrap_or("");
+    if parts.len() < 4 || !matches!(kind, "ability" | "leader") {
+        return id.to_owned();
+    }
+    // The last two segments are the window: EVENT_TYPE and when/after.
+    let relation = parts[parts.len() - 1];
+    let event = parts[parts.len() - 2];
+    let window = format!("{relation} {}", event.to_lowercase().replace('_', " "));
+    let keys = &parts[1..parts.len() - 2];
+    let content_type = if kind == "leader" {
+        ti4_model::content_types::ContentType::Leaders
+    } else {
+        ti4_model::content_types::ContentType::Abilities
+    };
+    // The key is the last segment that names a record (a copied leader names the owner first).
+    let named = content.and_then(|content| {
+        keys.iter().rev().find_map(|key| {
+            let record = content.get(content_type, key)?;
+            let name = record.text("name")?.to_owned();
+            Some(match (kind, record.text("type")) {
+                ("leader", Some(role)) => format!("{} {name}", capitalised(role)),
+                _ => name,
+            })
+        })
+    });
+    let name = named.unwrap_or_else(|| {
+        let key = keys.last().copied().unwrap_or(id);
+        capitalised(&key.replace('_', " "))
+    });
+    format!("{name} ({window})")
+}
+
+fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
 impl Ability {
     /// Construct an ability with the oracle's default frequency and optional metadata.
     #[must_use]
@@ -307,7 +355,157 @@ pub struct Resolver {
     participation: Option<Participation>,
 }
 
+/// Everything a [`Resolver`] needs to continue identically, minus its decider input, so it can
+/// move between threads (see [`Resolver::snapshot`]).
+///
+/// FORK RULE: every field of `Resolver` is destructured without `..` in `snapshot` and
+/// `instantiate`; adding a field is a compile error until it is copied here or explicitly
+/// listed as not copied.
+#[derive(Clone)]
+pub struct ResolverSnapshot {
+    registry: AbilityRegistry,
+    initiative_order: Vec<PlayerId>,
+    seating_order: Vec<PlayerId>,
+    active_player: Option<PlayerId>,
+    speaker: Option<PlayerId>,
+    phase: Phase,
+    table: crate::choice::TableState,
+    log: Vec<String>,
+    applied_events: Vec<Event>,
+    relation_being_resolved: Option<Relation>,
+    emission_stack: Vec<(String, u64)>,
+    maximum_depth: usize,
+    used: BTreeSet<(String, FrequencyScope)>,
+    round_number: u64,
+    turn_number: u64,
+}
+
+impl ResolverSnapshot {
+    pub(crate) fn instantiate(&self) -> Resolver {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        } = self;
+        Resolver {
+            registry: registry.clone(),
+            initiative_order: initiative_order.clone(),
+            seating_order: seating_order.clone(),
+            active_player: active_player.clone(),
+            speaker: speaker.clone(),
+            phase: *phase,
+            table: crate::choice::Table::from_state(table.clone()),
+            log: log.clone(),
+            applied_events: applied_events.clone(),
+            relation_being_resolved: *relation_being_resolved,
+            emission_stack: emission_stack.clone(),
+            maximum_depth: *maximum_depth,
+            used: used.clone(),
+            round_number: *round_number,
+            turn_number: *turn_number,
+            // A fork starts without the participation binding.
+            participation: None,
+        }
+    }
+
+    pub(crate) fn into_resolver(self) -> Resolver {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+        } = self;
+        Resolver {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table: crate::choice::Table::from_state(table),
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+            participation: None,
+        }
+    }
+}
+
 impl Resolver {
+    /// Copy this resolver's rules state. Decider input (who answers) is NOT copied: the copy's
+    /// table has first-option deciders, no observation callbacks, but the same decision log
+    /// and counters. Registered abilities are shared functions (their captures must not hold
+    /// mutable rules state).
+    pub(crate) fn snapshot_with(&self, keep_table_log: bool) -> ResolverSnapshot {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+            participation: _,
+        } = self;
+        ResolverSnapshot {
+            registry: registry.clone(),
+            initiative_order: initiative_order.clone(),
+            seating_order: seating_order.clone(),
+            active_player: active_player.clone(),
+            speaker: speaker.clone(),
+            phase: *phase,
+            table: if keep_table_log {
+                table.state()
+            } else {
+                table.state_unlogged()
+            },
+            log: log.clone(),
+            applied_events: applied_events.clone(),
+            relation_being_resolved: *relation_being_resolved,
+            emission_stack: emission_stack.clone(),
+            maximum_depth: *maximum_depth,
+            used: used.clone(),
+            round_number: *round_number,
+            turn_number: *turn_number,
+        }
+    }
+
     pub(crate) fn checkpoint(&self) -> ResolverCheckpoint {
         ResolverCheckpoint {
             table_log: self.table.log.clone(),
@@ -374,6 +572,7 @@ impl Resolver {
     }
 
     /// Copy resolver state and shared rule functions, with fresh decision routing.
+    #[cfg(test)]
     pub(crate) fn fork(&self) -> Self {
         Self {
             registry: self.registry.clone(),
@@ -747,6 +946,8 @@ impl Resolver {
         let mut resolved_here = BTreeSet::<String>::new();
         let result = (|| {
             let mut passed = BTreeSet::<PlayerId>::new();
+            // Seats already looked at once in this window (see `Table::window_skipped`).
+            let mut announced = BTreeSet::<PlayerId>::new();
             loop {
                 let mut resolved_this_pass = false;
                 for player in self.player_order() {
@@ -761,8 +962,17 @@ impl Resolver {
                         context,
                     );
                     if eligible.is_empty() {
+                        if announced.insert(player.clone()) {
+                            context.table.window_skipped(
+                                &player,
+                                &event.event_type,
+                                relation,
+                                context.state,
+                            );
+                        }
                         continue;
                     }
+                    announced.insert(player.clone());
                     let Some(ability) =
                         self.pick_with_context(eligible, event, &player, relation, context)?
                     else {
@@ -866,8 +1076,12 @@ impl Resolver {
         let mut options = eligible
             .iter()
             .map(|ability| {
-                let mut option = ChoiceOption::labelled(&ability.id, "ability", &ability.id)
-                    .with("event", event.event_type.clone());
+                let mut option = ChoiceOption::labelled(
+                    &ability.id,
+                    "ability",
+                    ability_label(None, &ability.id),
+                )
+                .with("event", event.event_type.clone());
                 if let Some(payload) = &ability.option_payload {
                     option.payload.extend(payload(event, self));
                 }
@@ -912,8 +1126,12 @@ impl Resolver {
         let mut options = eligible
             .iter()
             .map(|ability| {
-                let mut option = ChoiceOption::labelled(&ability.id, "ability", &ability.id)
-                    .with("event", event.event_type.clone());
+                let mut option = ChoiceOption::labelled(
+                    &ability.id,
+                    "ability",
+                    ability_label(Some(context.content), &ability.id),
+                )
+                .with("event", event.event_type.clone());
                 if ability.id.starts_with("reaction:") {
                     let cards = crate::reactions::playable_now(
                         context.state,
@@ -1150,6 +1368,32 @@ impl AbilityRegistry {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reaction_options_get_the_printed_name_instead_of_the_raw_id() {
+        let content = ContentStore::embedded();
+        let passage = ability_label(Some(content), "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after");
+        assert_eq!(passage, "Aetherpassage (after system activated)");
+        let pillage = ability_label(Some(content), "ability:mentak:pillage:TRADE_GOODS_GAINED:after");
+        assert_eq!(pillage, "Pillage (after trade goods gained)");
+        let agent = ability_label(Some(content), "leader:mentak:mentakagent:PILLAGE_USED:after");
+        assert_eq!(agent, "Agent Suffi An (after pillage used)");
+        // A copied leader names the copy's owner first; the label is still the leader.
+        let copy = ability_label(
+            Some(content),
+            "leader:ssruu-copy:a:l1z1xagent:b:SYSTEM_ACTIVATED:after",
+        );
+        assert_eq!(copy, "Agent I48S (after system activated)");
+        // Without content the key is capitalised; a rule id stays as it is.
+        assert_eq!(
+            ability_label(None, "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after"),
+            "Aetherpassage (after system activated)"
+        );
+        assert_eq!(ability_label(Some(content), "reaction:x"), "reaction:x");
+        for label in [&passage, &pillage, &agent, &copy] {
+            assert!(!label.contains("SYSTEM_ACTIVATED") && !label.contains(':'), "{label}");
+        }
+    }
+
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},

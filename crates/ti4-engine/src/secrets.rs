@@ -47,6 +47,8 @@ pub fn timing(content: &ContentStore, alias: &SecretObjectiveId) -> Timing {
 /// How many of this player's scored objectives were secrets (45.4 counts them).
 #[must_use]
 pub fn scored_count(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
+    // A secret scored as a plot (Plots Within Plots) is not in `scored_objectives` at all, so it is
+    // not counted here: it "does not count against your secret objective limit".
     state
         .scored_by(player)
         .iter()
@@ -77,10 +79,14 @@ pub fn draw(
     table: &mut Table,
     player: &PlayerId,
 ) -> Result<Option<SecretObjectiveId>, IllegalChoice> {
-    if state.secret_deck.is_empty() {
+    let Some(top) = ti4_model::deck_reserve::take_top(
+        &mut state.deck_reserve,
+        "secret",
+        &mut state.secret_deck,
+        Some(player.as_str()),
+    ) else {
         return Ok(None);
-    }
-    let top = state.secret_deck.remove(0);
+    };
     if let Some(seat) = state.player_mut(player) {
         seat.secret_objectives.push(top.clone());
     }
@@ -469,6 +475,17 @@ fn wormhole_kinds_count(position: &Position<'_>) -> usize {
                     .filter(|wormhole| matches!(*wormhole, "ALPHA" | "BETA")),
             );
         }
+        // Wormholes that arrived as tokens count too: "a system that contains an alpha wormhole"
+        // is true of the opened Wormhole Nexus (alpha and beta are tokens on its locked tile) and
+        // of the ion storm's current face, neither of which the printed record shows.
+        if let Some(galaxy) = position.galaxy {
+            kinds.extend(
+                galaxy
+                    .wormhole_kinds(system.as_str())
+                    .into_iter()
+                    .filter(|wormhole| matches!(*wormhole, "ALPHA" | "BETA")),
+            );
+        }
     }
     kinds.len()
 }
@@ -529,20 +546,33 @@ fn production_in_one_system_count(position: &Position<'_>) -> usize {
 }
 
 fn ship_systems_beside_anomaly_count(position: &Position<'_>) -> Option<usize> {
+    ship_systems_beside_anomaly(position).map(|systems| systems.len())
+}
+
+/// The systems that count toward Learn the Secrets of the Cosmos right now: each holds one of
+/// this player's ships and is adjacent to an anomaly, sorted by id.
+///
+/// Display-only detail behind [`CountFamily::ShipSystemsBesideAnomaly`](crate::objectives::CountFamily);
+/// its length is the count the requirement checks. `None` without a map.
+#[must_use]
+pub fn ship_systems_beside_anomaly(
+    position: &Position<'_>,
+) -> Option<Vec<ti4_model::id::SystemId>> {
     let galaxy = position.galaxy?;
     let systems = ti4_content::galaxy::all_systems(position.content, position.sources);
-    Some(
-        ship_systems(position)
-            .into_iter()
-            .filter(|here| {
-                galaxy.adjacent(here.as_str()).into_iter().any(|other| {
-                    systems
-                        .get(other)
-                        .is_some_and(ti4_content::galaxy::System::is_anomaly)
-                })
+    let mut found: Vec<ti4_model::id::SystemId> = ship_systems(position)
+        .into_iter()
+        .filter(|here| {
+            galaxy.adjacent(here.as_str()).into_iter().any(|other| {
+                systems
+                    .get(other)
+                    .is_some_and(ti4_content::galaxy::System::is_anomaly)
             })
-            .count(),
-    )
+        })
+        .cloned()
+        .collect();
+    found.sort();
+    Some(found)
 }
 
 fn ship_systems_beside_rival_home_count(position: &Position<'_>) -> Option<usize> {
@@ -868,6 +898,22 @@ pub fn remaining_position_progress(
     })
 }
 
+/// Exact progress toward any secret whose requirement is a countable position.
+///
+/// The union of [`counting_progress`] and [`remaining_position_progress`] — the same helpers the
+/// requirements themselves are built from, so a bar that reads full is a card that is legal to
+/// score (timing aside). Event-conditioned secrets ([`feat_for`]) have no running count and
+/// answer `None`, as do position secrets whose count needs the map when `position` has none.
+///
+/// Display-only: callers project it for the holder's own hand and nothing else.
+#[must_use]
+pub fn progress(
+    alias: &SecretObjectiveId,
+    position: &Position<'_>,
+) -> Option<crate::objectives::RequirementProgress> {
+    counting_progress(alias, position).or_else(|| remaining_position_progress(alias, position))
+}
+
 fn remaining_position_satisfied(alias: &str, position: &Position<'_>) -> bool {
     remaining_position_progress(&SecretObjectiveId::new(alias), position)
         .is_some_and(|progress| progress.satisfied())
@@ -1118,6 +1164,70 @@ pub fn scoreable_event(
         })
         .cloned()
         .collect()
+}
+
+/// Whether `player`, who does not hold `alias`, fulfils the requirement of a secret objective that
+/// another player has scored (the Firmament's Plots Within Plots), at this timing.
+///
+/// The same two footings as [`scoreable_on`] / [`scoreable_event`]: a status secret by its
+/// position, an action or agenda secret by a feat recorded for this event or by its position.
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the context scoreable_event already takes, plus the secret asked about"
+)]
+pub(crate) fn fulfils(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &SecretObjectiveId,
+    when: Timing,
+    occurrence: Option<FeatOccurrence>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> bool {
+    if timing(content, alias) != when {
+        return false;
+    }
+    let position = Position {
+        state,
+        content,
+        sources,
+        player,
+        galaxy,
+        imagined: crate::objectives::Imagined::NONE,
+    };
+    let by_position = || requirement_for(alias).is_some_and(|check| check(&position));
+    if when == Timing::Status {
+        return by_position();
+    }
+    occurrence.is_some_and(|occurrence| {
+        feat_for(alias.as_str())
+            .is_some_and(|feat| state.did_at_occurrence(player, feat, occurrence))
+    }) || by_position()
+}
+
+/// Score a secret another player already scored, as a plot: pay its price, record the plot, and give
+/// no victory point. It is deliberately **not** recorded as a scored objective (operator ruling
+/// 2026-10-08): a secret scored through Plots Within Plots is neither a scored objective nor part of
+/// the secret objective limit. The caller places the plot card.
+///
+/// `false`, changing nothing, when the price cannot be paid.
+pub(crate) fn award_plot(
+    state: &mut GameState,
+    player: &PlayerId,
+    alias: &SecretObjectiveId,
+) -> bool {
+    if !pay_for(state, player, alias) {
+        return false;
+    }
+    match state.player_mut(player) {
+        Some(seat) => {
+            seat.plot_objectives.insert(alias.clone());
+            true
+        }
+        None => false,
+    }
 }
 
 /// 61.18: reveal it, take the points, and it leaves the hand.
@@ -1696,6 +1806,38 @@ mod tests {
     }
 
     #[test]
+    fn the_gatekeeper_counts_wormhole_tokens_too() {
+        // The opened Wormhole Nexus carries alpha and beta as tokens on its locked tile; a ship
+        // there is in a system containing both kinds although the printed tile shows gamma only.
+        let mut galaxy = ti4_content::galaxy::Galaxy::build(
+            ContentStore::embedded(),
+            &["18", "19", "20", "21", "22", "23", "24"],
+            POK,
+            3,
+        )
+        .unwrap();
+        crate::seating::place_wormhole_nexus(&mut galaxy, ContentStore::embedded(), POK).unwrap();
+        let mut state = game(&["a"]);
+        holding(&mut state, "btgk");
+        let seat = player();
+        let nexus = ti4_model::id::SystemId::new(crate::seating::LOCKED_NEXUS);
+        crate::fixtures::put(&mut state, &nexus, "cruiser", &seat, 1);
+        let id = SecretObjectiveId::new("btgk");
+        let kinds = |galaxy: &ti4_content::galaxy::Galaxy| {
+            remaining_position_progress(&id, &on_map(&state, &seat, galaxy)).unwrap().have
+        };
+        assert_eq!(kinds(&galaxy), 0, "the locked nexus is gamma only");
+        for kind in ["ALPHA", "BETA"] {
+            galaxy
+                .token_wormholes
+                .entry(crate::seating::LOCKED_NEXUS.to_owned())
+                .or_default()
+                .insert(kind.to_owned());
+        }
+        assert_eq!(kinds(&galaxy), 2, "the opened nexus holds both kinds");
+    }
+
+    #[test]
     fn learning_the_secrets_counts_systems_not_anomalies() {
         // A hub whose centre is an anomaly: every ring system is adjacent to it, so ships in
         // three ring systems satisfy the card and ships in two do not.
@@ -1728,6 +1870,16 @@ mod tests {
             .have,
             2,
             "two systems beside an anomaly are two, however many ships are in them"
+        );
+        let mut expected: Vec<ti4_model::id::SystemId> = hub.outer[..2]
+            .iter()
+            .map(|id| ti4_model::id::SystemId::new(id.clone()))
+            .collect();
+        expected.sort();
+        assert_eq!(
+            ship_systems_beside_anomaly(&on_map(&state, &seat, &hub.galaxy)).unwrap(),
+            expected,
+            "the qualifying systems are named, not just counted"
         );
 
         crate::fixtures::put(
@@ -1844,6 +1996,89 @@ mod tests {
             .unwrap()
             .satisfied()
         );
+    }
+
+    fn on<'a>(state: &'a GameState, seat: &'a PlayerId) -> Position<'a> {
+        Position {
+            state,
+            content: ContentStore::embedded(),
+            sources: POK,
+            player: seat,
+            galaxy: None,
+            imagined: crate::objectives::Imagined::NONE,
+        }
+    }
+
+    #[test]
+    fn combined_progress_counts_the_holders_position_and_skips_feats() {
+        let mut state = game(&["a", "b"]);
+        let seat = player();
+        let at = |state: &GameState| -> (usize, usize, bool) {
+            let position = on(state, &seat);
+            let p = progress(&SecretObjectiveId::new("ctr"), &position).expect("ctr counts");
+            (p.have, p.threshold, p.satisfied())
+        };
+        let (base, threshold, _) = at(&state);
+        assert_eq!(threshold, 6, "Control the Region asks for 6 systems");
+        let plain = crate::fixtures::plain_systems(12);
+        let mut added = 0;
+        for system in plain
+            .iter()
+            .map(|id| ti4_model::id::SystemId::new(id.as_str()))
+        {
+            if added == 3 {
+                break;
+            }
+            if state.system_state(&system).units_of(&seat).is_empty() {
+                put(&mut state, &system, "cruiser", &seat, 1);
+                // A rival's ship in a system does not count for us.
+                put(&mut state, &system, "destroyer", &PlayerId::new("b"), 1);
+                added += 1;
+            }
+        }
+        let (have, _, _) = at(&state);
+        assert_eq!(
+            have,
+            base + 3,
+            "each new system with one of our ships counts once"
+        );
+
+        // Ground forces are not ships.
+        let before = at(&state).0;
+        let system = ti4_model::id::SystemId::new(plain.last().unwrap().as_str());
+        if state.system_state(&system).units_of(&seat).is_empty() {
+            put(&mut state, &system, "infantry", &seat, 1);
+        }
+        assert_eq!(at(&state).0, before);
+
+        // Hand-sized counts read the holder's own seat.
+        let position = on(&state, &seat);
+        let fsn = progress(&SecretObjectiveId::new("fsn"), &position).expect("fsn counts");
+        assert_eq!(fsn.threshold, 5);
+        assert_eq!(
+            fsn.have,
+            state.player(&seat).unwrap().action_cards.len(),
+            "Form a Spy Network counts action cards in hand"
+        );
+
+        // Event secrets have no running count; every counted alias agrees with legality.
+        for alias in registered_aliases() {
+            let id = SecretObjectiveId::new(alias);
+            match progress(&id, &position) {
+                Some(p) => assert_eq!(
+                    p.satisfied(),
+                    requirement_for(&id).unwrap()(&position),
+                    "{alias}"
+                ),
+                None => assert!(
+                    feat_for(alias).is_some() || ["lsc", "te", "fc"].contains(&alias),
+                    "{alias} is neither a feat nor map-bound, so it must have progress"
+                ),
+            }
+        }
+        for alias in ["dtgs", "pe", "bam", "dtd", "sar"] {
+            assert!(progress(&SecretObjectiveId::new(alias), &position).is_none());
+        }
     }
 
     #[test]

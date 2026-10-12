@@ -64,32 +64,25 @@ test.describe("Technology Research with Tech Skips", () => {
     // Available resources display
     const resourcesBar = page.getByTestId("tech-available-resources");
     await expect(resourcesBar).toBeVisible();
-    await expect(resourcesBar).toContainText("Available Resources:");
+    await expect(resourcesBar.getByRole("img", { name: /resources available/ })).toBeVisible();
     await expect(resourcesBar).toContainText("6 TG");
 
-    // Tech skips row: the scenario grants one ready Biotic planet and one exhausted
-    // specialty planet; which planets they are depends on the map.
-    const held = Object.values(initial.view.board.systems)
-      .filter((system) => system.system_id !== "01")
-      .flatMap((system) => Object.values(system.planets))
-      .filter((planet) => planet.controlled_by === player);
-    const ready = held.find((planet) => !planet.exhausted)!;
-    const exhausted = held.find((planet) => planet.exhausted)!;
-    const rigelSkip = page.getByTestId(`tech-skip-${ready.planet_id}`);
+    // Tech skips row: Rigel III (ready, Biotic) and Tar'mann (exhausted, Propulsion)
+    const rigelSkip = page.getByTestId("tech-skip-rigeliii");
     await expect(rigelSkip).toBeVisible();
     await expect(rigelSkip).toContainText("Ready");
     await expect(rigelSkip).toBeEnabled();
 
-    const tarmannSkip = page.getByTestId(`tech-skip-${exhausted.planet_id}`);
+    const tarmannSkip = page.getByTestId("tech-skip-tarmann");
     await expect(tarmannSkip).toBeVisible();
     await expect(tarmannSkip).toContainText("(Exhausted)");
     await expect(tarmannSkip).toBeDisabled();
 
     // Spec Ops II (so2) requires 2 Biotic prereqs (GG).
-    // Sol starts with 1 Biotic (Neural Motivator). Without the ready skip toggled -> so2 is unresearchable (opacity dimmed)
+    // Sol starts with 1 Biotic (Neural Motivator). Without Rigel III skip toggled -> so2 is unresearchable (opacity dimmed)
     await expect(so2Card).toHaveAttribute("data-researchable", "false");
 
-    // Toggle the ready skip ON
+    // Toggle Rigel III skip ON
     await rigelSkip.click();
     await expect(rigelSkip).toContainText("Active (+1)");
 
@@ -172,12 +165,13 @@ test.describe("Technology Research with Tech Skips", () => {
 
     // Status shows 2 / 2 and Cost: 6 Resources
     await expect(page.getByText(/Selected:/)).toContainText("2 / 2");
-    await expect(page.getByText("Cost: 6 Resources")).toBeVisible();
+    await expect(page.getByText(/Cost:/).getByRole("img", { name: "6 resources" })).toBeVisible();
 
     // Confirm button displays 2 Techs - 6 Resources
     const confirmBtn = page.getByTestId("confirm-research-btn");
     await expect(confirmBtn).toBeEnabled();
-    await expect(confirmBtn).toContainText("Confirm Research (2 Techs - 6 Resources)");
+    await expect(confirmBtn).toContainText("Confirm Research (2 Techs - 6)");
+    await expect(confirmBtn.getByRole("img", { name: "6 resources" })).toBeVisible();
 
     // Click confirm
     await confirmBtn.click();

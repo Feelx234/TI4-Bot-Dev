@@ -31,7 +31,7 @@ pub enum TemplateError {
 
 /// `"RNN"` is ring `R`, clockwise index `NN` (1-based) in [`Hex::ring`] order, which starts at a
 /// corner for every ring, so `x01` positions line up and ring adjacency is preserved.
-fn hex_of(pos: &str) -> Option<Hex> {
+pub fn hex_of(pos: &str) -> Option<Hex> {
     let ring = i32::try_from(pos.get(..1)?.parse::<u32>().ok()?).ok()?;
     let index: usize = pos.get(1..)?.parse().ok()?;
     if ring == 0 {

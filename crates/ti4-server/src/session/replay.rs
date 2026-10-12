@@ -9,6 +9,8 @@ use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash
 use ti4_engine::game::Game;
 use ti4_model::state::GameState;
 
+use crate::session::step_snapshot::StepSnapshot;
+
 #[derive(Debug, Error)]
 pub enum ReplayError {
     #[error("Engine error during replay: {0}")]
@@ -36,10 +38,16 @@ struct ReplayDecider {
     script: VecDeque<String>,
     #[allow(dead_code)]
     step_index: usize,
+    force: Option<crate::session::RngForce>,
+    /// Every answer given, as the engine's log would record it. A system activation is rolled
+    /// back as a whole when a nested question finds the script used up, which takes the
+    /// activation's earlier answers out of the game's log; this list keeps them.
+    answered: std::sync::Arc<std::sync::Mutex<Vec<DecisionRecord>>>,
 }
 
 impl Decider for ReplayDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        let index = self.step_index;
         self.step_index += 1;
 
         let Some(wanted) = self.script.pop_front() else {
@@ -50,8 +58,17 @@ impl Decider for ReplayDecider {
             });
         };
 
+        if let Some(force) = &self.force {
+            force.before_answer(index);
+        }
         let offered: Vec<String> = choice.options.iter().map(|o| o.id.clone()).collect();
         if let Some(opt) = choice.options.iter().find(|o| o.id == wanted) {
+            let mut log = ti4_engine::choice::DecisionLog::default();
+            log.record(choice, opt);
+            self.answered
+                .lock()
+                .expect("replay answers lock")
+                .extend(log.records);
             Ok(opt.clone())
         } else {
             Err(IllegalChoice::ScriptDiverged {
@@ -76,15 +93,66 @@ pub fn replay_session(
     galaxy: Option<&Galaxy>,
     records: &[DecisionRecord],
 ) -> Result<ReplayReport, ReplayError> {
+    replay_session_forced(
+        initial_state,
+        galaxy,
+        records,
+        &crate::session::RngMarks::new(),
+    )
+}
+
+/// [`replay_session`] on a timeline made by a turn redo: the stream positions in `marks` are
+/// restored when the decision they are keyed by is answered.
+///
+/// # Errors
+///
+/// Returns [`ReplayError`] if the engine fails or decisions diverge.
+pub fn replay_session_forced(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+) -> Result<ReplayReport, ReplayError> {
+    replay(initial_state, galaxy, records, marks, None).map(|(report, _)| report)
+}
+
+/// [`replay_session_forced`], also copying the game at a step boundary near the end of the
+/// replay (`None` when no boundary close enough was copyable). A replacement session started on
+/// the same decisions forks the copy (`SessionConfig::resume`) instead of replaying them all again.
+///
+/// # Errors
+///
+/// Returns [`ReplayError`] if the engine fails or decisions diverge.
+pub fn replay_session_with_copy(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+    generation: u64,
+) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
+    replay(initial_state, galaxy, records, marks, Some(generation))
+}
+
+fn replay(
+    initial_state: &GameState,
+    galaxy: Option<&Galaxy>,
+    records: &[DecisionRecord],
+    marks: &crate::session::RngMarks,
+    copy_generation: Option<u64>,
+) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
     let original_hashes: Vec<CanonicalHash> = records
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
         .collect();
 
     let choices: VecDeque<String> = records.iter().map(|r| r.chosen.clone()).collect();
+    let force = crate::session::RngForce::new(marks);
+    let answered = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let decider = Box::new(ReplayDecider {
         script: choices,
         step_index: 0,
+        force: force.clone(),
+        answered: answered.clone(),
     });
     let table = Table::with_default(decider);
 
@@ -92,9 +160,25 @@ pub fn replay_session(
     if let Some(g) = galaxy {
         game = game.with_galaxy(g.clone());
     }
+    if let Some(force) = &force {
+        force.attach(&mut game);
+    }
 
     // Step until all recorded decisions are replayed
+    let mut copy: Option<StepSnapshot> = None;
     while game.table.log.records.len() < records.len() {
+        if let Some(generation) = copy_generation {
+            // Between steps: copy the game once the script is nearly used up.
+            let answered = answered.lock().expect("replay answers lock").len();
+            if records.len().saturating_sub(answered) <= crate::session::batch::TAIL_COPY_WINDOW
+                && copy
+                    .as_ref()
+                    .is_none_or(|copy| copy.log_len < game.table.log.records.len())
+                && let Some(taken) = StepSnapshot::capture(&mut game, generation)
+            {
+                copy = Some(taken);
+            }
+        }
         let result = game.step();
         if let Some(err) = result.error {
             let err_str = err.to_string();
@@ -110,21 +194,29 @@ pub fn replay_session(
         }
     }
 
-    let replayed_hashes: Vec<CanonicalHash> = game
-        .table
-        .log
-        .records
+    // The log, unless an activation that was still asking when the script ran out was rolled back
+    // and took answered decisions with it.
+    let answered = answered.lock().expect("replay answers lock").clone();
+    let replayed = if answered.len() > game.table.log.records.len() {
+        answered
+    } else {
+        game.table.log.records.clone()
+    };
+    let replayed_hashes: Vec<CanonicalHash> = replayed
         .iter()
         .map(|r| decision_hash(CanonicalHashVersion::V1, r))
         .collect();
 
     let hashes_match = replayed_hashes == original_hashes;
 
-    Ok(ReplayReport {
-        decision_count: game.table.log.records.len(),
-        original_hashes,
-        replayed_hashes,
-        hashes_match,
-        final_state: game.state,
-    })
+    Ok((
+        ReplayReport {
+            decision_count: replayed.len(),
+            original_hashes,
+            replayed_hashes,
+            hashes_match,
+            final_state: game.state,
+        },
+        copy,
+    ))
 }

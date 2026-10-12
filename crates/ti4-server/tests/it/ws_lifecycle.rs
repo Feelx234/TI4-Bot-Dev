@@ -353,22 +353,28 @@ async fn websocket_full_lifecycle_and_rejections() {
             choice.choice.options[0].id.clone(),
         )
     } else {
-        // Wait for the choice broadcast; planning status and log entries may come first.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let reply = ws_stream
-                    .next()
-                    .await
-                    .expect("receive choice")
-                    .expect("ws ok");
-                let msg: ServerMessage = serde_json::from_str(reply.to_text().unwrap()).unwrap();
-                if let ServerMessage::PendingChoice(p) = msg {
+        // Wait for the choice broadcast. The subscription is opened before the snapshot is
+        // taken and the worker is still starting up, so the Event / StateUpdate messages of the
+        // game's first entries may legitimately arrive first: skip them (the protocol orders
+        // messages by version, never by kind).
+        loop {
+            let reply = tokio::time::timeout(Duration::from_secs(5), ws_stream.next())
+                .await
+                .expect("a pending choice arrives within 5 s")
+                .expect("receive choice")
+                .expect("ws ok");
+            let msg: ServerMessage = serde_json::from_str(&reply.to_text().unwrap()).unwrap();
+            match msg {
+                ServerMessage::PendingChoice(p) => {
                     break (p.nonce, p.game_version, p.choice.options[0].id.clone());
                 }
+                ServerMessage::Event(_)
+                | ServerMessage::StateUpdate(_)
+                | ServerMessage::PlanningStatus(_)
+                | ServerMessage::PlanningUpdate(_) => continue,
+                other => panic!("Expected PendingChoice, got {other:?}"),
             }
-        })
-        .await
-        .expect("pending choice")
+        }
     };
 
     // A connection is bound to its first authorized viewer and cannot collect another seat feed.
@@ -468,7 +474,13 @@ async fn websocket_full_lifecycle_and_rejections() {
     assert_eq!(accepted.game_id, game_id);
 
     // Following action acceptance, server emits state update
-    let update = wait_for_state_update(&mut ws_stream).await;
+    // (a startup update at or below the choice's version may still be queued: skip those)
+    let update = loop {
+        let update = wait_for_state_update(&mut ws_stream).await;
+        if update.game_version > expected_version {
+            break update;
+        }
+    };
     assert_eq!(update.game_id, game_id);
     assert!(update.game_version > expected_version);
 }
@@ -740,7 +752,7 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
 
 #[tokio::test]
 async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
-    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(40)));
+    let registry = Arc::new(GameRegistry::new().with_presence_grace(Duration::from_millis(600)));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(axum::serve(listener, create_app(registry.clone())).into_future());
@@ -766,36 +778,17 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
     let first: ServerMessage =
         serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
     assert!(matches!(first, ServerMessage::InitialSnapshot(_)));
-    // Availability is part of the initial seat-only subscription handshake.
-    // Consume it before revocation so a pre-revocation frame cannot be mistaken
-    // for a private publication delivered after the credential was replaced.
-    tokio::time::timeout(Duration::from_secs(2), async {
-        loop {
-            let message: ServerMessage =
-                serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap())
-                    .unwrap();
-            if matches!(message, ServerMessage::PlanningStatus(_)) {
-                break;
-            }
-        }
-    })
-    .await
-    .unwrap();
+    // The game is still starting: events, state updates and the pending choice queued before the
+    // takeover are legitimate and may still be in flight (the bridge polls every 50 ms). Let them
+    // all arrive first, so that anything delivered after the revocation below is a real violation.
+    while let Ok(Some(Ok(Message::Text(_)))) =
+        tokio::time::timeout(Duration::from_millis(150), socket.next()).await
+    {}
     assert!(matches!(
         registry.take_over_player(&game, &host, "New Host"),
         Err(ti4_server::session::registry::LobbyError::TakeoverUnavailable)
     ));
-    // The seat goes idle while the rest of the handshake arrives: the opening
-    // log entry and state follow the planning status in no fixed order. Read
-    // them now so that only frames sent after revocation remain.
-    let idle = tokio::time::sleep(Duration::from_millis(55));
-    tokio::pin!(idle);
-    loop {
-        tokio::select! {
-            () = &mut idle => break,
-            frame = socket.next() => assert!(matches!(frame, Some(Ok(Message::Text(_))))),
-        }
-    }
+    tokio::time::sleep(Duration::from_millis(650)).await;
     let response: serde_json::Value = client
         .post(format!("http://{addr}/api/games/{game}/lobby/join"))
         .json(&serde_json::json!({"kind":"takeover", "player_id":host, "nickname":"New Host"}))
@@ -939,7 +932,14 @@ async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
         .send(set("Sabotage", ti4_model::state::ReactionMode::Never))
         .await
         .unwrap();
-    let update = wait_for_state_update(&mut owner).await;
+    // Startup updates published before the change may still be queued: wait for the one that
+    // carries the mode instead of taking the first state update.
+    let update = loop {
+        let update = wait_for_state_update(&mut owner).await;
+        if !update.reaction_modes.is_empty() {
+            break update;
+        }
+    };
     assert_eq!(
         update.reaction_modes.get("Sabotage"),
         Some(&ti4_model::state::ReactionMode::Never)
@@ -949,4 +949,107 @@ async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
     assert_eq!(snapshot.reaction_modes.len(), 1);
     let (_spectator_again, snapshot) = connect(&ws_url, &game_id, None).await;
     assert!(snapshot.reaction_modes.is_empty());
+}
+
+#[tokio::test]
+async fn reaction_intent_is_seated_players_only_validated_and_rate_limited() {
+    let (addr, _registry) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let (game_id, p1_token) =
+        create_game(&client, &addr, &["p1", "p2", "p3"], &["p2", "p3"], 322).await;
+    ready_and_start(&client, &addr, &game_id, &[&p1_token]).await;
+    let ws_url = format!("ws://{addr}/ws/games/{game_id}");
+
+    async fn connect(
+        ws_url: &str,
+        game_id: &str,
+        token: Option<&str>,
+    ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
+    {
+        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url).await.expect("connect");
+        let subscribe = ClientMessage::Subscribe {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: game_id.to_owned(),
+            player_session: token.map(str::to_owned),
+        };
+        stream
+            .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+            .await
+            .expect("subscribe");
+        let reply = stream.next().await.expect("snapshot").expect("ws ok");
+        assert!(matches!(
+            serde_json::from_str::<ServerMessage>(reply.to_text().unwrap()).unwrap(),
+            ServerMessage::InitialSnapshot(_)
+        ));
+        stream
+    }
+    let intent = |triggers: &[&str]| {
+        Message::Text(
+            serde_json::to_string(&ClientMessage::SetReactionIntent {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game_id.clone(),
+                triggers: triggers.iter().map(|t| (*t).to_owned()).collect(),
+            })
+            .unwrap()
+            .into(),
+        )
+    };
+    async fn next_error<S>(stream: &mut S) -> (ti4_server::protocol::error::ErrorKind, String)
+    where
+        S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    {
+        while let Some(Ok(msg)) = stream.next().await {
+            if let Ok(text) = msg.to_text()
+                && let Ok(ServerMessage::Error(error)) = serde_json::from_str::<ServerMessage>(text)
+            {
+                return (error.kind, error.message);
+            }
+        }
+        panic!("no error");
+    }
+
+    // A spectator cannot declare, and its Pass is silently ignored.
+    let mut spectator = connect(&ws_url, &game_id, None).await;
+    spectator.send(intent(&["agenda"])).await.unwrap();
+    assert_eq!(
+        next_error(&mut spectator).await.0,
+        ti4_server::protocol::error::ErrorKind::Unauthorized
+    );
+    spectator
+        .send(Message::Text(
+            serde_json::to_string(&ClientMessage::PassReactionHold {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: game_id.clone(),
+            })
+            .unwrap()
+            .into(),
+        ))
+        .await
+        .unwrap();
+
+    // A seated player with an empty hand is refused with a reason and told its own state.
+    let mut owner = connect(&ws_url, &game_id, Some(&p1_token)).await;
+    owner.send(intent(&["agenda"])).await.unwrap();
+    let (kind, message) = next_error(&mut owner).await;
+    assert_eq!(kind, ti4_server::protocol::error::ErrorKind::MalformedMessage);
+    assert!(message.contains("no action cards"), "{message}");
+    let state = loop {
+        let reply = owner.next().await.expect("reply").expect("ws ok");
+        if let Ok(ServerMessage::ReactionIntentState(state)) =
+            serde_json::from_str::<ServerMessage>(reply.to_text().unwrap())
+        {
+            break state;
+        }
+    };
+    assert!(!state.eligible && state.triggers.is_empty());
+
+    // An immediate second declaration is rate limited, not evaluated.
+    owner.send(intent(&["agenda"])).await.unwrap();
+    let (_, message) = next_error(&mut owner).await;
+    assert!(message.contains("too many"), "{message}");
+    // An unknown trigger is refused after the interval.
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    owner.send(intent(&["nonsense"])).await.unwrap();
+    let (_, message) = next_error(&mut owner).await;
+    assert!(message.contains("unknown reaction trigger"), "{message}");
 }

@@ -17,7 +17,7 @@ use ti4_model::state::GameState;
 
 use crate::protocol::server::GameEvent;
 use crate::protocol::view::BoardTileView;
-use crate::session::replay::replay_session;
+use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
 
 /// Errors encountered during game persistence or recovery.
@@ -155,6 +155,14 @@ pub struct PlayerLobbyMember {
     pub ready: bool,
     pub session: PlayerSession,
     pub nickname: String,
+    /// `Some("random")` for an in-process random bot: its seat has no usable credential
+    /// (authentication skips it) and the game answers it itself. Absent for people.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot: Option<String>,
+    /// The faction chosen for this seat (`ti4_engine::seating::LOBBY_FACTIONS`), by the host or by the
+    /// person in it; absent for "random", which the seed deals at start.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub faction: Option<String>,
 }
 
 impl std::fmt::Debug for PlayerLobbyMember {
@@ -183,6 +191,14 @@ pub struct PlayerLobbyRecord {
     /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
+    /// Strategy card set chosen at creation (see [`crate::card_set`]). Absent in records written
+    /// before the option existed: those games play the PoK cards they were recorded with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_card_set: Option<String>,
+    /// Who opens as speaker: `"random"` (a seat drawn from the seed) or `"seat"` (the first
+    /// seat). Absent means random; the drawn speaker itself is saved in the init record's state.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker_order: Option<String>,
     /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
     /// order) so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -207,6 +223,7 @@ impl PlayerLobbyRecord {
         let mut slots = std::collections::BTreeSet::new();
         let mut occupants = std::collections::BTreeSet::new();
         let mut credentials = std::collections::BTreeSet::new();
+        let mut factions = std::collections::BTreeSet::new();
         for slot in &self.slots {
             if slot.slot_id.0.len() > 32
                 || slot.slot_id.0.is_empty()
@@ -237,6 +254,12 @@ impl PlayerLobbyRecord {
             if !credentials.insert(player.session.as_str()) {
                 return Err(StorageError::InvalidPlayerRecord("duplicate session"));
             }
+            if let Some(faction) = &player.faction
+                && (!ti4_engine::seating::LOBBY_FACTIONS.contains(&faction.as_str())
+                    || !factions.insert(faction.as_str()))
+            {
+                return Err(StorageError::InvalidPlayerRecord("chosen faction"));
+            }
         }
         Ok(())
     }
@@ -256,6 +279,10 @@ pub struct PlayerGameInitRecord {
     pub seats: Option<BTreeMap<PlayerId, SeatController>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_template: Option<String>,
+    /// Strategy card set the game was created with; `None` in records written before the option
+    /// existed (PoK). The cards themselves are part of `initial_state`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy_card_set: Option<String>,
 }
 
 /// Authoritative running-session credential mapping, atomically replaced on rotation.
@@ -319,6 +346,10 @@ pub struct GameHistory {
     pub generation: u64,
     #[serde(default)]
     pub batches: Vec<BatchRecord>,
+    /// Forced random stream positions by decision index; present only on a timeline made by a
+    /// turn redo (see `session::rng_force`). Absent in every older save.
+    #[serde(default, skip_serializing_if = "crate::session::RngMarks::is_empty")]
+    pub rng_marks: crate::session::RngMarks,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -420,15 +451,8 @@ impl FileGameStore {
     pub fn save_history(&self, game_id: &str, history: &GameHistory) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
-        let path = dir.join("history.json");
-        if serde_json::to_vec_pretty(&persist(history)?)?.len() + 1 > MAX_LOG_BYTES {
-            return Err(StorageError::Oversized {
-                path,
-                limit: MAX_LOG_BYTES,
-            });
-        }
-        atomic_write_json(&path, history)?;
-        Ok(())
+        atomic_write_json_bounded(&dir.join("history.json"), history, MAX_LOG_BYTES)
+
     }
 
     pub fn load_history(&self, game_id: &str) -> Result<Option<GameHistory>, StorageError> {
@@ -713,6 +737,48 @@ impl FileGameStore {
         read_json_file(&path, MAX_SNAPSHOT_BYTES)
     }
 
+    /// Saves the alternate timeline kept by a turn redo (`turn_redo.json`).
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the record is too large or cannot be written.
+    pub fn save_turn_redo(
+        &self,
+        game_id: &str,
+        record: &crate::session::turn_redo::TurnRedoRecord,
+    ) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json_bounded(&dir.join("turn_redo.json"), record, MAX_LOG_BYTES)
+
+    }
+
+    /// Loads the saved alternate timeline, if the game has one.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_turn_redo(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<crate::session::turn_redo::TurnRedoRecord>, StorageError> {
+        let path = self.game_dir(game_id)?.join("turn_redo.json");
+        if !path.exists() {
+            return Ok(None);
+        }
+        read_json_file(&path, MAX_LOG_BYTES).map(Some)
+    }
+
+    /// Removes the saved alternate timeline (it was restored, kept past, or discarded).
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be removed.
+    pub fn delete_turn_redo(&self, game_id: &str) -> Result<(), StorageError> {
+        let path = self.game_dir(game_id)?.join("turn_redo.json");
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
     /// Atomically stores a bounded replay-validation snapshot.
     pub fn save_snapshot(
         &self,
@@ -894,11 +960,12 @@ impl FileGameStore {
 
         let content = ContentStore::embedded();
         let galaxy = if let Some(seed) = init_record.seed {
-            let (_, g) = crate::map::create_game_with_template(
+            let g = crate::map::rebuild_galaxy(
                 content,
                 &init_record.player_ids,
                 seed,
                 init_record.map_template.as_deref(),
+                &init_record.initial_state,
             )
             .map_err(StorageError::Map)?;
             Some(g)
@@ -917,8 +984,20 @@ impl FileGameStore {
         };
 
         // Replay all accepted decisions to reach the current recovered state
-        let replay_report = replay_session(&init_record.initial_state, galaxy.as_ref(), &decisions)
-            .map_err(|source| StorageError::Replay {
+        let marks = history
+            .as_ref()
+            .map(|h| h.rng_marks.clone())
+            .unwrap_or_default();
+        // The copy near the end lets the session worker fork the game instead of replaying the
+        // whole history a second time.
+        let (replay_report, replay_copy) = crate::session::replay::replay_session_with_copy(
+            &init_record.initial_state,
+            galaxy.as_ref(),
+            &decisions,
+            &marks,
+            history.as_ref().map_or(0, |h| h.generation),
+        )
+        .map_err(|source| StorageError::Replay {
                 game_id: game_id.to_owned(),
                 source,
             })?;
@@ -934,12 +1013,23 @@ impl FileGameStore {
                 .chain(&history.redo)
                 .cloned()
                 .collect();
-            let validated = replay_session(&init_record.initial_state, galaxy.as_ref(), &future)
+            // Without a redo list this is the replay just made (same decisions, same marks).
+            let (hashes_match, decision_count) = if history.redo.is_empty() {
+                (replay_report.hashes_match, replay_report.decision_count)
+            } else {
+                let validated = replay_session_forced(
+                    &init_record.initial_state,
+                    galaxy.as_ref(),
+                    &future,
+                    &history.rng_marks,
+                )
                 .map_err(|source| StorageError::Replay {
                     game_id: game_id.to_owned(),
                     source,
                 })?;
-            if !validated.hashes_match || validated.decision_count != future.len() {
+                (validated.hashes_match, validated.decision_count)
+            };
+            if !hashes_match || decision_count != future.len() {
                 return Err(StorageError::HashMismatch(game_id.to_owned()));
             }
             let event_decisions = history
@@ -988,6 +1078,7 @@ impl FileGameStore {
                 .with_store(self.clone())
                 .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
                 .with_prior_history(decisions.clone(), events.clone());
+        config.resume = replay_copy.map(Arc::new);
         if let Some(history) = history {
             config.initial_version = history.revision;
             config.redo_decisions = history.redo;
@@ -996,6 +1087,7 @@ impl FileGameStore {
             config.history_generation = history.generation;
             config.history_active = true;
             config.batches = history.batches;
+            config.rng_marks = history.rng_marks;
         }
 
         if let Some(seed) = init_record.seed {
@@ -1112,14 +1204,38 @@ fn atomic_write_player_record<T: Serialize + Clone>(
     record: &T,
     limit: usize,
 ) -> Result<(), StorageError> {
-    let bytes = serde_json::to_vec_pretty(&persist(record)?)?;
-    if bytes.len() + 1 > limit {
+    atomic_write_json_bounded(path, record, limit)
+}
+
+/// Writes the persisted envelope of `value` (pretty JSON plus a newline) to `path` atomically, or
+/// fails with [`StorageError::Oversized`] without touching the file when it would exceed `limit`.
+///
+/// The envelope is built and serialized once: its checksum is a full compact serialization plus a
+/// SHA-256 pass, and a long game's history is megabytes that every committed batch writes again.
+fn atomic_write_json_bounded<T: Serialize + Clone>(
+    path: &Path,
+    value: &T,
+    limit: usize,
+) -> Result<(), StorageError> {
+    let mut bytes = serde_json::to_vec_pretty(&persist(value)?)?;
+    bytes.push(b'\n');
+    if bytes.len() > limit {
         return Err(StorageError::Oversized {
             path: path.to_owned(),
             limit,
         });
     }
-    atomic_write_json(path, record)?;
+    atomic_write_bytes(path, &bytes)?;
+    Ok(())
+}
+
+fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let tmp_path = path.with_extension("tmp");
+    let mut file = File::create(&tmp_path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    fs::rename(&tmp_path, path)?;
     Ok(())
 }
 
@@ -1301,6 +1417,35 @@ mod player_record_tests {
     }
 
     #[test]
+    fn a_bounded_save_writes_one_pretty_envelope_and_refuses_oversize_without_touching_the_file() {
+        let (store, dir) = store();
+        let history = GameHistory {
+            decisions: Vec::new(),
+            redo: Vec::new(),
+            events: Vec::new(),
+            redo_events: Vec::new(),
+            event_counter: 0,
+            revision: 1,
+            generation: 0,
+            batches: Vec::new(),
+            rng_marks: Default::default(),
+        };
+        store.save_history("bounded_history", &history).unwrap();
+        let path = dir.join("bounded_history").join("history.json");
+        let written = std::fs::read(&path).unwrap();
+        let mut expected = serde_json::to_vec_pretty(&persist(&history).unwrap()).unwrap();
+        expected.push(b'\n');
+        assert_eq!(written, expected, "the file is the pretty envelope plus a newline");
+        assert!(!path.with_extension("tmp").exists());
+        assert_eq!(store.load_history("bounded_history").unwrap().unwrap().revision, 1);
+
+        let err = atomic_write_json_bounded(&path, &history, written.len() - 1).unwrap_err();
+        assert!(matches!(err, StorageError::Oversized { .. }), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), written, "an oversized save leaves the file alone");
+        atomic_write_json_bounded(&path, &history, written.len()).unwrap();
+    }
+
+    #[test]
     fn lobby_round_trip_preserves_identity_and_hides_credentials_from_public_output() {
         let (store, dir) = store();
         let (lobby, host, session) =
@@ -1337,6 +1482,8 @@ mod player_record_tests {
                     .insert(
                         id,
                         PlayerLobbyMember {
+                            bot: None,
+                            faction: None,
                             ready: false,
                             session: PlayerSession::generate(),
                             nickname: "Test".into(),
@@ -1422,6 +1569,8 @@ mod player_record_tests {
         lobby.players.insert(
             PlayerId::new(hex_random_256("player_")),
             PlayerLobbyMember {
+                bot: None,
+                faction: None,
                 ready: false,
                 session: lobby.players[&id].session.clone(),
                 nickname: "Test".into(),
@@ -1463,6 +1612,7 @@ mod player_record_tests {
             map_tiles: Vec::new(),
             seats: None,
             map_template: None,
+            strategy_card_set: None,
         };
         store.save_player_init(&init).unwrap();
         let mut sessions = PlayerSessionsRecord {

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::{self, Galaxy};
 use ti4_engine::seating::{self, SeatingError};
-use ti4_engine::setup::start_game_seeded;
+use ti4_engine::setup::start_game_seeded_with_card_set;
 use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
@@ -76,46 +76,6 @@ fn active_source_names(sources: SourceSet) -> Vec<String> {
     .filter(|(source, _)| sources.contains(*source))
     .map(|(_, name)| name.to_owned())
     .collect()
-}
-
-/// Like [`create_game_with_map`], but lays the board out from the predefined map template
-/// `template` when one is named; `None` keeps the seeded random-filler board.
-///
-/// # Errors
-///
-/// A message for an unknown template, a seat-count mismatch, or any seating/galaxy failure.
-pub fn create_game_with_template(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-) -> Result<(GameState, Galaxy), String> {
-    let Some(alias) = template else {
-        return create_game_with_map(content, player_ids, seed).map_err(|e| e.to_string());
-    };
-    let loader = crate::maps::TemplateLoader::load()?;
-    let template = loader
-        .get(alias)
-        .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
-
-    let mut state =
-        start_game_seeded(content, player_ids, POK, None, seed).map_err(|e| e.to_string())?;
-    let assignments = seating::seat_in_scope(player_ids);
-    for (player, faction) in &assignments {
-        seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
-    }
-    let homes: Vec<SystemId> = player_ids
-        .iter()
-        .map(|player| {
-            let one =
-                std::collections::BTreeMap::from([(player.clone(), assignments[player].clone())]);
-            seating::home_systems(content, &one).map(|mut homes| homes.remove(0))
-        })
-        .collect::<Result<_, _>>()
-        .map_err(|e| e.to_string())?;
-    let galaxy = crate::maps::build_template_galaxy(content, template, &homes, seed, POK)
-        .map_err(|e| e.to_string())?;
-    Ok((state, galaxy))
 }
 
 #[cfg(test)]
@@ -276,13 +236,84 @@ pub fn create_game_with_map(
     player_ids: &[PlayerId],
     seed: u64,
 ) -> Result<(GameState, Galaxy), SeatingError> {
-    let mut state = start_game_seeded(content, player_ids, POK, None, seed)
+    create_game_with_map_rotated(content, player_ids, seed, 0)
+}
+
+/// [`create_game_with_map`] with the factions rotated (see `seating::seat_in_scope_rotated`).
+///
+/// # Errors
+///
+/// As [`create_game_with_map`].
+pub fn create_game_with_map_rotated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    rotation: usize,
+) -> Result<(GameState, Galaxy), SeatingError> {
+    create_game_with_map_rotated_and_card_set(content, player_ids, seed, rotation, None)
+}
+
+/// As [`create_game_with_map`], with the strategy-card set named (`None`: the PoK-scope set).
+///
+/// # Errors
+///
+/// Returns [`SeatingError`] if setup (including an unknown card set), seating, deployment, or
+/// galaxy board construction fails.
+pub fn create_game_with_map_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), SeatingError> {
+    create_game_with_map_rotated_and_card_set(content, player_ids, seed, 0, card_set)
+}
+
+/// [`create_game_with_map`] with the factions rotated and the strategy-card set named.
+///
+/// # Errors
+///
+/// As [`create_game_with_map_and_card_set`].
+pub fn create_game_with_map_rotated_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    rotation: usize,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), SeatingError> {
+    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    create_game_with_map_seated(content, player_ids, seed, &assignments, card_set)
+}
+
+/// Deals every seat its faction's promissory notes (69.1).
+///
+/// Setup deals while the seats still hold the placeholder faction `generic`, which leaves four
+/// `<alias>:generic` notes in the last seat's hand and no faction note anywhere. Dealing again once
+/// the factions are seated gives each seat its real hand. The opening state is stored with the
+/// game, so games created before this call keep the hand they were created with.
+fn deal_notes_after_seating(state: &mut GameState, content: &ContentStore) {
+    ti4_engine::promissory::deal(state, content, POK);
+}
+
+/// As [`create_game_with_map_rotated_and_card_set`], with the faction of every seat given (a
+/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
+///
+/// # Errors
+///
+/// As [`create_game_with_map`].
+pub fn create_game_with_map_seated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), SeatingError> {
+    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
         .map_err(|e| SeatingError::UnknownPlayer(e.to_string()))?;
 
-    let assignments = seating::seat_in_scope(player_ids);
-    for (player, faction) in &assignments {
+    for (player, faction) in assignments {
         seating::deploy(&mut state, content, player, faction, POK)?;
     }
+    deal_notes_after_seating(&mut state, content);
 
     let filler = seating::map_filler(content, 36, POK, seed);
     let filler_refs: Vec<&str> = filler.iter().map(SystemId::as_str).collect();
@@ -300,8 +331,176 @@ pub fn create_game_with_map(
         })
         .collect();
     let galaxy = seating::build_board(content, &by_seat, &filler_refs, POK)?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
 
     Ok((state, galaxy))
+}
+
+/// Like [`create_game_with_map`], but lays the board out from the predefined map template
+/// `template` when one is named; `None` keeps the seeded random-filler board.
+///
+/// # Errors
+///
+/// A message for an unknown template, a seat-count mismatch, or any seating/galaxy failure.
+pub fn create_game_with_template(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
+    create_game_with_template_rotated(content, player_ids, seed, template, 0)
+}
+
+/// [`create_game_with_template`] with the factions rotated (see `seating::seat_in_scope_rotated`).
+///
+/// # Errors
+///
+/// As [`create_game_with_template`].
+pub fn create_game_with_template_rotated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    rotation: usize,
+) -> Result<(GameState, Galaxy), String> {
+    create_game_with_template_rotated_and_card_set(content, player_ids, seed, template, rotation, None)
+}
+
+/// As [`create_game_with_template`], with the strategy-card set named (`None`: the PoK-scope set).
+///
+/// # Errors
+///
+/// A message for an unknown template or card set, a seat-count mismatch, or any seating/galaxy
+/// failure.
+pub fn create_game_with_template_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
+    create_game_with_template_rotated_and_card_set(content, player_ids, seed, template, 0, card_set)
+}
+
+/// [`create_game_with_template`] with the factions rotated and the strategy-card set named.
+///
+/// # Errors
+///
+/// As [`create_game_with_template_and_card_set`].
+pub fn create_game_with_template_rotated_and_card_set(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    rotation: usize,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
+    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
+    create_game_with_template_seated(content, player_ids, seed, template, &assignments, card_set)
+}
+
+/// As [`create_game_with_template_rotated_and_card_set`], with the faction of every seat given (a
+/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
+///
+/// # Errors
+///
+/// As [`create_game_with_template`].
+pub fn create_game_with_template_seated(
+    content: &ContentStore,
+    player_ids: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    assignments: &std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId>,
+    card_set: Option<&str>,
+) -> Result<(GameState, Galaxy), String> {
+    let Some(alias) = template else {
+        return create_game_with_map_seated(content, player_ids, seed, assignments, card_set)
+            .map_err(|e| e.to_string());
+    };
+    let loader = crate::maps::TemplateLoader::load()?;
+    let template = loader
+        .get(alias)
+        .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
+
+    let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
+        .map_err(|e| e.to_string())?;
+    for (player, faction) in assignments {
+        seating::deploy(&mut state, content, player, faction, POK).map_err(|e| e.to_string())?;
+    }
+    deal_notes_after_seating(&mut state, content);
+    let homes: Vec<SystemId> = player_ids
+        .iter()
+        .map(|player| {
+            let one =
+                std::collections::BTreeMap::from([(player.clone(), assignments[player].clone())]);
+            seating::home_systems(content, &one).map(|mut homes| homes.remove(0))
+        })
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    let galaxy = crate::maps::build_template_galaxy(content, template, &homes, seed, POK)
+        .map_err(|e| e.to_string())?;
+    // Setup rule: objectives this board can never satisfy are dealt out of the decks.
+    ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
+    Ok((state, galaxy))
+}
+
+/// Who opens a new game as speaker (and so picks the first strategy card).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SpeakerOrder {
+    /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
+    /// opens with the same speaker. What a lobby game gets unless it asks otherwise.
+    #[default]
+    Random,
+    /// The first seat. Fixtures and tests pin their games to this.
+    Seat,
+}
+
+impl SpeakerOrder {
+    /// The stored/requested name: `"random"` or `"seat"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Random => "random",
+            Self::Seat => "seat",
+        }
+    }
+
+    /// Parse a requested name.
+    ///
+    /// # Errors
+    /// A message naming the accepted values.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "random" => Ok(Self::Random),
+            "seat" => Ok(Self::Seat),
+            other => Err(format!(
+                "unknown speaker_order {other:?} (expected \"random\" or \"seat\")"
+            )),
+        }
+    }
+
+    /// A stored value; `None` (a record written before the option) and anything unknown are
+    /// [`SpeakerOrder::Random`].
+    #[must_use]
+    pub fn from_stored(name: Option<&str>) -> Self {
+        name.and_then(|n| Self::parse(n).ok()).unwrap_or_default()
+    }
+}
+
+/// The factions a lobby table plays: `chosen[i]` is what seat `i` asked for, and the undecided seats
+/// get distinct factions from the rest of the pool, dealt by `seed`
+/// ([`seating::lobby_faction_draw`]). Indexed by seat, so a map preview made before anyone has an
+/// id seats the same factions the game will.
+///
+/// # Errors
+/// A message for an unknown or repeated choice.
+pub fn lobby_seat_factions(
+    chosen: &[Option<String>],
+    seed: u64,
+) -> Result<Vec<ti4_model::id::FactionId>, String> {
+    let chosen: Vec<Option<&str>> = chosen.iter().map(Option::as_deref).collect();
+    seating::lobby_faction_draw(&chosen, seed).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -310,6 +509,15 @@ mod template_tests {
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
+    }
+
+    #[test]
+    fn speaker_order_names_round_trip() {
+        for order in [SpeakerOrder::Random, SpeakerOrder::Seat] {
+            assert_eq!(SpeakerOrder::parse(order.as_str()), Ok(order));
+        }
+        assert!(SpeakerOrder::parse("first").is_err());
+        assert_eq!(SpeakerOrder::from_stored(None), SpeakerOrder::Random);
     }
 
     #[test]
@@ -367,6 +575,42 @@ mod template_tests {
                     galaxy.coord_of(home).is_some(),
                     "{alias}: home {home} is on the board"
                 );
+            }
+        }
+    }
+
+    /// Setup rule: no generated game deals, reveals or holds an objective its own map cannot
+    /// satisfy (generated boards have no empty systems, wormholes or anomalies).
+    #[test]
+    fn a_new_game_never_holds_an_objective_its_map_rules_out() {
+        let content = ContentStore::embedded();
+        let loader = crate::maps::TemplateLoader::load().unwrap();
+        for n in 3..=6usize {
+            let list: Vec<PlayerId> = (0..n).map(|i| PlayerId::new(format!("p{i}"))).collect();
+            let default = crate::maps::default_template_for(content, &loader, n, POK);
+            for template in [None, default.as_deref()] {
+                for seed in 0..6 {
+                    let (state, galaxy) =
+                        create_game_with_template(content, &list, seed, template).unwrap();
+                    let homes: Vec<SystemId> =
+                        state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+                    let census = ti4_engine::map_feasibility::census(content, POK, &galaxy, &homes);
+                    let public = ti4_engine::map_feasibility::unsatisfiable_public(&census);
+                    let secret = ti4_engine::map_feasibility::unsatisfiable_secret(&census);
+                    assert!(public.contains(&"deep_space") && secret.contains(&"btgk"));
+                    for id in state.revealed_objectives.iter().chain(&state.objective_deck) {
+                        assert!(!public.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                    }
+                    for id in state
+                        .secret_deck
+                        .iter()
+                        .chain(state.players.iter().flat_map(|p| &p.secret_objectives))
+                    {
+                        assert!(!secret.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                    }
+                    assert_eq!(state.revealed_objectives.len(), 2);
+                    assert!(state.players.iter().all(|p| p.secret_objectives.len() == 1));
+                }
             }
         }
     }

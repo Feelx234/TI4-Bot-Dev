@@ -25,7 +25,16 @@ use crate::draft_scripts::{
 fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
     let registry = Arc::new(GameRegistry::new());
     let (_, seat, credential) = registry
-        .create_player_game_with_random_seats(game_id.to_owned(), 6, 3, "Host", None, None)
+        .create_player_game_with_random_seats(
+            game_id.to_owned(),
+            6,
+            3,
+            "Host",
+            None,
+            None,
+            ti4_server::card_set::DEFAULT,
+            ti4_server::map::SpeakerOrder::Seat,
+        )
         .expect("a started game");
     (registry, seat, credential.as_str().to_owned())
 }

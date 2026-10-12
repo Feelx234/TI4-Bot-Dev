@@ -184,6 +184,12 @@ fn late_game(
     ];
     if deflectors {
         technologies.extend(["amd", "lwd"]);
+    } else if let Some(seat) = state.player_mut(a) {
+        // Sol starts with Antimass Deflectors, and the engine now gives it its effect: the game
+        // without deflectors takes them off, so that its asteroid field is closed.
+        for technology in ["amd", "lwd"] {
+            seat.technologies.remove(&TechnologyId::new(technology));
+        }
     }
     for technology in technologies {
         technology::grant(state, a, &TechnologyId::new(technology));
@@ -374,6 +380,8 @@ fn late_game(
                 card: card.to_owned(),
                 planet,
                 outcome,
+                system: None,
+                result: String::new(),
             });
     }
 
@@ -1487,7 +1495,7 @@ mod tests {
     }
 
     #[test]
-    fn the_asteroid_field_is_closed_and_the_dreadnought_goes_around() {
+    fn the_asteroid_field_is_closed_without_deflectors_and_the_dreadnought_goes_around() {
         // South to west: through the asteroid field it is 2, around it 3.
         for id in [LATE_GAME, LATE_GAME_DEFLECTORS] {
             let (state, galaxy) = game(id);
@@ -1497,10 +1505,14 @@ mod tests {
                 .r#move
                 .as_ref()
                 .expect("the dreadnought arrives");
-            // The engine does not give Antimass Deflectors its effect yet (2026-10-10), so the
-            // field is closed with it too. When it does, the second game goes through.
-            assert!(route.gravity_drive, "{id}: {route:?}");
-            assert!(!route.path.contains(&at::ASTEROIDS.to_owned()), "{id}");
+            if id == LATE_GAME {
+                assert!(route.gravity_drive, "{id}: {route:?}");
+                assert!(!route.path.contains(&at::ASTEROIDS.to_owned()), "{id}");
+            } else {
+                // Antimass Deflectors opens the field: the second game goes through it.
+                assert!(!route.gravity_drive, "{id}: {route:?}");
+                assert!(route.path.contains(&at::ASTEROIDS.to_owned()), "{id}");
+            }
         }
     }
 

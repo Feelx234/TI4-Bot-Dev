@@ -72,7 +72,7 @@ test.describe("Objective Scoring Dev Scenarios", () => {
 
     // Wait for Status Phase to advance to the next step (gain command token)
     await expect(page.getByTestId("choice-prompt")).toContainText(
-      "gain a command token into which pool",
+      /Gain \d+ command tokens?/,
     );
 
     // Minimize subsequent choice to clear modal backdrop and view board/tables
@@ -141,9 +141,14 @@ test.describe("Objective Scoring Dev Scenarios", () => {
     await expect(submitBtn).toBeEnabled();
     await submitBtn.click();
 
-    // Imperial completes the action; the end-of-turn decision sits on the turn bar,
-    // which leaves the board and tables free without minimizing anything.
-    await expect(page.getByTestId("turn-bar-end")).toBeVisible();
+    // Imperial completes the action and offers the end-of-turn decision.
+    await expect(page.getByTestId("choice-prompt")).toContainText("end your turn");
+
+    // Minimize subsequent choice to clear modal backdrop and view board/tables
+    const minimizeBtn = page.getByTestId("minimize-choice-button");
+    await expect(minimizeBtn).toBeVisible();
+    await minimizeBtn.click();
+    await expect(page.getByTestId("minimized-choice-banner")).toBeVisible();
 
     // Open Objectives matrix modal in inspection mode
     const objectivesBtn = page.getByTestId("objectives-modal-button");

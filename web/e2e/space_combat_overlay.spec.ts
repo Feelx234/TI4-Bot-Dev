@@ -321,11 +321,9 @@ test.describe("Space Combat Overlay", () => {
         (option) => option.id !== "decline" && option.kind !== "decline",
       );
       expect(sustain).toBeDefined();
-      // Hits are staged in one panel and sent as a single plan.
-      await page.locator('[data-testid^="hit-sustain-"]').first().click();
-      const fill = page.getByTestId("hit-auto-assign");
-      if (await fill.isEnabled()) await fill.click();
-      await page.getByTestId("hit-confirm").click();
+      const sustainButton = page.getByTestId(`sustain-opt-${sustain!.id}`);
+      await expect(sustainButton).toBeVisible();
+      await sustainButton.click();
       await expect
         .poll(async () => (await snapshot(request, gameId, session)).game_version)
         .toBeGreaterThan(sustainChoice.game_version);
@@ -385,7 +383,7 @@ test.describe("Space Combat Overlay", () => {
     // The card has resolved this before-assignment window. The next action is to
     // absorb the one remaining hit, not to pass through the same window again.
     await expect(page.getByTestId("pass-combat-reaction-btn")).toHaveCount(0);
-    await expect(page.getByTestId("hit-assignment-remaining")).toContainText("1 of 1");
+    await expect(page.getByTestId("decline-sustain-btn")).toBeVisible();
     await expect(page.getByTestId("choice-error-banner")).toBeHidden();
   });
 });

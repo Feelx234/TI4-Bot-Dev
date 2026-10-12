@@ -1,7 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
-import { CreateGameResponse, LobbyDto, LobbySlot, MapChoice } from "../protocol/types.ts";
+import {
+  CreateGameResponse,
+  InProcessBotKind,
+  LobbyDto,
+  LobbySlot,
+  MapChoice,
+  StrategyCardSetId,
+} from "../protocol/types.ts";
+import { AlphaNotice, BuildFooter } from "./AlphaNotice.tsx";
 import { MapPicker } from "./MapPicker.tsx";
+import { FactionPicker, FactionSigil } from "./FactionPicker.tsx";
+import { lobbyFactionName, lobbyFactionPool, takenFactions } from "../presentation/lobbyFactions.ts";
 import { mapChangeNotice, mapName } from "../presentation/mapPicker.ts";
+import {
+  DEFAULT_STRATEGY_CARD_SET,
+  STRATEGY_CARD_SETS,
+  isStrategyCardSetId,
+  strategyCardSetLabel,
+  strategyCardSetName,
+} from "../presentation/strategyCardSet.ts";
 import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
@@ -11,7 +28,8 @@ export const CreateLobby: React.FC<{
   onCreated: (created: CreateGameResponse) => void;
   onError: (message: string) => void;
 }> = ({ onCreated, onError }) => {
-  const [count, setCount] = useState(3);
+  const [count, setCount] = useState(4);
+  const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
   // it exists only in dev builds (the API field itself is unchanged).
   const showSeed = import.meta.env.DEV;
@@ -35,7 +53,12 @@ export const CreateLobby: React.FC<{
       const response = await fetch("/api/games", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ player_count: count, seed: parsedSeed, nickname }),
+        body: JSON.stringify({
+          player_count: count,
+          seed: parsedSeed,
+          nickname,
+          strategy_card_set: cardSet,
+        }),
       });
       if (!response.ok)
         throw new Error(`Create game failed (${response.status}): ${await response.text()}`);
@@ -52,6 +75,7 @@ export const CreateLobby: React.FC<{
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
+        <AlphaNotice />
         <h1>Twilight Imperium 4</h1>
         <p className="text-muted">Create a table and share its game URL.</p>
         <form className="lobby-form" onSubmit={create}>
@@ -70,6 +94,27 @@ export const CreateLobby: React.FC<{
               ))}
             </select>
           </label>
+          <label className="field-label">
+            Strategy cards
+            <select
+              className="input"
+              data-testid="strategy-card-set-select"
+              disabled={creating}
+              value={cardSet}
+              onChange={(event) => {
+                if (isStrategyCardSetId(event.target.value)) setCardSet(event.target.value);
+              }}
+            >
+              {STRATEGY_CARD_SETS.map((set) => (
+                <option key={set.id} value={set.id}>
+                  {strategyCardSetLabel(set)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="text-faint" data-testid="strategy-card-set-description">
+            {STRATEGY_CARD_SETS.find((set) => set.id === cardSet)?.description}
+          </p>
           <label className="field-label">
             Nickname
             <input
@@ -105,6 +150,7 @@ export const CreateLobby: React.FC<{
             {creating ? "Creating lobby…" : "Create lobby"}
           </button>
         </form>
+        <BuildFooter />
       </section>
     </main>
   );
@@ -122,6 +168,18 @@ interface LobbyStatusProps {
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
+  /**
+   * Host only: seat in-process bots (one, or every open seat with `fill`) of `kind`. `faction`
+   * names the faction of the one bot being added (random when absent).
+   */
+  onAddRandomBots?: (options: {
+    fill?: boolean;
+    count?: number;
+    kind?: InProcessBotKind;
+    faction?: string;
+  }) => Promise<boolean | void>;
+  /** Change a seat's faction (`null`: back to random): the host for any seat, a person for their own. */
+  onSetSeatFaction?: (playerId: string, faction: string | null) => Promise<boolean | void>;
   /** Host only: save a map choice (resolves once the lobby has been updated). */
   onChooseMap?: (choice: MapChoice, startPreset?: string) => Promise<boolean | void>;
   watching?: boolean;
@@ -161,6 +219,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   onWatch,
   onAddBot,
   onRemoveBot,
+  onAddRandomBots,
+  onSetSeatFaction,
   onChooseMap,
   watching,
   pendingAction,
@@ -177,6 +237,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   const [rememberBotPassword, setRememberBotPassword] = useState(true);
   const [botError, setBotError] = useState<string | null>(null);
   const [addingBot, setAddingBot] = useState(false);
+  const [newBotFaction, setNewBotFaction] = useState<string | null>(null);
   const viewer =
     playerId === null ? undefined : lobby.slots.find((slot) => slot.occupant === playerId);
   const isHost = playerId !== null && playerId === lobby.host_player_id;
@@ -197,6 +258,21 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     if (!isHost) setMapNotice((old) => mapChangeNotice(previousMap.current, now) ?? old);
     previousMap.current = now;
   }, [lobby.map_revision, lobby.map, isHost]);
+  // The only bot a lobby offers is the smart one; an older server lists no kinds and gets none.
+  const canAddInProcessBots =
+    isHost &&
+    lobby.phase === "lobby" &&
+    !!onAddRandomBots &&
+    lobby.slots.some((slot) => !slot.occupant);
+  const factionPool = lobbyFactionPool(lobby);
+  const canChooseFactions = factionPool.length > 0;
+  const heldFactions = takenFactions(lobby);
+  // A faction that was taken since it was picked falls back to random.
+  const pendingFaction =
+    newBotFaction && !heldFactions.has(newBotFaction) && factionPool.includes(newBotFaction)
+      ? newBotFaction
+      : null;
+  const canAddSmartBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("smart");
   const canStart =
     lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
   const handleAddBot = async (event: React.FormEvent) => {
@@ -255,6 +331,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
+        <AlphaNotice />
         <h1>{lobby.phase === "running" ? "Game in progress" : "Game lobby"}</h1>
         <button
           type="button"
@@ -286,6 +363,11 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             </button>
           </div>
         )}
+        {lobby.strategy_card_set !== undefined && (
+          <p className="text-muted" data-testid="lobby-card-set-row">
+            Strategy cards: <strong>{strategyCardSetName(lobby.strategy_card_set)}</strong>
+          </p>
+        )}
         {mapNotice && (
           <p role="status" className="text-muted" data-testid="map-change-notice">
             {mapNotice}{" "}
@@ -308,6 +390,59 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             onClose={closePicker}
           />
         )}
+        {canAddSmartBots && (
+          <div className="lobby-bot-actions" data-testid="random-bot-actions">
+            {canChooseFactions && (
+              <div className="lobby-bot-actions__faction">
+                <span id="new-bot-faction-label">Faction for the next bot</span>
+                <FactionPicker
+                  pool={factionPool}
+                  value={pendingFaction}
+                  taken={heldFactions}
+                  disabled={!!pendingAction}
+                  label="Faction for the next bot"
+                  testId="new-bot-faction"
+                  onChange={setNewBotFaction}
+                />
+              </div>
+            )}
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="add-smart-bot-button"
+              disabled={!!pendingAction}
+              onClick={() =>
+                void (async () => {
+                  const done = await onAddRandomBots?.({
+                    count: 1,
+                    kind: "smart",
+                    ...(pendingFaction ? { faction: pendingFaction } : {}),
+                  });
+                  if (done !== false) setNewBotFaction(null);
+                })()
+              }
+            >
+              {pendingAction === "add_random_bots" ? "Adding…" : "Add bot"}
+            </button>
+            <button
+              type="button"
+              className="button button--outline"
+              data-testid="fill-smart-bots-button"
+              disabled={!!pendingAction}
+              onClick={() => void onAddRandomBots?.({ fill: true, kind: "smart" })}
+            >
+              Fill empty seats with bots
+            </button>
+            <p className="text-faint lobby-bot-actions__hint">
+              Bots claim nearby planets, invade Mecatol Rex when they can, only take fights they
+              expect to win, build when short of units and accept only trades in their favour; the
+              rest they play at random.{" "}
+              {canChooseFactions &&
+                "Pick a faction for a bot, or leave it on Random: the seed deals the other seats a different faction each. "}
+              They need no password and cannot be taken over.
+            </p>
+          </div>
+        )}
         <div className="lobby-list">
           {lobby.slots.map((slot, index) => (
             <div
@@ -319,6 +454,14 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                 <SeatBadge position={slot.position} /> Position {slot.position}:{" "}
                 {slot.occupant ? playerLabel(slot) : "Open"}
                 {slot.occupant === lobby.host_player_id ? " (Host)" : ""}
+                {(slot.bot === "random" || slot.bot === "smart") && (
+                  <span
+                    className={`lobby-bot-badge lobby-bot-badge--${slot.bot}`}
+                    data-testid={`bot-badge-${slot.position}`}
+                  >
+                    {slot.bot === "smart" ? "Rule bot" : "Random bot"}
+                  </span>
+                )}
               </strong>
               <span className="lobby-list__status">
                 {slot.occupant ? (
@@ -328,11 +471,15 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                     >
                       {slot.ready ? "✔ Ready" : "○ Not ready"}
                     </span>
-                    <span
-                      className={`lobby-presence ${slot.connected ? "lobby-presence--connected" : "lobby-presence--disconnected"}`}
-                    >
-                      {slot.connected ? "● Connected" : "◇ Disconnected"}
-                    </span>
+                    {slot.bot ? (
+                      <span className="lobby-presence lobby-presence--connected">● Plays itself</span>
+                    ) : (
+                      <span
+                        className={`lobby-presence ${slot.connected ? "lobby-presence--connected" : "lobby-presence--disconnected"}`}
+                      >
+                        {slot.connected ? "● Connected" : "◇ Disconnected"}
+                      </span>
+                    )}
                   </>
                 ) : isHost && lobby.phase === "lobby" && lobby.bot_service_enabled ? (
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -363,8 +510,16 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       type="button"
                       className="button button--outline button--icon remove-bot-button"
                       data-testid={`remove-bot-button-${slot.position}`}
-                      aria-label={`Remove player at position ${slot.position}`}
-                      title={`Remove player at position ${slot.position}`}
+                      aria-label={
+                        slot.bot
+                          ? `Remove bot at position ${slot.position}`
+                          : `Remove player at position ${slot.position}`
+                      }
+                      title={
+                        slot.bot
+                          ? `Remove bot at position ${slot.position}`
+                          : `Remove player at position ${slot.position}`
+                      }
                       disabled={!!pendingAction}
                       onClick={() => void onRemoveBot(slot.occupant!)}
                     >
@@ -389,6 +544,29 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                   >
                     ↓
                   </button>
+                </span>
+              )}
+              {slot.occupant && canChooseFactions && (
+                <span className="lobby-list__faction" data-testid={`seat-faction-${slot.position}`}>
+                  {lobby.phase === "lobby" &&
+                  onSetSeatFaction &&
+                  (isHost || slot.occupant === playerId) ? (
+                    <FactionPicker
+                      compact
+                      pool={factionPool}
+                      value={slot.faction ?? null}
+                      taken={takenFactions(lobby, slot.position)}
+                      disabled={!!pendingAction}
+                      label={`Faction of position ${slot.position}`}
+                      testId={`seat-faction-picker-${slot.position}`}
+                      onChange={(faction) => void onSetSeatFaction(slot.occupant!, faction)}
+                    />
+                  ) : (
+                    <>
+                      <FactionSigil faction={slot.faction ?? null} />
+                      <span>{slot.faction ? lobbyFactionName(slot.faction) : "Random faction"}</span>
+                    </>
+                  )}
                 </span>
               )}
             </div>
@@ -568,6 +746,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
             {pendingAction === "leave" ? "Leaving…" : "Leave lobby"}
           </button>
         )}
+        <BuildFooter />
       </section>
     </main>
   );

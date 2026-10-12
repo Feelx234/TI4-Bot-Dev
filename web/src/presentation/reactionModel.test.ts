@@ -23,7 +23,7 @@ const sabotageOffer = (subtype = "reaction_when_ACTION_CARD_PLAYED"): PendingCho
 });
 
 const logEntry = (actor: string, detail: string): GameEvent => ({
-  visibility: "public",
+  visibility: { visibility: "public" as const },
   id: "e1",
   timestamp: "t",
   actor,
@@ -115,6 +115,26 @@ describe("describeReaction", () => {
     expect(model.eventType).toBe("ACTION_CARD_PLAYED");
     expect(model.reactions[0].buttonLabel).toBe("Use Instinct Training");
     expect(model.reactions[0].note).toMatch(/cancel/i);
+  });
+
+  it("names faction notes, unit cards and leaders from the catalog instead of their engine ids", () => {
+    const offer = (id: string): PendingChoiceDto => ({
+      actor: "p2",
+      nonce: "3",
+      prompt: "when SYSTEM_ACTIVATED",
+      context: { subtype: "reaction_after_SYSTEM_ACTIVATED", optional: true, source: { Reaction: "SYSTEM_ACTIVATED" } },
+      options: [
+        { id, kind: "ability", label: `Play ${id}` },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    });
+    const label = (id: string) =>
+      describeReaction({ choice: offer(id), ...labels, viewerSeat: "p2" }).reactions[0];
+    expect(label("promissory:empyrean:iff:TURN_BEGAN:after").buttonLabel).toBe("Use Creuss Iff");
+    expect(label("promissory:empyrean:iff:TURN_BEGAN:after").note).toMatch(/wormhole/i);
+    expect(label("unit:arborec:arborec_flagship:SYSTEM_ACTIVATED:after").buttonLabel).toBe("Use Duha Menaimon");
+    expect(label("leader:argent:argentcommander:UNIT_ABILITY_ROLLED:").buttonLabel).toBe("Use Trrakan Aun Zulok");
+    expect(label("promissory:xxcha:cf:SYSTEM_ACTIVATED:after").buttonLabel).toBe("Use Ceasefire");
   });
 
   it("keeps the engine label for an unnamed multi-card outer offer", () => {

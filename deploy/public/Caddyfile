@@ -1,0 +1,45 @@
+# Caddy reverse proxy for the TI4 public playtest. Not installed by the repo.
+#
+# Replace play.example.org with your domain, or with <ip-with-dashes>.sslip.io
+# (for 203.0.113.7 that is 203-0-113-7.sslip.io). Caddy fetches a Let's Encrypt
+# certificate by itself; ports 80 and 443 must be reachable from the internet.
+#
+#   sudo cp deploy/public/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+
+play.example.org {
+	encode zstd gzip
+
+	# Keep the real client address out of the hands of the client: our own X-Forwarded-For
+	# and nothing the visitor sent. The server (TI4_TRUST_PROXY=1) reads the rightmost entry.
+	# Remove CF-Connecting-IP so nobody can spoof it (only keep it behind Cloudflare).
+	reverse_proxy 127.0.0.1:18200 {
+		header_up -CF-Connecting-IP
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		# WebSockets (/ws/games/<id>) pass through reverse_proxy without extra settings.
+		# Seat games stay open for hours: no idle cut-off from the proxy side.
+		transport http {
+			read_timeout 0
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		# The client is a Vite bundle with inline styles; sockets are same-origin.
+		Content-Security-Policy "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' wss://{host}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+		-Server
+	}
+
+	# Caddy writes its own access log; the app logs neither tokens nor IPs.
+	log {
+		output file /var/log/caddy/ti4-public.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

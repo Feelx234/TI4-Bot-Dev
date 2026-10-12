@@ -66,6 +66,32 @@ describe("ReactionStatusBar", () => {
     expect(onSubmit).toHaveBeenCalledWith("decline");
   });
 
+  it("the card-pick step of a multi-card window shows a Back button that declines without playing", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "43",
+      prompt: "play an action card (when HITS_TO_ASSIGN)",
+      context: { subtype: "play_reaction_when_HITS_TO_ASSIGN", optional: true },
+      options: [
+        { id: "sh1", label: "play Shields Holding", kind: "action_card", payload: { card: "sh1", card_name: "Shields Holding" } },
+        { id: "dh1", label: "play Direct Hit", kind: "action_card", payload: { card: "dh1", card_name: "Direct Hit" } },
+        { id: "decline", label: "Decline", kind: "decline" },
+      ],
+    };
+    render(<ReactionStatusBar isOpen={true} choice={choice} viewerSeat="seat_1" onSubmit={onSubmit} />);
+    expect(screen.getByTestId("play-reaction-btn-sh1")).toBeInTheDocument();
+    expect(screen.getByTestId("play-reaction-btn-dh1")).toBeInTheDocument();
+    const back = screen.getByTestId("pass-reaction-btn");
+    expect(back).toHaveTextContent(/Back/);
+    expect(screen.queryByTestId("play-reaction-btn-decline")).toBeNull();
+    await act(async () => {
+      fireEvent.click(back);
+    });
+    expect(onSubmit).toHaveBeenCalledWith("decline");
+    expect(onSubmit).not.toHaveBeenCalledWith("sh1");
+  });
+
   it("handles pass button click", async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
 
@@ -171,7 +197,7 @@ describe("ReactionStatusBar", () => {
     );
 
     expect(screen.getByTestId("spectator-reaction-notice")).toHaveTextContent(
-      "Waiting for Unknown participant...",
+      "Waiting for reactions...",
     );
   });
 
@@ -269,7 +295,7 @@ describe("ReactionStatusBar", () => {
         onSubmit={vi.fn()}
         events={[
           {
-            visibility: "public",
+            visibility: { visibility: "public" as const },
             id: "e1",
             timestamp: "t",
             actor: "seat_2",
@@ -292,6 +318,37 @@ describe("ReactionStatusBar", () => {
     expect(screen.getByTestId("reaction-can-now")).toHaveTextContent(
       "Before this resolves, you can play Sabotage or play Decoy Operation.",
     );
+  });
+
+  it("shows a faction ability or leader reaction by its printed name, with no raw engine id", () => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "55",
+      prompt: "after SYSTEM_ACTIVATED",
+      context: {
+        subtype: "reaction_after_SYSTEM_ACTIVATED",
+        optional: true,
+        source: { Reaction: "SYSTEM_ACTIVATED" },
+      },
+      options: [
+        {
+          id: "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after",
+          kind: "ability",
+          label: "Aetherpassage (after system activated)",
+        },
+        {
+          id: "leader:l1z1x:l1z1xagent:SYSTEM_ACTIVATED:after",
+          kind: "ability",
+          label: "Agent I48S (after system activated)",
+        },
+        { id: "decline", kind: "decline", label: "Pass" },
+      ],
+    };
+    render(<ReactionStatusBar isOpen choice={choice} viewerSeat="seat_1" onSubmit={vi.fn()} events={[]} />);
+    const bar = screen.getByTestId("reaction-status-bar");
+    expect(bar).toHaveTextContent("Aetherpassage");
+    expect(bar).toHaveTextContent("I48S");
+    expect(bar.textContent ?? "").not.toMatch(/\b[A-Z]{3,}_[A-Z_]{3,}\b/);
   });
 
   describe("Phase 2: typed trigger, card text controls", () => {

@@ -56,7 +56,7 @@ describe("MapPicker (host)", () => {
     );
     await screen.findByTestId("map-preview-board");
     expect(screen.getByTestId("map-picker-summary")).toHaveTextContent(
-      "6pStandard by Community · 37 systems · no hyperlanes",
+      "6 players · Standard by Community · 37 systems · no hyperlanes",
     );
     expect(screen.getByLabelText("Seats")).toHaveTextContent("Seat 1: Federation of Sol (you)");
   });

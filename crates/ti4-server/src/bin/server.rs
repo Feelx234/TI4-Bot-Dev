@@ -17,6 +17,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(8080);
 
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("feedback-list") {
+        return feedback_list(&args[2..]);
+    }
     let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
     for i in 0..args.len() {
         if args[i] == "--data-dir" && i + 1 < args.len() {
@@ -25,11 +28,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let store = Arc::new(ti4_server::storage::FileGameStore::new(&data_dir)?);
-    let mut registry = GameRegistry::new().with_store(store);
+    let public_config = ti4_server::public::PublicConfig::from_env(std::path::Path::new(&data_dir));
+    let public_mode = public_config.public;
+    let mut registry = GameRegistry::new()
+        .with_store(store)
+        .with_public(public_config);
     if let Ok(millis) = std::env::var("TI4_DEV_PRESENCE_GRACE_MS") {
         registry = registry.with_presence_grace(Duration::from_millis(millis.parse()?));
     }
-    if let Ok(bot_password) = std::env::var("TI4_BOT_PASSWORD")
+    if public_mode && std::env::var("TI4_BOT_PASSWORD").is_ok_and(|v| !v.trim().is_empty()) {
+        eprintln!("TI4_PUBLIC=1: ignoring TI4_BOT_PASSWORD, ML bots stay disabled");
+    }
+    if !public_mode
+        && let Ok(bot_password) = std::env::var("TI4_BOT_PASSWORD")
         && !bot_password.trim().is_empty()
     {
         let advisor_url =
@@ -99,7 +110,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("║  Open in UI:    http://127.0.0.1:3000                            ║");
     println!("╚══════════════════════════════════════════════════════════════════╝\n");
 
-    axum::serve(listener, app)
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
         .with_graceful_shutdown(async {
             tokio::signal::ctrl_c().await.ok();
             info!("Received shutdown signal, terminating server");
@@ -107,5 +121,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
+    Ok(())
+}
+
+/// `server feedback-list [--data-dir DIR] [--limit N] [--verbose]`: prints recent reports.
+fn feedback_list(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
+    let mut limit = 20usize;
+    let mut verbose = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--data-dir" if i + 1 < args.len() => {
+                data_dir = args[i + 1].clone();
+                i += 1;
+            }
+            "--limit" if i + 1 < args.len() => {
+                limit = args[i + 1].parse()?;
+                i += 1;
+            }
+            "--verbose" | "-v" => verbose = true,
+            other => return Err(format!("unknown argument {other:?}").into()),
+        }
+        i += 1;
+    }
+    let reports = ti4_server::feedback::list_recent(std::path::Path::new(&data_dir), limit);
+    if reports.is_empty() {
+        println!("No feedback reports under {data_dir}/feedback");
+    }
+    for (path, record) in reports {
+        print!("{}", ti4_server::feedback::render(&record, verbose));
+        println!("    file: {}\n", path.display());
+    }
     Ok(())
 }

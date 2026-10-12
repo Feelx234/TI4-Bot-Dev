@@ -142,8 +142,17 @@ panic = "abort"
 debug = "line-tables-only"
 split-debuginfo = "packed"
 
-# Dependencies are never stepped through; their frames still show function names.
+# Third-party dependencies are compiled with optimization even in the dev and test profiles, while
+# every workspace crate stays a plain debug build (opt-level 0, debug assertions and overflow checks
+# ON; `"*"` matches only non-workspace-member packages). The server's hot paths run through
+# serde_json, sha2/blake2, zstd/flate2, rand, hashbrown and tokio/axum; optimizing them roughly
+# halves save_history/load_history and the per-decision commit wait without touching the debug
+# checks of our own code. `debug = false` drops dependency debug info (smaller target dir and
+# faster links); backtraces keep file:line for our code. Profile settings do not change Cargo.lock.
+# build scripts and proc-macros are covered by `build-override` (opt-level 0 by default), so the
+# extra compile time is only the final dependency code.
 [profile.dev.package."*"]
+opt-level = 3
 debug = false
 
 [profile.debugger]

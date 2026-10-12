@@ -1329,6 +1329,21 @@ mod fact_tests {
         );
     }
 
+    /// The web client decodes this exact file (web/src/protocol/eventVisibility.test.ts).
+    #[test]
+    fn event_visibility_wire_shape_matches_the_client_fixture() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../fixtures/event_visibility.json")).unwrap();
+        let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
+        assert_eq!(events[0].visibility, EventVisibility::Public);
+        assert_eq!(
+            events[1].visibility,
+            EventVisibility::Seat(PlayerId::new("p1"))
+        );
+        assert_eq!(events[2].visibility, EventVisibility::Referee);
+        assert_eq!(serde_json::to_value(&events).unwrap(), fixture);
+    }
+
     #[test]
     fn secret_facts_are_projected_only_to_the_actor() {
         let secret =
@@ -1576,6 +1591,84 @@ pub struct PendingChoiceMsg {
     pub galaxy_layout: GalaxyLayout,
 }
 
+/// A seat's own bluff settings (private to that seat; carries no game version on purpose, so a
+/// stale-version filter never drops it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReactionIntentStateMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    /// Declared trigger ids.
+    pub triggers: Vec<String>,
+    pub max_triggers: usize,
+    /// Whether this seat may bluff right now (cards in hand, no Never setting).
+    pub eligible: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ineligible_reason: Option<String>,
+    /// The declaration cannot change before this round starts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locked_until_round: Option<u32>,
+    /// A stall budget (per round, per game or table-wide) is used up: no more holds.
+    pub budget_used_up: bool,
+    /// A hold for this seat is running now: show the Pass control.
+    pub holding: bool,
+}
+
+/// Why a secondary preview was refused (see [`SecondaryPreviewMsg`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewRefusal {
+    /// Only a seated player can ask.
+    NotSeated,
+    /// The game is not in a strategic action (or it is not the card the client named).
+    NoStrategicAction,
+    /// The seat played the card itself.
+    IsPrimary,
+    /// The seat has already been asked (or is being asked right now).
+    AlreadyAsked,
+    /// The session is replaying, rewinding, finished or failed.
+    Busy,
+    /// Too many requests on this connection; retry after the interval in the detail.
+    RateLimited,
+}
+
+/// What a preview request resolved to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case", deny_unknown_fields)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one short-lived value per request; the engine value is carried as it is"
+)]
+pub enum PreviewResult {
+    /// The engine's answer: the question, "would not be asked", "complete" or "unavailable".
+    Preview {
+        preview: ti4_engine::secondary_preview::SecondaryPreview,
+    },
+    Refused {
+        reason: PreviewRefusal,
+        detail: String,
+    },
+}
+
+/// The answer to a `PreviewSecondary` request: what the asking seat would be asked for the
+/// secondary in progress if its window opened now. Sent only to the connection that asked;
+/// ephemeral (never persisted, logged or broadcast) and carries no game version in the envelope
+/// sense, so a stale-version filter never drops it: `as_of_version` says which position it was
+/// computed at, and the client re-checks the plan against the real question when it opens.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SecondaryPreviewMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    pub request_id: u64,
+    /// The game version of the position the preview was computed from.
+    pub as_of_version: u64,
+    /// How many decisions the game had recorded then.
+    pub as_of_decisions: usize,
+    pub card: String,
+    pub outcome: PreviewResult,
+}
+
 /// Public turn status update.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1805,6 +1898,11 @@ pub enum ServerMessage {
     Event(GameEventMsg),
     DraftOutcome(DraftOutcomeMsg),
     DraftApplied(DraftAppliedMsg),
+    /// The seat's own bluff settings. Sent only to the declaring seat, never broadcast.
+    ReactionIntentState(ReactionIntentStateMsg),
+    /// What a seat would be asked for the secondary in progress, as of now. Sent only to the
+    /// connection that asked; ephemeral.
+    SecondaryPreview(SecondaryPreviewMsg),
 }
 
 impl ServerMessage {
@@ -1827,6 +1925,8 @@ impl ServerMessage {
             Self::Event(m) => m.protocol_version,
             Self::DraftOutcome(m) => m.protocol_version,
             Self::DraftApplied(m) => m.protocol_version,
+            Self::ReactionIntentState(m) => m.protocol_version,
+            Self::SecondaryPreview(m) => m.protocol_version,
         }
     }
 
@@ -1847,6 +1947,8 @@ impl ServerMessage {
             Self::Event(m) => Some(&m.game_id),
             Self::DraftOutcome(m) => Some(&m.game_id),
             Self::DraftApplied(m) => Some(&m.game_id),
+            Self::ReactionIntentState(m) => Some(&m.game_id),
+            Self::SecondaryPreview(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1863,13 +1965,17 @@ impl ServerMessage {
             Self::ActionRejected(m) => Some(m.game_version),
             Self::GameOver(m) => Some(m.game_version),
             Self::Event(m) => m.entry.version,
+            // Not versioned on purpose: a stale-version filter must never drop these (the
+            // preview names its own `as_of_version`).
             Self::Error(_)
             | Self::Pong(_)
             | Self::PlanningUpdate(_)
             | Self::PlanningStatus(_)
             | Self::PlanningResult(_)
             | Self::DraftOutcome(_)
-            | Self::DraftApplied(_) => None,
+            | Self::DraftApplied(_)
+            | Self::ReactionIntentState(_)
+            | Self::SecondaryPreview(_) => None,
         }
     }
 }

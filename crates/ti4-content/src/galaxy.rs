@@ -9,9 +9,14 @@
 //! wormhole kind are adjacent however far apart they sit. It is derived on demand rather
 //! than stored, so no cached neighbour list can drift from the placement.
 //!
-//! Hyperlanes are not modelled. The corpus marks a tile `isHyperlane` but carries no path
-//! data, and guessing the paths would produce adjacency that is wrong in a way tests would
-//! not catch. [`Galaxy::hyperlanes`] lists them so a caller can see what is excluded.
+//! Hyperlane *paths* are not modelled. The corpus marks a tile `isHyperlane` but carries no
+//! path data, and guessing the paths would produce adjacency that is wrong in a way tests would
+//! not catch. A hyperlane tile therefore still sits in the adjacency graph as an empty hex a
+//! ship may pass through (the model's only approximation of a lane). What is modelled is that a
+//! hyperlane is not a *system*: it cannot be activated, ended a move in, hold units, tokens or
+//! planets, or be chosen as a placement target. [`Galaxy::is_hyperlane`] is the one predicate for
+//! that; [`Galaxy::system_ids_holding_things`] is `system_ids` without them, and
+//! [`Galaxy::hyperlanes`] lists them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -570,6 +575,30 @@ impl Galaxy {
         holders.into_iter().collect()
     }
 
+    /// Keep only the wormhole kinds in `keep`, printed and token alike: every other kind is gone, so
+    /// no system pairs through it any more. A copy of the map for one mover (The Crimson
+    /// Rebellion, Sundered: "You cannot use wormholes other than epsilon wormholes").
+    pub fn retain_wormhole_kinds(&mut self, keep: &[&str]) {
+        for kinds in self
+            .wormholes
+            .values_mut()
+            .chain(self.token_wormholes.values_mut())
+        {
+            kinds.retain(|kind| keep.contains(&kind.as_str()));
+        }
+    }
+
+    /// Remove every wormhole from `system_id`, printed and token (the sever token: "wormholes in
+    /// that system have no effect"). A copy of the map for one movement query.
+    pub fn suppress_wormholes_at(&mut self, system_id: &str) {
+        if let Some(kinds) = self.wormholes.get_mut(system_id) {
+            kinds.clear();
+        }
+        if let Some(kinds) = self.token_wormholes.get_mut(system_id) {
+            kinds.clear();
+        }
+    }
+
     /// How many tile edits this map carries; see [`Self::swap_systems`].
     #[must_use]
     pub const fn edits_applied(&self) -> usize {
@@ -671,10 +700,33 @@ impl Galaxy {
         self.placement.get(&hex).map(String::as_str)
     }
 
-    /// Systems flagged as hyperlanes, whose paths are not modelled here.
+    /// Systems flagged as hyperlanes, whose paths are not modelled here. See [`Self::is_hyperlane`].
     #[must_use]
     pub fn hyperlanes(&self) -> Vec<&str> {
         self.hyperlanes.iter().map(String::as_str).collect()
+    }
+
+    /// Whether `system_id` is a hyperlane tile on this board.
+    ///
+    /// The single rule predicate for "this tile is not a system" (ruling: hyperlanes may not be
+    /// moved into). A hyperlane tile cannot be activated, cannot be the destination or the end of
+    /// a move or retreat, and cannot hold units, command or other tokens. It is still an
+    /// intermediate step in a path, because its connections are not modelled (see the module
+    /// docs). Every place that offers a system as a target must test this.
+    #[must_use]
+    pub fn is_hyperlane(&self, system_id: &str) -> bool {
+        self.hyperlanes.contains(system_id)
+    }
+
+    /// [`Self::system_ids`] without hyperlane tiles: the systems that can be activated, entered
+    /// and hold things. Use this wherever a system is to be offered as a target.
+    #[must_use]
+    pub fn system_ids_holding_things(&self) -> Vec<&str> {
+        self.placement
+            .values()
+            .map(String::as_str)
+            .filter(|id| !self.hyperlanes.contains(*id))
+            .collect()
     }
 
     /// Neighbouring systems, including wormhole pairs (LRR: Adjacency).
@@ -1155,6 +1207,21 @@ mod tests {
     }
 
     #[test]
+    fn a_hyperlane_tile_is_not_a_system_that_can_hold_things() {
+        let hyperlane = all_systems(store(), FULL)
+            .into_iter()
+            .find(|(_, s)| s.is_hyperlane())
+            .map(|(id, _)| id)
+            .expect("the corpus has hyperlane tiles");
+        let galaxy = Galaxy::build(store(), &["18", hyperlane, "19"], FULL, 3).unwrap();
+        assert!(galaxy.is_hyperlane(hyperlane));
+        assert!(!galaxy.is_hyperlane("18"));
+        assert!(!galaxy.is_hyperlane("not-on-the-board"));
+        assert!(galaxy.system_ids().contains(&hyperlane), "it is still on the map");
+        assert_eq!(galaxy.system_ids_holding_things(), vec!["18", "19"]);
+    }
+
+    #[test]
     fn a_galaxy_is_deterministic() {
         assert_eq!(small(), small());
         assert_eq!(small().system_ids(), small().system_ids());
@@ -1227,6 +1294,22 @@ mod tests {
         );
         assert!(system(store(), "81", FULL).unwrap().is_supernova());
         assert_eq!(galaxy.edits_applied(), 1);
+    }
+
+    #[test]
+    fn a_copy_can_keep_one_wormhole_kind_or_lose_one_systems_wormholes() {
+        let galaxy = Galaxy::build(store(), &["18", "39", "25", "19"], FULL, 1).unwrap();
+        let mut epsilon_only = galaxy.clone();
+        epsilon_only.retain_wormhole_kinds(&["EPSILON"]);
+        assert!(epsilon_only.wormhole_kinds("39").is_empty());
+        assert!(
+            !galaxy.wormhole_kinds("39").is_empty(),
+            "the original is untouched"
+        );
+        let mut severed = galaxy.clone();
+        severed.suppress_wormholes_at("39");
+        assert!(severed.wormhole_kinds("39").is_empty());
+        assert!(!severed.wormhole_kinds("25").is_empty(), "only that system");
     }
 
     #[test]

@@ -17,15 +17,6 @@ async function snapshot(
   return response.json();
 }
 
-/** The tray stages every available troop on its default planet; start from nothing instead. */
-async function clearStaging(tray: import("@playwright/test").Locator) {
-  const remove = tray.getByRole("button", { name: /^Remove .* from /, disabled: false });
-  // Default staging arrives a moment after the tray; wait for it before clearing.
-  await expect(remove.first()).toBeVisible();
-  for (let left = await remove.count(); left > 0; left = await remove.count())
-    await remove.first().click();
-}
-
 test("invasion lands, fights and hands off consistently in four independent views", async ({
   browser,
   request,
@@ -105,7 +96,6 @@ test("invasion lands, fights and hands off consistently in four independent view
     expect(choice?.context?.subtype).toBe("commit_ground_forces");
     const tray = pages[0].getByTestId("invasion-landing-tray");
     await expect(tray).toBeVisible();
-    await clearStaging(tray);
     await tray.getByRole("button", { name: planet, exact: true }).click();
     const infantry = tray.getByRole("button", { name: /land infantry.*in space/i }).first();
     await infantry.click();
@@ -221,7 +211,6 @@ test("Parley interrupts a non-atomic landing pipeline and preserves the remainin
     const state = await snapshot(request, game, seats[invader]);
     const planet = state.view.board.invasion!.planets[0];
     const tray = invaderPage.getByTestId("invasion-landing-tray");
-    await clearStaging(tray);
     await tray.getByRole("button", { name: planet, exact: true }).click();
     const infantry = tray.getByRole("button", { name: /land infantry.*in space/i }).first();
     await infantry.click();
@@ -317,7 +306,6 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
         (unit) => unit.owner === invader && !unit.planet && unit.unit_type === "infantry",
       ).length,
     ).toBe(6);
-    await clearStaging(tray);
     for (const planet of planets) {
       await tray.getByRole("button", { name: planet, exact: true }).click();
       const planetCard = tray.locator(".invasion-planet-landing-card").filter({
@@ -343,13 +331,6 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
       })
       .toEqual([3, 3]);
     await tray.getByRole("button", { name: "Done committing" }).click();
-    // Let the answer land before reading the next offer, or the loop meets the old one.
-    await expect
-      .poll(
-        async () =>
-          (await snapshot(request, game, seats[invader])).pending_choice?.choice.context?.subtype,
-      )
-      .not.toBe("commit_ground_forces");
     const seen = new Set<string>();
     const fought = new Set<string>();
     for (let step = 0; step < 30; step++) {

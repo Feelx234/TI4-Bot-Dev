@@ -380,7 +380,16 @@ async fn the_script_messages_are_answered_over_the_websocket() {
     // A game with random seats, as `POST /api/games` with `fill_seats` starts it.
     let game_id = "game_scripts".to_owned();
     let (_, seat, credential) = registry
-        .create_player_game_with_random_seats(game_id.clone(), 6, 3, "Host", None, None)
+        .create_player_game_with_random_seats(
+            game_id.clone(),
+            6,
+            3,
+            "Host",
+            None,
+            None,
+            ti4_server::card_set::DEFAULT,
+            ti4_server::map::SpeakerOrder::Seat,
+        )
         .expect("a started game");
     let session = registry.get_game(&game_id).expect("the game runs");
     let (_, nonce, version) = {

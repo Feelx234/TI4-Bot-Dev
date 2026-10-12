@@ -2118,11 +2118,28 @@ pub struct Table {
     pub log: DecisionLog,
     observed_offer: Option<ObservedOffer>,
     auto_resolved_observer: Option<AutoResolvedObserver>,
+    window_observer: Option<WindowObserver>,
     /// Decisions settled without asking, since the last drain. Never part of the decision log.
     auto_resolved: Vec<AutoResolved>,
     choice_failures: u64,
     last_choice_error: Option<IllegalChoice>,
 }
+
+/// Callback told that a reaction window opened for a seat that is not asked anything in it.
+///
+/// Arguments: the seat, the window's event type, whether it is a "when" or "after" window, the
+/// current state, and a function that publishes the decisions settled so far. The callback is
+/// presentation only: it gets no way to change the game, answer a choice, or draw from any random
+/// stream, and nothing it does is journaled.
+pub type WindowObserver = Box<
+    dyn FnMut(
+            &PlayerId,
+            &str,
+            crate::timing::Relation,
+            &ti4_model::state::GameState,
+            &mut dyn FnMut(),
+        ) + Send,
+>;
 
 /// A decision the engine settled itself because exactly one option was legal.
 ///
@@ -2139,6 +2156,15 @@ pub struct AutoResolved {
     pub reason: String,
 }
 
+/// The state-carrying part of a [`Table`] (see [`Table::state`]). `Send`, unlike a table.
+#[derive(Debug, Clone)]
+pub struct TableState {
+    pub log: DecisionLog,
+    auto_resolved: Vec<AutoResolved>,
+    choice_failures: u64,
+    last_choice_error: Option<IllegalChoice>,
+}
+
 impl Default for Table {
     fn default() -> Self {
         Self {
@@ -2147,6 +2173,7 @@ impl Default for Table {
             log: DecisionLog::default(),
             observed_offer: None,
             auto_resolved_observer: None,
+            window_observer: None,
             auto_resolved: Vec::new(),
             choice_failures: 0,
             last_choice_error: None,
@@ -2160,6 +2187,82 @@ impl Table {
         Self::default()
     }
 
+    /// Everything about this table that is game state rather than input wiring: the decision
+    /// log and the failure counters. Deciders and observation callbacks are NOT part of it.
+    ///
+    /// FORK RULE: destructured without `..`; a new `Table` field must be copied here or listed
+    /// as input wiring.
+    #[must_use]
+    pub fn state(&self) -> TableState {
+        self.state_with(true)
+    }
+
+    /// [`Table::state`] without copying the decision log (it is left empty). For a snapshot
+    /// whose holder already has the log and puts it back before stepping.
+    #[must_use]
+    pub fn state_unlogged(&self) -> TableState {
+        self.state_with(false)
+    }
+
+    fn state_with(&self, keep_log: bool) -> TableState {
+        let Self {
+            deciders: _, // input wiring: whoever answers is chosen by the caller
+            default: _,  // input wiring
+            log,
+            observed_offer: _,         // input wiring: session callbacks
+            auto_resolved_observer: _, // input wiring
+            // Bluff hook (skipped-window observer): input wiring, intentionally NOT copied, so a
+            // forked batch simulation or a replay never fires bluff holds (AGENTS.md FORK RULE).
+            window_observer: _,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = self;
+        TableState {
+            log: if keep_log {
+                log.clone()
+            } else {
+                DecisionLog::default()
+            },
+            auto_resolved: auto_resolved.clone(),
+            choice_failures: *choice_failures,
+            last_choice_error: last_choice_error.clone(),
+        }
+    }
+
+    /// Take over `state` (the log and counters) while keeping this table's deciders and
+    /// callbacks.
+    pub fn restore_state(&mut self, state: TableState) {
+        let TableState {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = state;
+        self.log = log;
+        self.auto_resolved = auto_resolved;
+        self.choice_failures = choice_failures;
+        self.last_choice_error = last_choice_error;
+    }
+
+    /// A table with first-option deciders, no callbacks, and the given state.
+    #[must_use]
+    pub fn from_state(state: TableState) -> Self {
+        let TableState {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+        } = state;
+        Self {
+            log,
+            auto_resolved,
+            choice_failures,
+            last_choice_error,
+            ..Self::default()
+        }
+    }
+
     /// A table where everyone unassigned uses this decider.
     #[must_use]
     pub fn with_default(default: Box<dyn Decider>) -> Self {
@@ -2167,6 +2270,11 @@ impl Table {
             default,
             ..Self::default()
         }
+    }
+
+    /// Replace the decider that answers for every unseated player (the log is kept).
+    pub fn set_default(&mut self, decider: Box<dyn Decider>) {
+        self.default = decider;
     }
 
     pub fn seat(&mut self, player: PlayerId, decider: Box<dyn Decider>) {
@@ -2179,6 +2287,34 @@ impl Table {
         callback: impl FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send + 'static,
     ) {
         self.observed_offer = Some(Box::new(callback));
+    }
+
+    /// Be told when a reaction window opens for a seat that has nothing to decide in it.
+    pub fn on_window_skipped(&mut self, observer: WindowObserver) {
+        self.window_observer = Some(observer);
+    }
+
+    /// Tell the observer (if any) that `player` is not asked in this window.
+    ///
+    /// Purely informational: the answer sequence, the log and the game state are untouched.
+    pub fn window_skipped(
+        &mut self,
+        player: &PlayerId,
+        event_type: &str,
+        relation: crate::timing::Relation,
+        state: &ti4_model::state::GameState,
+    ) {
+        let Some(mut observer) = self.window_observer.take() else {
+            return;
+        };
+        let records = &self.log.records;
+        let offered = &mut self.observed_offer;
+        observer(player, event_type, relation, state, &mut || {
+            if let Some(callback) = offered {
+                callback(records, state);
+            }
+        });
+        self.window_observer = Some(observer);
     }
 
     /// Be told, as it happens, about each decision the engine settles without asking.
@@ -2252,6 +2388,23 @@ impl Table {
         let mut associated = choice.clone();
         if let Some(context) = associated.context.take() {
             associated.context = Some(context.about_invasion(seen.state));
+        }
+        // A decision raised by an agenda being revealed or resolved (Veto, a rider, Confusing
+        // Legal Text, any reaction window on it) is about that card: it carries the printed agenda
+        // as display-only `details.agenda`, exactly as vote decisions do, unless the producer
+        // attached it already.
+        let trigger_agenda = associated
+            .context
+            .as_ref()
+            .and_then(|context| context.trigger.as_ref())
+            .and_then(|trigger| trigger.agenda.clone());
+        if let Some(agenda) = trigger_agenda {
+            if !associated.details.contains_key("agenda") {
+                associated.details.insert(
+                    "agenda".to_owned(),
+                    crate::strategy_cards::agenda_details(seen.content, &agenda),
+                );
+            }
         }
         let choice = &associated;
         if let Some(callback) = &mut self.observed_offer {

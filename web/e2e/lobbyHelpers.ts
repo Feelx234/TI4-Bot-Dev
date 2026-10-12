@@ -32,9 +32,16 @@ export async function createStartedGame(
   playerCount: number,
   seed: number,
   startPreset?: string,
+  cardSet?: string,
+  mapTemplate?: string,
 ) {
   const created = await request.post(`${backend}/api/games`, {
-    data: createGameBody(playerCount, seed, startPreset),
+    // The server draws the opening speaker from the seed by default; these specs drive the host
+    // as the first picker, so they pin the first seat. TI4_SMOKE_SPEAKER=random opts back in.
+    data: {
+      ...createGameBody(playerCount, seed, startPreset, cardSet, mapTemplate),
+      speaker_order: process.env.TI4_SMOKE_SPEAKER?.trim() || "seat",
+    },
   });
   expect(created.ok()).toBeTruthy();
   const host = await created.json();
