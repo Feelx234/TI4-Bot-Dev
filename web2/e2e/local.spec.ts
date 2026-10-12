@@ -586,6 +586,27 @@ test("the other seats wait for a step when the Dev sheet says so", async ({ page
   await expect(send(page)).toHaveText(/^Send/);
 });
 
+test("the Dev sheet leads to a game on the server, on the seed of the page", async ({ page }) => {
+  await page.goto("/?local=3&players=8&humans=1");
+  await expect(send(page)).toBeDisabled();
+  await openSettings(page);
+  const row = settings(page).getByRole("region", { name: "Multiplayer" });
+  await expect(row.getByRole("button", { name: "Multiplayer seed 3 · 8 seats" })).toBeVisible();
+  await row.getByRole("button", { name: "About Multiplayer" }).click();
+  await expect(page.getByText("A new game of eight on the server")).toBeVisible();
+  await page.screenshot({ path: "shots/local/dev-multiplayer.png", animations: "disabled" });
+  await page.keyboard.press("Escape");
+  const asked = page.waitForRequest(
+    (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/games",
+  );
+  await row.getByRole("button", { name: /^Multiplayer/ }).click();
+  expect((await asked).postDataJSON()).toMatchObject({ seed: 3, fill_seats: "random" });
+  // The server made the game, and the page is at its address, with the way back in the header.
+  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Local game", exact: true })).toBeVisible();
+});
+
 test("a scenario is chosen in the Dev sheet and starts at the turn menu of its board", async ({
   page,
 }) => {

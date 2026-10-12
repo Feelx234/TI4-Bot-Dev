@@ -1,9 +1,9 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b, phase 2 and phase 3
-(2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built", "Phase 1b: what was
-built", "Phase 2: what was built" and "Phase 3: what was built". Next: the rest of phase 4 (the
-entry: phase 2 built the least of it). Nothing else is built yet.
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11), phase 1a, phase 1b, phase 2, phase 3 and
+phase 4 (2026-10-12); see "Phase 0: what was built", "Phase 1a: what was built", "Phase 1b: what
+was built", "Phase 2: what was built", "Phase 3: what was built" and "Phase 4: what was built".
+Next: phase 5 (the draft of a secondary). Nothing else is built yet.
 
 ## Goal
 
@@ -578,6 +578,40 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
 3. **Resume**: a reload with a stored `player_session` reconnects to the same game; a
    `game_id` that the server no longer knows says so and offers the local game.
 
+#### Phase 4: what was built (2026-10-12)
+
+Phase 2 built the routing of `main.tsx`, `dev/OnlineApp.tsx`, the kept `player_session` and the
+header link. This phase built the rest. Only web2 changed.
+
+- **The start** (`dev/onlineStart.ts`): `?online&seed=3&name=Ada&map=random`. Each part can be
+  left out: the nickname is then "Player", and the server chooses the seed and the map. `map` is
+  "random" (sent as `map`) or the alias of a map of the server (sent as `map_template`). The
+  page goes to `?online=<game_id>` with none of it, so a reload starts no other game.
+- **The row "Multiplayer" of the Dev sheet** (`dev/LocalApp.tsx`), after "Start from": it
+  loads `?online&seed=<seed of the page>`, and says the seed and the seats. What it does is
+  behind "?". It is shown in every local game, not from a capability: it is no tool of the
+  game that is open.
+  - **A choice of this phase, not of the owner: the row sends the seed of the page.** A game
+    that is started from the Dev sheet is then the same game each time (the random seats
+    decide from the seed of the game), as a local game of that address is. The bare `?online`
+    lets the server choose. The board is not the board of the local game of that seed: the
+    server builds its own map.
+- **A game that the server no longer knows.** The server refuses the socket of such a game
+  with 404, and a browser does not tell the page why a socket did not open. So when a socket
+  closes before it opened, the transport asks `GET /api/games/<id>/map` (`OnlinePlay.known`;
+  it finds the game as the socket does). Only the answer 404 ends the game: the `error` event
+  "The server no longer knows this game." (`GAME_UNKNOWN`), and no further try. A server that
+  cannot be reached answers something else or nothing, and the transport keeps trying. The
+  page shows the text in place of the game, with "Local game" in the header. The keys of the
+  browser for that game are kept.
+- **Not built: a control for the nickname and the map.** They are in the address only. The
+  nickname is shown nowhere yet (phase 2, "Found, not changed").
+- **Tests.** `dev/onlineStart.test.ts` (the address and the request); two cases of
+  `wsTransport.test.ts` (a game that is gone, and a game that the server has while the socket
+  does not open); `e2e/online.spec.ts` (the request of a start with every part, and a game
+  that is gone); `e2e/local.spec.ts` and `e2e/local.phone.spec.ts` open the row and come to
+  the game on the server, and the phone case checks the menu of that game.
+
 ### Phase 5: the draft of a secondary (Rust + web2)
 
 The owner needs it (2026-10-11). It is built for single player first; with decision 6 the online
@@ -658,7 +692,7 @@ phase 2 for online.
 | 1b facts, random seats, script messages (built) | ti4-server | large |
 | 2 transport (built) | web2, ti4-server and ti4-view (two fields) | medium |
 | 3 undo (built) | ti4-server, ti4-engine (a latch that is cleared, three lines), ti4-view, web2 | medium |
-| 4 entry | web2 | small |
+| 4 entry (built) | web2 | small |
 | 5 secondary draft | ti4-view, ti4-wasm, ti4-server, web2 | large |
 
 ## Open

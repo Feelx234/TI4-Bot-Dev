@@ -33,7 +33,16 @@ export interface OnlinePlay {
   open?(gameId: string): Socket;
   /** How long to wait before try `attempt` (from 0) to reach the game again, in ms. */
   retryAfter?(attempt: number): number;
+  /**
+   * Whether the server has the game. Asked when a socket did not open: the server refuses the
+   * socket of a game that it does not have, and a socket cannot say why it did not open.
+   * Without it: asked at the address of the page.
+   */
+  known?(gameId: string): Promise<boolean>;
 }
+
+/** What the transport says of a game that the server does not have. Nothing is tried after it. */
+export const GAME_UNKNOWN = "The server no longer knows this game.";
 
 /** Where the staged work of a game on the server is kept between two visits, and its player. */
 export const onlineKeys = (gameId: string) => ({
@@ -71,6 +80,13 @@ export function openSocket(url: string): Socket {
 const pageSocket = (gameId: string): Socket =>
   openSocket(
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/games/${encodeURIComponent(gameId)}`,
+  );
+
+/** Only the answer "not found" says that the game is gone: a server that cannot be reached may come back. */
+const pageKnows = (gameId: string): Promise<boolean> =>
+  fetch(`/api/games/${encodeURIComponent(gameId)}/map`).then(
+    (response) => response.status !== 404,
+    () => true,
   );
 
 const backoff = (attempt: number) => Math.min(15_000, 500 * 2 ** attempt);
@@ -127,6 +143,7 @@ export function createWsTransport(
   const listeners = new Set<(event: TransportEvent) => void>();
   const open = play.open ?? pageSocket;
   const retryAfter = play.retryAfter ?? backoff;
+  const known = play.known ?? pageKnows;
   /** The game as the server told it last, and its version. */
   let latest: (Update & { version: number }) | null = null;
   /** Why the game cannot be played. Nothing is tried after it. */
@@ -371,7 +388,16 @@ export function createWsTransport(
       if (socket !== made) {
         return;
       }
+      const opened = ready;
       stop();
+      if (!opened) {
+        // The server may have refused the socket because it does not have the game.
+        void known(game.gameId).then((has) => {
+          if (!has && !closed && failed === null) {
+            fail(GAME_UNKNOWN);
+          }
+        });
+      }
       // What was on its way is lost. The snapshot after the next subscription says where the game is.
       sent = null;
       asked = null;

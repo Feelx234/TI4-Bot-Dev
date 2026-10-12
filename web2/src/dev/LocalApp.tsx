@@ -2,6 +2,7 @@ import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState 
 import { SeatShape } from "../game/context";
 import { GameShell } from "../game/shell/GameShell";
 import { DemoApp } from "./DemoApp";
+import { onlineAddress } from "./onlineStart";
 import {
   type LocalGame,
   type SavedGame,
@@ -302,6 +303,26 @@ export function LocalApp({ game }: { game: LocalGame }) {
           </div>
         </section>
       )}
+      <section
+        aria-label="Multiplayer"
+        className="mt-4 flex min-h-9 items-center gap-2 rounded border border-line pr-2.5"
+      >
+        <button
+          type="button"
+          className="flex min-h-9 flex-1 cursor-pointer items-center gap-2.5 px-3.5 text-left text-base hover:bg-cyan/[.06]"
+          onClick={() => {
+            // A page load: the game on the server is another game, with an address of its own.
+            window.location.search = onlineAddress({ seed: played.seed });
+          }}
+        >
+          <strong className="font-mid">Multiplayer</strong>
+          <small className="text-xs text-muted">{`seed ${played.seed} · 8 seats`}</small>
+        </button>
+        <Hint label="About Multiplayer">
+          A new game of eight on the server, on the seed of this page. You play the first seat, and
+          the other seats decide at random.
+        </Hint>
+      </section>
       {can.save && (
         <div className="mt-4 flex flex-wrap gap-2">
           <Button

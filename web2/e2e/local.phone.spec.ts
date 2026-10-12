@@ -208,6 +208,30 @@ test("phone: the Dev sheet plays another seat", async ({ page }) => {
   await expect(seats.getByRole("button", { name: "Seat A" })).toContainText("Random");
 });
 
+test("phone: the Dev sheet leads to a game on the server, and its menu leads back", async ({
+  page,
+}) => {
+  await page.goto("/?local=3&players=8&humans=1");
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toBeDisabled();
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await page.getByRole("menuitem", { name: "Dev" }).click();
+  const row = page
+    .getByRole("complementary", { name: "Dev" })
+    .getByRole("region", { name: "Multiplayer" });
+  await row.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
+  await page.screenshot({ path: "shots/phone/local/dev-multiplayer.png", animations: "disabled" });
+  await row.getByRole("button", { name: /^Multiplayer/ }).click();
+  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
+  // A game on the server has no Dev item; the other app is the last item of the menu.
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await expect(page.getByRole("menuitem", { name: "Dev" })).toHaveCount(0);
+  await expect(page.getByRole("menuitem").last()).toHaveText("Local game");
+  await page.screenshot({ path: "shots/phone/online/menu.png", animations: "disabled" });
+});
+
 test("phone: the landings are staged in a sheet over the map", async ({ page }) => {
   await page.goto("/?scenario=late-game&humans=1");
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');

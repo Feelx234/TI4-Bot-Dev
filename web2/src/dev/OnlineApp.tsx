@@ -6,6 +6,7 @@ import { type Engine, loadEngine } from "../session/wasmTransport";
 import { createWsTransport, onlineKeys } from "../session/wsTransport";
 import { Button } from "../ui";
 import { Notice, wasmUrl } from "./LocalApp";
+import { type OnlineStart, createRequest } from "./onlineStart";
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -19,11 +20,11 @@ interface CreatedGame {
 let created: Promise<CreatedGame> | null = null;
 
 /** A game of eight on the server: this page has the first seat, the other seats decide at random. */
-function createGame(): Promise<CreatedGame> {
+function createGame(start: OnlineStart): Promise<CreatedGame> {
   created ??= fetch("/api/games", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ player_count: 8, nickname: "Player", fill_seats: "random" }),
+    body: JSON.stringify(createRequest(start)),
   }).then(async (response) => {
     if (!response.ok) {
       throw new Error(
@@ -40,10 +41,10 @@ function createGame(): Promise<CreatedGame> {
  * goes to its address; `?online=<game_id>` is that game, as the player that this browser kept
  * for it, or as a spectator. The printed cards are those of the engine of this page.
  *
- * This is the least that plays a game: the Dev row that leads here, and what the page says of
- * a game that the server no longer knows, are phase 4 of the online plan.
+ * Without the game (it is being made or reached, or the server no longer knows it) the page
+ * has a row of its own, with the way back to the local game.
  */
-export function OnlineApp({ gameId }: { gameId: string | null }) {
+export function OnlineApp({ gameId, start }: { gameId: string | null; start: OnlineStart }) {
   const [engine, setEngine] = useState<Engine | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [transport, setTransport] = useState<Transport | null>(null);
@@ -62,14 +63,14 @@ export function OnlineApp({ gameId }: { gameId: string | null }) {
     if (gameId !== null) {
       return;
     }
-    createGame()
+    createGame(start)
       .then((made) => {
         localStorage.setItem(onlineKeys(made.game_id).session, made.player_session);
         // A page load: the address is the game, so a reload goes on with it.
         location.replace(`?online=${encodeURIComponent(made.game_id)}`);
       })
       .catch((error: unknown) => setFailure(message(error)));
-  }, [gameId]);
+  }, [gameId, start]);
 
   // Made in an effect, as the game of `LocalApp`: each mount gets a connection of its own.
   useEffect(() => {

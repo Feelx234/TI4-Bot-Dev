@@ -153,6 +153,34 @@ test("?online starts a game on the server and goes to its address", async ({ pag
   expect(errors).toEqual([]);
 });
 
+test("?online with a seed, a name and a map asks the server for that game", async ({ page }) => {
+  const asked = page.waitForRequest(
+    (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/games",
+  );
+  await page.goto("/?online&seed=3&name=Ada&map=random");
+  expect((await asked).postDataJSON()).toEqual({
+    player_count: 8,
+    nickname: "Ada",
+    fill_seats: "random",
+    seed: 3,
+    map: "random",
+  });
+  // The address of the game has no part of the start: a reload is the game, not another one.
+  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+});
+
+test("a game that the server no longer knows is said, with the way to the local game", async ({
+  page,
+}) => {
+  await page.goto("/?online=game_that_is_gone");
+  // The page does not try for ever: the server says that it has no such game.
+  await expect(page.getByRole("status")).toHaveText("The server no longer knows this game.");
+  await page.screenshot({ path: "shots/online/unknown-game.png", animations: "disabled" });
+  await page.getByRole("button", { name: "Local game", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/" && !url.searchParams.has("online"));
+});
+
 test("a lost connection is said in the toolbar, and the game comes back by itself", async ({
   page,
 }) => {

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PlanStep } from "./movementPlan";
 import type { TransportEvent } from "./transport";
 import { type Catalog, type ClientMessage, type DraftOutcome, PROTOCOL_VERSION } from "./wire";
-import { type OnlineGame, type Socket, createWsTransport } from "./wsTransport";
+import { GAME_UNKNOWN, type OnlineGame, type Socket, createWsTransport } from "./wsTransport";
 
 // The messages that the server wrote (`crates/ti4-server/fixtures`, checked against the server
 // by `tests/it/fixtures_verification.rs`), replayed over a socket of the test. The transport
@@ -27,7 +27,7 @@ const GAME: OnlineGame = { gameId: actor.game_id, playerSession: "secret" };
 const engine = { catalog: { content: actor.content } as Catalog };
 
 /** The sockets that the transport opened, the newest last, and what it sent on each. */
-function server(game: OnlineGame = GAME, catalog = engine) {
+function server(game: OnlineGame = GAME, catalog = engine, known = true) {
   const sockets: (Socket & { sent: ClientMessage[]; closed: boolean })[] = [];
   const transport = createWsTransport(catalog, game, {
     open(gameId) {
@@ -47,6 +47,7 @@ function server(game: OnlineGame = GAME, catalog = engine) {
       return socket;
     },
     retryAfter: (attempt) => 100 * 2 ** attempt,
+    known: async () => known,
   });
   const events: TransportEvent[] = [];
   transport.subscribe((event) => events.push(event));
@@ -437,6 +438,28 @@ it("is offline while the server cannot be reached, and comes back with a snapsho
   game.drop();
   vi.advanceTimersByTime(100);
   expect(game.sockets).toHaveLength(4);
+});
+
+it("says that the server no longer knows the game, and does not try again", async () => {
+  const game = server(GAME, engine, false);
+  game.take();
+  // The server refuses the socket of a game that it does not have: it closes before it opens.
+  game.drop();
+  expect(game.take()).toEqual([{ kind: "offline" }]);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(game.take()).toEqual([{ kind: "error", message: GAME_UNKNOWN }]);
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(game.sockets).toHaveLength(1);
+  expect(game.take()).toEqual([]);
+});
+
+it("keeps trying a game that the server has while the socket does not open", async () => {
+  const game = server();
+  game.take();
+  game.drop();
+  await vi.advanceTimersByTimeAsync(100);
+  expect(game.sockets).toHaveLength(2);
+  expect(game.take()).toEqual([{ kind: "offline" }]);
 });
 
 it("comes back at once when the server replaced the game", () => {
