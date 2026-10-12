@@ -151,6 +151,26 @@ describe("useSecondaryAutoPlay", () => {
     expect(submitTokens.mock.calls[0][0][0]).toEqual({ kind: "purchase", buy: true });
   });
 
+  it("still fires when the same decision becomes actionable a moment after it opened", () => {
+    const { submitOption, hook, wait } = setup({ choice: null, history: hist(5), plan: null });
+    // The game moved forward to the decision, but the plan has nothing to say yet.
+    hook.rerender({ choice: windowChoice(), history: hist(6), plan: null });
+    wait();
+    expect(submitOption).not.toHaveBeenCalled();
+    // The same nonce, now with a resolvable plan: the armed state was kept for it.
+    hook.rerender({ choice: windowChoice(), history: hist(6), plan });
+    wait();
+    expect(submitOption).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not carry an unused armed state over to the next decision", () => {
+    const { submitOption, hook, wait } = setup({ choice: null, history: hist(5), plan: null });
+    hook.rerender({ choice: windowChoice("w1"), history: hist(6), plan: null });
+    hook.rerender({ choice: windowChoice("w2"), history: hist(6), plan });
+    wait();
+    expect(submitOption).not.toHaveBeenCalled();
+  });
+
   describe("guards", () => {
     it("never acts for a spectator or for another seat's decision", () => {
       const spectator = setup({ choice: null, history: hist(5), viewerSeat: null });

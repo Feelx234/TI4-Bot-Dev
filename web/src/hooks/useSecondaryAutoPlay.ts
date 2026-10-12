@@ -89,6 +89,8 @@ export function useSecondaryAutoPlay({
   const armed = useRef(false);
   const prev = useRef<HistoryStatus | null>(null);
   const evaluated = useRef<string | null>(null);
+  /** Whether the game moved forward to this nonce's decision, fixed when it first appears. */
+  const armedFor = useRef<{ nonce: string; armed: boolean } | null>(null);
   const timer = useRef<number | null>(null);
   const [pending, setPending] = useState<AutoPlayNotice | null>(null);
   /** Nonce whose decision UI is held back while the answer is scheduled or in flight. */
@@ -141,10 +143,19 @@ export function useSecondaryAutoPlay({
 
   useLayoutEffect(() => {
     if (!nonce || evaluated.current === nonce) return;
+    // The armed state belongs to the decision, taken when it first appears. A plan that resolves a
+    // moment later (the planets of a payment, the prepared answer loading) still fires; a decision
+    // that is never actionable is simply asked.
+    if (armedFor.current?.nonce !== nonce) {
+      armedFor.current = { nonce, armed: armed.current };
+      armed.current = false;
+    }
+    if (!armedFor.current.armed) {
+      evaluated.current = nonce;
+      return;
+    }
+    if (!actionable || text === null) return;
     evaluated.current = nonce;
-    const wasArmed = armed.current;
-    armed.current = false;
-    if (!wasArmed || !actionable || text === null) return;
     if (readSecondaryPrepMode() !== "auto") return;
     setPending({ nonce, text });
     setHeld(nonce);
