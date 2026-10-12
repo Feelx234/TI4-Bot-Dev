@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
-use ti4_model::content_types::{ContentType, POK};
+use ti4_model::content_types::{ContentType, POK, SourceSet};
 use ti4_model::id::{ObjectiveId, PlanetId, PlayerId};
 use ti4_model::state::{GameState, Player};
 use ti4_model::view::{HIDDEN, redact_player, view_for};
@@ -654,42 +654,53 @@ pub struct SessionUpdate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_choice: Option<PendingChoiceEnvelope>,
     pub turn_status: PublicTurnStatus,
-    /// What the viewer needs to stage the pending choice of a tactical action. The projection
-    /// leaves it empty: a host that has the map fills it ([`crate::tactical`]).
+    /// What the viewer needs to stage the pending choice of a tactical action. It is there
+    /// for the seat that is asked, on a game that has its map ([`crate::tactical`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tactical: Option<crate::tactical::TacticalFacts>,
-    /// The exploration decks and the planets that are still explored. The projection leaves it
-    /// empty: a host that has the map fills it ([`crate::exploration`]).
+    /// The exploration decks and the planets that are still explored, on a game that has its
+    /// map ([`crate::exploration`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exploration: Option<crate::exploration::ExplorationFacts>,
-    /// The action card deck, its discard pile and the hand limit of the viewer. The projection
-    /// leaves it empty: a host that shows them fills it ([`crate::action_cards`]).
+    /// The action card deck, its discard pile and the hand limit of the viewer
+    /// ([`crate::action_cards`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_cards: Option<crate::action_cards::ActionCardFacts>,
-    /// The secret objective deck and what each seat has scored of it. The projection leaves it
-    /// empty: a host that shows them fills it ([`crate::secret_objectives`]).
+    /// The secret objective deck and what each seat has scored of it
+    /// ([`crate::secret_objectives`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_objectives: Option<crate::secret_objectives::SecretObjectiveFacts>,
-    /// Where the victory points of every seat come from. The projection leaves it empty: a host
-    /// that shows them fills it ([`crate::score`]).
+    /// Where the victory points of every seat come from ([`crate::score`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub score: Option<crate::score::ScoreFacts>,
-    /// The agenda deck. The projection leaves it empty: a host that shows it fills it
-    /// ([`crate::agendas`]).
+    /// The agenda deck ([`crate::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agendas: Option<crate::agendas::AgendaFacts>,
 }
 
+/// What the facts of an update are made from, beside the state of the game.
+#[derive(Clone, Copy)]
+pub struct FactsContext<'a> {
+    pub content: &'a ContentStore,
+    pub sources: SourceSet,
+    /// The map of the game. Without it an update has no `tactical` and no `exploration`.
+    pub galaxy: Option<&'a Galaxy>,
+}
+
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
+///
+/// With `facts` the update has its six facts ([`fill_facts`]); every host that shows them
+/// gives the context. Without, they are all absent.
 #[must_use]
 pub fn project_session_update(
     state: &GameState,
     viewer: &ViewerRole,
     pending_choice: Option<(&Choice, &str)>,
     map_tiles: &[BoardTileView],
+    facts: Option<&FactsContext<'_>>,
 ) -> SessionUpdate {
     let choice = pending_choice.map(|(choice, _)| choice);
-    SessionUpdate {
+    let mut update = SessionUpdate {
         viewer: viewer.clone(),
         view: project_game_view_full(state, viewer, map_tiles, choice, &[]),
         pending_choice: project_pending_choice(viewer, pending_choice),
@@ -700,7 +711,38 @@ pub fn project_session_update(
         secret_objectives: None,
         score: None,
         agendas: None,
+    };
+    if let Some(context) = facts {
+        fill_facts(&mut update, state, context);
     }
+    update
+}
+
+/// Fills the six facts of `update`, which was projected from `state`: the one place that does.
+///
+/// `tactical` is of the choice in the update, so only the seat that is asked has it.
+pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &FactsContext<'_>) {
+    let FactsContext {
+        content,
+        sources,
+        galaxy,
+    } = *context;
+    update.tactical = update.pending_choice.as_ref().and_then(|pending| {
+        crate::tactical::project_tactical_facts(state, content, sources, galaxy?, &pending.choice)
+    });
+    update.exploration = galaxy.map(|galaxy| {
+        crate::exploration::project_exploration_facts(state, content, sources, galaxy)
+    });
+    update.action_cards = Some(crate::action_cards::project_action_card_facts(
+        state,
+        content,
+        &update.viewer,
+    ));
+    update.secret_objectives = Some(crate::secret_objectives::project_secret_objective_facts(
+        state, content,
+    ));
+    update.score = Some(crate::score::project_score_facts(state, content));
+    update.agendas = Some(crate::agendas::project_agenda_facts(state));
 }
 
 #[cfg(test)]
@@ -770,6 +812,32 @@ mod tests {
             .remove("trigger");
         let back: PendingChoiceEnvelope = serde_json::from_value(old).unwrap();
         assert!(back.choice.context.unwrap().trigger.is_none());
+    }
+
+    #[test]
+    fn the_facts_are_filled_with_a_context_and_only_then() {
+        let seat = PlayerId::new("player_1");
+        let state = GameState::new(std::slice::from_ref(&seat), &[], BTreeMap::new(), None, 1);
+        let viewer = ViewerRole::Player(seat);
+
+        let bare = project_session_update(&state, &viewer, None, &[], None);
+        assert!(bare.tactical.is_none() && bare.exploration.is_none());
+        assert!(bare.action_cards.is_none() && bare.secret_objectives.is_none());
+        assert!(bare.score.is_none() && bare.agendas.is_none());
+
+        // Without the map there is nothing to say about the board.
+        let context = FactsContext {
+            content: ContentStore::embedded(),
+            sources: POK,
+            galaxy: None,
+        };
+        let filled = project_session_update(&state, &viewer, None, &[], Some(&context));
+        assert!(filled.tactical.is_none() && filled.exploration.is_none());
+        assert!(filled.action_cards.is_some() && filled.secret_objectives.is_some());
+        assert!(filled.score.is_some() && filled.agendas.is_some());
+        let mut again = bare;
+        fill_facts(&mut again, &state, &context);
+        assert_eq!(again, filled);
     }
 
     #[test]

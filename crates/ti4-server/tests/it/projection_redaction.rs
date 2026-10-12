@@ -355,6 +355,7 @@ fn a_session_update_is_the_shared_part_of_a_state_update() {
             viewer,
             pending,
             &[],
+            None,
         ))
         .expect("session update");
         let fields = update.as_object().expect("an object");

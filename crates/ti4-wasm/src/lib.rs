@@ -29,18 +29,12 @@ use ti4_engine::reaction_modes::{NeverOffer, NeverSet};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
-use ti4_view::action_cards::project_action_card_facts;
-use ti4_view::agendas::project_agenda_facts;
 use ti4_view::components::catalog;
-use ti4_view::exploration::project_exploration_facts;
 use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
 use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
-use ti4_view::projection::{project_game_view_full, project_session_update};
-use ti4_view::score::project_score_facts;
-use ti4_view::secret_objectives::project_secret_objective_facts;
+use ti4_view::projection::{FactsContext, project_game_view_full, project_session_update};
 use ti4_view::status::ViewerRole;
-use ti4_view::tactical::project_tactical_facts;
 use ti4_view::view::{BoardTileView, GameView};
 
 use crate::buffer::{DRAFT, REQUEST, RESPONSE, TooLarge, UPDATE, store};
@@ -126,6 +120,15 @@ fn latest_of(game: &Game<'_>, content: &ContentStore) -> Latest {
             .galaxy()
             .map_or_else(Vec::new, |galaxy| build_board_tiles(content, galaxy)),
         galaxy: game.galaxy().cloned(),
+    }
+}
+
+/// What the facts of an update of this host are made from: its games are of one content.
+fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
+    FactsContext {
+        content: ContentStore::embedded(),
+        sources: POK,
+        galaxy,
     }
 }
 
@@ -662,28 +665,13 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
     let Some(latest) = latest.as_ref() else {
         return Ok(());
     };
-    let mut update =
-        project_session_update(&latest.state, viewer, Some((choice, nonce)), &latest.tiles);
-    update.exploration = latest.galaxy.as_ref().map(|galaxy| {
-        project_exploration_facts(&latest.state, ContentStore::embedded(), POK, galaxy)
-    });
-    update.action_cards = Some(project_action_card_facts(
+    let update = project_session_update(
         &latest.state,
-        ContentStore::embedded(),
         viewer,
-    ));
-    update.secret_objectives = Some(project_secret_objective_facts(
-        &latest.state,
-        ContentStore::embedded(),
-    ));
-    update.score = Some(project_score_facts(&latest.state, ContentStore::embedded()));
-    update.agendas = Some(project_agenda_facts(&latest.state));
-    // Only a seat of the host is shown these, so the random seats do not pay for them.
-    if update.pending_choice.is_some() {
-        update.tactical = latest.galaxy.as_ref().and_then(|galaxy| {
-            project_tactical_facts(&latest.state, ContentStore::embedded(), POK, galaxy, choice)
-        });
-    }
+        Some((choice, nonce)),
+        &latest.tiles,
+        Some(&facts_context(latest.galaxy.as_ref())),
+    );
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",
@@ -848,14 +836,13 @@ fn play(
     // The last update: where the game stopped, with nothing left to answer.
     let viewer = viewer.map_or(ViewerRole::Spectator, ViewerRole::Player);
     let tiles = latest_of(&game, content).tiles;
-    let mut update = project_session_update(&game.state, &viewer, None, &tiles);
-    update.exploration = game
-        .galaxy()
-        .map(|galaxy| project_exploration_facts(&game.state, content, POK, galaxy));
-    update.action_cards = Some(project_action_card_facts(&game.state, content, &viewer));
-    update.secret_objectives = Some(project_secret_objective_facts(&game.state, content));
-    update.score = Some(project_score_facts(&game.state, content));
-    update.agendas = Some(project_agenda_facts(&game.state));
+    let update = project_session_update(
+        &game.state,
+        &viewer,
+        None,
+        &tiles,
+        Some(&facts_context(game.galaxy())),
+    );
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",

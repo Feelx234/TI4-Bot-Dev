@@ -1,6 +1,7 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Phase 0 is built (2026-10-11); see "Phase 0: what was built". Nothing else is built yet.
+Status: plan, 2026-10-11. Built: phase 0 (2026-10-11) and phase 1a (2026-10-12); see "Phase 0:
+what was built" and "Phase 1a: what was built". Next: phase 1b. Nothing else is built yet.
 
 ## Goal
 
@@ -185,10 +186,41 @@ unchanged in meaning; add a test for a late draft outcome that must be dropped.
    by hand use it. Do not keep two copies (see the note on `plan_answer` in `NEXT.md`).
 2. Guard: `wasmTransport.test.ts` and the recorded fixtures of web2 do not change.
 
+#### Phase 1a: what was built (2026-10-12)
+
+- `FactsContext { content, sources, galaxy }` and `fill_facts` in `ti4-view/src/projection.rs`:
+  the one place that fills the six facts. `galaxy` is optional, as a host has it: without the
+  map an update has no `tactical` and no `exploration`. `tactical` is of the choice in the
+  update, so only the seat that is asked has it (as the wasm host did).
+- `project_session_update` takes `Option<&FactsContext>` as its last argument and calls
+  `fill_facts`. The three places use it: `show` and the last update of `ti4_play` in
+  `ti4-wasm/src/lib.rs` (`facts_context`), and `run_draft`. No host calls a `project_*_facts`
+  function itself any more.
+- **The context is optional because of the server.** `ti4-server` gives `None`, so its messages
+  are as before. Phase 1b gives the context there (it needs the `Galaxy` of the session, not
+  only the `GalaxyLayout`) and sends the fields; `None` can then go.
+- **One change of behaviour, in a draft.** `run_draft` filled `tactical` and `exploration`
+  only. Its updates have all six facts now, so the Cards, Secrets, Objectives and Agendas
+  sheets have their facts while a draft is open; they are of the copy that the draft played. An
+  outcome has up to four updates, so it is larger; `DRAFT_CAPACITY` (1 MiB) was not reached in
+  the tests.
+- Guard: all six fixtures were recorded with their commands before and after the change, and
+  the recordings are the same byte for byte. `wasmTransport.test.ts` is not changed.
+- **Found, not changed:** the fixtures in the repository are older than the recorder. They have
+  no `action_cards`, `secret_objectives`, `score` and `agendas`, and `update-production.json` is
+  of the late-game scenario as it was before. A fixture is not edited; record them again when a
+  test needs these facts (phase 2 replays fixtures).
+- Tests: `the_facts_are_filled_with_a_context_and_only_then` in `projection.rs`, and the facts
+  of a draft update in `a_draft_goes_through_activation_and_movement_and_leaves_the_game_as_it_was`.
+  `cargo fmt`, `cargo l-web`, `cargo t-web`, `npm test`, `e2e/local.spec.ts` and
+  `e2e/phone.spec.ts` are green with the wasm built again.
+
 ### Phase 1b: the server sends the facts, plays the other seats and runs a script (Rust)
 
 1. **Facts.** `StateUpdateMsg` and `InitialSnapshotMsg` (`projection.rs`) carry the six facts, per
-   viewer, from the **full** game state. They are optional fields (`skip_serializing_if`), so
+   viewer, from the **full** game state, through `FactsContext` of phase 1a
+   (`project_session_update` with the context; the snapshot calls `fill_facts` or goes through
+   the same projection). They are optional fields (`skip_serializing_if`), so
    `web/` and the fixtures keep parsing. `GET /api/content/catalog` exists; web2 uses the wasm one.
 2. Redaction tests, in the style of `tests/projection_redaction.rs`: an opponent view and a
    spectator view contain no deck order, no other seat's hand, no secret objective of another
@@ -365,8 +397,8 @@ phase 2 for online.
 
 | Phase | Where | Size |
 | --- | --- | --- |
-| 0 seam | web2, ti4-wasm | large (the async draft; plans and Never cards move to Rust) |
-| 1a facts in one place | ti4-view, ti4-wasm | small |
+| 0 seam (built) | web2, ti4-wasm | large (the async draft; plans and Never cards move to Rust) |
+| 1a facts in one place (built) | ti4-view, ti4-wasm | small |
 | 1b facts, random seats, script messages | ti4-server | large |
 | 2 transport | web2 | medium |
 | 3 undo | ti4-server, web2 | medium |

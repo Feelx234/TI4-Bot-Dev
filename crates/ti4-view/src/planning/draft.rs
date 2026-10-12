@@ -27,9 +27,8 @@ use ti4_model::state::GameState;
 use super::audit::{PlanScope, SafePublication, StopReason, audit_offer, validate_knowledge};
 use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 use super::steps::{INTERRUPTED, PlanAnswer, PlanStep, plan_answer};
-use crate::projection::{SessionUpdate, project_game_view, project_session_update};
+use crate::projection::{FactsContext, SessionUpdate, project_game_view, project_session_update};
 use crate::status::ViewerRole;
-use crate::tactical::{TacticalFacts, project_tactical_facts};
 use crate::view::{BoardTileView, GameView};
 
 /// The nonce of the question a draft is open at. A draft is never answered by its nonce.
@@ -527,30 +526,25 @@ pub fn run_draft(
     });
     let stop = run.stop.clone().expect("the run ended");
 
-    let explored = |state: &GameState, mut update: SessionUpdate| {
-        update.exploration = base.galaxy.map(|galaxy| {
-            crate::exploration::project_exploration_facts(state, base.content, base.sources, galaxy)
-        });
-        update
+    let context = FactsContext {
+        content: base.content,
+        sources: base.sources,
+        galaxy: base.galaxy,
     };
     let closed = |state: &GameState| {
-        explored(
-            state,
-            project_session_update(state, &viewer, None, base.tiles),
-        )
+        project_session_update(state, &viewer, None, base.tiles, Some(&context))
     };
     let shown = |offer: &Offer, open: bool| {
         if !open {
             return closed(&offer.state);
         }
-        let mut update = project_session_update(
+        project_session_update(
             &offer.state,
             &viewer,
             Some((&offer.choice, DRAFT_NONCE)),
             base.tiles,
-        );
-        update.tactical = facts(base, &offer.state, &offer.choice);
-        explored(&offer.state, update)
+            Some(&context),
+        )
     };
     let first = |offer: &Option<Offer>| offer.as_ref().map(|offer| shown(offer, true));
     let update = match (&stop, &settled, &run.last) {
@@ -569,13 +563,10 @@ pub fn run_draft(
     }
 }
 
-fn facts(base: &DraftBase<'_, '_>, state: &GameState, choice: &Choice) -> Option<TacticalFacts> {
-    project_tactical_facts(state, base.content, base.sources, base.galaxy?, choice)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tactical::TacticalFacts;
     use ti4_engine::choice::SeededRandom;
     use ti4_model::content_types::POK;
     use ti4_model::state::Phase;
@@ -773,6 +764,23 @@ mod tests {
         assert_eq!(subtype(&menu.update), "action_menu");
         let offered = &menu.update.pending_choice.as_ref().unwrap().choice.options;
         assert_eq!(offered.len(), 1, "only the tactical action is shown");
+        // A draft has the facts of a live update, from the same place.
+        let content = ContentStore::embedded();
+        assert!(
+            menu.update.tactical.is_none(),
+            "a menu has no step to stage"
+        );
+        assert!(menu.update.exploration.is_some());
+        assert!(menu.update.action_cards.is_some());
+        assert!(menu.update.secret_objectives.is_some());
+        assert_eq!(
+            menu.update.score,
+            Some(crate::score::project_score_facts(&game.state, content))
+        );
+        assert_eq!(
+            menu.update.agendas,
+            Some(crate::agendas::project_agenda_facts(&game.state))
+        );
 
         let mut script = vec![choose("tactical")];
         let activation = run(&game, &tiles, &script);
