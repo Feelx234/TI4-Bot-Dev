@@ -2425,7 +2425,8 @@ pub fn primary(
             .map(ToOwned::to_owned)
             .collect();
         for system in state.board.keys() {
-            if !galaxy.is_hyperlane(system.as_str()) && !systems.iter().any(|s| s == system.as_str())
+            if !galaxy.is_hyperlane(system.as_str())
+                && !systems.iter().any(|s| s == system.as_str())
             {
                 systems.push(system.to_string());
             }
