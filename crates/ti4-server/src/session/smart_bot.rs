@@ -123,6 +123,15 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     let me = seen.bound_seat().clone();
     let observed = seen.observed();
     let subtype = choice.context.as_ref().map(|c| c.subtype.as_str());
+    // Round 1: Imperial's immediate scoring of a spending objective (Lead from the Front's three
+    // tokens, Erect a Monument's resources, ...) would spend what the expansion plan needs; the
+    // objective can still be scored in the status phase with what is left.
+    if subtype == Some("imperial_score_objective")
+        && spending_objective_blocks_plan(choice, observed, &me)
+        && let Some(index) = choice.options.iter().position(ChoiceOption::is_decline)
+    {
+        return Some(index);
+    }
     // -- objective layer hook (smart_bot_objectives.rs) --
     if let Some(index) = objectives::pick(choice, seen, &me, rng) {
         return Some(index);
@@ -162,6 +171,33 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("functioning_base_choose_reward") if expanding(observed) => {
             return choice.options.iter().position(|o| o.id == "gain");
         }
+        // Ambush (the Mentak): free dice before the fight, as many ships as offered.
+        Some("ambush_roll") => {
+            return choice
+                .options
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| !o.is_decline())
+                .max_by_key(|(i, o)| (o.id.matches('+').count(), std::cmp::Reverse(*i)))
+                .map(|(i, _)| i);
+        }
+        // Pillage (the Mentak): always, and a trade good.
+        Some("pillage_take") => {
+            return choice
+                .options
+                .iter()
+                .position(|o| o.id.starts_with("trade_good|"))
+                .or(Some(0));
+        }
+        Some(sub) if sub.starts_with("reaction_after_") => {
+            if let Some(index) = choice
+                .options
+                .iter()
+                .position(|o| o.id.contains(":pillage:"))
+            {
+                return Some(index);
+            }
+        }
         Some("answer_transaction") => return pick_answer(choice),
         Some("propose_transaction") => return pick_proposal(choice),
         _ => {}
@@ -188,6 +224,30 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         return pick_cheapest_removal(choice, observed);
     }
     None
+}
+
+/// Whether every objective Imperial offers to score now spends something (tokens, resources,
+/// influence, trade goods) while a round-1 plan still needs it ([`transport_plan`], the Cruiser II
+/// plan's reserve).
+fn spending_objective_blocks_plan(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> bool {
+    const SPENDING: &[&str] = &[
+        "monument",
+        "lead",
+        "trade_routes",
+        "sway_council",
+        "amass_wealth",
+        "centralize_trade",
+        "golden_age",
+        "galvanize",
+        "manipulate_law",
+        "vast_reserves",
+    ];
+    let planning = transport_plan(seen, me).is_some() || reserved_resources(seen, me) > 0;
+    let offered: Vec<&ChoiceOption> = choice.options.iter().filter(|o| !o.is_decline()).collect();
+    planning
+        && seen.round() <= 1
+        && !offered.is_empty()
+        && offered.iter().all(|o| SPENDING.contains(&o.id.as_str()))
 }
 
 // -- reading the board ---------------------------------------------------------------------------
@@ -730,16 +790,145 @@ fn transport_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<(i64, i64)> {
     {
         return None;
     }
+    // Three systems this round, less those already taken; as many as the tactic tokens (one
+    // more from Warfare's redistribution while it is still to play) can reach.
     let tokens = seen
         .seat(me)
-        .map_or(0, |seat| i64::from(seat.tactic_tokens.min(3)));
+        .map_or(0, |seat| i64::from(seat.tactic_tokens))
+        + i64::from(ready_card(seen, me, "Warfare").is_some());
+    let wanted = (3 - systems_taken_this_round(seen, me)).min(tokens);
     let (transports, ground) = free_transports_and_ground(seen, me);
-    let missing = tokens - transports;
+    let missing = wanted - transports;
     if missing <= 0 {
         return None;
     }
+    // A troop for every transport (the first one leaves two at home for the new ones, see
+    // `ground_shortfall`); two infantry cost one; Sarween Tools takes one off the build.
     let troops = (missing + transports - ground).max(0);
-    Some((missing, CARRIER_COST * missing + (troops + 1) / 2))
+    let discount = i64::from(has_technology(seen, me, "st"));
+    Some((
+        missing,
+        CARRIER_COST * missing + (troops + 1) / 2 - discount,
+    ))
+}
+
+/// Whether the seat owns technology `alias`.
+fn has_technology(seen: &Observed<'_>, me: &PlayerId, alias: &str) -> bool {
+    seen.seat(me)
+        .is_some_and(|seat| seat.technologies.iter().any(|t| t.as_str() == alias))
+}
+
+/// Systems activated this round (they hold its command token) where it now controls a planet,
+/// home aside: the systems the round has taken so far.
+fn systems_taken_this_round(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+    let home = home_system(seen, me);
+    let taken = seen
+        .systems_with_token(me)
+        .into_iter()
+        .filter(|system| Some(*system) != home.as_ref())
+        .filter(|system| {
+            seen.system(system)
+                .planet_control
+                .values()
+                .any(|owner| owner == me)
+        })
+        .count();
+    i64::try_from(taken).unwrap_or(i64::MAX)
+}
+
+/// Whether the seat should clear its home before Warfare's home build: a tactical action that
+/// only moves its warships without capacity out of home, so fleet supply lets the build place a
+/// transport for every remaining token. The loaded transport has already left; Warfare's
+/// redistribution gives the token back (the spread-out fleet needs fewer fleet tokens), so the
+/// tokens still send every new transport. It also waits a turn for Diplomacy's readying.
+fn wait_move_pays(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    let Some((missing, _)) = transport_plan(seen, me) else {
+        return false;
+    };
+    let Some(home) = home_system(seen, me) else {
+        return false;
+    };
+    let tokens = seen
+        .seat(me)
+        .map_or(0, |seat| i64::from(seat.tactic_tokens));
+    let warships_home = seen
+        .system(&home)
+        .units
+        .iter()
+        .filter(|u| &u.owner == me)
+        .filter_map(|u| unit_type(seen, u.type_id.as_str()))
+        .any(|t| t.is_ship() && !t.is_fighter() && t.capacity() == 0);
+    let (_, lift) = waiting_and_lift(seen, me, &home);
+    ready_card(seen, me, "Warfare").is_some()
+        && !ground_produces(seen, me)
+        && missing >= 2
+        && warships_home
+        && lift == 0
+        && home_fleet_room(seen, me, &home) < missing
+        && !seen.systems_with_token(me).contains(&home)
+        && tokens >= missing
+}
+
+/// Whether a round-1 seat short of transports, with no card of its own left to play, should stay
+/// in the round for another seat's Warfare: its secondary builds the transport at home, and at
+/// least `tokens` tactic tokens are left (one to wait with, one to send the new transport).
+fn waiting_for_warfare(seen: &Observed<'_>, me: &PlayerId, tokens: i32) -> bool {
+    let Some(seat) = seen.seat(me) else {
+        return false;
+    };
+    let own_card = seat
+        .strategy_cards
+        .iter()
+        .any(|card| !seat.exhausted_strategy_cards.contains(card));
+    seen.round() <= 1
+        && !own_card
+        && transport_plan(seen, me).is_some()
+        && secondary_to_come(seen, me, "Warfare")
+        && seat.strategic_tokens > 0
+        && seat.tactic_tokens >= tokens
+        && spare_resources(seen, me) >= CARRIER_COST
+        && home_system(seen, me).is_some_and(|home| {
+            !seen.systems_with_token(me).contains(&home) && home_fleet_room(seen, me, &home) > 0
+        })
+}
+
+/// A system to activate only to wait: no planets, no hostile ships, not home; the first one.
+fn pick_empty_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let home = home_system(seen, me);
+    choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.kind == "activate")
+        .filter(|(_, o)| home.as_ref().is_none_or(|h| h.as_str() != o.id))
+        .filter(|(_, o)| {
+            let system = SystemId::new(&o.id);
+            !has_hostile_ships(seen, me, &system)
+                && ti4_content::galaxy::planets_in(seen.content(), &o.id, seen.sources()).is_empty()
+        })
+        .map(|(i, _)| i)
+        .next()
+}
+
+/// The waiting move's system ([`wait_move_pays`]): one the home warships can reach, without a
+/// hostile fleet, best without planets to take (nothing is landed).
+fn pick_wait_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let home = home_system(seen, me)?;
+    choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.kind == "activate" && o.id != home.as_str())
+        .filter(|(_, o)| {
+            let system = SystemId::new(&o.id);
+            !has_hostile_ships(seen, me, &system)
+                && seen
+                    .movable_into(me, &system)
+                    .iter()
+                    .any(|m| m.origin == home && m.capacity == 0 && is_ship(seen, &m.unit))
+        })
+        .min_by_key(|(i, o)| (!targets(seen, me, &SystemId::new(&o.id)).is_empty(), *i))
+        .map(|(i, _)| i)
 }
 
 /// Whether the seat's ground forces have Production (the Arborec): a transport can be built where
@@ -1099,6 +1288,10 @@ fn faction_card_play(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
             }
         }
     }
+    // No card left to wait with: a tactical action that moves the home warships out instead.
+    if wait_move_pays(seen, me) {
+        return choice.options.iter().position(|o| o.id == "tactical");
+    }
     if cruiser_plan(seen, me) && ready_card(seen, me, "Technology").is_some() {
         if let Some(index) = play("Trade") {
             return Some(index);
@@ -1141,6 +1334,25 @@ fn biggest_stack(seen: &Observed<'_>, me: &PlayerId) -> usize {
 /// Best activation among the offered systems; avoid losing fights; random among the rest.
 fn pick_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     seen.galaxy()?;
+    if waiting_for_warfare(seen, me, 2)
+        && best_above(
+            &choice
+                .options
+                .iter()
+                .enumerate()
+                .map(|(i, o)| (i, activation_value(seen, me, &SystemId::new(&o.id))))
+                .collect::<Vec<_>>(),
+            ACTIVATION_THRESHOLD,
+        )
+        .is_none()
+    {
+        return pick_empty_activation(choice, seen, me);
+    }
+    if wait_move_pays(seen, me)
+        && let Some(index) = pick_wait_activation(choice, seen, me)
+    {
+        return Some(index);
+    }
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
@@ -1237,7 +1449,12 @@ fn pick_action(
         return None;
     }
     if worth < ACTIVATION_THRESHOLD {
-        // Nothing worth a command token: play the card or pass rather than waste one.
+        // Nothing worth a command token: play the card or pass rather than waste one. But not
+        // pass while Warfare's secondary would still build the transport its tokens could send:
+        // a token on an empty system keeps the seat in the round.
+        if strategic.is_none() && waiting_for_warfare(seen, me, 2) {
+            return Some(tactical);
+        }
         return strategic.or_else(|| choice.options.iter().position(|o| o.id == "pass"));
     }
     // A planet worth having is there for the taking: always go (the card waits for a quieter
@@ -1458,6 +1675,16 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     if let Some(index) = escort_from_home(&moves, seen, me, &active) {
         return Some(index);
     }
+    if let Some(index) = waiting_escort(&moves, seen, me, &active) {
+        return Some(index);
+    }
+    // The waiting activation ([`waiting_for_warfare`]): nothing moves.
+    if waiting_for_warfare(seen, me, 1)
+        && present.is_empty()
+        && targets(seen, me, &active).is_empty()
+    {
+        return Some(done);
+    }
     if !targets(seen, me, &active).is_empty() || !present.is_empty() {
         return Some(done);
     }
@@ -1520,6 +1747,11 @@ fn escort_from_home(
 ) -> Option<usize> {
     let home = home_system(seen, me)?;
     let (missing, _) = transport_plan(seen, me)?;
+    // Warfare's own build: the warships leave by a move of their own later
+    // ([`wait_move_pays`]), so this transport's system keeps a small fleet.
+    if ready_card(seen, me, "Warfare").is_some() && !ground_produces(seen, me) {
+        return None;
+    }
     if !home_builder_ahead(seen, me)
         || home_fleet_room(seen, me, &home) >= missing
         || home_fleet_room(seen, me, active) <= 0
@@ -1528,6 +1760,40 @@ fn escort_from_home(
     }
     let (_, lift) = ships_and_lift(seen, me, active);
     if lift == 0 {
+        return None;
+    }
+    moves
+        .iter()
+        .filter(|(_, o, t)| {
+            t.is_ship()
+                && !t.is_fighter()
+                && t.capacity() == 0
+                && payload_str(o, "origin") == Some(home.as_str())
+        })
+        .min_by_key(|(i, _, _)| *i)
+        .map(|(i, _, _)| *i)
+}
+
+/// The waiting move ([`wait_move_pays`]) in round 1: into a system no transport comes to, the
+/// home warships without capacity go, so the home build has fleet supply.
+fn waiting_escort(
+    moves: &[(usize, &ChoiceOption, UnitType<'_>)],
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    active: &SystemId,
+) -> Option<usize> {
+    let home = home_system(seen, me)?;
+    if seen.round() > 1
+        || !short_of_transports(seen, me)
+        || ships_and_lift(seen, me, active).1 > 0
+        || ships_and_lift(seen, me, &home).1 > 0
+        || moves
+            .iter()
+            .any(|(_, _, t)| t.capacity() > 0 && t.is_ship())
+        || active == &home
+        || has_hostile_ships(seen, me, active)
+        || home_fleet_room(seen, me, active) <= 0
+    {
         return None;
     }
     moves
@@ -1996,16 +2262,17 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
             .iter()
             .position(|o| card_is(seen, &o.id, "Imperial"))
             .filter(|_| holds_mecatol(seen, me) || mecatol_takeable(seen, me));
-        return imperial.or_else(|| {
-            let scored: Vec<(usize, f64)> = choice
-                .options
-                .iter()
-                .enumerate()
-                .map(|(i, o)| (i, f64::from(card_goods(seen, &o.id))))
-                .collect();
-            best_above(&scored, 1.0)
-        })
-        .or_else(|| crate::session::smart_bot_faction_plans::preferred_card(choice, seen, me));
+        return imperial
+            .or_else(|| {
+                let scored: Vec<(usize, f64)> = choice
+                    .options
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| (i, f64::from(card_goods(seen, &o.id))))
+                    .collect();
+                best_above(&scored, 1.0)
+            })
+            .or_else(|| crate::session::smart_bot_faction_plans::preferred_card(choice, seen, me));
     }
     let scored: Vec<(usize, f64)> = choice
         .options
@@ -2089,7 +2356,16 @@ fn pick_token_pool(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
 /// (Warfare's secondary). `None` outside the opening.
 fn opening_pools(seen: &Observed<'_>, me: &PlayerId) -> Option<(i32, i32)> {
     match seen.phase() {
-        ti4_model::state::Phase::Action if expanding(seen) => Some((fleet_lean(seen, me), 1)),
+        ti4_model::state::Phase::Action if expanding(seen) => {
+            // Round 1: a strategy token only while a secondary worth one is still to come; the
+            // rest send transports.
+            let strategy = if seen.round() <= 1 {
+                strategy_reserve(seen, me).min(1)
+            } else {
+                1
+            };
+            Some((fleet_lean(seen, me), strategy))
+        }
         ti4_model::state::Phase::Status if seen.round() < EXPANSION_ROUNDS => {
             let stack = i32::try_from(biggest_stack(seen, me)).unwrap_or(i32::MAX);
             Some((stack.max(2), 1))
@@ -2177,7 +2453,10 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to ready two planets") {
         // The transport plan's home build is still to come: the planets just taken (and home)
         // are its resources.
-        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 {
+        // Not with the last token while Warfare's secondary (the build itself) is still to come.
+        let keep_for_warfare = i32::from(expanding(seen) && secondary_to_come(seen, me, "Warfare"));
+        if readying_pays(seen, me) && exhausted_resources(seen, me) > 0 && tokens > keep_for_warfare
+        {
             return answer(true);
         }
         // Diplomacy: the influence back for the custodians when Mecatol Rex is in reach.
@@ -2217,10 +2496,13 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
             .seat(me)
             .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens);
         // Nor while a round-1 plan still needs its planets' resources (they pay influence too).
+        // (Paying influence exhausts planets whose resources the build needs, so any purchase
+        // can spoil it while the build is still to come.)
         let saving = reserved_resources(seen, me) > 0
-            || transport_plan(seen, me).is_some_and(|(_, cost)| {
-                home_builder_ahead(seen, me) && spare_resources(seen, me) < cost
-            });
+            || (transport_plan(seen, me).is_some() && home_builder_ahead(seen, me))
+            || (seen.round() <= 1
+                && secondary_to_come(seen, me, "Warfare")
+                && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0));
         return answer(
             pools < ENOUGH_TOKENS && !saving && (!mecatol_in_reach(seen, me) || spare >= 6),
         );
@@ -3051,6 +3333,12 @@ mod tests {
             ),
             "warfare_redistribute_tokens",
         );
+        // Round 1 with no secondary worth a strategy token still to come: every token but the
+        // fleet's one goes to tactics.
+        assert_eq!(picked(&state, &hub, &choice), Some(4), "7|1|0");
+        // Another seat still to play Warfare: one strategy token kept for its secondary.
+        state.player_mut(&foe()).expect("seat").strategy_cards =
+            vec![ti4_model::id::StrategyCardId::new("te6warfare")];
         assert_eq!(picked(&state, &hub, &choice), Some(3), "6|1|1");
         // Outside the opening the fleet keeps its usual three.
         state.round = 3;
@@ -3390,6 +3678,151 @@ mod tests {
         state.system_mut(&home).command_tokens.insert(me());
         let seen = observe(&state, &hub);
         assert_eq!(pick_produce(&produce, &seen, &me()), Some(3), "declined");
+    }
+
+    /// The Mentak in the speaker seat after its first tactical action: the carrier holds the
+    /// target system (its token there, its planet taken), the two cruisers, the dock and two
+    /// infantry wait at home, Warfare and Imperial in hand.
+    fn speaker_mentak_after_the_first_system() -> (GameState, Hub, SystemId, SystemId) {
+        let (mut state, hub, home, target) = opening_board();
+        put(&mut state, &home, "cruiser", &me(), 2);
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "infantry",
+            &me(),
+            2,
+        );
+        put_on_planet(
+            &mut state,
+            &home,
+            &PlanetId::new("jord"),
+            "spacedock",
+            &me(),
+            1,
+        );
+        put(&mut state, &target, "carrier", &me(), 1);
+        let planet = PlanetId::new(planets(target.as_str())[0].clone());
+        put_on_planet(&mut state, &target, &planet, "infantry", &me(), 1);
+        let board = state.system_mut(&target);
+        board.planet_control.insert(planet.clone(), me());
+        board.command_tokens.insert(me());
+        state.exhausted_planets.insert(planet);
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.faction = ti4_model::id::FactionId::new("mentak");
+        seat.trade_goods = 0;
+        seat.tactic_tokens = 2;
+        seat.fleet_tokens = 3;
+        seat.strategic_tokens = 2;
+        seat.technologies = ["ps", "st"]
+            .into_iter()
+            .map(ti4_model::id::TechnologyId::new)
+            .collect();
+        seat.strategy_cards = vec![
+            ti4_model::id::StrategyCardId::new("te6warfare"),
+            ti4_model::id::StrategyCardId::new("pok8imperial"),
+        ];
+        (state, hub, home, target)
+    }
+
+    #[test]
+    fn the_speaker_with_warfare_clears_home_before_the_build_and_sarween_cuts_its_cost() {
+        let (mut state, hub, _, _) = speaker_mentak_after_the_first_system();
+        let seen = observe(&state, &hub);
+        assert_eq!(systems_taken_this_round(&seen, &me()), 1);
+        // Two more systems (two tactic tokens and Warfare's redistribution), no transport left:
+        // two carriers, troops at home already, Sarween Tools takes one off.
+        assert_eq!(
+            transport_plan(&seen, &me()),
+            Some((2, 2 * CARRIER_COST - 1))
+        );
+        // The cruisers fill the fleet pool at home: they leave first.
+        assert!(wait_move_pays(&seen, &me()));
+        // With room at home (a bigger fleet pool) there is nothing to clear.
+        state.player_mut(&me()).expect("seat").fleet_tokens = 4;
+        let seen = observe(&state, &hub);
+        assert!(!wait_move_pays(&seen, &me()));
+    }
+
+    #[test]
+    fn round_one_imperial_does_not_spend_the_plan_on_a_spending_objective() {
+        let (mut state, hub, _, _) = speaker_mentak_after_the_first_system();
+        let score = |ids: &[&str]| {
+            contextual(
+                Choice::new(
+                    me(),
+                    "score a public objective with Imperial",
+                    ids.iter()
+                        .map(|id| ChoiceOption::labelled(*id, "objective", *id))
+                        .chain(std::iter::once(ChoiceOption::decline()))
+                        .collect(),
+                ),
+                "imperial_score_objective",
+            )
+        };
+        let seen = observe(&state, &hub);
+        assert!(spending_objective_blocks_plan(
+            &score(&["lead"]),
+            &seen,
+            &me()
+        ));
+        assert!(!spending_objective_blocks_plan(
+            &score(&["lead", "expand"]),
+            &seen,
+            &me()
+        ));
+        assert_eq!(picked(&state, &hub, &score(&["lead"])), Some(1), "declined");
+        // From round 2 the point is taken.
+        state.round = 2;
+        let seen = observe(&state, &hub);
+        assert!(!spending_objective_blocks_plan(
+            &score(&["lead"]),
+            &seen,
+            &me()
+        ));
+    }
+
+    #[test]
+    fn pillage_and_ambush_are_always_used() {
+        let (state, hub, _, _) = opening_board();
+        let pillage = contextual(
+            Choice::new(
+                me(),
+                "after TRADE_GOODS_GAINED",
+                ["ability:mentak:pillage:TRADE_GOODS_GAINED:after", "decline"]
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "reaction", *id))
+                    .collect(),
+            ),
+            "reaction_after_TRADE_GOODS_GAINED",
+        );
+        assert_eq!(picked(&state, &hub, &pillage), Some(0));
+        let take = contextual(
+            Choice::new(
+                me(),
+                "Pillage: take 1 trade good or commodity",
+                ["commodity|b", "trade_good|b"]
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "pillage", *id))
+                    .collect(),
+            ),
+            "pillage_take",
+        );
+        assert_eq!(picked(&state, &hub, &take), Some(1), "the trade good");
+        let ambush = contextual(
+            Choice::new(
+                me(),
+                "Ambush: choose up to 2 cruisers or destroyers to roll",
+                ["cruiser", "cruiser+cruiser"]
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "ambush", *id))
+                    .chain(std::iter::once(ChoiceOption::decline()))
+                    .collect(),
+            ),
+            "ambush_roll",
+        );
+        assert_eq!(picked(&state, &hub, &ambush), Some(1), "both cruisers");
     }
 
     #[test]
