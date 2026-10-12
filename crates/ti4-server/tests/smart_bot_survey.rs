@@ -529,3 +529,281 @@ fn survey_turn_one() {
         }
     }
 }
+
+/// One seat's standing at the end of a round (its status phase done).
+#[derive(Clone, Debug, serde::Serialize)]
+struct MidRow {
+    seed: u64,
+    round: u32,
+    faction: String,
+    vp: i32,
+    planets: usize,
+    techs: usize,
+    /// Expected hits per combat round of its ships, sustain counted twice (fighters included).
+    strength: f64,
+    /// Printed cost of its ships on the board.
+    fleet_cost: f64,
+    ground: usize,
+    /// Non-fighter ships by base type, e.g. `dreadnought:2`.
+    ships: BTreeMap<String, usize>,
+    winner: bool,
+}
+
+fn mid_rows(state: &GameState, seed: u64, round: u32) -> Vec<MidRow> {
+    let content = ContentStore::embedded();
+    let sources = ti4_model::content_types::DEFAULT;
+    let best = state
+        .players
+        .iter()
+        .map(|p| p.victory_points)
+        .max()
+        .unwrap_or(0);
+    state
+        .players
+        .iter()
+        .map(|seat| {
+            let (mut strength, mut fleet_cost, mut ground) = (0.0, 0.0, 0);
+            let mut ships: BTreeMap<String, usize> = BTreeMap::new();
+            for system in state.board.values() {
+                for unit in system
+                    .units
+                    .iter()
+                    .chain(system.planet_units.values().flatten())
+                {
+                    if unit.owner != seat.id {
+                        continue;
+                    }
+                    let Some(kind) =
+                        ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
+                    else {
+                        continue;
+                    };
+                    if kind.is_ground_force() && !kind.is_ship() {
+                        ground += 1;
+                    }
+                    if !kind.is_ship() {
+                        continue;
+                    }
+                    #[expect(clippy::cast_precision_loss, reason = "dice counts are small")]
+                    let dice = kind.combat_dice() as f64;
+                    let hits = kind
+                        .combat_hits_on()
+                        .map_or(0.0, |on| ti4_policy::fleet_strength::hit_chance(on, 0));
+                    strength += dice * hits * (1.0 + f64::from(u8::from(kind.sustain_damage())));
+                    fleet_cost += kind.cost();
+                    if !kind.is_fighter() {
+                        *ships.entry(kind.base_type().to_owned()).or_default() += 1;
+                    }
+                }
+            }
+            MidRow {
+                seed,
+                round,
+                faction: seat.faction.as_str().to_owned(),
+                vp: seat.victory_points,
+                planets: state.controlled_planets(&seat.id).len(),
+                techs: seat.technologies.len(),
+                strength,
+                fleet_cost,
+                ground,
+                ships,
+                winner: state.finished && seat.victory_points == best,
+            }
+        })
+        .collect()
+}
+
+/// One all-smart 4-seat table with roster factions by seed, sampled at the end of every round.
+fn midgame(seats: usize, seed: u64, rounds: u32) -> (Vec<MidRow>, bool, u32) {
+    let ids: Vec<PlayerId> = (1..=seats)
+        .map(|i| PlayerId::new(format!("p{i}")))
+        .collect();
+    let assignments =
+        ti4_server::preset::roster("explore+fac", seed, &ids).expect("roster assignment");
+    let (mut initial, galaxy) = ti4_server::map::create_game_with_template_seated(
+        ContentStore::embedded(),
+        &ids,
+        seed,
+        None,
+        &assignments,
+        Some("te"),
+    )
+    .expect("create game");
+    let speaker = usize::try_from(seed).unwrap_or(0) % seats;
+    initial.speaker = ids[speaker].clone();
+    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let mut config = SessionConfig::new(format!("midgame_{seats}_{seed}"), initial)
+        .with_seed(seed)
+        .with_player_ids(ids.clone())
+        .with_galaxy(galaxy, tiles)
+        .with_random_bot_delay_ms(0);
+    for id in &ids {
+        config = config.with_seat(id.clone(), SeatController::BotSmart);
+    }
+    let session = GameSession::start(config);
+    let mut rows = Vec::new();
+    let mut seen_round = 1;
+    let mut last_len = 0;
+    let mut last_progress = Instant::now();
+    loop {
+        let state = session.current_state();
+        // The first look at a new round is the previous round's end (status and agenda done).
+        while state.round > seen_round {
+            rows.extend(mid_rows(&state, seed, seen_round));
+            seen_round += 1;
+        }
+        let len = session.decision_log().len();
+        if len != last_len {
+            last_len = len;
+            last_progress = Instant::now();
+        }
+        if session.is_finished()
+            || session.error().is_some()
+            || state.round > rounds
+            || last_progress.elapsed() > Duration::from_secs(60)
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    session.stop();
+    let state = session.current_state();
+    if state.finished {
+        // The final position, apart from the end-of-round rows (round 100).
+        rows.extend(mid_rows(&state, seed, 100));
+    }
+    if let Some(error) = session.error() {
+        eprintln!("MIDGAME seed {seed} error {error:?}");
+    }
+    (rows, state.finished, state.round)
+}
+
+/// Mid- and late-game standings of all-smart 4-player tables, per faction, at the end of rounds
+/// 3 to 5 (or to `SURVEY_MID_ROUNDS`): `SURVEY_MID=1-24 cargo test --release --test
+/// smart_bot_survey survey_midgame -- --ignored --nocapture`. Factions come from the whole roster
+/// by seed. `SURVEY_MID_OUT=<file>` writes every row as JSON lines for comparing two builds.
+#[test]
+#[ignore = "a survey for tuning, not a check"]
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::too_many_lines,
+    reason = "small counts; one report"
+)]
+fn survey_midgame() {
+    let spec = std::env::var("SURVEY_MID").unwrap_or_else(|_| "1-24".to_owned());
+    let rounds: u32 = std::env::var("SURVEY_MID_ROUNDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let seats: usize = std::env::var("SURVEY_MID_SEATS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let threads: usize = std::env::var("SURVEY_MID_THREADS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(4);
+    let seeds: Vec<u64> = spec
+        .split(',')
+        .flat_map(|part| match part.split_once('-') {
+            Some((a, b)) => {
+                let (a, b): (u64, u64) = (
+                    a.trim().parse().expect("seed"),
+                    b.trim().parse().expect("seed"),
+                );
+                (a..=b).collect::<Vec<_>>()
+            }
+            None => vec![part.trim().parse().expect("seed")],
+        })
+        .collect();
+    let queue = std::sync::Mutex::new(seeds.clone());
+    let results: Vec<(u64, Vec<MidRow>, bool, u32)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut out = Vec::new();
+                    loop {
+                        let Some(seed) = queue.lock().expect("queue").pop() else {
+                            break;
+                        };
+                        let (rows, finished, round) = midgame(seats, seed, rounds);
+                        eprintln!("MIDGAME seed {seed} finished={finished} round {round}");
+                        out.push((seed, rows, finished, round));
+                    }
+                    out
+                })
+            })
+            .collect();
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().expect("survey thread"))
+            .collect()
+    });
+    let rows: Vec<&MidRow> = results.iter().flat_map(|(_, rows, _, _)| rows).collect();
+    if let Ok(path) = std::env::var("SURVEY_MID_OUT") {
+        let mut text = String::new();
+        for row in &rows {
+            text.push_str(&serde_json::to_string(row).expect("json"));
+            text.push('\n');
+        }
+        std::fs::write(path, text).expect("write rows");
+    }
+    let finished = results.iter().filter(|(_, _, f, _)| *f).count();
+    let end_rounds: Vec<u32> = results
+        .iter()
+        .filter(|(_, _, f, _)| *f)
+        .map(|(_, _, _, r)| *r)
+        .collect();
+    let winners: Vec<&str> = rows
+        .iter()
+        .filter(|r| r.round == 100 && r.winner)
+        .map(|r| r.faction.as_str())
+        .collect();
+    eprintln!(
+        "MID GAMES {}: {finished} reached a winner (end rounds {end_rounds:?}; winners {winners:?})",
+        results.len()
+    );
+    let mean = |list: &[&MidRow], f: &dyn Fn(&MidRow) -> f64| {
+        list.iter().map(|r| f(r)).sum::<f64>() / list.len().max(1) as f64
+    };
+    for round in 3..=rounds {
+        let at: Vec<&MidRow> = rows.iter().copied().filter(|r| r.round == round).collect();
+        if at.is_empty() {
+            continue;
+        }
+        let mut by_faction: BTreeMap<&str, Vec<&MidRow>> = BTreeMap::new();
+        for row in &at {
+            by_faction
+                .entry(row.faction.as_str())
+                .or_default()
+                .push(row);
+        }
+        let line = |label: &str, list: &[&MidRow]| {
+            let mut ships: BTreeMap<&str, usize> = BTreeMap::new();
+            for row in list {
+                for (kind, n) in &row.ships {
+                    *ships.entry(kind.as_str()).or_default() += n;
+                }
+            }
+            let ships: Vec<String> = ships
+                .iter()
+                .map(|(k, n)| format!("{}{:.1}", &k[..2], *n as f64 / list.len() as f64))
+                .collect();
+            eprintln!(
+                "MID r{round} {label:10} n={:3} vp {:.2} pl {:.2} tech {:.2} str {:.2} cost {:5.1} gr {:.1} [{}]",
+                list.len(),
+                mean(list, &|r| f64::from(r.vp)),
+                mean(list, &|r| r.planets as f64),
+                mean(list, &|r| r.techs as f64),
+                mean(list, &|r| r.strength),
+                mean(list, &|r| r.fleet_cost),
+                mean(list, &|r| r.ground as f64),
+                ships.join(" ")
+            );
+        };
+        line("ALL", &at);
+        for (faction, list) in &by_faction {
+            line(faction, list);
+        }
+    }
+}

@@ -1875,7 +1875,11 @@ pub fn buildable_for(
                 held.iter()
                     .any(|tech| tech.as_str() == *gate || tech.as_str().ends_with(*gate))
             });
-            if !has {
+            // A faction whose sheet prints its own unit of this type (the Muaat's Prototype War
+            // Sun) builds it from the start; its upgrade (`pws2`) does not end in the gate.
+            let native =
+                ti4_content::units::faction_unit(content, &faction, base, sources).is_some();
+            if !has && !native {
                 continue;
             }
         }

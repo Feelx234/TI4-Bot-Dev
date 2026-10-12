@@ -59,6 +59,10 @@
 //!   Mid-round redistributions shrink the fleet pool to the biggest stack and make tactic tokens.
 //!   Strategy tokens are kept for Warfare's secondary while it is still to come.
 //! - **Research**: Gravity Drive whenever offered.
+//! - **Faction plans** (from round 3, [`crate::session::smart_bot_faction_plans`]): research
+//!   follows the faction's technology order, production weighs units by its plan, and a dock is
+//!   worth a token to build at until the plan's fleet size. A strategy card the rules above
+//!   leave open goes to the plan's preferred card.
 //!
 //! Other technology choices, agendas, action cards, the other secondaries and every other window
 //! stay random.
@@ -139,7 +143,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("announce_retreat") => return pick_retreat(choice, observed, &me),
         Some("draft_strategy_card") => return pick_strategy_card(choice, observed, &me),
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
-        Some("research_technology") => return pick_research(choice, observed, &me),
+        Some("research_technology") => {
+            return pick_research(choice, observed, &me).or_else(|| {
+                crate::session::smart_bot_faction_plans::research_pick(choice, observed, &me)
+            });
+        }
         // Shuffling tokens between pools at random can empty the fleet pool: keep them.
         Some("predictive_intelligence_redistribute") => {
             return choice.options.iter().position(|o| o.id == "done");
@@ -462,7 +470,8 @@ fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool
     let fleet = seen
         .seat(me)
         .map_or(0, |seat| usize::try_from(seat.fleet_tokens).unwrap_or(0));
-    (ships < 6 && here < fleet) || !enough_ground(seen, me)
+    let wanted = crate::session::smart_bot_faction_plans::ships_wanted(seen, me);
+    (ships < wanted && here < fleet) || !enough_ground(seen, me)
 }
 
 /// Whether as many ground forces wait at its docks as its ships can carry (at least
@@ -1887,6 +1896,8 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         if kind.is_fighter() {
             worth *= 0.6;
         }
+        // The faction's plan from round 3 on (1.0 in the opening).
+        worth *= crate::session::smart_bot_faction_plans::unit_weight(seen, me, kind);
         // With resources to spare, production slots are what runs out: value per slot.
         let rich = payload_f64(option, "available_resources").unwrap_or(0.0) >= RICH_RESOURCES;
         let price = if rich {
@@ -1993,7 +2004,8 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
                 .map(|(i, o)| (i, f64::from(card_goods(seen, &o.id))))
                 .collect();
             best_above(&scored, 1.0)
-        });
+        })
+        .or_else(|| crate::session::smart_bot_faction_plans::preferred_card(choice, seen, me));
     }
     let scored: Vec<(usize, f64)> = choice
         .options
