@@ -75,6 +75,10 @@ use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::units::Unit;
 use ti4_policy::fleet_strength::{Descriptors, descriptors, matchup};
 
+// Objective layer (round 3+, and the scoring order): `smart_bot_objectives.rs`.
+#[path = "smart_bot_objectives.rs"]
+pub mod objectives;
+
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.
 pub const WIN_MARGIN: f64 = 0.5;
@@ -115,6 +119,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     let me = seen.bound_seat().clone();
     let observed = seen.observed();
     let subtype = choice.context.as_ref().map(|c| c.subtype.as_str());
+    // -- objective layer hook (smart_bot_objectives.rs) --
+    if let Some(index) = objectives::pick(choice, seen, &me, rng) {
+        return Some(index);
+    }
+    // -- end objective layer hook --
     if let Some(index) = choice.options.iter().position(|o| o.kind == "score") {
         return Some(index);
     }
