@@ -12,8 +12,8 @@ import {
   loadKey,
   shipKey,
 } from "./movementDraft";
-import { type MovementStep, draftOf, matches, planAnswer, stepOf, stepsOf } from "./movementPlan";
-import type { Choice, MovementFacts, SessionUpdate } from "./wire";
+import { type MovementStep, draftOf, stepOf, stepsOf } from "./movementPlan";
+import type { MovementFacts, SessionUpdate } from "./wire";
 
 // Updates of a real game, written by the engine (seat a is Sol; it activated the system next
 // to its home, where it has two carriers, a destroyer, three fighters and five infantry):
@@ -141,71 +141,15 @@ it("stages the steps of a stopped plan again", () => {
 
 const moveChoice = moving.pending_choice!.choice;
 const loadChoice = loading.pending_choice!.choice;
-const idOf = (choice: Choice, answer: ReturnType<typeof planAnswer>) =>
-  answer.kind === "answer" ? choice.options[answer.index].id : answer.kind;
 
-it("answers each choice of the game with the option that the step names", () => {
-  const steps = plan();
-  const first = planAnswer(steps, 0, moveChoice, "a");
-  expect(idOf(moveChoice, first)).toBe("move|01|0");
-  expect(first).toMatchObject({ next: 1 });
-  expect(idOf(loadChoice, planAnswer(steps, 1, loadChoice, "a"))).toBe("load|0");
-  expect(idOf(loadChoice, planAnswer(steps, 2, loadChoice, "a"))).toBe("load|3");
-  expect(idOf(loadChoice, planAnswer(steps, 4, loadChoice, "a"))).toBe("done_loading");
-  expect(idOf(moveChoice, planAnswer(steps, 5, moveChoice, "a"))).toBe("move|01|2");
-  expect(idOf(moveChoice, planAnswer(steps, 6, moveChoice, "a"))).toBe("done_moving");
-  expect(planAnswer(steps, 7, moveChoice, "a")).toEqual({ kind: "done" });
-});
-
+// How a step answers a choice is decided in the engine (`plan_answer` in ti4-view); the tests
+// of it are there, and `wasmTransport.test.ts` sends plans to the real engine.
 it("reads the step back from the option that answered it", () => {
-  // Every option of a movement is a step that matches that option and no other.
+  // Every option of a movement is a step, and no two options are the same step.
   for (const choice of [moveChoice, loadChoice]) {
-    for (const option of choice.options) {
-      const step = stepOf(option);
-      expect(choice.options.filter((other) => step && matches(step, other))).toEqual([option]);
-    }
+    const steps = choice.options.map((option) => JSON.stringify(stepOf(option)));
+    expect(steps).not.toContain("null");
+    expect(new Set(steps).size).toBe(steps.length);
   }
   expect(stepOf({ id: "tactical", kind: "action", payload: {} })).toBeNull();
-});
-
-it("follows the three rules of the server's batch", () => {
-  const steps = plan();
-  // A hold that closed itself: the game asks for the next ship, and "done_loading" is passed over.
-  expect(planAnswer(steps, 4, moveChoice, "a")).toMatchObject({ kind: "answer", next: 6 });
-  // A hold that the plan does not load is declined, and no step is used.
-  const empty = stepsOf(facts, staged(ship(DESTROYER)));
-  const declined = planAnswer(empty, 1, loadChoice, "a");
-  expect(idOf(loadChoice, declined)).toBe("done_loading");
-  expect(declined).toMatchObject({ next: 1 });
-  // Another question stops the plan: a reaction window, or a choice of another seat.
-  const reaction: Choice = {
-    ...moveChoice,
-    context: { subtype: "reaction_after_SHIP_MOVED", actor: "a" },
-  };
-  expect(planAnswer(steps, 5, reaction, "a").kind).toBe("interrupted");
-  expect(planAnswer(steps, 5, { ...moveChoice, player: "c" }, "a").kind).toBe("interrupted");
-  expect(planAnswer(steps, 1, moveChoice, "a").kind).toBe("interrupted");
-});
-
-it("refuses a step that the game does not offer", () => {
-  const steps: MovementStep[] = [
-    {
-      kind: "move",
-      origin: "01",
-      unit: "dreadnought",
-      damaged: false,
-      gravity_drive: false,
-      ionian: false,
-    },
-    { kind: "done_moving" },
-  ];
-  expect(planAnswer(steps, 0, moveChoice, "a")).toEqual({
-    kind: "mismatch",
-    reason: "The game does not offer to move dreadnought from 01.",
-  });
-  // Gravity Drive is part of what a step names.
-  const boosted = plan().map((step) =>
-    step.kind === "move" ? { ...step, gravity_drive: true } : step,
-  );
-  expect(planAnswer(boosted, 0, moveChoice, "a").kind).toBe("mismatch");
 });

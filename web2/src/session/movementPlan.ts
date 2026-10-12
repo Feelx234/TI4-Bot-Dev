@@ -1,7 +1,9 @@
 // A staged movement as the steps that the game is asked for, and back. The steps name what is
 // moved and loaded, not the ids of the options: the game numbers its options again after each ship.
+// How a step answers a question of the game is decided in the engine (`plan_answer` in
+// `crates/ti4-view/src/planning/steps.rs`), for a draft and for a plan that is sent.
 import { type MovementDraft, canMove, setLoad, setShip, shipId, shipOf } from "./movementDraft";
-import type { Choice, ChoiceOption, MovementFacts } from "./wire";
+import type { ChoiceOption, MovementFacts } from "./wire";
 
 /** Compare `MovementOnlyStep` in `crates/ti4-server/src/session/batch.rs`. */
 export type MovementStep =
@@ -156,60 +158,10 @@ export function draftOf(facts: MovementFacts, steps: PlanStep[]): MovementDraft 
   return draft;
 }
 
-const flag = (option: ChoiceOption, key: string) => option.payload[key] === true;
-
-/** Whether an offered option is what a step asks for. Compare `MovementStep::matches_option`. */
-export function matches(step: PlanStep, option: ChoiceOption): boolean {
-  const { payload } = option;
-  switch (step.kind) {
-    case "move":
-      return (
-        option.kind === "move" &&
-        payload.origin === step.origin &&
-        payload.unit === step.unit &&
-        flag(option, "damaged") === step.damaged &&
-        flag(option, "gravity_drive") === step.gravity_drive &&
-        flag(option, "ionian") === step.ionian
-      );
-    case "load":
-      return (
-        option.kind === "load" &&
-        payload.system === step.origin &&
-        payload.pickup_system === step.pickup_system &&
-        payload.unit === step.unit &&
-        (payload.source ?? null) === step.source &&
-        flag(option, "damaged") === step.damaged &&
-        flag(option, "galvanized") === step.galvanized
-      );
-    case "done_loading":
-      return option.id === "done_loading";
-    case "done_moving":
-      return option.id === "done_moving";
-    case "land":
-      return (
-        option.kind === "commit" &&
-        payload.planet === step.planet &&
-        payload.unit === step.unit &&
-        flag(option, "damaged") === step.damaged &&
-        (payload.from_system ?? null) === step.from_system &&
-        (payload.from_planet ?? null) === step.from_planet
-      );
-    case "done_committing":
-      return option.id === "done_committing";
-    case "produce":
-      return option.kind === "produce" && payload.unit === step.unit && payload.exchange !== true;
-    case "place":
-      return option.kind === "place" && payload.destination === step.destination;
-    case "pay":
-      return option.kind === "pay" && option.id === step.source;
-    case "done_producing":
-      return option.id === "done_producing";
-    case "choose":
-      return option.id === step.option_id;
-  }
-}
-
-/** The step that an option of a movement is. Null for any other option. The inverse of `matches`. */
+/**
+ * The step that an option of a movement is. Null for any other option. The inverse of
+ * `PlanStep::matches_option` in `crates/ti4-view/src/planning/steps.rs`.
+ */
 export function stepOf(option: Pick<ChoiceOption, "id" | "kind" | "payload">): PlanStep | null {
   const { payload } = option;
   const on = (key: string) => payload[key] === true;
@@ -260,163 +212,4 @@ export function stepOf(option: Pick<ChoiceOption, "id" | "kind" | "payload">): P
     option.id === "done_producing"
     ? { kind: option.id }
     : null;
-}
-
-const describe = (step: PlanStep) =>
-  step.kind === "move"
-    ? `move ${step.unit} from ${step.origin}`
-    : step.kind === "load"
-      ? `load ${step.unit} at ${step.pickup_system}`
-      : step.kind === "done_loading"
-        ? "close the hold"
-        : step.kind === "done_moving"
-          ? "finish the movement"
-          : step.kind === "land"
-            ? `land ${step.unit} on ${step.planet}`
-            : step.kind === "done_committing"
-              ? "finish the landings"
-              : step.kind === "produce"
-                ? `produce ${step.unit}`
-                : step.kind === "place"
-                  ? `place the units on ${step.destination}`
-                  : step.kind === "pay"
-                    ? `pay with ${step.source}`
-                    : step.kind === "choose"
-                      ? `answer "${step.option_id}"`
-                      : "finish the production";
-
-const SUBTYPES: Record<Exclude<PlanStep["kind"], "choose">, string> = {
-  move: "movement_step",
-  done_moving: "movement_step",
-  load: "load_cargo",
-  done_loading: "load_cargo",
-  land: "commit_ground_forces",
-  done_committing: "commit_ground_forces",
-  produce: "produce_unit",
-  done_producing: "produce_unit",
-  place: "place_unit",
-  pay: "pay_resources",
-};
-
-/** The steps that only follow a purchase: the game may need none of them. */
-const follows = (step: PlanStep | undefined) =>
-  step?.kind === "pay" || step?.kind === "place" || step?.kind === "done_producing";
-
-export type PlanAnswer =
-  /**
-   * Answer the choice with this option. `next` is the first step that is still to do. With
-   * `steps` the plan goes on in this order: the step that answered was not the next one.
-   */
-  | { kind: "answer"; index: number; next: number; steps?: PlanStep[] }
-  /** Every step is done: the choice is not of the plan. */
-  | { kind: "done" }
-  /** The game asks something else first (a reaction window, another seat). */
-  | { kind: "interrupted"; reason: string }
-  /** The game does not offer what the step asks for. */
-  | { kind: "mismatch"; reason: string };
-
-/**
- * What a plan answers to a choice of the game, from step `next` on. The three rules of the
- * server's batch (`PrivateDecider` in `batch.rs`): a hold that closed itself needs no
- * `done_loading`; a hold that the plan does not load is declined; any other question stops the plan.
- * The landings have the first rule too: when the last ground force has landed, the game does not
- * ask for `done_committing`.
- * A production has rules of its own. The game asks for a payment after a purchase, as often as
- * the purchase needs: the answer is the first payment of the plan that is offered, wherever it is
- * in the plan. A place that the game settled, a payment that it did not need and an end that it
- * did not ask for are left out.
- * The pause between two steps of the action ("negotiate, or continue") is passed while steps are
- * left. An answer by id (`choose`) is for whatever the game asks the seat there.
- * `plan_answer` in `crates/ti4-view/src/planning/steps.rs` has the same rules, for a draft.
- */
-export function planAnswer(
-  steps: PlanStep[],
-  next: number,
-  choice: Choice,
-  actor: string,
-): PlanAnswer {
-  const subtype = choice.context?.subtype;
-  const own = choice.player === actor;
-  const pick = (step: PlanStep, at: number): PlanAnswer => {
-    const found = choice.options.flatMap((option, index) => (matches(step, option) ? [index] : []));
-    return found.length === 1
-      ? { kind: "answer", index: found[0], next: at }
-      : {
-          kind: "mismatch",
-          reason: `The game does not offer to ${describe(step)}${found.length ? " in one way only" : ""}.`,
-        };
-  };
-  if (own && subtype === "mid_action_pause" && next < steps.length) {
-    // The plan goes on to its next step, whatever that is.
-    const index = choice.options.findIndex((option) => option.id === "continue_action");
-    if (index >= 0) {
-      return { kind: "answer", index, next };
-    }
-  }
-  if (own && subtype === "movement_step") {
-    while (steps[next]?.kind === "done_loading") {
-      next += 1;
-    }
-  }
-  if (!own || subtype !== "commit_ground_forces") {
-    while (steps[next]?.kind === "done_committing") {
-      next += 1;
-    }
-  }
-  // The bill of a purchase of the plan: the step before is that purchase, or a part of its payment.
-  const bill = steps[next - 1]?.kind === "produce" || steps[next - 1]?.kind === "pay";
-  if (own && subtype === "pay_resources" && bill) {
-    const at = steps.findIndex(
-      (step, index) =>
-        index >= next && step.kind === "pay" && choice.options.some((item) => matches(step, item)),
-    );
-    if (at < 0) {
-      return { kind: "mismatch", reason: "The staged payment does not cover the cost." };
-    }
-    const answer = pick(steps[at], next + 1);
-    return answer.kind === "answer"
-      ? {
-          ...answer,
-          steps: [
-            ...steps.slice(0, next),
-            steps[at],
-            ...steps.slice(next, at),
-            ...steps.slice(at + 1),
-          ],
-        }
-      : answer;
-  }
-  if (own && subtype === "produce_unit") {
-    // The game placed the units of the last purchase itself, and needs no more payment for it.
-    while (steps[next]?.kind === "place") {
-      next += 1;
-    }
-    if (steps[next]?.kind === "pay") {
-      while (steps[next]?.kind === "pay") {
-        next += 1;
-      }
-    }
-  } else if (!(own && (subtype === "pay_resources" || subtype === "place_unit"))) {
-    // The game ended the production itself: the limit is used.
-    if (steps.slice(next).every(follows)) {
-      next = steps.length;
-    }
-  }
-  const step = steps[next];
-  if (!step) {
-    return { kind: "done" };
-  }
-  if (step.kind === "choose") {
-    return own
-      ? pick(step, next + 1)
-      : { kind: "interrupted", reason: "The game asks for another decision first." };
-  }
-  if (own && subtype === "load_cargo" && step.kind !== "load" && step.kind !== "done_loading") {
-    // A hold that the plan does not load.
-    return pick({ kind: "done_loading" }, next);
-  }
-  if (!own || subtype !== SUBTYPES[step.kind]) {
-    return { kind: "interrupted", reason: "The game asks for another decision first." };
-  }
-  return pick(step, next + 1);
 }

@@ -55,13 +55,18 @@ export function GameShell({
 }: {
   session: GameSession;
   other?: OtherGame;
-  /** The content of the Dev sheet. `close` shuts the sheet, for an action that ends it. */
+  /**
+   * The content of the Dev sheet. `close` shuts the sheet, for an action that ends it. The
+   * sheet is shown when the session has a capability for it.
+   */
   settings?: (close: () => void) => ReactNode;
   /** The Dev sheet was open before the shell was there: it stays open. */
   settingsOpen?: boolean;
 }) {
   const { view } = session;
-  const [drawer, setDrawer] = useState<string | null>(settingsOpen ? "settings" : null);
+  // The Dev sheet has the tools for testing: it is there when the game has one of them.
+  const dev = Object.values(session.capabilities).some(Boolean) ? settings : undefined;
+  const [drawer, setDrawer] = useState<string | null>(settingsOpen && dev ? "settings" : null);
   const [tableOpen, setTableOpen] = useState(true);
   const [applyOpen, setApplyOpen] = useState(false);
   /** The exploration deck that a planet type opened: the sheet shows it on top. */
@@ -163,9 +168,9 @@ export function GameShell({
   // Dev is a sheet like the reference sheets, in the same place.
   const sheet =
     drawer === "settings"
-      ? settings && (
+      ? dev && (
           <Drawer title="Dev" onClose={close}>
-            {settings(close)}
+            {dev(close)}
           </Drawer>
         )
       : reference;
@@ -197,7 +202,7 @@ export function GameShell({
             onDrawer={toggleDrawer}
             phone={phone}
             other={other}
-            settings={!!settings}
+            settings={!!dev}
           />
           {phone ? (
             <>

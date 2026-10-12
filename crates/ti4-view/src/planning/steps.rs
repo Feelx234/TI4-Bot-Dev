@@ -1,9 +1,8 @@
 //! The steps of a plan, and how a plan answers a question of the game.
 //!
 //! A step names what is moved, landed or produced, not the id of an option: the engine numbers
-//! its options again after each answer. The page answers a plan that it sends to the live game
-//! with the same rules (`planAnswer` in `web2/src/session/movementPlan.ts`); [`super::draft`]
-//! answers here, so a draft is played as it will be applied.
+//! its options again after each answer. A draft and a plan that is sent to the live game are
+//! answered here ([`super::draft::script_answer`]), so a draft is played as it will be applied.
 
 use serde::{Deserialize, Serialize};
 use ti4_engine::choice::{Choice, ChoiceOption};

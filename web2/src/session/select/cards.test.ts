@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import menuUpdate from "../fixtures/update-menu.json";
-import type { Catalog, Choice, ChoiceOption, SessionUpdate } from "../wire";
-import { filterOffers, selectActionCards, withoutNever } from "./cards";
+import type { Catalog, SessionUpdate } from "../wire";
+import { selectActionCards } from "./cards";
 
 // Seat a holds `scuttle` and `rally` in this update of the real engine.
 const menu = menuUpdate as unknown as SessionUpdate;
@@ -108,49 +108,4 @@ it("has the hand by id without the catalogue, and no hand for a spectator", () =
   expect(view?.hand.map((item) => item.name)).toEqual(["Rally", "Scuttle"]);
   expect(view).toMatchObject({ limit: null, deck: null });
   expect(selectActionCards({ ...menu, viewer: { role: "spectator" } }, catalog, NONE)).toBeNull();
-});
-
-const option = (id: string, kind: string, payload: Record<string, unknown> = {}): ChoiceOption => ({
-  id,
-  kind,
-  label: id,
-  payload,
-});
-const window = (...options: ChoiceOption[]): Choice => ({ player: "a", prompt: "React?", options });
-const sabotage = option("reaction:sabotage", "ability", { card_name: "Sabotage" });
-const boosts = option("mb", "action_card", { card_names: ["Morale Boost", "Fire Team"] });
-const decline = option("decline", "decline");
-
-it("leaves a question alone that offers no Never card", () => {
-  expect(filterOffers(window(sabotage, decline), []).kind).toBe("unchanged");
-  expect(filterOffers(window(sabotage, decline), ["Morale Boost"]).kind).toBe("unchanged");
-  // An option that is not an offer of a card stays, whatever its payload names.
-  const other = option("choose", "target", { card_name: "Sabotage" });
-  expect(filterOffers(window(other, decline), ["Sabotage"]).kind).toBe("unchanged");
-  // A slot of several cards stays while one of them is offered.
-  expect(filterOffers(window(boosts, decline), ["Morale Boost"]).kind).toBe("unchanged");
-  // Without a decline the question is asked whole.
-  expect(filterOffers(window(sabotage), ["Sabotage"]).kind).toBe("unchanged");
-});
-
-it("declines a window that offers only Never cards", () => {
-  expect(filterOffers(window(sabotage, decline), ["Sabotage"])).toEqual({
-    kind: "declined",
-    option: decline,
-    cards: ["Sabotage"],
-  });
-});
-
-it("leaves the Never cards out of a window that offers another card", () => {
-  const offers = filterOffers(window(sabotage, boosts, decline), ["Sabotage"]);
-  expect(offers.kind === "narrowed" && offers.choice.options).toEqual([boosts, decline]);
-  const update: SessionUpdate = {
-    ...menu,
-    pending_choice: { nonce: "1", choice: window(sabotage, boosts, decline) },
-  };
-  expect(withoutNever(update, ["Sabotage"]).pending_choice?.choice.options).toEqual([
-    boosts,
-    decline,
-  ]);
-  expect(withoutNever(update, [])).toBe(update);
 });

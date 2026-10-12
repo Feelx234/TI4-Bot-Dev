@@ -15,26 +15,27 @@
 pub mod buffer;
 
 use std::cell::{Cell, RefCell};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{self, Write as _};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use serde::Serialize;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeededRandom, Table};
 use ti4_engine::game::{Game, RunError};
+use ti4_engine::reaction_modes::{NeverOffer, NeverSet};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
-use ti4_model::state::GameState;
+use ti4_model::state::{GameState, ReactionMode};
 use ti4_view::action_cards::project_action_card_facts;
 use ti4_view::agendas::project_agenda_facts;
 use ti4_view::components::catalog;
 use ti4_view::exploration::project_exploration_facts;
 use ti4_view::map::{build_board_tiles, create_game_with_template};
 use ti4_view::maps::{TemplateLoader, default_template_for};
-use ti4_view::planning::draft::{DraftBase, DraftStep, run_draft};
+use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
 use ti4_view::projection::{project_game_view_full, project_session_update};
 use ti4_view::score::project_score_facts;
 use ti4_view::secret_objectives::project_secret_objective_facts;
@@ -201,9 +202,9 @@ struct Host {
     /// They are given without asking. (The engine's `Scripted` owns a boxed decider, which a
     /// static cannot hold.)
     script: VecDeque<String>,
-    /// The answers that a checkpoint can still take back: the number of the choice and the id
-    /// of the chosen option.
-    recent: VecDeque<(u64, String)>,
+    /// The answers that a checkpoint can still take back: the number of the choice, the id of
+    /// the chosen option, and whether the choice was passed for the host ([`NEVER`]).
+    recent: VecDeque<(u64, String, bool)>,
     /// How many choices the host had been asked at the oldest checkpoint.
     oldest: Option<u64>,
     /// The seats of the game, and which of them the host answers (bit 0 is seat `a`).
@@ -215,6 +216,11 @@ struct Host {
     decided: u64,
     /// The changes of the host's seats, in order ([`ti4_switch_seats`]).
     switches: Vec<Switch>,
+    /// The host changed its seats in place of an answer: the decision is asked again.
+    switched: bool,
+    /// How many choices the host answers from a saved game ([`ti4_replay`]). They are asked
+    /// whole: a window that was passed then is a saved answer.
+    saved: u64,
 }
 
 /// From the decision with this number on, the host answers the seats of `mask`.
@@ -241,9 +247,22 @@ impl Host {
         // Before a decision of a random seat no choice is pending: the last answer is `asked`.
         // An answer from before the last switch of the seats stays.
         let fence = self.switch().and_then(|switch| switch.asked).unwrap_or(0);
-        self.oldest.is_some_and(|oldest| {
-            oldest.max(fence) + 1 < self.asked + u64::from(self.paused) && !self.left
-        })
+        self.oldest
+            .is_some_and(|oldest| oldest.max(fence) < self.again() && !self.left)
+    }
+
+    /// The number of the choice that an undo opens again: the last one that the host answered
+    /// itself. A window that was passed for it ([`NEVER`]) would be passed again.
+    fn again(&self) -> u64 {
+        let mut again = (self.asked + u64::from(self.paused)).saturating_sub(1);
+        while self
+            .recent
+            .iter()
+            .any(|(number, _, passed)| *number == again && *passed)
+        {
+            again -= 1;
+        }
+        again
     }
 
     /// The switch that is in force.
@@ -304,7 +323,23 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     paused: false,
     decided: 0,
     switches: Vec::new(),
+    switched: false,
+    saved: 0,
 });
+
+/// The printed names of the action cards that the host is never offered
+/// ([`ti4_set_reaction_mode`]). A setting of the host, not of the game.
+static NEVER: LazyLock<NeverSet> = LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
+
+/// A window that was passed for the host: the option that declined it, and the cards.
+#[derive(Serialize)]
+struct Passed {
+    option: ChoiceOption,
+    cards: Vec<String>,
+}
+
+/// The windows that were passed since the host last asked ([`ti4_passed`]).
+static PASSED: Mutex<Vec<Passed>> = Mutex::new(Vec::new());
 
 /// The answer of the host that lets a random seat decide. See [`ti4_set_stepping`].
 pub const GO: i32 = -3;
@@ -330,16 +365,59 @@ static RANDOM: Mutex<Option<SeededRandom>> = Mutex::new(None);
 /// Every seat of a played game: the host answers the seats of its mask, and the others draw
 /// from [`RANDOM`]. The mask can change during the game ([`ti4_switch_seats`]), so the decider
 /// of a seat is found at each decision.
-struct Seat;
+struct Seat {
+    /// The host, behind its Never cards: a window that offers only such cards is declined
+    /// without asking, and any other window is asked without them. The same wrapper as on the
+    /// server (`ti4_engine::reaction_modes`).
+    host: NeverOffer,
+}
+
+impl Seat {
+    fn new() -> Self {
+        let host = NeverOffer::new(Box::new(Asked), NEVER.clone()).on_skip(|choice, cards| {
+            let Some(option) = choice.options.iter().find(|option| option.is_decline()) else {
+                return;
+            };
+            // The window is a choice of the host with an answer, so an undo and a saved game
+            // have it. The host is told with its next choice.
+            let mut host = host();
+            host.asked += 1;
+            let number = host.asked;
+            host.recent.push_back((number, option.id.clone(), true));
+            PASSED.lock().expect("passed lock").push(Passed {
+                option: option.clone(),
+                cards: cards.to_vec(),
+            });
+        });
+        Self { host }
+    }
+}
 
 impl Decider for Seat {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         loop {
             let ours = host().plays(&choice.player);
-            let answer = if ours {
-                ask_host(choice)?
-            } else {
+            let answer = if !ours {
                 draw(choice)?
+            } else if let Some(option) = given(choice)? {
+                Some(option)
+            } else {
+                // An answer of a saved game is given below the Never cards, as a replay on the
+                // server is: the game is the same whatever the cards are set to now.
+                let replayed = {
+                    let host = host();
+                    host.asked < host.saved
+                };
+                let answer = if replayed {
+                    Asked.choose(choice)
+                } else {
+                    self.host.choose(choice)
+                };
+                match answer {
+                    Ok(option) => Some(option),
+                    Err(_) if std::mem::take(&mut host().switched) => None,
+                    Err(error) => return Err(error),
+                }
             };
             // Without an answer the host changed its seats here: the decision is asked again.
             if let Some(option) = answer {
@@ -348,6 +426,52 @@ impl Decider for Seat {
             }
         }
     }
+}
+
+/// The host itself: every choice that reaches it is handed out.
+struct Asked;
+
+impl Decider for Asked {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        ask_host(choice)?.ok_or_else(|| {
+            host().switched = true;
+            IllegalChoice::DeciderFailed {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+                reason: "the host changed its seats".to_owned(),
+            }
+        })
+    }
+}
+
+/// The answer to a choice of the host that needs no asking: the game left, or the answer is
+/// given again after an undo. None when the host is asked.
+fn given(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
+    let failed = |reason: &str| IllegalChoice::DeciderFailed {
+        player: choice.player.clone(),
+        prompt: choice.prompt.clone(),
+        reason: reason.to_owned(),
+    };
+    let mut host = host();
+    if host.left {
+        return Err(failed(LEFT));
+    }
+    if host.undo {
+        return Err(failed(TAKEN_BACK));
+    }
+    let Some(wanted) = host.script.pop_front() else {
+        return Ok(None);
+    };
+    host.asked += 1;
+    choice
+        .option(&wanted)
+        .cloned()
+        .map(Some)
+        .ok_or_else(|| IllegalChoice::ScriptDiverged {
+            player: choice.player.clone(),
+            wanted,
+            offered: choice.ids().into_iter().map(str::to_owned).collect(),
+        })
 }
 
 /// A decision of a random seat: all random seats share one stream, in decision order. None
@@ -387,7 +511,9 @@ fn wait_for_go(choice: &Choice) -> Result<bool, IllegalChoice> {
             .map_or(ViewerRole::Spectator, ViewerRole::Player)
     };
     let shown = show(&viewer, choice, "");
+    PENDING.set(Some(choice.clone()));
     let index = if shown.is_ok() { host_ask() } else { LEAVE };
+    PENDING.take();
     UPDATE.lock().expect("update lock").clear();
     let mut host = host();
     if let Err(error) = shown {
@@ -422,6 +548,9 @@ thread_local! {
     /// The game at its last finished step, for a draft. Made when the first draft asks for it,
     /// and dropped when the game goes on.
     static DRAFT_BASE: RefCell<Option<Game<'static>>> = const { RefCell::new(None) };
+    /// The choice that the game is parked in, as the host is asked it: what a plan answers
+    /// ([`ti4_plan`]). Before a decision of a random seat, the choice of that seat.
+    static PENDING: RefCell<Option<Choice>> = const { RefCell::new(None) };
 }
 
 /// The game between two steps, with what the game does not hold itself.
@@ -439,7 +568,7 @@ struct Checkpoint {
 /// The table of a played game: its seats, and the hook that keeps [`LATEST`] current inside a
 /// step.
 fn host_table() -> Table {
-    let mut table = Table::with_default(Box::new(Seat));
+    let mut table = Table::with_default(Box::new(Seat::new()));
     // A choice inside a step is offered on the position it is asked in, not on the one the step
     // began with.
     table.on_observed_offer(|_, state| {
@@ -471,15 +600,6 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
             return Err(failed(TAKEN_BACK));
         }
         host.asked += 1;
-        if let Some(wanted) = host.script.pop_front() {
-            return choice.option(&wanted).cloned().map(Some).ok_or_else(|| {
-                IllegalChoice::ScriptDiverged {
-                    player: choice.player.clone(),
-                    wanted,
-                    offered: choice.ids().into_iter().map(str::to_owned).collect(),
-                }
-            });
-        }
         host.viewer = Some(choice.player.clone());
         host.asked
     };
@@ -490,7 +610,9 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
         return Err(failed("what the host is shown did not fit its buffer"));
     }
     // No lock is held while the host is asked: it reads the update while this stack is parked.
+    PENDING.set(Some(choice.clone()));
     let index = host_ask();
+    PENDING.take();
     UPDATE.lock().expect("update lock").clear();
     let mut host = host();
     if index == SWITCH {
@@ -515,7 +637,7 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
         .get(index)
         .cloned()
         .ok_or_else(|| failed("the host answered with an index that is no option"))?;
-    host.recent.push_back((nonce, option.id.clone()));
+    host.recent.push_back((nonce, option.id.clone(), false));
     Ok(Some(option))
 }
 
@@ -644,15 +766,19 @@ fn play(
     *RANDOM.lock().expect("random lock") = Some(SeededRandom::new(seed));
     {
         let mut host = host();
-        // The switches of a game that is played again were set before this call.
+        // The switches and the answers of a game that is played again were set before this
+        // call.
         let switches = std::mem::take(&mut host.switches);
+        let saved = host.saved;
         *host = Host {
             players,
             humans: human_mask,
             switches,
+            saved,
             ..Host::default()
         };
     }
+    PASSED.lock().expect("passed lock").clear();
     CHECKPOINTS.with_borrow_mut(VecDeque::clear);
     *LATEST.lock().expect("latest lock") = Some(latest_of(&game, content));
     let target = game.state.round.saturating_add(ROUNDS);
@@ -685,7 +811,7 @@ fn play(
             while host
                 .recent
                 .front()
-                .is_some_and(|(number, _)| *number <= oldest)
+                .is_some_and(|(number, ..)| *number <= oldest)
             {
                 host.recent.pop_front();
             }
@@ -710,8 +836,9 @@ fn play(
     let (viewer, too_large) = {
         let mut host = host();
         let viewer = host.shown_seat();
-        // The switches are of this game.
+        // The switches and the saved answers are of this game.
         host.switches.clear();
+        host.saved = 0;
         (viewer, host.too_large.take())
     };
     // A buffer that was too small fails the call. It must not sit in a field of a result.
@@ -751,8 +878,9 @@ fn play(
 /// the answers between the two, which are given again without asking.
 fn take_back(checkpoints: &mut VecDeque<Checkpoint>, mut left: Game<'static>) -> Game<'static> {
     let mut host = host();
-    // The pending choice has the number `asked`; the one to open again is the one before it.
-    let again = host.asked - 1;
+    // The pending choice has the number `asked`; the one to open again is the last one before
+    // it that the host answered itself.
+    let again = host.again();
     while checkpoints.len() > 1
         && checkpoints
             .back()
@@ -773,13 +901,15 @@ fn take_back(checkpoints: &mut VecDeque<Checkpoint>, mut left: Game<'static>) ->
         .lock()
         .expect("random lock")
         .clone_from(&checkpoint.random);
-    host.recent.retain(|(number, _)| *number < again);
+    host.recent.retain(|(number, ..)| *number < again);
     host.script = host
         .recent
         .iter()
-        .filter(|(number, _)| *number > checkpoint.asked)
-        .map(|(_, id)| id.clone())
+        .filter(|(number, ..)| *number > checkpoint.asked)
+        .map(|(_, id, _)| id.clone())
         .collect();
+    // What is asked from here on is asked now, not played again from a saved game.
+    host.saved = host.saved.min(again.saturating_sub(1));
     host.asked = checkpoint.asked;
     host.decided = checkpoint.decided;
     game
@@ -846,6 +976,96 @@ fn draft() -> Result<usize, Failure> {
         "DRAFT_CAPACITY",
         &outcome,
     )?)
+}
+
+/// What the script of the request buffer answers to the choice that the game is parked in.
+fn plan() -> Result<usize, Failure> {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        script: Vec<DraftStep>,
+        next: usize,
+        actor: PlayerId,
+    }
+    #[derive(Serialize)]
+    #[serde(tag = "kind", rename_all = "snake_case")]
+    enum Reply {
+        Answer {
+            /// The option of the pending choice, by its place.
+            index: usize,
+            next: usize,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            script: Option<Vec<DraftStep>>,
+        },
+        Done,
+        Interrupted {
+            reason: String,
+        },
+        Mismatch {
+            step: usize,
+            reason: String,
+        },
+    }
+    let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
+        .map_err(|error| setup(format_args!("the plan request is not read: {error}")))?;
+    let answer = PENDING.with_borrow(|pending| -> Result<Reply, Failure> {
+        let choice = pending
+            .as_ref()
+            .ok_or_else(|| setup("the game is not parked in a choice: a plan answers one"))?;
+        let answer = script_answer(&request.script, request.next, choice, &request.actor);
+        Ok(match answer {
+            ScriptAnswer::Answer {
+                option,
+                next,
+                script,
+            } => Reply::Answer {
+                index: choice
+                    .options
+                    .iter()
+                    .position(|offered| offered.id == option.id)
+                    .expect("the answer is an option of the choice"),
+                next,
+                script,
+            },
+            ScriptAnswer::Done => Reply::Done,
+            ScriptAnswer::Interrupted { reason } => Reply::Interrupted { reason },
+            ScriptAnswer::Mismatch { step, reason } => Reply::Mismatch { step, reason },
+        })
+    })?;
+    respond("the answer of a plan", &answer)
+}
+
+/// Set whether the host is offered a card: the request buffer holds `{"card", "mode"}`.
+fn set_reaction_mode() -> Result<usize, Failure> {
+    #[derive(serde::Deserialize)]
+    struct Request {
+        card: String,
+        mode: ReactionMode,
+    }
+    let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
+        .map_err(|error| setup(format_args!("the reaction mode is not read: {error}")))?;
+    let mut never = NEVER.lock().expect("never set lock");
+    match request.mode {
+        ReactionMode::Never => never.insert(request.card),
+        ReactionMode::Always => never.remove(&request.card),
+    };
+    Ok(0)
+}
+
+/// Whether the request buffer holds `request_len` bytes; else the error that says so.
+fn request_filled(request_len: u32) -> Result<(), Failure> {
+    if REQUEST
+        .lock()
+        .expect("request lock")
+        .filled(request_len as usize)
+    {
+        return Ok(());
+    }
+    Err(setup(format_args!(
+        "ti4-wasm buffer full: the request is {request_len} bytes, but REQUEST_CAPACITY is {} \
+         bytes. Raise REQUEST_CAPACITY in crates/ti4-wasm/src/buffer.rs and rebuild, or make \
+         the request smaller.",
+        buffer::REQUEST_CAPACITY
+    )))
 }
 
 /// The status of an export: a length, negated when the response buffer holds an error text.
@@ -979,19 +1199,52 @@ pub extern "C" fn ti4_request_ptr() -> *mut u8 {
 /// The game itself is not touched, so the host calls this while the game waits in a choice.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_draft(request_len: u32) -> i32 {
-    if !REQUEST
-        .lock()
-        .expect("request lock")
-        .filled(request_len as usize)
-    {
-        return status(Err(setup(format_args!(
-            "ti4-wasm buffer full: the request is {request_len} bytes, but REQUEST_CAPACITY is {} \
-             bytes. Raise REQUEST_CAPACITY in crates/ti4-wasm/src/buffer.rs and rebuild, or make \
-             the request smaller.",
-            buffer::REQUEST_CAPACITY
-        ))));
-    }
-    status(draft())
+    status(request_filled(request_len).and_then(|()| draft()))
+}
+
+/// What a script answers to the choice that the game is parked in: the request buffer holds
+/// `{"script": [...], "next": n, "actor": seat}` in `request_len` bytes, the entries of
+/// `ti4_view::planning::draft::DraftStep`, the first entry that is still to play, and the seat
+/// whose script it is. The response is one of `{"kind":"answer","index","next","script"?}`
+/// (answer the choice with the option at `index`; with `script` the script goes on in that
+/// order), `{"kind":"done"}`, `{"kind":"interrupted","reason"}` and
+/// `{"kind":"mismatch","step","reason"}` (`ti4_view::planning::draft::script_answer`).
+///
+/// This is how a host sends a plan or a draft to the game: it asks here at each choice and
+/// answers with the index, until the script is done or stops. Nothing is changed by the call.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_plan(request_len: u32) -> i32 {
+    status(request_filled(request_len).and_then(|()| plan()))
+}
+
+/// Set the mode of an action card for the host: the request buffer holds
+/// `{"card": <printed name>, "mode": "never" | "always"}` in `request_len` bytes. A window that
+/// offers only Never cards is declined for the host without asking ([`ti4_passed`]), and any
+/// other window is asked without them (`ti4_engine::reaction_modes::NeverOffer`).
+///
+/// The modes are of the instance, not of the game: the host sets them before [`ti4_play`], or
+/// while the game waits.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_set_reaction_mode(request_len: u32) -> i32 {
+    status(request_filled(request_len).and_then(|()| set_reaction_mode()))
+}
+
+/// The windows that were passed for the host since it last asked, as a JSON list of
+/// `{"option", "cards"}` in the response buffer: the option that declined the window, and the
+/// printed names of its cards. A passed window is a choice of the host with an answer: it has a
+/// number, an undo goes back over it, and a saved game has its answer.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_passed() -> i32 {
+    let passed = std::mem::take(&mut *PASSED.lock().expect("passed lock"));
+    status(respond("the passed windows", &passed))
+}
+
+/// The first `answers` choices of the next [`ti4_play`] are answered from a saved game. They
+/// are asked whole, whatever the modes of the cards are: a window that was passed when the game
+/// was played is one of the saved answers.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_replay(answers: u32) {
+    host().saved = u64::from(answers);
 }
 
 /// Where the outcome of the last [`ti4_draft`] is kept. Constant for the life of the instance.
@@ -1038,17 +1291,39 @@ pub fn update() -> String {
 /// # Errors
 /// The error text of the export.
 pub fn draft_native(request: &str) -> Result<String, String> {
-    {
-        let mut buffer = REQUEST.lock().expect("request lock");
-        buffer.clear();
-        std::io::Write::write_all(&mut *buffer, request.as_bytes())
-            .map_err(|_| "the request does not fit REQUEST_CAPACITY".to_owned())?;
-    }
+    fill_request(request)?;
     let status = status(draft());
     if status < 0 {
         return response(status);
     }
     Ok(String::from_utf8_lossy(DRAFT.lock().expect("draft lock").as_bytes()).into_owned())
+}
+
+/// Ask what a script answers to the pending choice (JSON, see [`ti4_plan`]), for callers on the
+/// native side.
+///
+/// # Errors
+/// The error text of the export.
+pub fn plan_native(request: &str) -> Result<String, String> {
+    fill_request(request)?;
+    response(status(plan()))
+}
+
+/// Set the mode of a card as [`ti4_set_reaction_mode`] does, for callers on the native side.
+///
+/// # Errors
+/// The error text of the export.
+pub fn set_reaction_mode_native(card: &str, mode: ReactionMode) -> Result<(), String> {
+    let request = serde_json::json!({ "card": card, "mode": mode }).to_string();
+    fill_request(&request)?;
+    response(status(set_reaction_mode())).map(|_| ())
+}
+
+fn fill_request(request: &str) -> Result<(), String> {
+    let mut buffer = REQUEST.lock().expect("request lock");
+    buffer.clear();
+    std::io::Write::write_all(&mut *buffer, request.as_bytes())
+        .map_err(|_| "the request does not fit REQUEST_CAPACITY".to_owned())
 }
 
 /// Play a scenario as [`ti4_play_scenario`] does, for callers on the native side.
@@ -1794,5 +2069,119 @@ mod tests {
         });
         ti4_play(3, 8, 1);
         assert_eq!(again.lock().unwrap().1, run.reached);
+
+        // The Never cards of the host. Seat d of the late game holds Nav Suite; its window
+        // opens twice after an activation. Both are passed for the host: each is a choice with
+        // a number and an answer, and an undo goes back over them to the activation. A script
+        // answers the choice that the game waits in.
+        const NAV_SUITE: &str = "Nav Suite";
+        let asked_of = |value: &serde_json::Value| {
+            let pending = &value["pending_choice"];
+            (
+                pending["nonce"].as_str().unwrap().to_owned(),
+                pending["choice"]["context"]["subtype"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_owned(),
+            )
+        };
+        let passed = || -> Vec<serde_json::Value> {
+            serde_json::from_str(&response(ti4_passed()).unwrap()).unwrap()
+        };
+        set_reaction_mode_native(NAV_SUITE, ReactionMode::Never).unwrap();
+        let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+        let sink = seen.clone();
+        set_native_host(move |update| {
+            let value: serde_json::Value = serde_json::from_str(update).unwrap();
+            let mut seen = sink.lock().unwrap();
+            seen.push(asked_of(&value));
+            let pick = |id: &str| {
+                let index = options(&value).iter().position(|have| have == id);
+                i32::try_from(index.unwrap()).unwrap()
+            };
+            match seen.len() {
+                1 => {
+                    let script =
+                        r#"[{"kind":"choose","option_id":"tactical"},{"kind":"done_moving"}]"#;
+                    let answer: serde_json::Value = serde_json::from_str(
+                        &plan_native(&format!(r#"{{"script":{script},"next":0,"actor":"d"}}"#))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(answer["kind"], "answer", "{answer}");
+                    assert_eq!(answer["next"], 1);
+                    assert_eq!(answer["index"], pick("tactical"));
+                    // The next entry is no answer to the turn menu, and no other seat answers.
+                    let later: serde_json::Value = serde_json::from_str(
+                        &plan_native(&format!(r#"{{"script":{script},"next":1,"actor":"d"}}"#))
+                            .unwrap(),
+                    )
+                    .unwrap();
+                    assert_eq!(later["kind"], "interrupted", "{later}");
+                    pick("tactical")
+                }
+                2 | 4 => pick("41"),
+                3 => {
+                    assert_eq!(passed().len(), 2);
+                    assert_eq!(ti4_can_undo(), 1);
+                    UNDO
+                }
+                _ => {
+                    let again = passed();
+                    assert_eq!(again.len(), 2);
+                    assert_eq!(again[0]["cards"], serde_json::json!([NAV_SUITE]));
+                    assert_eq!(again[0]["option"]["id"], "decline");
+                    -1
+                }
+            }
+        });
+        let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 0b1000);
+        assert!(response(status).unwrap().contains(LEFT));
+        let asked: Vec<(String, String)> = std::mem::take(&mut *seen.lock().unwrap());
+        let asked: Vec<(&str, &str)> = asked
+            .iter()
+            .map(|(nonce, subtype)| (nonce.as_str(), subtype.as_str()))
+            .collect();
+        assert_eq!(
+            asked,
+            [
+                ("1", "action_menu"),
+                ("2", "activate_system"),
+                ("5", "movement_step"),
+                ("2", "activate_system"),
+                ("5", "movement_step"),
+            ]
+        );
+
+        // A saved game has the answers of the windows. It is asked for them whole, whatever
+        // the cards are set to, so it is the same game.
+        for never in [true, false] {
+            let mode = if never {
+                ReactionMode::Never
+            } else {
+                ReactionMode::Always
+            };
+            set_reaction_mode_native(NAV_SUITE, mode).unwrap();
+            let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+            let sink = seen.clone();
+            set_native_host(move |update| {
+                let value: serde_json::Value = serde_json::from_str(update).unwrap();
+                let mut seen = sink.lock().unwrap();
+                seen.push(asked_of(&value));
+                let saved = ["tactical", "41", "decline", "decline"];
+                saved.get(seen.len() - 1).map_or(-1, |wanted| {
+                    let index = options(&value).iter().position(|have| have == wanted);
+                    i32::try_from(index.expect("the saved answer is offered")).unwrap()
+                })
+            });
+            ti4_replay(4);
+            let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 0b1000);
+            assert!(response(status).unwrap().contains(LEFT));
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 5, "{seen:?}");
+            assert!(seen[2].1.starts_with("reaction_after"), "{seen:?}");
+            assert_eq!(seen[4], ("5".to_owned(), "movement_step".to_owned()));
+            assert!(passed().is_empty());
+        }
     }
 }

@@ -19,6 +19,8 @@ export interface DraftInfo {
   apply: ApplyView | null;
   /** Why the game did not play the whole draft. */
   problem: string | null;
+  /** The game is asked what it makes of the draft as it is now: the screen is of the draft before. */
+  waiting: boolean;
   /** The step of the action that is in view. Null: the activation, or a question of an ability. */
   stage: "movement" | "invasion" | "production" | null;
   /** The steps that the game came to with this draft: each of them can be opened. */
@@ -63,7 +65,11 @@ export interface LocalState {
    * The steps of a movement, of the landings or of a production that another decision stopped.
    * They are staged again when that step goes on.
    */
-  remaining: (MovementPlan & { /** From a draft that was applied, not from a plan that stopped. */ drafted?: boolean }) | null;
+  remaining:
+    | (MovementPlan & {
+        /** From a draft that was applied, not from a plan that stopped. */ drafted?: boolean;
+      })
+    | null;
   /** What the last movement that was sent came to, when it did not reach its end. */
   planNote: { text: string; error: boolean } | null;
   /** The seat that the game waits for before it lets it decide: "Step" goes on. */
@@ -134,7 +140,10 @@ export function selectAction(
     factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat);
   const stepping = !choice && !local.error && !local.replaying ? local.stepping : null;
   const idle = local.draft
-    ? (local.draft.problem ?? "The draft has nothing to decide here.")
+    ? (local.draft.problem ??
+      (local.draft.waiting
+        ? "The game checks the draft."
+        : "The draft has nothing to decide here."))
     : local.error
       ? local.error
       : local.replaying

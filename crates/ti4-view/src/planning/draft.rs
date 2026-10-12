@@ -26,7 +26,7 @@ use ti4_model::state::GameState;
 
 use super::audit::{PlanScope, SafePublication, StopReason, audit_offer, validate_knowledge};
 use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
-use super::steps::{PlanAnswer, PlanStep, plan_answer};
+use super::steps::{INTERRUPTED, PlanAnswer, PlanStep, plan_answer};
 use crate::projection::{SessionUpdate, project_game_view, project_session_update};
 use crate::status::ViewerRole;
 use crate::tactical::{TacticalFacts, project_tactical_facts};
@@ -70,6 +70,124 @@ impl DraftStep {
 impl From<PlanStep> for DraftStep {
     fn from(step: PlanStep) -> Self {
         Self::Step(step)
+    }
+}
+
+/// What a script answers to a question of the game.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptAnswer {
+    /// Answer with this option. `next` is the first entry that is still to play. With `script`
+    /// the script goes on in this order: a payment changed its place ([`plan_answer`]).
+    Answer {
+        option: ChoiceOption,
+        next: usize,
+        script: Option<Vec<DraftStep>>,
+    },
+    /// Every entry is played: the question is not of the script.
+    Done,
+    /// The game asks something that the next entry does not answer (a reaction window, another
+    /// seat). Entries are left.
+    Interrupted { reason: String },
+    /// The game does not offer what entry `step` asks for.
+    Mismatch { step: usize, reason: String },
+}
+
+/// What `script` answers to `choice`, from entry `next` on, for the seat `actor`.
+///
+/// The one answer of a script to a question, for a run of a draft and for a script that is sent
+/// to the live game. The steps that follow each other are one plan ([`plan_answer`]); an answer
+/// by id is for whatever the game asks the seat there. The pause between two steps of the action
+/// is passed while entries are left.
+#[must_use]
+pub fn script_answer(
+    script: &[DraftStep],
+    mut next: usize,
+    choice: &Choice,
+    actor: &PlayerId,
+) -> ScriptAnswer {
+    let own = &choice.player == actor;
+    let pause = choice
+        .context
+        .as_ref()
+        .is_some_and(|context| context.subtype == "mid_action_pause");
+    if own && pause && next < script.len() {
+        let passes = choice
+            .option(ti4_engine::game::CONTINUE_ACTION_ID)
+            .filter(|option| option.kind == ti4_engine::game::CONTINUE_ACTION_KIND);
+        if let Some(option) = passes {
+            return ScriptAnswer::Answer {
+                option: option.clone(),
+                next,
+                script: None,
+            };
+        }
+    }
+    if matches!(script.get(next), Some(DraftStep::Step(_))) {
+        // The steps around the next one are one plan.
+        let is_step = |entry: &DraftStep| matches!(entry, DraftStep::Step(_));
+        let start = script[..next]
+            .iter()
+            .rposition(|entry| !is_step(entry))
+            .map_or(0, |index| index + 1);
+        let end = script[next..]
+            .iter()
+            .position(|entry| !is_step(entry))
+            .map_or(script.len(), |offset| next + offset);
+        let plan: Vec<PlanStep> = script[start..end]
+            .iter()
+            .filter_map(|entry| match entry {
+                DraftStep::Step(step) => Some(step.clone()),
+                DraftStep::Chosen(_) => None,
+            })
+            .collect();
+        match plan_answer(&plan, next - start, choice, actor) {
+            PlanAnswer::Answer {
+                option,
+                next,
+                steps,
+            } => {
+                let script = steps.map(|steps| {
+                    let mut order = script.to_vec();
+                    order.splice(start..end, steps.into_iter().map(DraftStep::Step));
+                    order
+                });
+                return ScriptAnswer::Answer {
+                    option,
+                    next: start + next,
+                    script,
+                };
+            }
+            // The game needs no more of these steps: what follows them is next.
+            PlanAnswer::Done => next = end,
+            PlanAnswer::Interrupted { reason } => return ScriptAnswer::Interrupted { reason },
+            PlanAnswer::Mismatch { step, reason } => {
+                return ScriptAnswer::Mismatch {
+                    step: start + step,
+                    reason,
+                };
+            }
+        }
+    }
+    match script.get(next) {
+        Some(DraftStep::Chosen(ChosenOption::Choose { option_id })) => {
+            if !own {
+                return ScriptAnswer::Interrupted {
+                    reason: INTERRUPTED.to_owned(),
+                };
+            }
+            match choice.option(option_id) {
+                Some(option) => ScriptAnswer::Answer {
+                    option: option.clone(),
+                    next: next + 1,
+                    script: None,
+                },
+                None => ScriptAnswer::Mismatch {
+                    step: next,
+                    reason: format!("The game does not offer \"{option_id}\" here."),
+                },
+            }
+        }
+        _ => ScriptAnswer::Done,
     }
 }
 
@@ -197,68 +315,31 @@ impl Run {
             first.get_or_insert_with(|| offer.clone());
         }
         let offered = self.last.insert(offer).choice.clone();
-        if matches!(self.script.get(self.next), Some(DraftStep::Step(_))) {
-            // The steps around the next one are one plan.
-            let is_step = |entry: &DraftStep| matches!(entry, DraftStep::Step(_));
-            let start = self.script[..self.next]
-                .iter()
-                .rposition(|entry| !is_step(entry))
-                .map_or(0, |index| index + 1);
-            let end = self.script[self.next..]
-                .iter()
-                .position(|entry| !is_step(entry))
-                .map_or(self.script.len(), |offset| self.next + offset);
-            let plan: Vec<PlanStep> = self.script[start..end]
-                .iter()
-                .filter_map(|entry| match entry {
-                    DraftStep::Step(step) => Some(step.clone()),
-                    DraftStep::Chosen(_) => None,
-                })
-                .collect();
-            match plan_answer(&plan, self.next - start, &offered, &self.player) {
-                PlanAnswer::Answer {
-                    option,
-                    next,
-                    steps,
-                } => {
-                    self.next = start + next;
-                    if let Some(steps) = steps {
-                        self.script
-                            .splice(start..end, steps.into_iter().map(DraftStep::Step));
-                    }
-                    return Some(option);
+        match script_answer(&self.script, self.next, &offered, &self.player) {
+            ScriptAnswer::Answer {
+                option,
+                next,
+                script,
+            } => {
+                self.next = next;
+                if let Some(script) = script {
+                    self.script = script;
                 }
-                // The game needs no more of these steps: what follows them is next.
-                PlanAnswer::Done => self.next = end,
-                PlanAnswer::Interrupted { .. } => {
-                    // A question of the planner that the script has no answer for is open, with
-                    // the rest of the script still to play.
-                    self.end(DraftStop::Open);
-                    return None;
-                }
-                PlanAnswer::Mismatch { step, reason } => {
-                    self.end(DraftStop::Refused {
-                        step: start + step,
-                        reason,
-                    });
-                    return None;
-                }
+                Some(option)
             }
-        }
-        match self.script.get(self.next) {
-            Some(DraftStep::Chosen(ChosenOption::Choose { option_id })) => {
-                let Some(option) = offered.option(option_id) else {
-                    self.end(DraftStop::Refused {
-                        step: self.next,
-                        reason: "The game does not offer this.".to_owned(),
-                    });
-                    return None;
-                };
-                self.next += 1;
-                Some(option.clone())
-            }
-            _ => {
+            ScriptAnswer::Done => {
+                self.next = self.script.len();
                 self.end(DraftStop::Open);
+                None
+            }
+            // A question of the planner that the script has no answer for is open, with the
+            // rest of the script still to play.
+            ScriptAnswer::Interrupted { .. } => {
+                self.end(DraftStop::Open);
+                None
+            }
+            ScriptAnswer::Mismatch { step, reason } => {
+                self.end(DraftStop::Refused { step, reason });
                 None
             }
         }
@@ -526,6 +607,87 @@ mod tests {
             assert_eq!(game.step().error, None);
         }
         (game, tiles)
+    }
+
+    /// A question of seat `player` with this subtype.
+    fn asked(player: &str, subtype: &str, options: Vec<ChoiceOption>) -> Choice {
+        use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+        Choice::new(PlayerId::new(player), "a question", options).contextualized(
+            DecisionContext::new(
+                PlayerId::new(player),
+                DecisionSource::Rule("test".to_owned()),
+                subtype,
+                Phase::Action,
+                1,
+            ),
+        )
+    }
+
+    #[test]
+    fn a_script_answers_by_id_and_by_step_and_stops_at_another_question() {
+        let seat = PlayerId::new("a");
+        let script = [
+            DraftStep::choose("tactical"),
+            DraftStep::Step(PlanStep::DoneMoving),
+            DraftStep::choose("use"),
+            DraftStep::Step(PlanStep::DoneProducing),
+        ];
+        let id = |answer: &ScriptAnswer| match answer {
+            ScriptAnswer::Answer { option, next, .. } => (option.id.clone(), *next),
+            other => panic!("no answer: {other:?}"),
+        };
+        let menu = asked("a", "action_menu", vec![ChoiceOption::new("tactical", "x")]);
+        assert_eq!(
+            id(&script_answer(&script, 0, &menu, &seat)),
+            ("tactical".to_owned(), 1)
+        );
+        // An answer by id that the game does not offer refuses the script; a step is not
+        // answered by id.
+        let other = asked("a", "action_menu", vec![ChoiceOption::new("pass", "x")]);
+        assert!(matches!(
+            script_answer(&script, 0, &other, &seat),
+            ScriptAnswer::Mismatch { step: 0, .. }
+        ));
+        assert!(matches!(
+            script_answer(&script, 1, &menu, &seat),
+            ScriptAnswer::Interrupted { .. }
+        ));
+        let moving = asked(
+            "a",
+            "movement_step",
+            vec![ChoiceOption::new("done_moving", "x")],
+        );
+        assert_eq!(
+            id(&script_answer(&script, 1, &moving, &seat)),
+            ("done_moving".to_owned(), 2)
+        );
+        // The pause is passed while entries are left, also before an answer by id.
+        let pause = asked(
+            "a",
+            "mid_action_pause",
+            vec![ChoiceOption::new(
+                ti4_engine::game::CONTINUE_ACTION_ID,
+                ti4_engine::game::CONTINUE_ACTION_KIND,
+            )],
+        );
+        assert_eq!(
+            id(&script_answer(&script, 2, &pause, &seat)),
+            (ti4_engine::game::CONTINUE_ACTION_ID.to_owned(), 2)
+        );
+        assert_eq!(script_answer(&script, 4, &pause, &seat), ScriptAnswer::Done);
+        // A question of another seat is never answered.
+        let theirs = asked("c", "ability", vec![ChoiceOption::new("use", "x")]);
+        assert!(matches!(
+            script_answer(&script, 2, &theirs, &seat),
+            ScriptAnswer::Interrupted { .. }
+        ));
+        let ability = asked("a", "ability", vec![ChoiceOption::new("use", "x")]);
+        assert_eq!(
+            id(&script_answer(&script, 2, &ability, &seat)),
+            ("use".to_owned(), 3)
+        );
+        // The game ended the production itself: the end of the script is left out.
+        assert_eq!(script_answer(&script, 3, &menu, &seat), ScriptAnswer::Done);
     }
 
     #[test]

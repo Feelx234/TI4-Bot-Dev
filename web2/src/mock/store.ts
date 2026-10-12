@@ -56,6 +56,8 @@ export function useMockSession(store: MockStore) {
     const session: GameSession = {
       view: selectShell(world),
       dispatch: (intent: Intent) => store.update((w) => reduce(w, intent)),
+      // The demo has no tool of a local game.
+      capabilities: { stepping: false, switchSeat: false, scenarios: false, save: false },
     };
     return {
       session,

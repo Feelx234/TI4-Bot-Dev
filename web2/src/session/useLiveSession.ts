@@ -54,12 +54,12 @@ import {
 } from "./productionDraft";
 import type { SaveStorage } from "./savedGame";
 import type { DraftInfo, LocalState } from "./select/action";
-import { type CardSettings, NO_CARD_SETTINGS, filterOffers } from "./select/cards";
+import type { CardSettings } from "./select/cards";
 import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
 import type { Transport } from "./transport";
-import type { DraftOutcome, SessionUpdate } from "./wire";
+import type { DraftOutcome, DraftStep, SessionUpdate } from "./wire";
 
 const NOTHING: LocalState = {
   inspected: null,
@@ -92,22 +92,18 @@ export interface DraftStore {
   key: string;
   /** Where the private draft of a tactical action is kept. Without it a reload loses the draft. */
   planKey?: string;
-  /** Where the cards that the player is never offered are kept. Without it a reload forgets them. */
-  cardsKey?: string;
 }
 
-/** The Never cards of the game, as they were kept. A faked card is of the page only. */
-function readCards(drafts: DraftStore | undefined): CardSettings {
-  try {
-    const kept: unknown = JSON.parse((drafts?.cardsKey && drafts.storage.getItem(drafts.cardsKey)) || "[]");
-    return {
-      never: Array.isArray(kept) ? kept.filter((name) => typeof name === "string") : [],
-      faked: [],
-    };
-  } catch {
-    return NO_CARD_SETTINGS;
-  }
+/** What the game made of a draft script, and the update of the game that it was asked on. */
+interface DraftRun {
+  script: DraftStep[];
+  base: SessionUpdate;
+  /** Null: the game did not wait for this side. */
+  outcome: DraftOutcome | null;
 }
+
+const sameScript = (a: DraftStep[], b: DraftStep[]) =>
+  a === b || JSON.stringify(a) === JSON.stringify(b);
 
 /** The private draft of the page, and whether it is in view. */
 interface Plan {
@@ -193,12 +189,16 @@ function applyItems(update: SessionUpdate, system: string, sent: PlanStep[], ent
   const count = (kind: PlanStep["kind"]) => sent.filter((step) => step.kind === kind).length;
   if (has("invasion")) {
     const lands = count("land");
-    items.push(lands ? `${lands} ground ${lands === 1 ? "force lands" : "forces land"}` : "Nothing lands");
+    items.push(
+      lands ? `${lands} ground ${lands === 1 ? "force lands" : "forces land"}` : "Nothing lands",
+    );
   }
   if (has("production")) {
     const builds = count("produce");
     items.push(
-      builds ? `${builds} ${builds === 1 ? "purchase" : "purchases"} produced and paid` : "Nothing is produced",
+      builds
+        ? `${builds} ${builds === 1 ? "purchase" : "purchases"} produced and paid`
+        : "Nothing is produced",
     );
   }
   // What the draft holds after the point where the game stops to roll or to ask.
@@ -217,6 +217,8 @@ function draftView(
   draft: Draft,
   outcome: DraftOutcome,
   chosen: Stage | null,
+  /** The outcome is of an older script, or of the game before its last update. */
+  waiting: boolean,
 ): { update: SessionUpdate; local: LocalState; stage: Stage | null; sent: PlanStep[] } {
   const entry = entryOf(draft);
   const problem = problemOf(entry, outcome);
@@ -227,13 +229,17 @@ function draftView(
   const facts = update.tactical ?? null;
   // A roll ends the check, not the draft: the game goes on from there in Live. So does a
   // question that the draft has no answer for yet.
-  const sound = outcome.stop.kind === "open" || outcome.stop.kind === "complete" || isBoundary(outcome);
+  const sound =
+    outcome.stop.kind === "open" || outcome.stop.kind === "complete" || isBoundary(outcome);
   const atMenu = menuNonce(live, local) !== null;
-  const canApply = entry.system !== null && sound && atMenu;
+  const canApply = entry.system !== null && sound && atMenu && !waiting;
   // The action and its system are sent as choices; the rest is the plan.
   const sent = scriptOf(entry).slice(2, Math.max(2, outcome.consumed)) as PlanStep[];
   const recorded = stage !== null && stepsOfStage(entry, stage) !== null;
-  const next = stage && recorded && !(stage === "production" && entry.unpaid) ? stageAfter(outcome, stage) : null;
+  const next =
+    stage && recorded && !(stage === "production" && entry.unpaid)
+      ? stageAfter(outcome, stage)
+      : null;
   const info: DraftInfo = {
     canUndo: canUndo(draft),
     canRedo: canRedo(draft),
@@ -241,11 +247,13 @@ function draftView(
     applyHint:
       entry.system === null
         ? "Choose a system first"
-        : !sound
-          ? (problem ?? "The draft does not fit the game")
-          : !atMenu
-            ? "Apply when you choose your action"
-            : "Apply the recorded choices to the live game",
+        : waiting
+          ? "The game checks the draft"
+          : !sound
+            ? (problem ?? "The draft does not fit the game")
+            : !atMenu
+              ? "Apply when you choose your action"
+              : "Apply the recorded choices to the live game",
     apply:
       canApply && entry.system !== null
         ? {
@@ -255,6 +263,7 @@ function draftView(
           }
         : null,
     problem,
+    waiting,
     stage,
     reached: STAGES.filter((item) => outcome[item] !== undefined),
     recorded,
@@ -280,7 +289,10 @@ function draftView(
       remaining: null,
       planNote:
         problem && (facts || entry.system !== null)
-          ? { text: problem, error: outcome.stop.kind === "refused" || outcome.stop.kind === "failed" }
+          ? {
+              text: problem,
+              error: outcome.stop.kind === "refused" || outcome.stop.kind === "failed",
+            }
           : null,
       stepping: null,
       draft: info,
@@ -325,20 +337,25 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   const [update, setUpdate] = useState<SessionUpdate | null>(null);
   const [local, setLocal] = useState<LocalState>(NOTHING);
   const [plan, setPlan] = useState<Plan>(() => readPlanOf(drafts));
-  const [cards, setCards] = useState<CardSettings>(() => readCards(drafts));
+  /** The cards that the viewer is never offered: a view of the transport. */
+  const [never, setNever] = useState<string[]>([]);
+  /** The cards that the viewer acts as if holding. Of the page only. */
+  const [faked, setFaked] = useState<string[]>([]);
+  const cards = useMemo((): CardSettings => ({ never, faked }), [never, faked]);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
-  /** The Never cards as the listener of the transport reads them. */
-  const never = useRef(cards.never);
-  never.current = cards.never;
-  /** The update that comes is of an undo: a window that the page passed is taken back with it. */
-  const undoing = useRef(false);
+  /** What the game made of the draft, as the transport told it last. */
+  const [run, setRun] = useState<DraftRun | null>(null);
+  /** The script that the transport was asked last, and the update of then. An answer for another script is late. */
+  const asked = useRef<{ script: DraftStep[]; base: SessionUpdate } | null>(null);
 
   useEffect(() => {
     setUpdate(null);
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
-    setCards(readCards(drafts));
-    undoing.current = false;
+    setNever([]);
+    setFaked([]);
+    setRun(null);
+    asked.current = null;
     /** The step and the system whose sheet (the landings, the build) opened with the last update. */
     let sheetAt: { key: string; system: string } | null = null;
     /** What the inspector showed before the landings opened. */
@@ -359,28 +376,25 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         }));
         return;
       }
-      setUpdate(event.update);
-      // A window that offers only cards that the player is never offered is passed here. It is
-      // an answer like any other, so a saved game plays it again.
-      const asked = event.update.pending_choice;
-      const offers = asked ? filterOffers(asked.choice, never.current) : null;
-      if (asked && offers?.kind === "declined") {
-        if (undoing.current && event.canUndo) {
-          // The undo goes on to the answer of the player before the window.
-          queueMicrotask(() => transport.undo());
-        } else {
-          undoing.current = false;
-          const { option, cards: passed } = offers;
-          queueMicrotask(() => transport.submitChoice(asked.nonce, option.id));
-          setToast((now) => ({
-            id: (now?.id ?? 0) + 1,
-            text: `${passed.join(", ")}: never offered. The window was passed.`,
-          }));
+      if (event.kind === "draft") {
+        // An answer for an older script is dropped: the newer one is on its way.
+        const wanted = asked.current;
+        if (wanted && sameScript(event.script, wanted.script)) {
+          setRun({ ...wanted, outcome: event.outcome });
         }
-        setLocal((now) => ({ ...now, staged: null, sent: asked.nonce, canUndo: event.canUndo }));
         return;
       }
-      undoing.current = false;
+      if (event.kind === "cards") {
+        return setNever(event.never);
+      }
+      if (event.kind === "passed") {
+        const { cards: passed } = event;
+        return setToast((now) => ({
+          id: (now?.id ?? 0) + 1,
+          text: `${passed.join(", ")}: never offered. The window was passed.`,
+        }));
+      }
+      setUpdate(event.update);
       // The landings open at the active system when their step opens, and so does the build of
       // a production.
       const tactical = event.update.tactical;
@@ -435,7 +449,12 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
             production = productionOf(facts, steps);
           }
           const stage = facts.kind;
-          if (steps && steps === again && !undone && steps.some((step) => stageOf(step) === stage)) {
+          if (
+            steps &&
+            steps === again &&
+            !undone &&
+            steps.some((step) => stageOf(step) === stage)
+          ) {
             planNote ??= {
               text: remaining?.drafted
                 ? "Staged from your draft. Nothing of it is sent yet."
@@ -508,12 +527,6 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
   }, [update, local.movement, local.landing, local.production, drafts]);
 
-  useEffect(() => {
-    if (drafts?.cardsKey) {
-      drafts.storage.setItem(drafts.cardsKey, JSON.stringify(cards.never));
-    }
-  }, [cards.never, drafts]);
-
   // The private draft is kept for a reload, with its undo history.
   useEffect(() => {
     if (update && drafts?.planKey) {
@@ -521,26 +534,41 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
   }, [update, plan.draft, drafts]);
 
-  // The draft is played again on a copy of the game, for each change of it and of the game.
+  // The draft is played again on a copy of the game, for each change of it and of the game. The
+  // transport is asked, and answers later (`draft` of its events).
   const entry = plan.draft ? entryOf(plan.draft) : null;
   const locked = update ? draftLock(update, local) : "The game has not started";
-  const outcome = useMemo((): DraftOutcome | null => {
-    if (!transport || !update || !entry || !plan.open || locked) {
+  const script = useMemo(() => (entry ? scriptOf(entry) : null), [entry]);
+  const wanted = transport && update && plan.open && !locked ? script : null;
+  useEffect(() => {
+    if (!transport || !update || !wanted) {
+      asked.current = null;
+      return setRun(null);
+    }
+    asked.current = { script: wanted, base: update };
+    transport.draft(wanted);
+  }, [transport, update, wanted]);
+  /** The answer is of this script on this game. Until it is, the last one stays in view. */
+  const answered = !!run && run.script === wanted && run.base === update;
+  // Before the first answer the draft is open with nothing to decide, so that nothing of the
+  // live game can be sent from it.
+  const unanswered = useMemo((): DraftOutcome | null => {
+    if (!update) {
       return null;
     }
-    try {
-      return transport.runDraft(scriptOf(entry));
-    } catch (error) {
-      return {
-        update,
-        consumed: 0,
-        stop: { kind: "failed", reason: error instanceof Error ? error.message : String(error) },
-      };
-    }
-  }, [transport, update, entry, plan.open, locked]);
+    const { pending_choice: _, tactical: __, ...rest } = update;
+    return { update: rest, consumed: 0, stop: { kind: "open" } };
+  }, [update]);
+  const outcome = !wanted ? null : answered ? run.outcome : (run?.outcome ?? unanswered);
+  const waiting = !!wanted && !answered;
 
   // The sheet of the landings or of the build opens when the draft comes to that step.
-  const draftStage = entry && outcome && entry.system ? (plan.stage && outcome[plan.stage] ? plan.stage : frontier(outcome)) : null;
+  const draftStage =
+    entry && outcome && entry.system
+      ? plan.stage && outcome[plan.stage]
+        ? plan.stage
+        : frontier(outcome)
+      : null;
   const draftSheet =
     draftStage === "invasion" || draftStage === "production"
       ? `${draftStage}:${entry?.system}`
@@ -556,7 +584,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
     const live: LocalState = { ...local, draftLocked: locked, draft: null };
     const drafted =
-      plan.draft && outcome ? draftView(update, live, plan.draft, outcome, plan.stage) : null;
+      plan.draft && outcome
+        ? draftView(update, live, plan.draft, outcome, plan.stage, waiting)
+        : null;
     const shown = drafted?.update ?? update;
     const state = drafted?.local ?? live;
     const pending = state.sent === shown.pending_choice?.nonce ? null : shown.pending_choice;
@@ -587,7 +617,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     const producing = facts?.kind === "production" ? facts : null;
     /** The game can be asked for a staged production: it is paid, and within its limits. */
     const paidFor = (staged: ProductionDraft) => {
-      const { units, cost, paid } = producing ? totals(producing, staged) : { units: 0, cost: 0, paid: 0 };
+      const { units, cost, paid } = producing
+        ? totals(producing, staged)
+        : { units: 0, cost: 0, paid: 0 };
       return units === 0 || (paid >= cost && !!producing && overrunOf(producing, staged) === 0);
     };
     /** What a staged production sends: nothing is paid for nothing. */
@@ -668,6 +700,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       if (!pending) {
         return;
       }
+      if (drafted && waiting) {
+        // The screen is of the script before: its main button waits for the game.
+        return;
+      }
       if (drafted) {
         // Nothing of a draft is sent. Its activation is recorded, and a step with nothing
         // staged is recorded as that ("Move nothing"), so that the draft goes on.
@@ -687,7 +723,12 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           } else if (local.productionStage === "build") {
             toPayment();
           }
-        } else if (state.staged && drafted.stage === null && plan.draft && entryOf(plan.draft).system) {
+        } else if (
+          state.staged &&
+          drafted.stage === null &&
+          plan.draft &&
+          entryOf(plan.draft).system
+        ) {
           // An ability of the seat asks before a step: the answer is of the step that comes.
           const reached = drafted.local.draft?.reached ?? [];
           const before = STAGES[reached.length];
@@ -768,7 +809,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         case "confirmApply":
           return apply();
         case "simulate":
-          return transport.step();
+          return transport.capabilities.stepping?.step();
         case "inspectSystem":
           // The system that produces opens its build, also from the payment.
           return producing?.system === intent.system
@@ -841,7 +882,6 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           if (drafted) {
             return redraft(undo);
           }
-          undoing.current = true;
           return transport.undo();
         case "flow":
           return intent.action === "resolve" && !facts ? send() : undefined;
@@ -916,10 +956,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           return moving && draft(() => ({}));
         case "setCardOffer": {
           const { card } = intent;
-          setCards((now) => ({
-            ...now,
-            never: [...now.never.filter((name) => name !== card), ...(intent.never ? [card] : [])],
-          }));
+          transport.setReactionMode(card, intent.never ? "never" : "always");
           return setToast((now) => ({
             id: (now?.id ?? 0) + 1,
             text: intent.never
@@ -929,21 +966,28 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         }
         case "setCardFake": {
           const { card } = intent;
-          return setCards((now) => ({
-            ...now,
-            faked: [...now.faked.filter((name) => name !== card), ...(intent.fake ? [card] : [])],
-          }));
+          return setFaked((now) => [
+            ...now.filter((name) => name !== card),
+            ...(intent.fake ? [card] : []),
+          ]);
         }
         default:
           // The other intents belong to screens that local play does not have yet.
           return;
       }
     };
+    const { stepping, switchSeat, scenarios, save } = transport.capabilities;
     return {
-      view: { ...selectShell(shown, state, transport?.catalog ?? null, cards), toast },
+      view: { ...selectShell(shown, state, transport.catalog, cards), toast },
       dispatch,
+      capabilities: {
+        stepping: !!stepping,
+        switchSeat: !!switchSeat,
+        scenarios: !!scenarios,
+        save: !!save,
+      },
     };
-  }, [update, local, transport, plan, outcome, locked, cards, toast]);
+  }, [update, local, transport, plan, outcome, waiting, locked, cards, toast]);
 
   return { session, error: local.error, replaying: local.replaying };
 }

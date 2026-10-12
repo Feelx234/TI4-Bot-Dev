@@ -105,6 +105,8 @@ export function LocalApp({ game }: { game: LocalGame }) {
       answers: saved?.answers,
       switches: saved?.switches,
       stepping: steps.current,
+      never: readNever(game),
+      onNever: (never) => localStorage.setItem(cardsKey(game), JSON.stringify(never)),
       onAnswers(list, changes) {
         storeSavedGame(localStorage, {
           format: 1,
@@ -122,23 +124,18 @@ export function LocalApp({ game }: { game: LocalGame }) {
       made.close();
       setTransport(null);
     };
-  }, [start, waits, played]);
+  }, [start, waits, played, game]);
 
   // A new object after a seat change: the session then starts with nothing staged.
   // biome-ignore lint/correctness/useExhaustiveDependencies: seatChanges is the reason to make it again
   const drafts = useMemo(
-    () => ({
-      storage: localStorage,
-      key: draftKey(game),
-      planKey: planKey(game),
-      cardsKey: cardsKey(game),
-    }),
+    () => ({ storage: localStorage, key: draftKey(game), planKey: planKey(game) }),
     [game, seatChanges],
   );
   const stepSeats = (on: boolean) => {
     setStepping(on);
     localStorage.setItem(STEPPING_KEY, on ? "1" : "0");
-    transport?.setStepping(on);
+    transport?.capabilities.stepping?.set(on);
   };
   const { session, error, replaying } = useLiveSession(transport, drafts);
   // The shell takes an open Dev sheet over. A page without the shell starts with it closed.
@@ -157,7 +154,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
     localStorage.removeItem(draftKey(game));
     localStorage.removeItem(planKey(game));
     setSeatChanges((count) => count + 1);
-    transport?.switchSeat(seat);
+    transport?.capabilities.switchSeat?.(seat);
   };
   const newGame = () => {
     clearSavedGame(localStorage, game);
@@ -221,6 +218,15 @@ export function LocalApp({ game }: { game: LocalGame }) {
     </div>
   );
 
+  // What the game can do besides play: each part of the Dev sheet is shown from it. Before there
+  // is a game, the sheet has every part, as a local game does.
+  const made = transport?.capabilities;
+  const can = {
+    stepping: !made || !!made.stepping,
+    switchSeat: !made || !!made.switchSeat,
+    scenarios: !made || !!made.scenarios,
+    save: !made || !!made.save,
+  };
   // The Dev sheet. The shell shows it in its sheet slot; a page without the shell shows it below.
   const settingsView = (close: () => void) => (
     <>
@@ -232,23 +238,25 @@ export function LocalApp({ game }: { game: LocalGame }) {
           {importError}
         </p>
       )}
-      <div className="mt-4 flex flex-wrap items-center gap-2.5">
-        <span className="text-sm text-muted">Other seats</span>
-        <Segmented
-          label="Other seats"
-          options={[
-            { id: "run", label: "Run" },
-            { id: "step", label: "Step" },
-          ]}
-          value={stepping ? "step" : "run"}
-          onChange={(mode) => stepSeats(mode === "step")}
-        />
-        <Hint label="About the other seats">
-          The other seats decide at random. With Step the game waits before each of their decisions,
-          and the Step button of the action panel lets the seat decide.
-        </Hint>
-      </div>
-      {session && (
+      {can.stepping && (
+        <div className="mt-4 flex flex-wrap items-center gap-2.5">
+          <span className="text-sm text-muted">Other seats</span>
+          <Segmented
+            label="Other seats"
+            options={[
+              { id: "run", label: "Run" },
+              { id: "step", label: "Step" },
+            ]}
+            value={stepping ? "step" : "run"}
+            onChange={(mode) => stepSeats(mode === "step")}
+          />
+          <Hint label="About the other seats">
+            The other seats decide at random. With Step the game waits before each of their
+            decisions, and the Step button of the action panel lets the seat decide.
+          </Hint>
+        </div>
+      )}
+      {session && can.switchSeat && (
         <section aria-label="Play as" className="mt-4">
           <h3 className="flex items-center gap-2 text-sm text-muted">
             Play as
@@ -283,7 +291,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
           </div>
         </section>
       )}
-      {scenarios && (
+      {scenarios && can.scenarios && (
         <section aria-label="Start from" className="mt-4">
           <h3 className="text-sm text-muted">Start from</h3>
           <div className="mt-1.5 rounded border border-line">
@@ -294,25 +302,27 @@ export function LocalApp({ game }: { game: LocalGame }) {
           </div>
         </section>
       )}
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          tone="quiet"
-          size="sm"
-          disabled={answers === 0}
-          onClick={() => {
-            newGame();
-            close();
-          }}
-        >
-          New game
-        </Button>
-        <Button tone="quiet" size="sm" disabled={answers === 0} onClick={exportGame}>
-          Export
-        </Button>
-        <Button tone="quiet" size="sm" onClick={() => file.current?.click()}>
-          Import
-        </Button>
-      </div>
+      {can.save && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            tone="quiet"
+            size="sm"
+            disabled={answers === 0}
+            onClick={() => {
+              newGame();
+              close();
+            }}
+          >
+            New game
+          </Button>
+          <Button tone="quiet" size="sm" disabled={answers === 0} onClick={exportGame}>
+            Export
+          </Button>
+          <Button tone="quiet" size="sm" onClick={() => file.current?.click()}>
+            Import
+          </Button>
+        </div>
+      )}
     </>
   );
 
@@ -384,6 +394,16 @@ export function LocalApp({ game }: { game: LocalGame }) {
       />
     </div>
   );
+}
+
+/** The cards that the player is never offered in this game, as they were kept. */
+function readNever(game: LocalGame): string[] {
+  try {
+    const kept: unknown = JSON.parse(localStorage.getItem(cardsKey(game)) || "[]");
+    return Array.isArray(kept) ? kept.filter((name) => typeof name === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 function Notice({ tone, children }: { tone: "quiet" | "error"; children: ReactNode }) {

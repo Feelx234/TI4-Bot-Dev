@@ -1,6 +1,6 @@
 // The private draft of a tactical action: what the player chose so far, and every state it had,
 // for undo and redo. A draft is a script. The engine plays it on a copy of the game each time it
-// changes (`Transport.runDraft`), so nothing here decides a rule.
+// changes (`Transport.draft`), so nothing here decides a rule.
 import type { LandingStep, MovementStep, PlanStep, ProductionStep } from "./movementPlan";
 import type { SaveStorage } from "./savedGame";
 import type { DraftOutcome, DraftStep, SessionUpdate } from "./wire";

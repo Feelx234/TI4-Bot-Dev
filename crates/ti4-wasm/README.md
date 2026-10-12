@@ -158,6 +158,10 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
 | `ti4_draft(request_len) -> status` | Runs a draft script on a copy of the game. See "A draft". |
 | `ti4_draft_ptr()` | The address of the outcome of the last `ti4_draft` (`DRAFT_CAPACITY`, 1 MiB). |
+| `ti4_plan(request_len) -> status` | While the game waits: what a script answers to the pending choice. See "A plan that is sent". |
+| `ti4_set_reaction_mode(request_len) -> status` | Whether the host is offered a card: `{"card", "mode": "never" or "always"}`. See "Never cards". |
+| `ti4_passed() -> status` | The windows that were declined for the host since it last asked, as a JSON list in the response buffer. See "Never cards". |
+| `ti4_replay(answers)` | The first `answers` choices of the next `ti4_play` are answered from a saved game. See "Never cards". |
 | `ti4_response_ptr()` | The address of the result or the error of the last export. |
 | `ti4_update_ptr()`, `ti4_update_len()` | The update for the host: while the game waits in a choice, and after `ti4_play` has returned. Length 0 when there is none. |
 
@@ -317,7 +321,7 @@ and its payment through `submitPlan`, as steps `produce` (unit), `place` (destin
 (the id of the option) and `done_producing`. The purchases are in the order that the player
 staged them, each with its place; the payments follow them.
 
-- A payment is not in the place of the plan where the game asks for it. `planAnswer` answers a
+- A payment is not in the place of the plan where the game asks for it. `plan_answer` answers a
   `pay_resources` question after a purchase of the plan with the first payment of the plan that
   the game offers, and moves that step to where the plan is. With none, the plan is refused
   whole: the staged payment does not cover the cost.
@@ -385,8 +389,8 @@ workspace.
   action is `choose tactical`, `choose <system>`, then the movement, the landings and the
   production. A `choose` between them answers what the game asks the seat there (AI Development
   Algorithm before the production).
-- The steps that follow each other are answered as a plan (`plan_answer`), with the rules that
-  the page has for a plan that it sends to the game (`planAnswer` in `web2`): a hold that is not
+- The steps that follow each other are answered as a plan (`plan_answer`), also when the page
+  sends a plan to the game (`ti4_plan`, see "A plan that is sent"): a hold that is not
   loaded is declined, a payment is found anywhere in the plan, an end that the game does not ask
   for is left out. The pause between two steps of the action ("negotiate, or continue") is
   passed.
@@ -429,9 +433,51 @@ Limits:
   drafted.
 - An option of the landings with `from_system` or `from_planet`, and the exchange of a
   production, are not audited: the draft stops there.
-- The rules of a plan are in two places: `plan_answer` in `ti4-view` (the draft) and
-  `planAnswer` in `web2` (the plan that is sent to the live game). Tests hold them together.
-  `batch.rs` in the server has its own steps.
+- `batch.rs` in the server has its own steps.
+
+### A plan that is sent
+
+The page sends a movement, the landings, a production or a whole draft to the live game as one
+request (`Transport.submitPlan`, `Transport.applyDraft`). How a step answers a question of the
+game is decided in Rust, in the function that answers a run of a draft
+(`ti4_view::planning::draft::script_answer`): one copy of the rules, for the draft and for the
+live game, and for the server later.
+
+- While the game waits in a choice, the host writes `{"script": [...], "next": n, "actor": seat}`
+  at `ti4_request_ptr()` and calls `ti4_plan(length)`. The script has the entries of a draft
+  script; `next` is the first entry that is still to play.
+- The response is `{"kind":"answer","index","next"}` (answer the choice with the option at
+  `index`; with `script`, the script goes on in that order, because a payment changed its place),
+  `{"kind":"done"}`, `{"kind":"interrupted","reason"}` (the game asks something else first) or
+  `{"kind":"mismatch","step","reason"}` (the game does not offer what the entry asks for).
+- The call changes nothing. The host answers the choice itself and asks again at the next one,
+  so its saved answers, its undo and "refused whole" stay as they were. The choice that the game
+  waits in is kept for this (a copy for each choice that the host is asked).
+- Before a decision of a random seat (stepping) the choice is that seat's, and a script never
+  answers it.
+
+### Never cards
+
+A player can set an action card to "never offer". The engine applies the setting, with the
+wrapper that the server uses (`ti4_engine::reaction_modes::NeverOffer`); the page has no copy
+of the rule.
+
+- `ti4_set_reaction_mode` sets a card by its printed name. The setting is of the instance, so
+  the host sets its cards for each instance, before `ti4_play`, and may change one while the
+  game waits.
+- A window that offers only Never cards is declined without asking. It is still a choice of
+  the host with an answer: it has a number (the nonce after it is higher by one), the host
+  reads it with `ti4_passed` at its next choice and keeps the decline with its saved answers,
+  and a checkpoint gives the answer again after an undo.
+- An undo (`-2`) does not stop at such a window: it opens the last choice that the host answered
+  itself. `ti4_can_undo` says whether a checkpoint holds that one.
+- A window with another card is asked without the Never cards. The index of the answer is the
+  place in the options that the host was shown.
+- A saved game is played again below the wrapper, as a replay on the server is: with
+  `ti4_replay(n)` the first `n` choices are asked whole, whatever the cards are set to. So a
+  game that was played with other settings is the same game. Without this a window that was
+  declined by hand would be declined a second time, and the saved answers would not fit.
+- The engine asks some windows twice in a row (after an activation). Each is passed.
 
 ### Scenarios
 

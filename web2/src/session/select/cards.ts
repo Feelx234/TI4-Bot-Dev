@@ -3,13 +3,16 @@
 // the printed cards and the deck that a game begins with. Copies of a card have ids of their own
 // and one name: a card here is a printed name.
 import type { ActionCardView, ActionCardsView } from "../../model";
-import type { Catalog, Choice, ChoiceOption, SessionUpdate } from "../wire";
+import type { Catalog, SessionUpdate } from "../wire";
 import { plain, timing } from "./components";
 import { titleCase } from "./names";
 
-/** What the player set for cards in this page. Only `never` changes what is sent. */
+/** What the player set for cards. Only `never` changes what the viewer is asked. */
 export interface CardSettings {
-  /** The printed names of the cards that the viewer is never offered. */
+  /**
+   * The printed names of the cards that the viewer is never offered. Where the game runs has
+   * them (`Transport.setReactionMode`), and applies them (`ti4_engine::reaction_modes`).
+   */
   never: string[];
   /** The printed names of the cards that the viewer acts as if holding. Not wired to anything yet. */
   faked: string[];
@@ -110,65 +113,4 @@ export function selectActionCards(
       }))
       .filter((group) => group.cards.length > 0),
   };
-}
-
-/** The printed names of the cards that an option offers to play. Compare `reaction_modes::card_names`. */
-function cardNames(option: ChoiceOption): string[] {
-  const listed = option.payload?.card_names;
-  if (Array.isArray(listed) && listed.length) {
-    return listed.filter((name): name is string => typeof name === "string");
-  }
-  const one = option.payload?.card_name;
-  return typeof one === "string" ? [one] : [];
-}
-
-const isOffer = (option: ChoiceOption) =>
-  (option.kind === "ability" && option.id.startsWith("reaction:")) || option.kind === "action_card";
-const isDecline = (option: ChoiceOption) => option.kind === "decline";
-
-/** What "never offer" does to one question. */
-export type Offers =
-  | { kind: "unchanged" }
-  /** Some options were Never cards; the rest still needs an answer. */
-  | { kind: "narrowed"; choice: Choice }
-  /** Every card of the question is a Never card: the page answers with the decline. */
-  | { kind: "declined"; option: ChoiceOption; cards: string[] };
-
-/**
- * Applies the Never cards of the viewer to a question. The same rule as
- * `ti4_engine::reaction_modes::filter`, which the server applies for a seat; the engine of this
- * page is asked every question, so the page answers.
- */
-export function filterOffers(choice: Choice, never: string[]): Offers {
-  if (!never.length) {
-    return { kind: "unchanged" };
-  }
-  const dropped: string[] = [];
-  const kept = choice.options.filter((option) => {
-    const names = cardNames(option);
-    if (!isOffer(option) || !names.length || !names.every((name) => never.includes(name))) {
-      return true;
-    }
-    dropped.push(...names.filter((name) => !dropped.includes(name)));
-    return false;
-  });
-  if (!dropped.length) {
-    return { kind: "unchanged" };
-  }
-  if (kept.every(isDecline)) {
-    // Nothing left and nothing to decline with: the question is asked whole.
-    return kept.length
-      ? { kind: "declined", option: kept[0], cards: dropped }
-      : { kind: "unchanged" };
-  }
-  return { kind: "narrowed", choice: { ...choice, options: kept } };
-}
-
-/** The update as the viewer is asked it: without the options of the Never cards. */
-export function withoutNever(update: SessionUpdate, never: string[]): SessionUpdate {
-  const pending = update.pending_choice;
-  const offers = pending ? filterOffers(pending.choice, never) : null;
-  return pending && offers?.kind === "narrowed"
-    ? { ...update, pending_choice: { ...pending, choice: offers.choice } }
-    : update;
 }

@@ -37,6 +37,7 @@ import type { LocalGame, SeatSwitch } from "./savedGame";
 import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
 import type {
   DraftOutcome,
+  DraftStep,
   InvasionFacts,
   MovementFacts,
   ProductionFacts,
@@ -53,7 +54,11 @@ type Update = Extract<TransportEvent, { kind: "update" }>;
 async function play(
   stepping = false,
   game: LocalGame = { seed: 3, players: 8, humans: 1 },
-  saved: { answers?: readonly string[]; switches?: readonly SeatSwitch[] } = {},
+  saved: {
+    answers?: readonly string[];
+    switches?: readonly SeatSwitch[];
+    never?: readonly string[];
+  } = {},
 ) {
   const engine: Engine = {
     module: await WebAssembly.compile(readFileSync(WASM)),
@@ -72,6 +77,11 @@ async function play(
     stepping,
   });
   const seen: Update[] = [];
+  /** The cards of each window that the engine passed, and the Never cards as they were told last. */
+  const passed: string[][] = [];
+  let never: string[] = [];
+  /** Who waits for the outcome of a draft script. */
+  const drafts = new Map<DraftStep[], (outcome: DraftOutcome | null) => void>();
   let wake: (() => void) | null = null;
   transport.subscribe((event) => {
     if (event.kind === "error") {
@@ -80,8 +90,21 @@ async function play(
     if (event.kind === "update") {
       seen.push(event);
       wake?.();
+    } else if (event.kind === "draft") {
+      drafts.get(event.script)?.(event.outcome);
+      drafts.delete(event.script);
+    } else if (event.kind === "passed") {
+      passed.push(event.cards);
+    } else if (event.kind === "cards") {
+      never = event.never;
     }
   });
+  /** Asks for a draft and waits for its answer: the script comes back with it. */
+  const draft = (script: DraftStep[]) =>
+    new Promise<DraftOutcome | null>((answer) => {
+      drafts.set(script, answer);
+      transport.draft(script);
+    });
   let read = 0;
   const next = async (): Promise<Update> => {
     while (seen.length <= read) {
@@ -90,7 +113,16 @@ async function play(
     return seen[read++];
   };
   const nonce = (event: Update) => event.update.pending_choice!.nonce;
-  return { transport, next, nonce, answers: () => answers, switches: () => switches };
+  return {
+    transport,
+    next,
+    nonce,
+    draft,
+    passed,
+    never: () => never,
+    answers: () => answers,
+    switches: () => switches,
+  };
 }
 
 const shipsIn = (update: SessionUpdate, system: string) =>
@@ -348,7 +380,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "runs a draft on a copy of the game, and applies it as one request",
   async () => {
-    const { transport, next, nonce, answers } = await play();
+    const { transport, next, nonce, answers, draft: ask } = await play();
     for (const answer of ["pok8imperial", "no"]) {
       transport.submitChoice(nonce(await next()), answer);
     }
@@ -357,13 +389,13 @@ it.skipIf(!built)(
 
     // The draft starts at the choice of a system: the tactical action is its first step.
     let draft = newDraft();
-    const start = transport.runDraft(scriptOf(entryOf(draft)))!;
+    const start = (await ask(scriptOf(entryOf(draft))))!;
     expect(start.stop).toEqual({ kind: "open" });
     expect(start.update.pending_choice?.nonce).toBe("draft");
     expect(start.update.tactical?.kind).toBe("activation");
 
     draft = activate(draft, "23");
-    const activated = transport.runDraft(scriptOf(entryOf(draft)))!;
+    const activated = (await ask(scriptOf(entryOf(draft))))!;
     expect(fits(entryOf(draft), activated)).toBe(true);
     const facts = activated.movement?.tactical as MovementFacts;
     expect(facts).toMatchObject({ kind: "movement", active: "23", moved: 0 });
@@ -374,7 +406,7 @@ it.skipIf(!built)(
 
     const steps = stepsOf(facts, setShip(facts, setShip(facts, {}, "01|0", true), "01|2", true));
     draft = setMovement(draft, steps);
-    const moved = transport.runDraft(scriptOf(entryOf(draft)))!;
+    const moved = (await ask(scriptOf(entryOf(draft))))!;
     expect(moved.stop).toEqual({ kind: "complete" });
     expect(fits(entryOf(draft), moved)).toBe(true);
     expect(shipsIn(moved.update, "23")).toEqual(["destroyer", "sol_carrier"]);
@@ -382,7 +414,7 @@ it.skipIf(!built)(
     expect(moved.movement?.tactical).toEqual(facts);
 
     // A step that the game does not offer is named, with how far the script fits.
-    const bad = transport.runDraft([
+    const bad = (await ask([
       ...scriptOf(entryOf(draft)).slice(0, 2),
       {
         kind: "move",
@@ -393,7 +425,7 @@ it.skipIf(!built)(
         ionian: false,
       },
       { kind: "done_moving" },
-    ])!;
+    ]))!;
     expect(bad.stop).toMatchObject({ kind: "refused", step: 2 });
     expect(bad.consumed).toBe(2);
 
@@ -466,13 +498,13 @@ it.skipIf(!built)(
         if (pauses === 3) {
           // A draft can be run while another seat decides, also while it chooses its card.
           expect(event.update.view.phase).toBe("strategy");
-          const drafted = stepped.transport.runDraft([{ kind: "choose", option_id: "tactical" }]);
+          const drafted = await stepped.draft([{ kind: "choose", option_id: "tactical" }]);
           expect(drafted?.stop).toEqual({ kind: "open" });
           expect(drafted?.update.tactical?.kind).toBe("activation");
           // From here on the seats play on.
-          stepped.transport.setStepping(false);
+          stepped.transport.capabilities.stepping?.set(false);
         } else {
-          stepped.transport.step();
+          stepped.transport.capabilities.stepping?.step();
         }
       } else {
         stepped.transport.submitChoice(stepped.nonce(event), answersOf[given]);
@@ -595,7 +627,13 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "drafts a tactical action up to its production, and applies it as one request",
   async () => {
-    const { transport, next, nonce, answers } = await play(false, {
+    const {
+      transport,
+      next,
+      nonce,
+      answers,
+      draft: ask,
+    } = await play(false, {
       seed: 42,
       players: 8,
       humans: 1,
@@ -603,19 +641,19 @@ it.skipIf(!built)(
     });
     const menu = await next();
     expect(subtype(menu)).toBe("action_menu");
-    const run = (draft: Draft) => transport.runDraft(scriptOf(entryOf(draft)))!;
+    const run = async (draft: Draft) => (await ask(scriptOf(entryOf(draft))))!;
     const asks = (outcome: DraftOutcome) => outcome.update.pending_choice?.choice.context?.subtype;
 
     // The system of the two space docks. Nothing moves: the draft goes on.
     let draft = setMovement(activate(newDraft(), "72"), [{ kind: "done_moving" }]);
-    const asked = run(draft);
+    const asked = await run(draft);
     // AI Development Algorithm asks before the production. It is no step of the action.
     expect(asked.stop).toEqual({ kind: "open" });
     expect(asks(asked)).toBe("exhaust_for_production_discount");
     expect(frontier(asked)).toBeNull();
     draft = answer(draft, "invasion", "decline");
 
-    const open = run(draft);
+    const open = await run(draft);
     expect(open.stop).toEqual({ kind: "open" });
     expect(frontier(open)).toBe("production");
     expect(open.invasion).toBeUndefined();
@@ -628,12 +666,9 @@ it.skipIf(!built)(
     const unit = facts.units.findIndex((item) => item.unit === "cruiser2");
     let build = addBuild(facts, EMPTY, unit, "space");
     draft = setProduction(draft, productionSteps(facts, build), false);
-    expect(run(draft).stop).toEqual({ kind: "open" });
+    expect((await run(draft)).stop).toEqual({ kind: "open" });
     // Played unpaid, it is refused at its payment.
-    const unpaid = transport.runDraft([
-      ...scriptOf(entryOf(draft)),
-      ...productionSteps(facts, build),
-    ])!;
+    const unpaid = (await ask([...scriptOf(entryOf(draft)), ...productionSteps(facts, build)]))!;
     expect(unpaid.stop).toMatchObject({ kind: "refused" });
     expect(problemOf({ ...entryOf(draft), unpaid: false }, unpaid)).toMatch(
       /^A part of the production no longer fits/,
@@ -643,7 +678,7 @@ it.skipIf(!built)(
     build = togglePlanet(facts, build, "lisis");
     expect(totals(facts, build).paid).toBeGreaterThanOrEqual(totals(facts, build).cost);
     draft = setProduction(draft, productionSteps(facts, build), true);
-    const done = run(draft);
+    const done = await run(draft);
     expect(done.stop).toEqual({ kind: "complete" });
     expect(fits(entryOf(draft), done)).toBe(true);
     expect(shipsIn(done.update, "72")).toEqual([...before, "cruiser2"].sort());
@@ -952,7 +987,7 @@ it.skipIf(!built)(
     }
 
     // Seat c is played here. The open decision of seat a is not an answer of the page.
-    transport.switchSeat("c");
+    transport.capabilities.switchSeat?.("c");
     const first = await next();
     expect(seatOf(first)).toBe("c");
     expect(answers()).toHaveLength(3);
@@ -970,18 +1005,18 @@ it.skipIf(!built)(
     open = await answer(again);
 
     // Two changes with no answer between them, then back to the seat of the start.
-    transport.switchSeat("e");
+    transport.capabilities.switchSeat?.("e");
     expect(seatOf(await next())).toBe("e");
-    transport.switchSeat("b");
+    transport.capabilities.switchSeat?.("b");
     open = await next();
     expect(seatOf(open)).toBe("b");
     expect(open.canUndo).toBe(false);
     open = await answer(open);
     expect(seatOf(open)).toBe("b");
     // A seat that is played here already is no change.
-    transport.switchSeat("b");
+    transport.capabilities.switchSeat?.("b");
     expect(switches()).toHaveLength(3);
-    transport.switchSeat("a");
+    transport.capabilities.switchSeat?.("a");
     open = await next();
     expect(seatOf(open)).toBe("a");
     const reached = await answer(open);
@@ -1019,7 +1054,7 @@ it.skipIf(!built)(
     expect(seat).not.toBe("a");
     expect(paused.update.pending_choice).toBeUndefined();
     // The decision that the game waited to draw is asked here.
-    transport.switchSeat(seat);
+    transport.capabilities.switchSeat?.(seat);
     const asked = await next();
     expect(asked.stepping).toBeUndefined();
     expect(asked.update.viewer).toEqual({ role: "player", seat });
@@ -1032,4 +1067,121 @@ it.skipIf(!built)(
     expect((await visit.next()).update).toEqual(asked.update);
     visit.transport.close();
   },
+);
+
+// In the scenario "Late game" seat d (Xxcha) has the turn first of its seats and holds Nav Suite,
+// which a window offers after the seat activates a system. The game opens that window twice.
+const XXCHA: LocalGame = { seed: 42, players: 8, humans: 0b1000, scenario: "late-game" };
+const NAV_SUITE = "Nav Suite";
+
+it.skipIf(!built)(
+  "asks a window of a card, and passes it in the engine once the card is never offered",
+  async () => {
+    const { transport, next, nonce, answers, passed, never } = await play(false, XXCHA);
+    expect(never()).toEqual([]);
+    transport.submitChoice(nonce(await next()), "tactical");
+    transport.submitChoice(nonce(await next()), "41");
+    const window = await next();
+    expect(subtype(window)).toBe("reaction_after_SYSTEM_ACTIVATED");
+    expect(window.update.pending_choice?.choice.options.map((option) => option.kind)).toEqual([
+      "ability",
+      "decline",
+    ]);
+    // The card is set while its window is open: the window is asked again, and passed.
+    transport.setReactionMode(NAV_SUITE, "never");
+    expect(never()).toEqual([NAV_SUITE]);
+    const moving = await next();
+    expect(subtype(moving)).toBe("movement_step");
+    expect(passed).toEqual([[NAV_SUITE], [NAV_SUITE]]);
+    // The decline is an answer of the game: a saved game has it.
+    expect(answers()).toEqual(["tactical", "41", "decline", "decline"]);
+    transport.close();
+  },
+  60_000,
+);
+
+it.skipIf(!built)(
+  "takes a passed window back with the answer before it, and plays a saved game whatever the cards are set to",
+  async () => {
+    const first = await play(false, XXCHA, { never: [NAV_SUITE] });
+    expect(first.never()).toEqual([NAV_SUITE]);
+    first.transport.submitChoice(first.nonce(await first.next()), "tactical");
+    first.transport.submitChoice(first.nonce(await first.next()), "41");
+    // The window does not open.
+    const moving = await first.next();
+    expect(subtype(moving)).toBe("movement_step");
+    expect(first.passed).toEqual([[NAV_SUITE], [NAV_SUITE]]);
+    expect(first.answers()).toEqual(["tactical", "41", "decline", "decline"]);
+    expect(moving.canUndo).toBe(true);
+
+    // One undo goes back over the windows, to the activation. Nothing is said again.
+    first.transport.undo();
+    const activation = await first.next();
+    expect(subtype(activation)).toBe("activate_system");
+    expect(first.answers()).toEqual(["tactical"]);
+    expect(first.passed).toHaveLength(2);
+    // The same answer passes the windows again.
+    first.transport.submitChoice(first.nonce(activation), "41");
+    expect(subtype(await first.next())).toBe("movement_step");
+    expect(first.passed).toHaveLength(4);
+    const saved = first.answers();
+    first.transport.close();
+
+    // The card is offered again, and the saved game is the same game: its window was declined.
+    const offered = await play(false, XXCHA, { answers: saved });
+    expect(subtype(await offered.next())).toBe("movement_step");
+    expect(offered.passed).toEqual([]);
+    offered.transport.close();
+
+    // A game where the player declined the window, played again with the card never offered.
+    const again = await play(false, XXCHA, { answers: saved, never: [NAV_SUITE] });
+    const resumed = await again.next();
+    expect(subtype(resumed)).toBe("movement_step");
+    expect(again.passed).toEqual([]);
+    // An undo opens a window, which is passed now, and goes on to the activation.
+    again.transport.undo();
+    expect(subtype(await again.next())).toBe("activate_system");
+    expect(again.answers()).toEqual(["tactical"]);
+    again.transport.close();
+  },
+  60_000,
+);
+
+it.skipIf(!built)(
+  "stops a plan at a window of a card, and not at a window that is passed",
+  async () => {
+    const plan = { destination: "41", steps: [{ kind: "done_moving" } as const] };
+    const asked = await play(false, XXCHA);
+    const menu = await asked.next();
+    asked.transport.applyDraft(asked.nonce(menu), { choices: ["tactical", "41"], plan });
+    const window = await asked.next();
+    expect(subtype(window)).toBe("reaction_after_SYSTEM_ACTIVATED");
+    expect(window.plan).toMatchObject({ applied: 0, interrupted: true, remaining: plan.steps });
+    asked.transport.close();
+
+    const never = await play(false, XXCHA, { never: [NAV_SUITE] });
+    never.transport.applyDraft(never.nonce(await never.next()), {
+      choices: ["tactical", "41"],
+      plan,
+    });
+    const after = await never.next();
+    expect(after.plan).toBeUndefined();
+    expect(subtype(after)).not.toBe("movement_step");
+    expect(never.answers().slice(0, 5)).toEqual([
+      "tactical",
+      "41",
+      "decline",
+      "decline",
+      "done_moving",
+    ]);
+    // An undo takes the movement back, and the next one the activation with its windows.
+    never.transport.undo();
+    expect(subtype(await never.next())).toBe("movement_step");
+    expect(never.answers()).toEqual(["tactical", "41", "decline", "decline"]);
+    never.transport.undo();
+    expect(subtype(await never.next())).toBe("activate_system");
+    expect(never.answers()).toEqual(["tactical"]);
+    never.transport.close();
+  },
+  60_000,
 );

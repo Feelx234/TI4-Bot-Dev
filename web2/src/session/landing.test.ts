@@ -11,10 +11,10 @@ import {
   setLanding,
   stepsOf,
 } from "./landingDraft";
-import { type PlanStep, matches, planAnswer, stepOf } from "./movementPlan";
+import { type PlanStep, stepOf } from "./movementPlan";
 import type { LocalState } from "./select/action";
 import { selectShell } from "./select/shell";
-import type { Choice, InvasionFacts, SessionUpdate } from "./wire";
+import type { InvasionFacts, SessionUpdate } from "./wire";
 
 // An update of a real game, written by the engine: seat a (Sol) moved a carrier with two
 // infantry to the system next to its home, which has one planet that nobody holds.
@@ -111,57 +111,14 @@ it("turns the staged landings into steps, and steps into the staged landings", (
   expect(stepsOf(facts, {})).toEqual([{ kind: "done_committing" }]);
 });
 
-it("answers the landings of the game from the steps", () => {
+it("reads the step back from the option that answered it", () => {
   const steps: PlanStep[] = stepsOf(real, setLanding(real, {}, "saudor", 0, 2));
   expect(steps).toHaveLength(3);
-  // The option of the engine is the step, and the step is the option.
   const commit = choice.options.find((option) => option.kind === "commit")!;
   expect(stepOf(commit)).toEqual(steps[0]);
-  expect(matches(steps[0], commit)).toBe(true);
   expect(stepOf(choice.options.find((option) => option.id === "done_committing")!)).toEqual({
     kind: "done_committing",
   });
-  expect(planAnswer(steps, 0, choice, "a")).toEqual({ kind: "answer", index: 0, next: 1 });
-  expect(planAnswer(steps, 2, choice, "a")).toEqual({ kind: "answer", index: 1, next: 3 });
-  expect(planAnswer(steps, 3, choice, "a")).toEqual({ kind: "done" });
-  // After the last unit the game does not ask for the end of the landings.
-  const later: Choice = { ...choice, context: { subtype: "end_turn", actor: "a" } };
-  expect(planAnswer(steps, 2, later, "a")).toEqual({ kind: "done" });
-  expect(planAnswer(steps, 2, { ...choice, player: "c" }, "a")).toEqual({ kind: "done" });
-  // Another question before a unit that is still to land stops the plan.
-  expect(planAnswer(steps, 1, later, "a").kind).toBe("interrupted");
-  // A unit that the game does not offer.
-  const mech: PlanStep = { ...(steps[0] as PlanStep & { kind: "land" }), unit: "sol_mech" };
-  expect(planAnswer([mech], 0, choice, "a")).toEqual({
-    kind: "mismatch",
-    reason: "The game does not offer to land sol_mech on saudor.",
-  });
-});
-
-it("passes the pause between two steps, and answers an ability by the id of its option", () => {
-  const steps: PlanStep[] = [
-    { kind: "done_moving" },
-    { kind: "choose", option_id: "decline" },
-    ...stepsOf(real, setLanding(real, {}, "saudor", 0, 1)),
-  ];
-  const asked = (subtype: string, ids: string[]): Choice => ({
-    ...choice,
-    context: { subtype, actor: "a" },
-    options: ids.map((id) => ({ id, kind: id, label: id, payload: {} })),
-  });
-  // "Negotiate, or continue the action": the plan continues while steps are left.
-  const pause = asked("mid_action_pause", ["continue_action", "contact|b"]);
-  expect(planAnswer(steps, 1, pause, "a")).toEqual({ kind: "answer", index: 0, next: 1 });
-  expect(planAnswer(steps, steps.length, pause, "a")).toEqual({ kind: "done" });
-  // The pause does not end the landings that the game has not asked for yet.
-  expect(planAnswer([{ kind: "done_committing" }], 0, pause, "a")).toMatchObject({
-    kind: "answer",
-    next: 0,
-  });
-  const ability = asked("exhaust_for_production_discount", ["exhaust", "decline"]);
-  expect(planAnswer(steps, 1, ability, "a")).toEqual({ kind: "answer", index: 1, next: 2 });
-  expect(planAnswer(steps, 1, { ...ability, player: "c" }, "a").kind).toBe("interrupted");
-  expect(planAnswer(steps, 1, choice, "a").kind).toBe("mismatch");
 });
 
 const local = (change: Partial<LocalState> = {}): LocalState => ({

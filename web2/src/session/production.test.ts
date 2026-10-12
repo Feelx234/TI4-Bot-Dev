@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import productionUpdate from "./fixtures/update-production.json";
-import { type PlanStep, matches, planAnswer, stepOf } from "./movementPlan";
+import { type PlanStep, stepOf } from "./movementPlan";
 import {
   EMPTY,
   type ProductionDraft,
@@ -19,7 +19,7 @@ import {
 } from "./productionDraft";
 import type { LocalState } from "./select/action";
 import { selectShell } from "./select/shell";
-import type { Choice, ChoiceOption, ProductionFacts, SessionUpdate } from "./wire";
+import type { ProductionFacts, SessionUpdate } from "./wire";
 
 // An update of a real game, written by the engine: in the scenario "Late game" seat a (Sol)
 // activated the system with its two space docks, moved nothing and kept AI Development Algorithm.
@@ -211,13 +211,13 @@ it("is sent as its purchases with their places, then the payment, and staged aga
   expect(stepsOf(facts, EMPTY)).toEqual([{ kind: "done_producing" }]);
 });
 
-it("matches each step to one option of the game, and back", () => {
+it("reads the step back from the option that answered it", () => {
   const cruiser = choice.options.find((option) => option.id === "build|cruiser2|1")!;
   expect(stepOf(cruiser)).toEqual({ kind: "produce", unit: "cruiser2" });
-  for (const option of choice.options) {
-    const step = stepOf(option)!;
-    expect(choice.options.filter((item) => matches(step, item))).toEqual([option]);
-  }
+  // No two options are the same step.
+  const steps = choice.options.map((option) => JSON.stringify(stepOf(option)));
+  expect(steps).not.toContain("null");
+  expect(new Set(steps).size).toBe(steps.length);
   expect(stepOf({ id: "exhaust|jord", kind: "pay", payload: {} })).toEqual({
     kind: "pay",
     source: "exhaust|jord",
@@ -228,78 +228,6 @@ it("matches each step to one option of the game, and back", () => {
       destination: "velnor",
     },
   );
-});
-
-const asks = (subtype: string, options: Partial<ChoiceOption>[], player = "a"): Choice => ({
-  player,
-  prompt: subtype,
-  options: options.map((option) => ({ id: "", kind: "", label: "", payload: {}, ...option })),
-  context: { subtype, actor: player },
-});
-const pays = (...ids: string[]) =>
-  asks(
-    "pay_resources",
-    ids.map((id) => ({ id, kind: "pay" })),
-  );
-
-it("answers the payments of the game from the staged payment, in any place of the plan", () => {
-  const steps: PlanStep[] = [
-    { kind: "produce", unit: "cruiser2" },
-    { kind: "produce", unit: "sol_infantry2" },
-    { kind: "place", destination: "velnor" },
-    { kind: "pay", source: "exhaust|jord" },
-    { kind: "pay", source: "trade_good" },
-    { kind: "done_producing" },
-  ];
-  expect(planAnswer(steps, 0, choice, "a")).toEqual({ kind: "answer", index: 2, next: 1 });
-  // The game asks for the payment of the cruiser: the first staged payment that it offers.
-  const first = planAnswer(steps, 1, pays("exhaust|lisis", "exhaust|jord", "trade_good"), "a");
-  const paid: PlanStep[] = [steps[0], steps[3], steps[1], steps[2], steps[4], steps[5]];
-  expect(first).toEqual({ kind: "answer", index: 1, next: 2, steps: paid });
-  // Jord is exhausted now: the trade good pays what is left.
-  expect(planAnswer(paid, 2, pays("exhaust|lisis", "trade_good"), "a")).toMatchObject({
-    kind: "answer",
-    index: 1,
-    next: 3,
-  });
-  // Nothing staged that the game offers: the plan is refused.
-  expect(planAnswer(paid, 2, pays("exhaust|lisis"), "a")).toEqual({
-    kind: "mismatch",
-    reason: "The staged payment does not cover the cost.",
-  });
-  // The next purchase, its place, and the end. The payment that was not needed is left out.
-  expect(planAnswer(paid, 2, choice, "a")).toEqual({ kind: "answer", index: 1, next: 3 });
-  const place = asks("place_unit", [
-    { id: "place|lisis", kind: "place", payload: { destination: "lisis" } },
-    { id: "place|velnor", kind: "place", payload: { destination: "velnor" } },
-  ]);
-  expect(planAnswer(paid, 3, place, "a")).toEqual({ kind: "answer", index: 1, next: 4 });
-  expect(planAnswer(paid, 4, choice, "a")).toEqual({
-    kind: "answer",
-    index: choice.options.length - 1,
-    next: 6,
-  });
-});
-
-it("leaves out what the game settled itself, and stops at another decision", () => {
-  const steps: PlanStep[] = [
-    { kind: "produce", unit: "sol_infantry2" },
-    { kind: "place", destination: "velnor" },
-    { kind: "produce", unit: "cruiser2" },
-    { kind: "pay", source: "exhaust|jord" },
-    { kind: "done_producing" },
-  ];
-  const other = asks("end_turn", [{ id: "end" }]);
-  // One place only: the game placed the units, and asks for the next unit.
-  expect(planAnswer(steps, 1, choice, "a")).toEqual({ kind: "answer", index: 2, next: 3 });
-  // The limit is used: the game ended the production and asks something else.
-  expect(planAnswer(steps, 3, other, "a")).toEqual({ kind: "done" });
-  expect(planAnswer(steps, 3, { ...other, player: "c" }, "a")).toEqual({ kind: "done" });
-  // Before a purchase that is still to do, another decision stops the plan.
-  expect(planAnswer(steps, 2, other, "a").kind).toBe("interrupted");
-  expect(planAnswer(steps, 2, { ...choice, player: "c" }, "a").kind).toBe("interrupted");
-  // A payment of another decision is not of the plan.
-  expect(planAnswer(steps, 2, pays("exhaust|jord"), "a").kind).toBe("interrupted");
 });
 
 const local = (change: Partial<LocalState> = {}): LocalState => ({

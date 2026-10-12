@@ -1,9 +1,9 @@
 // The whole screen from one update of the game and what the player staged in this page.
-import type { ShellView } from "../../model";
+import type { ActionView, FooterView, ShellView } from "../../model";
 import type { Catalog, SessionUpdate } from "../wire";
 import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
-import { type CardSettings, NO_CARD_SETTINGS, selectActionCards, withoutNever } from "./cards";
+import { type CardSettings, NO_CARD_SETTINGS, selectActionCards } from "./cards";
 import { selectExploration } from "./exploration";
 import { factionName, phaseName } from "./names";
 import { isEmpty } from "../productionDraft";
@@ -41,15 +41,30 @@ function status(update: SessionUpdate, local: LocalState): string {
   }
 }
 
+/** The footer with a main button that waits. */
+const held = (footer: FooterView): FooterView => ({
+  ...footer,
+  actions: footer.actions.map((button) =>
+    button.tone === "primary" ? { ...button, disabled: true } : button,
+  ),
+});
+
+/**
+ * While the game is asked what it makes of a draft, the screen is of the draft before: its main
+ * button waits for the answer.
+ */
+const waitingFor = (action: ActionView): ActionView =>
+  action.kind === "flow"
+    ? { ...action, footer: held(action.footer) }
+    : { ...action, task: { ...action.task, footer: held(action.task.footer) } };
+
 export function selectShell(
-  shown: SessionUpdate,
+  update: SessionUpdate,
   local: LocalState,
   /** The printed cards. Without it they are shown by id. */
   printed: Catalog | null = null,
   cards: CardSettings = NO_CARD_SETTINGS,
 ): ShellView {
-  // A card that the viewer is never offered is not an option of the open choice.
-  const update = withoutNever(shown, cards.never);
   const catalog = printed?.exploration ?? null;
   // The activation, the movement, the landings and the production have their own screens;
   // every other decision is a list.
@@ -68,6 +83,9 @@ export function selectShell(
           stage: local.productionStage,
         }
       : null;
+  const action = facts
+    ? selectTactical(update, local, facts, catalog)
+    : selectAction(update, local, catalog);
   return {
     seats: selectSeats(update),
     accent:
@@ -102,9 +120,7 @@ export function selectShell(
       catalog,
       production,
     ),
-    action: facts
-      ? selectTactical(update, local, facts, catalog)
-      : selectAction(update, local, catalog),
+    action: local.draft?.waiting ? waitingFor(action) : action,
     reference: {
       objectives: selectScore(update, printed),
       technology: [],

@@ -19,18 +19,57 @@ export type TransportEvent =
   | {
       kind: "update";
       update: SessionUpdate;
-      /** The last answer can be taken back. */ canUndo: boolean;
+      /**
+       * This seat may take back its last answer. In a local game that is any answer of the seats
+       * that are played here; on the server, an answer after which nothing hidden was shown,
+       * nothing was rolled and no other seat decided.
+       */
+      canUndo: boolean;
       /** The plan that was sent before this update stopped here. */
       plan?: PlanStopped;
       /** The steps of the movement or of the landings that the undo before this update took back, in order. */
       undone?: PlanStep[];
-      /** The game waits before a decision of this seat, which is not played here: `step` goes on. */
+      /** The game waits before a decision of this seat, which is not played here: `capabilities.stepping.step` goes on. */
       stepping?: { seat: string };
     }
   /** The game is played again up to where it was. The last update is out of date until the next. */
   | { kind: "replaying"; done: number; total: number }
   /** The game cannot go on. The text names the cause. */
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /**
+   * The answer to `draft(script)`, with the script that was asked: a listener drops the answer
+   * for a script that is no longer its newest. Null while the game does not wait for this side.
+   */
+  | { kind: "draft"; script: DraftStep[]; outcome: DraftOutcome | null }
+  /** The printed names of the cards that this side is never offered, after each change. */
+  | { kind: "cards"; never: string[] }
+  /** A window was declined for this side, because it offered only these cards and each is never offered. */
+  | { kind: "passed"; cards: string[] };
+
+/**
+ * What a game can do besides play. Each is a tool for testing a local game, and absent from a
+ * game on the server. The page shows a control when its capability is there, never by the kind
+ * of the transport.
+ */
+export interface Capabilities {
+  /** The game can wait before each decision of a seat that is not played here. */
+  stepping?: {
+    /** The seats decide the same either way. */
+    set(on: boolean): void;
+    /** Lets the seat decide that the game waits for (`stepping` of the last update). */
+    step(): void;
+  };
+  /**
+   * Plays this seat here from now on, in place of the seat that the game is shown as: that seat
+   * decides at random from its open decision on. Does nothing while the game does not wait for
+   * this side, or when the seat is played here already.
+   */
+  switchSeat?(seat: string): void;
+  /** The game can start from a prepared board. The app that made the transport has the list. */
+  scenarios?: true;
+  /** The game is kept in this page: the app that made the transport can start it again, export it and import it. */
+  save?: true;
+}
 
 /**
  * Where the game runs. The wasm engine in this page implements it now; the websocket to the
@@ -39,7 +78,11 @@ export type TransportEvent =
 export interface Transport {
   /** The printed cards. An update names them by id only. */
   readonly catalog: Catalog | null;
-  /** A new listener is told the latest event at once, if there is one. */
+  readonly capabilities: Capabilities;
+  /**
+   * A new listener is told the cards that are never offered and the latest update, replay or
+   * error at once, if there is one.
+   */
   subscribe(listener: (event: TransportEvent) => void): () => void;
   /** Answers the pending choice that has this nonce. Any other nonce is ignored. */
   submitChoice(nonce: string, optionId: string): void;
@@ -50,10 +93,10 @@ export interface Transport {
    */
   submitPlan(nonce: string, plan: MovementPlan): void;
   /**
-   * Plays a draft script as the next turn of this side, on a copy of the game, and tells where
-   * it ended. The game is not changed. Null while the game does not wait for this side.
+   * Asks to play a draft script as the next turn of this side, on a copy of the game. The game
+   * is not changed. Where the run ended is told later, as a `draft` event with this script.
    */
-  runDraft(script: DraftStep[]): DraftOutcome | null;
+  draft(script: DraftStep[]): void;
   /**
    * Sends a draft to the game: the pending choice and the choices after it are answered with
    * the options of these ids, then with the steps of the movement, as one request with the
@@ -61,22 +104,14 @@ export interface Transport {
    */
   applyDraft(nonce: string, draft: { choices: string[]; plan: MovementPlan | null }): void;
   /**
-   * Whether the game waits before each decision of a seat that is not played here. The seats
-   * decide the same either way.
+   * Whether a window offers this card to this side, by its printed name. A window that offers
+   * only cards that are never offered is declined where the game runs (a `passed` event), and
+   * any other window is asked without them. The change is told as a `cards` event.
    */
-  setStepping(on: boolean): void;
-  /** Lets the seat decide that the game waits for (`stepping` of the last update). */
-  step(): void;
+  setReactionMode(card: string, mode: "always" | "never"): void;
   /**
-   * Plays this seat here from now on, in place of the seat that the game is shown as: that seat
-   * decides at random from its open decision on. Does nothing while the game does not wait for
-   * this side, or when the seat is played here already.
-   */
-  switchSeat(seat: string): void;
-  /**
-   * Takes back the last answer of this side; a movement is taken back whole, and so are the
-   * landings, and the next update tells the steps. Does nothing when there is none. An answer from before the last
-   * `switchSeat` stays.
+   * Takes back the last answer of this side, when `canUndo` of the last update says so; a
+   * movement is taken back whole, and so are the landings, and the next update tells the steps.
    */
   undo(): void;
   /** Ends the game on this side. */

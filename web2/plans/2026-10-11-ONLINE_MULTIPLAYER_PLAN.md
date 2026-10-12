@@ -1,6 +1,6 @@
 # web2: online multiplayer
 
-Status: plan, 2026-10-11. Nothing is built yet.
+Status: plan, 2026-10-11. Phase 0 is built (2026-10-11); see "Phase 0: what was built". Nothing else is built yet.
 
 ## Goal
 
@@ -149,6 +149,33 @@ Each phase leaves single player working and green (`npm test`, `e2e`, `boundarie
 
 Tests: the existing `wasmTransport.test.ts`, `useLiveSession` tests and `neverOffer.test.tsx` pass
 unchanged in meaning; add a test for a late draft outcome that must be dropped.
+
+#### Phase 0: what was built (2026-10-11)
+
+- `Transport` (`session/transport.ts`): `draft(script)` with the event `draft`;
+  `setReactionMode(card, mode)` with the events `cards` and `passed`; `capabilities`
+  (`stepping`, `switchSeat`, `scenarios`, `save`). `runDraft`, `setStepping`, `step` and
+  `switchSeat` are gone. `applyDraft` and `submitPlan` kept their arguments.
+- One answer to a script: `script_answer` in `ti4-view/src/planning/draft.rs`. A run of a draft
+  uses it, and the wasm host has `ti4_plan` for a plan or a draft that is sent. `planAnswer`
+  and `matches` of the page are removed, with their tests; the tests of the rules are in Rust.
+  `ApplyDraft` of phase 1b calls the same function.
+- Never cards: the wasm host wraps its seats in `NeverOffer` (`ti4_set_reaction_mode`,
+  `ti4_passed`). `filterOffers` and `withoutNever` are removed.
+- **Not as item 3 says: the decline of a window stays a saved answer.** The check found that a
+  saved game breaks when the decline is no answer: the player sets a card to Never or back, and
+  the game that is played again asks one window less or one more than the saved answers have.
+  So the saved game is played below the wrapper, as a replay on the server is (`ti4_replay`),
+  and the engine tells the host each window that it passed, which the transport keeps with the
+  answers. An undo goes back over such a window to the answer of the player before it, in the
+  engine (`Host::again`) and in the transport.
+- While a draft waits for its outcome, the screen is of the outcome before and its main button
+  is disabled (`DraftInfo.waiting`). Before the first outcome the draft is open with nothing to
+  decide ("The game checks the draft."), so that nothing of the live game can be sent from it.
+- Tests: `liveDraft.test.tsx` (a late outcome is dropped; the game changes under a draft),
+  `neverOffer.test.tsx` (the page over a fake transport), three tests of the Never cards against
+  the real engine in `wasmTransport.test.ts` (scenario "Late game", seat d, Nav Suite), a test
+  of `script_answer`, and a part of the host test of `ti4-wasm`.
 
 ### Phase 1a: one place fills the facts (Rust, wasm only, no behaviour change)
 

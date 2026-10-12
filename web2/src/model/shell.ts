@@ -306,8 +306,24 @@ export interface ShellView {
   announcement: string;
 }
 
+/**
+ * What the game of a session can do besides play: the tools for testing a local game. A game on
+ * the server has none. A control for one of them is shown from here, never from the kind of game.
+ */
+export interface Capabilities {
+  /** The game can wait before each decision of a seat that is not played here. */
+  stepping: boolean;
+  /** Another seat can be played here. */
+  switchSeat: boolean;
+  /** The game can start from a prepared board. */
+  scenarios: boolean;
+  /** The game is kept in this page: it can be started again, exported and imported. */
+  save: boolean;
+}
+
 /** The only thing the game shell needs. The mock implements it now; a websocket session will later. */
 export interface GameSession {
   view: ShellView;
   dispatch: (intent: Intent) => void;
+  capabilities: Capabilities;
 }
