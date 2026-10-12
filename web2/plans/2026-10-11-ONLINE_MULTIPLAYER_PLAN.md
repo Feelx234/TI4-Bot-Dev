@@ -286,13 +286,54 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
 (a roll, a shuffle), or a decision of another seat.
 
 1. **Server**: a per-seat undo point. The decision log (`DecisionLog`, replay in
-   `session/replay.rs`) already records every decision. A *barrier* is where a draft would end:
-   use the checks of `ti4-view/src/planning` (`audit_offer`, `validate_knowledge`,
-   `activity_stop`) on the recorded decisions, and where the actor changes. Do not add marks to
-   the engine for it. A decision of a random seat is a decision of another seat. `canUndo` for a seat is
-   "the last decision is its own and lies after the last barrier". Undo replaces the session like
-   the host history does (`session/registry.rs` `HistoryAction`), but is allowed for the seat and
-   bounded by the barrier.
+   `session/replay.rs` `replay_session`) already records every decision. A recorded decision is
+   a *barrier* when one of these three holds:
+   - **The engine latched it** (`barrier: "random"` or `"revealed"`). The engine has a mark for
+     this already: `ExecutionObservation` (`ti4-engine/src/observation.rs`), with the bits
+     `randomness` and `hidden_information`. `GameRng::stream` (`ti4-engine/src/rng.rs`) sets
+     `randomness` for every die and shuffle. `GameRng::observe_hidden_information` sets the
+     other; its callers are the exploration draw (`exploration.rs`) and the check of the secrets
+     of a seat that lost its home (`invasion.rs`). `activity_stop`
+     (`ti4-view/src/planning/fork.rs`) is how a draft reads the latch.
+   - **The view of the seat gained a card** (`"revealed"`). A plain draw sets no bit:
+     `action_cards::draw` and `secrets::draw` take the top of a deck that is in order already.
+     Only a comparison of the view of the seat before and after the decision finds it. Use the
+     part of `validate_knowledge` (`ti4-view/src/planning/audit.rs`) that compares cards,
+     relics, attachments and revealed objectives. Its rules for technologies and for an open
+     combat are for a draft, not for undo: research of the seat itself is not a barrier.
+   - **The actor is another seat** (`"other_seat"`). A decision of a random seat is a decision
+     of another seat.
+
+   A latch is an event, so a view cannot show it: a roll with no hit and a shuffle leave the
+   view as it was. A view cannot show a short reveal either (below). This is why both checks
+   are needed.
+
+   **One change to the engine**: `hooks_cards::reveal` (`ti4-engine/src/factions/hooks_cards.rs`;
+   `reveal_hand` calls it) sets `hidden_information`. This is where a seat is shown the cards
+   of another seat (Mageon Implants, Spy Net, `action_cards::look_at_hand_and_take`). It writes
+   a row `cards:reveal:<scope>|<source>|<viewer>|<owner>|<kind>` to `GameState::faction_marks`
+   (`ti4-model/src/view.rs` `mark_visible_to`), but a reveal of `RevealScope::Choice` is cleared
+   when its choice closes, and the view of the planning checks does not have these rows. So
+   without the latch a seat could look at a hand and undo it. The line does not change what the
+   game does, and a draft that looks at a hand now ends there too, which is right. Add no other
+   mark to the engine.
+
+   **Not a barrier**: the commander of the Naalu (`SeatObservation::agenda_deck_ends` and
+   `naalu::may_view_promissory_hand`, read by `SeatObservation::revealed_cards`). The seat sees
+   these cards all the time, from the position, and no decision reveals them (owner,
+   2026-10-12).
+
+   **Not a barrier**: the other reasons that end a draft (`StopReason::UnsupportedOffer`,
+   `UnsupportedSegment`, `UnsupportedParticipation`, `StepLimit`, `MovementComplete`). They say
+   what a draft can show, not what a seat learned. So `audit_offer` has no part in undo.
+
+   How to find the barrier: the latch does not reset, and `Game::fork` drops its binding. So the
+   replay binds a new `ExecutionObservation` (`Game::bind_observation`) before each decision and
+   reads it after, and so knows which decision latched.
+
+   `canUndo` for a seat is "the last decision is its own and lies after the last barrier". Undo
+   replaces the session like the host history does (`session/registry.rs` `HistoryAction`), but
+   is allowed for the seat and bounded by the barrier.
 2. **Protocol**: `ClientMessage::Undo { protocol_version, game_id, expected_version }`; the update
    carries `can_undo` per viewer (extend `HistoryStatus` with a bool; do not reuse `cursor`, which
    is the host's). A rejected undo says why (`barrier: "revealed"|"random"|"other_seat"`).
@@ -401,7 +442,7 @@ phase 2 for online.
 | 1a facts in one place (built) | ti4-view, ti4-wasm | small |
 | 1b facts, random seats, script messages | ti4-server | large |
 | 2 transport | web2 | medium |
-| 3 undo | ti4-server, web2 | medium |
+| 3 undo | ti4-server, ti4-engine (one line), web2 | medium |
 | 4 entry | web2 | small |
 | 5 secondary draft | ti4-view, ti4-wasm, ti4-server, web2 | large |
 
