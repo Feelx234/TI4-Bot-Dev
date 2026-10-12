@@ -727,6 +727,15 @@ pub struct GameSummary {
     pub pending_seat: Option<PlayerId>,
 }
 
+/// One open game of a caller, as listed in the "too many games" refusal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenGameInfo {
+    pub game_id: String,
+    /// `lobby` or `started`.
+    pub phase: &'static str,
+    pub players: usize,
+}
+
 /// Lifecycle phase exposed by the lobby API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -912,6 +921,8 @@ pub struct GameRegistry {
     /// Redos in flight, by game: the saved original timeline and where the redo stands.
     /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
     turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
+    /// Games ended by their host since this process started; open sockets use it to say why they close.
+    terminated: Mutex<BTreeSet<String>>,
     /// Public-playtest hardening; inert by default.
     public: Arc<crate::public::PublicState>,
 }
@@ -928,6 +939,7 @@ impl Default for GameRegistry {
             bot_config: None,
             active_bots: Mutex::new(BTreeMap::new()),
             turn_redos: Mutex::new(BTreeMap::new()),
+            terminated: Mutex::new(BTreeSet::new()),
             public: Arc::new(crate::public::PublicState::default()),
         }
     }
@@ -3805,6 +3817,80 @@ impl GameRegistry {
         );
         games.sort_by(|left, right| left.game_id.cmp(&right.game_id));
         games
+    }
+
+    /// True when the host ended `game_id` while this process was running.
+    pub fn is_terminated(&self, game_id: &str) -> bool {
+        self.terminated.lock().expect("terminated lock").contains(game_id)
+    }
+
+    /// Phase and seated players of each given game that is still open (unfinished), for the
+    /// "too many games" answer. Unknown or finished ids are left out.
+    pub fn open_game_infos(&self, ids: &[String]) -> Vec<OpenGameInfo> {
+        let state = self.state.lock().expect("registry lock");
+        ids.iter()
+            .filter_map(|id| {
+                if let Some(session) = state.sessions.get(id) {
+                    if session.is_finished() {
+                        return None;
+                    }
+                    let players = state.player_lobbies.get(id).map_or_else(
+                        || state.lobbies.get(id).map_or(0, |l| l.player_ids.len()),
+                        |l| l.slots.iter().filter(|s| s.occupant.is_some()).count(),
+                    );
+                    return Some(OpenGameInfo { game_id: id.clone(), phase: "started", players });
+                }
+                if let Some(l) = state.player_lobbies.get(id) {
+                    let players = l.slots.iter().filter(|s| s.occupant.is_some()).count();
+                    return Some(OpenGameInfo { game_id: id.clone(), phase: "lobby", players });
+                }
+                state.lobbies.get(id).map(|l| OpenGameInfo {
+                    game_id: id.clone(),
+                    phase: "lobby",
+                    players: l.player_ids.len(),
+                })
+            })
+            .collect()
+    }
+
+    /// Ends a game for good at the request of its host: stops the worker and bots, forgets the
+    /// game and moves its files into `terminated/`. Works for lobbies and started games.
+    pub fn terminate_game(&self, game_id: &str, credential: &str) -> Result<(), LobbyError> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        {
+            let state = self.state.lock().expect("registry lock");
+            if let Some(lobby) = state.player_lobbies.get(game_id) {
+                let actor = authenticate_player(lobby, credential)?;
+                if actor != lobby.host_player_id {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else if let Some(lobby) = state.lobbies.get(game_id) {
+                let actor = authenticated_seat(lobby, credential)?;
+                if actor != lobby.host_seat {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else {
+                return Err(LobbyError::NotFound);
+            }
+        }
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .insert(game_id.to_owned());
+        self.remove_game(game_id);
+        self.turn_redos.lock().expect("turn redos lock").remove(game_id);
+        self.state
+            .lock()
+            .expect("registry lock")
+            .presence
+            .retain(|(id, _), _| id != game_id);
+        if let Some(store) = &self.store {
+            store
+                .terminate_game(game_id)
+                .map_err(|e| LobbyError::Storage(e.to_string()))?;
+        }
+        Ok(())
     }
 
     pub fn remove_game(&self, game_id: &str) -> Option<Arc<GameSession>> {

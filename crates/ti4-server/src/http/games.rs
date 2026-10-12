@@ -407,6 +407,20 @@ pub async fn get_lobby(
     ))
 }
 
+/// `POST /api/games/{game_id}/terminate`: the host ends the game (lobby or started).
+pub async fn terminate_game(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    tokio::task::spawn_blocking(move || registry.terminate_game(&game_id, &token))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(lobby_error)?;
+    Ok(Json(serde_json::json!({ "terminated": true })))
+}
+
 /// Retire an authenticated, non-host lobby participant.
 pub async fn leave_lobby(
     Path(game_id): Path<String>,
