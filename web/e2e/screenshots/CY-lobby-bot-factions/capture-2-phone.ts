@@ -29,7 +29,7 @@ test("phone: picker open", async ({ page }, testInfo) => {
 test("phone: seats with chosen factions", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 1300 });
   await openFactionLobby(page, { bots: ["xxcha", null, "l1z1x"] });
-  await expect(page.getByTestId("bot-faction-5-button")).toContainText("L1Z1X");
+  await expect(page.getByTestId("seat-faction-picker-5-button")).toContainText("L1Z1X");
   await noSideScroll(page);
   await shot(page, testInfo, "10-phone-seats");
 });

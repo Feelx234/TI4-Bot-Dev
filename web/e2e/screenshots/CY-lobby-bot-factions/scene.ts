@@ -19,7 +19,7 @@ export interface FactionLobbyOptions {
 
 /**
  * The real lobby at /games/<id> against a routed server that implements the smart-bot route with
- * a `faction`, `POST /lobby/bot-faction` and `remove-bot`, answering duplicates with the 409 text
+ * a `faction`, `POST /lobby/seat-faction` and `remove-bot`, answering duplicates with the 409 text
  * the real server sends. The server is mocked, the components are not.
  */
 export async function openFactionLobby(page: Page, options: FactionLobbyOptions = {}) {
@@ -83,7 +83,7 @@ export async function openFactionLobby(page: Page, options: FactionLobbyOptions 
     for (let i = 0; i < wanted; i += 1) addBot(body.faction ?? null);
     return route.fulfill({ json: lobby() });
   });
-  await page.route(`**/api/games/${GAME_ID}/lobby/bot-faction`, async (route) => {
+  await page.route(`**/api/games/${GAME_ID}/lobby/seat-faction`, async (route) => {
     const body = route.request().postDataJSON() as { player_id: string; faction: string | null };
     const refused = refusal(body.faction ?? undefined, body.player_id);
     if (refused) return route.fulfill({ status: refused.status, body: refused.text });
