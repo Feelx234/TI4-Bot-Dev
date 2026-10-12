@@ -38,6 +38,15 @@ import {
   type TurnRedoStatus,
 } from "./turnRedo.ts";
 
+/** Server messages of the planning/draft protocol, which this client does not use. */
+const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
+  "planning_status",
+  "planning_update",
+  "planning_result",
+  "draft_outcome",
+  "draft_applied",
+]);
+
 /** What the server answered to a `preview_secondary` request. */
 export type SecondaryPreviewReply =
   | {
@@ -1297,6 +1306,14 @@ export class GameSessionClient {
         this.settlePreviews(new PreviewUnsupportedError());
         return;
       }
+      // The server pushes the planning/draft protocol to every player connection. This client
+      // has no planning UI, so those messages are not for it and must not surface as errors.
+      if (
+        typeof raw === "object" &&
+        raw !== null &&
+        IGNORED_SERVER_MESSAGE_TYPES.has(String((raw as { type?: unknown }).type))
+      )
+        return;
       const message = decodeServerMessage(raw, this.options.gameId);
       if (message.type === "secondary_preview") {
         const pending = this.previews.get(message.request_id);
