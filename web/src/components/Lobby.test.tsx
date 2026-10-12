@@ -70,7 +70,9 @@ describe("lobby UI", () => {
     fireEvent.change(screen.getByLabelText("Players"), { target: { value: "3" } });
     fireEvent.click(screen.getByTestId("create-game-button"));
     await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    // The Alpha notice also asks /health once; pick the create call.
+    const createCall = fetchMock.mock.calls.find((call) => call[0] === "/api/games")!;
+    expect(JSON.parse(createCall[1].body)).toEqual({
       player_count: 3,
       nickname: "Host 🪐",
       strategy_card_set: "te",
