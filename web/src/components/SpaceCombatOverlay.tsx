@@ -20,6 +20,7 @@ import { Dialog } from "../primitives/index.ts";
 import { WorkflowShell } from "./WorkflowShell.tsx";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { DecisionHeader } from "./DecisionHeader.tsx";
+import { UnitStatsTip } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitBaseType, getUnitDisplayName } from "./UnitIcon.tsx";
 import { CombatResultSummary } from "./CombatResultSummary.tsx";
 import { summarizeCombat } from "../presentation/combatSummary.ts";
@@ -47,7 +48,8 @@ import {
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
-import { systemTag } from "../presentation/systemFacts.ts";
+import { salvageEffect } from "../presentation/reactionModel.ts";
+import { systemNamedLabel, systemTag } from "../presentation/systemFacts.ts";
 
 export interface SpaceCombatOverlayProps {
   choice: PendingChoiceDto | null;
@@ -295,6 +297,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
     activeSystemId ??
     board?.active_system ??
     "Combat";
+  const combatSystemLabel =
+    combatSystemId === "Combat" ? "System" : systemNamedLabel(combatSystemId, board);
 
   // Identify units in combat system
   const systemUnits = useMemo(() => {
@@ -829,10 +833,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
               : undefined
           }
         >
-          <UnitIcon type={group.unitType} size={20} />
-          <span className="combat-unit-row__name">
-            {getUnitDisplayName(group.unitType, group.count)}
-          </span>
+          <UnitStatsTip unit={group.unitType} seat={seat}>
+            <UnitIcon type={group.unitType} size={20} />
+            <span className="combat-unit-row__name">
+              {getUnitDisplayName(group.unitType, group.count)}
+            </span>
+          </UnitStatsTip>
           <span className="combat-unit-row__count">×{group.count}</span>
           {illegalReason && (
             <span className="combat-unit-row__illegal-note">
@@ -939,10 +945,12 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
           className="combat-unit-row combat-unit-row--lost"
           data-testid={`unit-row-lost-${type}`}
         >
-          <UnitIcon type={type} size={20} />
-          <span className="combat-unit-row__name">
-            {getUnitDisplayName(type)}
-          </span>
+          <UnitStatsTip unit={type} seat={seat}>
+            <UnitIcon type={type} size={20} />
+            <span className="combat-unit-row__name">
+              {getUnitDisplayName(type)}
+            </span>
+          </UnitStatsTip>
           <span className="combat-unit-row__count" title="No ships remaining">
             ×0
           </span>
@@ -989,7 +997,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         <div className="combat-arena-dock__info">
           <span className="combat-arena-dock__badge">⚔️ SPACE COMBAT</span>
           <span className="combat-arena-dock__system">
-            System {combatSystemId} — {display(attackerSeat).label} vs{" "}
+            {combatSystemLabel} — {display(attackerSeat).label} vs{" "}
             {display(defenderSeat).label}
           </span>
           {hitsOwed != null && (
@@ -1037,13 +1045,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
         <div className="panel choice-workflow-modal combat-arena-panel">
           {/* Header */}
           <Dialog.Title as="h2" className="visually-hidden">
-            Space Combat — System {combatSystemId}
+            Space Combat — {combatSystemLabel}
           </Dialog.Title>
           <DecisionHeader
             title={
               phase === "complete"
-                ? `Space Combat · System ${combatSystemId}`
-                : `Space Combat · System ${combatSystemId} · Round ${board?.combat?.round ?? 1} · ${hitKind?.cause === "assault_cannon" ? "Assault Cannon" : barrageWindow ? "Anti-fighter barrage" : phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : "Retreat / next round"}`
+                ? `Space Combat · ${combatSystemLabel}`
+                : `Space Combat · ${combatSystemLabel} · Round ${board?.combat?.round ?? 1} · ${hitKind?.cause === "assault_cannon" ? "Assault Cannon" : barrageWindow ? "Anti-fighter barrage" : phase === "pre_roll" ? "Before rolls" : phase === "barrage" ? "Anti-fighter barrage" : phase === "resolving_hits" ? "Resolve hits" : "Retreat / next round"}`
             }
             onMinimize={() =>
               phase === "complete"
@@ -1441,6 +1449,21 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                   {card && (
                                     <p className="combat-card-offer__description">
                                       {card.description}
+                                    </p>
+                                  )}
+                                  {alias === "salvage" && (
+                                    <p
+                                      className="combat-card-offer__description"
+                                      data-testid="combat-salvage-effect"
+                                    >
+                                      <strong>
+                                        {salvageEffect(
+                                          choice.context?.trigger?.actor ?? viewerSeat ?? null,
+                                          board ?? undefined,
+                                          (seat) => playersMap[seat]?.commodities ?? null,
+                                          (seat) => display(seat).label,
+                                        )}
+                                      </strong>
                                     </p>
                                   )}
                                 </div>
@@ -1848,7 +1871,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                   className="combat-spectator-waiting"
                   data-testid="spectator-combat-notice"
                 >
-                  {`Observing space combat in System ${combatSystemId}...`}
+                  {`Observing space combat in ${combatSystemLabel}...`}
                 </div>
               )}
             </>

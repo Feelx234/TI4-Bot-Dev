@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   describeFaction,
   describeUnit,
@@ -9,6 +9,7 @@ import {
   type UnitDescription,
 } from "../presentation/factionInfo.ts";
 import { useSeatInfo } from "../presentation/SeatInfoContext.tsx";
+import { Popover } from "../primitives/index.ts";
 import { InfoPopover } from "./InfoPopover.tsx";
 import { CostValue } from "./PlanetValueIcons.tsx";
 import { UnitIcon } from "./UnitIcon.tsx";
@@ -82,6 +83,59 @@ export const UnitInfoButton: React.FC<{
       )}
     </InfoPopover>
   );
+};
+
+/**
+ * Hover (and keyboard focus) card with the unit's numbers and abilities, for a unit of any seat:
+ * the owner's faction and unit upgrades decide which card applies. Wraps the unit's icon and name.
+ * A unit the content does not know shows nothing.
+ */
+export const UnitStatsTip: React.FC<{
+  unit: string;
+  seat?: string | null;
+  children: React.ReactNode;
+  testId?: string;
+}> = ({ unit, seat, children, testId }) => {
+  const { faction, technologies } = useSeatInfo(seat);
+  const [open, setOpen] = useState(false);
+  const resolved = resolveUnit(unit, faction, technologies);
+  const description = resolved ? describeUnit(resolved) : undefined;
+  if (!description) return <>{children}</>;
+  // Portalled, so a scrolling panel or dialog body cannot clip the card.
+  return (
+    <Popover
+      portal
+      isOpen={open}
+      onOpenChange={setOpen}
+      position="top"
+      ariaLabel={`${description.name}: unit details`}
+      className="info-card info-card--unit"
+      data-testid={testId ?? `unit-stats-tip-${unit}`}
+      content={<UnitInfoCard unit={description} />}
+    >
+      <span
+        tabIndex={0}
+        data-unit-stats={unit}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+        onPointerEnter={(e) => e.pointerType !== "touch" && setOpen(true)}
+        onPointerLeave={(e) => e.pointerType !== "touch" && setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        {children}
+      </span>
+    </Popover>
+  );
+};
+
+/** One line of numbers for a unit of any seat: "Cost 3 · Combat 9 · Move 1 · Sustain damage". */
+export const UnitStatLine: React.FC<{ unit: string; seat?: string | null }> = ({ unit, seat }) => {
+  const { faction, technologies } = useSeatInfo(seat);
+  const resolved = resolveUnit(unit, faction, technologies);
+  if (!resolved) return null;
+  const card = describeUnit(resolved);
+  const parts = [...card.facts.map((fact) => `${fact.label} ${fact.value}`), ...card.keywords];
+  return parts.length ? <span data-testid="unit-stat-line">{parts.join(" · ")}</span> : null;
 };
 
 /** Icon, name and info button of the seat's mech; nothing when the faction has no mech card. */

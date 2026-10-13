@@ -673,7 +673,7 @@ describe("SpaceCombatOverlay", () => {
     );
     // "Combat complete" is stated once (the phase line), not in the title or a footer as well.
     expect(screen.getAllByText(/Combat complete/)).toHaveLength(1);
-    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent(/^Space Combat · System 18$/);
+    expect(screen.getByTestId("combat-stage-title")).toHaveTextContent(/^Space Combat · Mecatol Rex \(System 18\)$/);
     const close = screen.getByRole("button", { name: "Close combat" });
     expect(close).toHaveTextContent("×");
     fireEvent.click(close);
@@ -742,7 +742,7 @@ describe("SpaceCombatOverlay", () => {
 
     expect(screen.getByTestId("combat-round-hits")).toBeInTheDocument();
     expect(screen.getByTestId("combat-stage-title")).toHaveTextContent(
-      "Space Combat · System 18 · Round 2",
+      "Space Combat · Mecatol Rex (System 18) · Round 2",
     );
     expect(screen.getByText("Round 2 Hits Produced")).toBeInTheDocument();
     expect(screen.getByTestId("attacker-round-hits")).toHaveTextContent("3");
