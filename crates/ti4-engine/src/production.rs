@@ -1232,6 +1232,10 @@ fn produce_one_from(
 ) -> Result<bool, IllegalChoice> {
     let types = catalogue(content, sources);
     let affordable = available(state, content, sources, player, Spend::Resources);
+    // Units the player could build in general but not here, with the first thing in the way. Shown
+    // beside the question (`details.not_offered`) so a short list is not a mystery; it never
+    // changes the options or their ids.
+    let mut not_offered: Vec<serde_json::Value> = Vec::new();
     let candidates: Vec<(String, i64)> = buildable_for(state, content, sources, player)
         .into_iter()
         .filter_map(|id| {
@@ -1247,18 +1251,26 @@ fn produce_one_from(
             } else {
                 true
             };
-            (cost <= affordable
-                && !placements(state, content, sources, player, system, kind).is_empty()
-                && within_fleet_supply
-                && crate::supply::allowed(
-                    state,
-                    content,
-                    sources,
-                    player,
-                    &UnitTypeId::new(&id),
-                    1,
-                ) > 0)
-                .then_some((id, cost))
+            let blocked = if cost > affordable {
+                Some(format!("costs {cost}, you can pay {affordable}"))
+            } else if placements(state, content, sources, player, system, kind).is_empty() {
+                Some("no place to put it in this system (ground forces need a planet you control)".to_owned())
+            } else if !within_fleet_supply {
+                Some("the fleet supply in this system is full".to_owned())
+            } else if crate::supply::allowed(state, content, sources, player, &UnitTypeId::new(&id), 1)
+                == 0
+            {
+                Some("none left in your reinforcements".to_owned())
+            } else {
+                None
+            };
+            match blocked {
+                None => Some((id, cost)),
+                Some(reason) => {
+                    not_offered.push(serde_json::json!({ "unit": id, "reason": reason }));
+                    None
+                }
+            }
         })
         .collect();
     if candidates.is_empty() {
@@ -1284,6 +1296,9 @@ fn produce_one_from(
         None => format!("produce one unit in {system}"),
     };
     let mut choice = Choice::new(player.clone(), prompt, options);
+    if !not_offered.is_empty() {
+        choice = choice.detailed("not_offered", serde_json::Value::Array(not_offered));
+    }
     if let Some((alias, _)) = source {
         choice = choice.contextualized(
             DecisionContext::new(

@@ -2340,6 +2340,30 @@ mod tests {
         );
     }
 
+    /// A unit the player cannot get here is named with its reason beside the question, never as an
+    /// option: `details.not_offered` is display-only and leaves the option ids alone.
+    #[test]
+    fn freelancers_says_why_a_unit_is_not_offered() {
+        let (_, seen) = freelancers(&["decline"]);
+        let ask = seen
+            .iter()
+            .find(|choice| choice.options.iter().any(|o| o.kind == "produce"))
+            .expect("Freelancers asked which unit to produce");
+        let missing = ask
+            .details
+            .get("not_offered")
+            .and_then(|value| value.as_array())
+            .expect("some unit is out of reach, so the reasons are listed");
+        for entry in missing {
+            let unit = entry["unit"].as_str().expect("unit id");
+            assert!(entry["reason"].as_str().is_some_and(|r| !r.is_empty()));
+            assert!(
+                !ask.options.iter().any(|o| o.id == format!("build|{unit}|1")),
+                "{unit} is both offered and listed as not offered"
+            );
+        }
+    }
+
     #[test]
     fn freelancers_may_be_declined() {
         let before = holder(5, 0).0;

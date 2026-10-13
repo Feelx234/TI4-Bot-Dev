@@ -283,3 +283,26 @@ p.trade-good-sources {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+/* One-unit production: why the other units are missing from the list. */
+.not-offered {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.not-offered__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.not-offered__list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.not-offered__list strong {
+  color: var(--color-text-strong);
+  text-transform: capitalize;
+}
