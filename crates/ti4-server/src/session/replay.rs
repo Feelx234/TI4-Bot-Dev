@@ -156,7 +156,10 @@ fn replay(
     });
     let table = Table::with_default(decider);
 
-    let mut game = Game::with_table(initial_state.clone(), ContentStore::embedded(), table);
+    // Games recorded before the Enigmatic Device became one action keep the old option ids.
+    let mut initial_state = initial_state.clone();
+    ti4_engine::exploration::mark_legacy_device_ids(&mut initial_state, records);
+    let mut game = Game::with_table(initial_state, ContentStore::embedded(), table);
     if let Some(g) = galaxy {
         game = game.with_galaxy(g.clone());
     }

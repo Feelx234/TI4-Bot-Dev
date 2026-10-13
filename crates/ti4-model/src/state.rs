@@ -1204,6 +1204,11 @@ pub struct GameState {
     /// no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub exploration_log: Vec<ExplorationRecord>,
+    /// Set when this game's recorded decisions name Enigmatic Device actions in the old
+    /// per-technology form (`play_area:<card>:<tech>`), so a replay keeps offering that form and
+    /// reproduces the recorded offers. Never set for a new game. Not compared.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub legacy_device_ids: bool,
     /// Every agenda vote that finished, in order, and how it came out. History for viewers (the
     /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1746,6 +1751,7 @@ impl GameState {
             exploration_decks: BTreeMap::new(),
             planet_attachments: BTreeMap::new(),
             exploration_log: Vec::new(),
+            legacy_device_ids: false,
             agenda_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
@@ -3023,6 +3029,16 @@ pub struct ExplorationRecord {
     /// did nothing). Display only: no rule reads it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub result: String,
+    /// What the card changed in the player's holdings, as signed amounts: `trade_goods`,
+    /// `commodities`, `command_tokens`, `action_cards`, `secret_objectives`, `relics`,
+    /// `technologies`. Absent keys did not change. Display only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub gains: BTreeMap<String, i32>,
+    /// What the card put on the map or in the play area, one tag each: `wormhole:GAMMA:<system>`,
+    /// `ion_storm:<system>:<ALPHA|BETA>`, `planet:<planet>:<system>`, `attachment:<id>:<planet>`,
+    /// `fragment:<trait>`, `play_area:<card>`. Display only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub placed: Vec<String>,
 }
 
 /// One finished agenda vote: which agenda, the outcome, and the votes each outcome received.

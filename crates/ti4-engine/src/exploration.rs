@@ -454,6 +454,27 @@ pub fn available_actions(
     {
         return Vec::new();
     }
+    if state.legacy_device_ids {
+        let technologies = enigmatic_device_technologies(state, content, sources, player);
+        return seat
+            .exploration_cards
+            .iter()
+            .filter(|card| matches!(card.as_str(), "ed1" | "ed2"))
+            .flat_map(|card| {
+                technologies.iter().map(move |tech| {
+                    crate::choice::ChoiceOption::labelled(
+                        format!("{PLAY_AREA_PREFIX}{card}:{tech}"),
+                        crate::relics::ACTION_KIND,
+                        format!(
+                            "spend 6 resources to research {}",
+                            crate::technology::name(content, tech)
+                        ),
+                    )
+                    .with("technology", tech.to_string())
+                })
+            })
+            .collect();
+    }
     seat.exploration_cards
         .iter()
         .filter(|card| matches!(card.as_str(), "ed1" | "ed2"))
@@ -467,32 +488,18 @@ pub fn available_actions(
         .collect()
 }
 
-/// Resolve a component action offered by [`available_actions`].
-pub fn perform_action(
-    state: &mut GameState,
+/// Ask which technology an Enigmatic Device researches, by name, before anything is paid.
+#[allow(clippy::too_many_arguments, reason = "the arguments of a decision site")]
+fn ask_device_technology(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
     table: &mut crate::choice::Table,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
-    option: &crate::choice::ChoiceOption,
-) -> bool {
-    let Some(card) = option.id.strip_prefix(PLAY_AREA_PREFIX) else {
-        return false;
-    };
-    if !state
-        .player(player)
-        .is_some_and(|seat| seat.exploration_cards.iter().any(|held| held == card))
-    {
-        return false;
-    }
-    // Which technology is asked before the price is paid: the cost is already known to be
-    // payable (`available_actions`), and a decider is never made to choose after the resources
-    // are gone.
-    let technologies = enigmatic_device_technologies(state, content, sources, player);
-    if technologies.is_empty() {
-        return false;
-    }
+    card: &str,
+    technologies: &[TechnologyId],
+) -> Option<TechnologyId> {
     let choice = crate::choice::Choice::new(
         player.clone(),
         "research which technology with the Enigmatic Device",
@@ -518,9 +525,54 @@ pub fn perform_action(
         &choice,
         &crate::choice::Observed::new(state, content, sources, galaxy),
     ) else {
+        return None;
+    };
+    Some(TechnologyId::new(answer.id))
+}
+
+/// Resolve a component action offered by [`available_actions`].
+pub fn perform_action(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+    option: &crate::choice::ChoiceOption,
+) -> bool {
+    let Some(rest) = option.id.strip_prefix(PLAY_AREA_PREFIX) else {
         return false;
     };
-    let technology = TechnologyId::new(answer.id);
+    // The old per-technology id names its technology already: no follow-up question, so the
+    // decisions recorded under it replay one for one.
+    let (card, legacy_technology) = match rest.split_once(':') {
+        Some((card, tech)) => (card, Some(tech)),
+        None => (rest, None),
+    };
+    if !state
+        .player(player)
+        .is_some_and(|seat| seat.exploration_cards.iter().any(|held| held == card))
+    {
+        return false;
+    }
+    // Which technology is asked before the price is paid: the cost is already known to be
+    // payable (`available_actions`), and a decider is never made to choose after the resources
+    // are gone.
+    let technologies = enigmatic_device_technologies(state, content, sources, player);
+    if technologies.is_empty() {
+        return false;
+    }
+    let technology = match legacy_technology {
+        Some(tech) => TechnologyId::new(tech),
+        None => {
+            let Some(chosen) =
+                ask_device_technology(state, content, sources, table, galaxy, player, card, &technologies)
+            else {
+                return false;
+            };
+            chosen
+        }
+    };
     if !crate::production::pay(
         state,
         content,
@@ -541,6 +593,22 @@ pub fn perform_action(
     }
     crate::technology::grant(state, player, &technology);
     true
+}
+
+/// Whether recorded decisions use the old per-technology Enigmatic Device ids (`play_area:ed2:ws`),
+/// in an answer or among the offered options. If so, marks the state so the replay offers them
+/// again and the recorded offers and hashes reproduce. A new game never contains one.
+pub fn mark_legacy_device_ids(state: &mut GameState, records: &[crate::choice::DecisionRecord]) {
+    let legacy = |id: &String| {
+        id.strip_prefix(PLAY_AREA_PREFIX)
+            .is_some_and(|rest| rest.contains(':'))
+    };
+    if records
+        .iter()
+        .any(|r| legacy(&r.chosen) || r.offered.iter().any(legacy))
+    {
+        state.legacy_device_ids = true;
+    }
 }
 
 /// The Enigmatic Device's price, on the relic and on both exploration cards.
@@ -1029,6 +1097,8 @@ pub fn explore_with(
 ) -> Option<Explored> {
     let logged = state.exploration_log.len();
     let before = Holdings::of(state, player, planet);
+    let wormholes_before = state.wormhole_tokens.clone();
+    let ion_before = state.ion_storm.clone();
     let outcome = explore_drawn(state, ctx, player, deck, planet)?;
     // UI-01: the record `explore_drawn` opened gets its outcome now that it is known.
     let text = match &outcome {
@@ -1044,10 +1114,38 @@ pub fn explore_with(
         Explored::Resolved { .. } => "resolved".to_owned(),
         Explored::Discarded { .. } => "discarded".to_owned(),
     };
-    let result = before.describe_change(&Holdings::of(state, player, planet), planet, &outcome);
+    let after = Holdings::of(state, player, planet);
+    let result = before.describe_change(&after, planet, &outcome);
+    let gains = before.gains(&after);
+    let mut placed = Vec::new();
+    for (kind, system) in &state.wormhole_tokens {
+        if wormholes_before.get(kind) != Some(system) {
+            placed.push(format!("wormhole:{kind}:{system}"));
+        }
+    }
+    if state.ion_storm != ion_before
+        && let Some((system, face)) = &state.ion_storm
+    {
+        placed.push(format!("ion_storm:{system}:{face}"));
+    }
+    if let Explored::Fragment { trait_name } = &outcome {
+        placed.push(format!("fragment:{}", trait_name.to_ascii_lowercase()));
+    }
+    if after.play_area > before.play_area
+        && let Some(card) = state.player(player).and_then(|seat| seat.exploration_cards.last())
+    {
+        placed.push(format!("play_area:{card}"));
+    }
+    if let (Explored::Attached { .. }, Some(planet)) = (&outcome, planet)
+        && let Some(id) = text.strip_prefix("attached:")
+    {
+        placed.push(format!("attachment:{id}:{planet}"));
+    }
     if let Some(record) = state.exploration_log.get_mut(logged) {
         record.outcome = text;
         record.result = result;
+        record.gains = gains;
+        record.placed = placed;
     }
     if let Some(explored) = planet {
         // Pre-Fab Arcologies et al. run first (they change the state), then the typed event.
@@ -1117,6 +1215,24 @@ impl Holdings {
             own_mechs,
             exhausted: planet.is_some_and(|planet| state.exhausted_planets.contains(planet)),
         }
+    }
+
+    /// The signed change of each holding, for the exploration record's `gains`.
+    fn gains(&self, after: &Self) -> std::collections::BTreeMap<String, i32> {
+        let to_i32 = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+        [
+            ("trade_goods", after.trade_goods - self.trade_goods),
+            ("commodities", after.commodities - self.commodities),
+            ("command_tokens", after.command_tokens - self.command_tokens),
+            ("action_cards", to_i32(after.action_cards) - to_i32(self.action_cards)),
+            ("secret_objectives", to_i32(after.secrets) - to_i32(self.secrets)),
+            ("relics", to_i32(after.relics) - to_i32(self.relics)),
+            ("technologies", to_i32(after.technologies) - to_i32(self.technologies)),
+        ]
+        .into_iter()
+        .filter(|(_, change)| *change != 0)
+        .map(|(key, change)| (key.to_owned(), change))
+        .collect()
     }
 
     /// "gained 1 trade good, removed 1 infantry" -- empty when nothing the seat holds changed.
@@ -1236,6 +1352,8 @@ fn explore_drawn(
             outcome: String::new(),
             system: None,
             result: String::new(),
+            gains: Default::default(),
+            placed: Vec::new(),
         });
     let kind = resolution(content, &card).unwrap_or_default();
 
@@ -2230,6 +2348,68 @@ mod tests {
         assert_eq!(state.exploration_log[0].result, "");
     }
 
+    /// A game recorded with `play_area:<card>:<tech>` keeps those ids on replay, and the old id
+    /// resolves in one step (no follow-up question), so recorded decisions line up one for one.
+    #[test]
+    fn legacy_per_technology_device_ids_still_replay() {
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
+        if let Some(seat) = state.player_mut(&player()) {
+            seat.trade_goods = 6;
+        }
+        let record = |chosen: &str, offered: &[&str]| crate::choice::DecisionRecord {
+            player: player(),
+            prompt: "action phase".to_owned(),
+            chosen: chosen.to_owned(),
+            offered: offered.iter().map(|id| (*id).to_owned()).collect(),
+            context: None,
+        };
+        mark_legacy_device_ids(&mut state, &[record("tactical", &["tactical", "play_area:ed2"])]);
+        assert!(!state.legacy_device_ids, "new-style ids never mark a game");
+        mark_legacy_device_ids(
+            &mut state,
+            &[record("tactical", &["tactical", "play_area:ed2:gd"])],
+        );
+        assert!(state.legacy_device_ids);
+
+        let offered = available_actions(&state, ContentStore::embedded(), POK, &player());
+        assert!(offered.len() > 1 && offered.iter().all(|o| o.id.starts_with("play_area:ed2:")));
+        let chosen = offered.iter().find(|o| o.id == "play_area:ed2:gd").unwrap();
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::AlwaysDecline));
+        assert!(perform_action(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            None,
+            &player(),
+            chosen,
+        ));
+        assert!(state.player(&player()).unwrap().technologies.contains(&TechnologyId::new("gd")));
+        assert!(
+            table.log.records.iter().all(|r| !r.prompt.contains("which technology")),
+            "no follow-up technology question was asked"
+        );
+    }
+
+    /// The record carries structured data a viewer can draw: signed holdings changes, and what was
+    /// put on the map.
+    #[test]
+    fn an_exploration_record_publishes_gains_and_map_placements() {
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "aw1", &[]);
+        assert_eq!(state.exploration_log[0].gains.get("commodities"), Some(&2));
+        assert!(state.exploration_log[0].placed.is_empty());
+
+        let system = crate::fixtures::a_placed_planet().0;
+        state.active_system = Some(system.clone());
+        resolve_card(&mut state, &player(), Some(&planet), "gw", &[]);
+        assert_eq!(
+            state.exploration_log[1].placed,
+            vec![format!("wormhole:GAMMA:{system}")]
+        );
+    }
+
     #[test]
     fn an_explored_enigmatic_device_says_where_it_went() {
         // The log line the toast shows: "nothing happened" would hide that a card was kept.
@@ -2237,6 +2417,7 @@ mod tests {
         resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
         let result = &state.exploration_log[0].result;
         assert!(result.contains("play area"), "{result}");
+        assert_eq!(state.exploration_log[0].placed, vec!["play_area:ed2".to_owned()]);
     }
 
     #[test]
