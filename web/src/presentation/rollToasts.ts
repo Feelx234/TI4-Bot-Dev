@@ -6,6 +6,10 @@ import { systemTag } from "./systemFacts.ts";
 export interface RollToast {
   /** Id of the (first) event this toast came from. */
   id: string;
+  /** Same roller, reason and system: later rolls join the toast while it is on screen. */
+  key: string;
+  who: string;
+  rolls: PublicRoll[];
   text: string;
 }
 
@@ -16,6 +20,18 @@ export function rollSentence(roll: PublicRoll, board?: BoardView | null): string
   const rerolled = roll.rerolled?.length ? " (reroll)" : "";
   const outcome = roll.outcome ? ` · ${roll.outcome}` : "";
   return `${roll.label}${rerolled}${place}: ${faces}${outcome}`;
+}
+
+function build(id: string, key: string, who: string, rolls: PublicRoll[], board?: BoardView | null): RollToast {
+  if (rolls.length === 1) return { id, key, who, rolls, text: `${who} rolled ${rollSentence(rolls[0], board)}` };
+  // Several rolls of one kind: show every die, and total the hits when they are hit rolls.
+  const merged: PublicRoll = {
+    ...rolls[0],
+    faces: rolls.flatMap((r) => r.faces),
+    rerolled: undefined,
+    outcome: mergedOutcome(rolls),
+  };
+  return { id, key, who, rolls, text: `${who} rolled ${rollSentence(merged, board)}` };
 }
 
 /**
@@ -37,18 +53,35 @@ export function rollToasts(
     if (group) group.rolls.push(roll);
     else groups.set(key, { id: entry.id, rolls: [roll] });
   }
-  return [...groups.values()].map(({ id, rolls }) => {
-    const who = rolls[0].roller ? seatLabel(rolls[0].roller) : "A roll";
-    if (rolls.length === 1) return { id, text: `${who} rolled ${rollSentence(rolls[0], board)}` };
-    // Several rolls of one kind: show every die, and total the hits when they are hit rolls.
-    const merged: PublicRoll = {
-      ...rolls[0],
-      faces: rolls.flatMap((r) => r.faces),
-      rerolled: undefined,
-      outcome: mergedOutcome(rolls),
-    };
-    return { id, text: `${who} rolled ${rollSentence(merged, board)}` };
-  });
+  return [...groups].map(([key, { id, rolls }]) =>
+    build(id, key, rolls[0].roller ? seatLabel(rolls[0].roller) : "A roll", rolls, board),
+  );
+}
+
+/**
+ * Adds toasts to the visible ones. A roll of the same roller, reason and system as a toast still
+ * on screen joins it (the events of one combat round reach the client one by one); at most `max`
+ * stay, the oldest is dropped.
+ */
+export function mergeRollToasts(
+  list: readonly RollToast[],
+  incoming: readonly RollToast[],
+  max: number,
+  board?: BoardView | null,
+): RollToast[] {
+  let next = [...list];
+  for (const toast of incoming) {
+    const at = next.findIndex((t) => t.key === toast.key);
+    if (at < 0) {
+      next.push(toast);
+      continue;
+    }
+    const prior = next.splice(at, 1)[0];
+    const known = new Set(prior.rolls.map((r) => r.index));
+    const rolls = [...prior.rolls, ...toast.rolls.filter((r) => !known.has(r.index))];
+    next.push(build(prior.id, prior.key, prior.who, rolls, board));
+  }
+  return next.slice(-max);
 }
 
 function mergedOutcome(rolls: readonly PublicRoll[]): string | undefined {

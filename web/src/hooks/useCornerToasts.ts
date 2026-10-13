@@ -11,7 +11,7 @@ import {
   mergeActionToast,
   victoryPointToasts,
 } from "../presentation/actionToasts.ts";
-import { rollToasts, type RollToast } from "../presentation/rollToasts.ts";
+import { mergeRollToasts, rollToasts, type RollToast } from "../presentation/rollToasts.ts";
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
 import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
@@ -178,9 +178,7 @@ export function useCornerToasts({
     // Dice are rolled in the open: everyone is told, the roller included.
     const rolled = rollToasts(fresh, (seat) => displayRef.current(seat).label, board);
     if (rolled.length > 0)
-      setRollToasts((prev) =>
-        [...prev.filter((t) => !rolled.some((n) => n.id === t.id)), ...rolled].slice(-MAX_ROLL_TOASTS),
-      );
+      setRollToasts((prev) => mergeRollToasts(prev, rolled, MAX_ROLL_TOASTS, board));
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
     // Card plays and scoring always toast at once: the recap only names the acting player's own,
     // so another seat's Sabotage inside the turn would otherwise vanish.

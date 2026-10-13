@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GameEvent, PublicRoll } from "../protocol/types.ts";
-import { rollSentence, rollToasts } from "./rollToasts.ts";
+import { mergeRollToasts, rollSentence, rollToasts } from "./rollToasts.ts";
 
 const rift: PublicRoll = {
   index: 25,
@@ -53,6 +53,20 @@ describe("dice roll toasts", () => {
       "p1 rolled Space combat in #18 [Mecatol Rex]: 8, 2, 10 \u00b7 2 hits",
       "p2 rolled Space combat in #18 [Mecatol Rex]: 3 \u00b7 no hits",
     ]);
+  });
+
+  it("joins a later roll of the same kind to the toast still on screen, once", () => {
+    const die = (index: number, faces: number[], hits: number): GameEvent =>
+      rolled({ index, roller: "p1", reason: "space combat", label: "Space combat", faces, hits_on: 7, hits, system: "18" });
+    const first = rollToasts([die(1, [8, 2], 1)], label);
+    const second = rollToasts([die(2, [10], 1), die(1, [8, 2], 1)], label);
+    const [toast] = mergeRollToasts(first, second, 3);
+    expect(toast.id).toBe(first[0].id);
+    expect(toast.text).toBe("p1 rolled Space combat in #18 [Mecatol Rex]: 8, 2, 10 \u00b7 2 hits");
+    // A different roller starts a toast of its own, and only the newest few stay.
+    const other = rollToasts([rolled({ ...die(3, [1], 0).roll!, roller: "p2" })], label);
+    expect(mergeRollToasts([toast], other, 1)).toHaveLength(1);
+    expect(mergeRollToasts([toast], other, 3)).toHaveLength(2);
   });
 
   it("marks rerolls and tolerates a roll nobody owns", () => {
