@@ -175,6 +175,8 @@ export interface ChoiceRendererDispatcherProps {
   onSubmit: (optionId: string) => Promise<void>;
   reactionModes?: GameShellProps["reactionModes"];
   onSetReactionMode?: GameShellProps["onSetReactionMode"];
+  /** A decision the client is answering for the seat; its dialog stays closed (movement, nothing movable). */
+  autoAnswerNonce?: string | null;
   onSubmitMovementBatch?: GameShellProps["onSubmitMovementBatch"];
   onSubmitBasketBatch?: GameShellProps["onSubmitBasketBatch"];
   lastError?: string | null;
@@ -691,6 +693,7 @@ export const ChoiceRendererDispatcher: React.FC<
   onShowSystem,
   reactionModes,
   onSetReactionMode,
+  autoAnswerNonce,
 }) => {
   const present = useParticipantText();
   const agendaPill = useAgendaPill();
@@ -819,6 +822,9 @@ export const ChoiceRendererDispatcher: React.FC<
       !isCombatWorkflow)
   )
     return readOnlyBar;
+
+  // Movement with no unit that can move is finished for the player (see useLoneAutoSubmit): no dialog.
+  if (choice.nonce === autoAnswerNonce && choice.prompt === "movement") return null;
 
   // A production's later payments are answered from the plan the player confirmed: no prompt.
   if (
@@ -1066,7 +1072,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   const [tacticalStep, setTacticalStep] = useState(0);
   const lastHistoryGeneration = useRef(history?.generation);
   const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
-  useLoneAutoSubmit({
+  const { answeringNonce } = useLoneAutoSubmit({
     choice,
     viewerSeat,
     history,
@@ -1334,6 +1340,27 @@ export const GameShell: React.FC<GameShellProps> = ({
     return unregister;
   }, [openDrawer]);
 
+  // Like the dialogs: a tap outside an open phone drawer closes it. The drawers and the panel buttons
+  // (which toggle them) are left alone, and so is anything stacked above (a dialog or a card).
+  useEffect(() => {
+    if (!openDrawer) return;
+    const onPointerDown = (event: PointerEvent) => {
+      // Only where the drawers overlay the game (phones); on a desktop the log is a docked panel.
+      if (!window.matchMedia?.("(max-width: 720px)").matches) return;
+      const target = event.target as Element | null;
+      if (!target?.closest) return;
+      if (
+        target.closest(
+          "#player-sheet-drawer, #event-log-drawer, .app-shell__mobile-actions, [role='dialog'], .detail-panel, .corner-toast-layer",
+        )
+      )
+        return;
+      setOpenDrawer(null);
+    };
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [openDrawer]);
+
   const [prepSlot, setPrepSlot] = useState<HTMLElement | null>(null);
   const prepSlotValue = useMemo(() => ({ slot: prepSlot, setSlot: setPrepSlot }), [prepSlot]);
 
@@ -1356,6 +1383,14 @@ export const GameShell: React.FC<GameShellProps> = ({
           data-testid="player-sheet-drawer"
           className={`app-shell__player-sheet${openDrawer === "players" ? " app-shell__drawer--open" : ""}`}
         >
+          <button
+            type="button"
+            data-testid="player-sheet-close"
+            className="button button--secondary app-shell__drawer-close"
+            onClick={() => setOpenDrawer(null)}
+          >
+            Close
+          </button>
           {playerSheet}
         </aside>
       </div>
@@ -1466,6 +1501,7 @@ export const GameShell: React.FC<GameShellProps> = ({
           <ChoiceRendererDispatcher
             key={`${history?.generation ?? 0}:${boardView?.invasion?.invasion_seq ?? "none"}`}
             choice={choice}
+            autoAnswerNonce={answeringNonce}
             viewerSeat={viewerSeat}
             players={playersMap}
             boardView={boardView}
