@@ -406,6 +406,23 @@ describe("ReactionStatusBar", () => {
       );
     });
 
+    it("names the planet and player an action card targets, and the discarded card of a Reverse Engineer window", () => {
+      const played = offer();
+      played.context!.trigger = { ...played.context!.trigger!, card: "uprising", system: "27", planet: "mecatol_rex", subject: "seat_3" };
+      const { unmount } = render(
+        <ReactionStatusBar isOpen choice={played} viewerSeat="seat_1" onSubmit={vi.fn()} />,
+      );
+      expect(screen.getByTestId("reaction-trigger-targets")).toHaveTextContent("Target: planet Mecatol Rex, player");
+      expect(screen.getByTestId("reaction-trigger-system-27")).toBeInTheDocument();
+      unmount();
+      const discarded = offer();
+      discarded.context!.trigger = { kind: "action_card_discarded", event_type: "ACTION_CARD_DISCARDED", event_id: 5, relation: "after", actor: "seat_2", card: "uprising" };
+      render(<ReactionStatusBar isOpen choice={discarded} viewerSeat="seat_1" onSubmit={vi.fn()} />);
+      expect(screen.getByTestId("reaction-bar-prompt")).toHaveTextContent("discarded the action card Uprising.");
+      expect(screen.getByTestId("reaction-trigger-card")).toHaveTextContent(/Uprising.*Exhaust 1 non-home planet/s);
+      expect(screen.queryByTestId("reaction-trigger-targets")).toBeNull();
+    });
+
     it("shrinks one card to its first sentence, remembers it per card, and can show it again", () => {
       const first = render(
         <ReactionStatusBar isOpen choice={offer()} viewerSeat="seat_1" onSubmit={vi.fn()} />,

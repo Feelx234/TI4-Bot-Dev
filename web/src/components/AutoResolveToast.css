@@ -5,8 +5,7 @@
   /* Above the bottom bars; the layer lifts it further when a bar is in the way. */
   bottom: 12px;
   left: 12px;
-  /* Above decision dialogs: a toast about the card a dialog answers must not sit under its backdrop. */
-  z-index: calc(var(--layer-dialog, 50) + 1);
+  z-index: var(--layer-popover, 40);
   pointer-events: none;
   display: flex;
   flex-direction: column;

@@ -143,6 +143,17 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
     });
   }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display, players]);
 
+  // What another player's action card was aimed at, beyond the system the sentence names.
+  const cardTargets = useMemo(() => {
+    const facts = reaction?.facts;
+    if (!facts || (facts.eventType !== "ACTION_CARD_PLAYED" && facts.eventType !== "ACTION_CARD_DISCARDED"))
+      return [];
+    return [
+      facts.planetId && `planet ${humanizeId(facts.planetId)}`,
+      facts.subjectId && `player ${facts.subjectId === viewerSeat ? "you" : display(facts.subjectId).label}`,
+    ].filter((t): t is string => Boolean(t));
+  }, [reaction, viewerSeat, display]);
+
   // Reset state on nonce change
   useEffect(() => {
     setIsSubmitting(false);
@@ -293,6 +304,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
               </button>
             )}
           </div>
+        )}
+        {cardTargets.length > 0 && (
+          <p className="reaction-status-bar__targets" data-testid="reaction-trigger-targets">
+            Target: {cardTargets.join(", ")}
+          </p>
         )}
         {reaction.note && <p className="reaction-status-bar__note">{reaction.note}</p>}
         <CardBlock card={reaction.facts.card} prefs={prefs} testId="reaction-trigger-card" />
