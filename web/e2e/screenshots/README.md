@@ -88,3 +88,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Too many games dialog (DA-terminate-games)
 
 `DA-terminate-games` shows the dialog that replaces the red 429 error: the caller's unfinished games with Open / Terminate, the inline confirm, a "Not yours (other browser)" row and the Create game retry. Desktop and 390x844; the capture asserts the dialog stays inside the phone viewport and Yes/No are at least 40 px tall.
+
+## Seat colours (DF-seat-colors)
+
+`DF-seat-colors` shows the TI4-traditional seat colours (blue, green, white, red, pink, orange, yellow, purple) for 3, 6 and 8 players: map, player sheets, event log and lobby, desktop and 390x844. The `before-*` PNGs (committed in `before/`) were taken with `TI4_SHOT_PREFIX=before` on the commit with the old Okabe-Ito colours; `npm run screenshots -- DF` regenerates the `after-*` PNGs.

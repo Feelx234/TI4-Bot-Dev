@@ -3,6 +3,7 @@ import { MapTargetMode, TilePresentation } from "../../presentation/boardPresent
 import { MapOverlayMode, computeTileSpaceCombat } from "../../presentation/mapOverlays.ts";
 import { SvgButton } from "../../primitives/index.ts";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
+import { seatInk } from "../../presentation/playerDisplay.ts";
 import { EconomyOverlay } from "./EconomyOverlay.tsx";
 import { SpaceCombatOverlay, getSpaceCombatHexStyle } from "./SpaceCombatOverlay.tsx";
 import { GroundCombatOverlay } from "./GroundCombatOverlay.tsx";
@@ -332,7 +333,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
               x={cx}
               y={tile.center.y + 56 + COMMAND_TOKEN_RADIUS * 0.45}
               textAnchor="middle"
-              fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
+              fill={seatInk(ct.color)}
               fontSize={COMMAND_TOKEN_RADIUS * 1.3}
               pointerEvents="none"
             >

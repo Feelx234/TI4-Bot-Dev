@@ -83,8 +83,8 @@ describe("Board Component", () => {
   });
 
   it("assigns colors by projected seating order, not seat name", () => {
-    expect(getPlayerColor("unusual-seat", ["unusual-seat", "another-seat"])).toBe("#E69F00");
-    expect(getPlayerColor("another-seat", ["unusual-seat", "another-seat"])).toBe("#56B4E9");
+    expect(getPlayerColor("unusual-seat", ["unusual-seat", "another-seat"])).toBe("#3B82F6");
+    expect(getPlayerColor("another-seat", ["unusual-seat", "another-seat"])).toBe("#4ADE80");
     expect(getPlayerColor("absent-seat", ["unusual-seat"])).toBe("#94a3b8");
   });
 

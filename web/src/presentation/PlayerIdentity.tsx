@@ -1,6 +1,6 @@
 import React, { createContext, useContext } from "react";
 import type { LobbyDto } from "../protocol/types.ts";
-import { playerDisplay, seatStyle } from "./playerDisplay.ts";
+import { playerDisplay, seatInk, seatStyle } from "./playerDisplay.ts";
 import { participantReferences, participantText } from "./participantText.ts";
 
 const PlayerContext = createContext<{ lobby: LobbyDto | null; seatingOrder: readonly string[] }>({
@@ -49,7 +49,7 @@ export const SeatBadge: React.FC<{ position: number }> = ({ position }) => {
           x="12"
           y="17"
           textAnchor="middle"
-          fill={position === 8 ? "#fff" : "#0b1220"}
+          fill={seatInk(color)}
           fontSize="15"
           fontWeight="bold"
         >

@@ -170,7 +170,7 @@ describe("TechnologyModal", () => {
     // Player 1 researched AMD
     const amdP1Marker = screen.getByTestId("player-tech-marker-player1-amd");
     expect(amdP1Marker).toBeInTheDocument();
-    // Position 1 color in SEAT_COLORS is #E69F00, symbol is ●
+    // Position 1 color in SEAT_COLORS is #3B82F6, symbol is ●
     expect(amdP1Marker.textContent).toBe("●");
     expect(amdP1Marker).toHaveAttribute("title", "Alice (sol)");
 
