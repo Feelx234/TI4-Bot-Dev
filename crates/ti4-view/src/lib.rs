@@ -18,6 +18,7 @@ pub mod scenario;
 pub mod score;
 pub mod secondary;
 pub mod secret_objectives;
+pub mod setup;
 pub mod status;
 pub mod tactical;
 pub mod view;

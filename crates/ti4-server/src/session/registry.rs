@@ -751,7 +751,7 @@ impl PlayerLobbyRecord {
                 .iter()
                 .map(|faction| (*faction).to_owned())
                 .collect(),
-            seat_order: super::table::SeatOrder::of(self).as_str().to_owned(),
+            seat_order: super::table::seat_order_of(self).as_str().to_owned(),
             bot_delay_ms: self
                 .bot_delay_ms
                 .unwrap_or_else(super::random_bot::random_bot_delay_ms),
@@ -3200,24 +3200,15 @@ impl GameRegistry {
         &self,
         game_id: &str,
     ) -> Result<crate::maps::MapPreview, LobbyError> {
-        let (choice, scenario, count, seed) = {
+        let setup = {
             let state = self.state.lock().expect("registry lock");
             let lobby = state
                 .player_lobbies
                 .get(game_id)
                 .ok_or(LobbyError::NotFound)?;
-            (
-                crate::maps::MapChoice::from_stored(lobby.map_template.as_deref()),
-                lobby.start_from.clone(),
-                lobby.slots.len(),
-                lobby.seed,
-            )
+            super::table::setup_of(lobby)
         };
-        match scenario {
-            Some(id) => crate::maps::catalog::scenario_preview(&choice, &id),
-            None => crate::maps::catalog::preview(&choice, count, seed),
-        }
-        .map_err(LobbyError::Map)
+        ti4_view::setup::preview(&setup).map_err(LobbyError::Map)
     }
 
     /// As [`Self::create_player_lobby_with_speaker`], with every other seat played by a random
@@ -3289,36 +3280,46 @@ impl GameRegistry {
             return Err(LobbyError::SeatsOpen);
         }
         let content = ContentStore::embedded();
-        let scenario = lobby
-            .start_from
-            .as_deref()
-            .and_then(ti4_view::scenario::find);
+        // The setup of `ti4-view` starts the table, as it does for the table of a page.
+        let setup = super::table::setup_of(lobby);
         // A scenario is the game of its own seed; every other table plays the seed of the lobby.
-        let seed = scenario.map_or(lobby.seed, |scenario| scenario.seed);
+        let seed = setup.game_seed();
         // The seats are drawn here (decision 7 of the lobby plan): the players of the slots are
         // shuffled with a stream of the seed, and the factions are then drawn for that order, so
         // a chosen faction stays with its player.
-        let players = super::table::seated_players(lobby, seed);
+        let joined = super::table::joined_players(lobby);
+        let chosen: Vec<Option<String>> = joined
+            .iter()
+            .map(|player| lobby.players[player].faction.clone())
+            .collect();
         // The drawn speaker is part of `initial_state`, which the init record stores, so replay
         // and recovery start from the same speaker without re-deriving it.
-        let (initial_state, galaxy) = if let Some(scenario) = scenario {
-            ti4_view::scenario::start(content, scenario.id, &players).map_err(LobbyError::Map)?
-        } else {
-            let chosen: Vec<Option<String>> = players
-                .iter()
-                .map(|player| lobby.players[player].faction.clone())
-                .collect();
-            crate::map::create_game_with_factions(
+        let (players, (initial_state, galaxy)) = if let Some(preset) = lobby
+            .start_preset
+            .as_deref()
+            .filter(|_| setup.start_from.is_none())
+        {
+            // A start preset is a tool of this server: it seats its own factions, in the order
+            // of the join, and sets its cases on the opening state.
+            let players = super::table::seated_players(lobby, seed);
+            let game = crate::map::create_game_with_factions(
                 content,
                 &players,
                 seed,
                 lobby.map_template.as_deref(),
-                lobby.start_preset.as_deref(),
-                Some(crate::card_set::resolve(lobby.strategy_card_set.as_deref())),
-                crate::map::SpeakerOrder::from_stored(lobby.speaker_order.as_deref()),
-                Some(&chosen),
+                Some(preset),
+                Some(&setup.strategy_cards),
+                setup.speaker_order,
+                None,
             )
-            .map_err(LobbyError::Map)?
+            .map_err(LobbyError::Map)?;
+            (players, game)
+        } else {
+            let drawn = ti4_view::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
+            let players = drawn.seated(&joined);
+            let game = ti4_view::setup::create(content, &setup, &players, &drawn)
+                .map_err(LobbyError::Map)?;
+            (players, game)
         };
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
         let mut config = SessionConfig::new(game_id, initial_state.clone())

@@ -798,6 +798,79 @@ export interface MapPreview {
   seats: { seat: number; home_system_id: string }[];
 }
 
+/** `ti4_view::maps::MapTemplateSummary`: a map that a table can play. */
+export interface MapSummary {
+  alias: string;
+  name?: string;
+  author: string;
+  player_count: number;
+  buildable: boolean;
+  systems: number;
+  hyperlanes: boolean;
+  /** The map that a table of this size starts with. */
+  recommended: boolean;
+}
+
+/** `ti4_view::maps::MapChoice`: the map of a table. */
+export type MapChoice = { kind: "template"; alias: string } | { kind: "random" };
+
+/**
+ * `ti4_view::setup::TableSetup`: what a host chose for a table. Both hosts start a table from
+ * it, so a table of a seed is the same game in the page and on the server.
+ */
+export interface TableSetup {
+  player_count: number;
+  seed: number;
+  /** Absent: the seeded random board. */
+  map?: MapChoice;
+  /** The id of a set of `SetupOptions.strategy_card_sets`. Absent: the usual set. */
+  strategy_cards?: string;
+  /** Absent: "random", drawn from the seed. */
+  seat_order?: "random" | "join";
+  /** Absent: "random", drawn from the seed. "seat" is the first seat. */
+  speaker_order?: "random" | "seat";
+  /** The id of a scenario. Absent: round 1. */
+  start_from?: string | null;
+}
+
+/** One player of the table of the page (`ti4-wasm`, `SeatRequest`). */
+export interface TableSeat {
+  /** "human" is played in the page, "smart" by the rule bot, "random" at random. */
+  kind: "human" | "smart" | "random";
+  /** The faction that was chosen for the player. Absent: drawn from the seed. */
+  faction?: string | null;
+}
+
+/**
+ * The table of the page as the setup exports of the engine read it (`ti4-wasm`,
+ * `TableRequest`). `seats` are the players in the order in which they came; the player who came
+ * as number i has the id of the i-th letter ("a", "b", …), wherever the draw seats it.
+ */
+export interface TableRequest {
+  setup: TableSetup;
+  seats: TableSeat[];
+}
+
+/** `ti4_setup_options`: the options of the server, and the maps of the number of seats. */
+export interface TableOptions extends SetupOptions {
+  maps: MapSummary[];
+}
+
+/** `ti4_setup_preview`: the board of the table, and what the table says of its map. */
+export interface TablePreview extends MapPreview {
+  map: MapChoiceView;
+}
+
+/** `ti4_setup_draw`: what the start draws for a table. */
+export interface TableDraw {
+  /** The ids of the players in the order of their seats. */
+  players: string[];
+  /** For each seat, the place of its player in the order in which the players came. */
+  order: number[];
+  /** The faction of each seat. Empty for a scenario: it seats its own. */
+  factions: string[];
+}
+
 /** `ti4_server::ws::table::TableServerMessage` */
 export type TableServerMessage =
   | { type: "table"; protocol_version: number; viewer?: string; lobby: LobbyState }

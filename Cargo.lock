@@ -4467,6 +4467,7 @@ dependencies = [
  "ti4-policy",
  "ti4-rule-bot",
  "ti4-view",
+ "ti4-wasm",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tower",

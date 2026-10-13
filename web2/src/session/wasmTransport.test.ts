@@ -35,7 +35,15 @@ import { factionSheet } from "./select/factionSheet";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
-import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
+import {
+  type Engine,
+  catalogOf,
+  createWasmTransport,
+  scenariosOf,
+  setupDrawOf,
+  setupOptionsOf,
+  setupPreviewOf,
+} from "./wasmTransport";
 import type {
   DraftOutcome,
   DraftScope,
@@ -44,6 +52,7 @@ import type {
   MovementFacts,
   ProductionFacts,
   SessionUpdate,
+  TableRequest,
 } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
@@ -60,6 +69,8 @@ async function play(
     answers?: readonly string[];
     switches?: readonly SeatSwitch[];
     never?: readonly string[];
+    ruleSeats?: number;
+    table?: TableRequest;
   } = {},
 ) {
   const engine: Engine = {
@@ -1305,6 +1316,97 @@ it.skipIf(!built)(
     const mine = after.update.secondary?.followers.find((follower) => follower.seat === "a");
     expect(same ? mine?.state : "passed").toBe("passed");
     transport.close();
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "the rule bot plays the seats of its mask, and the same mask is the same game",
+  async () => {
+    const game: LocalGame = { seed: 3, players: 6, humans: 1 };
+    /** The first choices of seat a, each answered with its first option. */
+    const first = async (ruleSeats: number) => {
+      const { transport, next, nonce } = await play(false, game, { ruleSeats });
+      const asked: string[] = [];
+      for (let count = 0; count < 6; count++) {
+        const event = await next();
+        const choice = event.update.pending_choice!.choice;
+        asked.push(`${choice.prompt}: ${choice.options.map((option) => option.id).join(",")}`);
+        transport.submitChoice(nonce(event), choice.options[0].id);
+      }
+      transport.close();
+      return asked;
+    };
+    const ruled = await first(0b111110);
+    expect(await first(0b111110)).toEqual(ruled);
+    // Random seats play another game: the mask reached the engine.
+    expect(await first(0)).not.toEqual(ruled);
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "sets up a table: its options, its board, its draw, and the game of that draw",
+  async () => {
+    const module = await WebAssembly.compile(readFileSync(WASM));
+    const options = await setupOptionsOf(module, 4);
+    expect(options.strategy_card_sets.map((set) => set.id)).toEqual([
+      "te",
+      "pok",
+      "base_game_codex1",
+    ]);
+    expect(options.bot_kinds.map((kind) => kind.id)).toEqual(["smart", "random"]);
+    expect(options.bot_kinds[0].description).toMatch(/^The page plays/);
+    expect(options.faction_groups.flatMap((group) => group.factions)).toHaveLength(24);
+    expect(options.maps.length).toBeGreaterThan(0);
+    expect(options.maps.every((map) => map.player_count === 4 && map.buildable)).toBe(true);
+    const usual = options.maps.find((map) => map.recommended)!;
+
+    const table: TableRequest = {
+      setup: {
+        player_count: 4,
+        seed: 12,
+        map: { kind: "template", alias: usual.alias },
+        strategy_cards: "pok",
+      },
+      seats: [
+        { kind: "human", faction: "hacan" },
+        { kind: "smart" },
+        { kind: "random", faction: "ghost" },
+        { kind: "smart" },
+      ],
+    };
+    const preview = await setupPreviewOf(module, table);
+    expect(preview.map.alias).toBe(usual.alias);
+    expect(preview.seats).toHaveLength(4);
+    // A place of a seat is a tile of the board, with no planets and no faction.
+    for (const seat of preview.seats) {
+      const tile = preview.tiles.find((have) => have.system_id === seat.home_system_id);
+      expect(tile?.planets).toEqual([]);
+    }
+
+    const draw = await setupDrawOf(module, table);
+    expect([...draw.players].sort()).toEqual(["a", "b", "c", "d"]);
+    expect(draw.factions[draw.players.indexOf("a")]).toBe("hacan");
+    expect(draw.factions[draw.players.indexOf("c")]).toBe("ghost");
+    expect(new Set(draw.factions).size).toBe(4);
+
+    // The game is that draw: the page is player a, with the faction that it chose.
+    const { transport, next } = await play(
+      false,
+      { seed: 12, players: 4, humans: 1 },
+      { table },
+    );
+    const { update } = await next();
+    expect(update.pending_choice?.choice.player).toBe("a");
+    expect(update.view.players.map((player) => player.id)).toEqual(draw.players);
+    expect(update.view.players.map((player) => player.faction)).toEqual(draw.factions);
+    transport.close();
+
+    // A table that cannot be is refused with the reason.
+    await expect(
+      setupDrawOf(module, { ...table, setup: { ...table.setup, strategy_cards: "base_game" } }),
+    ).rejects.toThrow(/strategy_card_set/);
   },
   120_000,
 );

@@ -149,6 +149,10 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_run_seeded(seed, players, max_steps) -> status` | Random deciders on all seats; the result is the state. |
 | `ti4_play(seed, players, human_mask) -> status` | Plays a game to its end. A seat whose bit is set in the mask (bit 0 is seat `a`) is answered by the host through `host.ask`; the others decide at random. |
 | `ti4_play_scenario(human_mask, id_len) -> status` | As `ti4_play`, from a prepared board. The request buffer holds the id of the scenario. See "Scenarios". |
+| `ti4_play_setup(request_len) -> status` | As `ti4_play`, for the table in the request buffer: started as the server starts the table of a lobby. See "A table". |
+| `ti4_setup_options(players) -> status` | What a host can choose for a table, as JSON in the response buffer: the options of the server's `GET /api/setup-options` and, as `maps`, the maps that build for `players` seats (0: every map). |
+| `ti4_setup_preview(request_len) -> status` | The board of the table in the request buffer, with a place for each seat and no faction, and `map`: what the table says of its map. |
+| `ti4_setup_draw(request_len) -> status` | What the start draws for the table in the request buffer: `players` (the ids by seat), `order` and `factions`. |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
 | `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `content` (the digest of the corpus, which a page compares with the one of a server before it plays there), `exploration` (the exploration cards and the attachments) and `components` (abilities, leaders, technologies, relics, legendary planets). See "The exploration". |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
@@ -205,8 +209,46 @@ when `ti4_can_undo` returns 1. Any other answer leaves the game.
   (`ti4_rule_bot::choose`). It does not draw from the random seats' stream, so a checkpoint
   keeps nothing for it.
 - Stepping asks the host before a decision of a rule seat as before one of a random seat.
-- With the rule bot the file is 5.68 MB raw, 0.21 MB more than without (2026-10-12; gzip and
-  brotli not measured).
+- With the rule bot the file is 5.68 MB raw, 0.21 MB more than without (2026-10-12). With the
+  setup of a table too it is 5.78 MB raw, 1.47 MB with gzip -9 and 1.03 MB with brotli 11
+  (2026-10-13).
+- The time of a decision, in headless Chromium on a machine of two cores (2026-10-13): a table
+  of six with no person, played to its end with `ti4_play_setup` in one call, and the time of
+  the whole call divided by its decisions, so the engine is in the number. Six rule seats: 6.1
+  to 9.2 ms for a decision (2 700 to 3 200 decisions, 16 to 29 s for the game). Six random
+  seats: 2.7 to 3.7 ms (1 200 to 1 400 decisions, 4 to 5 s). So a rule seat costs about 3 to
+  6 ms more than a random one for each decision: a round of the other seats is a fraction of a
+  second, and the page does not need a worker for it.
+
+### A table
+
+The setup of a game is in `ti4-view` (`setup.rs`), and both hosts call it: the server for the
+table of a lobby, this host for the table of the page (single player of web2). A table of a seed
+is the same game on both.
+
+- The request of the three exports is `{ "setup": TableSetup, "seats": [...] }`. `setup` is
+  `ti4_view::setup::TableSetup`: `player_count` and `seed`, and optional `map`
+  (`{"kind":"template","alias"}` or `{"kind":"random"}`, the default), `strategy_cards` (`te`
+  by default, `pok`, `base_game_codex1`), `seat_order` (`random` or `join`), `speaker_order`
+  (`random` or `seat`) and `start_from` (the id of a scenario). The values are checked, and a
+  table that cannot be is refused with the reason.
+- `seats` are the players in the order in which they came: `kind` (`human`, `smart` for the
+  rule bot, `random`) and `faction` (or none, for one drawn from the seed). A missing entry is a
+  seat of the host with no faction. The player who came as number i has the id of the i-th
+  letter (`a`, `b`, …) wherever the draw seats it, so the masks of the other exports
+  (`ti4_switch_seats`) name a player, not a place at the table.
+- `ti4_play_setup` draws the seats from the seed (a stream of its own), then the factions that
+  nobody chose, builds the map and plays, as `ti4_play` does. A table that starts from a
+  scenario is the game of the scenario: its seed, its seats in the order of the join, its map,
+  cards and factions.
+- A seat that the host does not play decides as on the server: from the seed, its id and the
+  number of the decision (`ti4_rule_bot::choose`), the random seats too. They do not draw from
+  the stream that the random seats of `ti4_play` share. The mask of `ti4_set_rule_seats` is not
+  read, and is as it was when the call returns.
+- A test of `ti4-server` plays a round of the same tables on both hosts and compares every
+  decision (`tests/it/both_hosts.rs`).
+- A game that is played again (a saved game, an undo past the checkpoints) needs the same
+  request.
 
 ### Switching seats
 

@@ -20,7 +20,7 @@ use std::fmt::{self, Write as _};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{
@@ -38,6 +38,7 @@ use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, s
 use ti4_view::projection::{FactsContext, project_game_view_full, project_session_update};
 use ti4_view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_view::secondary::SecondaryWatch;
+use ti4_view::setup::{self, TableSetup, bot_kind};
 use ti4_view::status::ViewerRole;
 use ti4_view::view::{BoardTileView, GameView};
 
@@ -69,7 +70,7 @@ impl From<TooLarge> for Failure {
     }
 }
 
-fn setup(error: impl fmt::Display) -> Failure {
+fn failed(error: impl fmt::Display) -> Failure {
     Failure::Setup(error.to_string())
 }
 
@@ -85,7 +86,7 @@ fn new_game(
         .get(..players)
         .filter(|seats| seats.len() >= 3)
         .ok_or_else(|| {
-            setup(format_args!(
+            failed(format_args!(
                 "{players} players: a game has 3 to {} seats",
                 SEATS.len()
             ))
@@ -93,16 +94,114 @@ fn new_game(
     let ids: Vec<PlayerId> = seats.iter().map(|name| PlayerId::new(*name)).collect();
     let (state, galaxy) = if let Some(scenario) = scenario {
         // The game of the scenario, as the server starts it for a table ("Start from").
-        ti4_view::scenario::start(content, scenario, &ids).map_err(setup)?
+        ti4_view::scenario::start(content, scenario, &ids).map_err(failed)?
     } else {
-        let loader = TemplateLoader::load().map_err(setup)?;
+        let loader = TemplateLoader::load().map_err(failed)?;
         let template = default_template_for(content, &loader, players, POK)
-            .ok_or_else(|| setup(format_args!("no map template builds for {players} players")))?;
-        create_game_with_template(content, &ids, seed, Some(&template)).map_err(setup)?
+            .ok_or_else(|| failed(format_args!("no map template builds for {players} players")))?;
+        create_game_with_template(content, &ids, seed, Some(&template)).map_err(failed)?
     };
     Ok(Game::with_seeded_random(state, content, seed)
         .with_sources(POK)
         .with_galaxy(galaxy))
+}
+
+/// Who plays a seat of a table ([`TableRequest`]), by the names of a lobby.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+enum SeatKind {
+    /// The host answers the seat.
+    #[default]
+    #[serde(rename = "human")]
+    Human,
+    /// The rule bot (`bot_kind::RULE`).
+    #[serde(rename = "smart")]
+    Rule,
+    /// A seat that decides at random (`bot_kind::RANDOM`).
+    #[serde(rename = "random")]
+    Random,
+}
+
+/// One player of a table: who plays the seat, and the faction that was chosen for it.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SeatRequest {
+    #[serde(default)]
+    kind: SeatKind,
+    #[serde(default)]
+    faction: Option<String>,
+}
+
+/// The table of the page, as the setup exports read it from the request buffer: what the host
+/// chose (`ti4_view::setup::TableSetup`), and its players in the order in which they came.
+/// The player who came as number `i` has the id of [`SEATS`]`[i]`, wherever the draw seats it:
+/// the masks of this host name a player by that letter.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TableRequest {
+    setup: TableSetup,
+    /// Missing entries are seats of the host with no chosen faction.
+    #[serde(default)]
+    seats: Vec<SeatRequest>,
+}
+
+impl TableRequest {
+    /// The table of the request buffer, with its values checked.
+    fn read(request_len: u32) -> Result<Self, Failure> {
+        request_filled(request_len)?;
+        let mut table: Self = {
+            let request = REQUEST.lock().expect("request lock");
+            serde_json::from_slice(request.as_bytes())
+                .map_err(|error| failed(format_args!("the table is not read: {error}")))?
+        };
+        table.setup.check().map_err(failed)?;
+        let count = table.setup.player_count;
+        if count > SEATS.len() || table.seats.len() > count {
+            return Err(failed(format_args!(
+                "a table of {count} seats has {} players",
+                table.seats.len()
+            )));
+        }
+        table.seats.resize_with(count, SeatRequest::default);
+        // The values of a kind are the names of the setup options.
+        debug_assert_eq!((bot_kind::RULE, bot_kind::RANDOM), ("smart", "random"));
+        Ok(table)
+    }
+
+    /// The ids of the players in the order in which they came.
+    fn joined(&self) -> Vec<PlayerId> {
+        SEATS[..self.setup.player_count]
+            .iter()
+            .map(|name| PlayerId::new(*name))
+            .collect()
+    }
+
+    fn drawn(&self) -> Result<setup::Drawn, Failure> {
+        let chosen: Vec<Option<String>> =
+            self.seats.iter().map(|seat| seat.faction.clone()).collect();
+        setup::draw(&self.setup, &chosen).map_err(failed)
+    }
+
+    /// The players of `kind` as a mask (bit 0 is the player who came first).
+    fn mask(&self, kind: SeatKind) -> u32 {
+        self.seats
+            .iter()
+            .enumerate()
+            .filter(|(_, seat)| seat.kind == kind)
+            .fold(0, |mask, (place, _)| mask | (1 << place))
+    }
+
+    /// The game that the table starts, as the server starts it for the table of a lobby.
+    fn game(&self, content: &'static ContentStore) -> Result<Game<'static>, Failure> {
+        let drawn = self.drawn()?;
+        let players = drawn.seated(&self.joined());
+        let (state, galaxy) =
+            setup::create(content, &self.setup, &players, &drawn).map_err(failed)?;
+        Ok(
+            Game::with_seeded_random(state, content, self.setup.game_seed())
+                .with_sources(POK)
+                .with_galaxy(galaxy),
+        )
+    }
 }
 
 /// What a view is made from while the game itself is borrowed by its run: a decider is given no
@@ -231,6 +330,9 @@ struct Host {
     humans: u32,
     /// The seed of the game: a rule seat decides from it ([`ti4_rule_bot::choose`]).
     seed: u64,
+    /// The game is of a table ([`ti4_play_setup`]): a random seat decides as on the server, from
+    /// the seed, the seat and the number of the decision, not from the stream of [`RANDOM`].
+    table: bool,
     /// The game waits before a decision of a random seat ([`ti4_set_stepping`]), not in a choice.
     paused: bool,
     /// How many decisions the seats made, the random seats included. A checkpoint keeps it.
@@ -342,6 +444,7 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     players: 0,
     humans: 0,
     seed: 0,
+    table: false,
     paused: false,
     decided: 0,
     switches: Vec::new(),
@@ -536,17 +639,16 @@ fn draw(
     if STEPPING.load(Ordering::Relaxed) && !wait_for_go(choice)? {
         return Ok(None);
     }
-    if let Some(seen) = rule
-        && !choice.options.is_empty()
-    {
+    let (seed, index, table) = {
+        let host = host();
+        (host.seed, host.decided, host.table)
+    };
+    if (rule.is_some() || table) && !choice.options.is_empty() {
         // The seed, the seat and the number of the decision give the answer, so a checkpoint
-        // keeps nothing for it, and the stream of the random seats does not move.
-        let (seed, index) = {
-            let host = host();
-            (host.seed, host.decided)
-        };
+        // keeps nothing for it, and the stream of the random seats does not move. In the game
+        // of a table a random seat decides the same way, as on the server.
         let index = usize::try_from(index).expect("a game has fewer decisions than 2^32");
-        let (picked, _) = ti4_rule_bot::choose(choice, Some(seen), seed, &choice.player, index);
+        let (picked, _) = ti4_rule_bot::choose(choice, rule, seed, &choice.player, index);
         return Ok(Some(choice.options[picked].clone()));
     }
     RANDOM
@@ -806,6 +908,25 @@ fn host_ask() -> i32 {
         .map_or(0, |host| host(&shown))
 }
 
+/// How many rounds a game is played at most.
+#[cfg(target_arch = "wasm32")]
+const fn round_limit() -> u32 {
+    ROUNDS
+}
+
+/// A native caller can end a game earlier ([`set_round_limit_native`]).
+#[cfg(not(target_arch = "wasm32"))]
+static ROUND_LIMIT: AtomicU32 = AtomicU32::new(ROUNDS);
+
+#[cfg(not(target_arch = "wasm32"))]
+fn round_limit() -> u32 {
+    ROUND_LIMIT.load(Ordering::Relaxed)
+}
+
+/// The decisions of the game that was played last, for callers on the native side.
+#[cfg(not(target_arch = "wasm32"))]
+static DECISIONS: Mutex<Vec<ti4_engine::choice::DecisionRecord>> = Mutex::new(Vec::new());
+
 /// Play a seeded game of `players` seats to its end. A seat whose bit is set in `human_mask`
 /// (bit 0 is seat `a`) is answered by the host; the other seats decide at random.
 fn play(
@@ -814,8 +935,37 @@ fn play(
     human_mask: u32,
     scenario: Option<&str>,
 ) -> Result<usize, Failure> {
+    let game = new_game(ContentStore::embedded(), seed, players, scenario)?;
+    play_game(game, seed, players, human_mask, false)
+}
+
+/// Play the game of a table to its end ([`ti4_play_setup`]): the host answers its players, the
+/// rule bot and the random seats decide as on the server.
+fn play_setup(request_len: u32) -> Result<usize, Failure> {
+    let table = TableRequest::read(request_len)?;
+    let game = table.game(ContentStore::embedded())?;
+    // The rule seats are of this game: the mask of the host is back when it is over.
+    let before = RULE_SEATS.swap(table.mask(SeatKind::Rule), Ordering::Relaxed);
+    let played = play_game(
+        game,
+        table.setup.game_seed(),
+        table.setup.player_count,
+        table.mask(SeatKind::Human),
+        true,
+    );
+    RULE_SEATS.store(before, Ordering::Relaxed);
+    played
+}
+
+/// Play `game` to its end. `table`: see [`Host::table`].
+fn play_game(
+    mut game: Game<'static>,
+    seed: u64,
+    players: usize,
+    human_mask: u32,
+    table: bool,
+) -> Result<usize, Failure> {
     let content = ContentStore::embedded();
-    let mut game = new_game(content, seed, players, scenario)?;
     game.table = host_table();
     watch_secondary(&mut game);
     *RANDOM.lock().expect("random lock") = Some(SeededRandom::new(seed));
@@ -829,6 +979,7 @@ fn play(
             players,
             humans: human_mask,
             seed,
+            table,
             switches,
             saved,
             ..Host::default()
@@ -837,7 +988,7 @@ fn play(
     PASSED.lock().expect("passed lock").clear();
     CHECKPOINTS.with_borrow_mut(VecDeque::clear);
     *LATEST.lock().expect("latest lock") = Some(latest_of(&game, content));
-    let target = game.state.round.saturating_add(ROUNDS);
+    let target = game.state.round.saturating_add(round_limit());
     let mut stopped = None;
     // A checkpoint is made after each step that asked the host ([`CHECKPOINTS`]). A copy after
     // every step would cost a third of the run. With these, an undo plays the steps of the
@@ -891,6 +1042,11 @@ fn play(
             latest.state.clone_from(&game.state);
         }
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    DECISIONS
+        .lock()
+        .expect("decisions lock")
+        .clone_from(&game.table.log.records);
     let (viewer, too_large) = {
         let mut host = host();
         let viewer = host.shown_seat();
@@ -980,12 +1136,12 @@ fn draft_base() -> Result<Game<'static>, Failure> {
     CHECKPOINTS.with_borrow(|checkpoints| {
         let checkpoint = checkpoints
             .back()
-            .ok_or_else(|| setup("no game is played: a draft needs one"))?;
+            .ok_or_else(|| failed("no game is played: a draft needs one"))?;
         let mut game = checkpoint.game.fork();
         let random = checkpoint
             .random
             .clone()
-            .ok_or_else(|| setup("the game has no random stream"))?;
+            .ok_or_else(|| failed("the game has no random stream"))?;
         game.table = Table::with_default(Box::new(random));
         for _ in 0..SINCE.get() {
             if let Some(error) = game.step().error {
@@ -1007,10 +1163,10 @@ fn draft() -> Result<usize, Failure> {
         scope: PlanScope,
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
-        .map_err(|error| setup(format_args!("the draft request is not read: {error}")))?;
+        .map_err(|error| failed(format_args!("the draft request is not read: {error}")))?;
     let player = host()
         .shown_seat()
-        .ok_or_else(|| setup("no seat is played here: a draft is of one seat"))?;
+        .ok_or_else(|| failed("no seat is played here: a draft is of one seat"))?;
     if DRAFT_BASE.with_borrow(Option::is_none) {
         let base = draft_base()?;
         DRAFT_BASE.set(Some(base));
@@ -1018,7 +1174,7 @@ fn draft() -> Result<usize, Failure> {
     let latest = LATEST.lock().expect("latest lock");
     let latest = latest
         .as_ref()
-        .ok_or_else(|| setup("no game is played: a draft needs one"))?;
+        .ok_or_else(|| failed("no game is played: a draft needs one"))?;
     let outcome = DRAFT_BASE.with_borrow(|base| {
         let base = DraftBase {
             game: base.as_ref().expect("the base was made above"),
@@ -1067,11 +1223,11 @@ fn plan() -> Result<usize, Failure> {
         },
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
-        .map_err(|error| setup(format_args!("the plan request is not read: {error}")))?;
+        .map_err(|error| failed(format_args!("the plan request is not read: {error}")))?;
     let answer = PENDING.with_borrow(|pending| -> Result<Reply, Failure> {
         let choice = pending
             .as_ref()
-            .ok_or_else(|| setup("the game is not parked in a choice: a plan answers one"))?;
+            .ok_or_else(|| failed("the game is not parked in a choice: a plan answers one"))?;
         let answer = script_answer(&request.script, request.next, choice, &request.actor);
         Ok(match answer {
             ScriptAnswer::Answer {
@@ -1103,7 +1259,7 @@ fn set_reaction_mode() -> Result<usize, Failure> {
         mode: ReactionMode,
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
-        .map_err(|error| setup(format_args!("the reaction mode is not read: {error}")))?;
+        .map_err(|error| failed(format_args!("the reaction mode is not read: {error}")))?;
     let mut never = NEVER.lock().expect("never set lock");
     match request.mode {
         ReactionMode::Never => never.insert(request.card),
@@ -1121,7 +1277,7 @@ fn request_filled(request_len: u32) -> Result<(), Failure> {
     {
         return Ok(());
     }
-    Err(setup(format_args!(
+    Err(failed(format_args!(
         "ti4-wasm buffer full: the request is {request_len} bytes, but REQUEST_CAPACITY is {} \
          bytes. Raise REQUEST_CAPACITY in crates/ti4-wasm/src/buffer.rs and rebuild, or make \
          the request smaller.",
@@ -1176,7 +1332,7 @@ pub extern "C" fn ti4_play_scenario(human_mask: u32, id_len: u32) -> i32 {
             .iter()
             .map(|scenario| scenario.id)
             .collect();
-        return status(Err(setup(format_args!(
+        return status(Err(failed(format_args!(
             "no scenario '{}': the scenarios are {}",
             id.as_deref()
                 .unwrap_or("(an id longer than the request buffer)"),
@@ -1189,6 +1345,99 @@ pub extern "C" fn ti4_play_scenario(human_mask: u32, id_len: u32) -> i32 {
         human_mask,
         Some(scenario.id),
     ))
+}
+
+/// What the options of a table are, with the maps of its number of seats.
+#[derive(Serialize)]
+struct TableOptions {
+    #[serde(flatten)]
+    options: setup::SetupOptions,
+    /// The maps that build for the number of seats, the one that such a table starts with
+    /// flagged. With no number: every map.
+    maps: Vec<ti4_view::maps::MapTemplateSummary>,
+}
+
+/// What a table looks like before it starts.
+#[derive(Serialize)]
+struct TablePreview {
+    /// What the table says of its map: its name, its author, its size.
+    map: ti4_view::maps::MapChoiceView,
+    /// The board, with a place for each seat and no faction.
+    #[serde(flatten)]
+    preview: ti4_view::maps::MapPreview,
+}
+
+/// What Start draws for a table, with the ids of this host.
+#[derive(Serialize)]
+struct TableDraw {
+    /// The players in the order of their seats: the player who came as number `i` is
+    /// [`SEATS`]`[i]`.
+    players: Vec<PlayerId>,
+    #[serde(flatten)]
+    drawn: setup::Drawn,
+}
+
+/// What a host can choose for a table, as JSON in the response buffer: the options of
+/// `ti4_view::setup` (as `GET /api/setup-options` of the server gives them) and, as `maps`, the
+/// maps that build for `players` seats (0: every map, as `GET /api/maps`).
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_setup_options(players: u32) -> i32 {
+    let maps = ti4_view::maps::catalog::catalog((players > 0).then_some(players as usize));
+    status(maps.map_err(failed).and_then(|maps| {
+        respond(
+            "the options of a table",
+            &TableOptions {
+                options: setup::setup_options("The page", 0),
+                maps,
+            },
+        )
+    }))
+}
+
+/// The board of the table in the request buffer (`request_len` bytes of JSON: `setup`, and
+/// `seats` in the order in which the players came), with a place for each seat.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_setup_preview(request_len: u32) -> i32 {
+    status(TableRequest::read(request_len).and_then(|table| {
+        let preview = setup::preview(&table.setup).map_err(failed)?;
+        respond(
+            "the preview of a table",
+            &TablePreview {
+                map: ti4_view::maps::catalog::describe(&table.setup.map, table.setup.player_count),
+                preview,
+            },
+        )
+    }))
+}
+
+/// What Start draws for the table in the request buffer: who sits where, and the faction of
+/// every seat. It is what [`ti4_play_setup`] plays, so a host that shows it shows the game.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_setup_draw(request_len: u32) -> i32 {
+    status(TableRequest::read(request_len).and_then(|table| {
+        let drawn = table.drawn()?;
+        respond(
+            "the draw of a table",
+            &TableDraw {
+                players: drawn.seated(&table.joined()),
+                drawn,
+            },
+        )
+    }))
+}
+
+/// Play the game of the table in the request buffer as [`ti4_play`] plays a seeded game. The
+/// table is started as the server starts the table of a lobby (`ti4_view::setup`): the seats
+/// and the factions that nobody chose are drawn from its seed, on its map, with its cards.
+///
+/// A player of kind `human` is answered by the host, `smart` by the rule bot and `random` at
+/// random; the two decide as on the server, so a table of a seed with the same kinds is the
+/// same game on both hosts. The mask of [`ti4_set_rule_seats`] is not read.
+/// A game that is played again (a saved game, an undo past the checkpoints) needs the same
+/// request.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_play_setup(request_len: u32) -> i32 {
+    status(play_setup(request_len))
 }
 
 /// The scenarios that [`ti4_play_scenario`] plays, as a JSON list in the response buffer.
@@ -1396,6 +1645,32 @@ fn fill_request(request: &str) -> Result<(), String> {
     buffer.clear();
     std::io::Write::write_all(&mut *buffer, request.as_bytes())
         .map_err(|_| "the request does not fit REQUEST_CAPACITY".to_owned())
+}
+
+/// Play at most `rounds` rounds from now on (`None`: as the wasm build does), for callers on the
+/// native side: a test that compares two hosts does not need a whole game.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn set_round_limit_native(rounds: Option<u32>) {
+    ROUND_LIMIT.store(rounds.unwrap_or(ROUNDS), Ordering::Relaxed);
+}
+
+/// Every decision of the game that was played last, in order, for callers on the native side.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn decisions_native() -> Vec<ti4_engine::choice::DecisionRecord> {
+    DECISIONS.lock().expect("decisions lock").clone()
+}
+
+/// Call a setup export (`ti4_setup_preview`, `ti4_setup_draw`, `ti4_play_setup`) with `table` as
+/// its request, for callers on the native side.
+#[must_use]
+pub fn with_table_native(export: extern "C" fn(u32) -> i32, table: &str) -> i32 {
+    let length = if fill_request(table).is_ok() {
+        table.len()
+    } else {
+        usize::MAX
+    };
+    export(u32::try_from(length).unwrap_or(u32::MAX))
 }
 
 /// Play a scenario as [`ti4_play_scenario`] does, for callers on the native side.
@@ -2278,6 +2553,149 @@ mod tests {
         let ruled = play(0b11_1110);
         assert_eq!(ruled, play(0b11_1110));
         assert_ne!(ruled.0, play(0).0);
+
+        // The table of a page. Its options are those of the server, with the maps of the count.
+        {
+            let json = |status: i32| -> serde_json::Value {
+                serde_json::from_str(&response(status).unwrap()).unwrap()
+            };
+            let options = json(ti4_setup_options(6));
+            assert_eq!(options["strategy_card_sets"].as_array().unwrap().len(), 3);
+            assert_eq!(options["faction_groups"].as_array().unwrap().len(), 2);
+            assert_eq!(options["bot_kinds"][0]["id"], "smart");
+            let maps = options["maps"].as_array().unwrap();
+            assert!(maps.iter().all(|map| map["player_count"] == 6));
+            assert_eq!(
+                maps.iter().filter(|map| map["recommended"] == true).count(),
+                1
+            );
+            let recommended = maps
+                .iter()
+                .find(|map| map["recommended"] == true)
+                .and_then(|map| map["alias"].as_str())
+                .unwrap()
+                .to_owned();
+            assert!(json(ti4_setup_options(0))["maps"].as_array().unwrap().len() > maps.len());
+
+            let table = |seed: u64, kind: &str| {
+                serde_json::json!({
+                    "setup": {
+                        "player_count": 6,
+                        "seed": seed,
+                        "map": { "kind": "template", "alias": recommended },
+                        "strategy_cards": "pok",
+                    },
+                    "seats": [
+                        { "kind": kind, "faction": "hacan" },
+                        { "kind": "smart" },
+                        { "kind": "smart", "faction": "ghost" },
+                        { "kind": "random" },
+                        { "kind": "smart" },
+                        { "kind": "random", "faction": null },
+                    ],
+                })
+                .to_string()
+            };
+            let preview = json(with_table_native(ti4_setup_preview, &table(5, "human")));
+            assert_eq!(preview["map"]["alias"], recommended.as_str());
+            assert_eq!(preview["seats"].as_array().unwrap().len(), 6);
+            assert!(!preview["tiles"].as_array().unwrap().is_empty());
+
+            // The draw seats every player once, and a chosen faction stays with its player.
+            let draw = json(with_table_native(ti4_setup_draw, &table(5, "human")));
+            let players: Vec<&str> = draw["players"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| id.as_str().unwrap())
+                .collect();
+            let mut sorted = players.clone();
+            sorted.sort_unstable();
+            assert_eq!(sorted, &SEATS[..6]);
+            let faction_of = |id: &str| {
+                let seat = players.iter().position(|player| *player == id).unwrap();
+                draw["factions"][seat].as_str().unwrap().to_owned()
+            };
+            assert_eq!(faction_of("a"), "hacan");
+            assert_eq!(faction_of("c"), "ghost");
+            assert!(
+                (0..20).any(|seed| {
+                    json(with_table_native(ti4_setup_draw, &table(seed, "human")))["players"]
+                        != draw["players"]
+                }),
+                "some seed moves a player"
+            );
+
+            // The game is the drawn table: the host is asked as player `a`, which is Hacan,
+            // with the cards of the set, and the mask of the rule seats is as it was.
+            let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+            let sink = seen.clone();
+            set_native_host(move |update| {
+                sink.lock()
+                    .unwrap()
+                    .push(serde_json::from_str(update).unwrap());
+                -1
+            });
+            ti4_set_rule_seats(0b1000);
+            let status = with_table_native(ti4_play_setup, &table(5, "human"));
+            assert!(response(status).unwrap().contains(LEFT));
+            assert_eq!(RULE_SEATS.load(Ordering::Relaxed), 0b1000);
+            ti4_set_rule_seats(0);
+            let state = LATEST.lock().unwrap().as_ref().unwrap().state.clone();
+            let seated: Vec<&str> = state.players.iter().map(|seat| seat.id.as_str()).collect();
+            assert_eq!(seated, players);
+            for (seat, player) in state.players.iter().enumerate() {
+                assert_eq!(player.faction.as_str(), draw["factions"][seat]);
+            }
+            let (cards, _) =
+                ti4_engine::setup::strategy_card_setup_for_set(ContentStore::embedded(), "pok")
+                    .unwrap();
+            assert!(
+                cards
+                    .iter()
+                    .all(|card| state.card_initiative.contains_key(card)),
+                "the game plays the cards of the set"
+            );
+            assert_eq!(
+                seen.lock().unwrap()[0]["pending_choice"]["choice"]["player"],
+                "a"
+            );
+
+            // With no person the seats play by themselves, and the same table is the same game.
+            set_round_limit_native(Some(1));
+            let bots = |seed: u64| {
+                let status = with_table_native(ti4_play_setup, &table(seed, "smart"));
+                let report = json(status);
+                assert!(report["stopped"].is_null(), "{report}");
+                decisions_native()
+            };
+            let first = bots(5);
+            assert!(first.len() > 50, "{} decisions", first.len());
+            assert_eq!(first, bots(5));
+            assert_ne!(first, bots(6));
+            set_round_limit_native(None);
+
+            // What a table cannot be is refused, with the reason.
+            for (wrong, reason) in [
+                (r#"{"setup":{"player_count":9,"seed":1}}"#, "player_count"),
+                (
+                    r#"{"setup":{"player_count":4,"seed":1,"strategy_cards":"base_game"}}"#,
+                    "strategy_card_set",
+                ),
+                (
+                    r#"{"setup":{"player_count":4,"seed":1},"seats":[{},{},{},{},{}]}"#,
+                    "5 players",
+                ),
+                (
+                    r#"{"setup":{"player_count":4,"seed":1},"seats":[{"faction":"sol"},{"faction":"sol"}]}"#,
+                    "sol",
+                ),
+                (r#"{"setup":{"player_count":4}}"#, "seed"),
+            ] {
+                let error = response(with_table_native(ti4_play_setup, wrong)).unwrap_err();
+                assert!(error.contains(reason), "{wrong}: {error}");
+            }
+        }
 
         // Without the host, the rule bot plays a game to its end.
         ti4_set_rule_seats(0b1111);

@@ -448,7 +448,8 @@ pub fn create_game_with_template_seated(
 }
 
 /// Who opens a new game as speaker (and so picks the first strategy card).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SpeakerOrder {
     /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
     /// opens with the same speaker. What a lobby game gets unless it asks otherwise.

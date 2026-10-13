@@ -4,72 +4,57 @@
 //! Everything here works on a [`PlayerLobbyRecord`]; the registry holds the lock, checks the
 //! caller and saves the result.
 
-use serde::{Deserialize, Deserializer, Serialize};
-use ti4_content::ContentStore;
-use ti4_engine::seating;
+use serde::{Deserialize, Deserializer};
 use ti4_model::id::PlayerId;
+use ti4_view::setup::TableSetup;
 
-use super::registry::{LobbyError, SMART_BOT_KIND};
+use super::registry::LobbyError;
+use crate::maps::MapChoice;
 use crate::storage::{LobbySlotId, PlayerLobbyRecord, PlayerLobbySlot};
 
-/// The fewest and the most seats of a table.
-pub const PLAYER_COUNTS: std::ops::RangeInclusive<usize> = 2..=8;
-/// The longest wait of a seat that the server plays, in milliseconds.
-pub const MAX_BOT_DELAY_MS: u64 = 30_000;
+pub use ti4_view::setup::{
+    BotKindOption, CardOption, CardSetOption, FactionGroup, FactionOption, MAX_BOT_DELAY_MS,
+    PLAYER_COUNTS, SeatOrder, SetupOptions,
+};
 
-/// How the players of a table get their seats at Start.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SeatOrder {
-    /// Drawn from the seed of the game ([`seating::lobby_seat_order`]). What a table gets
-    /// unless it asks otherwise: no host moves a seat.
-    #[default]
-    Random,
-    /// The order in which the players came. Fixtures, tests and start presets use it, and a
-    /// table that starts from a scenario (a case of a scenario is at a certain seat).
-    Join,
+/// The order that a table really uses. A start preset and a scenario place their cases by seat,
+/// so such a table keeps the order of the join whatever it stores.
+#[must_use]
+pub fn seat_order_of(record: &PlayerLobbyRecord) -> SeatOrder {
+    if record.start_preset.is_some() || record.start_from.is_some() {
+        SeatOrder::Join
+    } else {
+        SeatOrder::from_stored(record.seat_order.as_deref())
+    }
 }
 
-impl SeatOrder {
-    /// The stored and requested name: `"random"` or `"join"`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Random => "random",
-            Self::Join => "join",
-        }
+/// What the host of `record` chose, as the setup of `ti4-view` has it: the server starts the
+/// table and pictures it with the functions that the wasm host uses for the table of a page.
+/// A start preset is not a part of it (it is a tool of this server, `crate::preset`).
+#[must_use]
+pub fn setup_of(record: &PlayerLobbyRecord) -> TableSetup {
+    TableSetup {
+        player_count: record.slots.len(),
+        map: MapChoice::from_stored(record.map_template.as_deref()),
+        strategy_cards: crate::card_set::resolve(record.strategy_card_set.as_deref()).to_owned(),
+        seat_order: seat_order_of(record),
+        speaker_order: crate::map::SpeakerOrder::from_stored(record.speaker_order.as_deref()),
+        start_from: record.start_from.clone(),
+        seed: record.seed,
     }
+}
 
-    /// Parse a requested name.
-    ///
-    /// # Errors
-    /// A message naming the accepted values.
-    pub fn parse(name: &str) -> Result<Self, String> {
-        match name {
-            "random" => Ok(Self::Random),
-            "join" => Ok(Self::Join),
-            other => Err(format!(
-                "unknown seat_order {other:?} (expected \"random\" or \"join\")"
-            )),
-        }
-    }
-
-    /// A stored value; `None` (a record written before the option) and anything unknown are
-    /// [`SeatOrder::Random`].
-    #[must_use]
-    pub fn from_stored(name: Option<&str>) -> Self {
-        name.and_then(|n| Self::parse(n).ok()).unwrap_or_default()
-    }
-
-    /// The order that a table really uses. A start preset and a scenario place their cases by
-    /// seat, so such a table keeps the order of the join whatever it stores.
-    #[must_use]
-    pub fn of(record: &PlayerLobbyRecord) -> Self {
-        if record.start_preset.is_some() || record.start_from.is_some() {
-            Self::Join
-        } else {
-            Self::from_stored(record.seat_order.as_deref())
-        }
-    }
+/// The players of a full table in the order in which they came.
+///
+/// # Panics
+/// When a slot is open: the caller checks that the table is full.
+#[must_use]
+pub fn joined_players(record: &PlayerLobbyRecord) -> Vec<PlayerId> {
+    record
+        .slots
+        .iter()
+        .map(|slot| slot.occupant.clone().expect("full lobby"))
+        .collect()
 }
 
 /// The players of a full table in the order of their seats, for the game that starts now.
@@ -79,18 +64,11 @@ impl SeatOrder {
 /// When a slot is open: the caller checks that the table is full.
 #[must_use]
 pub fn seated_players(record: &PlayerLobbyRecord, seed: u64) -> Vec<PlayerId> {
-    let joined: Vec<PlayerId> = record
-        .slots
-        .iter()
-        .map(|slot| slot.occupant.clone().expect("full lobby"))
-        .collect();
-    match SeatOrder::of(record) {
-        SeatOrder::Join => joined,
-        SeatOrder::Random => seating::lobby_seat_order(joined.len(), seed)
-            .into_iter()
-            .map(|place| joined[place].clone())
-            .collect(),
-    }
+    let joined = joined_players(record);
+    ti4_view::setup::seat_places(seat_order_of(record), joined.len(), seed)
+        .into_iter()
+        .map(|place| joined[place].clone())
+        .collect()
 }
 
 /// `null` and a value are told apart from a missing field: `Some(None)` clears.
@@ -273,147 +251,16 @@ pub fn apply_settings(
     Ok(updated)
 }
 
-/// One set of strategy cards that a table can play.
-#[derive(Debug, Clone, Serialize)]
-pub struct CardSetOption {
-    pub id: &'static str,
-    pub name: &'static str,
-    /// The table plays this set when it names none.
-    pub default: bool,
-    /// The eight cards, by initiative.
-    pub cards: Vec<CardOption>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct CardOption {
-    pub id: String,
-    pub name: String,
-    pub initiative: i32,
-}
-
-/// The factions of one product, in the order of [`seating::LOBBY_FACTIONS`].
-#[derive(Debug, Clone, Serialize)]
-pub struct FactionGroup {
-    pub name: &'static str,
-    pub factions: Vec<FactionOption>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct FactionOption {
-    pub id: &'static str,
-    pub name: String,
-}
-
-/// One kind of seat that the server plays in its own process.
-#[derive(Debug, Clone, Serialize)]
-pub struct BotKindOption {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub description: &'static str,
-}
-
 /// What a host can choose for a table: `GET /api/setup-options`. The page writes none of these
-/// names.
-#[derive(Debug, Clone, Serialize)]
-pub struct SetupOptions {
-    pub min_players: usize,
-    pub max_players: usize,
-    pub strategy_card_sets: Vec<CardSetOption>,
-    pub faction_groups: Vec<FactionGroup>,
-    pub bot_kinds: Vec<BotKindOption>,
-    pub max_bot_delay_ms: u64,
-    /// The wait of a table that set none: the value of the process.
-    pub default_bot_delay_ms: u64,
-    /// The games that a table can start from, as the Dev sheet of a local game lists them.
-    /// Empty on the public server.
-    pub scenarios: Vec<ti4_view::scenario::Scenario>,
-}
-
-/// The name of a set of strategy cards for a player.
-#[must_use]
-pub fn card_set_name(set: &str) -> &'static str {
-    match set {
-        crate::card_set::TE => "Thunder's Edge",
-        crate::card_set::POK => "Prophecy of Kings",
-        crate::card_set::BASE_GAME_CODEX1 => "Base game with Codex I",
-        _ => "Strategy cards",
-    }
-}
-
-/// See [`SetupOptions`]. `public`: the public server, which starts no scenario.
+/// names. `public`: the public server, which starts no scenario.
 #[must_use]
 pub fn setup_options(public: bool) -> SetupOptions {
-    let content = ContentStore::embedded();
-    let strategy_card_sets = crate::card_set::OFFERED
-        .iter()
-        .map(|set| {
-            let (ids, initiative) =
-                ti4_engine::setup::strategy_card_setup_for_set(content, set).unwrap_or_default();
-            let mut cards: Vec<CardOption> = ids
-                .iter()
-                .map(|id| CardOption {
-                    id: id.as_str().to_owned(),
-                    name: content
-                        .get(
-                            ti4_model::content_types::ContentType::StrategyCards,
-                            id.as_str(),
-                        )
-                        .and_then(|card| card.text("name"))
-                        .unwrap_or(id.as_str())
-                        .to_owned(),
-                    initiative: initiative.get(id).copied().unwrap_or(99),
-                })
-                .collect();
-            cards.sort_by_key(|card| card.initiative);
-            CardSetOption {
-                id: set,
-                name: card_set_name(set),
-                default: *set == crate::card_set::DEFAULT,
-                cards,
-            }
-        })
-        .collect();
-    let option = |faction: &&'static str| FactionOption {
-        id: faction,
-        name: ti4_content::factions::get(content, faction)
-            .and_then(|record| record.name().map(str::to_owned))
-            .unwrap_or_else(|| (*faction).to_owned()),
-    };
-    let (base, pok) = seating::LOBBY_FACTIONS.split_at(seating::LOBBY_BASE_FACTIONS);
-    SetupOptions {
-        min_players: *PLAYER_COUNTS.start(),
-        max_players: *PLAYER_COUNTS.end(),
-        strategy_card_sets,
-        faction_groups: vec![
-            FactionGroup {
-                name: "Base game",
-                factions: base.iter().map(option).collect(),
-            },
-            FactionGroup {
-                name: "Prophecy of Kings",
-                factions: pok.iter().map(option).collect(),
-            },
-        ],
-        bot_kinds: vec![
-            BotKindOption {
-                id: SMART_BOT_KIND,
-                name: "Rule bot",
-                description: "The server plays this seat by rules: it builds, moves and scores.",
-            },
-            BotKindOption {
-                id: super::registry::RANDOM_BOT_KIND,
-                name: "Random",
-                description: "The server plays this seat at random, among what the game allows.",
-            },
-        ],
-        max_bot_delay_ms: MAX_BOT_DELAY_MS,
-        default_bot_delay_ms: super::random_bot::random_bot_delay_ms(),
-        scenarios: if public {
-            Vec::new()
-        } else {
-            ti4_view::scenario::SCENARIOS.to_vec()
-        },
+    let mut options =
+        ti4_view::setup::setup_options("The server", super::random_bot::random_bot_delay_ms());
+    if public {
+        options.scenarios.clear();
     }
+    options
 }
 
 #[cfg(test)]
@@ -553,7 +400,7 @@ mod tests {
         let scenario = ti4_view::scenario::find(ti4_view::scenario::LATE_GAME).unwrap();
         let started = apply_settings(&record, &late(Some(scenario.id)), false).unwrap();
         assert_eq!(started.slots.len(), scenario.players);
-        assert_eq!(SeatOrder::of(&started), SeatOrder::Join);
+        assert_eq!(seat_order_of(&started), SeatOrder::Join);
         assert!(matches!(
             apply_settings(&started, &count(4), false),
             Err(LobbyError::ScenarioTable(_))
@@ -623,13 +470,17 @@ mod tests {
             .iter()
             .map(|group| group.factions.len())
             .sum();
-        assert_eq!(factions, seating::LOBBY_FACTIONS.len());
+        assert_eq!(factions, ti4_engine::seating::LOBBY_FACTIONS.len());
         assert!(
             options
                 .faction_groups
                 .iter()
                 .flat_map(|group| &group.factions)
                 .all(|faction| faction.name != faction.id)
+        );
+        assert_eq!(
+            options.bot_kinds[0].description,
+            "The server plays this seat by rules: it builds, moves and scores."
         );
         assert!(!options.scenarios.is_empty());
         assert!(setup_options(true).scenarios.is_empty());

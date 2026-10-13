@@ -9,12 +9,21 @@ import type {
   DraftScope,
   DraftStep,
   SessionUpdate,
+  TableDraw,
+  TableOptions,
+  TablePreview,
+  TableRequest,
 } from "./wire";
 
 interface Exports {
   memory: WebAssembly.Memory;
   ti4_play(seed: number, players: number, humans: number): number;
   ti4_play_scenario(humans: number, idLength: number): number;
+  ti4_play_setup(length: number): number;
+  ti4_setup_options(players: number): number;
+  ti4_setup_preview(length: number): number;
+  ti4_setup_draw(length: number): number;
+  ti4_set_rule_seats(mask: number): void;
   ti4_scenarios(): number;
   ti4_catalog(): number;
   ti4_can_undo(): number;
@@ -96,11 +105,20 @@ export interface Engine {
   catalog: Catalog | null;
 }
 
-/** Asks the engine a question that needs no game: the instance is asked nothing. */
-async function ask<T>(module: WebAssembly.Module, question: (exports: Exports) => number) {
+/**
+ * Asks the engine a question that needs no game: the instance is asked nothing. With `request`
+ * the question reads it from the request buffer, and is given its length.
+ */
+async function ask<T>(
+  module: WebAssembly.Module,
+  question: (exports: Exports, length: number) => number,
+  request?: unknown,
+) {
   const instance = await WebAssembly.instantiate(module, { host: { ask: () => LEAVE } });
   const exports = instance.exports as unknown as Exports;
-  const status = question(exports);
+  const bytes = new TextEncoder().encode(request === undefined ? "" : JSON.stringify(request));
+  new Uint8Array(exports.memory.buffer).set(bytes, exports.ti4_request_ptr());
+  const status = question(exports, bytes.length);
   const text = new TextDecoder().decode(
     new Uint8Array(exports.memory.buffer, exports.ti4_response_ptr(), Math.abs(status)),
   );
@@ -117,6 +135,21 @@ export const scenariosOf = (module: WebAssembly.Module) =>
 /** Asks the engine for the printed cards. */
 export const catalogOf = (module: WebAssembly.Module) =>
   ask<Catalog>(module, (exports) => exports.ti4_catalog());
+
+/**
+ * What a host can choose for the table of the page, with the maps that build for `players`
+ * seats (0: every map). The same options as `GET /api/setup-options` of the server.
+ */
+export const setupOptionsOf = (module: WebAssembly.Module, players: number) =>
+  ask<TableOptions>(module, (exports) => exports.ti4_setup_options(players));
+
+/** The board of a table before it starts, with a place for each seat. */
+export const setupPreviewOf = (module: WebAssembly.Module, table: TableRequest) =>
+  ask<TablePreview>(module, (exports, length) => exports.ti4_setup_preview(length), table);
+
+/** What the start draws for a table: who sits where, and the faction of every seat. */
+export const setupDrawOf = (module: WebAssembly.Module, table: TableRequest) =>
+  ask<TableDraw>(module, (exports, length) => exports.ti4_setup_draw(length), table);
 
 /** Fetches and compiles `ti4.wasm` from `wasmUrl`. */
 export async function loadEngine(wasmUrl: string): Promise<Engine> {
@@ -156,6 +189,19 @@ export interface LocalPlay {
   never?: readonly string[];
   /** Told the whole list after each change, to keep it. */
   onNever?(never: readonly string[]): void;
+  /**
+   * The seats that the rule bot plays where this page does not, as `LocalGame.humans`
+   * (`ti4_set_rule_seats`). The other seats decide at random. A game that is played again
+   * needs the same mask. Not read with `table`, which names the kind of each player.
+   */
+  ruleSeats?: number;
+  /**
+   * The table that the game is started from (`ti4_play_setup`), in place of the seed, the
+   * seats and the mask of the game: its seats and the factions that nobody chose are drawn
+   * from its seed, as the server does it for the table of a lobby. A game that is played again
+   * needs the same table.
+   */
+  table?: TableRequest;
 }
 
 /** A turn of the event loop. A timer would be slowed down in a tab that is not shown. */
@@ -427,7 +473,13 @@ export function createWasmTransport(
     }
     // A status of 0 or more is the length of a result; below 0, the negated length of an error.
     let status: number;
-    if (game.scenario === undefined) {
+    exports.ti4_set_rule_seats(play.table ? 0 : (play.ruleSeats ?? 0));
+    if (play.table) {
+      // The engine reads the table before it plays: a draft writes into the same buffer.
+      const table = new TextEncoder().encode(JSON.stringify(play.table));
+      new Uint8Array(exports.memory.buffer).set(table, exports.ti4_request_ptr());
+      status = await jspi.promising(exports.ti4_play_setup)(table.length);
+    } else if (game.scenario === undefined) {
       status = await jspi.promising(exports.ti4_play)(game.seed, game.players, game.humans);
     } else {
       // The engine copies the id before it plays: a draft writes into the same buffer.

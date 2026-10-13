@@ -9,6 +9,7 @@ mod bluff_intent;
 mod bluff_reaction;
 mod bot_lobby_factions;
 mod bot_lobby_service;
+mod both_hosts;
 mod crash_recovery;
 mod dev_scenario_recovery;
 mod dev_scenarios;

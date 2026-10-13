@@ -1,7 +1,11 @@
 # web2: the start screen, the lobby and the setup of a game
 
 Status: plan, 2026-10-12, second version. Phases 0, 1, 2 and 3 are built (2026-10-13, see
-"Progress of phase 2" and "Progress of phase 3"). The text below it is of the day of the plan:
+"Progress of phase 2" and "Progress of phase 3"). Phase 5 is built too (see "Progress of
+phase 5": the rule bot in a crate, the setup in `ti4-view`, the exports of the wasm host).
+**Phase 4 (the map) is postponed until after phase 6** (owner, 2026-10-13): the target is
+single player on the shared setup. The order is 6, then 4, then 7. The text below it is of the
+day of the plan:
 nothing of web2 was built then. The first version was
 written before the merge of `felix/main` (commit `6f0eb749`). That merge built a part of this
 plan on the server, in another shape, so the decisions and the phases were made again with the
@@ -74,7 +78,7 @@ the first version with the same numbers.
     local game has it), to test a screen of the late game with several people. It is in
     phase 2.
 16. **The rule bot moves into a crate that the wasm host can use**, so that single player has
-    it too (phase 5). Today it is in `ti4-server`.
+    it too (phase 5). Done: `crates/ti4-rule-bot`, used by `ti4-server` and `ti4-wasm`.
 17. **The list of the maps scrolls**, for now. Six players have fourteen maps. The owner
     judges the list when it can be seen.
 
@@ -799,6 +803,13 @@ Found and not changed: the engine gives no starting technology to a faction that
 
 ### Phase 4: the map (web2)
 
+**Postponed until after phase 6** (owner, 2026-10-13). Until then every table, also a table of
+single player, plays the default map of its player count (what `POST /api/games` and
+`ti4_view::map` choose when no map is named), and the Map row of the setup shows its name with
+no control. Phase 4 then puts one list on the board of both `serverTable` and `localTable`, so
+the `Table` seam needs `maps(player_count)` and `setMap` from phase 6 on (the server has
+`GET /api/maps` and `…/lobby/map`; the wasm host has the catalogue of `ti4-view/src/maps`).
+
 1. The list of the maps on the board, for the host: one row for each map of
    `GET /api/maps?player_count=N` and "Random", with the name, the author and what
    `MapChoiceView` says (the number of systems, hyperlanes, "recommended"). The chosen one has
@@ -856,13 +867,140 @@ with eight seats and the long names at 1920×1080 with no vertical scroll of the
 Tests: `ti4-view` (the same seed gives the same table; a chosen faction is kept; every seat has
 another faction); `ti4-bots` (the tests that move); the test of both hosts.
 
+#### Progress of phase 5 (2026-10-13)
+
+Item 2 is built, in another shape than written (commit `f8213cef`):
+
+- The crate is `crates/ti4-rule-bot`, not `ti4-bots`: `agents.rs`, `faction_plans.rs`,
+  `objectives.rs`, `lib.rs` (the rule bot, `choose`) and `random.rs` (the random pick). Its
+  79 unit tests moved with it. It is over `ti4-model`, `ti4-content` and `ti4-engine`, with no
+  default features of `rand`, so it links into the wasm build.
+- `fleet_strength` and `valuation` moved from `ti4-policy` into `ti4-engine`; `ti4-policy`
+  re-exports both (it cannot enter the wasm build, so no new crate was needed for them).
+- `RandomBotDecider` stays in the server, which re-exports the crate as
+  `session::smart_bot` and `session::smart_bot_faction_plans`.
+- The wasm host has `ti4_set_rule_seats(mask)` (README, "Rule seats"): the seats of the mask are
+  played by the rule bot, decided from the seed, the seat and the number of the decision, as on
+  the server; the other seats that the host does not play decide at random, as before. The
+  mask stays until it is set again, so it is set before `ti4_play`. `ti4-wasm` has a test that
+  a game with rule seats is the same twice, differs from a random one, and ends without a host.
+- Raw size of `ti4.wasm`: 5.68 MB, +0.21 MB with the rule bot.
+
+**The rest of phase 5 is built (2026-10-13, later the same day):**
+
+1. **`ti4-view/src/setup.rs`** (item 1). `TableSetup` (the count, the map, the cards, the seat
+   order, the speaker order, `start_from`, the seed) with `check`, `scenario` and `game_seed`;
+   `setup_options(host, default_bot_delay_ms)`; `preview`; `seat_places`; `draw` (the order
+   from the seed, then the factions for that order; a scenario keeps the order of the join);
+   `create` (the seated template game with the card set and the speaker, or the scenario). The
+   sets of strategy cards (`setup::card_set`), the kinds of a seat (`setup::bot_kind`),
+   `SeatOrder`, `PLAYER_COUNTS` and `MAX_BOT_DELAY_MS` are there too.
+   - The catalogue of the maps moved with it: `ti4-server/src/maps/catalog.rs` is now
+     `ti4-view/src/maps/catalog.rs` (`MapChoice`, `MapPreview`, `preview`, `scenario_preview`,
+     `catalog`, `describe`, `recommended_for`), with its tests. The server keeps `variant_seed`
+     (the secret of the process) and re-exports the rest, so no caller changed.
+   - The server is on it: `session/table.rs` has `setup_of(record)` and `seat_order_of(record)`;
+     `start_player_lobby` calls `setup::draw` and `setup::create`; the preview of a lobby is
+     `setup::preview`; `GET /api/setup-options` is `setup::setup_options("The server", …)`, with
+     the scenarios taken out on the public server; `card_set` re-exports the sets and keeps
+     `LEGACY` and `resolve`.
+   - **A start preset stays in the server** (`crate::preset`, 2 500 lines of a tool for
+     `web/`): a table with a preset still starts through `create_game_with_factions`. It is not
+     a field of `TableSetup`.
+   - Guard: `cargo t-web` was green after the move with no test changed but one name
+     (`SeatOrder::of` is `seat_order_of`): the fixtures (`fixtures_verification`), `seat_order`,
+     `lobby_all_factions`, `table_scenario`, `strategy_card_set`, `random_seats`. A test of
+     `setup.rs` compares, field by field as JSON, the state of `create` with the state of the
+     functions that the server called before.
+2. **The exports** (item 3): `ti4_setup_options(players)` (the options, and `maps` for the
+   count), `ti4_setup_preview`, `ti4_setup_draw`, `ti4_play_setup`. The request is
+   `{ setup, seats }`; a seat has `kind` (`human`, `smart`, `random`) and `faction`. The player
+   who came as number i has the id of the i-th letter, wherever it is seated. `ti4_play` is as
+   it was. The README has the section "A table".
+   - In the game of a table a random seat decides as on the server (seed, seat, number of the
+     decision), not from the shared stream of `ti4_play`: without this the two hosts would not
+     play the same game.
+3. **The test of both hosts**: `ti4-server/tests/it/both_hosts.rs`
+   (`slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server`): two tables (four
+   rule seats; five seats with rule and random seats, two chosen factions and the `pok` cards)
+   play a round in the wasm host and on the server, and every decision is the same. It takes
+   11 s in a debug build, so it is in the slow tier; the server has `ti4-wasm` as a
+   dev-dependency for it. It has no fast twin: the wasm host stops at a round, not at a
+   decision.
+4. **Measurements** (README, "Rule seats"): `ti4.wasm` is 5.78 MB raw, 1.47 MB with gzip and
+   1.03 MB with brotli. In headless Chromium on two cores a table of six rule seats takes 6 to
+   9 ms for a decision with the engine in the number, six random seats 3 to 4 ms. So the rule
+   bot is no risk for single player, and the page needs no worker for it.
+5. **The aliases**: `ti4-rule-bot` is in `c-web`, `l-web`, `t-web` and `b-web`, and in the list
+   of `web2/AGENTS.md` (seven crates). Its tests run with `cargo t-web` now.
+6. **web2** (`session/wasmTransport.ts`): `LocalPlay.ruleSeats` (the mask of
+   `ti4_set_rule_seats`) and `LocalPlay.table` (the game is started with `ti4_play_setup`);
+   `setupOptionsOf`, `setupPreviewOf` and `setupDrawOf` ask the engine with no game. The types
+   are in `wire.ts` (`TableSetup`, `TableSeat`, `TableRequest`, `TableOptions`, `TablePreview`,
+   `TableDraw`). Two tests in `wasmTransport.test.ts`. No screen uses them yet: that is
+   `localTable` of phase 6.
+
+Dropped from the first wording: "move `fleet_strength` into the new crate" (it went to
+`ti4-engine`), and "Felix names the moment" (done; the move was one commit with nothing else).
+
+**State of the checks (2026-10-13, stopped by the owner before the last run ended). Nothing
+is committed: all of it is in the working tree of `dev`.**
+
+Run and green:
+
+- `cargo fmt --all -- --check` and `cargo l-web` (Clippy, with `ti4-rule-bot` in the set), after
+  the last change of Rust.
+- `cargo t-web`, whole, once: after the move of the setup and with the exports, before
+  `both_hosts.rs`, the dev-dependency on `ti4-wasm` and the new alias were there (2974 engine,
+  170 + 340 server, 108 view, 5 wasm).
+- The two slow tests by filter, in a debug build: the host test of `ti4-wasm` with its new part
+  for a table (72 s) and `both_hosts` (11 s).
+- `scripts/build-wasm.sh` (release) and the measurements; `npm run typecheck` of web2.
+
+Not run, or not green:
+
+- **The last whole `cargo t-web` did not end.** The run before it (one job, after the target
+  directory was cleared) got as far as the integration tests of the server: 339 passed and
+  `undo::a_seat_takes_back_its_action_and_not_the_decision_of_another_seat` failed. It is the
+  test that "Gates" of phase 2 names as failing once; `cargo t-web undo::` then passed three
+  times. That run stopped there, so the tests of `ti4-view` and `ti4-wasm` were not run after
+  the last changes. The next whole run sat with no CPU for more than ten minutes and was
+  stopped; its output was not kept, so **where it hung is not known**. Start there:
+  `cargo t-web 2>&1 | tee /tmp/t-web.log`, and look at the last "Running" line. Suspects, in
+  order: the same undo test (it waits on a session), and the test binary of the server, which
+  links `ti4-wasm` now (its statics are only touched by the slow test, but this was not
+  checked).
+- An earlier hang of this work was a deadlock in a test of mine (`ti4-wasm`, the host test: a
+  table of six with five seats named, so the sixth was a person and the native host took a lock
+  that the test held). It is fixed, and the test passed after it.
+- `cargo t-web-slow` (the whole slow tier) was not run.
+- `npm test` of web2 was not run with the new `ti4.wasm`: the two new cases of
+  `wasmTransport.test.ts` (the rule seats of a mask; a table from its options to its game) have
+  never run. `npm run lint`, the e2e and `cargo b-web` were not run either. The e2e needs the
+  server built again (`cargo b-web`): its setup code moved.
+- The machine: 3 GB and two cores. A cold build of the engine with its tests must be one job
+  (`-j1`); two compilers at once were killed. 13 GB of old artifacts of the workspace crates were
+  removed from `target/debug` (`deps`, `incremental`) because the disk was full.
+
+Left for phase 6, found while building:
+
+- `LocalGame` and `SavedGame` do not keep the table or the rule seats yet (format 2, item 3 of
+  phase 6). Until then a caller of `LocalPlay.table` must give the same table again for a
+  reload, and `game.humans` must be the mask of its `human` players (the transport reads it for
+  "Play as").
+- The wait of a table is not in the wasm host: `default_bot_delay_ms` of its options is 0. The
+  page waits (item 1 of phase 6).
+- A table of two seats passes `TableSetup::check` when a map builds for it; `ti4_play` still
+  asks for three or more.
+
 ### Phase 6: single player uses the same setup (web2, a small part of the wasm)
 
 1. **`localTable`** in `session/`: a `Table` that lives in the page. Its players are "You" and
-   seats that the page plays (the rule bot, or random); the host is the page. It has the
-   player count, the map, the strategy cards, the factions, the wait time (the page waits
+   seats that the page plays (the rule bot, or random; `ti4_set_rule_seats`); the host is the
+   page. It has the player count, the strategy cards, the factions, the wait time (the page waits
    before it lets a seat decide; check against "Other seats: Step" of the Dev sheet, which is
-   the same idea). It has no link to copy, no nickname to edit and nobody to wait for.
+   the same idea). The map is the default of the count until phase 4 (see there). It has no
+   link to copy, no nickname to edit and nobody to wait for.
 2. **"Single player" of the start screen** opens the lobby screen over `localTable`, when
    this browser has no saved game of single player; with one it opens that game, as today
    (decision 13). "New game" of the Dev sheet opens the setup.
@@ -990,13 +1128,18 @@ and it needs the agreement about `web/`; its second half (the settings) does not
 built first if that agreement takes time. Phases 3 and 4 are web2 only and independent of each
 other. Phase 5 is Rust only and can run beside them. Phase 6 needs 5. Phase 7 is last.
 
+**Order since 2026-10-13 (owner): 5 (built), 6, then 4, then 7.** Phase 4 does not
+block single player: the setup of phase 6 uses the default map of the count, and phase 4 adds
+the list for both tables at once. Phase 4 loses its "independent of 5" place and comes after 6
+so that its list is built once over the `Table` seam, not twice.
+
 | Phase | Where | Size |
 | --- | --- | --- |
 | 0 web2 on the merged server | web2 | small to medium (not known before the tests are run) |
 | 1 the start screen, the lobby, its socket, bots, a seat for each tab | web2, ti4-server (the socket of a table) | large (two new screens, the frame taken out of `GameShell`, the keys, the addresses of the tests) |
 | 2 no Ready, random order, settings, the wait of a table, "Start from" | ti4-server, `web/`, ti4-bot-agent, web2 | large (many tests of the server and of `web/` change) |
 | 3 the choice of the faction | web2, ti4-view (facts of a faction sheet) | medium |
-| 4 the map | web2 | medium |
-| 5 one setup, the crate of the bots, the wasm exports | ti4-view, ti4-bots (new), ti4-server, ti4-wasm | large (a big move, little new code) |
+| 4 the map (after phase 6) | web2 | medium |
+| 5 one setup, the crate of the bots, the wasm exports | ti4-view, ti4-rule-bot, ti4-server, ti4-wasm | built |
 | 6 single player on the same setup | web2, ti4-wasm | medium |
 | 7 the table in the game | ti4-server, ti4-view (a fact), web2 | medium |
