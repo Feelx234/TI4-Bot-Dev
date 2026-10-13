@@ -5,6 +5,7 @@ import { imperialNoScoreNotice, ownImperialPlay } from "../presentation/publicSc
 import {
   ActionToast,
   actionToastFromEvent,
+  isCardOrScore,
   actionToastText,
   autoResolvedToast,
   mergeActionToast,
@@ -16,6 +17,8 @@ import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../pr
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
 import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { reactionCardNotice } from "../presentation/reactionNotice.ts";
+import { recordToasts, type ToastHistoryEntry } from "../presentation/toastHistory.ts";
 import { useTurnRecapSetting } from "./useTurnRecapSetting.ts";
 import { useAutoResolveToasts } from "./useAutoResolveToasts.ts";
 import { useToastMute } from "./useToastMute.ts";
@@ -170,7 +173,11 @@ export function useCornerToasts({
     emitRecap(turns.closed);
     if (mutedRef.current) return;
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
-    const live = recapRef.current ? fresh.filter((e) => !turns.tracked.has(e.id)) : fresh;
+    // Card plays and scoring always toast at once: the recap only names the acting player's own,
+    // so another seat's Sabotage inside the turn would otherwise vanish.
+    const live = recapRef.current
+      ? fresh.filter((e) => !turns.tracked.has(e.id) || isCardOrScore(e))
+      : fresh;
     push(live.flatMap((e) => actionToastFromEvent(e, viewerSeat, board) ?? []));
     // The viewer's own Imperial with nothing scoreable: the engine asks nothing, so say why.
     const imperial = ownImperialPlay(fresh, viewerSeat);
@@ -248,6 +255,25 @@ export function useCornerToasts({
       [...prev.filter((t) => !toasts.some((n) => n.id === t.id)), ...toasts].slice(-MAX_AGENDA_TOASTS),
     );
   }, [agendas, ready, historyGeneration]);
+
+  // Another player's action card opened a reaction window for the viewer: say which card and
+  // what it targets, since the dialog only asks about the viewer's own response.
+  const reactionNoticed = useRef<string | null>(null);
+  const boardRef = useRef(board);
+  boardRef.current = board;
+  useEffect(() => {
+    const notice = reactionCardNotice(
+      pendingChoice,
+      viewerSeat,
+      { actor: (seat) => displayRef.current(seat).label },
+      boardRef.current,
+    );
+    if (!notice || reactionNoticed.current === notice.id || mutedRef.current) return;
+    reactionNoticed.current = notice.id;
+    setNotices((prev) =>
+      [...prev.filter((n) => n.id !== notice.id), { id: notice.id, text: notice.text, tag: "Action card" }].slice(-2),
+    );
+  }, [pendingChoice, viewerSeat]);
 
   const { showToast } = auto;
   useEffect(() => {
@@ -365,5 +391,11 @@ export function useCornerToasts({
     [auto.toasts, actions, recaps, invasionToasts, agendaToastList, notices],
   );
 
-  return { notifications, dismiss, muted };
+  // Everything that was shown, kept so a toast that faded can be read again.
+  const [history, setHistory] = useState<ToastHistoryEntry[]>([]);
+  useEffect(() => {
+    setHistory((prev) => recordToasts(prev, notifications));
+  }, [notifications]);
+
+  return { notifications, dismiss, muted, history };
 }

@@ -98,6 +98,8 @@ interface AutoResolveToastContainerProps {
   onDismiss: (id: string) => void;
   /** Extra space above the bottom edge, so toasts clear bars and overlays down there. */
   bottomOffset?: number;
+  /** Rendered below the toasts (the notification history button). */
+  footer?: React.ReactNode;
 }
 
 /**
@@ -106,7 +108,7 @@ interface AutoResolveToastContainerProps {
  */
 export const AutoResolveToastContainer: React.FC<
   AutoResolveToastContainerProps
-> = ({ notifications, onDismiss, bottomOffset }) => (
+> = ({ notifications, onDismiss, bottomOffset, footer }) => (
   <div
     className="auto-resolve-toast-container"
     data-testid="corner-toasts"
@@ -123,5 +125,6 @@ export const AutoResolveToastContainer: React.FC<
         onDismiss={onDismiss}
       />
     ))}
+    {footer}
   </div>
 );
