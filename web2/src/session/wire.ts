@@ -346,6 +346,22 @@ export interface PrintedCard {
   used: boolean;
 }
 
+/** `ti4_view::components::FactionSheet`: a faction as its sheet prints it. */
+export interface FactionSheet {
+  name: string;
+  title: string;
+  commodities: number;
+  /** The agent, the commander and the hero, by id. */
+  leaders?: string[];
+  starting_technologies?: string[];
+  /** A faction that chooses its starting technologies: how many, and of which. */
+  starting_technology_choice?: { amount: number; options: string[] };
+  faction_technologies?: string[];
+  /** The units that the faction begins with. Without `planet` they are in the space area. */
+  starting_fleet?: { unit: string; count: number; planet?: string }[];
+  home_planets?: { id: string; name: string; resources: number; influence: number }[];
+}
+
 /** `ti4_view::components::ComponentCatalog`: the printed cards of the play areas. */
 export interface ComponentCatalog {
   abilities: { id: string; name: string; window?: string; text: string }[];
@@ -353,9 +369,9 @@ export interface ComponentCatalog {
   factions: Record<string, string[]>;
   /**
    * `ti4_view::components::FactionSheet`: the name that a table calls each faction by ("Sol"),
-   * the name as printed and the commodity value. Absent from the demo.
+   * the name as printed and what the sheet of the faction says. Absent from the demo.
    */
-  faction_sheets?: Record<string, { name: string; title: string; commodities: number }>;
+  faction_sheets?: Record<string, FactionSheet>;
   /**
    * `ti4_view::components::StrategyCard`: the strategy cards of every set. The id of a card of
    * an older printing has no name in it (`base4`). Absent from the demo.

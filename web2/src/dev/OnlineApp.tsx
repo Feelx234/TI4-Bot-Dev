@@ -305,6 +305,8 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
       case "rename":
         localStorage.setItem(NICKNAME_KEY, intent.name);
         return table?.rename(intent.name);
+      case "faction":
+        return table?.setFaction(intent.player, intent.faction);
       case "start":
         return table?.start();
     }

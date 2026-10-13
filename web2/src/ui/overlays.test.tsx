@@ -106,3 +106,16 @@ it("opens above the trigger when there is no room below", () => {
   expect(note()).toHaveStyle({ bottom: "68px" });
   expect(note()!.style.top).toBe("");
 });
+
+it("a tall text opens on the side with more room, and scrolls inside that room", () => {
+  at(500);
+  render(
+    <Peek label="Rule" trigger="Name" buttonClassName={() => ""} tall>
+      Text
+    </Peek>,
+  );
+  fireEvent.mouseEnter(button());
+  // 500 above the trigger and 248 below it: above, with a margin to the edge of the window.
+  expect(note()).toHaveStyle({ bottom: "268px" });
+  expect(note()!.firstElementChild).toHaveStyle({ maxHeight: "486px" });
+});

@@ -1,7 +1,7 @@
 # web2: the start screen, the lobby and the setup of a game
 
-Status: plan, 2026-10-12, second version. Phases 0, 1 and 2 are built; phase 2 is not committed
-(2026-10-13, see "Progress of phase 2"). The text below it is of the day of the plan:
+Status: plan, 2026-10-12, second version. Phases 0, 1, 2 and 3 are built (2026-10-13, see
+"Progress of phase 2" and "Progress of phase 3"). The text below it is of the day of the plan:
 nothing of web2 was built then. The first version was
 written before the merge of `felix/main` (commit `6f0eb749`). That merge built a part of this
 plan on the server, in another shape, so the decisions and the phases were made again with the
@@ -764,6 +764,38 @@ factions, each tab sees the other's at once, a tab that picks a taken faction ge
 a seat left at "Random" gets a faction that no other seat has, and each tab then plays the
 faction that it chose. A shot with eight seats and the open editor at 1920×1080 with no
 vertical scroll of the page, and on the phone.
+
+#### Progress of phase 3 (2026-10-13)
+
+Built, with its tests:
+
+- Items 1 and 2: the faction of a row is the control that opens the choice under the row
+  (`LobbyRowView.editor`, made in `select/lobby.ts`; `FactionEditor` in `LobbyScreen.tsx`).
+  `Table.setFaction` is `POST …/lobby/seat-faction`.
+- Item 3: `ti4_view::components::FactionSheet` has the leaders, the starting technologies (or
+  the choice of them), the faction technologies, the starting fleet and the home planets, from
+  `ti4-content`. `select/factionSheet.ts` makes the sheet; it is behind "?" of a row of the choice
+  and behind the faction of a closed row.
+- Item 4: the groups are `faction_groups` of the setup options; before the server said them,
+  `factions` of the view as one list.
+- Server: the answer for a taken faction names the faction as a table does ("Hacan is already
+  taken by Ada"; it had the id).
+- `Peek` of `ui/` has `tall`, for a text that can be higher than the window.
+
+Decisions made while building, for the owner to confirm:
+
+- The control is the faction of the row with "▾", as the lists of the setup, not a second "✎".
+- The choice stays open after a choice (the chosen row has "▸"); Esc or the control closes it.
+- Three columns on desktop, so the list and eight seats fit the panel with no scroll; two on a
+  phone.
+- A row of the choice has no symbol: web2 has no faction icons.
+- The names of the list are those of the catalogue ("Hacan"), as the rows; the setup options
+  have the printed names ("The Emirates of Hacan").
+- The e2e gets the refusal of the server by holding the socket of the table back from one tab
+  (`routeWebSocket`): with a live socket a taken faction is never offered.
+
+Found and not changed: the engine gives no starting technology to a faction that chooses
+(`NEXT.md`).
 
 ### Phase 4: the map (web2)
 

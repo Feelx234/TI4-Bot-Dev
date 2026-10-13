@@ -68,6 +68,11 @@ export interface Table {
   setSettings(settings: TableSettings): void;
   /** Gives the player of this page another name. */
   rename(nickname: string): void;
+  /**
+   * Chooses the faction of a seat, or with null leaves it to the draw of the start. A player
+   * chooses for the own seat, the host for any. A faction that another seat has is refused.
+   */
+  setFaction(playerId: string, faction: string | null): void;
   /** Starts the game. Host only, with every seat filled. */
   start(): void;
   close(): void;
@@ -395,6 +400,8 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
         ...(settings.startFrom === undefined ? {} : { start_from: settings.startFrom }),
       }),
     rename: (nickname) => void change("nickname", { nickname }),
+    setFaction: (playerId, faction) =>
+      void change("seat-faction", { player_id: playerId, faction }),
     start: () => void change("start", {}),
     close() {
       closed = true;

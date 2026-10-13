@@ -196,7 +196,7 @@ async fn duplicates_unknown_and_unavailable_factions_are_refused_with_a_reason()
     assert!(
         body.as_str()
             .unwrap()
-            .contains("already taken by Rule bot 1"),
+            .contains("Hacan is already taken by Rule bot 1"),
         "{body}"
     );
     for bad in ["nonsense", "bastion", "keleresm", "obsidian"] {

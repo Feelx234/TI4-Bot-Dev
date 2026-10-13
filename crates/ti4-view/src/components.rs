@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use ti4_content::factions::{Faction, Placement};
 use ti4_content::{
     ActionCardTiming, AgendaGroup, ContentStore, PublicObjectiveGroup, Record,
     SecretObjectiveGroup, action_card_timing, agenda_group, public_objective_group,
@@ -134,6 +135,49 @@ pub struct FactionSheet {
     pub title: String,
     /// The commodity value of the faction sheet.
     pub commodities: i32,
+    /// The agent, the commander and the hero, by id ([`ComponentCatalog::leaders`]).
+    pub leaders: Vec<String>,
+    /// The technologies that the faction begins with, by id ([`ComponentCatalog::technologies`]).
+    pub starting_technologies: Vec<String>,
+    /// A faction that chooses its starting technologies: how many, and of which.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starting_technology_choice: Option<TechnologyChoice>,
+    /// The faction technologies, by id.
+    pub faction_technologies: Vec<String>,
+    /// The units that the faction begins with, in the order of the sheet.
+    pub starting_fleet: Vec<StartingUnits>,
+    /// The planets of the home system.
+    pub home_planets: Vec<HomePlanet>,
+}
+
+/// "Choose 2 of the following", of a faction sheet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TechnologyChoice {
+    pub amount: i64,
+    pub options: Vec<String>,
+}
+
+/// One entry of a starting fleet: so many of a unit, in one place.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StartingUnits {
+    /// The unit as the sheet names it: `carrier`, not the unit of the faction (`sol_carrier`).
+    pub unit: String,
+    pub count: u32,
+    /// The id of the home planet that the units are on. Absent: the space area.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planet: Option<String>,
+}
+
+/// One planet of a home system, with its printed values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HomePlanet {
+    pub id: String,
+    pub name: String,
+    pub resources: i64,
+    pub influence: i64,
 }
 
 /// One strategy card as printed.
@@ -282,11 +326,7 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
             .map(|(alias, faction)| {
                 (
                     alias.to_owned(),
-                    FactionSheet {
-                        name: faction.short_name().to_owned(),
-                        title: faction.name().unwrap_or(alias).to_owned(),
-                        commodities: faction.commodities(),
-                    },
+                    faction_sheet(content, sources, alias, &faction),
                 )
             })
             .collect(),
@@ -428,6 +468,77 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
     }
 }
 
+/// The sheet of `faction` as printed. An id that the sources do not have is left out.
+fn faction_sheet(
+    content: &ContentStore,
+    sources: SourceSet,
+    alias: &str,
+    faction: &Faction<'_>,
+) -> FactionSheet {
+    let technologies = |ids: Vec<&str>| -> Vec<String> {
+        ids.into_iter()
+            .filter_map(|id| content.resolve_id(ContentType::Technologies, id, sources))
+            .map(ToOwned::to_owned)
+            .collect()
+    };
+    let record = faction.record();
+    FactionSheet {
+        name: faction.short_name().to_owned(),
+        title: faction.name().unwrap_or(alias).to_owned(),
+        commodities: faction.commodities(),
+        leaders: faction
+            .leaders()
+            .into_iter()
+            .filter_map(|id| content.resolve_id(ContentType::Leaders, id, sources))
+            .map(ToOwned::to_owned)
+            .collect(),
+        starting_technologies: technologies(faction.starting_tech()),
+        starting_technology_choice: record
+            .int("startingTechAmount")
+            .map(|amount| TechnologyChoice {
+                amount,
+                options: technologies(record.strings("startingTechOptions")),
+            })
+            // Sardakk N'orr begins with no technology: the corpus says it as a choice of none.
+            .filter(|choice| choice.amount > 0 && !choice.options.is_empty()),
+        faction_technologies: technologies(faction.faction_tech()),
+        // A fleet that cannot be read is a fault of the corpus, which its validator reports.
+        starting_fleet: faction
+            .deployments(content)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|entry| StartingUnits {
+                unit: entry.unit_id.as_str().to_owned(),
+                count: entry.count,
+                planet: match entry.placement {
+                    Placement::Space => None,
+                    Placement::Planet(planet) => Some(planet.as_str().to_owned()),
+                },
+            })
+            .collect(),
+        home_planets: faction
+            .home_planets()
+            .into_iter()
+            .map(|id| {
+                let planet = content.get(ContentType::Planets, id);
+                HomePlanet {
+                    id: id.to_owned(),
+                    name: planet
+                        .and_then(|planet| planet.text("name"))
+                        .unwrap_or(id)
+                        .to_owned(),
+                    resources: planet
+                        .and_then(|planet| planet.int("resources"))
+                        .unwrap_or(0),
+                    influence: planet
+                        .and_then(|planet| planet.int("influence"))
+                        .unwrap_or(0),
+                }
+            })
+            .collect(),
+    }
+}
+
 /// The agenda `id` as printed. The corpus has what is elected and a note of the card in one
 /// field ("Elect Law (When this agenda is revealed, …)"), and for an agenda with no outcomes of
 /// its own the whole text there.
@@ -508,6 +619,82 @@ mod tests {
             ("Sol", "The Federation of Sol", 4)
         );
         assert_eq!(catalog.faction_sheets["sardakk"].name, "Sardakk N'orr");
+    }
+
+    #[test]
+    fn a_faction_sheet_has_what_a_player_chooses_a_faction_by() {
+        let catalog = printed();
+        let known = |ids: &[String], cards: &[&str], what: &str| {
+            for id in ids {
+                assert!(
+                    cards.contains(&id.as_str()),
+                    "{what} {id} is in the catalogue"
+                );
+            }
+        };
+        let technologies: Vec<&str> = catalog.technologies.iter().map(|c| c.id.as_str()).collect();
+        let leaders: Vec<&str> = catalog.leaders.iter().map(|c| c.id.as_str()).collect();
+        for faction in ti4_engine::seating::LOBBY_FACTIONS {
+            let sheet = &catalog.faction_sheets[faction];
+            // The Nomad has three agents.
+            assert!(sheet.leaders.len() >= 3, "{faction}");
+            known(&sheet.leaders, &leaders, "the leader");
+            known(
+                &sheet.starting_technologies,
+                &technologies,
+                "the technology",
+            );
+            known(&sheet.faction_technologies, &technologies, "the technology");
+            assert!(!sheet.faction_technologies.is_empty(), "{faction}");
+            assert!(!sheet.starting_fleet.is_empty(), "{faction}");
+            assert!(!sheet.home_planets.is_empty(), "{faction}");
+            for units in &sheet.starting_fleet {
+                if let Some(planet) = &units.planet {
+                    assert!(
+                        sheet.home_planets.iter().any(|home| &home.id == planet),
+                        "{faction}: {planet} is a home planet"
+                    );
+                }
+            }
+            if let Some(choice) = &sheet.starting_technology_choice {
+                assert!(sheet.starting_technologies.is_empty(), "{faction}");
+                assert!(choice.options.len() > choice.amount as usize, "{faction}");
+                known(&choice.options, &technologies, "the technology");
+            }
+        }
+        let sol = &catalog.faction_sheets["sol"];
+        assert_eq!(sol.leaders, ["solagent", "solcommander", "solhero"]);
+        assert_eq!(sol.starting_technologies, ["amd", "nm"]);
+        assert_eq!(sol.faction_technologies, ["so2", "ac2"]);
+        let fleet: Vec<(&str, u32, Option<&str>)> = sol
+            .starting_fleet
+            .iter()
+            .map(|units| (units.unit.as_str(), units.count, units.planet.as_deref()))
+            .collect();
+        assert_eq!(
+            fleet,
+            [
+                ("carrier", 2, None),
+                ("destroyer", 1, None),
+                ("fighter", 3, None),
+                ("infantry", 5, Some("jord")),
+                ("spacedock", 1, Some("jord")),
+            ]
+        );
+        let jord = &sol.home_planets[0];
+        assert_eq!(
+            (jord.name.as_str(), jord.resources, jord.influence),
+            ("Jord", 4, 2)
+        );
+        let argent = catalog.faction_sheets["argent"]
+            .starting_technology_choice
+            .as_ref()
+            .expect("the Argent Flight chooses");
+        assert_eq!((argent.amount, argent.options.len()), (2, 3));
+        assert_eq!(
+            catalog.faction_sheets["sol"].starting_technology_choice,
+            None
+        );
     }
 
     #[test]

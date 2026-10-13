@@ -31,6 +31,7 @@ import { selectActionCards } from "./select/cards";
 import { selectScore } from "./select/score";
 import { selectAgendas } from "./select/agendas";
 import { selectSecrets } from "./select/secrets";
+import { factionSheet } from "./select/factionSheet";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
@@ -955,7 +956,46 @@ it.skipIf(!built)(
     // printed: every faction and every card set that a table of the server can play has them.
     const sheets = catalog.components.faction_sheets!;
     expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(24);
-    expect(sheets.ghost).toEqual({ name: "Creuss", title: "The Ghosts of Creuss", commodities: 4 });
+    expect(sheets.ghost).toMatchObject({
+      name: "Creuss",
+      title: "The Ghosts of Creuss",
+      commodities: 4,
+    });
+    // The sheet of a faction, as a player reads it before the game: all of it is printed.
+    expect(factionSheet("sol", catalog)).toMatchObject({
+      title: "The Federation of Sol",
+      facts: [
+        { label: "Home system", value: "Jord 4/2" },
+        { label: "Commodities", value: "4" },
+        { label: "Starting technologies", value: "Antimass Deflectors, Neural Motivator" },
+        { label: "Starting fleet", value: "2 Carriers · Destroyer · 3 Fighters" },
+        { label: "On Jord", value: "5 Infantry · Space dock" },
+      ],
+      abilities: [{ name: "Orbital Drop", window: "ACTION:" }, { name: "Versatile" }],
+      technologies: [{ name: "Spec Ops II" }, { name: "Advanced Carrier II" }],
+      leaders: [
+        { name: "Evelyn DeLouis", kind: "Agent · Master Tactician" },
+        { name: "Claire Gibson", kind: "Commander · Voice of the People" },
+        { name: "Jace X, 4th Air Legion", unlock: "Have 3 scored objectives." },
+      ],
+    });
+    expect(factionSheet("argent", catalog)!.facts[2].value).toBe(
+      "Choose 2 of Neural Motivator, Sarween Tools, Plasma Scoring",
+    );
+    // Every faction of a lobby has a whole sheet, and no line of it is an id.
+    for (const id of Object.keys(sheets)) {
+      const sheet = factionSheet(id, catalog)!;
+      const cards = [...sheet.abilities, ...sheet.technologies, ...sheet.leaders];
+      expect(
+        cards.every((item) => item.text !== ""),
+        id,
+      ).toBe(true);
+      expect(
+        sheet.facts.map((fact) => fact.label),
+        id,
+      ).toContain("Starting fleet");
+    }
+    expect(factionSheet("nobody", catalog)).toBeNull();
     expect(sol.commodities[1]).toBe(4);
     const cards = new Map(catalog.components.strategy_cards!.map((card) => [card.id, card.name]));
     expect(["te4construction", "te6warfare", "base4"].map((id) => cards.get(id))).toEqual([

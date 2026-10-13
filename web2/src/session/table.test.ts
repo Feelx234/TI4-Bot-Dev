@@ -513,3 +513,25 @@ it("the player of a kept session is asked from the server", async () => {
   await expect(playerOf("g1", "secret", answer(true))).resolves.toBe("ada");
   await expect(playerOf("g1", "secret", answer(false))).resolves.toBeNull();
 });
+
+it("the faction of a seat is a call of the lobby, and a faction of another seat is refused", async () => {
+  const game = server(SEAT, {
+    "/seat-faction": { status: 409, body: "Hacan is already taken by Bo" },
+  });
+  game.open();
+  game.push(lobby(1));
+  await settle();
+  game.take();
+  game.table.setFaction("p1", "hacan");
+  await settle();
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/lobby/seat-faction",
+    session: "secret",
+    body: { player_id: "p1", faction: "hacan" },
+  });
+  expect(game.take()).toEqual([{ kind: "rejected", reason: "Hacan is already taken by Bo" }]);
+  // Back to the draw of the start.
+  game.table.setFaction("bot1", null);
+  await settle();
+  expect(game.calls.at(-1)?.body).toEqual({ player_id: "bot1", faction: null });
+});

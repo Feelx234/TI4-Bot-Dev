@@ -675,8 +675,11 @@ impl PlayerLobbyRecord {
             .iter()
             .find(|(id, member)| Some(*id) != except && member.faction.as_deref() == Some(faction))
         {
+            // The message is shown to a player as it is: it names the faction as a table does.
+            let name = ti4_content::factions::get(ContentStore::embedded(), faction)
+                .map_or(faction, |printed| printed.short_name());
             return Err(LobbyError::FactionTaken(format!(
-                "Faction '{faction}' is already taken by {}",
+                "{name} is already taken by {}",
                 holder.nickname
             )));
         }

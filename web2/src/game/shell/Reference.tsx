@@ -115,7 +115,7 @@ function Log({ log }: { log: ReferenceView["log"] }) {
 }
 
 /** A card as printed: the name, what it is, when it is used and the text. Dense, with the frame of a card. */
-function PrintedCard({
+export function PrintedCard({
   name,
   kind,
   window,
