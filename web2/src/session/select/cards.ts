@@ -3,22 +3,23 @@
 // the printed cards and the deck that a game begins with. Copies of a card have ids of their own
 // and one name: a card here is a printed name.
 import type { ActionCardView, ActionCardsView } from "../../model";
-import type { Catalog, SessionUpdate } from "../wire";
+import type { Catalog, ReactionModes, SessionUpdate } from "../wire";
 import { plain, timing } from "./components";
 import { titleCase } from "./names";
 
-/** What the player set for cards. Only `never` changes what the viewer is asked. */
+/** What the player set for cards. Only `modes` changes what the viewer is asked. */
 export interface CardSettings {
   /**
-   * The printed names of the cards that the viewer is never offered. Where the game runs has
-   * them (`Transport.setReactionMode`), and applies them (`ti4_engine::reaction_modes`).
+   * The mode of each reaction that the viewer set: an action card by its printed name, the card
+   * of an ability by its key. Where the game runs has them (`Transport.setReactionMode`), and
+   * applies them (`ti4_view::reaction_modes`).
    */
-  never: string[];
+  modes: ReactionModes;
   /** The printed names of the cards that the viewer acts as if holding. Not wired to anything yet. */
   faked: string[];
 }
 
-export const NO_CARD_SETTINGS: CardSettings = { never: [], faked: [] };
+export const NO_CARD_SETTINGS: CardSettings = { modes: {}, faked: [] };
 
 /** The group of a card that the catalogue does not have. */
 const OTHER = "Other";
@@ -89,7 +90,9 @@ export function selectActionCards(
     hand: [...held.keys()].sort(byGroup).map((name) => ({
       ...card(name),
       copies: held.get(name) ?? 0,
-      never: card(name).action ? null : settings.never.includes(name),
+      offer: card(name).action
+        ? null
+        : { key: name, name, mode: settings.modes[name] ?? "always", ownTurn: true },
     })),
     faked: settings.faked.filter(canFake).map(card),
     reference: groups

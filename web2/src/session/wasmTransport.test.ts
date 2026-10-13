@@ -28,6 +28,8 @@ import {
   totals,
 } from "./productionDraft";
 import { selectActionCards } from "./select/cards";
+import { factionName } from "./select/names";
+import { selectReaction } from "./select/reaction";
 import { selectScore } from "./select/score";
 import { selectAgendas } from "./select/agendas";
 import { selectSecrets } from "./select/secrets";
@@ -51,6 +53,7 @@ import type {
   InvasionFacts,
   MovementFacts,
   ProductionFacts,
+  ReactionModes,
   SessionUpdate,
   TableRequest,
 } from "./wire";
@@ -68,7 +71,9 @@ async function play(
   saved: {
     decisions?: readonly string[];
     switches?: readonly SeatSwitch[];
+    /** The cards that are never offered, by name: a short form of `modes`. */
     never?: readonly string[];
+    modes?: ReactionModes;
     ruleSeats?: number;
     table?: TableRequest;
     waitMs?: number;
@@ -87,6 +92,10 @@ async function play(
   let switches: readonly SeatSwitch[] = saved.switches ?? [];
   const transport = createWasmTransport(engine, game, {
     ...saved,
+    modes: {
+      ...saved.modes,
+      ...Object.fromEntries((saved.never ?? []).map((name) => [name, "never"])),
+    },
     onDecisions: (all, changes, own) => {
       decisions = [...all];
       answers = own.map((at) => all[at]);
@@ -98,6 +107,7 @@ async function play(
   /** The cards of each window that the engine passed, and the Never cards as they were told last. */
   const passed: string[][] = [];
   let never: string[] = [];
+  let modes: ReactionModes = {};
   /** Who waits for the outcome of a draft script. */
   const drafts = new Map<DraftStep[], (outcome: DraftOutcome | null) => void>();
   let wake: (() => void) | null = null;
@@ -113,8 +123,9 @@ async function play(
       drafts.delete(event.script);
     } else if (event.kind === "passed") {
       passed.push(event.cards);
-    } else if (event.kind === "cards") {
-      never = event.never;
+    } else if (event.kind === "modes") {
+      never = Object.keys(event.modes).filter((key) => event.modes[key] === "never");
+      modes = event.modes;
     }
   });
   /** Asks for a draft and waits for its answer: the script comes back with it. */
@@ -138,6 +149,7 @@ async function play(
     draft,
     passed,
     never: () => never,
+    modes: () => modes,
     decisions: () => decisions,
     answers: () => answers,
     switches: () => switches,
@@ -793,7 +805,7 @@ it.skipIf(!built)(
     // Every card of the deck is in the deck, in a hand or in the discard pile.
     const held = update.view.players.reduce((sum, player) => sum + player.action_cards_count, 0);
     expect(facts.deck + held + facts.discard.length).toBe(deck.length);
-    const view = selectActionCards(update, catalog, { never: [], faked: [] })!;
+    const view = selectActionCards(update, catalog, { modes: {}, faked: [] })!;
     expect(view.held).toBe(view.hand.reduce((sum, card) => sum + card.copies, 0));
     for (const card of view.hand) {
       expect(card.text).not.toBe("");
@@ -1156,15 +1168,126 @@ it.skipIf(!built)(
       "ability",
       "decline",
     ]);
-    // The card is set while its window is open: the window is asked again, and passed.
+    // The card is set while its window is open: that window stays, and the player answers it.
     transport.setReactionMode(NAV_SUITE, "never");
     expect(never()).toEqual([NAV_SUITE]);
+    expect(passed).toEqual([]);
+    transport.submitChoice(nonce(window), "decline");
+    // The window after it is passed in the engine.
     const moving = await next();
     expect(subtype(moving)).toBe("movement_step");
-    expect(passed).toEqual([[NAV_SUITE], [NAV_SUITE]]);
+    expect(passed).toEqual([[NAV_SUITE]]);
     // The decline is an answer of the game: a saved game has it.
     expect(answers()).toEqual(["tactical", "41", "decline", "decline"]);
     transport.close();
+  },
+  60_000,
+);
+
+// In the scenario "Late game" seat g is Sardakk: it holds Reverse Engineer, which a window offers
+// when another seat discards a card, and its agent T'ro is readied, which a window offers at the
+// end of the tactical action of any seat.
+const SARDAKK: LocalGame = { seed: 42, players: 8, humans: 0b1000000, scenario: "late-game" };
+const TRO = "leader:sardakkagent";
+
+/** Answers what the seat is asked with a pass, up to the window that offers `key`. */
+async function toWindowOf(game: Awaited<ReturnType<typeof play>>, key: string): Promise<Update> {
+  for (let asked = 0; asked < 200; asked++) {
+    const event = await game.next();
+    if (event.update.reaction?.offers.some((offer) => offer.key === key)) {
+      return event;
+    }
+    const { options } = event.update.pending_choice!.choice;
+    const pass =
+      options.find((option) => option.kind === "decline") ??
+      options.find((option) => option.id === "pass") ??
+      options[options.length - 1];
+    game.transport.submitChoice(game.nonce(event), pass.id);
+  }
+  throw new Error(`no window offered ${key}`);
+}
+
+it.skipIf(!built)(
+  "says what a window of an ability offers as printed, and passes it for a seat that wants it in its turns only",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const game = await play(false, SARDAKK);
+    const window = await toWindowOf(game, TRO);
+    const { update } = window;
+    const choice = update.pending_choice!.choice;
+    expect(subtype(window)).toBe("reaction_after_TACTICAL_ACTION_ENDED");
+    // The window is in the action phase, in the turn of another seat.
+    const active = choice.details?.active;
+    expect(active).not.toBe("g");
+    expect(update.reaction).toMatchObject({
+      own_turn_applies: true,
+      trigger: { event_type: "TACTICAL_ACTION_ENDED", relation: "after", actor: active },
+    });
+    const offer = update.reaction!.offers.find((item) => item.key === TRO)!;
+    expect(offer).toMatchObject({ kind: "leader", role: "agent", name: "T'ro" });
+    expect(offer.window).toMatch(/^At the end of a player's tactical action/);
+    expect(offer.text).toMatch(/exhaust this card/);
+
+    // The screen: the trigger in game values, the card as printed, the setting, and no event id.
+    const view = selectReaction(update, choice, null, catalog, game.modes())!;
+    const faction = factionName(
+      update.view.players.find((player) => player.id === active)!.faction,
+      catalog,
+    );
+    expect(view.heading).toBe(
+      `After ${faction}’s tactical action in system ${update.reaction!.trigger!.system}`,
+    );
+    expect(view.pass).toBe("decline");
+    const row = view.rows.find((item) => item.offer?.key === TRO)!;
+    expect(row).toMatchObject({
+      key: "1",
+      title: "T'ro",
+      state: "Agent",
+      offer: { name: "T'ro", mode: "always", ownTurn: true },
+      intent: { type: "chooseOption", option: offer.option },
+    });
+    expect(row.text).toMatch(
+      /^At the end of a player's tactical action: You may exhaust this card/,
+    );
+    expect(JSON.stringify(view)).not.toContain("TACTICAL_ACTION_ENDED");
+    // The decline is the main button, and no row.
+    expect(view.rows).toHaveLength(choice.options.length - 1);
+
+    // Set while its window is open: that window stays, and the player answers it.
+    const before = game.passed.length;
+    game.transport.setReactionMode(TRO, "ownturn");
+    expect(game.modes()).toEqual({ [TRO]: "ownturn" });
+    expect(game.passed).toHaveLength(before);
+    game.transport.submitChoice(game.nonce(window), "decline");
+    const after = await game.next();
+    expect(after.update.pending_choice?.nonce).not.toBe(update.pending_choice?.nonce);
+    game.transport.close();
+  },
+  60_000,
+);
+
+it.skipIf(!built)(
+  "offers a reaction in the turn of its seat when the seat wants it in its turns only",
+  async () => {
+    // Nav Suite is offered after seat d activates a system: its own turn.
+    const game = await play(false, XXCHA, { modes: { [NAV_SUITE]: "ownturn" } });
+    game.transport.submitChoice(game.nonce(await game.next()), "tactical");
+    game.transport.submitChoice(game.nonce(await game.next()), "41");
+    const window = await game.next();
+    expect(subtype(window)).toBe("reaction_after_SYSTEM_ACTIVATED");
+    expect(window.update.pending_choice?.choice.details?.active).toBe("d");
+    expect(window.update.reaction?.offers.map((offer) => offer.key)).toEqual([NAV_SUITE]);
+    expect(game.passed).toEqual([]);
+    game.transport.close();
+
+    // In the turn of another seat the same mode passes the window of a card.
+    const other = await play(false, SARDAKK, { modes: { "Reverse Engineer": "ownturn" } });
+    const asked = await other.next();
+    expect(
+      asked.update.reaction?.offers.some((offer) => offer.key === "Reverse Engineer") ?? false,
+    ).toBe(false);
+    expect(other.passed[0]).toEqual(["Reverse Engineer"]);
+    other.transport.close();
   },
   60_000,
 );

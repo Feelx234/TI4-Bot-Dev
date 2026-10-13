@@ -73,7 +73,7 @@ import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
 import type { Transport } from "./transport";
-import type { DraftOutcome, DraftScope, DraftStep, SessionUpdate } from "./wire";
+import type { DraftOutcome, DraftScope, DraftStep, ReactionModes, SessionUpdate } from "./wire";
 
 const NOTHING: LocalState = {
   inspected: null,
@@ -364,11 +364,11 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   const [plan, setPlan] = useState<Plan>(() => readPlanOf(drafts));
   /** The private draft of the viewer's secondary. Null: nothing was answered yet. */
   const [follow, setFollow] = useState<SecondaryDraft | null>(() => readFollowOf(drafts));
-  /** The cards that the viewer is never offered: a view of the transport. */
-  const [never, setNever] = useState<string[]>([]);
+  /** The modes that the viewer set for its reactions: a view of the transport. */
+  const [modes, setModes] = useState<ReactionModes>({});
   /** The cards that the viewer acts as if holding. Of the page only. */
   const [faked, setFaked] = useState<string[]>([]);
-  const cards = useMemo((): CardSettings => ({ never, faked }), [never, faked]);
+  const cards = useMemo((): CardSettings => ({ modes, faked }), [modes, faked]);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   /** What the game made of the draft, as the transport told it last. */
   const [run, setRun] = useState<DraftRun | null>(null);
@@ -380,7 +380,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     setLocal(NOTHING);
     setPlan(readPlanOf(drafts));
     setFollow(readFollowOf(drafts));
-    setNever([]);
+    setModes({});
     setFaked([]);
     setRun(null);
     asked.current = null;
@@ -416,14 +416,14 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         }
         return;
       }
-      if (event.kind === "cards") {
-        return setNever(event.never);
+      if (event.kind === "modes") {
+        return setModes(event.modes);
       }
       if (event.kind === "passed") {
         const { cards: passed } = event;
         return setToast((now) => ({
           id: (now?.id ?? 0) + 1,
-          text: `${passed.join(", ")}: never offered. The window was passed.`,
+          text: `${passed.join(", ")}: not offered now. The window was passed.`,
         }));
       }
       if (event.kind === "status") {
@@ -1137,15 +1137,32 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           }
           unmark(() => false);
           return moving && draft(() => ({}));
-        case "setCardOffer": {
-          const { card } = intent;
-          transport.setReactionMode(card, intent.never ? "never" : "always");
+        case "setOffer": {
+          const { name, mode } = intent;
+          transport.setReactionMode(intent.key, mode);
           return setToast((now) => ({
             id: (now?.id ?? 0) + 1,
-            text: intent.never
-              ? `${card}: never offered. Its windows are passed and you are told.`
-              : `${card}: offered again.`,
+            text:
+              mode === "never"
+                ? `${name}: never offered. Its windows are passed and you are told.`
+                : mode === "ownturn"
+                  ? `${name}: offered on your turns only. Its other windows are passed and you are told.`
+                  : `${name}: offered again.`,
           }));
+        }
+        case "reaction": {
+          // The main button of a reaction window: pass, or use what is staged.
+          if (intent.action === "play") {
+            return send();
+          }
+          const decline = shown.reaction
+            ? pending?.choice.options.find((option) => option.kind === "decline")
+            : undefined;
+          if (!pending || !decline || drafted || followInfo?.editing) {
+            return;
+          }
+          transport.submitChoice(pending.nonce, decline.id);
+          return setLocal((now) => ({ ...now, staged: null, sent: pending.nonce }));
         }
         case "setCardFake": {
           const { card } = intent;

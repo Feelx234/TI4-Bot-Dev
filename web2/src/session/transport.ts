@@ -5,6 +5,8 @@ import type {
   DraftScope,
   DraftStep,
   PublicTurnStatus,
+  ReactionMode,
+  ReactionModes,
   SessionUpdate,
 } from "./wire";
 
@@ -54,9 +56,9 @@ export type TransportEvent =
    * does not wait for this side.
    */
   | { kind: "draft"; script: DraftStep[]; scope?: DraftScope; outcome: DraftOutcome | null }
-  /** The printed names of the cards that this side is never offered, after each change. */
-  | { kind: "cards"; never: string[] }
-  /** A window was declined for this side, because it offered only these cards and each is never offered. */
+  /** The mode of each reaction that this side set, by its key, after each change. */
+  | { kind: "modes"; modes: ReactionModes }
+  /** A window was declined for this side, because this side muted everything that it offered: these, by name. */
   | { kind: "passed"; cards: string[] }
   /**
    * The game cannot be reached, and the transport tries again. The last update stays in view and
@@ -130,11 +132,12 @@ export interface Transport {
    */
   applyDraft(nonce: string, draft: { choices: string[]; plan: MovementPlan | null }): void;
   /**
-   * Whether a window offers this card to this side, by its printed name. A window that offers
-   * only cards that are never offered is declined where the game runs (a `passed` event), and
-   * any other window is asked without them. The change is told as a `cards` event.
+   * When a window offers a reaction to this side: an action card by its printed name, the card
+   * of an ability by its key (`ReactionOffer.key`). A window that offers only what this side
+   * muted is declined where the game runs (a `passed` event), and any other window is asked
+   * without it. The change is told as a `modes` event.
    */
-  setReactionMode(card: string, mode: "always" | "never"): void;
+  setReactionMode(key: string, mode: ReactionMode): void;
   /**
    * Takes back the last answer of this side, when `canUndo` of the last update says so; a
    * movement is taken back whole, and so are the landings, and the next update tells the steps.

@@ -8,6 +8,8 @@ import {
   type DraftScope,
   type DraftStep,
   PROTOCOL_VERSION,
+  type ReactionMode,
+  type ReactionModes,
   type RejectionReason,
   type ServerMessage,
   type SessionUpdate,
@@ -115,7 +117,8 @@ export function createWsTransport(
   let failed: string | null = null;
   let offline = false;
   let closed = false;
-  let never: string[] = [];
+  /** The modes of the seat, as the server told them last. */
+  let modes: ReactionModes = {};
   let link: Connection | null = null;
   let attempt = 0;
   let resync: ReturnType<typeof setTimeout> | null = null;
@@ -180,13 +183,10 @@ export function createWsTransport(
       clearTimeout(resync);
       resync = null;
     }
-    const modes = message.reaction_modes ?? {};
-    const cards = Object.keys(modes)
-      .filter((card) => modes[card] === "never")
-      .sort();
-    if (cards.join("\n") !== never.join("\n")) {
-      never = cards;
-      say({ kind: "cards", never: [...never] });
+    const told = modesOf(message.reaction_modes ?? {});
+    if (JSON.stringify(told) !== JSON.stringify(modes)) {
+      modes = told;
+      say({ kind: "modes", modes: { ...modes } });
     }
     for (const note of message.auto_resolved ?? []) {
       if (note.passed?.length && !noted.has(note.id)) {
@@ -355,7 +355,7 @@ export function createWsTransport(
     capabilities: {},
     subscribe(listener) {
       listeners.add(listener);
-      listener({ kind: "cards", never: [...never] });
+      listener({ kind: "modes", modes: { ...modes } });
       if (failed !== null) {
         listener({ kind: "error", message: failed });
       } else {
@@ -416,10 +416,10 @@ export function createWsTransport(
         asked = { id, script, scope };
       }
     },
-    setReactionMode(card, mode) {
-      if (never.includes(card) !== (mode === "never")) {
-        // The server tells the change with the game (`reaction_modes`): a `cards` event follows.
-        send({ type: "set_reaction_mode", game_id: game.gameId, card, mode });
+    setReactionMode(key, mode) {
+      if ((modes[key] ?? "always") !== mode) {
+        // The server tells the change with the game (`reaction_modes`): a `modes` event follows.
+        send({ type: "set_reaction_mode", game_id: game.gameId, card: key, mode });
       }
     },
     undo() {
@@ -436,4 +436,16 @@ export function createWsTransport(
       listeners.clear();
     },
   };
+}
+
+/** The modes that are set, in the order of their keys: "always" is the mode of a key that is not there. */
+function modesOf(told: Record<string, ReactionMode>): ReactionModes {
+  const modes: ReactionModes = {};
+  for (const key of Object.keys(told).sort()) {
+    const mode = told[key];
+    if (mode === "never" || mode === "ownturn") {
+      modes[key] = mode;
+    }
+  }
+  return modes;
 }

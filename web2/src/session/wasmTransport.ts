@@ -8,6 +8,8 @@ import type {
   DraftOutcome,
   DraftScope,
   DraftStep,
+  ReactionMode,
+  ReactionModes,
   SessionUpdate,
   TableDraw,
   TableOptions,
@@ -216,10 +218,10 @@ export interface LocalPlay {
   ): void;
   /** The game waits before each decision of a seat that is not played here. */
   stepping?: boolean;
-  /** The printed names of the cards that the seats of this page are never offered. */
-  never?: readonly string[];
-  /** Told the whole list after each change, to keep it. */
-  onNever?(never: readonly string[]): void;
+  /** The mode of each reaction that the seats of this page set, by its key. */
+  modes?: Readonly<ReactionModes>;
+  /** Told all modes after each change, to keep them. */
+  onModes?(modes: ReactionModes): void;
   /**
    * The seats that the rule bot plays where this page does not, as `LocalGame.humans`
    * (`ti4_set_rule_seats`). The other seats decide at random. A game that is played again
@@ -312,10 +314,10 @@ export function createWasmTransport(
   const pauses = () => (stepping ? 1 : waitMs > 0 ? 2 : 0);
   /** Tells the engine of the run that is the game whether it waits for each seat. */
   let tellStepping: () => void = () => {};
-  /** The cards that the seats of this page are never offered. The engine of each run is told. */
-  const never = new Set(play.never ?? []);
-  /** Tells the engine of the run that is the game the mode of a card. */
-  let tellMode: (card: string, mode: "always" | "never") => void = () => {};
+  /** The modes that the seats of this page set. The engine of each run is told. */
+  const modes: ReactionModes = { ...play.modes };
+  /** Tells the engine of the run that is the game the mode of a reaction. */
+  let tellMode: (key: string, mode: ReactionMode) => void = () => {};
   /** Asks the engine of the run that is the game what a script answers to the choice that it waits in. */
   let askPlan: (script: DraftStep[], next: number, actor: string) => PlanAnswer = () => ({
     kind: "done",
@@ -421,8 +423,8 @@ export function createWasmTransport(
     };
     const draft = (steps: DraftStep[], scope?: DraftScope) =>
       request<DraftOutcome>(exports.ti4_draft, { script: steps, scope }, exports.ti4_draft_ptr)!;
-    const setMode = (card: string, mode: "always" | "never") =>
-      void request(exports.ti4_set_reaction_mode, { card, mode });
+    const setMode = (key: string, mode: ReactionMode) =>
+      void request(exports.ti4_set_reaction_mode, { card: key, mode });
     /** The option of a saved decision in the decision that the engine is parked in, or why it is not offered. */
     const savedOption = (wanted: string): SavedOption | string => {
       const bytes = new TextEncoder().encode(wanted);
@@ -559,8 +561,8 @@ export function createWasmTransport(
     exports = instance.exports as unknown as Exports;
     exports.ti4_set_stepping(pauses());
     tellStepping = () => id === current && exports.ti4_set_stepping(pauses());
-    for (const card of never) {
-      setMode(card, "never");
+    for (const [key, mode] of Object.entries(modes)) {
+      setMode(key, mode);
     }
     tellMode = (card, mode) => id === current && setMode(card, mode);
     askPlan = (entries, next, actor) =>
@@ -810,7 +812,7 @@ export function createWasmTransport(
     capabilities,
     subscribe(listener) {
       listeners.add(listener);
-      listener({ kind: "cards", never: [...never] });
+      listener({ kind: "modes", modes: { ...modes } });
       if (latest) {
         listener(latest);
       }
@@ -877,28 +879,19 @@ export function createWasmTransport(
         say({ kind: "draft", script, scope, outcome });
       });
     },
-    setReactionMode(card, mode) {
-      if (never.has(card) === (mode === "never")) {
+    setReactionMode(key, mode) {
+      if ((modes[key] ?? "always") === mode) {
         return;
       }
-      if (mode === "never") {
-        never.add(card);
+      if (mode === "always") {
+        delete modes[key];
       } else {
-        never.delete(card);
+        modes[key] = mode;
       }
-      tellMode(card, mode);
-      play.onNever?.([...never]);
-      say({ kind: "cards", never: [...never] });
-      // A window that is open and offers the card is asked again, as the card is set now.
-      const offers = (option: ChoiceOption) =>
-        option.payload?.card_name === card ||
-        (Array.isArray(option.payload?.card_names) && option.payload.card_names.includes(card));
-      const open = pending?.paused ? undefined : pending?.update.pending_choice?.choice;
-      if (pending && !plan && open?.options.some(offers)) {
-        const { answer } = pending;
-        pending = null;
-        answer(SWITCH);
-      }
+      tellMode(key, mode);
+      play.onModes?.({ ...modes });
+      say({ kind: "modes", modes: { ...modes } });
+      // A window that is open stays as it was asked: the mode is of the windows after it.
     },
     undo() {
       if (!canUndo()) {

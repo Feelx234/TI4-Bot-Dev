@@ -21,6 +21,7 @@ import {
   storeSavedGame,
 } from "../session/savedGame";
 import type { Transport } from "../session/transport";
+import type { ReactionModes } from "../session/wire";
 import { useLiveSession } from "../session/useLiveSession";
 import { type Engine, createWasmTransport, loadEngine } from "../session/wasmTransport";
 import { Button, Drawer, Hint, Segmented } from "../ui";
@@ -135,8 +136,8 @@ export function LocalApp({
       stepping: steps.current,
       table: game.table,
       waitMs: game.waitMs,
-      never: readNever(game),
-      onNever: (never) => localStorage.setItem(cardsKey(game), JSON.stringify(never)),
+      modes: readModes(game),
+      onModes: (modes) => localStorage.setItem(cardsKey(game), JSON.stringify(modes)),
       onDecisions(list, changes, own) {
         storeSavedGame(localStorage, {
           format: 3,
@@ -467,13 +468,30 @@ export function LocalApp({
   );
 }
 
-/** The cards that the player is never offered in this game, as they were kept. */
-function readNever(game: LocalGame): string[] {
+/**
+ * The modes of the reactions that the player set in this game, as they were kept. A page of
+ * before the modes of abilities kept the names of the cards that are never offered.
+ */
+function readModes(game: LocalGame): ReactionModes {
   try {
-    const kept: unknown = JSON.parse(localStorage.getItem(cardsKey(game)) || "[]");
-    return Array.isArray(kept) ? kept.filter((name) => typeof name === "string") : [];
+    const kept: unknown = JSON.parse(localStorage.getItem(cardsKey(game)) || "{}");
+    const modes: ReactionModes = {};
+    if (Array.isArray(kept)) {
+      for (const name of kept) {
+        if (typeof name === "string") {
+          modes[name] = "never";
+        }
+      }
+    } else if (kept && typeof kept === "object") {
+      for (const [key, mode] of Object.entries(kept)) {
+        if (mode === "never" || mode === "ownturn") {
+          modes[key] = mode;
+        }
+      }
+    }
+    return modes;
   } catch {
-    return [];
+    return {};
   }
 }
 

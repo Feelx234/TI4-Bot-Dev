@@ -15,7 +15,7 @@
 pub mod buffer;
 
 use std::cell::{Cell, RefCell};
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt::{self, Write as _};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -454,7 +454,7 @@ static HOST: Mutex<Host> = Mutex::new(Host {
 
 /// The printed names of the action cards that the host is never offered
 /// ([`ti4_set_reaction_mode`]). A setting of the host, not of the game.
-static NEVER: LazyLock<NeverSet> = LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
+static NEVER: LazyLock<NeverSet> = LazyLock::new(|| Arc::new(Mutex::new(BTreeMap::new())));
 
 /// A window that was passed for the host: the option that declined it, and the cards.
 #[derive(Serialize)]
@@ -1359,11 +1359,11 @@ fn set_reaction_mode() -> Result<usize, Failure> {
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
         .map_err(|error| failed(format_args!("the reaction mode is not read: {error}")))?;
-    let mut never = NEVER.lock().expect("never set lock");
-    match request.mode {
-        ReactionMode::Never => never.insert(request.card),
-        ReactionMode::Always => never.remove(&request.card),
-    };
+    ti4_view::reaction_modes::set_mode(
+        &mut NEVER.lock().expect("never set lock"),
+        &request.card,
+        request.mode,
+    );
     Ok(0)
 }
 

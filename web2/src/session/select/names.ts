@@ -131,3 +131,21 @@ export const phaseName = (phase: string) => PHASES[phase] ?? titleCase(phase);
 
 /** The label of an option starts in lower case, as the engine writes it. */
 export const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** The name of a reaction by its key alone, for a key that no card in view has. */
+export function nameOfKey(key: string, catalog: Catalog | null): string {
+  const at = key.indexOf(":");
+  if (at < 0) {
+    return key;
+  }
+  const [kind, id] = [key.slice(0, at), key.slice(at + 1)];
+  const cards =
+    kind === "leader"
+      ? catalog?.components.leaders
+      : kind === "ability"
+        ? catalog?.components.abilities
+        : kind === "technology"
+          ? catalog?.components.technologies
+          : undefined;
+  return cards?.find((card) => card.id === id)?.name ?? titleCase(id);
+}

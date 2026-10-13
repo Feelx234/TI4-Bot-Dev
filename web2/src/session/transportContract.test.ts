@@ -14,6 +14,7 @@ import type {
   DraftScope,
   DraftStep,
   MovementFacts,
+  ReactionModes,
   SessionUpdate,
 } from "./wire";
 import { createWsTransport, openSocket } from "./wsTransport";
@@ -38,6 +39,9 @@ interface Side {
   until(wanted: (event: Update) => boolean): Promise<Update>;
   draft(script: DraftStep[], scope?: DraftScope): Promise<DraftOutcome | null>;
   never(): string[];
+  modes(): ReactionModes;
+  /** Waits until the transport told this mode of a reaction. */
+  mode(key: string, wanted: "always" | "never" | "ownturn"): Promise<void>;
   /** Waits until the transport told the Never cards as `wanted`. */
   cards(wanted: string[]): Promise<void>;
 }
@@ -46,6 +50,7 @@ function side(transport: Transport): Side {
   const seen: Update[] = [];
   const drafts = new Map<DraftStep[], (outcome: DraftOutcome | null) => void>();
   let never: string[] = [];
+  let modes: ReactionModes = {};
   let failed: string | null = null;
   let wake: (() => void) | null = null;
   transport.subscribe((event) => {
@@ -56,8 +61,9 @@ function side(transport: Transport): Side {
     } else if (event.kind === "draft") {
       drafts.get(event.script)?.(event.outcome);
       drafts.delete(event.script);
-    } else if (event.kind === "cards") {
-      never = event.never;
+    } else if (event.kind === "modes") {
+      never = Object.keys(event.modes).filter((key) => event.modes[key] === "never");
+      modes = event.modes;
     }
     wake?.();
   });
@@ -89,7 +95,9 @@ function side(transport: Transport): Side {
         transport.draft(script, scope);
       }),
     never: () => never,
+    modes: () => modes,
     cards: (wanted) => wait(() => never.join() === wanted.join()),
+    mode: (key, wanted) => wait(() => (modes[key] ?? "always") === wanted),
   };
 }
 
@@ -363,6 +371,13 @@ function contract(start: () => Promise<Side>) {
     game.transport.setReactionMode("Sabotage", "never");
     game.transport.setReactionMode("Sabotage", "always");
     await game.cards([]);
+    // The card of an ability is set by its key, and "only on my turns" is a mode of its own.
+    game.transport.setReactionMode("leader:solagent", "ownturn");
+    await game.mode("leader:solagent", "ownturn");
+    expect(game.never()).toEqual([]);
+    game.transport.setReactionMode("leader:solagent", "always");
+    await game.mode("leader:solagent", "always");
+    expect(game.modes()).toEqual({});
     game.transport.close();
   }, 60_000);
 }

@@ -581,6 +581,65 @@ export interface SessionUpdate {
   agendas?: AgendaFacts;
   /** The strategic action that is resolved now, from the card that is played to its last follower. */
   secondary?: SecondaryFacts;
+  /** The reaction window that the viewer is asked in, with what it offers as printed. */
+  reaction?: ReactionFacts;
+}
+
+/**
+ * When a reaction is offered to a seat: always, never, or only in the turns of the seat
+ * (`ti4_model::state::ReactionMode`). "Only in my turns" is of the action phase.
+ */
+export type ReactionMode = "always" | "never" | "ownturn";
+
+/** The modes that a seat set, by the key of the reaction. A key that is not there is "always". */
+export type ReactionModes = Record<string, Exclude<ReactionMode, "always">>;
+
+/** `ti4_engine::decision_context::DecisionTrigger`: what opened a reaction window. All of it is public. */
+export interface DecisionTrigger {
+  kind: string;
+  /** The event of the engine: "TACTICAL_ACTION_ENDED". */
+  event_type: string;
+  relation: "when" | "after";
+  /** The seat that caused the event. */
+  actor?: string;
+  /** A second seat: a partner, the victim of hits, a defender. */
+  subject?: string;
+  /** The id of an action card that was played, or of a strategy card. */
+  card?: string;
+  agenda?: string;
+  system?: string;
+  planet?: string;
+  hits?: number;
+}
+
+/** `ti4_view::reaction::ReactionOffer`: one thing that a reaction window offers, as printed. */
+export interface ReactionOffer {
+  /** The id of the option that uses it. A slot of several action cards has one offer for each name. */
+  option: string;
+  /** What the seat mutes: "leader:nomadagentmercer", or the printed name of an action card. */
+  key: string;
+  kind:
+    | "leader"
+    | "ability"
+    | "technology"
+    | "promissory"
+    | "unit"
+    | "breakthrough"
+    | "action_card";
+  /** Of a leader: "agent", "commander" or "hero". */
+  role?: string;
+  name: string;
+  /** When it is used, as printed. */
+  window?: string;
+  text?: string;
+}
+
+/** `ti4_view::reaction::ReactionFacts` */
+export interface ReactionFacts {
+  trigger?: DecisionTrigger;
+  /** The window is in the action phase: "only in my turns" says something about it. */
+  own_turn_applies: boolean;
+  offers: ReactionOffer[];
 }
 
 /** `ti4_view::secondary::SecondaryFacts`: who played which strategy card, and what each follower did. */
@@ -622,8 +681,8 @@ export interface StateMsg extends SessionUpdate {
   protocol_version: number;
   game_id: string;
   game_version: number;
-  /** The cards that the seat of this connection set, by printed name. Absent when it set none. */
-  reaction_modes?: Record<string, "always" | "never">;
+  /** The reactions that the seat of this connection set, by key. Absent when it set none. */
+  reaction_modes?: Record<string, ReactionMode>;
   /**
    * `AutoResolvedNote`, of a `state_update` only. Read for `passed` alone: the cards of a
    * window that was declined because the seat set each of them to never offer.
@@ -701,7 +760,7 @@ export type ClientRequest =
       expected_version: number;
       option_id: string;
     }
-  | { type: "set_reaction_mode"; game_id: string; card: string; mode: "always" | "never" }
+  | { type: "set_reaction_mode"; game_id: string; card: string; mode: ReactionMode }
   | {
       type: "run_draft";
       game_id: string;

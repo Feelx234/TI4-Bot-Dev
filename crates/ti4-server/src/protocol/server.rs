@@ -63,6 +63,9 @@ pub struct InitialSnapshotMsg {
     /// The strategic action that is resolved now ([`ti4_view::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
+    /// The reaction window that the viewer is asked in ([`ti4_view::reaction`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<ti4_view::reaction::ReactionFacts>,
     /// The digest of the corpus that this server plays with
     /// ([`ti4_content::provenance::embedded_digest`]). A client that has the printed texts of
     /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
@@ -1524,6 +1527,9 @@ pub struct StateUpdateMsg {
     /// The strategic action that is resolved now ([`ti4_view::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
+    /// The reaction window that the viewer is asked in ([`ti4_view::reaction`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<ti4_view::reaction::ReactionFacts>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.

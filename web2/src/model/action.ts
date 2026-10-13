@@ -5,6 +5,7 @@ import type {
   GaugeView,
   HelpView,
   LinkToken,
+  OfferView,
   PillView,
   PlanetId,
   Rich,
@@ -554,6 +555,8 @@ export interface MenuRowView {
   text?: string;
   /** The staged choice of a list where the player chooses one row. */
   selected?: boolean;
+  /** Of a row of a reaction window: when the viewer is offered this reaction. */
+  offer?: OfferView;
   disabled: boolean;
   intent: Intent;
 }

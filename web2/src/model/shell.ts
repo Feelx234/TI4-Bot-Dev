@@ -1,6 +1,6 @@
 import type { ActionView } from "./action";
 import type { BoardView, ExplorationDeck } from "./board";
-import type { Rich, SeatId, SeatView } from "./core";
+import type { OfferView, Rich, SeatId, SeatView } from "./core";
 import type { Intent } from "./intents";
 
 export type Workspace = "live" | "draft" | "history";
@@ -32,6 +32,8 @@ export interface ComponentCardView {
   state: "ready" | "exhausted" | "locked" | "purged" | null;
   /** How a locked leader is unlocked, as printed. */
   unlock: string;
+  /** Of a card of the viewer that a reaction window offers: when it is offered. */
+  offer?: OfferView | null;
 }
 
 /** One row of the player table. Compare `PlayerView`. */
@@ -60,6 +62,11 @@ export interface PlayerRowView {
   components: ComponentCardView[];
   /** Relic fragments in the play area, by deck. Decks with none are left out. */
   fragments: { deck: ExplorationDeck; count: number }[];
+  /**
+   * Of the viewer: the reactions that are not always offered and that no card of the sheet has
+   * (a promissory note, a unit, a breakthrough). The sheet is where they are set back.
+   */
+  muted?: OfferView[];
 }
 
 /** The open task lets the viewer choose a player. The player table is the picker. */
@@ -147,8 +154,8 @@ export interface ActionCardsView {
   limit: number | null;
   /** Null when the game does not say. */
   deck: { left: number; total: number; discarded: number } | null;
-  /** `never`: no window offers the card to the viewer. Null for a card that no window offers. */
-  hand: (ActionCardView & { copies: number; never: boolean | null })[];
+  /** `offer`: when a window offers the card to the viewer. Null for a card that no window offers. */
+  hand: (ActionCardView & { copies: number; offer: OfferView | null })[];
   /** The cards that the viewer acts as if holding. Never a card that is a component action. */
   faked: ActionCardView[];
   /** Every card of the deck, by name, in groups by when a card is played. */

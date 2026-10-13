@@ -74,7 +74,7 @@ afterEach(() => {
 
 it("subscribes as the player, and the snapshot is the first update", () => {
   const game = server();
-  expect(game.take()).toEqual([{ kind: "cards", never: [] }]);
+  expect(game.take()).toEqual([{ kind: "modes", modes: {} }]);
   expect(game.sent()).toEqual([]);
   game.open();
   expect(game.sent()).toEqual([
@@ -101,7 +101,7 @@ it("subscribes as the player, and the snapshot is the first update", () => {
   // A listener that comes later is told the same.
   const late: TransportEvent[] = [];
   game.transport.subscribe((told) => late.push(told));
-  expect(late).toEqual([{ kind: "cards", never: [] }, event]);
+  expect(late).toEqual([{ kind: "modes", modes: {} }, event]);
 });
 
 it("shows a seat that is not asked and a spectator the game with no choice", () => {
@@ -417,7 +417,7 @@ it("is offline while the server cannot be reached, and comes back with a snapsho
   game.transport.draft([]);
   const late: TransportEvent[] = [];
   game.transport.subscribe((told) => late.push(told));
-  expect(late).toEqual([{ kind: "cards", never: [] }, first, { kind: "offline" }]);
+  expect(late).toEqual([{ kind: "modes", modes: {} }, first, { kind: "offline" }]);
   // Each try waits longer than the one before, and offline is told once.
   expect(game.sockets).toHaveLength(1);
   vi.advanceTimersByTime(100);
@@ -566,7 +566,7 @@ it("tells the Never cards as the server keeps them, and a window that was passed
   game.open();
   game.tell({ ...actor, reaction_modes: { Sabotage: "never" } });
   const [cards, first] = game.take().slice(-2);
-  expect(cards).toEqual({ kind: "cards", never: ["Sabotage"] });
+  expect(cards).toEqual({ kind: "modes", modes: { Sabotage: "never" } });
   // The page asks; the setting is the server's.
   game.transport.setReactionMode("Sabotage", "never");
   expect(game.sent()).toHaveLength(1);
@@ -582,9 +582,16 @@ it("tells the Never cards as the server keeps them, and a window that was passed
   // what the page has staged stays.
   const update = { ...actor, type: "state_update" };
   game.tell({ ...update, reaction_modes: { Sabotage: "never", Scuttle: "never" } });
-  expect(game.take()).toEqual([{ kind: "cards", never: ["Sabotage", "Scuttle"] }]);
+  expect(game.take()).toEqual([{ kind: "modes", modes: { Sabotage: "never", Scuttle: "never" } }]);
   game.tell({ ...update, reaction_modes: { Scuttle: "never" } });
-  expect(game.take()).toEqual([{ kind: "cards", never: ["Scuttle"] }]);
+  expect(game.take()).toEqual([{ kind: "modes", modes: { Scuttle: "never" } }]);
+  // "Only on my turns" is a mode of its own, and the card of an ability is set by its key.
+  game.tell({ ...update, reaction_modes: { Scuttle: "never", "leader:solagent": "ownturn" } });
+  expect(game.take()).toEqual([
+    { kind: "modes", modes: { Scuttle: "never", "leader:solagent": "ownturn" } },
+  ]);
+  game.tell({ ...update, reaction_modes: { Scuttle: "never" } });
+  expect(game.take()).toEqual([{ kind: "modes", modes: { Scuttle: "never" } }]);
   // A window of a Never card was declined on the server: told once, before the update.
   const passed = {
     ...update,

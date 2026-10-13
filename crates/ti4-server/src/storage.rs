@@ -414,8 +414,32 @@ pub struct BatchRecord {
 /// for. A game without it simply has no preferences, which is how every older save loads.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReactionModesRecord {
-    #[serde(default)]
+    /// The card names that a seat set to never offer, as a save of before the modes of
+    /// abilities has them. Read, and not written.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+    /// The mode of each reaction that a seat set, by its key.
+    #[serde(default)]
+    pub modes: BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>>,
+}
+
+impl ReactionModesRecord {
+    /// The modes of every seat, with the Never cards of an older save among them.
+    #[must_use]
+    pub fn into_modes(
+        self,
+    ) -> BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>> {
+        let mut modes = self.modes;
+        for (seat, cards) in self.never {
+            let of_seat = modes.entry(seat).or_default();
+            for card in cards {
+                of_seat
+                    .entry(card)
+                    .or_insert(ti4_model::state::ReactionMode::Never);
+            }
+        }
+        modes
+    }
 }
 
 /// Initial configuration record saved atomically to `init.json`.
@@ -1128,7 +1152,7 @@ impl FileGameStore {
         let mut config =
             SessionConfig::new(&init_record.game_id, init_record.initial_state.clone())
                 .with_store(self.clone())
-                .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
+                .with_reaction_modes(self.load_reaction_modes(game_id)?.into_modes())
                 .with_prior_history(decisions.clone(), events.clone());
         config.resume = replay_copy.map(Arc::new);
         config.random_bot_delay_ms = bot_delay_ms;

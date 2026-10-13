@@ -90,6 +90,9 @@ pub enum ReactionMode {
     Always,
     /// Card is automatically declined without player interaction.
     Never,
+    /// Offered on the turns of the seat only: declined while another seat is the active player
+    /// of the action phase.
+    OwnTurn,
 }
 
 impl Default for ReactionMode {

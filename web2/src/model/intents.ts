@@ -1,5 +1,5 @@
 import type { ExplorationDeck } from "./board";
-import type { PlanetId, SeatId, SystemId, UnitType } from "./core";
+import type { OfferMode, PlanetId, SeatId, SystemId, UnitType } from "./core";
 
 /**
  * Everything a player can ask for. The data source decides what an intent does: the mock engine
@@ -89,8 +89,11 @@ export type Intent =
   // Reaction windows: a card is staged, then played; or the viewer passes.
   | { type: "stageReaction"; card: string }
   | { type: "reaction"; action: "pass" | "play" }
-  /** The viewer never wants an offer for this card, or wants it again. */
-  | { type: "setCardOffer"; card: string; never: boolean }
+  /**
+   * When the viewer is offered a reaction: an action card by its printed name, the card of an
+   * ability by its key. `name` is what the player is told.
+   */
+  | { type: "setOffer"; key: string; name: string; mode: OfferMode }
   /** The viewer acts as if holding this card, or stops. Nothing is sent. */
   | { type: "setCardFake"; card: string; fake: boolean }
   /** Opens a reference sheet. The shell answers this one itself. */

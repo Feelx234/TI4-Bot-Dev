@@ -35,10 +35,10 @@ const withFacts: SessionUpdate = {
   ...menu,
   action_cards: { deck: 90, discard: ["mb2", "sabo1"], salvage: ["mb3"], hand_limit: 7 },
 };
-const NONE = { never: [], faked: [] };
+const NONE = { modes: {}, faked: [] };
 
 it("shows the hand as printed, against the limit", () => {
-  const view = selectActionCards(withFacts, catalog, { never: ["Scuttle"], faked: [] });
+  const view = selectActionCards(withFacts, catalog, { modes: { Scuttle: "never" }, faked: [] });
   expect(view).toMatchObject({ held: 2, limit: 7 });
   expect(view?.deck).toEqual({ left: 90, total: 6, discarded: 3 });
   expect(view?.hand).toEqual([
@@ -50,7 +50,7 @@ it("shows the hand as printed, against the limit", () => {
       action: true,
       group: "Action",
       copies: 1,
-      never: null,
+      offer: null,
     },
     {
       name: "Scuttle",
@@ -59,13 +59,13 @@ it("shows the hand as printed, against the limit", () => {
       action: false,
       group: "Turns and actions",
       copies: 1,
-      never: true,
+      offer: { key: "Scuttle", name: "Scuttle", mode: "never", ownTurn: true },
     },
   ]);
 });
 
 it("counts the copies of a card by its name: discarded, held, and open", () => {
-  const view = selectActionCards(withFacts, catalog, { never: [], faked: ["Sabotage", "Rally"] });
+  const view = selectActionCards(withFacts, catalog, { modes: {}, faked: ["Sabotage", "Rally"] });
   const row = (name: string) =>
     view?.reference.flatMap((group) => group.cards).find((item) => item.name === name);
   // The groups are in the order of the catalogue; one with no card is left out.
@@ -97,7 +97,7 @@ it("does not fake a component action", () => {
       })),
     },
   };
-  const view = selectActionCards(other, catalog, { never: [], faked: ["Rally", "Morale Boost"] });
+  const view = selectActionCards(other, catalog, { modes: {}, faked: ["Rally", "Morale Boost"] });
   const rally = view?.reference[0].cards[0];
   expect(rally).toMatchObject({ name: "Rally", action: true, held: 0, open: 1, faked: false });
   expect(view?.faked.map((item) => item.name)).toEqual(["Morale Boost"]);

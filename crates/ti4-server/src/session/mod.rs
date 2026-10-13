@@ -22,7 +22,7 @@ pub mod worker;
 pub use ti4_rule_bot as smart_bot;
 pub use ti4_rule_bot::faction_plans as smart_bot_faction_plans;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
 
@@ -153,8 +153,8 @@ pub struct SessionConfig {
     /// decision and that question was already shown when the position was first live (a
     /// recovery, an undo, a redo), so its auto-resolve notes and bluff holds are not repeated.
     pub announce_tail: bool,
-    /// Card names each seat asked never to be offered (see `reaction_modes`).
-    pub reaction_modes: BTreeMap<PlayerId, BTreeSet<String>>,
+    /// The mode of each reaction that a seat set (see `reaction_modes`).
+    pub reaction_modes: BTreeMap<PlayerId, reaction_modes::Modes>,
     /// The steps that the undo of a seat took back, when this session is what that undo left.
     /// The seat is told them with its next snapshot.
     pub undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
@@ -212,7 +212,7 @@ impl SessionConfig {
     }
 
     #[must_use]
-    pub fn with_reaction_modes(mut self, modes: BTreeMap<PlayerId, BTreeSet<String>>) -> Self {
+    pub fn with_reaction_modes(mut self, modes: BTreeMap<PlayerId, reaction_modes::Modes>) -> Self {
         self.reaction_modes = modes;
         self
     }

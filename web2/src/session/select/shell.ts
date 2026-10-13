@@ -94,7 +94,7 @@ export function selectShell(
     ? selectTactical(update, local, facts, catalog, printed)
     : showsStrategy(update, local)
       ? selectStrategy(update, local, catalog, printed)
-      : selectAction(update, local, catalog, printed);
+      : selectAction(update, local, catalog, printed, cards.modes);
   return {
     seats: selectSeats(update, printed),
     accent:
@@ -120,7 +120,7 @@ export function selectShell(
         applyHint: local.draft.applyHint,
       },
     },
-    players: selectPlayers(update, printed),
+    players: selectPlayers(update, printed, cards.modes),
     board: selectBoard(
       update,
       local.inspected,

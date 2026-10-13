@@ -4,6 +4,7 @@ import { GameProvider } from "../game/context";
 import { ReferenceDrawer } from "../game/shell/Reference";
 import type { Intent } from "../model";
 import menuUpdate from "../session/fixtures/update-menu.json";
+import type { CardSettings } from "../session/select/cards";
 import { selectShell } from "../session/select/shell";
 import type { Catalog, SessionUpdate } from "../session/wire";
 
@@ -63,7 +64,7 @@ const local = {
   draft: null,
 };
 
-function open(settings = { never: [] as string[], faked: [] as string[] }) {
+function open(settings: CardSettings = { modes: {}, faked: [] }) {
   const view = selectShell(update, local, catalog, settings);
   const dispatch = vi.fn<(intent: Intent) => void>();
   render(
@@ -94,8 +95,19 @@ it("shows the hand as printed, with the count against the limit", () => {
 
 it("sets a card of the hand to Never offered", () => {
   const dispatch = open();
-  fireEvent.click(screen.getByRole("button", { name: "Never offer Scuttle" }));
-  expect(dispatch).toHaveBeenCalledWith({ type: "setCardOffer", card: "Scuttle", never: true });
+  const setting = screen.getByRole("combobox", { name: "Offer Scuttle" });
+  expect(
+    within(setting)
+      .getAllByRole("option")
+      .map((option) => option.textContent),
+  ).toEqual(["Offered", "Only on my turns", "Never"]);
+  fireEvent.change(setting, { target: { value: "ownturn" } });
+  expect(dispatch).toHaveBeenCalledWith({
+    type: "setOffer",
+    key: "Scuttle",
+    name: "Scuttle",
+    mode: "ownturn",
+  });
 });
 
 it("lists the deck with what is unseen, and fakes a card that is not held", () => {
@@ -144,7 +156,7 @@ it("has the deck in groups by when a card is played, and no Fake for a component
 });
 
 it("shows a faked card with the hand, marked, and stops faking it", () => {
-  const dispatch = open({ never: [], faked: ["Morale Boost"] });
+  const dispatch = open({ modes: {}, faked: ["Morale Boost"] });
   const faked = within(screen.getByRole("article", { name: "Morale Boost, faked" }));
   expect(faked.getByText("Faked · not in your hand")).toBeInTheDocument();
   fireEvent.click(faked.getByRole("button", { name: "Stop faking" }));

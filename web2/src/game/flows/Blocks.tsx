@@ -20,6 +20,7 @@ import {
   cx,
 } from "../../ui";
 import { ActionButton, RichText, SeatSymbol, TECH_COLOR, useDispatch } from "../context";
+import { OfferSelect } from "../OfferSelect";
 import { useLink } from "../link";
 import { PaymentList } from "../steps/PaymentList";
 
@@ -146,6 +147,8 @@ function MenuRow({ row, grouped }: { row: MenuRowView; grouped: boolean }) {
         grouped
           ? "grid-cols-[30px_104px_minmax(0,1fr)_auto] phone:grid-cols-[68px_minmax(0,1fr)_auto]"
           : "grid-cols-[30px_minmax(0,1fr)_auto] phone:grid-cols-[minmax(0,1fr)_auto]",
+        // On a phone the setting of a reaction is under the text of its card, which has the width.
+        row.offer && "phone:grid-cols-1 phone:gap-y-1.5",
         !row.disabled && "focus-within:bg-white/5 hover:bg-white/5",
         row.selected && "shadow-[inset_2px_0_0_var(--color-gold)]",
       )}
@@ -186,6 +189,12 @@ function MenuRow({ row, grouped }: { row: MenuRowView; grouped: boolean }) {
           {row.state}
         </span>
         {row.selected && <Badge tone="draft">Selected</Badge>}
+        {row.offer && (
+          // Above the button of the row, which covers the row.
+          <span className="relative z-1 inline-flex">
+            <OfferSelect offer={row.offer} />
+          </span>
+        )}
       </span>
     </div>
   );

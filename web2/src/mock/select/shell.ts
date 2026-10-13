@@ -448,7 +448,14 @@ function reference(world: World, state: State): ReferenceView {
         .map((name) => ({
           ...printed(name),
           copies: count(held, name),
-          never: printed(name).action ? null : world.neverOffer.includes(name),
+          offer: printed(name).action
+            ? null
+            : {
+                key: name,
+                name,
+                mode: world.neverOffer.includes(name) ? ("never" as const) : ("always" as const),
+                ownTurn: false,
+              },
         })),
       faked: world.fakedCards.filter(canFake).map(printed),
       reference: groups.map((group) => ({

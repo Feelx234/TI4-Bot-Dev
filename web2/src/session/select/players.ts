@@ -1,6 +1,6 @@
 // The seats and the player table.
 import type { PlayerRowView, PlayerTableView, SeatId, SeatView } from "../../model";
-import type { Catalog, PlayerView, SessionUpdate } from "../wire";
+import type { Catalog, PlayerView, ReactionModes, SessionUpdate } from "../wire";
 import { componentCards } from "./components";
 import { DECKS } from "./exploration";
 import { commodityValue, factionName, seatMark, strategyCard } from "./names";
@@ -44,6 +44,8 @@ export function selectPlayers(
   update: SessionUpdate,
   /** The printed cards. Without it a card is shown by its id. */
   catalog: Catalog | null = null,
+  /** The modes that the viewer set for its reactions: the sheet of the viewer has them. */
+  modes: ReactionModes = {},
 ): PlayerTableView {
   const { view, viewer } = update;
   const acting = actingSeat(update);
@@ -102,7 +104,12 @@ export function selectPlayers(
         player.secret_objectives_count,
       ],
       planets,
-      ...componentCards(update, player, catalog),
+      ...componentCards(
+        update,
+        player,
+        catalog,
+        viewer.role === "player" && viewer.seat === player.id ? modes : null,
+      ),
       // The ids are the short names that players use: AMD, DET, NM.
       technologies: player.technologies.map((id) => id.toUpperCase()),
       fragments: DECKS.flatMap(([key, deck]) => {

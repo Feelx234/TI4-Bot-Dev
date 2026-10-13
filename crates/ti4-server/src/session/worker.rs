@@ -157,11 +157,11 @@ impl SessionShared {
         }
     }
 
-    /// Every seat's Never set as plain data, for persistence and for a restarted worker.
+    /// Every seat's modes as plain data, for persistence and for a restarted worker.
     #[must_use]
     pub fn reaction_modes_snapshot(
         &self,
-    ) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
+    ) -> BTreeMap<PlayerId, crate::session::reaction_modes::Modes> {
         self.reaction_modes
             .iter()
             .map(|(seat, set)| (seat.clone(), set.lock().expect("never set lock").clone()))
@@ -169,7 +169,7 @@ impl SessionShared {
             .collect()
     }
 
-    /// One seat's choices by card name, as the protocol sends them.
+    /// One seat's modes by key, as the protocol sends them.
     #[must_use]
     pub fn reaction_modes_for(&self, viewer: &ViewerRole) -> BTreeMap<String, ReactionMode> {
         let ViewerRole::Player(seat) = viewer else {
@@ -178,20 +178,17 @@ impl SessionShared {
         self.reaction_modes
             .get(seat)
             .map_or_else(BTreeMap::new, |set| {
-                set.lock()
-                    .expect("never set lock")
-                    .iter()
-                    .map(|card| (card.clone(), ReactionMode::Never))
-                    .collect()
+                set.lock().expect("never set lock").clone()
             })
     }
 
-    /// Record one seat's choice for one printed card name, persist it, and tell that seat's
-    /// clients. Idempotent: setting the mode a card already has changes nothing.
+    /// Record one seat's mode for one reaction (the printed name of an action card, or the key
+    /// of the card of an ability), persist it, and tell that seat's clients. Idempotent: setting
+    /// the mode a reaction already has changes nothing.
     ///
     /// # Errors
-    /// A message for the client when the seat is unknown or the card is not an action card, or
-    /// when the choice could not be saved (in which case it is not applied).
+    /// A message for the client when the seat is unknown or the key names no reaction, or when
+    /// the choice could not be saved (in which case it is not applied).
     pub fn set_reaction_mode(
         &mut self,
         seat: &PlayerId,
@@ -201,23 +198,22 @@ impl SessionShared {
         let Some(set) = self.reaction_modes.get(seat).cloned() else {
             return Err("no such seat".to_owned());
         };
-        if !is_action_card_name(card) {
-            return Err(format!("unknown action card '{card}'"));
+        if !is_action_card_name(card) && !is_ability_key(card) {
+            return Err(format!("unknown reaction '{card}'"));
         }
         let before = set.lock().expect("never set lock").clone();
-        {
-            let mut guard = set.lock().expect("never set lock");
-            match mode {
-                ReactionMode::Never => guard.insert(card.to_owned()),
-                ReactionMode::Always => guard.remove(card),
-            };
-        }
+        crate::session::reaction_modes::set_mode(
+            &mut set.lock().expect("never set lock"),
+            card,
+            mode,
+        );
         if *set.lock().expect("never set lock") == before {
             return Ok(());
         }
         if let Some(store) = &self.store {
             let record = crate::storage::ReactionModesRecord {
-                never: self.reaction_modes_snapshot(),
+                modes: self.reaction_modes_snapshot(),
+                ..Default::default()
             };
             if let Err(error) = store.save_reaction_modes(&self.game_id, &record) {
                 *set.lock().expect("never set lock") = before;
@@ -371,7 +367,7 @@ impl SessionShared {
             })
     }
 
-    fn never_of(&self, seat: &PlayerId) -> std::collections::BTreeSet<String> {
+    fn never_of(&self, seat: &PlayerId) -> crate::session::reaction_modes::Modes {
         self.reaction_modes
             .get(seat)
             .map(|set| set.lock().expect("never set lock").clone())
@@ -947,6 +943,21 @@ fn is_action_card_name(name: &str) -> bool {
         .records(ti4_model::content_types::ContentType::ActionCards)
         .iter()
         .any(|record| record.text("name") == Some(name))
+}
+
+/// Whether `key` is the key of the card of an ability: one of the kinds of
+/// `ti4_view::reaction`, then the id of a record.
+fn is_ability_key(key: &str) -> bool {
+    key.split_once(':').is_some_and(|(kind, id)| {
+        matches!(
+            kind,
+            "leader" | "ability" | "technology" | "promissory" | "unit" | "breakthrough"
+        ) && !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    })
 }
 
 /// Spawns the dedicated session worker thread for an active game session.

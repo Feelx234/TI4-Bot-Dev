@@ -870,6 +870,10 @@ pub struct SessionUpdate {
     /// ([`FactsContext::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secondary: Option<crate::secondary::SecondaryFacts>,
+    /// The reaction window that the viewer is asked in, with what it offers as printed
+    /// ([`crate::reaction`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<crate::reaction::ReactionFacts>,
 }
 
 /// What the facts of an update are made from, beside the state of the game.
@@ -886,7 +890,7 @@ pub struct FactsContext<'a> {
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
 ///
-/// The update has its seven facts ([`fill_facts`]), made from `state` as it is: the caller gives
+/// The update has its eight facts ([`fill_facts`]), made from `state` as it is: the caller gives
 /// the full state of the game, and each fact shows `viewer` only what that seat may know.
 #[must_use]
 pub fn project_session_update(
@@ -909,12 +913,13 @@ pub fn project_session_update(
         score: None,
         agendas: None,
         secondary: None,
+        reaction: None,
     };
     fill_facts(&mut update, state, facts);
     update
 }
 
-/// Fills the seven facts of `update`, which was projected from `state`: the one place that does.
+/// Fills the eight facts of `update`, which was projected from `state`: the one place that does.
 ///
 /// `tactical` is of the choice in the update, so only the seat that is asked has it.
 pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &FactsContext<'_>) {
@@ -941,6 +946,10 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
     update.score = Some(crate::score::project_score_facts(state, content));
     update.agendas = Some(crate::agendas::project_agenda_facts(state));
     update.secondary = secondary.and_then(|watch| watch.facts(state, content, &update.viewer));
+    update.reaction = update
+        .pending_choice
+        .as_ref()
+        .and_then(|pending| crate::reaction::project_reaction_facts(content, &pending.choice));
 }
 
 #[cfg(test)]

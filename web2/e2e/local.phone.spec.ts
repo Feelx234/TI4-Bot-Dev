@@ -497,6 +497,28 @@ test("phone: the sheet of a player has its cards, and nothing is cut at the side
   await page.screenshot({ path: "shots/local/phone-player-sheet.png", animations: "disabled" });
 });
 
+test("phone: a reaction window has its card, its setting and Pass, and nothing is cut at the side", async ({
+  page,
+}) => {
+  // Seat G is Sardakk: it holds Reverse Engineer, and the first seat of the round discards a card.
+  await page.goto("/?scenario=late-game&humans=64");
+  const panel = page.locator("#step-panel");
+  await page
+    .getByRole("navigation", { name: "Panes" })
+    .getByRole("button", { name: "Action" })
+    .click();
+  await expect(panel.getByRole("heading").first()).toHaveText(/^After .+ discards .+$/);
+  await expect(panel.getByRole("button", { name: "Reverse Engineer" })).toBeVisible();
+  await expect(panel.getByRole("combobox", { name: "Offer Reverse Engineer" })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toHaveText(/Pass/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({ path: "shots/phone/local/reaction-window.png", animations: "disabled" });
+});
+
 test("phone: the Agendas sheet has the laws and the open groups in its width", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

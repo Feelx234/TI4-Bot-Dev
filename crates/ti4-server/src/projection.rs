@@ -64,6 +64,7 @@ pub fn project_initial_snapshot_with_map(
         score,
         agendas,
         secondary,
+        reaction,
     } = project_session_update(
         state,
         viewer,
@@ -98,6 +99,7 @@ pub fn project_initial_snapshot_with_map(
         score,
         agendas,
         secondary,
+        reaction,
         content: content_digest().to_owned(),
         undone: Vec::new(),
     }
@@ -159,6 +161,7 @@ pub fn project_state_update_with_map(
         score,
         agendas,
         secondary,
+        reaction,
     } = project_session_update(
         state,
         viewer,
@@ -190,6 +193,7 @@ pub fn project_state_update_with_map(
         score,
         agendas,
         secondary,
+        reaction,
     }
 }
 

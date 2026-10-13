@@ -44,7 +44,10 @@ fn asked_with_never(
     let asked = Arc::new(Mutex::new(Vec::new()));
     let skipped = Arc::new(Mutex::new(Vec::new()));
     let set: ti4_server::session::reaction_modes::NeverSet = Arc::new(Mutex::new(
-        never.iter().map(|name| (*name).to_owned()).collect(),
+        never
+            .iter()
+            .map(|name| ((*name).to_owned(), ti4_model::state::ReactionMode::Never))
+            .collect(),
     ));
     let sink = skipped.clone();
     let wrapper = ti4_server::session::reaction_modes::NeverOffer::new(

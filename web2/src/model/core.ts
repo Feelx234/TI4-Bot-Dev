@@ -91,3 +91,19 @@ export const forceText = (force: Force) =>
         `${item.count} ${unitName(item.unit, item.count)}${item.damaged ? ` (${item.count > 1 ? item.damaged + " " : ""}damaged)` : ""}`,
     )
     .join(" · ") || "None";
+
+/**
+ * When a reaction is offered to the viewer: always, never, or only in the turns of the viewer.
+ * "ownturn" is of the action phase: outside it nobody has the turn, and the reaction is offered.
+ */
+export type OfferMode = "always" | "never" | "ownturn";
+
+/** The setting of one reaction of the viewer: the control at the right of its row or of its card. */
+export interface OfferView {
+  /** What is set: the printed name of an action card, or the key of the card of an ability. */
+  key: string;
+  name: string;
+  mode: OfferMode;
+  /** "Only on my turns" can be chosen here. Not in a window outside the action phase. */
+  ownTurn: boolean;
+}

@@ -33,7 +33,7 @@ it("says that a window was passed for a card that is never offered", async () =>
   await game.tell({ kind: "update", update: menu, canUndo: true });
   await game.tell({ kind: "passed", cards: ["Sabotage", "Scuttle"] });
   expect(result.current.session?.view.toast?.text).toBe(
-    "Sabotage, Scuttle: never offered. The window was passed.",
+    "Sabotage, Scuttle: not offered now. The window was passed.",
   );
   // The page answers nothing and takes nothing back: the transport did.
   expect(game.made.submitChoice).not.toHaveBeenCalled();
@@ -43,22 +43,31 @@ it("says that a window was passed for a card that is never offered", async () =>
 it("shows the cards that the transport never offers, and asks it for a change", async () => {
   const game = transport();
   const { result } = renderHook(() => useLiveSession(game.transport));
-  await game.tell({ kind: "cards", never: [] });
+  await game.tell({ kind: "modes", modes: {} });
   await game.tell({ kind: "update", update: menu, canUndo: false });
   const scuttle = () =>
     result.current.session?.view.reference.actionCards?.hand.find((card) => card.name === name);
   const name = "Scuttle";
-  expect(scuttle()?.never).toBe(false);
-  act(() => result.current.session?.dispatch({ type: "setCardOffer", card: name, never: true }));
+  expect(scuttle()?.offer?.mode).toBe("always");
+  act(() => result.current.session?.dispatch({ type: "setOffer", key: name, name, mode: "never" }));
   expect(game.made.setReactionMode).toHaveBeenCalledWith(name, "never");
   expect(result.current.session?.view.toast?.text).toBe(
     `${name}: never offered. Its windows are passed and you are told.`,
   );
   // The setting is a view of the transport: it is shown when the transport says so.
-  expect(scuttle()?.never).toBe(false);
-  await game.tell({ kind: "cards", never: [name] });
-  expect(scuttle()?.never).toBe(true);
-  act(() => result.current.session?.dispatch({ type: "setCardOffer", card: name, never: false }));
+  expect(scuttle()?.offer?.mode).toBe("always");
+  await game.tell({ kind: "modes", modes: { [name]: "never" } });
+  expect(scuttle()?.offer?.mode).toBe("never");
+  act(() =>
+    result.current.session?.dispatch({ type: "setOffer", key: name, name, mode: "ownturn" }),
+  );
+  expect(game.made.setReactionMode).toHaveBeenLastCalledWith(name, "ownturn");
+  expect(result.current.session?.view.toast?.text).toBe(
+    `${name}: offered on your turns only. Its other windows are passed and you are told.`,
+  );
+  act(() =>
+    result.current.session?.dispatch({ type: "setOffer", key: name, name, mode: "always" }),
+  );
   expect(game.made.setReactionMode).toHaveBeenLastCalledWith(name, "always");
 });
 

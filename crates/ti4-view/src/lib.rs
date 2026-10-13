@@ -13,6 +13,7 @@ pub mod map;
 pub mod maps;
 pub mod planning;
 pub mod projection;
+pub mod reaction;
 pub mod reaction_modes;
 pub mod scenario;
 pub mod score;

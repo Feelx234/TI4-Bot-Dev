@@ -6,7 +6,7 @@
 //! the game answers its questions from it ([`ScriptApplication`]). One function answers a
 //! question from a script, here and in a local game: [`script_answer`].
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use crate::session::reaction_modes::{Filtered, filter};
@@ -200,7 +200,7 @@ struct Probe {
     actor: PlayerId,
     /// The cards that the actor is never offered: the live game declines a window of such
     /// cards before the seat, and so before its script, is asked.
-    never: BTreeSet<String>,
+    never: crate::session::reaction_modes::Modes,
     script: Vec<DraftStep>,
     next: usize,
     verdict: Option<Check>,
@@ -306,7 +306,7 @@ pub(crate) fn check_script(
     pending: &Choice,
     script: &[DraftStep],
     actor: &PlayerId,
-    never: BTreeSet<String>,
+    never: crate::session::reaction_modes::Modes,
 ) -> Check {
     let probe = Arc::new(Mutex::new(Probe {
         tail: tail.into(),

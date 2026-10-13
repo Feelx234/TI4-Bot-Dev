@@ -5,9 +5,10 @@ import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type { MovementPlan } from "../movementPlan";
 import type { ProductionDraft } from "../productionDraft";
-import type { Catalog, Choice, ExplorationCatalog, SessionUpdate } from "../wire";
+import type { Catalog, Choice, ExplorationCatalog, ReactionModes, SessionUpdate } from "../wire";
 import { exploringCard } from "./exploration";
 import { factionName, sentence } from "./names";
+import { selectReaction } from "./reaction";
 
 /** The private draft that is in view: what its toolbar and its screens say. */
 export interface DraftInfo {
@@ -152,8 +153,16 @@ export function selectAction(
   catalog: ExplorationCatalog | null = null,
   /** The printed names. Without it a faction is shown by its id. */
   printed: Catalog | null = null,
+  /** The modes that the viewer set for its reactions. */
+  modes: ReactionModes = {},
 ): FlowActionView {
   const choice = openChoice(update, local);
+  // A reaction window has its trigger and its cards as printed. A draft has none: a window is
+  // of the game as it runs.
+  const window =
+    choice && !local.draft && !local.follow?.editing
+      ? selectReaction(update, choice, local.staged, printed, modes)
+      : null;
   // The source is on top: an exploration card that asks is shown as printed.
   const card = choice ? exploringCard(update, catalog) : null;
   const onBoard = boardTask(update, local) !== null;
@@ -187,7 +196,7 @@ export function selectAction(
               : "The other seats are playing.";
   return {
     kind: "flow",
-    title: local.draft ? "Tactical action" : choice ? "Decision" : "Waiting",
+    title: local.draft ? "Tactical action" : window ? "Reaction" : choice ? "Decision" : "Waiting",
     subtitle: "",
     badge: local.draft
       ? { tone: "draft", label: "Private draft" }
@@ -201,7 +210,13 @@ export function selectAction(
     contentKey: update.pending_choice?.nonce ?? "idle",
     interrupt: null,
     closing: [],
-    heading: local.draft ? "Draft" : choice ? sentence(choice.prompt) : "Waiting",
+    heading: local.draft
+      ? "Draft"
+      : window
+        ? window.heading
+        : choice
+          ? sentence(choice.prompt)
+          : "Waiting",
     pill: choice ? { tone: "live", label: "Your decision" } : null,
     trail: [],
     help: [],
@@ -219,15 +234,20 @@ export function selectAction(
                 : `${choice.options.length} systems can be chosen on the board.`,
             },
           ]
-        : [...(card ? [{ kind: "source" as const, ...card }] : []), { kind: "menu", rows }],
+        : [
+            ...(card ? [{ kind: "source" as const, ...card }] : []),
+            { kind: "menu", rows: window?.rows ?? rows },
+          ],
     footer: {
       note: local.planNote
         ? local.planNote.text
         : !choice
           ? ""
           : staged
-            ? `Selected: ${sentence(staged.label || staged.id)}`
-            : `Choose one of ${choice.options.length}.`,
+            ? `Selected: ${window?.rows.find((row) => row.selected)?.title ?? sentence(staged.label || staged.id)}`
+            : window
+              ? ""
+              : `Choose one of ${choice.options.length}.`,
       error: !!local.planNote?.error,
       actions: [
         ...(stepping
@@ -261,14 +281,23 @@ export function selectAction(
                     },
                   ]
                 : []),
-              {
-                // A draft sends nothing: the answer is recorded.
-                label: local.draft || local.follow?.editing ? "Record" : "Send",
-                tone: "primary" as const,
-                disabled: !staged,
-                key: "Enter",
-                intent: { type: "flow" as const, action: "resolve" as const },
-              },
+              window?.pass && !staged
+                ? {
+                    // The main button of a reaction window passes, until a row is staged.
+                    label: "Pass",
+                    tone: "primary" as const,
+                    key: "Enter",
+                    intent: { type: "reaction" as const, action: "pass" as const },
+                  }
+                : {
+                    // A draft sends nothing: the answer is recorded.
+                    label:
+                      local.draft || local.follow?.editing ? "Record" : window ? "Use" : "Send",
+                    tone: "primary" as const,
+                    disabled: !staged,
+                    key: "Enter",
+                    intent: { type: "flow" as const, action: "resolve" as const },
+                  },
             ]
           : []),
       ],

@@ -1313,6 +1313,59 @@ test("the sheet of a player has its abilities, leaders and used cards as printed
   await expect(other.getByRole("region", { name: "Leaders" }).getByRole("article")).toHaveCount(3);
 });
 
+test("a reaction window has its trigger and its cards as printed, and each has its setting", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // Seat G is Sardakk: it holds Reverse Engineer, and the first seat of the round discards a card.
+  await page.goto("/?scenario=late-game&humans=64");
+  await expect(heading(page)).toHaveText(/^After .+ discards .+$/);
+  // No id of the engine is on the screen.
+  await expect(panel(page)).not.toContainText("ACTION_CARD_DISCARDED");
+  const row = panel(page).getByRole("button", { name: "Reverse Engineer" });
+  await expect(row).toBeVisible();
+  await expect(panel(page)).toContainText("Take that action card from the discard pile");
+  // The decline is the main button, and no row.
+  await expect(send(page)).toHaveText(/Pass/);
+  await expect(panel(page).getByRole("button", { name: "Decline" })).toHaveCount(0);
+  const setting = panel(page).getByRole("combobox", { name: "Offer Reverse Engineer" });
+  await expect(setting.getByRole("option")).toHaveText(["Offered", "Only on my turns", "Never"]);
+  await page.screenshot({ path: "shots/local/reaction-window.png", animations: "disabled" });
+
+  // The setting is of the windows after this one: the window stays open, with what is set.
+  await setting.selectOption("ownturn");
+  await expect(page.getByRole("status").filter({ hasText: "Reverse Engineer" })).toContainText(
+    "offered on your turns only",
+  );
+  await expect(heading(page)).toHaveText(/^After .+ discards .+$/);
+  await expect(setting).toHaveValue("ownturn");
+  await expect(send(page)).toHaveText(/Pass/);
+
+  // The sheets are where it is set back: the Cards sheet for a card, the sheet of the seat for
+  // the card of an ability.
+  await page.getByRole("button", { name: "Cards", exact: true }).click();
+  const cards = page.getByRole("complementary", { name: "Cards" });
+  const kept = cards.getByRole("combobox", { name: "Offer Reverse Engineer" });
+  await expect(kept).toHaveValue("ownturn");
+  await kept.selectOption("always");
+  await expect(kept).toHaveValue("always");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Seat G, .*Open player sheet/ }).click();
+  const sheet = page.getByRole("complementary", { name: /^Seat G · / });
+  const agent = sheet.getByRole("combobox", { name: "Offer T'ro" });
+  await expect(agent).toHaveValue("always");
+  await agent.selectOption("never");
+  await expect(agent).toHaveValue("never");
+  // The sheet of another seat has no setting.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Seat A, .*Open player sheet/ }).click();
+  await expect(
+    page.getByRole("complementary", { name: /^Seat A · / }).getByRole("combobox"),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("the Agendas sheet of the late game has the laws in play and the deck in groups", async ({
   page,
 }) => {

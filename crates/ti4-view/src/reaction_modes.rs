@@ -1,10 +1,15 @@
-//! A seat's "never offer me this card" preference, applied where the question is asked.
+//! A seat's "do not offer me this" preference, applied where the question is asked.
+//!
+//! A seat sets a mode for a reaction: an action card by its printed name, or the card of an
+//! ability by its key ([`crate::reaction::ReactionOffer::key`]). `Never` mutes it; `OwnTurn`
+//! mutes it while another seat is the active player of the action phase. Outside the action
+//! phase nobody has the turn, and `OwnTurn` mutes nothing.
 //!
 //! The preference is a *session* setting, not game state: it is not in [`GameState`], not in a
 //! fingerprint and not in the decision log's inputs. It is applied by [`NeverOffer`], a decider
-//! wrapper that sits between the table and the seat's real decider. A window whose every card the
-//! seat has set to Never is declined without asking; a window with some other card left is asked
-//! with the Never cards left out. Either way the table records an ordinary answer, so a replay
+//! wrapper that sits between the table and the seat's real decider. A window whose every offer
+//! the seat has muted is declined without asking; a window with something else left is asked
+//! with the muted offers left out. Either way the table records an ordinary answer, so a replay
 //! (which answers from the recorded log and never reaches this wrapper) reproduces the game
 //! whatever the preference is at replay time.
 //!
@@ -12,79 +17,80 @@
 //!
 //! [`GameState`]: ti4_model::state::GameState
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use ti4_content::ContentStore;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+use ti4_model::state::ReactionMode;
 
-/// The card names a seat has asked never to be offered. Shared with whoever changes it.
-pub type NeverSet = Arc<Mutex<BTreeSet<String>>>;
+/// The mode of each reaction that a seat set, by its key. A key that is not there is `Always`.
+pub type Modes = BTreeMap<String, ReactionMode>;
 
-/// Called with the declined choice and the card names that made it a skip.
+/// The modes of a seat, shared with whoever changes them.
+pub type NeverSet = Arc<Mutex<Modes>>;
+
+/// Called with the declined choice and the names of what made it a skip.
 pub type SkipObserver = Box<dyn FnMut(&Choice, &[String]) + Send>;
 
 /// What the preference does to one question.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Filtered {
-    /// Nothing in it concerns a Never card.
+    /// Nothing in it is muted.
     Unchanged,
-    /// Some options were Never cards; the rest still need an answer.
+    /// Some options were muted; the rest still need an answer.
     Narrowed(Box<Choice>),
-    /// Every reaction option was a Never card and a decline exists: answer it, do not ask.
+    /// Every reaction option was muted and a decline exists: answer it, do not ask.
     Declined {
         /// The decline option of the original choice.
         option: ChoiceOption,
-        /// The card names that were left out, for the note to the player.
+        /// The printed names of what was left out, for the note to the player.
         cards: Vec<String>,
     },
 }
 
-/// The card names an option stands for, when it offers an action card to play.
-///
-/// A window slot that holds several cards names them all in `card_names`; one holding a single
-/// printed name carries it in `card_name`; the inner "which card" step has one name per option.
-fn card_names(option: &ChoiceOption) -> Vec<String> {
-    let listed: Vec<String> = option
-        .payload
-        .get("card_names")
-        .and_then(serde_json::Value::as_array)
-        .map(|names| {
-            names
-                .iter()
-                .filter_map(|name| name.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    if !listed.is_empty() {
-        return listed;
+/// Set `key` to `mode` in `modes`. `Always` is the mode of a key that is not there.
+pub fn set_mode(modes: &mut Modes, key: &str, mode: ReactionMode) {
+    if mode == ReactionMode::Always {
+        modes.remove(key);
+    } else {
+        modes.insert(key.to_owned(), mode);
     }
-    option
-        .payload
-        .get("card_name")
-        .and_then(serde_json::Value::as_str)
-        .map(|name| vec![name.to_owned()])
-        .unwrap_or_default()
 }
 
-fn is_card_offer(option: &ChoiceOption) -> bool {
-    (option.kind == "ability" && option.id.starts_with("reaction:"))
-        || option.kind == ti4_engine::reactions::ACTION_CARD_KIND
+/// Whether the seat that `choice` asks is muted for a reaction of `mode` now.
+fn muted(choice: &Choice, mode: Option<&ReactionMode>) -> bool {
+    match mode {
+        Some(ReactionMode::Never) => true,
+        Some(ReactionMode::OwnTurn) => choice
+            .details
+            .get(ti4_engine::timing::ACTIVE_DETAIL)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|active| active != choice.player.as_str()),
+        Some(ReactionMode::Always) | None => false,
+    }
 }
 
-/// Apply a seat's Never set to a question.
+/// Apply the modes of a seat to a question.
 #[must_use]
-pub fn filter(choice: &Choice, never: &BTreeSet<String>) -> Filtered {
-    if never.is_empty() {
+pub fn filter(choice: &Choice, modes: &Modes) -> Filtered {
+    // Only a window that the seat may decline: a mode never takes an ability that must resolve.
+    if modes.is_empty() || !choice.options.iter().any(ChoiceOption::is_decline) {
         return Filtered::Unchanged;
     }
+    let content = ContentStore::embedded();
     let mut dropped: Vec<String> = Vec::new();
     let mut kept: Vec<ChoiceOption> = Vec::new();
     for option in &choice.options {
-        let names = card_names(option);
-        if is_card_offer(option) && !names.is_empty() && names.iter().all(|n| never.contains(n)) {
-            for name in names {
-                if !dropped.contains(&name) {
-                    dropped.push(name);
+        let offers = crate::reaction::offers_of(content, option);
+        if !offers.is_empty()
+            && offers
+                .iter()
+                .all(|offer| muted(choice, modes.get(&offer.key)))
+        {
+            for offer in offers {
+                if !dropped.contains(&offer.name) {
+                    dropped.push(offer.name);
                 }
             }
         } else {
@@ -109,7 +115,7 @@ pub fn filter(choice: &Choice, never: &BTreeSet<String>) -> Filtered {
     Filtered::Narrowed(Box::new(narrowed))
 }
 
-/// A decider wrapper that honours a seat's Never set before delegating.
+/// A decider wrapper that honours the modes of a seat before delegating.
 pub struct NeverOffer {
     inner: Box<dyn Decider>,
     never: NeverSet,
@@ -133,7 +139,7 @@ impl NeverOffer {
         self
     }
 
-    fn current(&self) -> BTreeSet<String> {
+    fn current(&self) -> Modes {
         self.never.lock().expect("never set lock").clone()
     }
 }
@@ -179,6 +185,9 @@ mod tests {
     use super::*;
     use ti4_model::id::PlayerId;
 
+    const MERCER: &str = "leader:nomad:nomadagentmercer:TACTICAL_ACTION_ENDED:after";
+    const MERCER_KEY: &str = "leader:nomadagentmercer";
+
     fn card(id: &str, name: &str) -> ChoiceOption {
         ChoiceOption::labelled(
             id,
@@ -198,12 +207,31 @@ mod tests {
         option
     }
 
-    fn never(names: &[&str]) -> BTreeSet<String> {
-        names.iter().map(|n| (*n).to_owned()).collect()
+    fn ability(id: &str) -> ChoiceOption {
+        ChoiceOption::labelled(id, "ability", id)
+    }
+
+    fn never(names: &[&str]) -> Modes {
+        names
+            .iter()
+            .map(|n| ((*n).to_owned(), ReactionMode::Never))
+            .collect()
+    }
+
+    fn own_turn(names: &[&str]) -> Modes {
+        names
+            .iter()
+            .map(|n| ((*n).to_owned(), ReactionMode::OwnTurn))
+            .collect()
     }
 
     fn window(options: Vec<ChoiceOption>) -> Choice {
         Choice::new(PlayerId::new("b"), "when EV", options)
+    }
+
+    /// A window of the action phase, in the turn of `active`.
+    fn in_turn_of(active: &str, options: Vec<ChoiceOption>) -> Choice {
+        window(options).detailed(ti4_engine::timing::ACTIVE_DETAIL, active)
     }
 
     #[test]
@@ -248,6 +276,75 @@ mod tests {
         assert_eq!(filter(&choice, &never(&["Sabotage"])), Filtered::Unchanged);
         let choice = window(vec![slot(&["Sabotage"]), ChoiceOption::decline()]);
         assert_eq!(filter(&choice, &never(&[])), Filtered::Unchanged);
+    }
+
+    #[test]
+    fn an_ability_is_muted_by_its_key_and_the_note_has_its_printed_name() {
+        let choice = window(vec![ability(MERCER), ChoiceOption::decline()]);
+        match filter(&choice, &never(&[MERCER_KEY])) {
+            Filtered::Declined { option, cards } => {
+                assert!(option.is_decline());
+                assert_eq!(cards, vec!["Field Marshal Mercer".to_owned()]);
+            }
+            other => panic!("expected a skip, got {other:?}"),
+        }
+        // Another ability of the window is asked without it.
+        let two = window(vec![
+            ability(MERCER),
+            ability("ability:nomad:future_sight:AGENDA_RESOLVED:after"),
+            ChoiceOption::decline(),
+        ]);
+        let Filtered::Narrowed(narrowed) = filter(&two, &never(&[MERCER_KEY])) else {
+            panic!("expected a narrowed question");
+        };
+        assert_eq!(narrowed.options.len(), 2);
+        assert!(narrowed.options.iter().all(|option| option.id != MERCER));
+    }
+
+    #[test]
+    fn a_window_with_no_decline_is_asked_whole() {
+        let choice = window(vec![
+            ability(MERCER),
+            ability("ability:nomad:future_sight:AGENDA_RESOLVED:after"),
+        ]);
+        assert_eq!(filter(&choice, &never(&[MERCER_KEY])), Filtered::Unchanged);
+    }
+
+    #[test]
+    fn own_turn_mutes_in_the_turn_of_another_seat_only() {
+        let options = || vec![ability(MERCER), ChoiceOption::decline()];
+        let modes = own_turn(&[MERCER_KEY]);
+        assert!(matches!(
+            filter(&in_turn_of("a", options()), &modes),
+            Filtered::Declined { .. }
+        ));
+        // The turn of the seat that is asked.
+        assert_eq!(
+            filter(&in_turn_of("b", options()), &modes),
+            Filtered::Unchanged
+        );
+        // Outside the action phase nobody has the turn: the reaction is offered.
+        assert_eq!(filter(&window(options()), &modes), Filtered::Unchanged);
+        // The same for a card.
+        let cards = || vec![slot(&["Sabotage"]), ChoiceOption::decline()];
+        let modes = own_turn(&["Sabotage"]);
+        assert!(matches!(
+            filter(&in_turn_of("a", cards()), &modes),
+            Filtered::Declined { .. }
+        ));
+        assert_eq!(
+            filter(&in_turn_of("b", cards()), &modes),
+            Filtered::Unchanged
+        );
+    }
+
+    #[test]
+    fn set_mode_keeps_no_entry_for_always() {
+        let mut modes = Modes::new();
+        set_mode(&mut modes, "Sabotage", ReactionMode::OwnTurn);
+        assert_eq!(modes.get("Sabotage"), Some(&ReactionMode::OwnTurn));
+        set_mode(&mut modes, "Sabotage", ReactionMode::Always);
+        assert!(modes.is_empty());
     }
 
     #[test]
