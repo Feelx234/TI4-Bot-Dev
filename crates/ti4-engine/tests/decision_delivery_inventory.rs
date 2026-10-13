@@ -893,6 +893,12 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        module: "exploration.rs",
+        function: "perform_action",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "faction_abilities.rs",
         function: "perform_component",
         count: 2,
@@ -1601,6 +1607,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("combat.rs", "roll_round", 1),
     ("combat.rs", "wrath_of_kenara_buy", 1),
     ("exploration.rs", "ask_decorated", 1),
+    ("exploration.rs", "perform_action", 1),
     ("faction_abilities.rs", "munitions_offer", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),

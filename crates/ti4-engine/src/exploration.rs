@@ -429,11 +429,10 @@ fn enigmatic_device_technologies(
 /// action: withheld when its six resources cannot be paid, because an action that cannot fully
 /// resolve is never offered.
 ///
-/// One option per (card, technology) pair, not one option per card. Before this, the option was
-/// just "spend 6 resources to research a technology" -- a decision to pay, blind to which
-/// technology would follow, with a second and entirely separate decision only after the resources
-/// were already gone. A policy could not weigh the technology against its price because the price
-/// was the only thing either decision ever showed it.
+/// One option per card. The technology is chosen in a second, named decision
+/// ([`perform_action`]) *before* the resources are spent, so the price is still not paid blind.
+/// An earlier version listed one option per (card, technology) pair, which put every unheld
+/// technology -- 36 of them in a long game -- into the component action menu.
 #[must_use]
 pub fn available_actions(
     state: &GameState,
@@ -451,25 +450,19 @@ pub fn available_actions(
         player,
         crate::production::Spend::Resources,
     ) < ENIGMATIC_DEVICE_COST
+        || enigmatic_device_technologies(state, content, sources, player).is_empty()
     {
         return Vec::new();
     }
-    let technologies = enigmatic_device_technologies(state, content, sources, player);
     seat.exploration_cards
         .iter()
         .filter(|card| matches!(card.as_str(), "ed1" | "ed2"))
-        .flat_map(|card| {
-            technologies.iter().map(move |tech| {
-                crate::choice::ChoiceOption::labelled(
-                    format!("{PLAY_AREA_PREFIX}{card}:{tech}"),
-                    crate::relics::ACTION_KIND,
-                    format!(
-                        "spend 6 resources to research {}",
-                        crate::technology::name(content, tech)
-                    ),
-                )
-                .with("technology", tech.to_string())
-            })
+        .map(|card| {
+            crate::choice::ChoiceOption::labelled(
+                format!("{PLAY_AREA_PREFIX}{card}"),
+                crate::relics::ACTION_KIND,
+                "Enigmatic Device: spend 6 resources to research a technology",
+            )
         })
         .collect()
 }
@@ -480,14 +473,11 @@ pub fn perform_action(
     content: &ContentStore,
     sources: SourceSet,
     table: &mut crate::choice::Table,
-    _galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
-    let Some(rest) = option.id.strip_prefix(PLAY_AREA_PREFIX) else {
-        return false;
-    };
-    let Some((card, technology)) = rest.split_once(':') else {
+    let Some(card) = option.id.strip_prefix(PLAY_AREA_PREFIX) else {
         return false;
     };
     if !state
@@ -496,9 +486,41 @@ pub fn perform_action(
     {
         return false;
     }
-    // Paid after the technology is already chosen, since the option now names both: 22.3 does
-    // not offer an action that cannot fully resolve, and this pays for exactly what was picked
-    // rather than for an unspecified one.
+    // Which technology is asked before the price is paid: the cost is already known to be
+    // payable (`available_actions`), and a decider is never made to choose after the resources
+    // are gone.
+    let technologies = enigmatic_device_technologies(state, content, sources, player);
+    if technologies.is_empty() {
+        return false;
+    }
+    let choice = crate::choice::Choice::new(
+        player.clone(),
+        "research which technology with the Enigmatic Device",
+        technologies
+            .iter()
+            .map(|tech| {
+                crate::choice::ChoiceOption::labelled(
+                    tech.to_string(),
+                    "technology",
+                    format!("research {}", crate::technology::name(content, tech)),
+                )
+            })
+            .collect(),
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content(card.to_owned()),
+        "enigmatic_device_choose_technology",
+        state.phase,
+        state.round,
+    ));
+    let Ok(answer) = table.ask_seeing(
+        &choice,
+        &crate::choice::Observed::new(state, content, sources, galaxy),
+    ) else {
+        return false;
+    };
+    let technology = TechnologyId::new(answer.id);
     if !crate::production::pay(
         state,
         content,
@@ -517,7 +539,7 @@ pub fn perform_action(
     {
         seat.exploration_cards.remove(at); // purged
     }
-    crate::technology::grant(state, player, &TechnologyId::new(technology));
+    crate::technology::grant(state, player, &technology);
     true
 }
 
@@ -1058,6 +1080,7 @@ struct Holdings {
     secrets: usize,
     relics: usize,
     technologies: usize,
+    play_area: usize,
     own_infantry: usize,
     own_mechs: usize,
     exhausted: bool,
@@ -1089,6 +1112,7 @@ impl Holdings {
             secrets: seat.map_or(0, |seat| seat.secret_objectives.len()),
             relics: seat.map_or(0, |seat| seat.relics.len()),
             technologies: seat.map_or(0, |seat| seat.technologies.len()),
+            play_area: seat.map_or(0, |seat| seat.exploration_cards.len()),
             own_infantry,
             own_mechs,
             exhausted: planet.is_some_and(|planet| state.exhausted_planets.contains(planet)),
@@ -1131,6 +1155,10 @@ impl Holdings {
         }
         if after.technologies > self.technologies {
             parts.push("gained a technology".to_owned());
+        }
+        if after.play_area > self.play_area {
+            // Enigmatic Device: kept faceup, and its ACTION is offered from there.
+            parts.push("placed it faceup in the play area (ACTION: spend 6 resources to research a technology)".to_owned());
         }
         let infantry = delta(self.own_infantry as i64, after.own_infantry as i64);
         if infantry < 0 {
@@ -1845,9 +1873,8 @@ mod tests {
         );
     }
 
-    /// An Enigmatic Device explored goes to the play area and is offered as an action there --
-    /// one option per technology it could grant, each already carrying its price, not a single
-    /// "pay 6, then find out what you got" option.
+    /// An Enigmatic Device explored goes to the play area and is offered as one component action,
+    /// not one per technology; the technology is a follow-up decision.
     #[test]
     fn an_enigmatic_device_becomes_a_component_action() {
         let (mut state, planet) = holder(0, 0);
@@ -1867,20 +1894,22 @@ mod tests {
             seat.trade_goods = 6;
         }
         let offered = available_actions(&state, ContentStore::embedded(), POK, &player());
-        assert!(
-            offered.len() > 1,
-            "one option per unheld technology, not one option for an unspecified one: {}",
+        assert_eq!(
+            offered.len(),
+            1,
+            "one component action for the card, not one per unheld technology: {}",
             offered.len()
         );
         let chosen = &offered[0];
-        let wanted = chosen
-            .payload
-            .get("technology")
-            .and_then(serde_json::Value::as_str)
-            .expect("each option names the technology it pays for")
-            .to_owned();
+        assert_eq!(chosen.id, "play_area:ed1");
+        let wanted = enigmatic_device_technologies(&state, ContentStore::embedded(), POK, &player())
+            .into_iter()
+            .next_back()
+            .expect("a technology to research")
+            .to_string();
 
-        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+        // The technology is asked once, by name, before anything is paid.
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([wanted.clone()])));
         let before = state.player(&player()).unwrap().technologies.len();
         // Measured as spending power, not as trade goods: the seat also controls a planet, so a
         // correct payment draws on both and a trade-good count alone would read as underpaying.
@@ -2199,6 +2228,15 @@ mod tests {
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player(), 1);
         resolve_card(&mut state, &player(), Some(&planet), "cm1", &["decline"]);
         assert_eq!(state.exploration_log[0].result, "");
+    }
+
+    #[test]
+    fn an_explored_enigmatic_device_says_where_it_went() {
+        // The log line the toast shows: "nothing happened" would hide that a card was kept.
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
+        let result = &state.exploration_log[0].result;
+        assert!(result.contains("play area"), "{result}");
     }
 
     #[test]
