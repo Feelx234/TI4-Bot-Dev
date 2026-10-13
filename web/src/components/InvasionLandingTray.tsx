@@ -1,3 +1,4 @@
+import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import React, { useEffect, useRef, useState } from "react";
 import type { BoardView, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import {
@@ -61,6 +62,7 @@ export const InvasionLandingTray: React.FC<{
   onDraftChange,
   embedded = false,
 }) => {
+  const present = useParticipantText();
   const system = board?.invasion?.system_id ?? board?.active_system ?? "";
   const [localDraft, setLocalDraft] = useState<Landing[]>([]);
   const draft = controlledDraft ?? localDraft;
@@ -669,7 +671,7 @@ export const InvasionLandingTray: React.FC<{
       <DecisionHeader
         actor={choice.actor}
         title="Plan landings"
-        instruction={choice.prompt}
+        instruction={present(choice.prompt)}
         progress={system ? `Active system: ${system}` : undefined}
         onMinimize={onClose}
       />

@@ -423,3 +423,19 @@ describe("PlayerSheet economy and token line", () => {
     }
   });
 });
+
+describe("PlayerSheet held foreign command tokens", () => {
+  it("shows one chip per foreign token in the fleet pool and nothing for other seats", () => {
+    const players = [
+      { ...mockPlayers[0], held_foreign_tokens: ["p2", "p3"] },
+      mockPlayers[1],
+    ];
+    render(<PlayerSheet players={players} userSeat="p1" />);
+    expect(screen.getAllByTestId("player-held-tokens")).toHaveLength(1);
+    expect(screen.getAllByTestId("player-held-token")).toHaveLength(2);
+    expect(screen.getByTestId("player-held-tokens").getAttribute("aria-label")).toContain(
+      "Holds 2 other players' command tokens in the fleet pool",
+    );
+  });
+});
+

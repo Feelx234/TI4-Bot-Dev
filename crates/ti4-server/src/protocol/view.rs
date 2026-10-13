@@ -46,6 +46,11 @@ pub struct PlayerView {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub secret_objective_progress: BTreeMap<SecretObjectiveId, ObjectiveProgressView>,
     pub leaders: BTreeMap<LeaderId, LeaderStatus>,
+    /// Other players' command tokens held in this seat's fleet pool (Mahact's Edict), one entry
+    /// per token naming its owner, sorted. Public. Absent for every other seat and while the pool
+    /// holds none, so older clients and saves are unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub held_foreign_tokens: Vec<PlayerId>,
 }
 
 /// Redacted view of a planet on the board.

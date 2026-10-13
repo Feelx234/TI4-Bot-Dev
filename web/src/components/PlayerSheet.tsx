@@ -23,6 +23,58 @@ import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
 import { secretProgressOf } from "../presentation/secretProgress.ts";
 
 
+/**
+ * "Holds: [owner] [owner]": one chip per foreign command token in the fleet pool, in the owner's
+ * seat colour. They count toward the fleet supply but are not part of the sheet's fleet count.
+ */
+export const HeldForeignTokens: React.FC<{ owners: readonly string[] }> = ({ owners }) => {
+  const display = usePlayerIdentity();
+  const names = owners.map((owner) => display(owner).label).join(", ");
+  const summary = `Holds ${owners.length} other ${owners.length === 1 ? "player's" : "players'"} command ${
+    owners.length === 1 ? "token" : "tokens"
+  } in the fleet pool (${names}). They raise the fleet supply and cannot be redistributed.`;
+  return (
+    <div
+      data-testid="player-held-tokens"
+      aria-label={summary}
+      title={summary}
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: "3px 6px",
+        fontSize: 12,
+        color: "#cbd5e1",
+      }}
+    >
+      <span>Holds:</span>
+      {owners.map((owner, index) => {
+        const identity = display(owner);
+        return (
+          <span
+            key={`${owner}-${index}`}
+            data-testid="player-held-token"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "1px 6px",
+              borderRadius: 10,
+              border: `1px solid ${identity.color}`,
+              background: "rgba(15, 23, 42, 0.6)",
+            }}
+          >
+            <span aria-hidden="true" style={{ color: identity.color }}>
+              ◆
+            </span>
+            {identity.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
+
 export interface VPBreakdown {
   publicObjectives: number;
   publicVP: number;
@@ -457,6 +509,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 </Tooltip>
               </div>
             </div>
+
+            {/* Other players' command tokens in this seat's fleet pool (Mahact's Edict). */}
+            {(player.held_foreign_tokens ?? []).length > 0 && (
+              <HeldForeignTokens owners={player.held_foreign_tokens ?? []} />
+            )}
 
             {/* Additional Player Stats (Resources, Influence, Systems, Planets, Production) */}
             <div

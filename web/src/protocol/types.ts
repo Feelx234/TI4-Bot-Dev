@@ -327,6 +327,8 @@ export interface PlayerView {
   /** Progress toward this seat's own countable secrets; only ever sent to that seat. */
   secret_objective_progress?: Record<string, ObjectiveProgressView>;
   leaders: Record<string, string>;
+  /** Other players' command tokens in this seat's fleet pool (Mahact), one entry per token. */
+  held_foreign_tokens?: string[];
 }
 
 export interface ObjectiveProgressView {
