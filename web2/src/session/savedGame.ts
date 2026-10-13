@@ -1,5 +1,6 @@
 // A local game as it is kept between two visits: not its state, but what plays it again.
-// The engine is deterministic, so the seed and the answers of this page give the same game.
+// The engine is deterministic, so the seed and the decisions of the seats give the same game.
+// The server keeps a game the same way: the chosen option of every decision, in order.
 
 import type { TableRequest } from "./wire";
 
@@ -29,19 +30,26 @@ export interface LocalGame {
 export interface SeatSwitch {
   /** The number of the decision of the game from which the mask holds (`ti4_decided`). */
   decision: number;
-  /** The seats that are played here from then on, as `LocalGame.humans`. */
+  /**
+   * The seats that are played here from then on, as `LocalGame.humans`. An undo does not go back
+   * before the change.
+   */
   humans: number;
-  /** How many answers this page had given. An undo does not go back before them. */
-  answers: number;
 }
 
 export interface SavedGame extends LocalGame {
-  /** Format 1 has no table: it is a game of a seed or of a scenario. A page writes format 2. */
-  format: 2;
-  /** SHA-256 of the engine file that played it. Another engine may play the answers differently. */
+  /**
+   * Formats 1 and 2 had the answers of the page only, and the other seats decided again when
+   * the game was played again. They are not read.
+   */
+  format: 3;
+  /** SHA-256 of the engine file that played it. Another engine may offer other options. */
   engine: string;
-  /** The option id of each answer of this page, in order. */
-  answers: string[];
+  /**
+   * The option id of every decision of the game, of every seat, in order: `decisions[n]` answers
+   * the decision with the number `n`.
+   */
+  decisions: string[];
   /** In order. Left out when the seats did not change. */
   switches?: SeatSwitch[];
 }
@@ -104,9 +112,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value !== "object" || value === null) {
     throw new Error("The saved game is not a JSON object.");
   }
-  if (value.format !== 1 && value.format !== 2) {
+  if (value.format !== 3) {
     throw new Error(
-      `The saved game has format ${JSON.stringify(value.format)}; this page reads formats 1 and 2.`,
+      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 3.`,
     );
   }
   for (const field of ["seed", "players", "humans"] as const) {
@@ -137,9 +145,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (value.waitMs !== undefined && !isCount(value.waitMs)) {
     throw new Error('The saved game has no whole number in "waitMs".');
   }
-  const { answers } = value;
-  if (!Array.isArray(answers) || !answers.every((answer) => typeof answer === "string")) {
-    throw new Error('The saved game has no list of option ids in "answers".');
+  const { decisions } = value;
+  if (!Array.isArray(decisions) || !decisions.every((decision) => typeof decision === "string")) {
+    throw new Error('The saved game has no list of option ids in "decisions".');
   }
   const { switches } = value;
   if (
@@ -151,15 +159,14 @@ export function parseSavedGame(text: string): SavedGame {
           typeof item === "object" &&
           item !== null &&
           isCount(item.decision) &&
-          isCount(item.humans) &&
-          isCount(item.answers),
+          isCount(item.humans),
       )
     )
   ) {
     throw new Error('The saved game has no list of seat changes in "switches".');
   }
   return {
-    format: 2,
+    format: 3,
     engine: value.engine,
     seed: value.seed as number,
     players: value.players as number,
@@ -167,15 +174,9 @@ export function parseSavedGame(text: string): SavedGame {
     ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
     ...(table === undefined ? {} : { table: table as TableRequest }),
     ...(value.waitMs === undefined ? {} : { waitMs: value.waitMs as number }),
-    answers,
+    decisions,
     ...(switches?.length
-      ? {
-          switches: switches.map(({ decision, humans, answers }: SeatSwitch) => ({
-            decision,
-            humans,
-            answers,
-          })),
-        }
+      ? { switches: switches.map(({ decision, humans }: SeatSwitch) => ({ decision, humans })) }
       : {}),
   };
 }
@@ -186,7 +187,7 @@ export function loadSavedGame(storage: SaveStorage, game: LocalGame): SavedGame 
   return text === null ? null : parseSavedGame(text);
 }
 
-/** Writes the whole game. It is a few KiB: one short id for each answer. */
+/** Writes the whole game: one short id for each decision, some hundred KiB for a long game of eight. */
 export function storeSavedGame(storage: SaveStorage, save: SavedGame): void {
   storage.setItem(saveKey(save), JSON.stringify(save));
 }

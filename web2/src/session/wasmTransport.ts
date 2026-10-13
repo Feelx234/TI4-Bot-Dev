@@ -39,8 +39,9 @@ interface Exports {
   ti4_draft_ptr(): number;
   ti4_plan(length: number): number;
   ti4_set_reaction_mode(length: number): number;
-  ti4_passed(): number;
-  ti4_replay(answers: number): void;
+  ti4_journal(): number;
+  ti4_replay(decisions: number): void;
+  ti4_saved_option(length: number): number;
 }
 
 /**
@@ -60,10 +61,28 @@ type PlanAnswer =
   /** The game does not offer what the entry asks for. */
   | { kind: "mismatch"; reason: string };
 
-/** A window that the engine declined for this side (`ti4_passed`). */
+/** A window that the engine declined for this side. */
 interface Passed {
   option: ChoiceOption;
   cards: string[];
+}
+
+/**
+ * The decisions that were made without asking the page since it last read them (`ti4_journal`):
+ * of the seats that are not played here, and the windows that the engine declined for this
+ * side. `from` is the number of the first of them.
+ */
+interface Journal {
+  from: number;
+  entries: { id: string; passed?: Passed }[];
+}
+
+/** An option of the decision that the engine is parked in (`ti4_saved_option`). */
+interface SavedOption {
+  index: number;
+  /** A seat of this page decides it. */
+  own: boolean;
+  option: ChoiceOption;
 }
 
 // JSPI: the engine asks for a decision with a blocking call. `Suspending` parks its stack until
@@ -178,12 +197,23 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
 }
 
 export interface LocalPlay {
-  /** Answers of an earlier visit. The game is played again with them before the first update. */
-  answers?: readonly string[];
+  /**
+   * The decisions of an earlier visit, of every seat (`SavedGame.decisions`). The game is played
+   * again with them before the first update.
+   */
+  decisions?: readonly string[];
   /** The seat changes of an earlier visit. The game is played again with them. */
   switches?: readonly SeatSwitch[];
-  /** Told the whole lists after each answer, each undo and each seat change, to keep them. */
-  onAnswers?(answers: readonly string[], switches: readonly SeatSwitch[]): void;
+  /**
+   * Told the whole lists after each decision that the page learns of, each undo and each seat
+   * change, to keep them. `own` is not kept: the places in `decisions` of the answers of this
+   * page, which are what an undo takes back.
+   */
+  onDecisions?(
+    decisions: readonly string[],
+    switches: readonly SeatSwitch[],
+    own: readonly number[],
+  ): void;
   /** The game waits before each decision of a seat that is not played here. */
   stepping?: boolean;
   /** The printed names of the cards that the seats of this page are never offered. */
@@ -207,7 +237,7 @@ export interface LocalPlay {
    * The wait of a table, in milliseconds: a seat that is not played here takes about this long
    * before each answer, and the page is shown the game while it waits. It does not wait to
    * decline a reaction window, as a seat on the server does not. The game is the same game with
-   * every wait, and a game that is played again does not wait for its saved answers.
+   * every wait, and a game that is played again does not wait for its saved decisions.
    */
   waitMs?: number;
 }
@@ -221,8 +251,8 @@ const breathe = () =>
   });
 
 /**
- * Plays one game. The first update comes when the first seat of this page is asked and the
- * answers of `play.answers` are used up.
+ * Plays one game. The first update comes when `play.decisions` are used up and the game asks a
+ * seat of this page, or waits before a decision of another seat.
  */
 export function createWasmTransport(
   engine: Engine,
@@ -230,15 +260,36 @@ export function createWasmTransport(
   play: LocalPlay = {},
 ): Transport {
   const listeners = new Set<(event: TransportEvent) => void>();
-  const answers = [...(play.answers ?? [])];
+  /**
+   * Every decision of the game in order, of every seat: the id of the chosen option. It is the
+   * saved game, as the decision log is on the server. `log[n]` answers the decision with the
+   * number `n` (`ti4_decided`).
+   */
+  const log = [...(play.decisions ?? [])];
+  /**
+   * The places in `log` of the answers of this side: what an undo can take back. A game that is
+   * played again fills it again.
+   */
+  let own: number[] = [];
   const switches = [...(play.switches ?? [])];
   /** How many answers are of seats that were played here before the last seat change: they stay. */
-  const kept = () => switches.at(-1)?.answers ?? 0;
+  const kept = () => {
+    const from = switches.at(-1)?.decision ?? 0;
+    return own.filter((at) => at < from).length;
+  };
   /**
-   * What each answer of this run chose, as far as the run has given it: an id alone does not say
-   * that. Compare `RecordedDecision` of the server. A game that is played again fills it again.
+   * What each answer of this side chose, by its place in `own`: an id alone does not say that.
+   * Compare `RecordedDecision` of the server. A game that is played again fills it again.
    */
   let recorded: ChoiceOption[] = [];
+  /** Tells the app the game as it is to keep. */
+  const keep = () => play.onDecisions?.(log, switches, own);
+  /** An answer of this side to the decision that the game waits in. */
+  const give = (option: ChoiceOption) => {
+    own.push(log.length);
+    log.push(option.id);
+    recorded.push(option);
+  };
   let latest: TransportEvent | null = null;
   /** The pending choice: its update, its option ids in order, and how to answer the engine. */
   let pending: {
@@ -271,7 +322,7 @@ export function createWasmTransport(
   });
   /**
    * The answers that the engine gave itself in this run: the decline of a window of cards that
-   * are never offered. By their place in `answers`. An undo goes back over them.
+   * are never offered. By their place in `own`. An undo goes back over them.
    */
   let passed = new Set<number>();
   /** The plan that is being sent: the choices of the game are answered from its script. */
@@ -294,7 +345,7 @@ export function createWasmTransport(
   let undoing = false;
   /** What the undo took back so far, first answer first. Told with the next update. */
   let undone: ChoiceOption[] = [];
-  /** The answers of each plan of this visit, as a range of `answers`: an undo takes them back whole. */
+  /** The answers of each plan of this visit, as a range of `own`: an undo takes them back whole. */
   let groups: { start: number; end: number }[] = [];
   /** The number of the run that is the game. An undo starts a new run; the old one leaves. */
   let current = 0;
@@ -311,7 +362,7 @@ export function createWasmTransport(
   };
   /** Where the answers end that this side gave itself: an undo takes the last of them back. */
   const lastOwn = () => {
-    let end = answers.length;
+    let end = own.length;
     while (end > kept() && passed.has(end - 1)) {
       end -= 1;
     }
@@ -336,11 +387,15 @@ export function createWasmTransport(
 
   const run = async (id: number) => {
     const jspi = WebAssembly as unknown as Jspi;
-    const script = [...answers];
-    recorded = [];
-    // The engine of this run asks every saved answer whole, so it knows none as its own.
-    passed = new Set();
+    /** How many decisions the run is given from the saved game, and how many it was given. */
+    const saved = log.length;
     let replayed = 0;
+    /** The app was told which of the saved decisions are answers of this side. */
+    let told = saved === 0;
+    own = [];
+    recorded = [];
+    // The engine of this run is given every saved decision, so it knows none as its own.
+    passed = new Set();
     let shown = performance.now();
     let diverged: string | null = null;
     let exports!: Exports;
@@ -368,21 +423,47 @@ export function createWasmTransport(
       request<DraftOutcome>(exports.ti4_draft, { script: steps, scope }, exports.ti4_draft_ptr)!;
     const setMode = (card: string, mode: "always" | "never") =>
       void request(exports.ti4_set_reaction_mode, { card, mode });
+    /** The option of a saved decision in the decision that the engine is parked in, or why it is not offered. */
+    const savedOption = (wanted: string): SavedOption | string => {
+      const bytes = new TextEncoder().encode(wanted);
+      new Uint8Array(exports.memory.buffer).set(bytes, exports.ti4_request_ptr());
+      const status = exports.ti4_saved_option(bytes.length);
+      const result = text(exports.ti4_response_ptr(), Math.abs(status));
+      return status < 0 ? result : JSON.parse(result);
+    };
     /**
-     * The windows that the engine declined since it last asked. Each is an answer of the game:
-     * a saved game has it, and an undo goes back over it.
+     * Brings the log up to the game: the decisions that were made since the engine last asked.
+     * Returns the windows that the engine declined for this side. Each is an answer of this
+     * side: an undo goes back over it.
      */
-    const takePassed = (): Passed[] => {
-      const windows: Passed[] = JSON.parse(
-        text(exports.ti4_response_ptr(), Math.max(0, exports.ti4_passed())),
-      );
-      for (const { option } of windows) {
-        passed.add(answers.length);
-        answers.push(option.id);
-        recorded.push(option);
+    const takeJournal = (): Passed[] => {
+      const status = exports.ti4_journal();
+      if (status < 0) {
+        throw new Error(text(exports.ti4_response_ptr(), -status));
       }
-      if (windows.length) {
-        play.onAnswers?.(answers, switches);
+      const { from, entries }: Journal = JSON.parse(text(exports.ti4_response_ptr(), status));
+      const windows: Passed[] = [];
+      if (entries.length) {
+        // After an undo from a checkpoint the engine made the decisions since then again.
+        log.length = Math.min(log.length, from);
+        for (const { id, passed: window } of entries) {
+          if (window) {
+            passed.add(own.length);
+            give(window.option);
+            windows.push(window);
+          } else {
+            log.push(id);
+          }
+        }
+        keep();
+      } else if (!told) {
+        keep();
+      }
+      told = true;
+      if (log.length !== exports.ti4_decided()) {
+        throw new Error(
+          `The page has ${log.length} decisions of the game, and the engine made ${exports.ti4_decided()}.`,
+        );
       }
       return windows;
     };
@@ -392,12 +473,34 @@ export function createWasmTransport(
       return decision;
     };
     const ask = new jspi.Suspending(async () => {
-      const update = readUpdate();
-      if (id !== current || !update) {
+      if (id !== current) {
         return LEAVE;
       }
+      const update = readUpdate();
+      if (!update) {
+        // A decision of the saved game: the engine is given its answer, whoever the seat is.
+        const wanted = log[replayed];
+        const found = replayed < saved ? savedOption(wanted) : "the saved game has no more";
+        if (typeof found === "string") {
+          diverged =
+            `The saved game does not fit this engine: decision ${replayed + 1} of ${saved} ` +
+            `was "${wanted}", but ${found}. Start a new game.`;
+          return LEAVE;
+        }
+        if (found.own) {
+          own.push(replayed);
+          recorded.push(found.option);
+        }
+        replayed += 1;
+        if (performance.now() - shown > REPLAY_SLICE_MS) {
+          tell({ kind: "replaying", done: replayed, total: saved });
+          await breathe();
+          shown = performance.now();
+        }
+        return found.index;
+      }
       // An undo that opens such a window again goes on to the answer of the player before it.
-      const windows = replayed < script.length ? [] : takePassed();
+      const windows = takeJournal();
       const goesBack = windows.length > 0 && undoing && canUndo();
       for (const { cards } of goesBack ? [] : windows) {
         say({ kind: "passed", cards });
@@ -406,9 +509,6 @@ export function createWasmTransport(
         // The engine waits before a decision of a seat that is not played here.
         const turn = update.turn_status;
         const seat = turn.kind === "waiting_for_decision" ? turn.seat : "";
-        if (replayed < script.length) {
-          return GO;
-        }
         const canGoBack = exports.ti4_can_undo() === 1;
         // A plan ends where another seat decides.
         const index = decidePlan(update, canGoBack);
@@ -445,25 +545,6 @@ export function createWasmTransport(
       }
       const { nonce, choice } = update.pending_choice;
       const options = choice.options.map((option) => option.id);
-      if (replayed < script.length) {
-        const wanted = script[replayed];
-        const index = options.indexOf(wanted);
-        if (index < 0) {
-          diverged =
-            `The saved game does not fit this engine: answer ${replayed + 1} of ${script.length} ` +
-            `was "${wanted}", but "${choice.prompt}" offers ${options.map((option) => `"${option}"`).join(", ")}. ` +
-            "Start a new game.";
-          return LEAVE;
-        }
-        replayed += 1;
-        recorded.push(choice.options[index]);
-        if (performance.now() - shown > REPLAY_SLICE_MS) {
-          tell({ kind: "replaying", done: replayed, total: script.length });
-          await breathe();
-          shown = performance.now();
-        }
-        return index;
-      }
       const canGoBack = exports.ti4_can_undo() === 1;
       const index = decide(update, canGoBack, goesBack);
       if (index !== null) {
@@ -484,8 +565,8 @@ export function createWasmTransport(
     tellMode = (card, mode) => id === current && setMode(card, mode);
     askPlan = (entries, next, actor) =>
       request<PlanAnswer>(exports.ti4_plan, { script: entries, next, actor })!;
-    // The saved answers are asked whole: a window that was declined then is one of them.
-    exports.ti4_replay(script.length);
+    // The engine is given the saved decisions: a window that was declined then is one of them.
+    exports.ti4_replay(saved);
     for (const item of switches) {
       exports.ti4_switch_seats(item.decision, item.humans);
     }
@@ -515,10 +596,10 @@ export function createWasmTransport(
     if (status < 0) {
       throw new Error(result);
     }
-    for (const { cards } of takePassed()) {
+    const last = readUpdate();
+    for (const { cards } of takeJournal()) {
       say({ kind: "passed", cards });
     }
-    const last = readUpdate();
     if (last) {
       tell({ kind: "update", update: last, canUndo: canUndo() });
     }
@@ -530,8 +611,8 @@ export function createWasmTransport(
 
   const start = () => {
     const id = current;
-    if (answers.length > 0) {
-      tell({ kind: "replaying", done: 0, total: answers.length });
+    if (log.length > 0) {
+      tell({ kind: "replaying", done: 0, total: log.length });
     }
     run(id).catch((error: unknown) => {
       if (id === current) {
@@ -545,15 +626,19 @@ export function createWasmTransport(
    * checkpoint when it has one, or else the game is played again without the answer.
    */
   const back = (canGoBack: boolean): number => {
-    /** The answers from `length` on leave, and an undo keeps what they chose. */
+    /**
+     * The answers from `length` on leave, with every decision of the game after the first of
+     * them, and an undo keeps what they chose.
+     */
     const drop = (length: number) => {
-      answers.length = length;
+      log.length = own[length];
+      own.length = length;
       passed = new Set([...passed].filter((at) => at < length));
       const gone = recorded.splice(length);
       if (undoing) {
         undone = [...gone, ...undone];
       }
-      play.onAnswers?.(answers, switches);
+      keep();
     };
     // A window that the engine declined goes with the answer before it: the engine does the same.
     const end = lastOwn();
@@ -565,7 +650,7 @@ export function createWasmTransport(
     // plan go at once.
     const group = groups.findLast((item) => item.start < end && end <= item.end);
     drop(group ? group.start : end - 1);
-    groups = groups.filter((item) => item.start < answers.length);
+    groups = groups.filter((item) => item.start < own.length);
     current += 1;
     start();
     return LEAVE;
@@ -615,9 +700,8 @@ export function createWasmTransport(
         const option = update.pending_choice!.choice.options[result.index];
         sent.next = result.next;
         sent.script = result.script ?? sent.script;
-        answers.push(option.id);
-        recorded.push(option);
-        play.onAnswers?.(answers, switches);
+        give(option);
+        keep();
         return result.index;
       }
       if (result.kind === "mismatch") {
@@ -626,7 +710,7 @@ export function createWasmTransport(
           sent.refused = result.reason;
           groups.push({ start: sent.start, end: Number.POSITIVE_INFINITY });
         }
-        if (answers.length > sent.start) {
+        if (own.length > sent.start) {
           return back(canGoBack);
         }
         groups = groups.filter((item) => item.end !== Number.POSITIVE_INFINITY);
@@ -646,8 +730,8 @@ export function createWasmTransport(
           reason: result.reason,
         };
       }
-      if (answers.length > sent.start) {
-        groups.push({ start: sent.start, end: answers.length });
+      if (own.length > sent.start) {
+        groups.push({ start: sent.start, end: own.length });
       }
       plan = null;
     }
@@ -686,7 +770,7 @@ export function createWasmTransport(
     }
   };
   // The tools of a local game. The saved game and the scenarios are of the app that made this
-  // transport (`onAnswers`, `Engine.scenarios`).
+  // transport (`onDecisions`, `Engine.scenarios`).
   const capabilities: Capabilities = {
     stepping: {
       set(on) {
@@ -713,8 +797,8 @@ export function createWasmTransport(
       const { answer, switchTo } = pending;
       pending = null;
       undoing = false;
-      switches.push({ decision: switchTo(humans), humans, answers: answers.length });
-      play.onAnswers?.(answers, switches);
+      switches.push({ decision: switchTo(humans), humans });
+      keep();
       answer(SWITCH);
     },
     scenarios: true,
@@ -742,9 +826,8 @@ export function createWasmTransport(
       }
       const { answer, update } = pending;
       pending = null;
-      answers.push(optionId);
-      recorded.push(update.pending_choice!.choice.options[index]);
-      play.onAnswers?.(answers, switches);
+      give(update.pending_choice!.choice.options[index]);
+      keep();
       answer(index);
     },
     submitPlan(nonce, sent) {
@@ -763,7 +846,7 @@ export function createWasmTransport(
         ],
         next: 0,
         actor: pending.update.viewer.seat,
-        start: answers.length,
+        start: own.length,
         refused: null,
       };
       const { update, answer, canGoBack } = pending;

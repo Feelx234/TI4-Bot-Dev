@@ -41,7 +41,10 @@ export function singleStart(params: URLSearchParams): SingleStart {
   };
 }
 
-/** The game of single player as it was kept, or null: a save that cannot be read is none. */
+/**
+ * The game of single player as it was kept, or null. A save of an older format is still the game
+ * of this browser: its page says that it is not read, with "New game".
+ */
 function keptGame(): LocalGame | null {
   const text = localStorage.getItem(SINGLE_KEY);
   if (text === null) {
@@ -51,7 +54,12 @@ function keptGame(): LocalGame | null {
     const { seed, players, humans, table, waitMs } = parseSavedGame(text);
     return table ? { seed, players, humans, table, ...(waitMs ? { waitMs } : {}) } : null;
   } catch {
-    return null;
+    try {
+      const old: Partial<LocalGame> | null = JSON.parse(text);
+      return old?.table ? (old as LocalGame) : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -182,7 +190,7 @@ export function SingleApp({ start }: { start: SingleStart }) {
   const [game, setGame] = useState(keptGame);
   const started = useCallback((made: LocalGame, engine: Engine) => {
     // Kept before the first answer: a reload is then this game, not another setup.
-    storeSavedGame(localStorage, { format: 2, engine: engine.hash, ...made, answers: [] });
+    storeSavedGame(localStorage, { format: 3, engine: engine.hash, ...made, decisions: [] });
     setGame(made);
   }, []);
   const again = useCallback(() => {

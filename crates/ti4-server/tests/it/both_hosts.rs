@@ -5,6 +5,9 @@
 //! seed, its id and the number of the decision (`ti4_rule_bot::choose`). This test holds the two
 //! deciders together: the wasm host counts the decisions in its own way.
 //!
+//! A saved game is the same on both too: the option id of every decision, of every seat, in
+//! order. The wasm host plays the log of the server again.
+//!
 //! One test: the wasm host keeps its game in statics.
 
 use std::time::{Duration, Instant};
@@ -37,6 +40,33 @@ fn in_the_page(setup: &TableSetup, seats: &Seats) -> Vec<DecisionRecord> {
     let report = ti4_wasm::response(status).expect("the table plays in the wasm host");
     assert!(report.contains("\"stopped\":null"), "{report}");
     ti4_wasm::decisions_native()
+}
+
+/// The table in the wasm host as a saved game: the first decisions have the answers of `saved`
+/// (`ti4_replay`), and the seats decide the rest. Returns how many answers the host gave.
+fn played_again(
+    setup: &TableSetup,
+    seats: &Seats,
+    saved: &[DecisionRecord],
+) -> (usize, Vec<DecisionRecord>) {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let given = Arc::new(AtomicUsize::new(0));
+    let count = given.clone();
+    let script: Vec<String> = saved.iter().map(|record| record.chosen.clone()).collect();
+    ti4_wasm::set_native_host(move |update| {
+        assert!(update.is_empty(), "no person is at the table: {update}");
+        let wanted = &script[count.fetch_add(1, Ordering::Relaxed)];
+        let found: serde_json::Value = serde_json::from_str(
+            &ti4_wasm::saved_option_native(wanted).expect("the saved option is offered"),
+        )
+        .expect("the saved option");
+        assert_eq!(found["own"], false);
+        i32::try_from(found["index"].as_u64().expect("an index")).expect("an index")
+    });
+    ti4_wasm::ti4_replay(u32::try_from(saved.len()).expect("a count"));
+    let decisions = in_the_page(setup, seats);
+    (given.load(Ordering::Relaxed), decisions)
 }
 
 /// The table on the server, until `decisions` decisions are made or the game is over. The ids
@@ -136,6 +166,17 @@ fn slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server() {
                 setup.seed
             );
         }
+        // The log of the server is a saved game of the page: the host gives the first half of
+        // it, the seats decide the rest, and it is the same game.
+        let half = page.len() / 2;
+        let (given, again) = played_again(&setup, seats, &server[..half]);
+        assert_eq!(given, half);
+        assert_eq!(
+            again,
+            page,
+            "the game of a saved game, {} seats",
+            seats.len()
+        );
     }
     ti4_wasm::set_round_limit_native(None);
 }

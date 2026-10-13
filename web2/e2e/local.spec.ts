@@ -22,13 +22,13 @@ async function openSettings(page: Page) {
   await expect(settings(page)).toBeVisible();
 }
 
-/** The line of the Dev sheet ("Local game · seed 42 · 8 seats · 4 answers saved"). Read, then closed. */
-async function savedLine(page: Page) {
+/**
+ * The line of the Dev sheet ("Local game · seed 42 · 8 seats · 4 answers saved · 31 decisions of
+ * all seats"). Read, then closed.
+ */
+async function savedLine(page: Page, start = /^Local game · /) {
   await openSettings(page);
-  const line =
-    (await settings(page)
-      .getByText(/^Local game · /)
-      .textContent()) ?? "";
+  const line = (await settings(page).getByText(start).textContent()) ?? "";
   await page.keyboard.press("Escape");
   await expect(settings(page)).toBeHidden();
   return line;
@@ -352,15 +352,29 @@ test("a saved game of another engine build is not replayed without a word", asyn
   await answer(page);
   await expect.poll(() => savedLine(page)).toContain("2 answers saved");
 
-  // An answer that the game does not offer stops the replay and names the answer.
+  // A decision that the game does not offer stops the replay and names it.
   await page.evaluate(() => {
     const save = JSON.parse(localStorage.getItem("ti4.local.3.8.1") ?? "");
-    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, answers: ["no-such"] }));
+    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, decisions: ["no-such"] }));
   });
   await page.reload();
   await expect(page.getByRole("status")).toContainText(
-    'The saved game does not fit this engine: answer 1 of 1 was "no-such"',
+    'The saved game does not fit this engine: decision 1 of 1 was "no-such"',
   );
+
+  // A save of an older format had the answers of the page only. It is not read, and the page
+  // says so, with the way to a new game.
+  await page.evaluate(() => {
+    const old = { format: 2, engine: "", seed: 3, players: 8, humans: 1, answers: ["sol"] };
+    localStorage.setItem("ti4.local.3.8.1", JSON.stringify(old));
+  });
+  await page.reload();
+  await expect(page.getByRole("status")).toContainText(
+    "The saved game has format 2; this page reads format 3. It cannot be played again.",
+  );
+  await page.getByRole("status").getByRole("button", { name: "New game" }).click();
+  await expect(send(page)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("ti4.local.3.8.1"))).toBeNull();
 });
 
 test("a draft of a tactical action is private, is kept, and is applied as one request", async ({
@@ -1403,18 +1417,20 @@ test("single player: a table is set up in the page, started, kept and set up aga
   await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
   const line = () => settings(page).getByText(/^Single player · /);
   await openSettings(page);
-  await expect(line()).toHaveText("Single player · seed 3 · 4 seats · 0 answers saved");
+  await expect(line()).toHaveText(
+    /^Single player · seed 3 · 4 seats · 0 answers saved · \d+ decisions of all seats$/,
+  );
   await expect(settings(page).getByRole("region", { name: "Start from" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
   // An answer is kept, and a reload is this game, not another setup.
   await panel(page).getByRole("button", { pressed: false }).first().click();
   await send(page).click();
-  await expect
-    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!).answers.length))
-    .toBeGreaterThan(0);
+  await expect.poll(() => savedLine(page, /^Single player · /)).toContain("1 answers saved");
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!));
-  expect(saved.format).toBe(2);
+  expect(saved.format).toBe(3);
+  // The decisions of every seat are kept, in their order: the other seats decided before the page.
+  expect(saved.decisions.length).toBeGreaterThan(1);
   expect(saved.table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
   expect(saved.table.seats.map((seat: { kind: string }) => seat.kind)).toEqual([
     "human",
@@ -1448,7 +1464,15 @@ test("single player: the other seats take the wait of the table, and the page sa
   await lobbyMain(page).click();
   // On this seed three seats choose a strategy card before the page: each takes its time, the
   // toolbar says who the game waits for, and then the page is asked.
-  await expect(page.locator("header strong").first()).toHaveText(/^Waiting for /);
+  const status = page.locator("header strong").first();
+  await expect(status).toHaveText(/^Waiting for /);
+  const first = await status.textContent();
+  // A reload while the second seat takes its time: the decision of the first seat is kept, so
+  // the game does not go back to it.
+  await expect(status).not.toHaveText(first!);
+  await page.reload();
+  await expect(status).toHaveText(/^Waiting for |^Your decision$/);
+  expect(await status.textContent()).not.toBe(first);
   await expect(send(page)).toBeVisible();
   await expect(page.locator("header strong").first()).toHaveText("Your decision");
   await expect(heading(page)).toHaveText("Choose a strategy card");

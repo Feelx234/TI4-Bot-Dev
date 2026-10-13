@@ -165,8 +165,9 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_draft_ptr()` | The address of the outcome of the last `ti4_draft` (`DRAFT_CAPACITY`, 1 MiB). |
 | `ti4_plan(request_len) -> status` | While the game waits: what a script answers to the pending choice. See "A plan that is sent". |
 | `ti4_set_reaction_mode(request_len) -> status` | Whether the host is offered a card: `{"card", "mode": "never" or "always"}`. See "Never cards". |
-| `ti4_passed() -> status` | The windows that were declined for the host since it last asked, as a JSON list in the response buffer. See "Never cards". |
-| `ti4_replay(answers)` | The first `answers` choices of the next `ti4_play` are answered from a saved game. See "Never cards". |
+| `ti4_journal() -> status` | The decisions that were made without asking the host since it last read them, as `{"from", "entries"}` in the response buffer. See "A saved game". |
+| `ti4_replay(decisions)` | The first `decisions` decisions of the next `ti4_play`, of every seat, have their answer in a saved game. See "A saved game". |
+| `ti4_saved_option(request_len) -> status` | While the game waits in a saved decision: the option with the id of the request buffer, as `{"index", "own", "option"}`. See "A saved game". |
 | `ti4_response_ptr()` | The address of the result or the error of the last export. |
 | `ti4_update_ptr()`, `ti4_update_len()` | The update for the host: while the game waits in a choice, and after `ti4_play` has returned. Length 0 when there is none. |
 
@@ -194,13 +195,46 @@ view of the host's seat (the seat that was asked last, or its first seat) with n
 the seat draws from the seeded stream as always. `-2` takes back the last answer of the host,
 when `ti4_can_undo` returns 1. Any other answer leaves the game.
 
-- A step is not a choice: it has no number, makes no checkpoint, and is not in a saved game. The
-  game with steps is the same game.
+- A step is not a choice: it has no number, makes no checkpoint, and is not in a saved game (the
+  decision that follows it is). The game with steps is the same game.
 - The export only sets a flag, so the host calls it at any time.
 - `ti4_set_stepping(2)` is for the wait of a table (single player of web2): the host is asked
   the same way and waits before it answers `-3`, but it is not asked before a reaction window
   that the seat only declines, as a seat on the server does not wait there. The pick of the seat
   is read first for it and the stream of the random seats is not moved by that.
+
+### A saved game
+
+A game is saved as the server saves one: its seed (or its table) and **the option id of every
+decision, of every seat, in order**. Entry `n` answers the decision with the number `n`
+(`ti4_decided`). It is the `chosen` of the engine's decision log; a test holds the two hosts
+together (`crates/ti4-server/tests/it/both_hosts.rs`: the wasm host plays the log of the server).
+
+- **The host keeps the list.** A decision that the host answers is an entry that it knows. Every
+  other decision is in the journal: `ti4_journal` gives, and empties, the decisions that were
+  made without asking the host since it last read them — what a seat decided that the host does
+  not play, a window that was passed for the host (with `"passed": {"option", "cards"}`, see
+  "Never cards"), and an answer of the host that a checkpoint gives again after an undo.
+- `from` is the number of the first entry. Between two questions to the host only such
+  decisions are made, so the entries have no gap. A host that reads the journal at each question
+  (a choice or a step), cuts its list at `from` and adds the entries has every decision, and its
+  list is as long as `ti4_decided()`. After an undo from a checkpoint the journal begins at the
+  checkpoint: the decisions since then are made again, and they are the same.
+- **Playing it again.** `ti4_replay(n)` before `ti4_play`: the first `n` decisions have their
+  answer in the saved game. For each the host is asked with an **empty update**
+  (`ti4_update_len` is 0): that is how it tells a saved decision from a choice and from a step.
+  It writes the saved id to the request buffer, `ti4_saved_option` says the index, and the host
+  answers with it. An id that the decision does not offer is an error that names the prompt and
+  what is offered. Any other answer leaves the game.
+- In a replay the engine does not ask who plays a seat. No seat decides, no bot runs, nothing is
+  projected, no seat waits (`ti4_set_stepping`), and no card setting is applied. What the host
+  counts is counted as in the game that was never saved, so the first choice after the replay
+  has the same number, and an undo goes back into the saved decisions. A seat that draws from
+  the random stream moves the stream, so the seats decide the same after the replay.
+- `own` of `ti4_saved_option` says that the host plays the seat of the decision: a host keeps
+  the places of its own answers, which are what an undo takes back.
+- The host of web2 (`wasmTransport.ts`) takes an answer back by cutting its list at the place of
+  that answer: what the other seats decided after it goes with it.
 
 ### Rule seats
 
@@ -531,16 +565,17 @@ of the rule.
   game waits.
 - A window that offers only Never cards is declined without asking. It is still a choice of
   the host with an answer: it has a number (the nonce after it is higher by one), the host
-  reads it with `ti4_passed` at its next choice and keeps the decline with its saved answers,
-  and a checkpoint gives the answer again after an undo.
+  reads it in the journal at its next choice (`ti4_journal`, an entry with `passed`) and keeps
+  the decline as its own answer, and a checkpoint gives the answer again after an undo.
 - An undo (`-2`) does not stop at such a window: it opens the last choice that the host answered
   itself. `ti4_can_undo` says whether a checkpoint holds that one.
 - A window with another card is asked without the Never cards. The index of the answer is the
   place in the options that the host was shown.
 - A saved game is played again below the wrapper, as a replay on the server is: with
-  `ti4_replay(n)` the first `n` choices are asked whole, whatever the cards are set to. So a
-  game that was played with other settings is the same game. Without this a window that was
-  declined by hand would be declined a second time, and the saved answers would not fit.
+  `ti4_replay(n)` the first `n` decisions are given by the host, whatever the cards are set to
+  ("A saved game"). So a game that was played with other settings is the same game. Without
+  this a window that was declined by hand would be declined a second time, and the saved
+  decisions would not fit.
 - The engine asks some windows twice in a row (after an activation). Each is passed.
 
 ### Scenarios

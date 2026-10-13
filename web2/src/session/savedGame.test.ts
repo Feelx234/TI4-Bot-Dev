@@ -13,7 +13,7 @@ import {
 import type { TableRequest } from "./wire";
 
 const game = { seed: 3, players: 8, humans: 1 };
-const save: SavedGame = { format: 2, engine: "ab12", ...game, answers: ["sol", "pass", "18"] };
+const save: SavedGame = { format: 3, engine: "ab12", ...game, decisions: ["sol", "pass", "18"] };
 
 function storage() {
   const items = new Map<string, string>();
@@ -44,9 +44,7 @@ it("says which part of a saved game is wrong", () => {
   const broken = (change: object) => () => parseSavedGame(JSON.stringify({ ...save, ...change }));
   expect(() => parseSavedGame("{")).toThrow(/^The saved game is not JSON: /);
   expect(() => parseSavedGame("null")).toThrow("The saved game is not a JSON object.");
-  expect(broken({ format: 3 })).toThrow(
-    "The saved game has format 3; this page reads formats 1 and 2.",
-  );
+  expect(broken({ format: 4 })).toThrow("The saved game has format 4; this page reads format 3.");
   expect(broken({ table: { setup: {} } })).toThrow(
     'The saved game has no setup and seats in "table".',
   );
@@ -54,13 +52,13 @@ it("says which part of a saved game is wrong", () => {
   expect(broken({ seed: "3" })).toThrow('The saved game has no whole number in "seed".');
   expect(broken({ humans: -1 })).toThrow('The saved game has no whole number in "humans".');
   expect(broken({ engine: undefined })).toThrow('The saved game has no text in "engine".');
-  expect(broken({ answers: ["a", 2] })).toThrow(
-    'The saved game has no list of option ids in "answers".',
+  expect(broken({ decisions: ["a", 2] })).toThrow(
+    'The saved game has no list of option ids in "decisions".',
   );
 });
 
 it("keeps the seat changes of a game, and says when they are not a list of them", () => {
-  const switched = { ...save, switches: [{ decision: 12, humans: 4, answers: 3 }] };
+  const switched = { ...save, switches: [{ decision: 12, humans: 4 }] };
   expect(parseSavedGame(JSON.stringify(switched))).toEqual(switched);
   expect(parseSavedGame(JSON.stringify({ ...save, switches: [] }))).toEqual(save);
   expect(() => parseSavedGame(JSON.stringify({ ...save, switches: [{ decision: 12 }] }))).toThrow(
@@ -84,8 +82,13 @@ it("keeps a scenario apart from the game of the same seed", () => {
   expect(() => parseSavedGame(JSON.stringify({ ...save, scenario: 3 }))).toThrow(/"scenario"/);
 });
 
-it("reads a game of format 1 as the game of its seed, with no table", () => {
-  expect(parseSavedGame(JSON.stringify({ ...save, format: 1 }))).toEqual(save);
+it("does not read a game of an older format: it has the answers of the page only", () => {
+  for (const format of [1, 2]) {
+    const old = { format, engine: "ab12", ...game, answers: ["sol", "pass", "18"] };
+    expect(() => parseSavedGame(JSON.stringify(old))).toThrow(
+      `The saved game has format ${format}; this page reads format 3.`,
+    );
+  }
 });
 
 it("keeps the game of a table under the key of single player, with its table and its wait", () => {
@@ -101,14 +104,14 @@ it("keeps the game of a table under the key of single player, with its table and
     ],
   };
   const single: SavedGame = {
-    format: 2,
+    format: 3,
     engine: "ab12",
     seed: 12,
     players: 4,
     humans: 1,
     table,
     waitMs: 500,
-    answers: ["leadership"],
+    decisions: ["leadership"],
   };
   const store = storage();
   storeSavedGame(store, single);

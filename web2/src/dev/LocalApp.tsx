@@ -35,13 +35,19 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 type Start =
   | { kind: "loading" }
   | { kind: "failed"; message: string }
-  | { kind: "ready"; engine: Engine; saved: SavedGame | null };
+  | {
+      kind: "ready";
+      engine: Engine;
+      saved: SavedGame | null;
+      /** Why the game that this browser kept is not read (a save of an older format). */
+      unread?: string;
+    };
 
 /**
  * A game of the engine in this page. `?local=3&players=8&humans=1`: the seed, the number of
  * seats, and which seats are played here (bit 0 is seat A). `?scenario=late-game` starts from a
- * prepared board of the engine. The answers are kept in localStorage, so a reload goes on where
- * the game was.
+ * prepared board of the engine. The decisions of every seat are kept in localStorage, so a
+ * reload goes on where the game was.
  */
 export function LocalApp({
   game,
@@ -60,6 +66,8 @@ export function LocalApp({
   const [start, setStart] = useState<Start>({ kind: "loading" });
   /** The saved game was played by another engine, and the player said to play it anyway. */
   const [anyway, setAnyway] = useState(false);
+  /** How many decisions of the game are saved, those of every seat, and how many are answers of this page. */
+  const [decisions, setDecisions] = useState(0);
   const [answers, setAnswers] = useState(0);
   /** The seat changes of the game ("Play as"). The last one says which seats are played here. */
   const [switches, setSwitches] = useState<readonly SeatSwitch[]>([]);
@@ -92,11 +100,13 @@ export function LocalApp({
   useEffect(() => {
     let stale = false;
     loadEngine(wasmUrl)
-      .then((engine) => ({
-        kind: "ready" as const,
-        engine,
-        saved: loadSavedGame(localStorage, game),
-      }))
+      .then((engine): Start => {
+        try {
+          return { kind: "ready", engine, saved: loadSavedGame(localStorage, game) };
+        } catch (failure) {
+          return { kind: "ready", engine, saved: null, unread: message(failure) };
+        }
+      })
       .catch((error: unknown) => ({ kind: "failed" as const, message: message(error) }))
       .then((next) => stale || setStart(next));
     return () => {
@@ -106,7 +116,8 @@ export function LocalApp({
 
   const foreign =
     start.kind === "ready" && start.saved !== null && start.saved.engine !== start.engine.hash;
-  const waits = foreign && !anyway;
+  const unread = start.kind === "ready" ? start.unread : undefined;
+  const waits = (foreign && !anyway) || unread !== undefined;
 
   // Made in an effect, not in a memo: the game is closed when the page lets go of it, and React
   // may do that and mount again (StrictMode). Each mount gets a game of its own.
@@ -115,25 +126,27 @@ export function LocalApp({
       return;
     }
     const { engine, saved } = start;
-    setAnswers(saved?.answers.length ?? 0);
+    setDecisions(saved?.decisions.length ?? 0);
+    setAnswers(0);
     setSwitches(saved?.switches ?? []);
     const made = createWasmTransport(engine, played, {
-      answers: saved?.answers,
+      decisions: saved?.decisions,
       switches: saved?.switches,
       stepping: steps.current,
       table: game.table,
       waitMs: game.waitMs,
       never: readNever(game),
       onNever: (never) => localStorage.setItem(cardsKey(game), JSON.stringify(never)),
-      onAnswers(list, changes) {
+      onDecisions(list, changes, own) {
         storeSavedGame(localStorage, {
-          format: 2,
+          format: 3,
           engine: engine.hash,
           ...played,
-          answers: [...list],
+          decisions: [...list],
           ...(changes.length ? { switches: [...changes] } : {}),
         });
-        setAnswers(list.length);
+        setDecisions(list.length);
+        setAnswers(own.length);
         setSwitches([...changes]);
       },
     });
@@ -187,7 +200,9 @@ export function LocalApp({
     if (onNewGame) {
       return onNewGame();
     }
-    setStart((now) => (now.kind === "ready" ? { ...now, saved: null } : now));
+    setStart((now) =>
+      now.kind === "ready" ? { kind: "ready", engine: now.engine, saved: null } : now,
+    );
   };
   const exportGame = () => {
     const text = localStorage.getItem(saveKey(game));
@@ -218,7 +233,7 @@ export function LocalApp({
   const file = useRef<HTMLInputElement>(null);
 
   // A game that starts from a scenario, or from round 1, is another game with its own saved
-  // answers: its address opens it, as Import does.
+  // decisions: its address opens it, as Import does.
   const startRow = (id: string | undefined, title: string, description: string) => (
     <div
       key={id ?? ""}
@@ -258,7 +273,7 @@ export function LocalApp({
   const settingsView = (close: () => void) => (
     <>
       <p className="text-muted">
-        {`${game.table ? "Single player" : "Local game"} · ${game.scenario === undefined ? "" : `scenario ${game.scenario} · `}seed ${played.seed} · ${played.players} seats · ${answers} answers saved`}
+        {`${game.table ? "Single player" : "Local game"} · ${game.scenario === undefined ? "" : `scenario ${game.scenario} · `}seed ${played.seed} · ${played.players} seats · ${answers} answers saved · ${decisions} decisions of all seats`}
       </p>
       {importError && (
         <p role="alert" className="mt-3 text-red">
@@ -354,7 +369,7 @@ export function LocalApp({
           <Button
             tone="quiet"
             size="sm"
-            disabled={answers === 0 && !onNewGame}
+            disabled={decisions === 0 && !onNewGame}
             onClick={() => {
               newGame();
               close();
@@ -362,7 +377,7 @@ export function LocalApp({
           >
             New game
           </Button>
-          <Button tone="quiet" size="sm" disabled={answers === 0} onClick={exportGame}>
+          <Button tone="quiet" size="sm" disabled={decisions === 0} onClick={exportGame}>
             Export
           </Button>
           <Button tone="quiet" size="sm" onClick={() => file.current?.click()}>
@@ -379,11 +394,20 @@ export function LocalApp({
   }
 
   let body: ReactNode;
-  if (waits) {
+  if (unread !== undefined) {
     body = (
       <Notice tone="error">
-        The saved game ({start.saved?.answers.length} answers) was played by another build of the
-        engine. This build may play the same answers differently.
+        {unread} It cannot be played again.
+        <span className="mt-3 flex gap-2">
+          <Button onClick={newGame}>New game</Button>
+        </span>
+      </Notice>
+    );
+  } else if (waits) {
+    body = (
+      <Notice tone="error">
+        The saved game ({start.kind === "ready" ? start.saved?.decisions.length : 0} decisions) was
+        played by another build of the engine. This build may not offer the same options.
         <span className="mt-3 flex gap-2">
           <Button onClick={() => setAnyway(true)}>Replay anyway</Button>
           <Button onClick={newGame}>New game</Button>
@@ -395,7 +419,7 @@ export function LocalApp({
       <Notice tone={error ? "error" : "quiet"}>
         {error ??
           (replaying
-            ? `Playing the saved game again: answer ${replaying.done} of ${replaying.total}…`
+            ? `Playing the saved game again: decision ${replaying.done} of ${replaying.total}…`
             : "Starting the game…")}
       </Notice>
     );

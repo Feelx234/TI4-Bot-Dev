@@ -341,8 +341,8 @@ struct Host {
     switches: Vec<Switch>,
     /// The host changed its seats in place of an answer: the decision is asked again.
     switched: bool,
-    /// How many choices the host answers from a saved game ([`ti4_replay`]). They are asked
-    /// whole: a window that was passed then is a saved answer.
+    /// How many decisions of the game have their answer in a saved game ([`ti4_replay`]): the
+    /// first ones, of every seat. The host gives each of them ([`saved`]).
     saved: u64,
 }
 
@@ -463,8 +463,27 @@ struct Passed {
     cards: Vec<String>,
 }
 
-/// The windows that were passed since the host last asked ([`ti4_passed`]).
-static PASSED: Mutex<Vec<Passed>> = Mutex::new(Vec::new());
+/// A decision that was made without asking the host: its answer, and the window when it was
+/// passed for the host.
+#[derive(Serialize)]
+struct Made {
+    id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    passed: Option<Passed>,
+}
+
+/// The decisions that were made without asking the host since it last read them, in order
+/// ([`ti4_journal`]): what a seat decided that the host does not play, a window that was passed
+/// for the host, and an answer that is given again after an undo.
+static JOURNAL: Mutex<Vec<Made>> = Mutex::new(Vec::new());
+
+/// Keep a decision that the host was not asked for [`JOURNAL`].
+fn journal(option: &ChoiceOption) {
+    JOURNAL.lock().expect("journal lock").push(Made {
+        id: option.id.clone(),
+        passed: None,
+    });
+}
 
 /// The answer of the host that lets a random seat decide. See [`ti4_set_stepping`].
 pub const GO: i32 = -3;
@@ -519,9 +538,12 @@ impl Seat {
             host.asked += 1;
             let number = host.asked;
             host.recent.push_back((number, option.id.clone(), true));
-            PASSED.lock().expect("passed lock").push(Passed {
-                option: option.clone(),
-                cards: cards.to_vec(),
+            JOURNAL.lock().expect("journal lock").push(Made {
+                id: option.id.clone(),
+                passed: Some(Passed {
+                    option: option.clone(),
+                    cards: cards.to_vec(),
+                }),
             });
         });
         Self { host }
@@ -537,23 +559,25 @@ impl Seat {
     ) -> Result<ChoiceOption, IllegalChoice> {
         loop {
             let ours = host().plays(&choice.player);
-            let answer = if !ours {
-                draw(choice, seen.filter(|_| rule_seat(&choice.player)))?
+            let rule = seen.filter(|_| rule_seat(&choice.player));
+            let replayed = {
+                let host = host();
+                host.decided < host.saved
+            };
+            let answer = if replayed {
+                // A decision of a saved game is given below the Never cards and with no bot, as
+                // a replay on the server is: the game is the same whatever the cards are set to
+                // now, and whoever plays the seat.
+                Some(saved(choice, ours, rule.is_some())?)
+            } else if !ours {
+                let picked = draw(choice, rule)?;
+                picked.iter().for_each(journal);
+                picked
             } else if let Some(option) = given(choice)? {
+                journal(&option);
                 Some(option)
             } else {
-                // An answer of a saved game is given below the Never cards, as a replay on the
-                // server is: the game is the same whatever the cards are set to now.
-                let replayed = {
-                    let host = host();
-                    host.asked < host.saved
-                };
-                let answer = if replayed {
-                    Asked.choose(choice)
-                } else {
-                    self.host.choose(choice)
-                };
-                match answer {
+                match self.host.choose(choice) {
                     Ok(option) => Some(option),
                     Err(_) if std::mem::take(&mut host().switched) => None,
                     Err(error) => return Err(error),
@@ -634,6 +658,54 @@ fn given(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
             wanted,
             offered: choice.ids().into_iter().map(str::to_owned).collect(),
         })
+}
+
+/// A decision of a saved game ([`ti4_replay`]): the host gives its answer, whoever plays the
+/// seat. The host is asked with an empty update, and finds the option with
+/// [`ti4_saved_option`]. Nothing is shown and no seat waits; what the host counts is counted as
+/// in a game that is not saved, so the choices after it have the same numbers. `ours`: the host
+/// plays the seat. `rule`: the rule bot would decide it.
+fn saved(choice: &Choice, ours: bool, rule: bool) -> Result<ChoiceOption, IllegalChoice> {
+    let failed = |reason: &str| IllegalChoice::DeciderFailed {
+        player: choice.player.clone(),
+        prompt: choice.prompt.clone(),
+        reason: reason.to_owned(),
+    };
+    {
+        let host = host();
+        if host.left {
+            return Err(failed(LEFT));
+        }
+        if host.undo {
+            return Err(failed(TAKEN_BACK));
+        }
+    }
+    UPDATE.lock().expect("update lock").clear();
+    PENDING.set(Some(choice.clone()));
+    let index = host_ask();
+    PENDING.take();
+    let mut host = host();
+    let Some(option) = usize::try_from(index)
+        .ok()
+        .and_then(|index| choice.options.get(index))
+        .cloned()
+    else {
+        host.left = true;
+        return Err(failed(LEFT));
+    };
+    if ours {
+        host.asked += 1;
+        host.viewer = Some(choice.player.clone());
+        let number = host.asked;
+        host.recent.push_back((number, option.id.clone(), false));
+    } else if !(rule || host.table) {
+        // The seat would have drawn from the stream of the random seats: it moves as it did.
+        drop(host);
+        if let Some(stream) = RANDOM.lock().expect("random lock").as_mut() {
+            let _ = stream.choose(choice);
+        }
+    }
+    Ok(option)
 }
 
 /// A decision of a seat that the host does not play: of the rule bot with `rule`, else from the
@@ -1010,7 +1082,7 @@ fn play_game(
             ..Host::default()
         };
     }
-    PASSED.lock().expect("passed lock").clear();
+    JOURNAL.lock().expect("journal lock").clear();
     CHECKPOINTS.with_borrow_mut(VecDeque::clear);
     *LATEST.lock().expect("latest lock") = Some(latest_of(&game, content));
     let target = game.state.round.saturating_add(round_limit());
@@ -1075,7 +1147,7 @@ fn play_game(
     let (viewer, too_large) = {
         let mut host = host();
         let viewer = host.shown_seat();
-        // The switches and the saved answers are of this game.
+        // The switches and the saved decisions are of this game.
         host.switches.clear();
         host.saved = 0;
         (viewer, host.too_large.take())
@@ -1146,10 +1218,12 @@ fn take_back(checkpoints: &mut VecDeque<Checkpoint>, mut left: Game<'static>) ->
         .filter(|(number, ..)| *number > checkpoint.asked)
         .map(|(_, id, _)| id.clone())
         .collect();
-    // What is asked from here on is asked now, not played again from a saved game.
-    host.saved = host.saved.min(again.saturating_sub(1));
+    // What is decided from here on is decided now, not played again from a saved game.
+    host.saved = host.saved.min(checkpoint.decided);
     host.asked = checkpoint.asked;
     host.decided = checkpoint.decided;
+    // The decisions since the checkpoint are made again, and the host is told them again.
+    JOURNAL.lock().expect("journal lock").clear();
     game
 }
 
@@ -1575,7 +1649,7 @@ pub extern "C" fn ti4_plan(request_len: u32) -> i32 {
 
 /// Set the mode of an action card for the host: the request buffer holds
 /// `{"card": <printed name>, "mode": "never" | "always"}` in `request_len` bytes. A window that
-/// offers only Never cards is declined for the host without asking ([`ti4_passed`]), and any
+/// offers only Never cards is declined for the host without asking ([`ti4_journal`]), and any
 /// other window is asked without them (`ti4_view::reaction_modes::NeverOffer`).
 ///
 /// The modes are of the instance, not of the game: the host sets them before [`ti4_play`], or
@@ -1585,22 +1659,83 @@ pub extern "C" fn ti4_set_reaction_mode(request_len: u32) -> i32 {
     status(request_filled(request_len).and_then(|()| set_reaction_mode()))
 }
 
-/// The windows that were passed for the host since it last asked, as a JSON list of
-/// `{"option", "cards"}` in the response buffer: the option that declined the window, and the
-/// printed names of its cards. A passed window is a choice of the host with an answer: it has a
-/// number, an undo goes back over it, and a saved game has its answer.
+/// The decisions that were made without asking the host since it last read them, as
+/// `{"from", "entries"}` in the response buffer. An entry is `{"id"}`, the chosen option: of a
+/// seat that the host does not play, or an answer of the host that is given again after an undo.
+/// A window that was passed for the host has `"passed": {"option", "cards"}` too: the option
+/// that declined it, and the printed names of its cards. It is a choice of the host with an
+/// answer: it has a number, and an undo goes back over it.
+///
+/// `from` is the number of the decision of the first entry ([`ti4_decided`]). Between two
+/// questions to the host only such decisions are made, so the entries have no gap: a host that
+/// reads this at each question, cuts its list at `from` and adds the entries has every decision
+/// of the game in order. That list is the saved game ([`ti4_replay`]), as the decision log is on
+/// the server.
 #[unsafe(no_mangle)]
-pub extern "C" fn ti4_passed() -> i32 {
-    let passed = std::mem::take(&mut *PASSED.lock().expect("passed lock"));
-    status(respond("the passed windows", &passed))
+pub extern "C" fn ti4_journal() -> i32 {
+    #[derive(Serialize)]
+    struct Journal {
+        from: u64,
+        entries: Vec<Made>,
+    }
+    let entries = std::mem::take(&mut *JOURNAL.lock().expect("journal lock"));
+    let from = host().decided.saturating_sub(entries.len() as u64);
+    status(respond("the journal", &Journal { from, entries }))
 }
 
-/// The first `answers` choices of the next [`ti4_play`] are answered from a saved game. They
-/// are asked whole, whatever the modes of the cards are: a window that was passed when the game
-/// was played is one of the saved answers.
+/// The first `decisions` decisions of the next [`ti4_play`] have their answer in a saved game,
+/// those of every seat. For each the host is asked with an empty update and gives the answer
+/// ([`ti4_saved_option`]). No seat decides or waits for it, and it is asked whatever the modes
+/// of the cards are: a window that was passed when the game was played is one of the decisions.
 #[unsafe(no_mangle)]
-pub extern "C" fn ti4_replay(answers: u32) {
-    host().saved = u64::from(answers);
+pub extern "C" fn ti4_replay(decisions: u32) {
+    host().saved = u64::from(decisions);
+}
+
+/// What the option with the id in the request buffer is in the decision that the game is parked
+/// in: `{"index", "own", "option"}` in the response buffer. `index` is the answer of the host
+/// to a saved decision ([`ti4_replay`]); `own` says that the host plays its seat.
+fn saved_option() -> Result<usize, Failure> {
+    #[derive(Serialize)]
+    struct Found<'a> {
+        index: usize,
+        own: bool,
+        option: &'a ChoiceOption,
+    }
+    let wanted =
+        String::from_utf8_lossy(REQUEST.lock().expect("request lock").as_bytes()).into_owned();
+    PENDING.with_borrow(|pending| {
+        let choice = pending
+            .as_ref()
+            .ok_or_else(|| failed("the game is not parked in a decision"))?;
+        let index = choice
+            .options
+            .iter()
+            .position(|option| option.id == wanted)
+            .ok_or_else(|| {
+                failed(format_args!(
+                    "\"{}\" of seat {} offers {}",
+                    choice.prompt,
+                    choice.player.as_str(),
+                    choice.ids().join(", ")
+                ))
+            })?;
+        let own = in_mask(host().mask(), &choice.player);
+        respond(
+            "a saved option",
+            &Found {
+                index,
+                own,
+                option: &choice.options[index],
+            },
+        )
+    })
+}
+
+/// See [`saved_option`]: the request buffer holds the id of an option, `request_len` bytes.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_saved_option(request_len: u32) -> i32 {
+    status(request_filled(request_len).and_then(|()| saved_option()))
 }
 
 /// Where the outcome of the last [`ti4_draft`] is kept. Constant for the life of the instance.
@@ -1675,6 +1810,15 @@ pub fn set_reaction_mode_native(card: &str, mode: ReactionMode) -> Result<(), St
     response(status(set_reaction_mode())).map(|_| ())
 }
 
+/// Ask [`ti4_saved_option`] for the option with `id`, for callers on the native side.
+///
+/// # Errors
+/// The error text of the export.
+pub fn saved_option_native(id: &str) -> Result<String, String> {
+    fill_request(id)?;
+    response(status(saved_option()))
+}
+
 fn fill_request(request: &str) -> Result<(), String> {
     let mut buffer = REQUEST.lock().expect("request lock");
     buffer.clear();
@@ -1733,6 +1877,30 @@ pub fn response(status: i32) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Reads the journal as a page does: `log` is cut at its first decision and gets its
+    /// entries, and is then every decision of the game. Returns the windows that were passed.
+    fn read_journal(log: &mut Vec<String>) -> Vec<serde_json::Value> {
+        let journal: serde_json::Value =
+            serde_json::from_str(&response(ti4_journal()).unwrap()).unwrap();
+        let from = usize::try_from(journal["from"].as_u64().unwrap()).unwrap();
+        assert!(from <= log.len(), "the journal begins after the log ends");
+        log.truncate(from);
+        let mut passed = Vec::new();
+        for entry in journal["entries"].as_array().unwrap() {
+            log.push(entry["id"].as_str().unwrap().to_owned());
+            passed.extend(entry.get("passed").cloned());
+        }
+        assert_eq!(log.len(), ti4_decided() as usize, "the log is the game");
+        passed
+    }
+
+    /// The answer of a page to a saved decision: the place of the saved option.
+    fn saved_index(id: &str) -> i32 {
+        let found: serde_json::Value =
+            serde_json::from_str(&saved_option_native(id).unwrap()).unwrap();
+        i32::try_from(found["index"].as_u64().unwrap()).unwrap()
+    }
 
     #[test]
     fn slow_an_eight_player_game_runs_with_random_deciders() {
@@ -1953,22 +2121,87 @@ mod tests {
                 .map(|option| option["id"].as_str().unwrap().to_owned())
                 .collect()
         };
-        let first = Arc::new(Mutex::new((Vec::<String>::new(), String::new())));
+        // The page keeps every decision of the game, of every seat: its own answers, and what
+        // the journal says of the others.
+        const SAVED: usize = 30;
+        #[derive(Default, Clone)]
+        struct First {
+            answers: Vec<String>,
+            reached: String,
+            log: Vec<String>,
+            saved: Vec<String>,
+        }
+        let first = Arc::new(Mutex::new(First::default()));
         let sink = first.clone();
         set_native_host(move |update| {
-            let (answers, reached) = &mut *sink.lock().unwrap();
-            if answers.len() == ANSWERS {
+            let first = &mut *sink.lock().unwrap();
+            read_journal(&mut first.log);
+            if first.answers.len() == SAVED {
+                first.saved.clone_from(&first.log);
+            }
+            if first.answers.len() == ANSWERS {
+                update.clone_into(&mut first.reached);
+                return -1;
+            }
+            let ids = options(&serde_json::from_str(update).unwrap());
+            let index = (first.answers.len() * 7) % ids.len();
+            first.answers.push(ids[index].clone());
+            first.log.push(ids[index].clone());
+            i32::try_from(index).unwrap()
+        });
+        ti4_play(3, 8, 1);
+        let First {
+            answers,
+            reached,
+            saved,
+            log,
+        } = first.lock().unwrap().clone();
+        assert_eq!(answers.len(), ANSWERS);
+        assert!(saved.len() > SAVED, "the other seats decided too");
+        // It is the decision log of the engine, which is what the server keeps of a game.
+        let chosen = |records: Vec<ti4_engine::choice::DecisionRecord>| -> Vec<String> {
+            records.into_iter().map(|record| record.chosen).collect()
+        };
+        let played = chosen(decisions_native());
+        assert_eq!(log[..], played[..log.len()]);
+
+        // A saved game is the seed and that list. The game is given each decision of it, of
+        // every seat, and is shown nothing; the random seats then go on as in the game that was
+        // never saved, so the same answers reach the same position.
+        let resumed = Arc::new(Mutex::new((0, SAVED, String::new())));
+        let sink = resumed.clone();
+        let script = saved.clone();
+        set_native_host(move |update| {
+            let (given, answered, reached) = &mut *sink.lock().unwrap();
+            if update.is_empty() {
+                *given += 1;
+                return saved_index(&script[*given - 1]);
+            }
+            assert_eq!(
+                *given,
+                script.len(),
+                "no choice before the saved game is played"
+            );
+            if *answered == ANSWERS {
                 update.clone_into(reached);
                 return -1;
             }
             let ids = options(&serde_json::from_str(update).unwrap());
-            let index = (answers.len() * 7) % ids.len();
-            answers.push(ids[index].clone());
+            let index = (*answered * 7) % ids.len();
+            *answered += 1;
             i32::try_from(index).unwrap()
         });
+        ti4_replay(u32::try_from(saved.len()).unwrap());
         ti4_play(3, 8, 1);
-        let (answers, reached) = first.lock().unwrap().clone();
-        assert_eq!(answers.len(), ANSWERS);
+        let resumed = resumed.lock().unwrap().clone();
+        assert_eq!(chosen(decisions_native())[..log.len()], log[..]);
+        assert_eq!(resumed.0, saved.len());
+        assert_eq!(resumed.2, reached);
+        // A saved decision that the game does not offer is said with what it offers.
+        assert!(
+            saved_option_native("tactical").is_err(),
+            "no game is parked"
+        );
 
         let again = Arc::new(Mutex::new((0, String::new())));
         let sink = again.clone();
@@ -2466,15 +2699,17 @@ mod tests {
                     .to_owned(),
             )
         };
-        let passed = || -> Vec<serde_json::Value> {
-            serde_json::from_str(&response(ti4_passed()).unwrap()).unwrap()
-        };
         set_reaction_mode_native(NAV_SUITE, ReactionMode::Never).unwrap();
         let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
         let sink = seen.clone();
+        // Every decision of the game, the place of the activation in it, and the last update.
+        let kept = Arc::new(Mutex::new((Vec::<String>::new(), 0, String::new())));
+        let keeps = kept.clone();
         set_native_host(move |update| {
             let value: serde_json::Value = serde_json::from_str(update).unwrap();
             let mut seen = sink.lock().unwrap();
+            let (log, activation, reached) = &mut *keeps.lock().unwrap();
+            let passed = read_journal(log);
             seen.push(asked_of(&value));
             let pick = |id: &str| {
                 let index = options(&value).iter().position(|have| have == id);
@@ -2499,19 +2734,27 @@ mod tests {
                     )
                     .unwrap();
                     assert_eq!(later["kind"], "interrupted", "{later}");
+                    log.push("tactical".to_owned());
                     pick("tactical")
                 }
-                2 | 4 => pick("41"),
+                2 | 4 => {
+                    *activation = log.len();
+                    log.push("41".to_owned());
+                    pick("41")
+                }
                 3 => {
-                    assert_eq!(passed().len(), 2);
+                    assert_eq!(passed.len(), 2);
                     assert_eq!(ti4_can_undo(), 1);
+                    // The page takes the activation back, and what was decided after it.
+                    log.truncate(*activation);
                     UNDO
                 }
                 _ => {
-                    let again = passed();
-                    assert_eq!(again.len(), 2);
-                    assert_eq!(again[0]["cards"], serde_json::json!([NAV_SUITE]));
-                    assert_eq!(again[0]["option"]["id"], "decline");
+                    assert_eq!(passed.len(), 2);
+                    assert_eq!(passed[0]["cards"], serde_json::json!([NAV_SUITE]));
+                    assert_eq!(passed[0]["option"]["id"], "decline");
+                    assert_eq!(log[log.len() - 2..], ["decline", "decline"]);
+                    update.clone_into(reached);
                     -1
                 }
             }
@@ -2534,8 +2777,9 @@ mod tests {
             ]
         );
 
-        // A saved game has the answers of the windows. It is asked for them whole, whatever
-        // the cards are set to, so it is the same game.
+        // A saved game has the answers of the windows. It is given them, whatever the cards are
+        // set to, so it is the same game, and the choice after them has the same number.
+        let (log, _, reached) = kept.lock().unwrap().clone();
         for never in [true, false] {
             let mode = if never {
                 ReactionMode::Never
@@ -2543,26 +2787,25 @@ mod tests {
                 ReactionMode::Always
             };
             set_reaction_mode_native(NAV_SUITE, mode).unwrap();
-            let seen = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
+            let seen = Arc::new(Mutex::new((0, Vec::<String>::new())));
             let sink = seen.clone();
+            let script = log.clone();
             set_native_host(move |update| {
-                let value: serde_json::Value = serde_json::from_str(update).unwrap();
-                let mut seen = sink.lock().unwrap();
-                seen.push(asked_of(&value));
-                let saved = ["tactical", "41", "decline", "decline"];
-                saved.get(seen.len() - 1).map_or(-1, |wanted| {
-                    let index = options(&value).iter().position(|have| have == wanted);
-                    i32::try_from(index.expect("the saved answer is offered")).unwrap()
-                })
+                let (given, shown) = &mut *sink.lock().unwrap();
+                if update.is_empty() {
+                    *given += 1;
+                    return saved_index(&script[*given - 1]);
+                }
+                assert!(read_journal(&mut script.clone()).is_empty());
+                shown.push(update.to_owned());
+                -1
             });
-            ti4_replay(4);
+            ti4_replay(u32::try_from(log.len()).unwrap());
             let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 0b1000);
             assert!(response(status).unwrap().contains(LEFT));
-            let seen = seen.lock().unwrap();
-            assert_eq!(seen.len(), 5, "{seen:?}");
-            assert!(seen[2].1.starts_with("reaction_after"), "{seen:?}");
-            assert_eq!(seen[4], ("5".to_owned(), "movement_step".to_owned()));
-            assert!(passed().is_empty());
+            let (given, shown) = seen.lock().unwrap().clone();
+            assert_eq!(given, log.len());
+            assert_eq!(shown, std::slice::from_ref(&reached));
         }
 
         // The rule bot plays the seats of its mask. It decides from the seed, the seat and the
