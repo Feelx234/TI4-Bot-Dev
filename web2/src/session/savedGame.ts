@@ -1,6 +1,8 @@
 // A local game as it is kept between two visits: not its state, but what plays it again.
 // The engine is deterministic, so the seed and the answers of this page give the same game.
 
+import type { TableRequest } from "./wire";
+
 /** Which game the engine sets up. */
 export interface LocalGame {
   seed: number;
@@ -13,6 +15,14 @@ export interface LocalGame {
    * of seats are then those of the scenario.
    */
   scenario?: string;
+  /**
+   * The table that the game was set up as (single player). The engine starts the game from it:
+   * `seed` and `players` are those of its setup, and `humans` is the mask of its players of the
+   * kind "human" (bit 0 is the player who came first, with the id "a").
+   */
+  table?: TableRequest;
+  /** The wait of the seats that the page plays before each answer, in milliseconds. */
+  waitMs?: number;
 }
 
 /** The seats that are played here changed during the game (Dev, "Play as"). */
@@ -26,7 +36,8 @@ export interface SeatSwitch {
 }
 
 export interface SavedGame extends LocalGame {
-  format: 1;
+  /** Format 1 has no table: it is a game of a seed or of a scenario. A page writes format 2. */
+  format: 2;
   /** SHA-256 of the engine file that played it. Another engine may play the answers differently. */
   engine: string;
   /** The option id of each answer of this page, in order. */
@@ -38,16 +49,29 @@ export interface SavedGame extends LocalGame {
 /** The part of `Storage` that is used, so a test can pass a map. */
 export type SaveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export const saveKey = (game: LocalGame): string =>
-  game.scenario === undefined
-    ? `ti4.local.${game.seed}.${game.players}.${game.humans}`
-    : `ti4.local.scenario.${game.scenario}.${game.humans}`;
+/** Where the game of single player is kept: one, whatever its table is. */
+export const SINGLE_KEY = "ti4.single";
 
-/** The address of a game: what `localGame` in `dev/LocalApp.tsx` reads. */
+/** The address of single player: the setup of a table, or the game that was started from it. */
+export const SINGLE_ADDRESS = "?single";
+
+export const saveKey = (game: LocalGame): string =>
+  game.table !== undefined
+    ? SINGLE_KEY
+    : game.scenario === undefined
+      ? `ti4.local.${game.seed}.${game.players}.${game.humans}`
+      : `ti4.local.scenario.${game.scenario}.${game.humans}`;
+
+/**
+ * The address of a game: what `localGame` in `dev/LocalApp.tsx` reads. The game of a table has
+ * the address of its save: a setup does not fit an address.
+ */
 export const gameAddress = (game: LocalGame): string =>
-  game.scenario === undefined
-    ? `?local=${game.seed}&players=${game.players}&humans=${game.humans}`
-    : `?scenario=${encodeURIComponent(game.scenario)}&humans=${game.humans}`;
+  game.table !== undefined
+    ? SINGLE_ADDRESS
+    : game.scenario === undefined
+      ? `?local=${game.seed}&players=${game.players}&humans=${game.humans}`
+      : `?scenario=${encodeURIComponent(game.scenario)}&humans=${game.humans}`;
 
 /** Where the staged movement of the open movement step is kept: it is not an answer yet. */
 export const draftKey = (game: LocalGame): string => `${saveKey(game)}.movement`;
@@ -80,9 +104,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value !== "object" || value === null) {
     throw new Error("The saved game is not a JSON object.");
   }
-  if (value.format !== 1) {
+  if (value.format !== 1 && value.format !== 2) {
     throw new Error(
-      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 1.`,
+      `The saved game has format ${JSON.stringify(value.format)}; this page reads formats 1 and 2.`,
     );
   }
   for (const field of ["seed", "players", "humans"] as const) {
@@ -95,6 +119,23 @@ export function parseSavedGame(text: string): SavedGame {
   }
   if (value.scenario !== undefined && typeof value.scenario !== "string") {
     throw new Error('The saved game has no text in "scenario".');
+  }
+  // The engine checks the table when it starts the game: only its shape is read here.
+  const table = value.table as Partial<TableRequest> | undefined;
+  if (
+    table !== undefined &&
+    !(
+      typeof table === "object" &&
+      table !== null &&
+      typeof table.setup === "object" &&
+      table.setup !== null &&
+      Array.isArray(table.seats)
+    )
+  ) {
+    throw new Error('The saved game has no setup and seats in "table".');
+  }
+  if (value.waitMs !== undefined && !isCount(value.waitMs)) {
+    throw new Error('The saved game has no whole number in "waitMs".');
   }
   const { answers } = value;
   if (!Array.isArray(answers) || !answers.every((answer) => typeof answer === "string")) {
@@ -118,12 +159,14 @@ export function parseSavedGame(text: string): SavedGame {
     throw new Error('The saved game has no list of seat changes in "switches".');
   }
   return {
-    format: 1,
+    format: 2,
     engine: value.engine,
     seed: value.seed as number,
     players: value.players as number,
     humans: value.humans as number,
     ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
+    ...(table === undefined ? {} : { table: table as TableRequest }),
+    ...(value.waitMs === undefined ? {} : { waitMs: value.waitMs as number }),
     answers,
     ...(switches?.length
       ? {

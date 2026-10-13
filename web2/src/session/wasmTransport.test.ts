@@ -71,6 +71,7 @@ async function play(
     never?: readonly string[];
     ruleSeats?: number;
     table?: TableRequest;
+    waitMs?: number;
   } = {},
 ) {
   const engine: Engine = {
@@ -1331,7 +1332,10 @@ it.skipIf(!built)(
       for (let count = 0; count < 6; count++) {
         const event = await next();
         const choice = event.update.pending_choice!.choice;
-        asked.push(`${choice.prompt}: ${choice.options.map((option) => option.id).join(",")}`);
+        // What the other seats did is in the view: the questions of seat a alone can be the same.
+        asked.push(
+          `${choice.prompt}: ${choice.options.map((option) => option.id).join(",")} ${JSON.stringify(event.update.view.players)}`,
+        );
         transport.submitChoice(nonce(event), choice.options[0].id);
       }
       transport.close();
@@ -1382,7 +1386,8 @@ it.skipIf(!built)(
     // A place of a seat is a tile of the board, with no planets and no faction.
     for (const seat of preview.seats) {
       const tile = preview.tiles.find((have) => have.system_id === seat.home_system_id);
-      expect(tile?.planets).toEqual([]);
+      expect(tile).toBeDefined();
+      expect(tile?.planets ?? []).toEqual([]);
     }
 
     const draw = await setupDrawOf(module, table);
@@ -1392,11 +1397,7 @@ it.skipIf(!built)(
     expect(new Set(draw.factions).size).toBe(4);
 
     // The game is that draw: the page is player a, with the faction that it chose.
-    const { transport, next } = await play(
-      false,
-      { seed: 12, players: 4, humans: 1 },
-      { table },
-    );
+    const { transport, next } = await play(false, { seed: 12, players: 4, humans: 1 }, { table });
     const { update } = await next();
     expect(update.pending_choice?.choice.player).toBe("a");
     expect(update.view.players.map((player) => player.id)).toEqual(draw.players);
@@ -1407,6 +1408,51 @@ it.skipIf(!built)(
     await expect(
       setupDrawOf(module, { ...table, setup: { ...table.setup, strategy_cards: "base_game" } }),
     ).rejects.toThrow(/strategy_card_set/);
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "the wait of a table: the page is shown the game while a seat takes its time, and the game is the same",
+  async () => {
+    const table: TableRequest = {
+      setup: { player_count: 4, seed: 12 },
+      seats: [{ kind: "human" }, { kind: "smart" }, { kind: "random" }, { kind: "smart" }],
+    };
+    /** The first choices of player a, each answered with its first option, and the waits before them. */
+    const first = async (waitMs: number) => {
+      const { transport, next, nonce } = await play(
+        false,
+        { seed: 12, players: 4, humans: 1 },
+        { table, waitMs },
+      );
+      const asked: string[] = [];
+      const waited: string[] = [];
+      while (asked.length < 4) {
+        const event = await next();
+        const pending = event.update.pending_choice;
+        if (!pending) {
+          // The game waits for another seat: the status names it, and nothing is to step.
+          expect(event.stepping).toBeUndefined();
+          const turn = event.update.turn_status;
+          waited.push(turn.kind === "waiting_for_decision" ? turn.seat : turn.kind);
+          continue;
+        }
+        const { choice } = pending;
+        asked.push(
+          `${choice.prompt}: ${choice.options.map((option) => option.id).join(",")} ${JSON.stringify(event.update.view.players)}`,
+        );
+        transport.submitChoice(nonce(event), choice.options[0].id);
+      }
+      transport.close();
+      return { asked, waited };
+    };
+    const now = await first(0);
+    expect(now.waited).toEqual([]);
+    const paced = await first(2);
+    expect(paced.asked).toEqual(now.asked);
+    expect(paced.waited.length).toBeGreaterThan(0);
+    expect(paced.waited).not.toContain("a");
   },
   120_000,
 );

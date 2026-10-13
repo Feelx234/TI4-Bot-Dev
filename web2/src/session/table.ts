@@ -4,7 +4,9 @@
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import {
   type LobbyState,
+  type MapChoice,
   type MapPreview,
+  type MapSummary,
   PROTOCOL_VERSION,
   type SetupOptions,
   type TableServerMessage,
@@ -25,6 +27,11 @@ export interface TableState {
   preview: MapPreview | null;
   /** What a host can choose, with the names. Null until the server said it. */
   options: SetupOptions | null;
+  /**
+   * The table is kept in the page (single player): the page plays the other seats, and nobody
+   * else can come to it. It has no address to give away and no name to change.
+   */
+  local?: true;
 }
 
 /** A change of the setup of a table. A part that is left out stays as it is. */
@@ -73,6 +80,10 @@ export interface Table {
    * chooses for the own seat, the host for any. A faction that another seat has is refused.
    */
   setFaction(playerId: string, faction: string | null): void;
+  /** The maps that a table of `players` seats can play. */
+  maps(players: number): Promise<MapSummary[]>;
+  /** Chooses the map. Host only. A map is for one number of seats. */
+  setMap(map: MapChoice): void;
   /** Starts the game. Host only, with every seat filled. */
   start(): void;
   close(): void;
@@ -402,6 +413,14 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
     rename: (nickname) => void change("nickname", { nickname }),
     setFaction: (playerId, faction) =>
       void change("seat-faction", { player_id: playerId, faction }),
+    async maps(players) {
+      const response = await fetcher(`/api/maps?player_count=${players}`);
+      if (!response.ok) {
+        throw new Error(await refusal(response));
+      }
+      return response.json();
+    },
+    setMap: (map) => void change("map", { map }),
     start: () => void change("start", {}),
     close() {
       closed = true;

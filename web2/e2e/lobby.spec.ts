@@ -127,7 +127,7 @@ test("three tabs of one browser make a table from the start screen, fill it and 
   await expect(page.locator("g.system.home")).toHaveCount(4);
   // What the kinds of a seat do is behind "?", not on the screen.
   await expect(page.getByText("The server plays this seat by rules")).toHaveCount(0);
-  await players(page).getByRole("button", { name: "About seats that the server plays" }).click();
+  await players(page).getByRole("button", { name: "About the kinds of a seat" }).click();
   await expect(page.getByText("The server plays this seat by rules")).toBeVisible();
   await page.keyboard.press("Escape");
   await page.screenshot({ path: "shots/online/lobby-host.png", animations: "disabled" });

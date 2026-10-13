@@ -46,11 +46,15 @@ const kindsOf = (lobby: LobbyState, options: SetupOptions | null) =>
     (kind) => kind.id in KIND_SIGNS && lobby.bot_kinds.includes(kind.id),
   );
 
+/** Who plays the seats that no person has: the server, or for a table in the page, the page. */
+const playerOf = (local: boolean) => (local ? "the page" : "the server");
+
 function sign(
   slot: LobbySlot,
   lobby: LobbyState,
   you: boolean,
   options: SetupOptions | null,
+  local: boolean,
 ): LobbySignView | null {
   if (slot.occupant === null) {
     return { kind: "open", word: "Open seat" };
@@ -59,7 +63,7 @@ function sign(
     const name = options?.bot_kinds.find((kind) => kind.id === slot.bot)?.name;
     return {
       kind: KIND_SIGNS[slot.bot] ?? "random",
-      word: name ? `${name}: played by the server` : "Played by the server",
+      word: name ? `${name}: played by ${playerOf(local)}` : `Played by ${playerOf(local)}`,
     };
   }
   const host = slot.occupant === lobby.host_player_id;
@@ -97,6 +101,7 @@ function setupRows(
   lobby: LobbyState,
   options: SetupOptions | null,
   host: boolean,
+  local: boolean,
 ): LobbySetupRowView[] {
   const seats = lobby.slots.length;
   const set = (change: LobbySettingsChange): LobbyIntent => ({ type: "set", change });
@@ -191,7 +196,7 @@ function setupRows(
       help: [
         {
           title: "Bots wait",
-          text: "A seat that the server plays waits about this long before each answer. It does not wait to decline a reaction window.",
+          text: `A seat that ${playerOf(local)} plays waits about this long before each answer. It does not wait to decline a reaction window.`,
         },
       ],
     },
@@ -280,6 +285,7 @@ export function selectLobby(
   catalog: Catalog | null,
 ): LobbyView {
   const { lobby, viewer, options } = table;
+  const single = table.local === true;
   const host = viewer !== null && viewer === lobby.host_player_id;
   const seats = lobby.slots.length;
   const open = lobby.slots.filter((slot) => slot.occupant === null).length;
@@ -337,7 +343,7 @@ export function selectLobby(
         }
       }
       // One row has it: every open seat is the same seat until the game starts.
-      if (viewer !== null && firstOpen) {
+      if (viewer !== null && firstOpen && !single) {
         buttons.push({
           label: "Join in a new tab",
           title: "Take this seat as another player, in a new tab of this browser",
@@ -349,10 +355,11 @@ export function selectLobby(
     const removable = host && slot.occupant !== null && !you;
     return {
       id: slot.slot_id,
-      sign: sign(slot, lobby, you, options),
+      sign: sign(slot, lobby, you, options, single),
       name: slot.nickname ?? "Open",
       you,
-      rename: you,
+      // The player of a table in the page has the name of this browser: the start screen has it.
+      rename: you && !single,
       become:
         slot.occupant !== null && !you && local.mine.includes(slot.occupant)
           ? { type: "become", player: slot.occupant }
@@ -391,7 +398,7 @@ export function selectLobby(
 
   const preview = table.preview;
   return {
-    title: `Lobby · ${plural(seats, "player")}`,
+    title: `${single ? "Single player" : "Lobby"} · ${plural(seats, "player")}`,
     status: local.offline ? "Offline · reconnecting" : "",
     board: selectPreviewBoard(
       preview?.tiles ?? [],
@@ -401,7 +408,7 @@ export function selectLobby(
     seats: {
       [SEAT_PLACE]: { id: SEAT_PLACE, name: "", faction: "Seat", symbol: "●", color: "#8a94a6" },
     },
-    setup: setupRows(lobby, options, host),
+    setup: setupRows(lobby, options, host, single),
     filled: `${seats - open} of ${seats}`,
     help: kinds.map((kind) => ({ title: kind.name, text: kind.description })),
     rows,

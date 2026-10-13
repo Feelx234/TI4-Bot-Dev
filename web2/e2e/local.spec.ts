@@ -1333,3 +1333,126 @@ test("the Agendas sheet of the late game has the laws in play and the deck in gr
   await page.screenshot({ path: "shots/local/agendas-late-game.png", animations: "disabled" });
   expect(errors).toEqual([]);
 });
+
+// Single player: the setup of a table in the page (`?single`), on the screen of the lobby.
+const lobbyPlayers = (page: Page) => page.getByRole("region", { name: "Players" });
+const lobbyRows = (page: Page) => lobbyPlayers(page).locator("ul.overflow-y-auto > li");
+const lobbySetup = (page: Page) => page.getByRole("region", { name: "Setup" });
+const setupValue = (page: Page, label: string) =>
+  lobbySetup(page).getByLabel(label, { exact: true });
+const lobbyTitle = (page: Page) => page.locator("header strong").first();
+const lobbyMain = (page: Page) => page.locator('button[aria-keyshortcuts="Enter"]');
+
+test("single player: a table is set up in the page, started, kept and set up again", async ({
+  page,
+}) => {
+  test.setTimeout(10_000);
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  // With no game of this browser, "Single player" of the start screen is the setup.
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /Single player/ })).toHaveAttribute(
+    "href",
+    "/?single",
+  );
+  await page.goto("/?single&seed=3&players=5");
+  await expect(lobbyTitle(page)).toHaveText("Single player · 5 players");
+  // The table is of the page: the other seats are rule bots, and nobody is given a link.
+  await expect(lobbyRows(page)).toHaveCount(5);
+  await expect(lobbyRows(page).nth(0)).toContainText("Player (you)");
+  await expect(lobbyRows(page).nth(4)).toContainText("Rule bot 4");
+  await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Join in a new tab" })).toHaveCount(0);
+  // The board has a place for each seat.
+  await expect(page.locator("g.system.home")).toHaveCount(5);
+
+  // The setup of the lobby: the seats, the cards, the kind of a seat and the faction.
+  await lobbySetup(page).getByRole("button", { name: "One player fewer" }).click();
+  await expect(lobbyTitle(page)).toHaveText("Single player · 4 players");
+  await expect(lobbyRows(page)).toHaveCount(4);
+  await expect(page.locator("g.system.home")).toHaveCount(4);
+  await setupValue(page, "Strategy cards").selectOption({ label: "Prophecy of Kings" });
+  await expect(setupValue(page, "Strategy cards")).toHaveValue("pok");
+  await lobbyPlayers(page).getByRole("button", { name: "Remove Rule bot 3" }).click();
+  await expect(lobbyMain(page)).toBeDisabled();
+  await expect(page.locator("#lobby-note")).toHaveText("Waiting for 1 open seat");
+  await lobbyRows(page).nth(3).getByRole("button", { name: "Random", exact: true }).click();
+  await expect(lobbyRows(page).nth(3)).toContainText("Random 1");
+  await lobbyPlayers(page)
+    .getByRole("button", { name: /^Faction of Player: / })
+    .click();
+  await lobbyPlayers(page)
+    .getByRole("group", { name: "Faction of Player" })
+    .getByRole("button", { name: "Hacan", exact: true })
+    .click();
+  await expect(lobbyPlayers(page).getByRole("button", { name: /^Faction of Player: / })).toHaveText(
+    /Hacan/,
+  );
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: "shots/local/single-setup.png", animations: "disabled" });
+
+  // Enter is the main button: the game of this table, with the faction that was chosen.
+  await expect(lobbyMain(page)).toHaveText(/^Start game/);
+  await page.keyboard.press("Enter");
+  await expect(send(page)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(4);
+  await expect(
+    page.getByRole("region", { name: "Players" }).locator('tbody tr[class*="bg-cyan"]'),
+  ).toContainText("Hacan");
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
+  const line = () => settings(page).getByText(/^Single player · /);
+  await openSettings(page);
+  await expect(line()).toHaveText("Single player · seed 3 · 4 seats · 0 answers saved");
+  await expect(settings(page).getByRole("region", { name: "Start from" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // An answer is kept, and a reload is this game, not another setup.
+  await panel(page).getByRole("button", { pressed: false }).first().click();
+  await send(page).click();
+  await expect
+    .poll(() => page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!).answers.length))
+    .toBeGreaterThan(0);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!));
+  expect(saved.format).toBe(2);
+  expect(saved.table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
+  expect(saved.table.seats.map((seat: { kind: string }) => seat.kind)).toEqual([
+    "human",
+    "smart",
+    "smart",
+    "random",
+  ]);
+  await page.goto("/");
+  await page.getByRole("link", { name: /Single player/ }).click();
+  await expect(page).toHaveURL("/?single");
+  await expect(send(page)).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Players" }).locator('tbody tr[class*="bg-cyan"]'),
+  ).toContainText("Hacan");
+
+  // "New game" of the Dev sheet drops the game and opens the setup.
+  await openSettings(page);
+  await settings(page).getByRole("button", { name: "New game" }).click();
+  await expect(lobbyTitle(page)).toHaveText(/^Single player · /);
+  expect(await page.evaluate(() => localStorage.getItem("ti4.single"))).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test("single player: the other seats take the wait of the table, and the page says who decides", async ({
+  page,
+}) => {
+  test.setTimeout(10_000);
+  await page.goto("/?single&seed=3&players=4");
+  await lobbySetup(page).getByRole("button", { name: "Wait more" }).click();
+  await expect(setupValue(page, "Bots wait")).toHaveText("0.5 s");
+  await lobbyMain(page).click();
+  // On this seed three seats choose a strategy card before the page: each takes its time, the
+  // toolbar says who the game waits for, and then the page is asked.
+  await expect(page.locator("header strong").first()).toHaveText(/^Waiting for /);
+  await expect(send(page)).toBeVisible();
+  await expect(page.locator("header strong").first()).toHaveText("Your decision");
+  await expect(heading(page)).toHaveText("Choose a strategy card");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!).waitMs)).toBe(
+    500,
+  );
+});

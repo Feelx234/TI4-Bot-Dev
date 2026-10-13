@@ -53,6 +53,12 @@ Also look for UX ideas on how to integrate this: in web/, and in the demo of web
   - a visitor of a running game is a spectator at once (phase 7: the table first), and a tab with no seat in a game where the browser has several players is one too
   - `web/` still asks the lobby every two seconds: the socket of a table is there for it. `web/` lists "Position N" with seat colours in its lobby; after the draw a position is not a seat (Felix decides what it shows)
   - the quick starts of eight accept both phases when the seat of the page is the last to choose a strategy card (`e2e/online.spec.ts`); `e2e/factions.spec.ts` passed in the runs of phase 2 and was not looked at for this
+- single player on the setup of a table (2026-10-13, phase 6 of `plans/2026-10-12-LOBBY_PLAN.md`): `?single` is the lobby screen over a table in the page (`localTable`), with the rule bot, the factions, the strategy cards, the wait and "Start from"; the game is kept with its table (`ti4.single`). Still open:
+  - the map has no control (phase 4): the table plays the usual map of its count. `Table.maps` and `Table.setMap` are there for it, on both tables
+  - the wait is of the setup: a running game keeps it (phase 7)
+  - a seat that the page plays is named by its faction in the game, not "Rule bot 2" (phase 7)
+  - there is one game of single player; a list of saved games is later (decision 13)
+  - the hang of `cargo t-web` on the machine of 3 GB was not seen again on a larger machine, and its cause is not known
 - the production screen (2026-10-11) covers the production of a tactical action. Still open: a production by an ability or with places in another system stays a list (the facts are `None`); AI Development Algorithm before it is a list; a unit that the game does not offer for a reason that the facts do not know (a ban of a faction, a production of one unit only) says "Not here" with no reason; the cost is paid with resources only (no Archon's Gift or influence face, no commodities of Keleres); the gauges for the fleet pool and the capacity are plain sums (a space dock that holds fighters and Fighter II are not counted); the worth of a planet in the payment is the engine's, the map shows the printed `res/inf`
 - a plan is answered in one place (2026-10-11): `script_answer` in `ti4-view` (`planning/draft.rs`), for a draft and for a plan that is sent (`ti4_plan` of the wasm host). The server's batch has no step for the landings yet
 - on a phone a row of the panel summary (movement, landings) opens the sheet but does not open the Map pane

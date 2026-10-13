@@ -17,7 +17,7 @@ pub mod buffer;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{self, Write as _};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -469,8 +469,15 @@ static PASSED: Mutex<Vec<Passed>> = Mutex::new(Vec::new());
 /// The answer of the host that lets a random seat decide. See [`ti4_set_stepping`].
 pub const GO: i32 = -3;
 
-/// The host is asked before each decision of a random seat.
-static STEPPING: AtomicBool = AtomicBool::new(false);
+/// Whether the host is asked before a decision of a seat that it does not play: [`RUN`], 1
+/// (before each decision) or [`PACE`]. See [`ti4_set_stepping`].
+static STEPPING: AtomicU32 = AtomicU32::new(RUN);
+
+/// The seats that the host does not play decide with no stop.
+const RUN: u32 = 0;
+/// The host is asked before each of their decisions, but for a reaction window that the seat
+/// only declines: the wait of a table, as the server has it.
+const PACE: u32 = 2;
 
 /// The answer of the host after [`ti4_switch_seats`]: the decision is asked again, of the seat's
 /// new decider.
@@ -636,9 +643,27 @@ fn draw(
     choice: &Choice,
     rule: Option<&SeatObservation<'_>>,
 ) -> Result<Option<ChoiceOption>, IllegalChoice> {
-    if STEPPING.load(Ordering::Relaxed) && !wait_for_go(choice)? {
-        return Ok(None);
+    let stepping = STEPPING.load(Ordering::Relaxed);
+    if stepping != RUN {
+        // What the seat picks is known before the host is asked, as on the server: the wait of a
+        // table is not taken for a window that is only declined.
+        let declines = stepping == PACE
+            && ti4_view::projection::is_reaction_window(choice)
+            && pick(choice, rule, true)?.is_decline();
+        if !declines && !wait_for_go(choice)? {
+            return Ok(None);
+        }
     }
+    pick(choice, rule, false).map(Some)
+}
+
+/// What a seat that the host does not play answers. With `peek` the stream of the random seats
+/// stays where it is, so the same call gives the same answer again.
+fn pick(
+    choice: &Choice,
+    rule: Option<&SeatObservation<'_>>,
+    peek: bool,
+) -> Result<ChoiceOption, IllegalChoice> {
     let (seed, index, table) = {
         let host = host();
         (host.seed, host.decided, host.table)
@@ -649,15 +674,15 @@ fn draw(
         // of a table a random seat decides the same way, as on the server.
         let index = usize::try_from(index).expect("a game has fewer decisions than 2^32");
         let (picked, _) = ti4_rule_bot::choose(choice, rule, seed, &choice.player, index);
-        return Ok(Some(choice.options[picked].clone()));
+        return Ok(choice.options[picked].clone());
     }
-    RANDOM
-        .lock()
-        .expect("random lock")
-        .as_mut()
-        .expect("a played game has a random stream")
-        .choose(choice)
-        .map(Some)
+    let mut random = RANDOM.lock().expect("random lock");
+    let stream = random.as_mut().expect("a played game has a random stream");
+    if peek {
+        stream.clone().choose(choice)
+    } else {
+        stream.choose(choice)
+    }
 }
 
 /// Wait until the host lets the seat of `choice` decide. The host is shown the game as its own
@@ -1411,11 +1436,19 @@ pub extern "C" fn ti4_setup_preview(request_len: u32) -> i32 {
 }
 
 /// What Start draws for the table in the request buffer: who sits where, and the faction of
-/// every seat. It is what [`ti4_play_setup`] plays, so a host that shows it shows the game.
+/// every seat (for a scenario, the factions that it seats). It is what [`ti4_play_setup`] plays,
+/// so a host that shows it shows the game.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_setup_draw(request_len: u32) -> i32 {
     status(TableRequest::read(request_len).and_then(|table| {
-        let drawn = table.drawn()?;
+        let mut drawn = table.drawn()?;
+        if drawn.factions.is_empty() {
+            // A scenario seats the factions of its seats, in the order of the join: a host that
+            // shows the table before the start names them, as the lobby of the server does.
+            drawn.factions = (0..table.setup.player_count)
+                .map(|seat| ti4_model::id::FactionId::new(ti4_engine::seating::seat_faction(seat)))
+                .collect();
+        }
         respond(
             "the draw of a table",
             &TableDraw {
@@ -1460,14 +1493,16 @@ pub extern "C" fn ti4_catalog() -> i32 {
     ))
 }
 
-/// Ask the host before each decision of a random seat (1), or let these seats play on (0). The
-/// host is then asked with an update that has no pending choice, and answers [`GO`]. The seat
-/// decides from the seeded stream either way, so the game is the same game.
+/// Ask the host before each decision of a seat that it does not play (1), or let these seats
+/// play on (0). The host is then asked with an update that has no pending choice, and answers
+/// [`GO`]. With 2 the host is asked the same way, but not before a reaction window that the seat
+/// only declines: this is for the wait of a table, which the host takes before it answers. The
+/// seat decides the same in every mode, so the game is the same game.
 ///
 /// Only a flag is set: the host may call this while the game waits.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_set_stepping(on: u32) {
-    STEPPING.store(on != 0, Ordering::Relaxed);
+    STEPPING.store(on.min(PACE), Ordering::Relaxed);
 }
 
 /// The rule bot plays the seats of `mask` (bit 0 is seat `a`) wherever the host does not; the
@@ -2673,6 +2708,31 @@ mod tests {
             assert!(first.len() > 50, "{} decisions", first.len());
             assert_eq!(first, bots(5));
             assert_ne!(first, bots(6));
+
+            // The host can be asked before each decision of these seats, and for the wait of a
+            // table before each but a reaction window that the seat only declines. The game is
+            // the same game.
+            let pauses = Arc::new(Mutex::new(0_usize));
+            let paused = |mode: u32| {
+                *pauses.lock().unwrap() = 0;
+                let count = pauses.clone();
+                set_native_host(move |update| {
+                    let value: serde_json::Value = serde_json::from_str(update).unwrap();
+                    assert!(value.get("pending_choice").is_none(), "{update}");
+                    *count.lock().unwrap() += 1;
+                    GO
+                });
+                ti4_set_stepping(mode);
+                let decisions = bots(5);
+                ti4_set_stepping(0);
+                assert_eq!(decisions, first, "mode {mode}");
+                *pauses.lock().unwrap()
+            };
+            let stepped = paused(1);
+            assert_eq!(stepped, first.len());
+            let paced = paused(2);
+            assert!(0 < paced && paced <= stepped, "{paced} of {stepped}");
+            eprintln!("paced: {paced} of {stepped} decisions wait");
             set_round_limit_native(None);
 
             // What a table cannot be is refused, with the reason.

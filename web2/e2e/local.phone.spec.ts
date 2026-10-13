@@ -576,3 +576,47 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
 });
+
+test("phone: single player is set up on the panes of the lobby, with the long name", async ({
+  page,
+}) => {
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      412,
+    );
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const main = page.locator('button[aria-keyshortcuts="Enter"]');
+  const long = "Bartholomew Featherstonehaugh the Third of Mecatol";
+  await page.addInitScript((name) => localStorage.setItem("ti4.nickname", name), long);
+  await page.goto("/?single&seed=3&players=8");
+
+  // The Players pane is first: eight seats, nothing is cut at the side, the main button in reach.
+  const rows = page.getByRole("region", { name: "Players" }).locator("ul.overflow-y-auto > li");
+  await expect(rows).toHaveCount(8);
+  await expect(rows.nth(0)).toContainText(`${long} (you)`);
+  await expect(main).toHaveText(/^Start game/);
+  await expect(main).toBeInViewport();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/single-players.png", animations: "disabled" });
+
+  await pane("Setup").tap();
+  const setup = page.getByRole("region", { name: "Setup" });
+  await expect(setup.getByLabel("Players", { exact: true })).toHaveText("8");
+  await setup.getByRole("button", { name: "One player fewer" }).tap();
+  await expect(setup.getByLabel("Players", { exact: true })).toHaveText("7");
+  await expect(main).toBeInViewport();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/single-setup.png", animations: "disabled" });
+
+  await pane("Map").tap();
+  await expect(page.locator("g.system.home")).toHaveCount(7);
+  await expect(main).toBeInViewport();
+  await fits();
+
+  // The game of the table has the panes of a game.
+  await main.tap();
+  await expect(pane("Action")).toBeVisible();
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toBeVisible();
+  await fits();
+});

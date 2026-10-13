@@ -483,7 +483,7 @@ function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: Lobby
           <>
             <span className="text-sm text-muted tabular-nums">{view.filled}</span>
             {view.help.length > 0 && (
-              <Hint label="About seats that the server plays">
+              <Hint label="About the kinds of a seat">
                 {view.help.map((item) => (
                   <span key={item.title} className="block">
                     <strong>{item.title}.</strong> {item.text}
@@ -597,8 +597,8 @@ export function LobbyScreen({
   /** The name that a visitor joins with. */
   nickname: string;
   onNickname: (name: string) => void;
-  /** The address of the table, for the other players. */
-  link: string;
+  /** The address of the table, for the other players. Without it nobody else can come. */
+  link?: string;
   toast: { id: number; text: string } | null;
   /** The way out: the start screen. A page load. */
   other?: OtherGame;
@@ -644,6 +644,9 @@ export function LobbyScreen({
   };
   const copy = () => {
     const say = (text: string) => setCopied({ id: performance.now(), text });
+    if (link === undefined) {
+      return;
+    }
     navigator.clipboard.writeText(link).then(
       () => say("Link copied"),
       () => say(link),
@@ -685,9 +688,11 @@ export function LobbyScreen({
                   </span>
                 )}
               </div>
-              <Button tone="quiet" size="sm" onClick={copy}>
-                Copy link
-              </Button>
+              {link !== undefined && (
+                <Button tone="quiet" size="sm" onClick={copy}>
+                  Copy link
+                </Button>
+              )}
               {other && (
                 <Button tone="quiet" size="sm" onClick={() => location.assign(other.href)}>
                   {other.label}

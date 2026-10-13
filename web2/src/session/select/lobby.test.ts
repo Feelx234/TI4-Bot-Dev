@@ -590,3 +590,36 @@ it("the sheet of a faction is behind its name, where the catalogue has it", () =
     leaders: [],
   });
 });
+
+it("a table in the page is single player: no tab to join from, no name to change, and the page plays the other seats", () => {
+  const state: TableState = {
+    ...of(
+      lobby({
+        slots: [
+          person(1, "ada", "Ada"),
+          slot(2, { occupant: "b", nickname: "Rule bot 1", bot: "smart", connected: true }),
+          slot(3),
+        ],
+      }),
+      "ada",
+    ),
+    local: true,
+  };
+  const view = selectLobby(state, local(), catalog);
+  expect(view.title).toBe("Single player · 3 players");
+  expect(view.rows[0].you).toBe(true);
+  expect(view.rows[0].rename).toBe(false);
+  expect(view.rows[0].editor).not.toBeNull();
+  expect(view.rows[1].sign).toEqual({ kind: "rule", word: "Rule bot: played by the page" });
+  expect(view.rows[1].editor).not.toBeNull();
+  expect(view.rows[1].remove?.intent).toEqual({ type: "remove", player: "b" });
+  expect(view.rows[2].buttons.map((button) => button.label)).toEqual(["Rule bot", "Random"]);
+  expect(view.setup.find((row) => row.id === "wait")?.help[0].text).toMatch(
+    /^A seat that the page plays waits/,
+  );
+  expect(view.footer.main).toEqual({
+    label: "Start game",
+    disabled: true,
+    intent: { type: "start" },
+  });
+});

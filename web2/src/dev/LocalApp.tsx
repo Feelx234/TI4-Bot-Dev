@@ -43,7 +43,20 @@ type Start =
  * prepared board of the engine. The answers are kept in localStorage, so a reload goes on where
  * the game was.
  */
-export function LocalApp({ game }: { game: LocalGame }) {
+export function LocalApp({
+  game,
+  onNewGame,
+  other = { label: "Demo", href: "/?example=live-picker" },
+}: {
+  game: LocalGame;
+  /**
+   * "New game" leaves the game for what set it up, in place of the same game again: the game of
+   * a table goes back to its setup.
+   */
+  onNewGame?: () => void;
+  /** The way out of the game, in the header. */
+  other?: { label: string; href: string };
+}) {
   const [start, setStart] = useState<Start>({ kind: "loading" });
   /** The saved game was played by another engine, and the player said to play it anyway. */
   const [anyway, setAnyway] = useState(false);
@@ -108,11 +121,13 @@ export function LocalApp({ game }: { game: LocalGame }) {
       answers: saved?.answers,
       switches: saved?.switches,
       stepping: steps.current,
+      table: game.table,
+      waitMs: game.waitMs,
       never: readNever(game),
       onNever: (never) => localStorage.setItem(cardsKey(game), JSON.stringify(never)),
       onAnswers(list, changes) {
         storeSavedGame(localStorage, {
-          format: 1,
+          format: 2,
           engine: engine.hash,
           ...played,
           answers: [...list],
@@ -169,6 +184,9 @@ export function LocalApp({ game }: { game: LocalGame }) {
     clearSavedGame(localStorage, game);
     setAnyway(false);
     setSettingsOpen(false);
+    if (onNewGame) {
+      return onNewGame();
+    }
     setStart((now) => (now.kind === "ready" ? { ...now, saved: null } : now));
   };
   const exportGame = () => {
@@ -240,7 +258,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
   const settingsView = (close: () => void) => (
     <>
       <p className="text-muted">
-        {`Local game · ${game.scenario === undefined ? "" : `scenario ${game.scenario} · `}seed ${played.seed} · ${played.players} seats · ${answers} answers saved`}
+        {`${game.table ? "Single player" : "Local game"} · ${game.scenario === undefined ? "" : `scenario ${game.scenario} · `}seed ${played.seed} · ${played.players} seats · ${answers} answers saved`}
       </p>
       {importError && (
         <p role="alert" className="mt-3 text-red">
@@ -293,14 +311,14 @@ export function LocalApp({ game }: { game: LocalGame }) {
                 <strong className="font-mid">{seat.name}</strong>
                 <span className="min-w-0 flex-1 truncate text-muted">{seat.faction}</span>
                 <small className="text-xs text-muted">
-                  {playsHere(seat.id) ? "✓ Playing" : "Random"}
+                  {playsHere(seat.id) ? "✓ Playing" : game.table ? "Played by the page" : "Random"}
                 </small>
               </button>
             ))}
           </div>
         </section>
       )}
-      {scenarios && can.scenarios && (
+      {scenarios && can.scenarios && !game.table && (
         <section aria-label="Start from" className="mt-4">
           <h3 className="text-sm text-muted">Start from</h3>
           <div className="mt-1.5 rounded border border-line">
@@ -336,7 +354,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
           <Button
             tone="quiet"
             size="sm"
-            disabled={answers === 0}
+            disabled={answers === 0 && !onNewGame}
             onClick={() => {
               newGame();
               close();
@@ -385,7 +403,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
     body = (
       <GameShell
         session={session}
-        other={{ label: "Demo", href: "/?example=live-picker" }}
+        other={other}
         settings={settingsView}
         settingsOpen={settingsOpen}
       />

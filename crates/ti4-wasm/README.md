@@ -157,7 +157,7 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `content` (the digest of the corpus, which a page compares with the one of a server before it plays there), `exploration` (the exploration cards and the attachments) and `components` (abilities, leaders, technologies, relics, legendary planets). See "The exploration". |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
 | `ti4_set_rule_seats(mask)` | The rule bot (`ti4-rule-bot`, the server's rule bot) plays the seats of the mask wherever the host does not; the remaining seats decide at random. Set before `ti4_play`. See "Rule seats". |
-| `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
+| `ti4_set_stepping(0, 1 or 2)` | Whether the host is asked before each decision of a seat that it does not play. See "Stepping". |
 | `ti4_decided() -> count` | How many decisions the seats made, the random seats included. See "Switching seats". |
 | `ti4_switch_seats(decision, human_mask)` | From the decision with this number on, the host answers the seats of the mask. See "Switching seats". |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
@@ -197,6 +197,10 @@ when `ti4_can_undo` returns 1. Any other answer leaves the game.
 - A step is not a choice: it has no number, makes no checkpoint, and is not in a saved game. The
   game with steps is the same game.
 - The export only sets a flag, so the host calls it at any time.
+- `ti4_set_stepping(2)` is for the wait of a table (single player of web2): the host is asked
+  the same way and waits before it answers `-3`, but it is not asked before a reaction window
+  that the seat only declines, as a seat on the server does not wait there. The pick of the seat
+  is read first for it and the stream of the random seats is not moved by that.
 
 ### Rule seats
 

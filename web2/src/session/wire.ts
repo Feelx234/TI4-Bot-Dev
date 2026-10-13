@@ -867,7 +867,7 @@ export interface TableDraw {
   players: string[];
   /** For each seat, the place of its player in the order in which the players came. */
   order: number[];
-  /** The faction of each seat. Empty for a scenario: it seats its own. */
+  /** The faction of each seat. For a scenario: the factions that it seats, in the order of the join. */
   factions: string[];
 }
 

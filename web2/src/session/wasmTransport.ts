@@ -30,7 +30,8 @@ interface Exports {
   ti4_response_ptr(): number;
   ti4_update_ptr(): number;
   ti4_update_len(): number;
-  ti4_set_stepping(on: number): void;
+  /** 0: the other seats play on. 1: the engine asks before each of their decisions. 2: before each that takes the wait of a table. */
+  ti4_set_stepping(mode: number): void;
   ti4_decided(): number;
   ti4_switch_seats(decision: number, humans: number): void;
   ti4_request_ptr(): number;
@@ -202,6 +203,13 @@ export interface LocalPlay {
    * needs the same table.
    */
   table?: TableRequest;
+  /**
+   * The wait of a table, in milliseconds: a seat that is not played here takes about this long
+   * before each answer, and the page is shown the game while it waits. It does not wait to
+   * decline a reaction window, as a seat on the server does not. The game is the same game with
+   * every wait, and a game that is played again does not wait for its saved answers.
+   */
+  waitMs?: number;
 }
 
 /** A turn of the event loop. A timer would be slowed down in a tab that is not shown. */
@@ -248,8 +256,11 @@ export function createWasmTransport(
     switchTo: (humans: number) => number;
   } | null = null;
   let stepping = play.stepping ?? false;
+  const waitMs = play.waitMs ?? 0;
+  /** What the engine is told (`ti4_set_stepping`): it asks before each decision of another seat, or before each that takes the wait, or not at all. */
+  const pauses = () => (stepping ? 1 : waitMs > 0 ? 2 : 0);
   /** Tells the engine of the run that is the game whether it waits for each seat. */
-  let tellStepping: (on: boolean) => void = () => {};
+  let tellStepping: () => void = () => {};
   /** The cards that the seats of this page are never offered. The engine of each run is told. */
   const never = new Set(play.never ?? []);
   /** Tells the engine of the run that is the game the mode of a card. */
@@ -408,11 +419,11 @@ export function createWasmTransport(
           return back(canGoBack);
         }
         // An undo goes on to the choice that it opens again.
-        if (undoing || !stepping) {
+        if (undoing || pauses() === 0) {
           return GO;
         }
         return new Promise<number>((answer) => {
-          pending = {
+          const waits = {
             nonce: "",
             update,
             options: [],
@@ -422,7 +433,14 @@ export function createWasmTransport(
             draft,
             switchTo,
           };
-          show(update, seat);
+          pending = waits;
+          if (stepping) {
+            return show(update, seat);
+          }
+          // The wait of the table: the game is shown, and the seat decides by itself. An undo
+          // or a seat change in the wait answers first, and the timer then finds another state.
+          show(update);
+          setTimeout(() => pending === waits && step(), waitMs * (0.6 + 0.8 * Math.random()));
         });
       }
       const { nonce, choice } = update.pending_choice;
@@ -458,8 +476,8 @@ export function createWasmTransport(
     });
     const instance = await WebAssembly.instantiate(engine.module, { host: { ask } });
     exports = instance.exports as unknown as Exports;
-    exports.ti4_set_stepping(stepping ? 1 : 0);
-    tellStepping = (on) => id === current && exports.ti4_set_stepping(on ? 1 : 0);
+    exports.ti4_set_stepping(pauses());
+    tellStepping = () => id === current && exports.ti4_set_stepping(pauses());
     for (const card of never) {
       setMode(card, "never");
     }
@@ -673,7 +691,7 @@ export function createWasmTransport(
     stepping: {
       set(on) {
         stepping = on;
-        tellStepping(on);
+        tellStepping();
         if (!on) {
           step();
         }
