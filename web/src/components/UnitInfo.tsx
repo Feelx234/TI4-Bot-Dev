@@ -188,7 +188,9 @@ export const FactionInfoCard: React.FC<{
   faction: FactionInfo;
   /** Leader state as the server reports it for this seat; omitted states are simply not shown. */
   leaders?: Record<string, string>;
-}> = ({ faction, leaders }) => (
+  /** Whether the seat holds its breakthrough; omitted when unknown (a faction picker, not a seat). */
+  breakthroughHeld?: boolean;
+}> = ({ faction, leaders, breakthroughHeld }) => (
   <div className="info-card__body" data-testid="faction-info-card">
     <div className="info-card__title">{faction.name}</div>
     {faction.abilities.length > 0 && (
@@ -211,6 +213,22 @@ export const FactionInfoCard: React.FC<{
             {note.text && <p className="info-card__text">{note.text}</p>}
           </div>
         ))}
+      </Section>
+    )}
+    {faction.breakthrough && (
+      <Section title="Breakthrough">
+        <div className="info-card__entry" data-testid="faction-breakthrough">
+          <strong>{faction.breakthrough.name}</strong>
+          {breakthroughHeld !== undefined && (
+            <span className="info-card__window"> {breakthroughHeld ? "unlocked" : "locked"}</span>
+          )}
+          <p className="info-card__text info-card__window">Synergy: {faction.breakthrough.synergy}</p>
+          {faction.breakthrough.text && (
+            <p className="info-card__text" style={{ whiteSpace: "pre-line" }}>
+              {faction.breakthrough.text}
+            </p>
+          )}
+        </div>
       </Section>
     )}
     {faction.flagship && (
@@ -258,7 +276,9 @@ export const FactionInfoButton: React.FC<{
   faction: string;
   technologies?: readonly string[];
   leaders?: Record<string, string>;
-}> = ({ faction, technologies, leaders }) => {
+  /** The seat's earned breakthrough alias, or null while it is locked; omit outside a seat. */
+  breakthroughHeld?: string | null;
+}> = ({ faction, technologies, leaders, breakthroughHeld }) => {
   const info = describeFaction(faction, technologies);
   return (
     <InfoPopover
@@ -268,7 +288,11 @@ export const FactionInfoButton: React.FC<{
       data-testid="faction-info-button"
     >
       {info ? (
-        <FactionInfoCard faction={info} leaders={leaders} />
+        <FactionInfoCard
+          faction={info}
+          leaders={leaders}
+          breakthroughHeld={breakthroughHeld === undefined ? undefined : breakthroughHeld !== null}
+        />
       ) : (
         <div className="info-card__body" data-testid="faction-info-empty">
           <div className="info-card__title">{faction}</div>

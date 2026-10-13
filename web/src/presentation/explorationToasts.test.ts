@@ -28,10 +28,16 @@ describe("explorationSummary", () => {
       explorationSummary(rec({ card: "crf1", deck: "CULTURAL", outcome: "fragment", result: "took a cultural relic fragment" })),
     ).toContain("took a cultural relic fragment");
   });
+  it("shows attachment values and says an Enigmatic Device is kept for later", () => {
+    expect(explorationSummary(rec({ card: "mw", outcome: "attached:miningworld" }))).toMatch(/attached Mining World/);
+    const device = explorationSummary(rec({ card: "ed2", deck: "FRONTIER", planet: null, system: "50", result: "" }));
+    expect(device).toContain("Enigmatic Device");
+    expect(device).toContain("kept faceup in the play area for later");
+  });
   it("covers frontier explorations of systems and empty results", () => {
     const text = explorationSummary(rec({ card: "ent", deck: "FRONTIER", planet: null, system: "67", result: "" }));
     expect(text).toContain("frontier token in system 67");
-    expect(text).toContain("nothing happened");
+    expect(text).toContain("nothing gained");
   });
 });
 
@@ -43,6 +49,12 @@ describe("explorationToasts", () => {
     expect(first.toasts[0]).toMatchObject({ actor: "p2", category: "explore" });
     expect(first.next).toBe(2);
     expect(explorationToasts(log, 5).toasts).toEqual([]);
+  });
+  it("is not held back by an older record that never got an outcome", () => {
+    const log = [rec({ outcome: "" }), rec({ card: "cm2", result: "gained 1 trade good" })];
+    const { toasts, next } = explorationToasts(log, 0);
+    expect(toasts).toHaveLength(1);
+    expect(next).toBe(2);
   });
   it("joins merged exploration toasts", () => {
     expect(actionToastText({ id: "x", actor: "p1", category: "explore", count: 2, parts: ["a", "b"] })).toBe("a; b");

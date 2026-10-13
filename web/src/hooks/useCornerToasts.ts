@@ -13,6 +13,7 @@ import {
 } from "../presentation/actionToasts.ts";
 import { mergeRollToasts, rollToasts, type RollToast } from "../presentation/rollToasts.ts";
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
+import { breakthroughToasts } from "../presentation/breakthroughs.ts";
 import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
@@ -40,6 +41,8 @@ export interface CornerToastsInput {
   board?: BoardView | null;
   /** The engine's public exploration log: every finished exploration toasts, for every seat. */
   explorations?: readonly ExplorationRecordDto[];
+  /** Each seat's earned breakthrough alias; a new one toasts for every seat. */
+  breakthroughs?: Readonly<Record<string, string | null>>;
   /** The engine's public agenda log: every finished vote toasts, for every seat (voters too). */
   agendas?: readonly AgendaRecordDto[];
   /** The table of the latest snapshot: why the viewer's Imperial scored nothing is read from it. */
@@ -52,6 +55,10 @@ const MAX_RECAPS = 2;
 const MAX_INVASION_TOASTS = 3;
 const MAX_AGENDA_TOASTS = 2;
 const MAX_ROLL_TOASTS = 3;
+
+// What a player gains from an exploration or a breakthrough is read, not glanced at: it stays longer.
+const LINGERING_CATEGORIES: ReadonlySet<ActionToast["category"]> = new Set(["explore", "breakthrough"]);
+const LINGER_MS = 10000;
 
 const INVASION_TAGS: Record<InvasionToast["kind"], string> = {
   bombardment: "Bombardment",
@@ -76,6 +83,7 @@ export function useCornerToasts({
   localNotes,
   board,
   explorations,
+  breakthroughs,
   agendas,
   table,
   ready,
@@ -239,6 +247,19 @@ export function useCornerToasts({
     if (!mutedRef.current) push(toasts);
   }, [explorations, ready, historyGeneration, push]);
 
+  // A breakthrough is earned from an expedition slice; it is not in the event log. What seats held
+  // at load, or after undo/redo, is history.
+  const lastBreakthroughs = useRef<Readonly<Record<string, string | null>> | null>(null);
+  const breakthroughGeneration = useRef(historyGeneration);
+  useEffect(() => {
+    if (!ready || !breakthroughs) return;
+    const before =
+      breakthroughGeneration.current === historyGeneration ? lastBreakthroughs.current : null;
+    breakthroughGeneration.current = historyGeneration;
+    lastBreakthroughs.current = breakthroughs;
+    if (!mutedRef.current) push(breakthroughToasts(before ? { ...before } : null, { ...breakthroughs }));
+  }, [breakthroughs, ready, historyGeneration, push]);
+
   // Agenda results come from the state's agenda log, like explorations: what is there at load, or
   // reappears after undo/redo, is history. The voter is told too: the result is news to all.
   const agendaCursor = useRef<number | null>(null);
@@ -384,6 +405,7 @@ export function useCornerToasts({
           actor: t.actor,
           text: actionToastText(t),
           revision: t.revision,
+          durationMs: LINGERING_CATEGORIES.has(t.category) ? LINGER_MS : undefined,
         }),
       ),
     ],

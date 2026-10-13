@@ -10,6 +10,8 @@ import { splitStructures } from "../presentation/planetStructures.ts";
 import { UnitStatsTip } from "./UnitInfo.tsx";
 import { describeAnomaly } from "../presentation/anomalyRules.ts";
 import { findPlanetMeta } from "../protocol/contentCatalog.ts";
+import { attachmentLabels, explorationsInSystem } from "../presentation/explorationMarks.ts";
+import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
   UnitIcon,
@@ -27,7 +29,14 @@ export interface SystemInspectorProps {
 
 export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClose }) => {
   const display = usePlayerIdentity();
+  const { explorations, frontierSystems } = usePublicState();
   if (!system) return null;
+  const explored = explorationsInSystem(
+    explorations,
+    system.systemId,
+    system.planets.map((p) => p.id),
+  );
+  const hasFrontierToken = frontierSystems.has(system.systemId);
 
   return (
     <DetailPanel
@@ -212,7 +221,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
 
                 {p.attachments.length > 0 && (
                   <div style={{ marginTop: 4, fontSize: 11, color: "#a78bfa" }}>
-                    Attachments: {p.attachments.join(", ")}
+                    Attachments: {attachmentLabels(p.attachments).join(", ")}
                   </div>
                 )}
 
@@ -224,6 +233,35 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
           </div>
         )}
       </div>
+
+      {(explored.length > 0 || hasFrontierToken) && (
+        <div data-testid="inspector-exploration">
+          <h4 style={{ margin: "0 0 6px 0", fontSize: 11, color: "#94a3b8", textTransform: "uppercase" }}>
+            Exploration
+          </h4>
+          {hasFrontierToken && (
+            <div data-testid="inspector-frontier-token" style={{ fontSize: 12, color: "#fbbf24", marginBottom: 4 }}>
+              Frontier token: unexplored. A player with a ship here can explore it.
+            </div>
+          )}
+          <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "grid", gap: 4 }}>
+            {explored.map((e, index) => (
+              <li
+                key={`${e.card}-${index}`}
+                data-testid="inspector-exploration-entry"
+                data-kind={e.kind}
+                style={{ fontSize: 12, color: "#cbd5e1", borderLeft: "3px solid #2dd4bf", paddingLeft: 6 }}
+              >
+                <strong style={{ color: "#f8fafc" }}>{e.card}</strong> at {e.where}
+                <div>
+                  {display(e.player).label}
+                  {e.round ? `, round ${e.round}` : ""}: {e.result}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Units */}
       <div>
