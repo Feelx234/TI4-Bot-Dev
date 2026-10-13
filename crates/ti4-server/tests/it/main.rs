@@ -57,6 +57,7 @@ mod splice;
 mod splice_http;
 mod strategy_card_set;
 mod support;
+mod table_socket;
 mod turn_redo;
 mod turn_redo_registry;
 mod undo;

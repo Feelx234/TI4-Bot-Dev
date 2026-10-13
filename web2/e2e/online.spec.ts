@@ -46,11 +46,23 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
   await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(8);
   await expect(heading(page)).toHaveText("Choose a strategy card");
-  // The tools of a local game are not there, and the header leads back to it. The seat has
+  // The tools of a local game are not there, and the header leads to the start screen. The seat has
   // no decision of its own to take back yet.
   await expect(page.getByRole("button", { name: "Dev", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Undo" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Local game" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
+  // The page kept one player session for the game before a browser could have several: it is
+  // moved to the player once, and the address says which player the tab is.
+  await expect(page).toHaveURL(new RegExp(`\\?online=${made.game_id}&seat=${made.player.id}$`));
+  expect(
+    await page.evaluate(
+      (id) => [
+        localStorage.getItem(`ti4.online.${id}.session`),
+        localStorage.getItem(`ti4.online.${id}.players`),
+      ],
+      made.game_id,
+    ),
+  ).toEqual([null, JSON.stringify({ [made.player.id]: made.player_session })]);
 
   // The seat answers what it is asked, up to the menu of its first turn: the other seats play.
   for (let count = 0; ; count++) {
@@ -137,27 +149,40 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   expect(errors).toEqual([]);
 });
 
-test("?online starts a game on the server and goes to its address", async ({ page }) => {
+test("the quick start is a game on the server, at its address", async ({ page }) => {
   const errors = errorsOf(page);
-  await page.goto("/?online");
-  await expect(page).toHaveURL(/\?online=.+/);
-  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  await page.goto("/?online&fill=random");
+  await expect(page).toHaveURL(/\?online=[^&]+&seat=[^&]+$/);
+  // The page asks the table first, then loads the engine and opens the game. The speaker is
+  // drawn: a seat that chooses last is given the last strategy card, and is asked in the
+  // action phase first.
+  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(8);
   // The page plays a seat: it is asked, or it waits for a seat before it.
   await expect(status(page)).toHaveText(/^(Your decision|Waiting for .+|Turn of .+)$/);
-  // The player of this browser is kept for the game, so the address is the game.
-  const id = new URL(page.url()).searchParams.get("online");
-  expect(
-    await page.evaluate((key) => localStorage.getItem(key), `ti4.online.${id}.session`),
-  ).toBeTruthy();
+  // The player of this browser is kept for the game, and the address says which it is: a
+  // reload is the same seat.
+  const address = new URL(page.url()).searchParams;
+  const players = await page.evaluate(
+    (key) => JSON.parse(localStorage.getItem(key) ?? "{}"),
+    `ti4.online.${address.get("online")}.players`,
+  );
+  expect(Object.keys(players)).toEqual([address.get("seat")]);
+  await page.reload();
+  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible();
+  await expect(status(page)).toHaveText(/^(Your decision|Waiting for .+|Turn of .+)$/);
   expect(errors).toEqual([]);
 });
 
-test("?online with a seed, a name and a map asks the server for that game", async ({ page }) => {
+test("the quick start with a seed, a name and a map asks the server for that game", async ({
+  page,
+}) => {
   const asked = page.waitForRequest(
     (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/games",
   );
-  await page.goto("/?online&seed=3&name=Ada&map=random");
+  await page.goto("/?online&fill=random&seed=3&name=Ada&map=random");
   expect((await asked).postDataJSON()).toEqual({
     player_count: 8,
     nickname: "Ada",
@@ -166,19 +191,20 @@ test("?online with a seed, a name and a map asks the server for that game", asyn
     map: "random",
   });
   // The address of the game has no part of the start: a reload is the game, not another one.
-  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  await expect(page).toHaveURL(/\?online=[^&]+&seat=[^&]+$/);
   await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
 });
 
-test("a game that the server no longer knows is said, with the way to the local game", async ({
+test("a game that the server no longer knows is said, with the way to the start screen", async ({
   page,
 }) => {
   await page.goto("/?online=game_that_is_gone");
   // The page does not try for ever: the server says that it has no such game.
   await expect(page.getByRole("status")).toHaveText("The server no longer knows this game.");
   await page.screenshot({ path: "shots/online/unknown-game.png", animations: "disabled" });
-  await page.getByRole("button", { name: "Local game", exact: true }).click();
+  await page.getByRole("button", { name: "Start", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/" && !url.searchParams.has("online"));
+  await expect(page.getByRole("link", { name: /Multiplayer/ })).toBeVisible();
 });
 
 test("a lost connection is said in the toolbar, and the game comes back by itself", async ({
@@ -195,8 +221,10 @@ test("a lost connection is said in the toolbar, and the game comes back by itsel
     socket.connectToServer();
     open.push(socket);
   });
-  await page.goto("/?online");
-  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  await page.goto("/?online&fill=random");
+  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible({
+    timeout: 15_000,
+  });
   const before = await status(page).textContent();
 
   down = true;

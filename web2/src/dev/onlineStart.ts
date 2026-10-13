@@ -1,35 +1,57 @@
+import type { TableRequest } from "../session/table";
+
 /**
- * The game that `?online` asks the server for: eight seats, this page has the first, the other
- * seats decide at random. `?online&seed=3&name=Ada&map=random`: each part can be left out.
+ * The table that `?online` asks the server for. `?online&players=6&seed=3&name=Ada&map=random`:
+ * each part can be left out. With `fill=random` it is the quick start: a game of eight, this
+ * page has one seat, the other seats decide at random, and the game starts at once.
  */
 export interface OnlineStart {
-  /** The name of the player of this page in the game. */
-  nickname: string;
+  /** The name of the player of this page. Without it: the name that this browser kept. */
+  nickname?: string;
   /** Without it the server chooses one. */
   seed?: number;
-  /** A map of the server (`GET /api/maps`), or "random". Without it: the map that the server starts eight seats on. */
+  /** A map of the server (`GET /api/maps`), or "random". Without it: the default map of the count. */
   map?: string;
+  /** The number of seats, 2 to 8. Without it: what this browser used last. */
+  players?: number;
+  fill?: "random";
 }
 
 export const DEFAULT_NICKNAME = "Player";
+/** The seats of a table when the browser made none before, as the lobby of `web/`. */
+export const DEFAULT_PLAYERS = 4;
+/** The seats of the quick start. */
+const QUICK_PLAYERS = 8;
+
+const seats = (value: number) => Number.isInteger(value) && value >= 2 && value <= 8;
 
 export function onlineStart(params: URLSearchParams): OnlineStart {
   const seed = Number(params.get("seed") || Number.NaN);
+  const players = Number(params.get("players") || Number.NaN);
   const map = params.get("map");
+  const nickname = params.get("name")?.trim();
   return {
-    nickname: params.get("name")?.trim() || DEFAULT_NICKNAME,
+    ...(nickname ? { nickname } : {}),
     ...(Number.isSafeInteger(seed) && seed >= 0 ? { seed } : {}),
     ...(map ? { map } : {}),
+    ...(seats(players) ? { players } : {}),
+    ...(params.get("fill") === "random" ? { fill: "random" as const } : {}),
   };
 }
 
-/** The address that starts such a game. */
-export function onlineAddress(start: Partial<OnlineStart> = {}): string {
+/** The address that starts such a table. */
+export function onlineAddress(start: OnlineStart = {}): string {
   const params = new URLSearchParams();
+  if (start.fill) {
+    params.set("fill", start.fill);
+  }
+  if (start.players !== undefined) {
+    params.set("players", String(start.players));
+  }
   if (start.seed !== undefined) {
     params.set("seed", String(start.seed));
   }
-  if (start.nickname && start.nickname !== DEFAULT_NICKNAME) {
+  if (start.nickname) {
     params.set("name", start.nickname);
   }
   if (start.map) {
@@ -39,17 +61,28 @@ export function onlineAddress(start: Partial<OnlineStart> = {}): string {
   return rest ? `?online&${rest}` : "?online";
 }
 
-/** What `POST /api/games` is sent for it. */
-export function createRequest(start: OnlineStart) {
+/** The address of a table, for a tab that is the player `seat`; without it, for a visitor. */
+export function tableAddress(gameId: string, seat?: string): string {
+  const game = `?online=${encodeURIComponent(gameId)}`;
+  return seat === undefined ? game : `${game}&seat=${encodeURIComponent(seat)}`;
+}
+
+/** What the table is made with. `kept` is what the browser kept of the tables before. */
+export function tableRequest(
+  start: OnlineStart,
+  kept: { nickname: string | null; players: number | null } = { nickname: null, players: null },
+): TableRequest {
   return {
-    player_count: 8,
-    nickname: start.nickname,
-    fill_seats: "random",
+    playerCount:
+      start.players ??
+      (start.fill
+        ? QUICK_PLAYERS
+        : kept.players !== null && seats(kept.players)
+          ? kept.players
+          : DEFAULT_PLAYERS),
+    nickname: start.nickname ?? (kept.nickname?.trim() || DEFAULT_NICKNAME),
     ...(start.seed === undefined ? {} : { seed: start.seed }),
-    ...(start.map === undefined
-      ? {}
-      : start.map === "random"
-        ? { map: "random" }
-        : { map_template: start.map }),
+    ...(start.map === undefined ? {} : { map: start.map }),
+    ...(start.fill ? { fill: start.fill } : {}),
   };
 }

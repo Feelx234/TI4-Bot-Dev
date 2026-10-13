@@ -690,3 +690,62 @@ export type ClientRequest =
   /** Takes back the last decision of the seat. The server then closes the socket as replaced. */
   | { type: "undo"; game_id: string; expected_version: number }
   | { type: "ping"; sequence: number };
+
+// ---- The table of a game on the server, before and while it runs --------------------------------
+
+/** `ti4_server::session::registry::PlayerSlotView`: one seat of a table. */
+export interface LobbySlot {
+  slot_id: string;
+  position: number;
+  /** The id of the player in the seat. Null: the seat is open. */
+  occupant: string | null;
+  nickname: string | null;
+  ready: boolean;
+  connected: boolean;
+  can_take_over: boolean;
+  /** The server plays the seat: "random" or "smart" (the rule bot). */
+  bot?: string;
+  /** The faction that was chosen for the seat. Absent: random. */
+  faction?: string;
+}
+
+/** `ti4_server::maps::MapChoiceView` */
+export interface MapChoiceView {
+  kind: "template" | "random";
+  alias?: string | null;
+  name?: string | null;
+  author?: string | null;
+  systems: number;
+  hyperlanes: boolean;
+  recommended: boolean;
+}
+
+/** `ti4_server::session::registry::PlayerLobbyView`: the table as everybody may see it. */
+export interface LobbyState {
+  game_id: string;
+  phase: "lobby" | "running";
+  host_player_id: string;
+  slots: LobbySlot[];
+  /** Counts the changes of the lobby record. Presence does not change it. */
+  lobby_version: number;
+  bot_kinds: string[];
+  map: MapChoiceView;
+  /** Changes when the board of the preview changes. */
+  map_revision: number;
+  strategy_card_set: string;
+  speaker_order: string;
+  factions: string[];
+}
+
+/** `ti4_server::maps::MapPreview`: the board that the table will play. */
+export interface MapPreview {
+  player_count: number;
+  tiles: BoardTileView[];
+  seats: { seat: number; faction: string; faction_name: string; home_system_id: string }[];
+}
+
+/** `ti4_server::ws::table::TableServerMessage` */
+export type TableServerMessage =
+  | { type: "table"; protocol_version: number; viewer?: string; lobby: LobbyState }
+  | { type: "pong"; protocol_version: number }
+  | { type: "error"; protocol_version: number; kind: string; message: string };

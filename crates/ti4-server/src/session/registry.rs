@@ -929,6 +929,9 @@ pub struct GameRegistry {
     turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
     /// Public-playtest hardening; inert by default.
     public: Arc<crate::public::PublicState>,
+    /// One channel for each table that a socket watches (`ws/table.rs`): a counter that goes up
+    /// when the lobby record or the presence of a player changes.
+    tables: Mutex<BTreeMap<String, tokio::sync::watch::Sender<u64>>>,
 }
 
 impl Default for GameRegistry {
@@ -944,6 +947,7 @@ impl Default for GameRegistry {
             active_bots: Mutex::new(BTreeMap::new()),
             turn_redos: Mutex::new(BTreeMap::new()),
             public: Arc::new(crate::public::PublicState::default()),
+            tables: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -2142,6 +2146,8 @@ impl GameRegistry {
             .or_default()
             .connections
             .insert(connection, Instant::now());
+        drop(state);
+        self.table_changed(game_id);
         Ok((player, connection))
     }
 
@@ -2179,6 +2185,8 @@ impl GameRegistry {
                 presence.last_heartbeat = Some(Instant::now());
             }
         }
+        drop(state);
+        self.table_changed(game_id);
     }
 
     /// Returns the optional underlying game store.
@@ -2482,7 +2490,40 @@ impl GameRegistry {
                 .save_player_lobby(record)
                 .map_err(|e| LobbyError::Storage(e.to_string()))?;
         }
+        // Every change of a lobby is written here, while the registry lock is held: a socket of
+        // the table reads the new record once the lock is free.
+        self.table_changed(&record.game_id);
         Ok(())
+    }
+
+    /// The channel of a table, for a socket that shows it (`ws/table.rs`). The value only says
+    /// that something changed: the socket reads the view again.
+    #[must_use]
+    pub fn watch_table(&self, game_id: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.tables
+            .lock()
+            .expect("tables lock")
+            .entry(game_id.to_owned())
+            .or_insert_with(|| tokio::sync::watch::channel(0).0)
+            .subscribe()
+    }
+
+    /// Drops the channel of a table that no socket watches any more.
+    pub fn unwatch_table(&self, game_id: &str) {
+        let mut tables = self.tables.lock().expect("tables lock");
+        if tables
+            .get(game_id)
+            .is_some_and(|table| table.receiver_count() == 0)
+        {
+            tables.remove(game_id);
+        }
+    }
+
+    /// Tells the sockets of a table that its lobby record or the presence of a player changed.
+    fn table_changed(&self, game_id: &str) {
+        if let Some(table) = self.tables.lock().expect("tables lock").get(game_id) {
+            table.send_modify(|version| *version += 1);
+        }
     }
 
     /// Read-only spectator projection; an invalid supplied credential fails closed.
@@ -3323,6 +3364,8 @@ impl GameRegistry {
         state
             .sessions
             .insert(game_id.to_owned(), Arc::new(GameSession::start(config)));
+        // Without a store nothing was saved, so the sockets of the table are told here.
+        self.table_changed(game_id);
         Ok(view)
     }
 

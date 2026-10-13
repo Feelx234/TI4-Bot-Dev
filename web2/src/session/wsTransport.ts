@@ -1,5 +1,6 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
 import type { PlanStep } from "./movementPlan";
+import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import {
   type Catalog,
@@ -20,14 +21,7 @@ export interface OnlineGame {
   playerSession: string | null;
 }
 
-/** The part of `WebSocket` that is used, so a test can pass a socket of its own. */
-export interface Socket {
-  send(data: string): void;
-  close(): void;
-  onopen: (() => void) | null;
-  onmessage: ((event: { data: unknown }) => void) | null;
-  onclose: ((event: { code?: number }) => void) | null;
-}
+export { type Socket, openSocket } from "./socket";
 
 export interface OnlinePlay {
   /** Opens the socket of a game. Without it: `/ws/games/<id>` at the address of the page. */
@@ -45,45 +39,14 @@ export interface OnlinePlay {
 /** What the transport says of a game that the server does not have. Nothing is tried after it. */
 export const GAME_UNKNOWN = "The server no longer knows this game.";
 
-/** Where the staged work of a game on the server is kept between two visits, and its player. */
-export const onlineKeys = (gameId: string) => ({
-  /** The player session of this page in the game. */
-  session: `ti4.online.${gameId}.session`,
-  /** The staged movement, landings or production, with the nonce of its choice. */
-  draft: `ti4.online.${gameId}.movement`,
-  /** The private draft of a tactical action. */
-  plan: `ti4.online.${gameId}.draft`,
-  /** The private draft of a secondary. */
-  secondary: `ti4.online.${gameId}.secondary`,
-});
-
-const HEARTBEAT_MS = 10_000;
 /** The server closes a socket with this code when the game was replaced (a restore of the host, an undo of a seat). */
 const REPLACED = 4001;
 /** After a stale answer the update that explains it is on its way. Without it, the game is asked again. */
 const RESYNC_MS = 1_000;
 
-/** A websocket at `url`, as the transport uses one. */
-export function openSocket(url: string): Socket {
-  const real = new WebSocket(url);
-  const socket: Socket = {
-    send: (data) => real.send(data),
-    close: () => real.close(),
-    onopen: null,
-    onmessage: null,
-    onclose: null,
-  };
-  real.onopen = () => socket.onopen?.();
-  real.onmessage = (event) => socket.onmessage?.(event);
-  real.onclose = (event) => socket.onclose?.(event);
-  return socket;
-}
-
 /** The server is at the address of the page, as the page itself. */
-const pageSocket = (gameId: string): Socket =>
-  openSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/games/${encodeURIComponent(gameId)}`,
-  );
+const gameSocket = (gameId: string): Socket =>
+  pageSocket(`/ws/games/${encodeURIComponent(gameId)}`);
 
 /** Only the answer "not found" says that the game is gone: a server that cannot be reached may come back. */
 const pageKnows = (gameId: string): Promise<boolean> =>
@@ -91,8 +54,6 @@ const pageKnows = (gameId: string): Promise<boolean> =>
     (response) => response.status !== 404,
     () => true,
   );
-
-const backoff = (attempt: number) => Math.min(15_000, 500 * 2 ** attempt);
 
 const short = (digest: string | undefined) => (digest ? digest.slice(0, 12) : "none");
 
@@ -145,7 +106,7 @@ export function createWsTransport(
 ): Transport {
   type Update = Extract<TransportEvent, { kind: "update" }>;
   const listeners = new Set<(event: TransportEvent) => void>();
-  const open = play.open ?? pageSocket;
+  const open = play.open ?? gameSocket;
   const retryAfter = play.retryAfter ?? backoff;
   const known = play.known ?? pageKnows;
   /** The game as the server told it last, and its version. */
@@ -155,12 +116,8 @@ export function createWsTransport(
   let offline = false;
   let closed = false;
   let never: string[] = [];
-  let socket: Socket | null = null;
-  /** The socket is open and the server was asked for the game. */
-  let ready = false;
+  let link: Connection | null = null;
   let attempt = 0;
-  let retry: ReturnType<typeof setTimeout> | null = null;
-  let heartbeat: ReturnType<typeof setInterval> | null = null;
   let resync: ReturnType<typeof setTimeout> | null = null;
   let sequence = 0;
   /** The newest draft that was asked. An answer for another request is late. */
@@ -183,35 +140,19 @@ export function createWsTransport(
       listener(event);
     }
   };
-  const send = (message: ClientRequest) => {
-    if (!socket || !ready) {
-      return false;
-    }
-    socket.send(JSON.stringify({ protocol_version: PROTOCOL_VERSION, ...message }));
-    return true;
-  };
-  const stop = () => {
-    for (const timer of [retry, resync]) {
-      if (timer !== null) {
-        clearTimeout(timer);
-      }
-    }
-    if (heartbeat !== null) {
-      clearInterval(heartbeat);
-    }
-    retry = resync = heartbeat = null;
-    ready = false;
-    const old = socket;
-    socket = null;
-    if (old) {
-      old.onopen = old.onmessage = old.onclose = null;
-      old.close();
+  const send = (message: ClientRequest) =>
+    link?.send(JSON.stringify({ protocol_version: PROTOCOL_VERSION, ...message })) ?? false;
+  const settle = () => {
+    if (resync !== null) {
+      clearTimeout(resync);
+      resync = null;
     }
   };
   /** The game cannot be played from here on. */
   const fail = (message: string) => {
     failed = message;
-    stop();
+    settle();
+    link?.close();
     say({ kind: "error", message });
   };
   /**
@@ -309,8 +250,7 @@ export function createWsTransport(
           // none comes, the server is asked for the game again.
           resync ??= setTimeout(() => {
             resync = null;
-            stop();
-            connect();
+            link?.again();
           }, RESYNC_MS);
         }
         return;
@@ -364,37 +304,20 @@ export function createWsTransport(
     }
   };
 
-  const connect = () => {
-    if (closed || failed !== null) {
-      return;
-    }
-    const made = open(game.gameId);
-    socket = made;
-    made.onopen = () => {
-      if (socket !== made) {
-        return;
-      }
-      ready = true;
+  link = connect(() => open(game.gameId), {
+    opened() {
       send({
         type: "subscribe",
         game_id: game.gameId,
         ...(game.playerSession === null ? {} : { player_session: game.playerSession }),
       });
-      // The server counts a player as present while its connection pings.
-      heartbeat = setInterval(() => send({ type: "ping", sequence: ++sequence }), HEARTBEAT_MS);
-    };
-    made.onmessage = (event) => {
-      if (socket === made) {
-        receive(String(event.data));
-      }
-    };
-    made.onclose = (event) => {
-      if (socket !== made) {
-        return;
-      }
-      const opened = ready;
-      stop();
-      if (!opened) {
+    },
+    // The server counts a player as present while its connection pings.
+    beat: () => send({ type: "ping", sequence: ++sequence }),
+    message: receive,
+    lost(event) {
+      settle();
+      if (!event.opened) {
         // The server may have refused the socket because it does not have the game.
         void known(game.gameId).then((has) => {
           if (!has && !closed && failed === null) {
@@ -413,16 +336,9 @@ export function createWsTransport(
         offline = true;
         say({ kind: "offline" });
       }
-      retry = setTimeout(
-        () => {
-          retry = null;
-          connect();
-        },
-        event.code === REPLACED ? 0 : retryAfter(attempt++),
-      );
-    };
-  };
-  connect();
+      return event.code === REPLACED ? 0 : retryAfter(attempt++);
+    },
+  });
 
   const isPlayer = () => latest?.update.viewer.role === "player";
 
@@ -508,7 +424,8 @@ export function createWsTransport(
     },
     close() {
       closed = true;
-      stop();
+      settle();
+      link?.close();
       listeners.clear();
     },
   };

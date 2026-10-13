@@ -668,10 +668,11 @@ test("the Dev sheet leads to a game on the server, on the seed of the page", asy
   );
   await row.getByRole("button", { name: /^Multiplayer/ }).click();
   expect((await asked).postDataJSON()).toMatchObject({ seed: 3, fill_seats: "random" });
-  // The server made the game, and the page is at its address, with the way back in the header.
-  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  // The server made the game, and the page is at its address, as its player, with the way to
+  // the start screen in the header.
+  await expect(page).toHaveURL(/\?online=[^&]+&seat=[^&]+$/);
   await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Local game", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
 });
 
 test("a scenario is chosen in the Dev sheet and starts at the turn menu of its board", async ({

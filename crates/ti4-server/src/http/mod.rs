@@ -138,7 +138,11 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             post(feedback::post_feedback)
                 .layer(DefaultBodyLimit::max(crate::feedback::MAX_BODY_BYTES)),
         )
-        .route("/ws/games/{game_id}", get(ws_handler));
+        .route("/ws/games/{game_id}", get(ws_handler))
+        .route(
+            "/ws/tables/{game_id}",
+            get(crate::ws::table::table_ws_handler),
+        );
     if !is_public {
         router = router
             .route("/api/dev/scenarios", get(crate::dev::list_scenarios))

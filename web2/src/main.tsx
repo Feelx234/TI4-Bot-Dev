@@ -4,25 +4,34 @@ import { DemoApp } from "./dev/DemoApp";
 import { Gallery } from "./dev/Gallery";
 import { LocalApp, localGame } from "./dev/LocalApp";
 import { OnlineApp } from "./dev/OnlineApp";
+import { StartApp } from "./dev/StartApp";
 import { onlineStart } from "./dev/onlineStart";
 import "./styles/theme.css";
 
 const params = new URLSearchParams(location.search);
-// `?online` starts a game on the server (with `seed`, `name` and `map` when the address has them),
-// and `?online=<game_id>` is that game. Every other address is as before.
+// `?online` makes a table on the server (with `players`, `seed`, `name` and `map` when the
+// address has them), and `?online=<game_id>&seat=<player_id>` is that table and its game.
+// `?local=…` and `?scenario=…` are a game in the page, `?example=…` the demo, `?gallery` the
+// gallery. The bare address is the choice between single player and multiplayer.
 const online = params.has("online");
 const local = online ? null : localGame(params);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     {online ? (
-      <OnlineApp gameId={params.get("online") || null} start={onlineStart(params)} />
+      <OnlineApp
+        gameId={params.get("online") || null}
+        seat={params.get("seat") || null}
+        start={onlineStart(params)}
+      />
     ) : local ? (
       <LocalApp game={local} />
     ) : params.has("gallery") ? (
       <Gallery />
-    ) : (
+    ) : params.has("example") ? (
       <DemoApp />
+    ) : (
+      <StartApp />
     )}
   </StrictMode>,
 );

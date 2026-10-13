@@ -222,13 +222,13 @@ test("phone: the Dev sheet leads to a game on the server, and its menu leads bac
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
   await page.screenshot({ path: "shots/phone/local/dev-multiplayer.png", animations: "disabled" });
   await row.getByRole("button", { name: /^Multiplayer/ }).click();
-  await expect(page).toHaveURL(/\?online=[^&]+$/);
+  await expect(page).toHaveURL(/\?online=[^&]+&seat=[^&]+$/);
   await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(412);
-  // A game on the server has no Dev item; the other app is the last item of the menu.
+  // A game on the server has no Dev item; the start screen is the last item of the menu.
   await page.getByRole("button", { name: "Reference and more" }).click();
   await expect(page.getByRole("menuitem", { name: "Dev" })).toHaveCount(0);
-  await expect(page.getByRole("menuitem").last()).toHaveText("Local game");
+  await expect(page.getByRole("menuitem").last()).toHaveText("Start");
   await page.screenshot({ path: "shots/phone/online/menu.png", animations: "disabled" });
 });
 

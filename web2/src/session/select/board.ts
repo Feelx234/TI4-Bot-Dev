@@ -21,7 +21,7 @@ import type {
   SessionUpdate,
   SystemView,
 } from "../wire";
-import { planetTraits } from "./exploration";
+import { planetTraits, printedTraits } from "./exploration";
 import { landingTask, selectLanding, withLandings } from "./invasion";
 import { selectArrival, selectMovementBoard, selectOrigin, withMovement } from "./movement";
 import {
@@ -146,6 +146,50 @@ function inspector(
     notes: [],
     rows: [...(space.length ? space : [{ label: "In space", text: "No ships" }]), ...planets],
     activate: null,
+  };
+}
+
+/** The seat of a home place on a board that has no players yet. */
+export const SEAT_PLACE = "place";
+
+/**
+ * The board of a table before its game: the tiles only. A home is the place of a seat: nobody
+ * sits there yet, so it has no planets and no faction.
+ */
+export function selectPreviewBoard(
+  tiles: BoardTileView[],
+  homes: string[],
+  inspected: string | null,
+): BoardView {
+  const map = tiles.filter(onMap);
+  const place = (tile: BoardTileView): BoardTileView =>
+    homes.includes(tile.system_id) ? { ...tile, label: "Home of a seat", planets: [] } : tile;
+  const open = map.find((tile) => tile.system_id === inspected);
+  const marks = map.flatMap((tile) =>
+    (tile.wormholes ?? []).map((kind) => [kind, tile.system_id] as const),
+  );
+  return {
+    tiles: map.map((tile) => ({
+      ...tileView(place(tile), undefined, null, printedTraits),
+      home: homes.includes(tile.system_id) ? SEAT_PLACE : null,
+    })),
+    wormholes: marks.flatMap(([kind, id]) =>
+      marks
+        .filter(([other, otherId]) => other === kind && otherId > id)
+        .map(([, otherId]): [string, string] => [id, otherId]),
+    ),
+    routes: [],
+    activeSystem: null,
+    inspected: open ? open.system_id : null,
+    targeting: false,
+    task: null,
+    inspector: open ? inspector(place(open), undefined, null, printedTraits) : null,
+    origin: null,
+    landing: null,
+    production: null,
+    taskSystems: [],
+    // The board is framed again when the map is another one.
+    fitKey: `preview:${map.map((tile) => tile.system_id).join(",")}`,
   };
 }
 

@@ -1,29 +1,13 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { shortcuts, type ExplorationDeck, type GameSession, type Intent } from "../../model";
-import {
-  Badge,
-  Button,
-  Dialog,
-  Drawer,
-  InlineNote,
-  LiveRegion,
-  Toast,
-  cx,
-  usePhone,
-} from "../../ui";
+import { Badge, Button, Dialog, Drawer, InlineNote, LiveRegion, Toast, usePhone } from "../../ui";
 import { ActionFooter, ActionPanel, footerOf } from "../action/ActionPanel";
 import { Board } from "../board/Board";
 import { GameProvider } from "../context";
 import { LinkProvider } from "../link";
 import { PlayerTable } from "../players/PlayerTable";
 import { ReferenceDrawer } from "./Reference";
+import { ShellFrame } from "./ShellFrame";
 import { OVERLAY, keyIsFree } from "./shortcuts";
 import { type OtherGame, Toolbar } from "./Toolbar";
 
@@ -33,12 +17,7 @@ const ACCENT = {
   done: "var(--color-green)",
 };
 
-const PANES = [
-  ["map", "Map"],
-  ["players", "Players"],
-  ["action", "Action"],
-] as const;
-type Pane = (typeof PANES)[number][0];
+type Pane = "map" | "players" | "action";
 
 /**
  * The game screen: one toolbar, then the board and the right column (player table, action panel).
@@ -183,82 +162,51 @@ export function GameShell({
     />
   );
   const board = <Board view={view.board} />;
-  const paneClass = (id: Pane) =>
-    cx(
-      "absolute inset-0 grid grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]",
-      pane !== id && "invisible",
-    );
 
   return (
     <GameProvider seats={view.seats} dispatch={dispatch}>
       <LinkProvider>
-        <main
-          className="flex min-h-0 flex-col"
-          style={{ "--accent": ACCENT[view.accent] } as CSSProperties}
-        >
-          <Toolbar
-            view={view.toolbar}
-            drawer={drawer}
-            onDrawer={toggleDrawer}
-            phone={phone}
-            other={other}
-            settings={!!dev}
-          />
-          {phone ? (
+        <ShellFrame
+          accent={ACCENT[view.accent]}
+          header={
+            <Toolbar
+              view={view.toolbar}
+              drawer={drawer}
+              onDrawer={toggleDrawer}
+              phone={phone}
+              other={other}
+              settings={!!dev}
+            />
+          }
+          board={<Board view={view.board}>{sheet}</Board>}
+          column={
             <>
-              <div className="relative min-h-0 flex-1">
-                {/* Every pane stays in the page, so the board keeps its camera and its size. */}
-                <div className={paneClass("map")} inert={pane !== "map"}>
-                  {board}
-                </div>
-                <div
-                  className={cx(paneClass("players"), "block! overflow-auto bg-board")}
-                  inert={pane !== "players"}
-                >
-                  {players}
-                </div>
-                <div className={paneClass("action")} inert={pane !== "action"}>
-                  <ActionPanel view={view.action} reveal={view.reveal} footer={false} />
-                </div>
-                {sheet}
-              </div>
-              {/* An open fleet has the room of the footer, and so have the open landings and the
-                  open build of a production. The check mark of the sheet gives the footer back.
-                  A sheet that covers the pane has the room of the footer and of the tabs. */}
-              {!sheet &&
-                !(
-                  pane === "map" &&
-                  (view.board.origin || view.board.landing || view.board.production)
-                ) && <ActionFooter view={footerOf(view.action)} />}
-              {!sheet && (
-                <nav
-                  aria-label="Panes"
-                  className="flex border-t border-line bg-well pb-(--inset-bottom,env(safe-area-inset-bottom))"
-                >
-                  {PANES.map(([id, label]) => (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-pressed={pane === id}
-                      onClick={() => setPane(id)}
-                      className="min-h-12 flex-1 border-t-2 border-transparent text-sm font-strong text-muted aria-pressed:border-accent aria-pressed:text-accent"
-                    >
-                      {label}
-                      {choiceOn === id && pane !== id && " ·"}
-                    </button>
-                  ))}
-                </nav>
-              )}
+              {players}
+              <ActionPanel view={view.action} reveal={view.reveal} />
             </>
-          ) : (
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_1040px]">
-              <Board view={view.board}>{sheet}</Board>
-              <div className="flex min-h-0 min-w-0 flex-col border-l border-line">
-                {players}
-                <ActionPanel view={view.action} reveal={view.reveal} />
-              </div>
-            </div>
-          )}
+          }
+          panes={[
+            { id: "map", label: "Map", content: board },
+            { id: "players", label: "Players", content: players, scrolls: true },
+            {
+              id: "action",
+              label: "Action",
+              content: <ActionPanel view={view.action} reveal={view.reveal} footer={false} />,
+            },
+          ]}
+          pane={pane}
+          onPane={(id) => setPane(id as Pane)}
+          marked={choiceOn}
+          sheet={sheet}
+          footer={
+            // An open fleet has the room of the footer, and so have the open landings and the
+            // open build of a production. The check mark of the sheet gives the footer back.
+            !(
+              pane === "map" &&
+              (view.board.origin || view.board.landing || view.board.production)
+            ) && <ActionFooter view={footerOf(view.action)} />
+          }
+        >
           <Dialog
             open={applyOpen && !!view.apply}
             onClose={() => setApplyOpen(false)}
@@ -294,7 +242,7 @@ export function GameShell({
           </Dialog>
           <Toast message={view.toast} />
           <LiveRegion text={view.announcement} />
-        </main>
+        </ShellFrame>
       </LinkProvider>
     </GameProvider>
   );

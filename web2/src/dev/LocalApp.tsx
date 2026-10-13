@@ -1,6 +1,7 @@
 import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SeatShape } from "../game/context";
 import { GameShell } from "../game/shell/GameShell";
+import { DEFAULT_GAME } from "./defaultGame";
 import { DemoApp } from "./DemoApp";
 import { onlineAddress } from "./onlineStart";
 import {
@@ -319,7 +320,7 @@ export function LocalApp({ game }: { game: LocalGame }) {
           className="flex min-h-9 flex-1 cursor-pointer items-center gap-2.5 px-3.5 text-left text-base hover:bg-cyan/[.06]"
           onClick={() => {
             // A page load: the game on the server is another game, with an address of its own.
-            window.location.search = onlineAddress({ seed: played.seed });
+            window.location.search = onlineAddress({ seed: played.seed, fill: "random" });
           }}
         >
           <strong className="font-mid">Multiplayer</strong>
@@ -442,13 +443,12 @@ export function Notice({ tone, children }: { tone: "quiet" | "error"; children: 
   );
 }
 
-/** The game of the bare address `/`: seed 42, eight seats, and only the first seat is played here. */
-export const DEFAULT_GAME: LocalGame = { seed: 42, players: 8, humans: 1 };
+export { DEFAULT_GAME };
 
 /**
- * The game that the address asks for. Without `local`, the bare address gets DEFAULT_GAME, and
- * the demo (`example`) and the gallery have their own addresses, so they get none. With
- * `scenario`, the engine says which seed and how many seats the game has.
+ * The game that the address asks for, or none: the bare address is the start screen, which
+ * opens DEFAULT_GAME by its address. With `scenario`, the engine says which seed and how many
+ * seats the game has.
  */
 export function localGame(params: URLSearchParams): LocalGame | null {
   const number = (name: string, otherwise: number) => {
@@ -460,7 +460,7 @@ export function localGame(params: URLSearchParams): LocalGame | null {
     return { ...DEFAULT_GAME, humans: number("humans", 1), scenario };
   }
   if (!params.has("local")) {
-    return params.has("example") || params.has("gallery") ? null : DEFAULT_GAME;
+    return null;
   }
   return { seed: number("local", 3), players: number("players", 8), humans: number("humans", 1) };
 }

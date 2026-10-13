@@ -48,6 +48,16 @@ function attachment(id: string, catalog: ExplorationCatalog | null): AttachmentV
   };
 }
 
+/** A planet as printed, before a game: its type, and nothing that the exploration changed. */
+export const printedTraits = (planet: PlanetMetaView): PlanetTraitsView => ({
+  types: (planet.traits ?? []).flatMap((name) => {
+    const type = TYPES[name.toUpperCase()];
+    return type ? [type] : [];
+  }),
+  unexplored: false,
+  attachments: [],
+});
+
 /** What the exploration says about the planets of one update. */
 export function planetTraits(update: SessionUpdate, catalog: ExplorationCatalog | null) {
   const attached = new Map<string, string[]>();

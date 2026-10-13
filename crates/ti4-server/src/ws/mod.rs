@@ -1,5 +1,7 @@
 //! WebSocket connection lifecycle and routing for live multiplayer sessions.
 
+pub mod table;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
