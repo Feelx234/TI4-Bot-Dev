@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useId } from "react";
+import React, { useEffect, useMemo, useState, useRef, useId } from "react";
 import { createPortal } from "react-dom";
 import { useCompactLayout } from "../hooks/useCompactLayout.ts";
 import { useMobileMenuSlot } from "../presentation/MobileMenuSlot.tsx";
@@ -8,7 +8,11 @@ import {
   getPlayerColor,
   PLAYER_PALETTE,
 } from "../presentation/boardPresentation.ts";
-import { SystemInspector } from "./SystemInspector.tsx";
+import { SystemInspector, type InspectorTab } from "./SystemInspector.tsx";
+import { SystemReachTab } from "./SystemReachTab.tsx";
+import { useReachQuery } from "../hooks/useReachQuery.ts";
+import { groupReach, reachVectors } from "../presentation/reachView.ts";
+import type { ReachReply } from "../protocol/client.ts";
 import { Tooltip } from "../primitives/index.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
@@ -45,6 +49,8 @@ export interface BoardProps {
   onSelectOptionId?: (optionId: string) => void;
   overlayMode?: MapOverlayMode;
   onOverlayModeChange?: (mode: MapOverlayMode) => void;
+  /** Read-only "who can go here" query; without it the system overview has no such tab. */
+  queryReach?: (systemId: string) => Promise<ReachReply>;
 }
 
 export const Board: React.FC<BoardProps> = ({
@@ -59,6 +65,7 @@ export const Board: React.FC<BoardProps> = ({
   onSelectOptionId,
   overlayMode: controlledOverlayMode,
   onOverlayModeChange,
+  queryReach,
 }) => {
   const display = usePlayerIdentity();
   const [uncontrolledSelectedSystemId, setUncontrolledSelectedSystemId] = useState<string | null>(
@@ -116,6 +123,22 @@ export const Board: React.FC<BoardProps> = ({
     selectedSystemId,
     tokenPaymentPlanets,
   );
+
+  // "Who can go here": the inspector's second tab asks the engine and draws the answer as arrows.
+  const [inspectorTab, setInspectorTab] = useState<InspectorTab>("details");
+  const [reachFocus, setReachFocus] = useState<string | null>(null);
+  useEffect(() => setReachFocus(null), [selectedSystemId]);
+  const reachActive = Boolean(queryReach) && inspectorTab === "reach" && Boolean(selectedSystemId);
+  const reach = useReachQuery(queryReach, selectedSystemId, reachActive, board);
+  const reachGroups = useMemo(
+    () => groupReach(reach.status === "ready" ? reach.origins : [], viewerSeat),
+    [reach, viewerSeat],
+  );
+  const reachArrows = useMemo(() => {
+    if (!reachActive || !selectedSystemId || reach.status !== "ready") return [];
+    const centers = new Map(presentation.tiles.map((t) => [t.systemId, t.center] as const));
+    return reachVectors(reachGroups, selectedSystemId, centers, reachFocus);
+  }, [reachActive, selectedSystemId, reach.status, reachGroups, reachFocus, presentation.tiles]);
 
   // Only the standard overlay draws clickable planets for every system, so a pending planet pick
   // shows it regardless of the chosen overlay; the preference returns afterwards.
@@ -372,6 +395,17 @@ export const Board: React.FC<BoardProps> = ({
           >
             <path d="M 0 1 L 10 5 L 0 9 z" fill="#4ade80" />
           </marker>
+          <marker
+            id="vector-arrow-enemy"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto-start-reverse"
+          >
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#f87171" />
+          </marker>
         </defs>
 
         <g
@@ -416,6 +450,7 @@ export const Board: React.FC<BoardProps> = ({
 
           {/* Movement Vector Overlays */}
           <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />
+          {reachArrows.length > 0 && <MovementVectorsOverlay vectors={reachArrows} />}
         </g>
       </svg>
       </div>
@@ -425,6 +460,29 @@ export const Board: React.FC<BoardProps> = ({
         <SystemInspector
           system={presentation.selectedSystem}
           onClose={() => setSelectedSystemId(null)}
+          viewerSeat={viewerSeat}
+          seatingOrder={seatingOrder}
+          reach={
+            queryReach
+              ? {
+                  tab: inspectorTab,
+                  onTab: (tab) => {
+                    setInspectorTab(tab);
+                    setReachFocus(null);
+                  },
+                  content: (
+                    <SystemReachTab
+                      systemId={presentation.selectedSystem.systemId}
+                      board={board}
+                      viewerSeat={viewerSeat}
+                      state={reach}
+                      focusKey={reachFocus}
+                      onFocus={setReachFocus}
+                    />
+                  ),
+                }
+              : undefined
+          }
         />
       )}
 

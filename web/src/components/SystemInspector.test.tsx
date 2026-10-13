@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { act, render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent, within } from "@testing-library/react";
 import { SystemInspector } from "./SystemInspector.tsx";
 import { SelectedSystemDetails } from "../presentation/boardPresentation.ts";
 
@@ -58,9 +58,8 @@ describe("SystemInspector Component", () => {
     expect(screen.getByText("Attachments: custodians")).toBeInTheDocument();
 
     // Units grouped by player and type, without repeating player info inside unit chips
-    expect(screen.getByTestId("inspector-player-space-seat_a")).toHaveTextContent(
-      "Unknown participant",
-    );
+    expect(screen.getByTestId("inspector-owner-seat_a")).toHaveTextContent("Unknown participant");
+    expect(screen.getByTestId("inspector-player-space-seat_a")).toBeInTheDocument();
     expect(screen.getByTestId("inspector-space-unit")).toHaveTextContent(
       "1 × Dreadnought (1 damaged)",
     );
@@ -69,7 +68,7 @@ describe("SystemInspector Component", () => {
     );
 
     expect(screen.getByTestId("inspector-player-ground-mecatol_rex-seat_a")).toHaveTextContent(
-      "Unknown participant",
+      "On Mecatol Rex",
     );
     expect(screen.getByTestId("inspector-ground-unit")).toHaveTextContent("1 × Infantry");
     expect(screen.getByTestId("inspector-ground-unit").textContent).not.toContain(
@@ -167,5 +166,51 @@ describe("SystemInspector Component", () => {
     });
     vi.useRealTimers();
     expect(screen.getByTestId("unit-info-card")).toHaveTextContent(/Dreadnought/);
+  });
+
+  it("lists units strictly per owner: the viewer first, then the table order, never mixed", () => {
+    const mixed: SelectedSystemDetails = {
+      ...mockSystem,
+      spaceUnits: [
+        { unitType: "cruiser", owner: "seat_c", ownerColor: "#0f0", damaged: false },
+        { unitType: "carrier", owner: "seat_b", ownerColor: "#00f", damaged: false },
+        { unitType: "dreadnought", owner: "seat_a", ownerColor: "#f00", damaged: false },
+        { unitType: "cruiser", owner: "seat_b", ownerColor: "#00f", damaged: false },
+      ],
+      planetUnits: {
+        mecatol_rex: [
+          { unitType: "infantry", owner: "seat_c", ownerColor: "#0f0", damaged: false, planet: "mecatol_rex" },
+          { unitType: "pds", owner: "seat_a", ownerColor: "#f00", damaged: false, planet: "mecatol_rex" },
+          { unitType: "infantry", owner: "seat_a", ownerColor: "#f00", damaged: false, planet: "mecatol_rex" },
+        ],
+      },
+    };
+    render(
+      <SystemInspector
+        system={mixed}
+        onClose={() => {}}
+        viewerSeat="seat_b"
+        seatingOrder={["seat_a", "seat_b", "seat_c"]}
+      />,
+    );
+    const blocks = screen.getAllByTestId(/^inspector-owner-seat_[abc]$/);
+    expect(blocks.map((b) => b.dataset.testid)).toEqual([
+      "inspector-owner-seat_b",
+      "inspector-owner-seat_a",
+      "inspector-owner-seat_c",
+    ]);
+    const own = within(blocks[0]);
+    expect(own.getAllByTestId("inspector-space-unit").map((e) => e.textContent)).toEqual([
+      expect.stringContaining("Carrier"),
+      expect.stringContaining("Cruiser"),
+    ]);
+    expect(own.queryByTestId("inspector-ground-unit")).toBeNull();
+    const a = within(blocks[1]);
+    expect(a.getByTestId("inspector-space-unit")).toHaveTextContent("Dreadnought");
+    expect(a.getByTestId("inspector-ground-unit")).toHaveTextContent("Infantry");
+    expect(a.getByTestId("inspector-owner-structures-mecatol_rex-seat_a")).toHaveTextContent("PDS");
+    const c = within(blocks[2]);
+    expect(c.getByTestId("inspector-space-unit")).toHaveTextContent("Cruiser");
+    expect(c.getByTestId("inspector-ground-unit")).toHaveTextContent("Infantry");
   });
 });

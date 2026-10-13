@@ -726,6 +726,41 @@ export interface SecondaryPreviewMsg {
     | { result: "refused"; reason: PreviewRefusal; detail: string };
 }
 
+/** One kind of ship in one origin system that could move into the queried system. */
+export interface ReachShip {
+  type_id: string;
+  count: number;
+  damaged: number;
+  /** Of `count`, how many arrive only by spending Gravity Drive. */
+  gravity_drive: number;
+  /** Of `count`, how many arrive only by exhausting the Ionian Fuel Refinery. */
+  ionian: number;
+}
+
+export interface ReachOrigin {
+  owner: string;
+  origin: string;
+  ships: ReachShip[];
+}
+
+export type ReachRefusal = "busy" | "unknown_system" | "rate_limited";
+
+/**
+ * The answer to a `query_reach` request ("who can go here"): the ships that could move into
+ * `system_id` if it were activated now, from the engine's own movement search. Private to the asking
+ * connection and ephemeral; `as_of_version` says which position it was computed at.
+ */
+export interface ReachIntoMsg {
+  type?: "reach_into";
+  protocol_version: number;
+  game_id: string;
+  request_id: number;
+  system_id: string;
+  as_of_version: number;
+  origins: ReachOrigin[];
+  refused?: ReachRefusal;
+}
+
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & InitialSnapshotMsg)
   | ({ type: "state_update" } & StateUpdateMsg)
@@ -738,7 +773,8 @@ export type ServerMessage =
   | ({ type: "pong" } & PongMsg)
   | ({ type: "event" } & GameEventMsg)
   | ({ type: "reaction_intent_state" } & ReactionIntentStateMsg)
-  | ({ type: "secondary_preview" } & SecondaryPreviewMsg);
+  | ({ type: "secondary_preview" } & SecondaryPreviewMsg)
+  | ({ type: "reach_into" } & ReachIntoMsg);
 
 export type ClientMessage =
   | {
@@ -784,6 +820,14 @@ export type ClientMessage =
       card: string;
       primary: string;
       answers: string[];
+    }
+  | {
+      /** Read-only: which ships could move into this system if it were activated now? */
+      type: "query_reach";
+      protocol_version: number;
+      game_id: string;
+      request_id: number;
+      system_id: string;
     }
   | {
       type: "ping";

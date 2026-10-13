@@ -6,6 +6,7 @@ import {
   isHistoryVersionConflict,
   PREVIEW_TIMEOUT_MS,
   PreviewUnsupportedError,
+  ReachUnsupportedError,
   reduceServerMessage,
   serverEventLog,
 } from "./client.ts";
@@ -1421,6 +1422,60 @@ describe("GameSessionClient ingress lifecycle", () => {
     await expect(client.previewSecondary("pok7technology", "player_b", [])).rejects.toBeInstanceOf(
       PreviewUnsupportedError,
     );
+    expect(socket.sent.length).toBe(sentBefore);
+    client.stop();
+  });
+
+  it("asks who can go to a system read-only and resolves with the engine's answer", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.queryReach("18");
+    const sent = JSON.parse(socket.sent.at(-1)!);
+    expect(sent).toEqual({
+      type: "query_reach",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      system_id: "18",
+    });
+    const origins = [
+      {
+        owner: "player_b",
+        origin: "27",
+        ships: [{ type_id: "cruiser", count: 2, damaged: 0, gravity_drive: 1, ionian: 0 }],
+      },
+    ];
+    send({
+      type: "reach_into",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      system_id: "18",
+      as_of_version: 5,
+      origins,
+    });
+    await expect(asked).resolves.toEqual({
+      kind: "reach",
+      systemId: "18",
+      asOfVersion: 5,
+      origins,
+    });
+    expect(client.getState().lastError).toBeNull();
+    client.stop();
+  });
+
+  it("treats an older server's unknown-message error as 'reach unsupported' and never shows it", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.queryReach("18");
+    send({
+      type: "error",
+      protocol_version: PROTOCOL_VERSION,
+      kind: "malformed_message",
+      message: "unknown variant `query_reach`, expected one of `subscribe`, `submit_choice`",
+    });
+    await expect(asked).rejects.toBeInstanceOf(ReachUnsupportedError);
+    expect(client.getState().lastError).toBeNull();
+    const sentBefore = socket.sent.length;
+    await expect(client.queryReach("18")).rejects.toBeInstanceOf(ReachUnsupportedError);
     expect(socket.sent.length).toBe(sentBefore);
     client.stop();
   });
