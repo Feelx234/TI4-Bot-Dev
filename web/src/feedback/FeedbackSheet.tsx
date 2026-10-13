@@ -3,10 +3,27 @@ import { Drawer } from "../primitives/index.ts";
 import { fetchBuildInfo, useBuildInfo } from "../buildInfo.ts";
 import { PROTOCOL_VERSION } from "../protocol/types.ts";
 import { buildFeedbackContext, currentEnvironment } from "./context.ts";
+import { preferredNickname } from "../protocol/nickname.ts";
 import { currentFeedbackSource } from "./source.ts";
 import "./feedback.css";
 
 export const MAX_FEEDBACK_CHARS = 4000;
+export const MAX_NAME_CHARS = 60;
+
+/** The nickname the roster has for the viewer's seat, if any. */
+function knownNickname(): string | undefined {
+  const { viewer, lobby } = currentFeedbackSource();
+  if (viewer?.role !== "player") return undefined;
+  return lobby?.slots.find((slot) => slot.occupant === viewer.seat)?.nickname ?? undefined;
+}
+
+function safeStoredNickname(): string | undefined {
+  try {
+    return preferredNickname() || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const CATEGORIES = [
   ["bug", "Bug"],
@@ -54,10 +71,12 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
   const [category, setCategory] = useState<FeedbackCategory>("bug");
   const [text, setText] = useState("");
   const [includeGame, setIncludeGame] = useState(true);
+  const [typedName, setTypedName] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
   const trimmed = text.trim();
+  const nickname = open ? knownNickname() : undefined;
   const close = () => {
     onClose();
     // A sent report starts the next one from scratch.
@@ -74,7 +93,11 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
     const latest = await fetchBuildInfo();
     const context = buildFeedbackContext(
       currentFeedbackSource(),
-      currentEnvironment(latest.commit, latest.protocolVersion, PROTOCOL_VERSION),
+      {
+        ...currentEnvironment(latest.commit, latest.protocolVersion, PROTOCOL_VERSION),
+        storedNickname: safeStoredNickname(),
+        typedName: nickname ? undefined : typedName,
+      },
       includeGame,
     );
     const result = await send({ category, text: trimmed, context });
@@ -147,6 +170,27 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
           <div className="feedback__count" data-testid="feedback-count">
             {text.length} / {MAX_FEEDBACK_CHARS}
           </div>
+          {nickname ? (
+            <p className="feedback__who" data-testid="feedback-who">
+              Sending as <strong>{nickname}</strong>
+            </p>
+          ) : (
+            <>
+              <label className="feedback__label" htmlFor="feedback-name">
+                Your name (optional)
+              </label>
+              <input
+                id="feedback-name"
+                data-testid="feedback-name"
+                className="feedback__name"
+                type="text"
+                maxLength={MAX_NAME_CHARS}
+                placeholder="So we know who to ask"
+                value={typedName}
+                onChange={(event) => setTypedName(event.target.value)}
+              />
+            </>
+          )}
           <label className="feedback__check">
             <input
               type="checkbox"
@@ -157,9 +201,9 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
             <span>Include game info</span>
           </label>
           <p className="feedback__privacy">
-            Sent: build {info.commit}, your screen size and browser
+            Sent: build {info.commit}, your name{nickname ? "" : " if you typed one"}, your screen size and browser
             {includeGame
-              ? ", the game id, your seat and faction, round and phase, the open decision and the last public events. Nothing hidden from you."
+              ? ", the game id, your seat and faction, the other players' nicknames, round and phase, the open decision and the last public events. Nothing hidden from you."
               : "."}{" "}
             Stored as a file on the playtest server; ask to have it deleted.
           </p>

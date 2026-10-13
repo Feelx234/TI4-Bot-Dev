@@ -234,6 +234,7 @@ const GameRoute: React.FC<{
   useRegisterFeedbackSource("lobby", () => ({
     gameId,
     viewer: token && playerId ? { role: "player", seat: playerId, playerSession: token } : { role: "spectator" },
+    lobby,
   }));
   useEffect(() => {
     if (invalidCredential) onCredentialInvalid();
@@ -374,6 +375,7 @@ const GameViewContainer: React.FC<{
     viewer,
     snapshot,
     pendingChoice: realPendingChoice,
+    lobby,
     events,
   }));
   const reconnecting = useAfterDelay(
