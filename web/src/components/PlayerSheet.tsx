@@ -244,7 +244,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
         {/* Sound Settings Toggle */}
         <button
           type="button"
-          title={isMutedState ? "Turn sound on" : "Mute turn sound"}
+          data-testid="turn-sound-btn"
+          aria-pressed={isMutedState}
+          title={isMutedState ? "Turn the beep for your decisions back on" : "Turn off the beep for your decisions"}
           onClick={() => {
             const newMutedState = toggleMute();
             setIsMutedState(newMutedState);
@@ -270,7 +272,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               : "transparent";
           }}
         >
-          {isMutedState ? "🔇 Muted" : "🔊 Sound"}
+          {isMutedState ? "🔇 Sound off" : "🔊 Sound on"}
         </button>
         <button
           type="button"

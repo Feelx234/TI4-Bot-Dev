@@ -137,6 +137,15 @@ html,
 .app-shell__player-sheet .player-sheet-panel {
   width: 100% !important;
   height: 100% !important;
+  /* The turn action bar (its height is published as --bottom-bar-offset) is drawn over the lower
+     edge of the column; the room under the last player sheet lets it scroll out from behind. */
+  padding-bottom: calc(12px + var(--bottom-bar-offset, 0px)) !important;
+  overscroll-behavior: contain;
+}
+
+/* Only the phone drawers have a close button; the desktop column is always there. */
+.app-shell__drawer-close {
+  display: none;
 }
 
 .app-shell__event-log {
@@ -2205,6 +2214,21 @@ html,
     min-height: 35vh;
     border-top: 1px solid var(--color-border);
     border-left: none !important;
+    /* Clear the floating Players / Objectives / Events buttons so the last sheet is fully
+       reachable; the drawer itself is the one scroller. */
+    padding-bottom: 72px !important;
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .app-shell__drawer-close {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 0 0 auto;
+    padding: 6px 14px;
+    min-height: 36px;
   }
 
   .app-shell__mobile-actions {

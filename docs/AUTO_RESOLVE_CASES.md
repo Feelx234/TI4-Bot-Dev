@@ -35,6 +35,7 @@ no engine change**) and checked against the code on this branch.
 | Case | Derived from the pending choice (strict) | Engine source | Toast |
 |---|---|---|---|
 | Lone strategic action | `details.kind == "turn_menu"`, `details.closing != true`, prompt `action phase`, **exactly one option**, id `strategic` | `strategy.rs` `strategic_action_options` (bare `strategic` id only for one unused card; with `pass` only when every card is used) plus the appended tactical, trade, contact, payment, relic, exploration, technology and component options in `game.rs` `Game::turn_options`; `with_turn_menu` adds `details` | "Only one choice: take your strategic action" |
+| Movement with no unit that can move | prompt `movement`, **exactly one option**, id `done_moving` (the decline entry; every ship, fighter and ground force move would be another option). The movement dialog stays closed while the client answers (`useLoneAutoSubmit` returns `answeringNonce`, `GameShell` renders nothing for it); if the setting is off or the submit is not sent, the dialog shows as before | `tactical.rs` movement choice (move options, then `done_moving`) | "Only one choice: no unit can move, finishing movement" |
 | Lone system activation | `context.subtype == "activate_system"`, prompt `activate a system`, exactly one option, kind `activate` | `tactical.rs` activation choice (systems only, no decline); reached only after the seat chose the tactical action | "Only one choice: activate system <id>" |
 
 Never matched: a menu that also offers `pass`, tactical, components, trade, contact or any action
@@ -84,7 +85,7 @@ decision.
 | Strategy card secondary, reaction windows with a decline | declining is a real option |
 | Primary technology research with one candidate | not on the approved list; carries payment and waiver steps |
 | Drafting with 3, 5 or 6 players, any pick that is not the last | several cards remain |
-| Movement and commit steps | offer a "done" entry beside the moves |
+| Movement and commit steps with any move on offer | offer a "done" entry beside the moves; only a movement whose sole option is `done_moving` is answered for the player |
 
 ## Parked
 

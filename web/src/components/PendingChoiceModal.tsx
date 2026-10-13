@@ -285,6 +285,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
         data-testid="pending-choice-dialog"
         className="choice-dialog"
         onEscape={() => setIsMinimized(true)}
+        // Same as every other panel: a tap on the dimmed area outside the window closes it.
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setIsMinimized(true);
+        }}
         initialFocusRef={dialogRef}
         style={{
           background: "rgba(3, 7, 18, 0.75)",

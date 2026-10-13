@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
-import { useTurnSound } from "./hooks/useTurnSound.ts";
+import { shouldPlayTurnSound, useTurnSound } from "./hooks/useTurnSound.ts";
 import { useTurnRedo } from "./hooks/useTurnRedo.ts";
 import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
@@ -516,17 +516,15 @@ const GameViewContainer: React.FC<{
     : null;
   const agendaPill = agendaStrip ? agendaPillLabel(agendaStrip, realPendingChoice) : null;
 
-  // Play sound notification when it becomes the player's turn
-  const previousPendingChoiceRef = useRef<string | null>(null);
+  // One sound when the decision passes to the viewer, not one per decision: a turn is a run of
+  // questions for the same seat (menu, system, moves, production, ...) and only the first beeps.
+  const wasViewerDecisionRef = useRef(false);
   useEffect(() => {
-    const isPendingChoiceForViewer =
-      realPendingChoice && userSeat && realPendingChoice.actor === userSeat;
-
-    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== realPendingChoice.nonce) {
-      playTurnNotification();
-    }
-
-    previousPendingChoiceRef.current = realPendingChoice?.nonce ?? null;
+    const isViewerDecision = Boolean(
+      realPendingChoice && userSeat && realPendingChoice.actor === userSeat,
+    );
+    if (shouldPlayTurnSound(wasViewerDecisionRef.current, isViewerDecision)) playTurnNotification();
+    wasViewerDecisionRef.current = isViewerDecision;
   }, [realPendingChoice?.nonce, userSeat, realPendingChoice?.actor, playTurnNotification]);
 
   useEffect(() => {
