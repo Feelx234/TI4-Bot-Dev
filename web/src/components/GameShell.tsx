@@ -34,6 +34,7 @@ import { AgendaPillProvider, AgendaStrip, useAgendaPill } from "./AgendaStrip.ts
 import type { AgendaStrip as AgendaStripModel } from "../presentation/agendaStrip.ts";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
+import { TradeGoodLedgerProvider } from "../presentation/TradeGoodLedgerContext.tsx";
 import { CargoLoadingTray } from "./CargoLoadingTray.tsx";
 import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
 import type { Landing } from "./InvasionLandingTray.tsx";
@@ -406,11 +407,13 @@ const workflowRenderers = new Map<
       productionQueue,
       productionError,
       onQueueProduction,
+      players,
     }) => (
       <ProductionBuilderDrawer
         choice={choice}
         model={model}
         viewerSeat={viewerSeat}
+        tradeGoods={players?.[choice.actor]?.trade_goods}
         onSubmit={onSubmit}
         onSubmitBatch={onSubmitBasketBatch}
         isOpen={!isMinimized}
@@ -1340,6 +1343,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   return (
     <BoardPrepSlotContext.Provider value={prepSlotValue}>
     <AgendaPillProvider value={agendaPill ?? null}>
+    <TradeGoodLedgerProvider players={Object.values(playersMap)} events={events}>
     <div data-testid="game-container" className="app-shell">
       <div className="app-shell__header">
         {header}
@@ -1520,6 +1524,7 @@ export const GameShell: React.FC<GameShellProps> = ({
         </ProductionPaymentProvider>
       </div>
     </div>
+    </TradeGoodLedgerProvider>
     </AgendaPillProvider>
     </BoardPrepSlotContext.Provider>
   );
