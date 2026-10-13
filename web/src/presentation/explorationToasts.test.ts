@@ -20,6 +20,17 @@ describe("explorationSummary", () => {
   it("says a declined sacrifice gained nothing", () => {
     expect(explorationSummary(rec({}))).toContain("no infantry removed, nothing gained");
   });
+  it("falls back to the structured gains and adds what was placed on the map", () => {
+    expect(explorationSummary(rec({ gains: { trade_goods: 2, command_tokens: -1 } }))).toContain(
+      "gained 2 trade goods, lost 1 command token",
+    );
+    expect(
+      explorationSummary(rec({ card: "gamma", result: "", placed: ["wormhole:GAMMA:25"] })),
+    ).toContain("placed a gamma wormhole in system 25");
+    expect(
+      explorationSummary(rec({ result: "gained 1 trade good", gains: { trade_goods: 1 }, placed: ["ion_storm:30:ALPHA"] })),
+    ).toContain("gained 1 trade good, placed the ion storm in system 30 (alpha side)");
+  });
   it("names attachments and fragments", () => {
     expect(explorationSummary(rec({ card: "mw", outcome: "attached:miningworld" }))).toContain(
       "attached Mining World",

@@ -27,7 +27,7 @@ function kindOf(record: ExplorationRecordDto): ExplorationEntry["kind"] {
   if (outcome.startsWith("attached:")) return "attachment";
   if (outcome === "fragment") return "fragment";
   if (record.system && !record.planet) return "frontier";
-  return record.result ? "gain" : "none";
+  return record.result || Object.keys(record.gains ?? {}).length || record.placed?.length ? "gain" : "none";
 }
 
 export function explorationEntry(record: ExplorationRecordDto): ExplorationEntry {

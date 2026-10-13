@@ -11,6 +11,10 @@ export interface ExplorationRecordDto {
   outcome?: string;
   system?: string | null;
   result?: string;
+  /** Signed holdings the card changed (`trade_goods`, `commodities`, `command_tokens`, ...). */
+  gains?: Record<string, number>;
+  /** What the card put on the map or in the play area (`wormhole:GAMMA:25`, `ion_storm:..`, ...). */
+  placed?: string[];
 }
 
 /** Cards that cost an infantry: declining leaves nothing gained. */
@@ -23,6 +27,40 @@ export function readExplorationLog(state: Record<string, unknown> | null | undef
     (r): r is ExplorationRecordDto =>
       !!r && typeof r === "object" && typeof (r as ExplorationRecordDto).player === "string",
   );
+}
+
+const GAIN_LABELS: Record<string, [string, string]> = {
+  trade_goods: ["trade good", "trade goods"],
+  commodities: ["commodity", "commodities"],
+  command_tokens: ["command token", "command tokens"],
+  action_cards: ["action card", "action cards"],
+  secret_objectives: ["secret objective", "secret objectives"],
+  relics: ["relic", "relics"],
+  technologies: ["technology", "technologies"],
+};
+
+/** "gained 2 trade goods, spent 1 command token" from the record's structured `gains`. */
+export function gainsText(gains: Record<string, number> | undefined): string {
+  const parts: string[] = [];
+  for (const [key, amount] of Object.entries(gains ?? {})) {
+    if (!amount) continue;
+    const [one, many] = GAIN_LABELS[key] ?? [humanizeId(key).toLowerCase(), humanizeId(key).toLowerCase()];
+    const n = Math.abs(amount);
+    parts.push(`${amount > 0 ? "gained" : "lost"} ${n} ${n === 1 ? one : many}`);
+  }
+  return parts.join(", ");
+}
+
+/** What the card put on the board, from the structured `placed` tags ("placed a gamma wormhole in 25"). */
+export function placedText(placed: readonly string[] | undefined): string {
+  const parts: string[] = [];
+  for (const tag of placed ?? []) {
+    const [kind, a, b] = tag.split(":");
+    if (kind === "wormhole" && a && b) parts.push(`placed a ${a.toLowerCase()} wormhole in system ${b}`);
+    else if (kind === "ion_storm" && a) parts.push(`placed the ion storm in system ${a}${b ? ` (${b.toLowerCase()} side)` : ""}`);
+    else if (kind === "planet" && a) parts.push(`discovered ${findPlanetMeta(a)?.name ?? humanizeId(a)}${b ? ` in system ${b}` : ""}`);
+  }
+  return parts.join(", ");
 }
 
 /** "attached Mining World" / "took a cultural relic fragment" / "gained 1 trade good" ... */
@@ -38,11 +76,16 @@ export function explorationResultText(record: ExplorationRecordDto): string {
     ].filter(Boolean);
     return `attached ${meta?.name ?? humanizeId(id)}${gains.length ? ` (${gains.join(", ")})` : ""}`;
   }
-  if (result) return result;
+  // The engine's own sentence wins; structured gains/placed fill in for records without one and
+  // add what went onto the board, which the sentence does not always say.
+  const placed = placedText(record.placed);
+  const text = result || gainsText(record.gains);
+  if (text) return placed && !text.includes(placed) ? `${text}, ${placed}` : text;
+  if (placed) return placed;
   if (SACRIFICE_CARDS.test(record.card)) return "no infantry removed, nothing gained";
   // A card that stays in the play area (Enigmatic Device) gains nothing now but is not "nothing".
-  const text = findExplorationCardMeta(record.card)?.description ?? "";
-  if (/place this card faceup in your play area/i.test(text)) return "kept faceup in the play area for later";
+  const cardText = findExplorationCardMeta(record.card)?.description ?? "";
+  if (/place this card faceup in your play area/i.test(cardText)) return "kept faceup in the play area for later";
   return "nothing gained";
 }
 
