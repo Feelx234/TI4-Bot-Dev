@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   describeFaction,
   describeUnit,
@@ -9,7 +9,7 @@ import {
   type UnitDescription,
 } from "../presentation/factionInfo.ts";
 import { useSeatInfo } from "../presentation/SeatInfoContext.tsx";
-import { Tooltip } from "../primitives/index.ts";
+import { Popover } from "../primitives/index.ts";
 import { InfoPopover } from "./InfoPopover.tsx";
 import { CostValue } from "./PlanetValueIcons.tsx";
 import { UnitIcon } from "./UnitIcon.tsx";
@@ -97,23 +97,34 @@ export const UnitStatsTip: React.FC<{
   testId?: string;
 }> = ({ unit, seat, children, testId }) => {
   const { faction, technologies } = useSeatInfo(seat);
+  const [open, setOpen] = useState(false);
   const resolved = resolveUnit(unit, faction, technologies);
   const description = resolved ? describeUnit(resolved) : undefined;
   if (!description) return <>{children}</>;
+  // Portalled, so a scrolling panel or dialog body cannot clip the card.
   return (
-    <Tooltip
-      as="span"
+    <Popover
+      portal
+      isOpen={open}
+      onOpenChange={setOpen}
       position="top"
-      delayMs={150}
-      className="unit-stats-tip"
+      ariaLabel={`${description.name}: unit details`}
+      className="info-card info-card--unit"
       data-testid={testId ?? `unit-stats-tip-${unit}`}
-      wrapperStyle={{ display: "inline-flex", alignItems: "center", gap: 6 }}
       content={<UnitInfoCard unit={description} />}
     >
-      <span tabIndex={0} data-unit-stats={unit} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <span
+        tabIndex={0}
+        data-unit-stats={unit}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+        onPointerEnter={(e) => e.pointerType !== "touch" && setOpen(true)}
+        onPointerLeave={(e) => e.pointerType !== "touch" && setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
         {children}
       </span>
-    </Tooltip>
+    </Popover>
   );
 };
 

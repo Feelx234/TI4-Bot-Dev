@@ -48,6 +48,7 @@ import {
 } from "../presentation/hitAssignment.ts";
 import type { BasketPlan } from "../protocol/client.ts";
 import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
+import { salvageEffect } from "../presentation/reactionModel.ts";
 import { systemNamedLabel, systemTag } from "../presentation/systemFacts.ts";
 
 export interface SpaceCombatOverlayProps {
@@ -1448,6 +1449,21 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
                                   {card && (
                                     <p className="combat-card-offer__description">
                                       {card.description}
+                                    </p>
+                                  )}
+                                  {alias === "salvage" && (
+                                    <p
+                                      className="combat-card-offer__description"
+                                      data-testid="combat-salvage-effect"
+                                    >
+                                      <strong>
+                                        {salvageEffect(
+                                          choice.context?.trigger?.actor ?? viewerSeat ?? null,
+                                          board ?? undefined,
+                                          (seat) => playersMap[seat]?.commodities ?? null,
+                                          (seat) => display(seat).label,
+                                        )}
+                                      </strong>
                                     </p>
                                   )}
                                 </div>
