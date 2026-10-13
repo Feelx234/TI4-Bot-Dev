@@ -56,6 +56,7 @@ pub fn project_player_view(player: &Player) -> PlayerView {
         scored_secret_objectives: player.plot_objectives.iter().cloned().collect(),
         secret_objective_progress: BTreeMap::new(),
         leaders: player.leaders.clone(),
+        held_foreign_tokens: Vec::new(),
     }
 }
 
@@ -657,6 +658,8 @@ pub fn project_game_view_full(
         .iter()
         .map(|player| {
             let mut view = project_player_view(player);
+            view.held_foreign_tokens =
+                ti4_engine::factions::mahact::fleet_pool_owners(&redacted, &player.id);
             // Only the viewing seat's own hand: a law-revealed rival secret stays bare.
             if let ViewerRole::Player(seat) = viewer
                 && *seat == player.id
@@ -936,6 +939,33 @@ mod tests {
     use super::*;
     use ti4_model::id::{FactionId, ObjectiveId, PlanetId, PlayerId, SystemId};
     use ti4_model::state::GameState;
+
+    #[test]
+    fn a_mahact_pool_reaches_every_viewer_and_other_seats_carry_none() {
+        let mut state = ti4_engine::fixtures::seated_game(
+            &[("a", "mahact"), ("b", "xxcha")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let (mahact, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        assert!(ti4_engine::factions::mahact::add_token(&mut state, &mahact, &other));
+        for viewer in [ViewerRole::Spectator, ViewerRole::Player(other.clone())] {
+            let view = project_game_view(&state, &viewer);
+            let held = |id: &PlayerId| {
+                view.players
+                    .iter()
+                    .find(|player| player.id == *id)
+                    .map(|player| player.held_foreign_tokens.clone())
+                    .unwrap()
+            };
+            assert_eq!(held(&mahact), vec![other.clone()]);
+            assert!(held(&other).is_empty());
+        }
+        // The field is additive: absent when empty, so an old client never sees it.
+        let json = serde_json::to_value(project_game_view(&state, &ViewerRole::Spectator)).unwrap();
+        let sheets = json["players"].as_array().unwrap();
+        assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_some()));
+        assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_none()));
+    }
 
     fn reaction_offer() -> (Choice, String) {
         use ti4_engine::choice::ChoiceOption;
