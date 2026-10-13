@@ -28,10 +28,28 @@ enum Operation {
 fn production_source(path: &Path) -> String {
     let source =
         fs::read_to_string(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
-    source
-        .split_once("\n#[cfg(test)]")
-        .map_or(source.as_str(), |(production, _)| production)
-        .to_owned()
+    source[..test_modules_start(&source)].to_owned()
+}
+
+/// Where the test modules of a file start: the first `#[cfg(test)]` that is on a `mod`. A
+/// `#[cfg(test)]` on another item (a helper that only tests call) does not end the production
+/// source, or every decision site below it would leave the audit unseen.
+fn test_modules_start(source: &str) -> usize {
+    const MARKER: &str = "\n#[cfg(test)]\n";
+    let mut from = 0;
+    while let Some(found) = source[from..].find(MARKER) {
+        let at = from + found;
+        let item = source[at + MARKER.len()..]
+            .lines()
+            .find(|line| !line.starts_with("#[") && !line.starts_with("//"))
+            .unwrap_or("");
+        let item = item.strip_prefix("pub(crate) ").unwrap_or(item);
+        if item.starts_with("mod ") {
+            return at;
+        }
+        from = at + MARKER.len();
+    }
+    source.len()
 }
 
 /// Enough of Rust's lexical grammar for structural call-site discovery.

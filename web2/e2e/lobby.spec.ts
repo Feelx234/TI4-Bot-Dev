@@ -293,6 +293,15 @@ test("a lost connection of the lobby is said in the header, and the table comes 
     socket.connectToServer();
     open.push(socket);
   });
+  // The board is asked over HTTP, and its answer is late: it comes when the socket is gone.
+  let board = () => {};
+  const held = new Promise<void>((release) => {
+    board = release;
+  });
+  await page.route("**/lobby/map-preview", async (route) => {
+    await held;
+    await route.continue();
+  });
   await page.goto(`/?online=${table.id}`);
   await expect(players(page)).toContainText("1 of 3");
   down = true;
@@ -300,6 +309,10 @@ test("a lost connection of the lobby is said in the header, and the table comes 
   // One signal: the lobby stays in view.
   await expect(page.locator("header").getByRole("status")).toHaveText("Offline · reconnecting");
   await expect(rows(page)).toHaveCount(3);
+  // An answer of a call says nothing about the socket: the page is still offline.
+  board();
+  await expect(page.locator("g.system.home")).toHaveCount(3);
+  await expect(page.locator("header").getByRole("status")).toHaveText("Offline · reconnecting");
   // What changed meanwhile is there when the page is back.
   await table.call("bots", { kind: "random" });
   down = false;

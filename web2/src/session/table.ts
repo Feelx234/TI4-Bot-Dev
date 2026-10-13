@@ -26,7 +26,10 @@ export interface TableState {
 
 export type TableEvent =
   | ({ kind: "table" } & TableState)
-  /** The table cannot be reached, and it is tried again. The last table stays in view. */
+  /**
+   * The table cannot be reached, and it is tried again. The last table stays in view. The next
+   * table ends it, unless "offline" follows that table at once.
+   */
   | { kind: "offline" }
   /** A call was refused. The table is as it was. */
   | { kind: "rejected"; reason: string }
@@ -169,6 +172,11 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
   const tell = () => {
     if (latest) {
       say({ kind: "table", ...latest, preview });
+      // A table ends the offline state for a listener, and only a table of the socket says that
+      // the socket is back: the answer of a call or the board can come while it is away.
+      if (offline) {
+        say({ kind: "offline" });
+      }
     }
   };
   const fail = (message: string) => {

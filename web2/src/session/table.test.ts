@@ -274,6 +274,28 @@ it("a lost socket is offline once, and the page tries again by itself", async ()
   expect(game.sockets).toHaveLength(4);
 });
 
+it("an answer that comes while the socket is away does not end the offline state", async () => {
+  const preview = { player_count: 2, tiles: [], seats: [] };
+  const game = server(SEAT, {
+    "/map-preview": { status: 200, body: preview },
+    "/bots": { status: 200, body: lobby(2) },
+  });
+  game.open();
+  game.push(lobby(1));
+  // The socket is lost before the board is there.
+  game.drop();
+  await settle();
+  expect(versions(game.take())).toEqual([1, "offline", 1, "offline"]);
+  game.table.addBots("random");
+  await settle();
+  expect(versions(game.take())).toEqual([2, "offline"]);
+  // Only a table of the socket ends it.
+  await vi.advanceTimersByTimeAsync(100);
+  game.open();
+  game.push(lobby(2));
+  expect(versions(game.take())).toEqual([2]);
+});
+
 it("a table that the server does not have is said, and nothing is tried after it", async () => {
   const game = server();
   // The server refuses the socket of a table that it does not have: it never opens.
