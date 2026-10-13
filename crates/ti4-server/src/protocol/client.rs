@@ -85,6 +85,16 @@ pub enum ClientMessage {
         #[serde(default)]
         answers: Vec<String>,
     },
+    /// Ask which ships could move into a system if it were activated now ("who can go here";
+    /// read-only and ephemeral, see `protocol::reach`). Open to every viewer, spectators
+    /// included: it reads only what stands on the public board.
+    QueryReach {
+        protocol_version: u16,
+        game_id: String,
+        /// Echoed in the answer so a client can match replies to requests.
+        request_id: u64,
+        system_id: String,
+    },
     /// Keep-alive ping message.
     Ping {
         protocol_version: u16,
@@ -168,6 +178,18 @@ impl std::fmt::Debug for ClientMessage {
                 .field("primary", primary)
                 .field("answers", answers)
                 .finish(),
+            Self::QueryReach {
+                protocol_version,
+                game_id,
+                request_id,
+                system_id,
+            } => f
+                .debug_struct("QueryReach")
+                .field("protocol_version", protocol_version)
+                .field("game_id", game_id)
+                .field("request_id", request_id)
+                .field("system_id", system_id)
+                .finish(),
             Self::Ping {
                 protocol_version,
                 sequence,
@@ -201,6 +223,9 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::PreviewSecondary {
+                protocol_version, ..
+            }
+            | Self::QueryReach {
                 protocol_version, ..
             }
             | Self::Ping {
@@ -266,6 +291,12 @@ impl ClientMessage {
                 for answer in answers {
                     bounded(answer, MAX_OPTION_ID_BYTES, "answers")?;
                 }
+            }
+            Self::QueryReach {
+                game_id, system_id, ..
+            } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                bounded(system_id, super::reach::MAX_SYSTEM_ID_BYTES, "system_id")?;
             }
             Self::Ping { .. } => {}
         }

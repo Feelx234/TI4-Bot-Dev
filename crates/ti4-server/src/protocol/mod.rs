@@ -2,6 +2,7 @@
 
 pub mod client;
 pub mod error;
+pub mod reach;
 pub mod server;
 pub mod splice;
 pub mod status;
