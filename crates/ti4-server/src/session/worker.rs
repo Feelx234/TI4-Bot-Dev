@@ -74,6 +74,9 @@ pub struct SessionShared {
     /// A random bot seat is choosing (thinking or held back by `history_pause`). Its answer has
     /// not reached the game, so the position is still safe to rewind.
     pub bot_deciding: bool,
+    /// The wait before each answer of a seat that the server plays, in milliseconds. The decider
+    /// reads it for each decision, so it can change while the session runs.
+    pub bot_delay_ms: u64,
     pub game_id: String,
     pub game_version: u64,
     pub latest_state: GameState,
@@ -332,6 +335,7 @@ impl SessionShared {
             snapshot_decision_count: 0,
             history_pause: false,
             bot_deciding: false,
+            bot_delay_ms: crate::session::random_bot::random_bot_delay_ms(),
             redo_decisions: Vec::new(),
             history_active: false,
             replaying: false,
@@ -643,6 +647,19 @@ impl SessionShared {
                 })
             }
         });
+    }
+
+    /// Tells every subscriber who the game waits for while a seat that the server plays takes its
+    /// time over `choice`: the status that the other seats get when a person is asked. A
+    /// reaction window names no seat.
+    pub fn broadcast_waiting_for(&mut self, choice: &Choice) {
+        let message = ServerMessage::TurnStatus(TurnStatusMsg {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: self.game_id.clone(),
+            game_version: self.game_version,
+            status: project_turn_status(&self.latest_state, Some(choice)),
+        });
+        self.publish(|_| message.clone());
     }
 
     /// Broadcasts a state update to all subscribers.
@@ -987,6 +1004,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.player_ids.clone_from(&config.player_ids);
     initial_shared.seats.clone_from(&config.seats);
     initial_shared.seed = config.seed;
+    if let Some(delay) = config.random_bot_delay_ms {
+        initial_shared.bot_delay_ms = delay;
+    }
     initial_shared.map_tiles.clone_from(&config.map_tiles);
     initial_shared
         .galaxy_layout
@@ -1048,9 +1068,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     let decision_counter: crate::session::random_bot::DecisionCounter = Arc::new(
         std::sync::atomic::AtomicUsize::new(resume.as_ref().map_or(0, |copy| copy.log_len)),
     );
-    let random_bot_delay = config
-        .random_bot_delay_ms
-        .unwrap_or_else(crate::session::random_bot::random_bot_delay_ms);
     let handle = thread::spawn(move || {
         let _planning_cleanup = ClosePlanningOnExit(worker_shared.clone());
         let mut table = Table::new();
@@ -1087,7 +1104,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         seat.clone(),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
-                        random_bot_delay,
                         worker_shared.clone(),
                     ))
                 }
@@ -1096,7 +1112,6 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                         seat.clone(),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
-                        random_bot_delay,
                         worker_shared.clone(),
                     )
                     .smart(),

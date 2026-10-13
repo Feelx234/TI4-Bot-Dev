@@ -50,7 +50,7 @@ impl Server {
         let created: Value = self
             .client
             .post(self.url("/api/games"))
-            .json(&json!({"player_count": players, "seed": 42, "nickname": "Host"}))
+            .json(&json!({"player_count": players, "seed": 42, "nickname": "Host", "seat_order": "join"}))
             .send()
             .await
             .unwrap()
@@ -121,7 +121,6 @@ async fn the_host_adds_one_random_bot_with_its_own_credential_and_no_password() 
     let slot = &body["slots"][1];
     assert_eq!(slot["nickname"], "Random bot 1");
     assert_eq!(slot["bot"], "random");
-    assert_eq!(slot["ready"], true);
     assert_eq!(slot["connected"], true);
     assert_eq!(slot["can_take_over"], false);
     assert_eq!(open_slots(&body), 2);
@@ -340,10 +339,6 @@ async fn smart_bots_are_added_named_and_started_as_smart_seats() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let (status, _) = server
-        .post(&game, "ready", Some(&host), json!({"ready": true}))
-        .await;
-    assert_eq!(status, StatusCode::OK);
     let (status, started) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK, "{started}");
     let session = server.registry.get_game(&game).expect("session");
@@ -378,10 +373,6 @@ async fn a_lobby_of_a_host_and_bots_starts_and_the_bots_play() {
         .await;
     assert_eq!(status, StatusCode::OK);
     // The host readies up (a bot never needs to) and starts.
-    let (status, _) = server
-        .post(&game, "ready", Some(&host), json!({"ready": true}))
-        .await;
-    assert_eq!(status, StatusCode::OK);
     let (status, started) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK, "{started}");
     // A late bot request is refused: the lobby has started.
@@ -495,9 +486,6 @@ async fn bot_seats_survive_a_restart_of_the_lobby_and_of_the_running_game() {
         )
         .await;
     assert_eq!(status, StatusCode::OK);
-    server
-        .post(&game, "ready", Some(&host), json!({"ready": true}))
-        .await;
     let (status, _) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK);
     let session = server.registry.get_game(&game).unwrap();

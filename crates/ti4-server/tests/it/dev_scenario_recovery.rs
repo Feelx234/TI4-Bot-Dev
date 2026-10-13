@@ -240,19 +240,9 @@ fn scripted_ongoing_combat_and_four_view_presets_recover_cleanly() {
     let (_, host_id, host_token) = registry
         .create_player_lobby("player_lobby_compat".into(), 2, 777, "Host")
         .expect("create player lobby");
-    let (_, guest_id, guest_token) = registry
+    let (_, guest_id, _) = registry
         .join_player_lobby("player_lobby_compat", None, Some("Guest"))
         .expect("join player lobby");
-    registry
-        .set_player_ready("player_lobby_compat", host_token.as_str(), true)
-        .unwrap();
-    registry
-        .set_player_ready(
-            "player_lobby_compat",
-            guest_token.as_ref().unwrap().as_str(),
-            true,
-        )
-        .unwrap();
     registry
         .start_player_lobby("player_lobby_compat", host_token.as_str())
         .unwrap();
@@ -383,6 +373,8 @@ fn launch_failure_cleanup_and_backwards_compatibility() {
         seats: None, // Will not be serialized in JSON due to skip_serializing_if
         map_template: None,
         strategy_card_set: None,
+        bot_delay_ms: None,
+        start_from: None,
     };
     store.save_player_init(&old_init).unwrap();
 

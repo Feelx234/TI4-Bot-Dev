@@ -7,7 +7,7 @@ import { describeError, onResume } from "../protocol/resilience.ts";
 export interface LobbySessionState {
   lobby: LobbyDto | null;
   playerId: string | null;
-  /** The last failed ACTION (ready, start, join ...); cleared by the next action or `dismissError`. */
+  /** The last failed ACTION (start, join ...); cleared by the next action or `dismissError`. */
   error: string | null;
   /** True after LOBBY_POLL_FAILURE_LIMIT consecutive failed background polls; clears on the next success. */
   connectionLost: boolean;
@@ -19,9 +19,7 @@ export interface LobbySessionState {
   loading: boolean;
   invalidCredential: boolean;
   pendingAction: string | null;
-  setReady: (ready: boolean) => Promise<void>;
   start: () => Promise<void>;
-  reorder: (slotIds: string[]) => Promise<void>;
   /** Host only, before Start: choose the map (every call re-rolls the open slots). */
   chooseMap: (choice: MapChoice, startPreset?: string) => Promise<void>;
   join: (nickname: string, playerId?: string) => Promise<string | undefined>;
@@ -168,7 +166,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
   );
 
   const mutate = useCallback(
-    async (path: "ready" | "start" | "reorder" | "map", body?: object) =>
+    async (path: "start" | "map", body?: object) =>
       run(
         path,
         async () => {
@@ -371,9 +369,7 @@ export function useLobbySession(gameId: string, playerSession?: string): LobbySe
     loading,
     invalidCredential,
     pendingAction,
-    setReady: (ready) => mutate("ready", { ready }),
     start: () => mutate("start"),
-    reorder: (slot_ids) => mutate("reorder", { slot_ids }),
     chooseMap: (map, startPreset) =>
       mutate("map", startPreset === undefined ? { map } : { map, start_preset: startPreset }),
     join,

@@ -22,7 +22,6 @@ const lobby = (version: number, change: Partial<LobbyState> = {}): LobbyState =>
       position: 1,
       occupant: "ada",
       nickname: "Ada",
-      ready: true,
       connected: true,
       can_take_over: false,
     },
@@ -31,7 +30,6 @@ const lobby = (version: number, change: Partial<LobbyState> = {}): LobbyState =>
       position: 2,
       occupant: null,
       nickname: null,
-      ready: false,
       connected: false,
       can_take_over: false,
     },
@@ -43,6 +41,8 @@ const lobby = (version: number, change: Partial<LobbyState> = {}): LobbyState =>
   strategy_card_set: "te",
   speaker_order: "random",
   factions: [],
+  seat_order: "random",
+  bot_delay_ms: 600,
   ...change,
 });
 
@@ -150,7 +150,9 @@ it("subscribes as the player, and the table is told with its viewer", () => {
     { type: "subscribe", protocol_version: PROTOCOL_VERSION, player_session: "secret" },
   ]);
   game.push(lobby(1));
-  expect(game.take()).toEqual([{ kind: "table", lobby: lobby(1), viewer: "ada", preview: null }]);
+  expect(game.take()).toEqual([
+    { kind: "table", lobby: lobby(1), viewer: "ada", preview: null, options: null },
+  ]);
   // A listener that comes later is told the table at once.
   const late: TableEvent[] = [];
   game.table.subscribe((event) => late.push(event));
@@ -215,7 +217,7 @@ it("the socket tells who is connected with the same version, and an answer does 
 
 it("a failed call is told with its reason, and the table stays as it was", async () => {
   const game = server(SEAT, {
-    "/start": { status: 409, body: "Every human seat must be ready before starting" },
+    "/start": { status: 409, body: "Every seat must be filled before starting" },
     "/leave": "unreachable",
     "/bots": { status: 500, body: "" },
   });
@@ -226,7 +228,7 @@ it("a failed call is told with its reason, and the table stays as it was", async
   game.table.start();
   await settle();
   expect(game.take()).toEqual([
-    { kind: "rejected", reason: "Every human seat must be ready before starting" },
+    { kind: "rejected", reason: "Every seat must be filled before starting" },
   ]);
   game.table.leave();
   await settle();
@@ -345,29 +347,73 @@ it("the board is asked when the table is told, and again when its map changes", 
   expect(asked()).toBe(2);
 });
 
-it("the page says Ready for its player once: the server asks for it before a start", async () => {
-  const unready = lobby(1);
-  unready.slots[0].ready = false;
-  const game = server(SEAT, { "/ready": { status: 200, body: lobby(2) } });
+it("the setup options are asked with the socket, until the server said them", async () => {
+  const options = { min_players: 2, max_players: 8, scenarios: [] };
+  const game = server(SEAT, { "/api/setup-options": "unreachable" });
+  const asked = () => game.calls.filter((call) => call.url === "/api/setup-options").length;
   game.open();
-  game.push(unready);
+  game.push(lobby(1));
   await settle();
-  const ready = () => game.calls.filter((call) => call.url.endsWith("/ready"));
-  expect(ready()).toMatchObject([{ session: "secret", body: { ready: true } }]);
-  expect(versions(game.take())).toEqual([1, 2]);
-  game.push({ ...unready, lobby_version: 3 });
+  expect(asked()).toBe(1);
+  expect(game.take()).toMatchObject([{ kind: "table", options: null }]);
+  // A call that failed is made again with the next socket.
+  game.answers["/api/setup-options"] = { status: 200, body: options };
+  game.drop();
+  await vi.advanceTimersByTimeAsync(100);
+  game.open();
+  game.push(lobby(1));
   await settle();
-  expect(ready()).toHaveLength(1);
+  expect(asked()).toBe(2);
+  expect(game.take().at(-1)).toMatchObject({ kind: "table", options });
+  game.drop();
+  await vi.advanceTimersByTimeAsync(100);
+  game.open();
+  await settle();
+  expect(asked()).toBe(2);
 });
 
-it("a join is a new player for another tab, and is ready", async () => {
+it("a change of the setup and a new name are calls of the lobby", async () => {
+  const game = server(SEAT, {
+    "/settings": { status: 200, body: lobby(2, { bot_delay_ms: 1000 }) },
+    "/nickname": { status: 409, body: "The name is taken" },
+  });
+  game.open();
+  game.push(lobby(1));
+  await settle();
+  game.take();
+  game.table.setSettings({ waitMs: 1000 });
+  await settle();
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/lobby/settings",
+    session: "secret",
+    body: { bot_delay_ms: 1000 },
+  });
+  expect(game.take()).toMatchObject([{ kind: "table", lobby: { bot_delay_ms: 1000 } }]);
+  // Only what changes is sent, and "round 1" is said as null.
+  game.table.setSettings({ players: 5, cards: "pok", startFrom: null });
+  await settle();
+  expect(game.calls.at(-1)?.body).toEqual({
+    player_count: 5,
+    strategy_card_set: "pok",
+    start_from: null,
+  });
+  game.take();
+  game.table.rename("Ada Lovelace");
+  await settle();
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/lobby/nickname",
+    body: { nickname: "Ada Lovelace" },
+  });
+  expect(game.take()).toEqual([{ kind: "rejected", reason: "The name is taken" }]);
+});
+
+it("a join is a new player for another tab", async () => {
   const joined = lobby(2);
   const game = server(SEAT, {
     "/join": {
       status: 200,
       body: { player_session: "other", player: { id: "ada2" }, lobby: joined },
     },
-    "/ready": { status: 200, body: lobby(3) },
   });
   game.open();
   game.push(lobby(1));
@@ -377,13 +423,14 @@ it("a join is a new player for another tab, and is ready", async () => {
     playerId: "ada2",
     playerSession: "other",
   });
-  const [join, ready] = game.calls.slice(-2);
   // With no player session: the server would answer with the player of this page.
-  expect(join).toMatchObject({ session: null, body: { kind: "new", nickname: "Ada 2" } });
-  expect(ready).toMatchObject({ session: "other", body: { ready: true } });
+  expect(game.calls.at(-1)).toMatchObject({
+    session: null,
+    body: { kind: "new", nickname: "Ada 2" },
+  });
   // This page stays its player.
   expect(game.take()).toMatchObject([
-    { kind: "table", viewer: "ada", lobby: { lobby_version: 3 } },
+    { kind: "table", viewer: "ada", lobby: { lobby_version: 2 } },
   ]);
 
   game.answers["/join"] = { status: 409, body: "Seat is unavailable" };
@@ -446,10 +493,13 @@ it("a table is made with what the page asks, and the answer is its host", async 
   await expect(
     createTable({ playerCount: 6, nickname: "Ada", seed: 3, map: "milty6" }, fetcher),
   ).resolves.toEqual({ gameId: "g9", playerId: "p", playerSession: "s" });
-  await createTable({ playerCount: 8, nickname: "Ada", map: "random", fill: "random" }, fetcher);
+  await createTable(
+    { playerCount: 8, nickname: "Ada", map: "random", fill: "random", waitMs: 1000 },
+    fetcher,
+  );
   expect(calls.map((call) => call.body)).toEqual([
     { player_count: 6, nickname: "Ada", seed: 3, map_template: "milty6" },
-    { player_count: 8, nickname: "Ada", fill_seats: "random", map: "random" },
+    { player_count: 8, nickname: "Ada", fill_seats: "random", bot_delay_ms: 1000, map: "random" },
   ]);
 });
 

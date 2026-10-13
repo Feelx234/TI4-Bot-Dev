@@ -1062,7 +1062,6 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
         PlayerLobbyMember {
             bot: None,
             faction: None,
-            ready: true,
             session: session1.clone(),
             nickname: "Player 1 (Sol)".to_owned(),
         },
@@ -1075,7 +1074,6 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
         PlayerLobbyMember {
             bot: None,
             faction: None,
-            ready: true,
             session: session2.clone(),
             nickname: "Bot (Hacan)".to_owned(),
         },
@@ -1088,7 +1086,6 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
         PlayerLobbyMember {
             bot: None,
             faction: None,
-            ready: true,
             session: session3.clone(),
             nickname: "Bot (Letnev)".to_owned(),
         },
@@ -1167,6 +1164,9 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
         strategy_card_set: None,
         speaker_order: None,
         map_revision: 0,
+        seat_order: None,
+        bot_delay_ms: None,
+        start_from: None,
         lobby_version: 1,
     };
 

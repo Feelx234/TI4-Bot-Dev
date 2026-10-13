@@ -267,16 +267,19 @@ async fn password_gate_blocks_api_and_ws_until_the_cookie_is_held() {
         .as_str()
         .unwrap()
         .to_owned();
-    for (path, who) in [
-        ("lobby/ready", token),
-        ("lobby/ready", guest.as_str()),
-        ("lobby/start", token),
+    for (path, who, body) in [
+        (
+            "lobby/nickname",
+            guest.as_str(),
+            json!({ "nickname": "Guest 2" }),
+        ),
+        ("lobby/start", token, json!({})),
     ] {
         let r = c
             .post(format!("http://{base}/api/games/{game_id}/{path}"))
             .header("cookie", &cookie)
             .header("x-ti4-player-session", who)
-            .json(&json!({ "ready": true }))
+            .json(&body)
             .send()
             .await
             .unwrap();

@@ -235,6 +235,13 @@ export function createWsTransport(
         return onState(message, true);
       case "state_update":
         return onState(message, false);
+      case "turn_status":
+        // Of the game as this side has it: a status of a later version comes with its update.
+        if (latest?.version === message.game_version) {
+          latest = { ...latest, update: { ...latest.update, turn_status: message.status } };
+          say({ kind: "status", status: message.status });
+        }
+        return;
       case "action_rejected": {
         sent = null;
         undoing = false;

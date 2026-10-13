@@ -224,6 +224,52 @@ fn the_think_delay_spaces_decisions_and_a_stop_interrupts_it() {
     );
 }
 
+/// The pick of a seat is drawn before its wait, so a game is the same with every wait.
+#[test]
+fn the_same_game_with_a_wait_of_0_and_of_20_ms() {
+    let play = |id: &str, delay_ms: u64| {
+        let config = bot_config(id, 3, 5, "te").with_random_bot_delay_ms(delay_ms);
+        let session = GameSession::start(config);
+        let out = drive(
+            &session,
+            30,
+            Duration::from_secs(20),
+            Duration::from_secs(60),
+        );
+        session.stop();
+        assert!(out.error.is_none(), "{:?}", out.error);
+        out.decisions[..30].to_vec()
+    };
+    assert_eq!(play("rb_wait_0", 0), play("rb_wait_20", 20));
+}
+
+/// While a seat that the server plays takes its time, the other seats are told who the game
+/// waits for, as when a person is asked.
+#[test]
+fn a_seat_that_waits_is_named_to_the_other_seats() {
+    use ti4_server::protocol::server::ServerMessage;
+    use ti4_server::protocol::status::{PublicTurnStatus, ViewerRole};
+
+    let config = bot_config("rb_wait_named", 3, 5, "te").with_random_bot_delay_ms(150);
+    let session = GameSession::start(config);
+    let watching = session.subscribe(ViewerRole::Spectator);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let named = loop {
+        assert!(Instant::now() < deadline, "no seat was named");
+        match watching.try_recv() {
+            Ok(ServerMessage::TurnStatus(message)) => {
+                if let PublicTurnStatus::WaitingForDecision { seat, .. } = message.status {
+                    break seat;
+                }
+            }
+            Ok(_) => {}
+            Err(_) => std::thread::sleep(Duration::from_millis(5)),
+        }
+    };
+    session.stop();
+    assert!(players(3).contains(&named), "{named}");
+}
+
 /// Host seat human (p1), the other two seats random bots.
 struct HostTable {
     registry: Arc<GameRegistry>,

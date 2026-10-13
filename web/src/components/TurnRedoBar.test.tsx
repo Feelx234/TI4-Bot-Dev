@@ -11,9 +11,9 @@ const lobby: LobbyDto = {
   lobby_version: 1,
   host_player_id: "p1",
   slots: [
-    { slot_id: "s1", position: 1, occupant: "p1", nickname: "Ana", ready: true, connected: true, can_take_over: false },
-    { slot_id: "s2", position: 2, occupant: "p2", nickname: "Bo", ready: true, connected: true, can_take_over: false },
-    { slot_id: "s3", position: 3, occupant: "p3", nickname: "Cy", ready: true, connected: true, can_take_over: false },
+    { slot_id: "s1", position: 1, occupant: "p1", nickname: "Ana", connected: true, can_take_over: false },
+    { slot_id: "s2", position: 2, occupant: "p2", nickname: "Bo", connected: true, can_take_over: false },
+    { slot_id: "s3", position: 3, occupant: "p3", nickname: "Cy", connected: true, can_take_over: false },
   ],
 };
 

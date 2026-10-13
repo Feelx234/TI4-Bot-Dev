@@ -11,7 +11,6 @@ import {
   templateBadges,
   templateTitle,
   tileKind,
-  viewerSeat,
 } from "./mapPicker.ts";
 
 describe("map picker model", () => {
@@ -95,13 +94,6 @@ describe("map picker model", () => {
     expect(tileKind({ system_id: "83a", label: "", q: 0, r: 0, hyperlane: true }, homes)).toBe(
       "hyperlane",
     );
-  });
-
-  it("finds the viewer's own seat", () => {
-    const { seats } = fixturePreview(4);
-    expect(viewerSeat(seats, 2)?.seat).toBe(2);
-    expect(viewerSeat(seats, null)).toBeUndefined();
-    expect(viewerSeat(seats, 7)).toBeUndefined();
   });
 
   it("announces a change only when the revision moves", () => {

@@ -33,7 +33,7 @@ pub const RANDOM_BOT_DELAY_ENV: &str = "TI4_RANDOM_BOT_DELAY_MS";
 /// Default think delay: long enough to follow along, short enough not to drag.
 pub const DEFAULT_RANDOM_BOT_DELAY_MS: u64 = 600;
 /// Hard cap so a typo cannot park a game for minutes per decision.
-const MAX_DELAY_MS: u64 = 30_000;
+const MAX_DELAY_MS: u64 = crate::session::table::MAX_BOT_DELAY_MS;
 
 /// Process-wide override of the think delay (tests and soaks); `u64::MAX` means none.
 static DELAY_OVERRIDE: AtomicU64 = AtomicU64::new(u64::MAX);
@@ -96,7 +96,6 @@ pub struct RandomBotDecider {
     seat: PlayerId,
     game_seed: u64,
     counter: DecisionCounter,
-    delay_ms: u64,
     shared: Arc<Mutex<SessionShared>>,
     smart: bool,
 }
@@ -107,14 +106,12 @@ impl RandomBotDecider {
         seat: PlayerId,
         game_seed: u64,
         counter: DecisionCounter,
-        delay_ms: u64,
         shared: Arc<Mutex<SessionShared>>,
     ) -> Self {
         Self {
             seat,
             game_seed,
             counter,
-            delay_ms,
             shared,
             smart: false,
         }
@@ -147,22 +144,42 @@ impl RandomBotDecider {
 
     /// Wait out the think time in short slices without holding the session lock, so a stop
     /// (undo, redo, shutdown) is noticed within a slice. `Err` when the session was stopped.
-    fn think(&self, rng: &mut ChaCha8Rng) -> Result<(), ()> {
-        if self.delay_ms == 0 {
-            return Ok(());
+    ///
+    /// The wait is the value of the table as it is now ([`SessionShared::bot_delay_ms`]): the
+    /// host can change it while the game runs. A reaction window that the seat only declines
+    /// does not wait (owner, 2026-10-12): a table of eight has many of them for each action, and
+    /// nothing is there to follow. While the seat waits, the other seats are told who the game
+    /// waits for, as for a person.
+    fn think(&self, choice: &Choice, picked: usize, rng: &mut ChaCha8Rng) -> Result<(), ()> {
+        {
+            let mut shared = self.shared.lock().expect("shared lock");
+            let window = ti4_view::projection::is_reaction_window(choice);
+            if shared.bot_delay_ms == 0 || (window && choice.options[picked].is_decline()) {
+                return Ok(());
+            }
+            shared.broadcast_waiting_for(choice);
         }
         let jitter = rng.random_range(0.6..1.4);
-        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let mut remaining = (self.delay_ms as f64 * jitter) as u64;
-        while remaining > 0 {
-            if self.shared.lock().expect("shared lock").stopped {
-                return Err(());
+        let started = std::time::Instant::now();
+        loop {
+            // Read in every slice: a wait that the host shortens ends this wait too.
+            let delay_ms = {
+                let shared = self.shared.lock().expect("shared lock");
+                if shared.stopped {
+                    return Err(());
+                }
+                shared.bot_delay_ms
+            };
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let wait = Duration::from_millis((delay_ms as f64 * jitter) as u64);
+            let Some(remaining) = wait.checked_sub(started.elapsed()) else {
+                return Ok(());
+            };
+            if remaining.is_zero() {
+                return Ok(());
             }
-            let slice = remaining.min(20);
-            std::thread::sleep(Duration::from_millis(slice));
-            remaining -= slice;
+            std::thread::sleep(remaining.min(Duration::from_millis(20)));
         }
-        Ok(())
     }
 }
 
@@ -185,7 +202,7 @@ impl RandomBotDecider {
         self.shared.lock().expect("shared lock").bot_deciding = true;
         // `release` clears `bot_deciding` under the same lock that checks the pause, so a
         // history change sees either a bot still holding its answer or the answer in the game.
-        let released = if self.think(&mut rng).is_ok() {
+        let released = if self.think(choice, picked, &mut rng).is_ok() {
             self.release()
         } else {
             self.shared.lock().expect("shared lock").bot_deciding = false;
@@ -213,5 +230,82 @@ impl Decider for RandomBotDecider {
         seen: &SeatObservation<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
         self.answer(choice, Some(seen))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_model::state::Phase;
+
+    use super::*;
+
+    fn decider(delay_ms: u64) -> (RandomBotDecider, Arc<Mutex<SessionShared>>) {
+        let mut shared =
+            SessionShared::new("wait".to_owned(), crate::fixtures::create_sample_game());
+        shared.bot_delay_ms = delay_ms;
+        let shared = Arc::new(Mutex::new(shared));
+        let seat = PlayerId::new("p1");
+        (
+            RandomBotDecider::new(seat, 7, Arc::new(AtomicUsize::new(0)), shared.clone()),
+            shared,
+        )
+    }
+
+    /// A question with one answer, "Decline", so the pick is known.
+    fn declined(source: DecisionSource, subtype: &str) -> Choice {
+        let seat = PlayerId::new("p1");
+        let mut choice = Choice::new(seat.clone(), "Play a card?", vec![ChoiceOption::decline()]);
+        choice.context = Some(DecisionContext::new(
+            seat,
+            source,
+            subtype,
+            Phase::Action,
+            1,
+        ));
+        choice
+    }
+
+    #[test]
+    fn a_reaction_window_that_the_seat_only_declines_does_not_wait() {
+        let (mut bot, _) = decider(400);
+        let window = declined(
+            DecisionSource::Reaction("sabotage".to_owned()),
+            "reaction_window",
+        );
+        let started = Instant::now();
+        assert!(bot.choose(&window).expect("an answer").is_decline());
+        assert!(
+            started.elapsed() < Duration::from_millis(150),
+            "a declined window waited {:?}",
+            started.elapsed()
+        );
+
+        // The same answer to a question of the game itself waits: 400 ms, jittered 0.6 to 1.4.
+        let question = declined(DecisionSource::Rule("52.3".to_owned()), "secondary");
+        let started = Instant::now();
+        assert!(bot.choose(&question).expect("an answer").is_decline());
+        assert!(
+            started.elapsed() >= Duration::from_millis(200),
+            "a question waited only {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_wait_that_is_shortened_ends_the_wait_of_the_seat_that_waits() {
+        let (mut bot, shared) = decider(MAX_DELAY_MS);
+        let question = declined(DecisionSource::Rule("52.3".to_owned()), "secondary");
+        let started = Instant::now();
+        let waiting = std::thread::spawn(move || bot.choose(&question).map(|option| option.id));
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(!waiting.is_finished(), "the seat answered at once");
+        assert!(shared.lock().expect("shared lock").bot_deciding);
+        shared.lock().expect("shared lock").bot_delay_ms = 0;
+        assert!(waiting.join().expect("the seat").is_ok());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(!shared.lock().expect("shared lock").bot_deciding);
     }
 }

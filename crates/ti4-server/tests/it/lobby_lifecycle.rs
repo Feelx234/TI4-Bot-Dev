@@ -20,7 +20,7 @@ async fn spawn_server() -> String {
 }
 
 #[tokio::test]
-async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session() {
+async fn a_lobby_needs_every_seat_filled_and_its_host_to_start_a_session() {
     let base_url = spawn_server().await;
     let client = reqwest::Client::new();
     let created = client
@@ -39,6 +39,14 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         .as_str()
         .expect("p1 token")
         .to_owned();
+    // A seat is open: there is no "Ready", and the table starts when every seat is filled.
+    let early_start = client
+        .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
+        .header("x-ti4-player-session", &p1)
+        .send()
+        .await
+        .expect("early start");
+    assert_eq!(early_start.status(), reqwest::StatusCode::CONFLICT);
     let p2 = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/join"))
         .json(&serde_json::json!({ "kind": "new", "nickname": "Guest" }))
@@ -55,7 +63,7 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         created["lobby"]["slots"][0]["occupant"],
         created["player"]["id"]
     );
-    assert_eq!(created["lobby"]["slots"][0]["ready"], false);
+    assert!(created["lobby"]["slots"][0].get("ready").is_none());
     assert!(!created["lobby"].to_string().contains(&p1));
 
     let snapshot = client
@@ -65,13 +73,6 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         .expect("unstarted snapshot");
     assert_eq!(snapshot.status(), reqwest::StatusCode::NOT_FOUND);
 
-    let early_start = client
-        .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
-        .header("x-ti4-player-session", &p1)
-        .send()
-        .await
-        .expect("early start");
-    assert_eq!(early_start.status(), reqwest::StatusCode::CONFLICT);
     let non_host_start = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
         .header("x-ti4-player-session", &p2)
@@ -80,16 +81,6 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
         .expect("non-host start");
     assert_eq!(non_host_start.status(), reqwest::StatusCode::FORBIDDEN);
 
-    for token in [&p1, &p2] {
-        let ready = client
-            .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-player-session", token)
-            .json(&serde_json::json!({ "ready": true }))
-            .send()
-            .await
-            .expect("ready human");
-        assert_eq!(ready.status(), reqwest::StatusCode::OK);
-    }
     let started = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))
         .header("x-ti4-player-session", &p1)
@@ -106,12 +97,12 @@ async fn lobby_requires_human_readiness_and_host_start_before_creating_a_session
     );
 
     let mutation_after_start = client
-        .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
+        .post(format!("{base_url}/api/games/{game_id}/lobby/nickname"))
         .header("x-ti4-player-session", &p1)
-        .json(&serde_json::json!({ "ready": false }))
+        .json(&serde_json::json!({ "nickname": "Other" }))
         .send()
         .await
-        .expect("ready after start");
+        .expect("rename after start");
     assert_eq!(mutation_after_start.status(), reqwest::StatusCode::CONFLICT);
     let snapshot = client
         .get(format!("{base_url}/api/games/{game_id}/snapshot"))
@@ -203,12 +194,12 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
 
     for token in [None, Some("forged"), Some(other_token)] {
         let mut request = client
-            .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-            .json(&serde_json::json!({ "ready": true }));
+            .post(format!("{base_url}/api/games/{game_id}/lobby/nickname"))
+            .json(&serde_json::json!({ "nickname": "Other" }));
         if let Some(token) = token {
             request = request.header("x-ti4-player-session", token);
         }
-        let response = request.send().await.expect("reject invalid readiness");
+        let response = request.send().await.expect("reject invalid rename");
         assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
 
         let mut request = client.post(format!("{base_url}/api/games/{game_id}/lobby/start"));
@@ -228,8 +219,8 @@ async fn lobby_creation_and_mutation_rejections_are_atomic_and_claim_bound() {
         .await
         .expect("parse unchanged lobby");
     assert_eq!(unchanged["lobby_version"], 2);
-    assert!(!unchanged["slots"][0]["ready"].as_bool().expect("p1 ready"));
-    assert!(!unchanged["slots"][1]["ready"].as_bool().expect("p2 ready"));
+    assert_eq!(unchanged["slots"][0]["nickname"], "Host");
+    assert_eq!(unchanged["slots"][1]["nickname"], "Guest");
 }
 
 #[test]

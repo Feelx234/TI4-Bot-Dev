@@ -1,6 +1,8 @@
 # web2: the start screen, the lobby and the setup of a game
 
-Status: plan, 2026-10-12, second version. Nothing of web2 is built. The first version was
+Status: plan, 2026-10-12, second version. Phases 0, 1 and 2 are built; phase 2 is not committed
+(2026-10-13, see "Progress of phase 2"). The text below it is of the day of the plan:
+nothing of web2 was built then. The first version was
 written before the merge of `felix/main` (commit `6f0eb749`). That merge built a part of this
 plan on the server, in another shape, so the decisions and the phases were made again with the
 owner on the same day. "What the merge changed" says what is there now.
@@ -598,6 +600,149 @@ the public server); `player_lobby_admission.rs` and the other tests that call `r
 tabs and four rule bots with a wait of one second, the secondary of a card is drafted in one
 tab while the bots wait, and the toolbar says who the game waits for. A second case starts
 "Late game" with two tabs and opens a sheet of the late game in each.
+
+#### Progress of phase 2 (2026-10-13, not committed)
+
+Phase 2 is built: the server, `web/` and web2. Nothing is committed: all of it is in the working
+tree of `felix-merge-2026-10-12`, as one change ("One table, two pages"). What was run is under
+"Gates"; what is left is under "Still open".
+
+Done, server (`cargo c-web`, `cargo l-web`, `cargo fmt --all -- --check` clean; `cargo t-web`
+green at the last whole run, the tests added after it were run by filter):
+
+- Items 1 to 7 are built. New code is in `session/table.rs` (`SeatOrder`, `TableSettings`,
+  `apply_settings`, `seated_players`, `setup_options`); the registry has
+  `change_player_lobby_settings`, `rename_player` and `create_player_lobby_with_seating`.
+- No "Ready": `ready` and `reorder` (calls, routes, registry functions, the fields of the
+  member and of the slot view) are gone. A record on disk with `ready` loads
+  (`StoredLobbyMember`). `start` answers `SeatsOpen` (409) while a seat is open.
+- The seat order: `ti4_engine::seating::lobby_seat_order` (stream
+  `seating:lobby-seat-order:v1`), drawn in `start_player_lobby`; the slots of the running table
+  are then the seats. `seat_order` of `POST /api/games` and of the lobby view.
+- The preview names no faction: a home is a tile `seat_N` with no planets
+  (`maps/catalog.rs`). The test `a_preview_is_the_board_of_the_game_but_for_its_homes` holds
+  with the Ghosts of Creuss at the table, on templates and on the random board. A chosen
+  faction no longer moves `map_revision`.
+- `POST …/lobby/settings`, `POST …/lobby/nickname`, `GET /api/setup-options`; the lobby view has
+  `bot_delay_ms`, `seat_order`, `start_from`; `POST /api/games` takes `seat_order` and
+  `bot_delay_ms`.
+- The wait: a value of the table, kept in the lobby record and in `init.json`, read by the
+  decider in every slice of a wait (`SessionShared::bot_delay_ms`,
+  `GameSession::set_bot_delay_ms`), so a shorter value ends a running wait. A reaction window
+  that the seat only declines does not wait (`is_reaction_window` and `is_decline`; no
+  measurement was needed). While a seat waits, every subscriber gets a `turn_status` message
+  (`broadcast_waiting_for`); a reaction window names no seat.
+- "Start from": `ti4_view::scenario::start` is the one function for both hosts (the wasm host
+  calls it now). The server keeps `start_from` in `init.json` and builds the map of the
+  scenario again on recovery. Refused on the public server.
+- Tests: `tests/it/lobby_settings.rs`, `seat_order.rs`, `table_scenario.rs`, `table_http.rs`
+  (helpers), new cases in `random_bots.rs`, unit tests in `session/table.rs`,
+  `session/random_bot.rs` and `maps/catalog.rs`. The tests that called `ready` or `reorder` are
+  brought up to date; the reorder tests of `player_lobby_admission.rs` are removed.
+- `crates/ti4-bot-agent`: the `ready` call is gone (it waits on the heartbeat); its unit tests
+  pass. `tests/real_e2e.rs` is changed and was not run.
+
+Decisions made while building, for the owner to confirm:
+
+- `LobbyError::HumansNotReady` stays for the old seat lobby (`LobbyState`, not reachable over
+  HTTP), which still has its own ready flag. The plan said that it goes.
+- The registry helpers (`create_player_lobby`, …) draw the seats, as the HTTP default does. The
+  test suites that index a seat by its place name `seat_order: "join"` when they make the
+  table.
+- A table with a start preset keeps the order of the join, as a table with a scenario does:
+  a preset places its cases by seat.
+- A scenario table plays the seed of the scenario (42), so the game is the one of a local
+  game. Factions that were chosen before stay in the record and are not used; the view shows
+  the factions of the scenario. Back to "Round 1" keeps the eight seats.
+- `start_from: null` clears the scenario; a missing field leaves it.
+
+Done, `web/`:
+
+- The Ready button, the readiness text and the buttons that move a seat are out of `Lobby.tsx`;
+  `setReady` and `reorder` are out of `useLobbySession.ts` and `App.tsx`; `ready` is out of
+  `protocol/types.ts` and `protocol/decode.ts`. The map preview shows the number of a place only,
+  with no faction and no "(you)" (`MapPreviewBoard.tsx`, `MapPicker.tsx`, `mapDecode.ts`,
+  `mapPicker.ts`; `viewerSeat` and `viewerPosition` are gone).
+- Its tests are brought up to date: `Lobby.test.tsx`, `App.test.tsx`, `LobbyMap.test.tsx`,
+  `MapPicker.test.tsx`, `useLobbySession.test.tsx`, `useResumePolling.test.tsx`,
+  `presentation/mapPicker.test.ts`, the fixture `dev/mapPickerFixtures.ts` (a home is a tile
+  `seat_N` with no planets, as the server sends it).
+- `e2e/lobbyHelpers.ts` no longer marks seats ready and makes its tables with
+  `seat_order: "join"`. `e2e/lobby_lifecycle.spec.ts` has no Ready and no reorder, finds a
+  player of a running table by its name (the seats are drawn), and compares the preview with
+  the board without the home places.
+- `e2e/screenshots/BG-nightly-web-bugs/capture-1-lobby-poll.ts` shows the failed action with
+  Start on a full table (it used Ready). It was changed and not run. The other screenshot
+  scenes still have `ready` in their mock lobbies; the decoder drops a field that it does not
+  know, so they were left.
+
+Done, web2 (items 8 to 11):
+
+- `session/wire.ts`: no `ready`; `LobbyState` has `seat_order`, `bot_delay_ms`, `start_from`;
+  `SetupOptions`; a place of the preview has no faction; `PublicTurnStatus` has
+  `waiting_for_reactions`; the message `turn_status`.
+- `session/table.ts`: `Table.setSettings` and `Table.rename`; the setup options are asked when
+  the socket opens, until the server said them, and are a part of `TableState`; `createTable`
+  takes the wait. The page sends no `ready`.
+- `session/select/lobby.ts`: the setup rows with their controls (`LobbySetupControlView`: a
+  counter with a reason for a step that cannot be taken, or a list), the names of the sets, the
+  kinds of a seat and the scenarios from the setup options (`CARD_SETS` and `BOT_KINDS` are
+  gone), `hostChange` (the toast for the players who are not the host).
+- `game/lobby/LobbyScreen.tsx`: the counters, the lists (`Select` of `ui/`), "?" of a row, the
+  name of the viewer edited in its row. `dev/OnlineApp.tsx` keeps the count of the host as the
+  count of the next table. `dev/onlineStart.ts`: `&wait=<seconds>`.
+- Who the game waits for: `wsTransport.ts` reads `turn_status` and tells it as the transport
+  event `status`, which changes the status of the update and leaves what is staged
+  (`useLiveSession.ts`); the toolbar says "Waiting for reactions" for a reaction window.
+- Tests: `select/lobby.test.ts`, `table.test.ts`, `wsTransport.test.ts`, `liveOnline.test.tsx`,
+  `onlineStart.test.ts`; in `e2e/lobby.spec.ts` three new cases (the host sets up the table and
+  the other tab is told; a secondary is drafted in one tab while a rule bot waits; a table
+  starts from "Late game" with two tabs), and the phone case uses the controls.
+- `AGENTS.md` ("Lobby", "Online play", "Tests") and `NEXT.md`.
+
+Decisions made while building the page, for the owner to confirm:
+
+- **The case of the owner uses "Late game", not round 1.** Two tabs and six rule bots with a
+  wait of one second: the host plays Leadership, and the other tab (the fourth seat) drafts its
+  secondary while the first rule bot decides. From round 1 the strategy phase alone is longer
+  than a test may be. The test ends when the draft is ready: a rule bot takes the wait for each
+  of its answers (about six seconds for one secondary), so the seat is reached too late for a
+  test of ten seconds.
+- A list of the setup is the native `Select`, as the plan drew it ("TE ▾"). What a choice does
+  is behind "?" of the row, for all choices of the row.
+- A kind of seat is offered only when the server said its name: the page writes none.
+- A rename is kept as the name of this browser (`ti4.nickname`).
+- The row "Start from" is not shown where the server has no scenario (the public server).
+
+Gates (2026-10-13):
+
+- Rust: `cargo fmt --all -- --check`, `cargo l-web` and `cargo t-web` are clean (one whole run,
+  with every test of this phase); `cargo t-web-slow` is green (41 tests); `cargo b-web` and
+  `scripts/build-wasm.sh` were run before the suites of the pages.
+- `crates/ti4-bot-agent`: `cargo check -p ti4-bot-agent --tests` and its unit tests pass.
+  `tests/real_e2e.rs` compiles; it was not run (it needs the bot service).
+- web2: `npm run typecheck`, `npm run lint`, `npm test` (327 tests) and the whole `npm run e2e`
+  (50 tests, desktop and phone) are green. The four e2e tests that failed after the merge
+  (`NEXT.md`, phase 0) pass. `npm run e2e:slow` and `npm run shots` were not run.
+- `web/`: `npx tsc --noEmit` and `npm test` (1845 tests) are green; `e2e/lobby_lifecycle.spec.ts`
+  is green; one run of the smoke harness (`npm run test:e2e:smoke`, 200 decisions) passed.
+- The whole e2e of `web/` has 20 failing tests of 44, in the gallery, the combat, the movement
+  and the research. The same 20 fail on the commit before this change (`9277a3eb`, built and
+  run in a worktree of its own), so none comes from this phase. They were not looked at.
+- `undo::a_seat_takes_back_its_action_and_not_the_decision_of_another_seat` (it failed once in
+  a whole run on 2026-10-13): fifteen runs of `cargo t-web undo::` and two whole runs of
+  `cargo t-web` passed. The cause of the one failure was not found.
+
+Still open:
+
+1. **The commit.** Phase 2 changes every table, so it is one commit with `web/`, and Felix
+   knows of it before it is made ("Risks", open question 2). It is not made.
+2. `web/` still lists "Position N" with seat colours in its lobby; after the draw a position
+   of the lobby is not a seat. Felix decides what it shows.
+3. The 20 failing e2e tests of `web/` (they are older than this phase).
+4. A place of a seat on the board of the web2 lobby shows the id of its tile ("#seat_6").
+5. Not in this phase and not built: a call that sets the wait of a running game and keeps it
+   on disk (phase 7; `set_bot_delay_ms` is there for it).
 
 ### Phase 3: the choice of the faction (web2)
 

@@ -91,15 +91,15 @@ fn new_game(
             ))
         })?;
     let ids: Vec<PlayerId> = seats.iter().map(|name| PlayerId::new(*name)).collect();
-    let loader = TemplateLoader::load().map_err(setup)?;
-    let template = default_template_for(content, &loader, players, POK)
-        .ok_or_else(|| setup(format_args!("no map template builds for {players} players")))?;
-    let (mut state, mut galaxy) =
-        create_game_with_template(content, &ids, seed, Some(&template)).map_err(setup)?;
-    if let Some(scenario) = scenario {
-        ti4_view::scenario::apply(scenario, &mut state, &mut galaxy, content, POK)
-            .map_err(setup)?;
-    }
+    let (state, galaxy) = if let Some(scenario) = scenario {
+        // The game of the scenario, as the server starts it for a table ("Start from").
+        ti4_view::scenario::start(content, scenario, &ids).map_err(setup)?
+    } else {
+        let loader = TemplateLoader::load().map_err(setup)?;
+        let template = default_template_for(content, &loader, players, POK)
+            .ok_or_else(|| setup(format_args!("no map template builds for {players} players")))?;
+        create_game_with_template(content, &ids, seed, Some(&template)).map_err(setup)?
+    };
     Ok(Game::with_seeded_random(state, content, seed)
         .with_sources(POK)
         .with_galaxy(galaxy))

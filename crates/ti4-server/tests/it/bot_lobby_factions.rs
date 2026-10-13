@@ -51,7 +51,7 @@ impl Server {
         let created: Value = self
             .client
             .post(self.url("/api/games"))
-            .json(&json!({"player_count": players, "seed": seed, "nickname": "Host"}))
+            .json(&json!({"player_count": players, "seed": seed, "nickname": "Host", "seat_order": "join"}))
             .send()
             .await
             .unwrap()
@@ -93,7 +93,6 @@ impl Server {
     }
 
     async fn start(&self, game: &str, host: &str) {
-        self.post(game, "ready", host, json!({"ready": true})).await;
         let (status, body) = self.post(game, "start", host, json!({})).await;
         assert_eq!(status, StatusCode::OK, "{body}");
     }
@@ -399,9 +398,25 @@ async fn random_bots_stay_available_through_the_api_and_get_seeded_factions() {
 }
 
 #[tokio::test]
-async fn the_map_preview_seats_the_factions_the_game_will_get() {
+async fn the_map_preview_names_no_faction_and_a_choice_does_not_change_it() {
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host) = server.lobby(4, 9).await;
+    let preview = |server: &Server, game: &str| {
+        let url = server.url(&format!("/api/games/{game}/lobby/map-preview"));
+        let client = server.client.clone();
+        async move {
+            client
+                .get(url)
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let before = preview(&server, &game).await;
+    let revision = server.view(&game).await["map_revision"].clone();
     server
         .post(
             &game,
@@ -413,27 +428,19 @@ async fn the_map_preview_seats_the_factions_the_game_will_get() {
     server
         .post(&game, "bots", &host, json!({"kind": "smart", "fill": true}))
         .await;
-    let preview: Value = server
-        .client
-        .get(server.url(&format!("/api/games/{game}/lobby/map-preview")))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    let previewed: Vec<String> = preview["seats"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["faction"].as_str().unwrap().to_owned())
-        .collect();
+    // Who sits where is drawn at the start: the preview shows places, and a chosen faction is
+    // no reason to ask for it again.
+    let after = preview(&server, &game).await;
+    assert_eq!(before, after);
+    assert_eq!(server.view(&game).await["map_revision"], revision);
+    let text = after.to_string();
+    assert!(!text.contains("faction"), "{text}");
+    assert!(!text.contains("Jol-Nar"), "{text}");
     server.start(&game, &host).await;
     let started: Vec<String> = seated(&server.registry, &game)
         .into_iter()
         .map(|(_, f)| f)
         .collect();
-    assert_eq!(previewed, started);
     assert_eq!(started[1], "jolnar");
 }
 
@@ -465,11 +472,8 @@ async fn people_choose_their_own_faction_and_the_host_chooses_for_anyone() {
         .to_owned();
     let (guest_id, guest) = join(&server, &game, "Guest").await;
     let (other_id, other) = join(&server, &game, "Other").await;
-    server
-        .post(&game, "ready", &guest, json!({"ready": true}))
-        .await;
 
-    // A person sets their own seat; ready stays as it was.
+    // A person sets their own seat.
     let (status, body) = server
         .post(
             &game,
@@ -480,7 +484,6 @@ async fn people_choose_their_own_faction_and_the_host_chooses_for_anyone() {
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["slots"][1]["faction"], "nekro");
-    assert_eq!(body["slots"][1]["ready"], true);
     // Not someone else's seat.
     let (status, _) = server
         .post(
@@ -576,9 +579,6 @@ async fn people_choose_their_own_faction_and_the_host_chooses_for_anyone() {
             json!({"player_id": guest_id, "faction": "mahact"}),
         )
         .await;
-    server
-        .post(&game, "ready", &other, json!({"ready": true}))
-        .await;
     server.start(&game, &host).await;
     let table: Vec<_> = seated(&server.registry, &game)
         .into_iter()
@@ -629,9 +629,6 @@ async fn people_and_bots_together_get_distinct_factions_and_the_choices_survive_
     assert_eq!(view["slots"][2]["faction"], "yssaril");
     server
         .post(&game, "bots", &host, json!({"kind": "smart", "fill": true}))
-        .await;
-    server
-        .post(&game, "ready", &guest, json!({"ready": true}))
         .await;
     server.start(&game, &host).await;
     let table: Vec<_> = seated(&server.registry, &game)

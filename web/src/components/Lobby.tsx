@@ -159,12 +159,10 @@ export const CreateLobby: React.FC<{
 interface LobbyStatusProps {
   lobby: LobbyDto;
   playerId: string | null;
-  onReady: (ready: boolean) => void;
   onStart: () => void;
   onLeave: () => void;
   onJoin: (nickname: string) => void;
   onTakeover: (playerId: string, nickname: string) => void;
-  onReorder: (slotIds: string[]) => void;
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
@@ -210,12 +208,10 @@ function playerLabel(slot: LobbySlot): string {
 export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   lobby,
   playerId,
-  onReady,
   onStart,
   onLeave,
   onJoin,
   onTakeover,
-  onReorder,
   onWatch,
   onAddBot,
   onRemoveBot,
@@ -273,8 +269,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
       ? newBotFaction
       : null;
   const canAddSmartBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("smart");
-  const canStart =
-    lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
+  // There is no "Ready": the host starts the game when every seat is filled.
+  const canStart = lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant);
   const handleAddBot = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!botPassword.trim()) {
@@ -317,17 +313,9 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     }
   };
   const openCount = lobby.slots.filter((slot) => !slot.occupant).length;
-  const unreadyCount = lobby.slots.filter((slot) => slot.occupant && !slot.ready).length;
   const startReason = openCount
     ? `Waiting for ${openCount} open position${openCount === 1 ? "" : "s"} to be filled.`
-    : unreadyCount
-      ? `Waiting for ${unreadyCount} player${unreadyCount === 1 ? "" : "s"} to be ready.`
-      : null;
-  const move = (index: number, delta: number) => {
-    const slots = lobby.slots.map((slot) => slot.slot_id);
-    [slots[index], slots[index + delta]] = [slots[index + delta], slots[index]];
-    onReorder(slots);
-  };
+    : null;
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
@@ -384,7 +372,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
           <MapPicker
             lobby={lobby}
             editable={canEditMap}
-            viewerPosition={viewer?.position ?? null}
             saving={pendingAction === "map"}
             onChoose={(choice, startPreset) => void onChooseMap?.(choice, startPreset)}
             onClose={closePicker}
@@ -444,7 +431,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
           </div>
         )}
         <div className="lobby-list">
-          {lobby.slots.map((slot, index) => (
+          {lobby.slots.map((slot) => (
             <div
               className="lobby-list__item"
               key={slot.slot_id}
@@ -466,11 +453,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
               <span className="lobby-list__status">
                 {slot.occupant ? (
                   <>
-                    <span
-                      className={`lobby-readiness ${slot.ready ? "lobby-readiness--ready" : "lobby-readiness--waiting"}`}
-                    >
-                      {slot.ready ? "✔ Ready" : "○ Not ready"}
-                    </span>
                     {slot.bot ? (
                       <span className="lobby-presence lobby-presence--connected">● Plays itself</span>
                     ) : (
@@ -526,24 +508,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       ✕
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="button button--outline button--icon"
-                    aria-label={`Move position ${slot.position} up`}
-                    disabled={!!pendingAction || index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--outline button--icon"
-                    aria-label={`Move position ${slot.position} down`}
-                    disabled={!!pendingAction || index === lobby.slots.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    ↓
-                  </button>
                 </span>
               )}
               {slot.occupant && canChooseFactions && (
@@ -652,21 +616,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
               </form>
             </div>
           </div>
-        )}
-        {viewer && lobby.phase === "lobby" && (
-          <button
-            type="button"
-            data-testid="ready-button"
-            className={`button ${viewer.ready ? "button--outline lobby-unready-button" : "button--success"}`}
-            disabled={!!pendingAction}
-            onClick={() => onReady(!viewer.ready)}
-          >
-            {pendingAction === "ready"
-              ? "Updating readiness…"
-              : viewer.ready
-                ? "Mark not ready"
-                : "Mark ready"}
-          </button>
         )}
         {isHost && lobby.phase === "lobby" && (
           <div>

@@ -34,11 +34,6 @@ fn start(
             .unwrap();
         tokens.push(token.unwrap());
     }
-    for token in &tokens {
-        registry
-            .set_player_ready(game_id, token.as_str(), true)
-            .unwrap();
-    }
     let view = registry
         .start_player_lobby(game_id, tokens[0].as_str())
         .unwrap();

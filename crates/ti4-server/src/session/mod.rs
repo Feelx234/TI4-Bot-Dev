@@ -12,6 +12,7 @@ pub mod rng_force;
 pub(crate) mod script;
 pub mod splice;
 pub mod step_snapshot;
+pub mod table;
 pub mod transport;
 pub mod turn_redo;
 pub(crate) mod undo;
@@ -1319,8 +1320,23 @@ impl GameSession {
             config.reaction_modes = lock.reaction_modes_snapshot();
             // A timeline made by a turn redo replays with forced random positions.
             config.rng_marks.clone_from(&lock.rng_marks);
+            // The wait of the table as it is now, not as it was when this worker started.
+            config.random_bot_delay_ms = Some(lock.bot_delay_ms);
         }
         config
+    }
+
+    /// The wait before each answer of a seat that the server plays, in milliseconds.
+    #[must_use]
+    pub fn bot_delay_ms(&self) -> u64 {
+        self.shared.lock().expect("shared lock").bot_delay_ms
+    }
+
+    /// Changes the wait of the seats that the server plays. A seat that is waiting now finishes
+    /// its wait; its next decision has the new one.
+    pub fn set_bot_delay_ms(&self, delay_ms: u64) {
+        self.shared.lock().expect("shared lock").bot_delay_ms =
+            delay_ms.min(table::MAX_BOT_DELAY_MS);
     }
 
     /// The forced random positions of the live timeline (empty unless a turn redo made it).

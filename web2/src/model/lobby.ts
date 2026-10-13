@@ -1,6 +1,17 @@
 import type { BoardView } from "./board";
 import type { HelpView, SeatId, SeatView } from "./core";
 
+/** A change of the setup of a table. A part that is left out stays as it is. */
+export interface LobbySettingsChange {
+  players?: number;
+  /** A set of strategy cards, by its id. */
+  cards?: string;
+  /** The wait of the seats that the server plays, in milliseconds. */
+  waitMs?: number;
+  /** The id of a scenario, or null for round 1. */
+  startFrom?: string | null;
+}
+
 /** What a player does in the lobby. A change applies at once: nothing is staged. */
 export type LobbyIntent =
   /** Takes an open seat, as the player of this tab. */
@@ -12,6 +23,10 @@ export type LobbyIntent =
   | { type: "addBot"; kind: string }
   | { type: "fillBots"; kind: string }
   | { type: "remove"; player: string }
+  /** The host changes the setup. */
+  | { type: "set"; change: LobbySettingsChange }
+  /** The viewer takes another name. */
+  | { type: "rename"; name: string }
   | { type: "start" }
   | { type: "inspectSystem"; system: string }
   | { type: "closeInspector" };
@@ -37,6 +52,8 @@ export interface LobbyRowView {
   name: string;
   /** The row of the viewer. */
   you: boolean;
+  /** The viewer can change the name here ("✎"). */
+  rename: boolean;
   /** Another player of this browser. The row is the control: the tab becomes that player. */
   become: LobbyIntent | null;
   /** The name of the faction, or "Random". Empty for an open seat. */
@@ -47,12 +64,28 @@ export interface LobbyRowView {
   remove: LobbyButtonView | null;
 }
 
-/** One value of the setup. `editable`: the viewer may change it (no control in this phase). */
+/** One step of a counter of the setup. */
+export interface LobbyStepView {
+  /** The accessible name: "One player fewer". */
+  label: string;
+  /** Null: the step cannot be taken, and `reason` says why. */
+  intent: LobbyIntent | null;
+  reason: string;
+}
+
+/** The control of a value of the setup: an amount in steps, or one of a list. */
+export type LobbySetupControlView =
+  | { kind: "counter"; less: LobbyStepView; more: LobbyStepView }
+  | { kind: "list"; options: { id: string; label: string; intent: LobbyIntent }[]; chosen: string };
+
+/** One value of the setup. Only a viewer who may change it has a control. */
 export interface LobbySetupRowView {
   id: string;
   label: string;
   value: string;
-  editable: boolean;
+  control: LobbySetupControlView | null;
+  /** What the choices of the row are or do. Behind "?". */
+  help: HelpView[];
 }
 
 export interface LobbyFooterView {

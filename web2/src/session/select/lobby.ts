@@ -3,13 +3,16 @@
 import type {
   LobbyButtonView,
   LobbyFooterView,
+  LobbyIntent,
   LobbyRowView,
+  LobbySettingsChange,
   LobbySetupRowView,
   LobbySignView,
+  LobbyStepView,
   LobbyView,
 } from "../../model";
 import type { TableState } from "../table";
-import type { Catalog, LobbySlot, LobbyState } from "../wire";
+import type { Catalog, LobbySlot, LobbyState, SetupOptions } from "../wire";
 import { SEAT_PLACE, selectPreviewBoard } from "./board";
 import { factionName, titleCase } from "./names";
 
@@ -21,45 +24,39 @@ export interface LobbyLocal {
   offline: boolean;
 }
 
-/** The kinds of a seat that the server plays in its own process, with the name of each. */
-const BOT_KINDS: Record<string, { name: string; sign: LobbySignView["kind"]; about: string }> = {
-  smart: {
-    name: "Rule bot",
-    sign: "rule",
-    about: "The server plays this seat by rules: it builds, moves and scores.",
-  },
-  random: {
-    name: "Random",
-    sign: "random",
-    about: "The server plays this seat at random, among what the game allows.",
-  },
-};
-/** The order of the buttons of an open seat: the usual choice first. */
-const KIND_ORDER = ["smart", "random"];
-
 /**
- * The sets of strategy cards that a table can play (`ti4_server::card_set::OFFERED`). The names
- * come from the setup options of the server once it has them.
+ * The sign of each kind of seat that the server plays in its own process. A kind with no sign
+ * is not offered. The names are those of the setup options of the server.
  */
-const CARD_SETS: Record<string, string> = {
-  te: "Thunder's Edge",
-  pok: "Prophecy of Kings",
-  base_game_codex1: "Base game with Codex I",
-};
+const KIND_SIGNS: Record<string, LobbySignView["kind"]> = { smart: "rule", random: "random" };
+/** The kind of "Fill with …": the usual choice. */
+const USUAL_KIND = "smart";
+/** One step of the wait of the seats that the server plays, in milliseconds. */
+const WAIT_STEP = 500;
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
-const kindsOf = (lobby: LobbyState) => KIND_ORDER.filter((kind) => lobby.bot_kinds.includes(kind));
+/** The kinds that a host can add, as the server names them. Empty until it said the names. */
+const kindsOf = (lobby: LobbyState, options: SetupOptions | null) =>
+  (options?.bot_kinds ?? []).filter(
+    (kind) => kind.id in KIND_SIGNS && lobby.bot_kinds.includes(kind.id),
+  );
 
-function sign(slot: LobbySlot, lobby: LobbyState, you: boolean): LobbySignView | null {
+function sign(
+  slot: LobbySlot,
+  lobby: LobbyState,
+  you: boolean,
+  options: SetupOptions | null,
+): LobbySignView | null {
   if (slot.occupant === null) {
     return { kind: "open", word: "Open seat" };
   }
   if (slot.bot) {
-    const kind = BOT_KINDS[slot.bot];
-    return kind
-      ? { kind: kind.sign, word: `${kind.name}: played by the server` }
-      : { kind: "random", word: "Played by the server" };
+    const name = options?.bot_kinds.find((kind) => kind.id === slot.bot)?.name;
+    return {
+      kind: KIND_SIGNS[slot.bot] ?? "random",
+      word: name ? `${name}: played by the server` : "Played by the server",
+    };
   }
   const host = slot.occupant === lobby.host_player_id;
   // The page shows its own table: its player is here, whatever the server said last.
@@ -89,18 +86,180 @@ export function nextNickname(lobby: LobbyState, viewer: string): string {
   }
 }
 
+/** "Off", "0.5 s", "1 s". */
+const waitText = (ms: number) => (ms === 0 ? "Off" : `${ms / 1000} s`);
+
+function setupRows(
+  lobby: LobbyState,
+  options: SetupOptions | null,
+  host: boolean,
+): LobbySetupRowView[] {
+  const seats = lobby.slots.length;
+  const set = (change: LobbySettingsChange): LobbyIntent => ({ type: "set", change });
+  const step = (label: string, reason: string, change: LobbySettingsChange): LobbyStepView => ({
+    label,
+    intent: reason ? null : set(change),
+    reason,
+  });
+  // A scenario is a game of its own: its seats, its map and its cards are not chosen.
+  const scenario = lobby.start_from ?? null;
+  const free = host && scenario === null;
+  const min = options?.min_players ?? 2;
+  const max = options?.max_players ?? 8;
+  const people = lobby.slots.filter((slot) => slot.occupant !== null && !slot.bot).length;
+
+  const sets = options?.strategy_card_sets ?? [];
+  const usual = sets.find((cards) => cards.default);
+  const wait = lobby.bot_delay_ms;
+  const longest = options?.max_bot_delay_ms ?? 30_000;
+  const scenarios = options?.scenarios ?? [];
+
+  const rows: LobbySetupRowView[] = [
+    {
+      id: "players",
+      label: "Players",
+      value: String(seats),
+      control: free
+        ? {
+            kind: "counter",
+            less: step(
+              "One player fewer",
+              seats <= min
+                ? `A table has ${min} seats at least`
+                : people >= seats
+                  ? "A person is in every seat"
+                  : "",
+              { players: seats - 1 },
+            ),
+            more: step("One player more", seats >= max ? `A table has ${max} seats at most` : "", {
+              players: seats + 1,
+            }),
+          }
+        : null,
+      help: [],
+    },
+    { id: "map", label: "Map", value: mapName(lobby), control: null, help: [] },
+    {
+      id: "cards",
+      label: "Strategy cards",
+      value:
+        sets.find((cards) => cards.id === lobby.strategy_card_set)?.name ??
+        titleCase(lobby.strategy_card_set),
+      control:
+        free && sets.length
+          ? {
+              kind: "list",
+              chosen: lobby.strategy_card_set,
+              options: sets.map((cards) => ({
+                id: cards.id,
+                label: cards.name,
+                intent: set({ cards: cards.id }),
+              })),
+            }
+          : null,
+      // What a set changes is its cards that the usual set does not have.
+      help: sets
+        .filter((cards) => cards !== usual)
+        .map((cards) => ({
+          title: cards.name,
+          text: cards.cards
+            .filter((card) => !usual?.cards.some((other) => other.id === card.id))
+            .map((card) => `${card.initiative} ${card.name}`)
+            .join(", "),
+        }))
+        .filter((item) => item.text),
+    },
+    {
+      id: "wait",
+      label: "Bots wait",
+      value: waitText(wait),
+      control: host
+        ? {
+            kind: "counter",
+            less: step("Wait less", wait <= 0 ? "The seats answer at once" : "", {
+              waitMs: Math.max(0, (Math.ceil(wait / WAIT_STEP) - 1) * WAIT_STEP),
+            }),
+            more: step("Wait more", wait >= longest ? `${waitText(longest)} at most` : "", {
+              waitMs: Math.min(longest, (Math.floor(wait / WAIT_STEP) + 1) * WAIT_STEP),
+            }),
+          }
+        : null,
+      help: [
+        {
+          title: "Bots wait",
+          text: "A seat that the server plays waits about this long before each answer. It does not wait to decline a reaction window.",
+        },
+      ],
+    },
+  ];
+  // The public server starts no scenario: the row is there when there is one to say or choose.
+  if (scenario !== null || scenarios.length) {
+    rows.push({
+      id: "start",
+      label: "Start from",
+      value:
+        scenario === null
+          ? "Round 1"
+          : (scenarios.find((item) => item.id === scenario)?.title ??
+            titleCase(scenario.replaceAll("-", " "))),
+      control:
+        host && scenarios.length
+          ? {
+              kind: "list",
+              chosen: scenario ?? "",
+              options: [
+                { id: "", label: "Round 1", intent: set({ startFrom: null }) },
+                ...scenarios.map((item) => ({
+                  id: item.id,
+                  label: item.title,
+                  intent: set({ startFrom: item.id }),
+                })),
+              ],
+            }
+          : null,
+      help: scenarios.map((item) => ({ title: item.title, text: item.description })),
+    });
+  }
+  return rows;
+}
+
+/**
+ * What the host changed between two views of a table, for a player who is not the host. Null:
+ * nothing of the setup.
+ */
+export function hostChange(before: LobbyState, after: LobbyState): string | null {
+  if (before.start_from !== after.start_from) {
+    return "The host changed where the game starts";
+  }
+  if (before.slots.length !== after.slots.length) {
+    return `The host set the players to ${after.slots.length}`;
+  }
+  if (before.strategy_card_set !== after.strategy_card_set) {
+    return "The host changed the strategy cards";
+  }
+  if (before.map_revision !== after.map_revision) {
+    return "The host changed the map";
+  }
+  if (before.bot_delay_ms !== after.bot_delay_ms) {
+    return `The host set the wait of the bots to ${waitText(after.bot_delay_ms).toLowerCase()}`;
+  }
+  return null;
+}
+
 export function selectLobby(
   table: TableState,
   local: LobbyLocal,
   catalog: Catalog | null,
 ): LobbyView {
-  const { lobby, viewer } = table;
+  const { lobby, viewer, options } = table;
   const host = viewer !== null && viewer === lobby.host_player_id;
   const seats = lobby.slots.length;
   const open = lobby.slots.filter((slot) => slot.occupant === null).length;
-  const kinds = kindsOf(lobby);
+  const kinds = kindsOf(lobby, options);
   const hostName =
     lobby.slots.find((slot) => slot.occupant === lobby.host_player_id)?.nickname ?? "the host";
+
+  const usual = kinds.find((kind) => kind.id === USUAL_KIND);
 
   let firstOpen = true;
   const rows = lobby.slots.map((slot): LobbyRowView => {
@@ -109,7 +268,7 @@ export function selectLobby(
     if (slot.occupant === null) {
       if (host) {
         for (const kind of kinds) {
-          buttons.push({ label: BOT_KINDS[kind].name, intent: { type: "addBot", kind } });
+          buttons.push({ label: kind.name, intent: { type: "addBot", kind: kind.id } });
         }
       }
       // One row has it: every open seat is the same seat until the game starts.
@@ -125,9 +284,10 @@ export function selectLobby(
     const removable = host && slot.occupant !== null && !you;
     return {
       id: slot.slot_id,
-      sign: sign(slot, lobby, you),
+      sign: sign(slot, lobby, you, options),
       name: slot.nickname ?? "Open",
       you,
+      rename: you,
       become:
         slot.occupant !== null && !you && local.mine.includes(slot.occupant)
           ? { type: "become", player: slot.occupant }
@@ -144,26 +304,7 @@ export function selectLobby(
     };
   });
 
-  const setup: LobbySetupRowView[] = [
-    // The controls of the host come with the settings of a table: the server has no call yet.
-    { id: "players", label: "Players", value: String(seats), editable: false },
-    { id: "map", label: "Map", value: mapName(lobby), editable: false },
-    {
-      id: "cards",
-      label: "Strategy cards",
-      value: CARD_SETS[lobby.strategy_card_set] ?? titleCase(lobby.strategy_card_set),
-      editable: false,
-    },
-  ];
-
-  const waiting = lobby.slots.find(
-    (slot) => slot.occupant !== null && !slot.bot && !slot.ready && slot.occupant !== viewer,
-  );
-  const blocked = open
-    ? `Waiting for ${plural(open, "open seat")}`
-    : waiting
-      ? `Waiting for ${waiting.nickname} to be ready`
-      : "";
+  const blocked = open ? `Waiting for ${plural(open, "open seat")}` : "";
   const footer: LobbyFooterView =
     viewer === null
       ? {
@@ -191,13 +332,16 @@ export function selectLobby(
     seats: {
       [SEAT_PLACE]: { id: SEAT_PLACE, name: "", faction: "Seat", symbol: "●", color: "#8a94a6" },
     },
-    setup,
+    setup: setupRows(lobby, options, host),
     filled: `${seats - open} of ${seats}`,
-    help: kinds.map((kind) => ({ title: BOT_KINDS[kind].name, text: BOT_KINDS[kind].about })),
+    help: kinds.map((kind) => ({ title: kind.name, text: kind.description })),
     rows,
     fill:
-      host && open > 0 && kinds.includes("smart")
-        ? { label: "Fill with rule bots", intent: { type: "fillBots", kind: "smart" } }
+      host && open > 0 && usual
+        ? {
+            label: `Fill with ${usual.name.toLowerCase()}s`,
+            intent: { type: "fillBots", kind: usual.id },
+          }
         : null,
     footer,
   };

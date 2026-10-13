@@ -14,7 +14,6 @@ const lobby = {
       position: 1,
       occupant: "player_a",
       nickname: "Host",
-      ready: false,
       connected: true,
       can_take_over: false,
     },
@@ -23,7 +22,6 @@ const lobby = {
       position: 2,
       occupant: null,
       nickname: null,
-      ready: false,
       connected: false,
       can_take_over: false,
     },
@@ -150,7 +148,7 @@ it("lobby: a failed action says it cannot reach the server, not 'TypeError: Fail
   await vi.waitFor(() => expect(result.current.lobby).not.toBeNull());
   fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
   await act(async () => {
-    await result.current.setReady(true);
+    await result.current.start();
   });
   expect(result.current.error).toMatch(/cannot reach the server/i);
   expect(result.current.error).not.toMatch(/TypeError|Failed to fetch|check the lobby/i);

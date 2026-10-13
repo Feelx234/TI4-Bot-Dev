@@ -68,6 +68,40 @@ pub fn find(id: &str) -> Option<&'static Scenario> {
     SCENARIOS.iter().find(|scenario| scenario.id == id)
 }
 
+/// The game that the scenario `id` starts: the game of its seed on the recommended map of its
+/// number of seats, with its board set up. Both hosts start a scenario with this function, so
+/// the game is the same in the page and on the server. `player_ids` are the seats in their
+/// order; a scenario places its board by the place of a seat, not by its id.
+///
+/// # Errors
+/// A message for an unknown scenario, for another number of seats, or when the map does not build.
+pub fn start(
+    content: &ContentStore,
+    id: &str,
+    player_ids: &[PlayerId],
+) -> Result<(GameState, Galaxy), String> {
+    let scenario = find(id).ok_or_else(|| {
+        let known: Vec<&str> = SCENARIOS.iter().map(|scenario| scenario.id).collect();
+        format!("no scenario '{id}': the scenarios are {}", known.join(", "))
+    })?;
+    if player_ids.len() != scenario.players {
+        return Err(format!(
+            "the scenario '{id}' is made for {} seats, the game has {}",
+            scenario.players,
+            player_ids.len()
+        ));
+    }
+    let sources = ti4_model::content_types::POK;
+    let loader = crate::maps::TemplateLoader::load()?;
+    let template =
+        crate::maps::default_template_for(content, &loader, scenario.players, sources)
+            .ok_or_else(|| format!("no map template builds for {} players", scenario.players))?;
+    let (mut state, mut galaxy) =
+        crate::map::create_game_with_template(content, player_ids, scenario.seed, Some(&template))?;
+    apply(id, &mut state, &mut galaxy, content, sources)?;
+    Ok((state, galaxy))
+}
+
 /// Turns the state of a new game into the scenario `id`. The game must be the one that the
 /// scenario names: its seats and the map of its seed.
 pub fn apply(

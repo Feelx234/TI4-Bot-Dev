@@ -34,6 +34,8 @@ fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
             None,
             ti4_server::card_set::DEFAULT,
             ti4_server::map::SpeakerOrder::Seat,
+            ti4_server::session::table::SeatOrder::Join,
+            None,
         )
         .expect("a started game");
     (registry, seat, credential.as_str().to_owned())

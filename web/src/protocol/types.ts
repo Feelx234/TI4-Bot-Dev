@@ -16,7 +16,6 @@ export interface LobbySlot {
   position: number;
   occupant: string | null;
   nickname: string | null;
-  ready: boolean;
   connected: boolean;
   can_take_over: boolean;
   /**
@@ -83,10 +82,9 @@ export interface MapTemplateSummary {
 }
 
 export interface MapSeatPreview {
-  /** 1-based, the lobby position. */
+  /** 1-based number of the place. Who sits there is drawn when the game starts. */
   seat: number;
-  faction: string;
-  faction_name: string;
+  /** The id of the preview tile that stands for the home of this seat (`seat_1`, …). */
   home_system_id: string;
 }
 

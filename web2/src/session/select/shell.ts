@@ -39,6 +39,8 @@ function status(update: SessionUpdate, local: LocalState, printed: Catalog | nul
       return turn.winner ? `Game over · ${faction(turn.winner)} wins` : "Game over";
     case "waiting_for_decision":
       return local.sent ? "Sent · the game goes on" : `Waiting for ${faction(turn.seat)}`;
+    case "waiting_for_reactions":
+      return "Waiting for reactions";
     case "active_turn":
       return `Turn of ${faction(turn.player)}`;
     case "phase_transition":

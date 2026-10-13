@@ -603,3 +603,34 @@ it("tells the Never cards as the server keeps them, and a window that was passed
   game.tell({ ...passed, game_version: 44 });
   expect(game.take().map((event) => event.kind)).toEqual(["update"]);
 });
+
+it("tells who the game waits for while a seat of the server takes its time", () => {
+  const game = server();
+  game.open();
+  game.tell(opponent);
+  game.take();
+  const status = {
+    kind: "waiting_for_decision",
+    seat: "seat_b",
+    phase: "action",
+    round: 1,
+    stage: "Action Phase",
+  };
+  const message = {
+    type: "turn_status",
+    protocol_version: PROTOCOL_VERSION,
+    game_id: GAME.gameId,
+    game_version: opponent.game_version,
+    status,
+  };
+  game.tell(message);
+  // Nothing else of the game is new: it is no update, so what is staged stays.
+  expect(game.take()).toEqual([{ kind: "status", status }]);
+  // A listener that comes later is told the game with that status.
+  const late: TransportEvent[] = [];
+  game.transport.subscribe((told) => late.push(told));
+  expect(late.at(-1)).toMatchObject({ kind: "update", update: { turn_status: status } });
+  // The status of another version belongs to an update that is on its way.
+  game.tell({ ...message, game_version: opponent.game_version + 1 });
+  expect(game.take()).toEqual([]);
+});

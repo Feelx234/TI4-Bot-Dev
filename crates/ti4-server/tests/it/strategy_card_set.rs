@@ -69,10 +69,7 @@ async fn started(base: &str, extra: Value) -> (String, Value) {
         .json()
         .await
         .unwrap();
-    let guest = joined["player_session"].as_str().unwrap().to_owned();
-    for token in [&host, &guest] {
-        post(base, &id, "/ready", token, json!({"ready": true})).await;
-    }
+    assert!(joined["player_session"].is_string(), "{joined}");
     post(base, &id, "/start", &host, Value::Null).await;
     (id, created)
 }

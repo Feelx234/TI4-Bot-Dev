@@ -426,6 +426,10 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           text: `${passed.join(", ")}: never offered. The window was passed.`,
         }));
       }
+      if (event.kind === "status") {
+        const { status } = event;
+        return setUpdate((now) => now && { ...now, turn_status: status });
+      }
       if (event.kind === "offline") {
         return setLocal((now) => ({ ...now, offline: true }));
       }

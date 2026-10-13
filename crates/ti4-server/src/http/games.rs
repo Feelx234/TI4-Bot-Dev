@@ -15,7 +15,6 @@ use crate::session::GameRegistry;
 use crate::session::batch::BatchRequest;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 use crate::session::registry::{HistoryAction, HistoryError};
-use crate::storage::LobbySlotId;
 
 #[allow(
     clippy::result_large_err,
@@ -89,6 +88,12 @@ pub struct CreateGameRequest {
     /// Who opens as speaker: `"random"` (default; a seat drawn from the seed, so the same seed
     /// gives the same speaker) or `"seat"` (the first seat). Anything else is a 400.
     pub speaker_order: Option<String>,
+    /// How the seats are given at Start: `"random"` (default; drawn from the seed) or `"join"`
+    /// (the order in which the players came; tests and presets use it). Anything else is a 400.
+    pub seat_order: Option<String>,
+    /// The wait before each answer of a seat that the server plays, in milliseconds (0 to
+    /// 30 000). Without it the table waits as the process says, until the host sets a value.
+    pub bot_delay_ms: Option<u64>,
 }
 
 /// Response after creating a game.
@@ -106,16 +111,11 @@ pub struct PlayerIdentity {
     pub id: PlayerId,
 }
 
+/// Body of `POST /api/games/{game_id}/lobby/nickname`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ReadyRequest {
-    pub ready: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ReorderRequest {
-    pub slot_ids: Vec<LobbySlotId>,
+pub struct NicknameRequest {
+    pub nickname: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -336,6 +336,22 @@ pub async fn create_game(
         None => crate::map::SpeakerOrder::default(),
     };
 
+    let seat_order = match payload.seat_order.as_deref() {
+        Some(name) => crate::session::table::SeatOrder::parse(name)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?,
+        None => crate::session::table::SeatOrder::default(),
+    };
+    let bot_delay_ms = payload.bot_delay_ms;
+    if bot_delay_ms.is_some_and(|delay| delay > crate::session::table::MAX_BOT_DELAY_MS) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!(
+                "bot_delay_ms must be 0-{}",
+                crate::session::table::MAX_BOT_DELAY_MS
+            ),
+        ));
+    }
+
     let seed = payload.seed.unwrap_or_else(rand::random::<u64>);
     let (lobby, player, session) = if fill_random {
         // The start builds the board: not on the async runtime.
@@ -351,21 +367,39 @@ pub async fn create_game(
                 payload.start_preset,
                 strategy_card_set,
                 speaker_order,
+                seat_order,
+                bot_delay_ms,
             )
         })
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
-        registry.create_player_lobby_with_speaker(
-            game_id.clone(),
-            payload.player_count,
-            seed,
-            &payload.nickname,
-            map_template,
-            payload.start_preset,
-            strategy_card_set,
-            speaker_order,
-        )
+        registry
+            .create_player_lobby_with_seating(
+                game_id.clone(),
+                payload.player_count,
+                seed,
+                &payload.nickname,
+                map_template,
+                payload.start_preset,
+                strategy_card_set,
+                speaker_order,
+                seat_order,
+            )
+            .and_then(|(lobby, player, session)| {
+                let lobby = match bot_delay_ms {
+                    Some(delay) => registry.change_player_lobby_settings(
+                        &game_id,
+                        session.as_str(),
+                        &crate::session::table::TableSettings {
+                            bot_delay_ms: Some(delay),
+                            ..crate::session::table::TableSettings::default()
+                        },
+                    )?,
+                    None => lobby,
+                };
+                Ok((lobby, player, session))
+            })
     }
     .map_err(lobby_error)?;
 
@@ -453,36 +487,51 @@ pub async fn leave_lobby(
     ))
 }
 
-/// Handler for `POST /api/games/{game_id}/lobby/ready`.
-pub async fn set_ready(
+/// Handler for `POST /api/games/{game_id}/lobby/settings` (host only, before Start): the player
+/// count, the set of strategy cards, the wait of the seats that the server plays, and the
+/// scenario that the game starts from. A field that is missing stays as it is.
+pub async fn change_lobby_settings(
     Path(game_id): Path<String>,
     headers: HeaderMap,
     State(registry): State<Arc<GameRegistry>>,
-    Json(payload): Json<ReadyRequest>,
+    Json(payload): Json<crate::session::table::TableSettings>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?.to_owned();
+    // A new count or a scenario builds a board to check it: not on the async runtime.
+    tokio::task::spawn_blocking(move || {
+        registry.change_player_lobby_settings(&game_id, &token, &payload)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map(Json)
+    .map_err(lobby_error)
+}
+
+/// Handler for `POST /api/games/{game_id}/lobby/nickname`: the player of the credential takes
+/// another name, before Start.
+pub async fn rename_in_lobby(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<NicknameRequest>,
 ) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
     Ok(Json(
         registry
-            .set_player_ready(&game_id, require_player_session(&headers)?, payload.ready)
-            .map_err(lobby_error)?
-            .0,
+            .rename_player(
+                &game_id,
+                require_player_session(&headers)?,
+                &payload.nickname,
+            )
+            .map_err(lobby_error)?,
     ))
 }
 
-/// Host-only complete slot-ID permutation while the game is a lobby.
-pub async fn reorder_lobby(
-    Path(game_id): Path<String>,
-    headers: HeaderMap,
+/// Handler for `GET /api/setup-options`: what a host can choose for a table, with the names.
+pub async fn setup_options(
     State(registry): State<Arc<GameRegistry>>,
-    Json(payload): Json<ReorderRequest>,
-) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
-    Ok(Json(
-        registry
-            .reorder_player_lobby(
-                &game_id,
-                require_player_session(&headers)?,
-                &payload.slot_ids,
-            )
-            .map_err(lobby_error)?,
+) -> Json<crate::session::table::SetupOptions> {
+    Json(crate::session::table::setup_options(
+        registry.public().is_public(),
     ))
 }
 
@@ -673,12 +722,15 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::HumanSeatRequired
         | LobbyError::HostRequired => StatusCode::FORBIDDEN,
         LobbyError::HumansNotReady
+        | LobbyError::SeatsOpen
+        | LobbyError::SeatsTaken(_)
+        | LobbyError::ScenarioTable(_)
         | LobbyError::AlreadyRunning
         | LobbyError::NotInLobby
         | LobbyError::SeatUnavailable
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,
         LobbyError::InvalidPlayerId
-        | LobbyError::InvalidSlotOrder
+        | LobbyError::InvalidSetting(_)
         | LobbyError::InvalidMap(_)
         | LobbyError::InvalidNickname => StatusCode::BAD_REQUEST,
         LobbyError::Map(_) | LobbyError::Storage(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -972,6 +1024,8 @@ mod template_request_tests {
             fill_seats: None,
             strategy_card_set: None,
             speaker_order: None,
+            seat_order: None,
+            bot_delay_ms: None,
         })
     }
 
@@ -986,6 +1040,8 @@ mod template_request_tests {
             fill_seats: None,
             strategy_card_set: None,
             speaker_order: None,
+            seat_order: None,
+            bot_delay_ms: None,
         })
     }
 
@@ -1010,13 +1066,26 @@ mod template_request_tests {
             created.lobby.phase,
             crate::session::registry::LobbyPhase::Running
         ));
-        assert!(created.lobby.slots.iter().all(|slot| slot.ready));
+        assert!(
+            created
+                .lobby
+                .slots
+                .iter()
+                .all(|slot| slot.occupant.is_some())
+        );
         let session = registry.get_game(&created.game_id).expect("the game runs");
         let (order, seats, _, seed) = session.lobby_details();
         assert_eq!((order.len(), seed), (8, Some(1)));
+        // The seats are drawn from the seed: the slots of the running table are the seats.
+        assert!(order.contains(&created.player.id));
         assert_eq!(
-            order[0], created.player.id,
-            "the creator has the first seat"
+            created
+                .lobby
+                .slots
+                .iter()
+                .filter_map(|slot| slot.occupant.clone())
+                .collect::<Vec<_>>(),
+            order
         );
         for (seat, controller) in &seats {
             let expected = if *seat == created.player.id {
@@ -1034,7 +1103,11 @@ mod template_request_tests {
             ))
         );
         // A seat that the server plays cannot be taken over.
-        let random = order[1].clone();
+        let random = order
+            .iter()
+            .find(|seat| **seat != created.player.id)
+            .expect("a seat that the server plays")
+            .clone();
         assert_eq!(
             registry
                 .take_over_player(&created.game_id, &random, "Guest")

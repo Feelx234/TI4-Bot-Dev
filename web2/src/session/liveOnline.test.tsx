@@ -65,3 +65,39 @@ it("says why the game did not take an answer", async () => {
   );
   expect(result.current.error).toBeNull();
 });
+
+it("says who the game waits for when only that changed, and keeps what is staged", async () => {
+  const game = transport();
+  const { result } = renderHook(() => useLiveSession(game.transport));
+  const view = () => result.current.session!.view;
+  await game.tell({ kind: "update", update: menu, canUndo: false });
+  act(() => result.current.session?.dispatch({ type: "chooseOption", option: "tactical" }));
+  const staged = JSON.stringify(view().action);
+  const other = menu.view.players.find(
+    (player) => menu.viewer.role === "player" && player.id !== menu.viewer.seat,
+  )!;
+  await game.tell({
+    kind: "status",
+    status: { kind: "waiting_for_decision", seat: other.id, phase: "action", round: 1, stage: "" },
+  });
+  // The seat is still asked itself, with its choice staged.
+  expect(view().toolbar.status).toBe("Your decision");
+  expect(JSON.stringify(view().action)).toBe(staged);
+
+  // A seat that is not asked reads who is.
+  await game.tell({
+    kind: "update",
+    update: { ...menu, pending_choice: undefined, tactical: undefined },
+    canUndo: false,
+  });
+  await game.tell({
+    kind: "status",
+    status: { kind: "waiting_for_decision", seat: other.id, phase: "action", round: 1, stage: "" },
+  });
+  expect(view().toolbar.status).toMatch(/^Waiting for (?!Seat )\S/);
+  await game.tell({
+    kind: "status",
+    status: { kind: "waiting_for_reactions", phase: "action", round: 1 },
+  });
+  expect(view().toolbar.status).toBe("Waiting for reactions");
+});

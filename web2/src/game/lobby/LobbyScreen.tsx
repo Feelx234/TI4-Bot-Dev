@@ -4,10 +4,12 @@ import type {
   LobbyButtonView,
   LobbyIntent,
   LobbyRowView,
+  LobbySetupRowView,
   LobbySignView,
+  LobbyStepView,
   LobbyView,
 } from "../../model";
-import { Button, Hint, Kbd, Toast, cx, usePhone } from "../../ui";
+import { Button, Hint, Kbd, Select, Toast, cx, usePhone } from "../../ui";
 import { Board } from "../board/Board";
 import { GameProvider } from "../context";
 import { LinkProvider } from "../link";
@@ -64,6 +66,49 @@ function RowButton({
   );
 }
 
+/** The name of the viewer, open in its row. Enter takes the name, Esc and a click elsewhere leave it. */
+function NameEditor({
+  name,
+  onName,
+  onDone,
+}: {
+  name: string;
+  onName: (name: string) => void;
+  /** The name that was entered, or null when the editor was left. */
+  onDone: (name: string | null) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+    input.current?.select();
+  }, []);
+  return (
+    <form
+      className="flex w-[300px] flex-none phone:w-auto phone:min-w-0 phone:flex-1"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onDone(name.trim());
+      }}
+    >
+      <input
+        ref={input}
+        aria-label="Your name"
+        value={name}
+        maxLength={NICKNAME_MAX}
+        onChange={(event) => onName(event.target.value)}
+        onBlur={() => onDone(null)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.stopPropagation();
+            onDone(null);
+          }
+        }}
+        className="min-h-8 w-full min-w-0 rounded border border-line bg-well px-2 text-base text-text touch:min-h-11"
+      />
+    </form>
+  );
+}
+
 function PlayerRow({
   row,
   dispatch,
@@ -71,24 +116,39 @@ function PlayerRow({
   row: LobbyRowView;
   dispatch: (intent: LobbyIntent) => void;
 }) {
+  // The name of the viewer is edited in its row. Null: the row is closed.
+  const [name, setName] = useState<string | null>(null);
   const who = (
     <>
       <Sign sign={row.sign} />
       {/* A name is cut on desktop, with the full name on hover; a phone gives it a second line. */}
-      <span
-        title={row.name}
-        className={cx(
-          "w-[300px] flex-none truncate",
-          // An open seat has its buttons in the row: they go under the word when they have no room.
-          row.sign?.kind === "open"
-            ? "text-muted phone:w-auto"
-            : "font-mid phone:w-auto phone:min-w-0 phone:flex-1 phone:whitespace-normal phone:[overflow-wrap:anywhere]",
-        )}
-      >
-        {row.name}
-        {row.you && <span className="font-normal text-muted"> (you)</span>}
-        {row.become && <span className="font-normal text-accent"> (yours)</span>}
-      </span>
+      {name !== null ? (
+        <NameEditor
+          name={name}
+          onName={setName}
+          onDone={(wanted) => {
+            if (wanted && wanted !== row.name) {
+              dispatch({ type: "rename", name: wanted });
+            }
+            setName(null);
+          }}
+        />
+      ) : (
+        <span
+          title={row.name}
+          className={cx(
+            "w-[300px] flex-none truncate",
+            // An open seat has its buttons in the row: they go under the word when they have no room.
+            row.sign?.kind === "open"
+              ? "text-muted phone:w-auto"
+              : "font-mid phone:w-auto phone:min-w-0 phone:flex-1 phone:whitespace-normal phone:[overflow-wrap:anywhere]",
+          )}
+        >
+          {row.name}
+          {row.you && <span className="font-normal text-muted"> (you)</span>}
+          {row.become && <span className="font-normal text-accent"> (yours)</span>}
+        </span>
+      )}
       <span className="w-[180px] flex-none truncate text-muted phone:w-auto phone:max-w-[40%]">
         {row.faction}
       </span>
@@ -115,6 +175,17 @@ function PlayerRow({
         who
       )}
       <span className="ml-auto flex flex-none items-center gap-1.5">
+        {row.rename && name === null && (
+          <Button
+            tone="quiet"
+            size="icon"
+            aria-label="Change your name"
+            title="Change your name"
+            onClick={() => setName(row.name)}
+          >
+            ✎
+          </Button>
+        )}
         {row.buttons.map((button) => (
           <RowButton key={button.label} view={button} dispatch={dispatch} />
         ))}
@@ -143,7 +214,83 @@ function Heading({ children, aside }: { children: ReactNode; aside?: ReactNode }
   );
 }
 
-function Setup({ view }: { view: LobbyView }) {
+/** One step of a counter. A step that cannot be taken stays in its place and says why. */
+function Step({
+  step,
+  sign,
+  dispatch,
+}: {
+  step: LobbyStepView;
+  sign: string;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="size-7 text-lg text-muted hover:bg-raised hover:text-text aria-disabled:opacity-30 aria-disabled:hover:bg-transparent aria-disabled:hover:text-muted touch:size-10"
+      aria-label={step.reason ? `${step.label}: ${step.reason}` : step.label}
+      title={step.reason || step.label}
+      aria-disabled={step.intent === null}
+      onClick={() => step.intent && dispatch(step.intent)}
+    >
+      {sign}
+    </button>
+  );
+}
+
+/** The value of a setup row, as its control when the viewer may change it. */
+function SetupValue({
+  row,
+  dispatch,
+}: {
+  row: LobbySetupRowView;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  const { control } = row;
+  if (control?.kind === "counter") {
+    return (
+      <div className="inline-flex items-center rounded-md border border-line bg-canvas">
+        <Step step={control.less} sign="−" dispatch={dispatch} />
+        <output className="min-w-12 px-1 text-center font-mid tabular-nums" aria-label={row.label}>
+          {row.value}
+        </output>
+        <Step step={control.more} sign="+" dispatch={dispatch} />
+      </div>
+    );
+  }
+  if (control?.kind === "list") {
+    return (
+      <Select
+        aria-label={row.label}
+        className="min-h-8 font-mid touch:min-h-10"
+        value={control.chosen}
+        onChange={(event) => {
+          const chosen = control.options.find((option) => option.id === event.target.value);
+          if (chosen) {
+            dispatch(chosen.intent);
+          }
+        }}
+      >
+        {/* A value that the list does not have (the cards of a scenario) is shown as it is. */}
+        {control.options.every((option) => option.id !== control.chosen) && (
+          <option value={control.chosen}>{row.value}</option>
+        )}
+        {control.options.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </Select>
+    );
+  }
+  return (
+    <span className="min-w-0 truncate font-mid" title={row.value}>
+      {row.value}
+    </span>
+  );
+}
+
+function Setup({ view, dispatch }: { view: LobbyView; dispatch: (intent: LobbyIntent) => void }) {
   return (
     <section aria-label="Setup" className="flex-none">
       <Heading>Setup</Heading>
@@ -153,9 +300,20 @@ function Setup({ view }: { view: LobbyView }) {
             key={row.id}
             className="flex min-h-9 items-center justify-between gap-3 px-5 py-0.5 text-base phone:px-3 [div+&]:border-t [div+&]:border-line/50"
           >
-            <dt className="text-muted">{row.label}</dt>
-            <dd className="min-w-0 truncate font-mid" title={row.value}>
-              {row.value}
+            <dt className="flex flex-none items-center gap-2 text-muted">
+              {row.label}
+              {row.help.length > 0 && (
+                <Hint label={`About ${row.label}`}>
+                  {row.help.map((item) => (
+                    <span key={item.title} className="block">
+                      <strong>{item.title}.</strong> {item.text}
+                    </span>
+                  ))}
+                </Hint>
+              )}
+            </dt>
+            <dd className="flex min-w-0 items-center">
+              <SetupValue row={row} dispatch={dispatch} />
             </dd>
           </div>
         ))}
@@ -349,7 +507,7 @@ export function LobbyScreen({
     <section aria-label="Galaxy board" className="min-h-0 min-w-0 bg-board" />
   );
   const players = <Players view={view} dispatch={dispatch} />;
-  const setup = <Setup view={view} />;
+  const setup = <Setup view={view} dispatch={dispatch} />;
   const latest = (copied?.id ?? 0) > (toast?.id ?? 0) ? copied : toast;
 
   return (

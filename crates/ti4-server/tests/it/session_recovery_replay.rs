@@ -177,7 +177,7 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
         .post(format!("{base_url}/api/games"))
         .json(&serde_json::json!({
             "player_count": 3, "nickname": "Host",
-            "seed": 12345
+            "seed": 12345, "seat_order": "join"
         }))
         .send()
         .await
@@ -209,16 +209,6 @@ async fn http_snapshot_fetches_current_state_and_events_for_reconnecting_client(
                 .expect("claimed credential")
                 .to_owned(),
         );
-    }
-    for token in &credentials {
-        let ready = client
-            .post(format!("{base_url}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-player-session", token)
-            .json(&serde_json::json!({ "ready": true }))
-            .send()
-            .await
-            .expect("ready player");
-        assert_eq!(ready.status(), reqwest::StatusCode::OK);
     }
     let started = client
         .post(format!("{base_url}/api/games/{game_id}/lobby/start"))

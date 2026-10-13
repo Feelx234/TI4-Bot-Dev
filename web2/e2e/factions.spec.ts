@@ -85,7 +85,6 @@ async function start(request: APIRequestContext, table: (typeof TABLES)[number],
   for (const [faction] of others) {
     await call("bots", { kind: "random", faction });
   }
-  await call("ready", { ready: true });
   await call("start", {});
   return made as { game_id: string; player_session: string };
 }

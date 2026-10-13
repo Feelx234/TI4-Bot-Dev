@@ -214,9 +214,7 @@ const GameRoute: React.FC<{
     loading,
     invalidCredential,
     pendingAction,
-    setReady,
     start,
-    reorder,
     chooseMap,
     join,
     leave,
@@ -295,12 +293,10 @@ const GameRoute: React.FC<{
           playerId={playerId}
           watching={watching}
           pendingAction={pendingAction}
-          onReady={(ready) => void setReady(ready)}
           onStart={() => void start()}
           onLeave={() => void leaveLobby()}
           onJoin={(name) => void enter(name)}
           onTakeover={(id, name) => void enter(name, id)}
-          onReorder={(ids) => void reorder(ids)}
           onChooseMap={chooseMap}
           onWatch={() => setWatching(true)}
           onAddBot={(password, name) => addBot(password, name)}

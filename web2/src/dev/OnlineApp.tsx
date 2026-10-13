@@ -12,7 +12,7 @@ import {
   onlineKeys,
   playersOf,
 } from "../session/onlineKeys";
-import { nextNickname, selectLobby } from "../session/select/lobby";
+import { hostChange, nextNickname, selectLobby } from "../session/select/lobby";
 import {
   type Seat,
   type Table,
@@ -199,7 +199,7 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
     }
     setMine(Object.keys(playersOf(localStorage, gameId)));
     const made = serverTable(gameId, who.seat);
-    let map: number | null = null;
+    let before: TableState["lobby"] | null = null;
     const stop = made.subscribe((event) => {
       switch (event.kind) {
         case "table": {
@@ -210,10 +210,12 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
             return location.replace(tableAddress(gameId));
           }
           // A change of the host is told to the others once.
-          if (map !== null && map !== lobby.map_revision && viewer !== lobby.host_player_id) {
-            say("The host changed the map");
+          const changed =
+            before && viewer !== lobby.host_player_id ? hostChange(before, lobby) : null;
+          if (changed) {
+            say(changed);
           }
-          map = lobby.map_revision;
+          before = lobby;
           setOffline(false);
           return setState(event);
         }
@@ -294,6 +296,15 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
         return table?.addBots(intent.kind, true);
       case "remove":
         return table?.removeSeat(intent.player);
+      case "set":
+        if (intent.change.players !== undefined) {
+          // The next table of this browser has as many seats.
+          localStorage.setItem(PLAYER_COUNT_KEY, String(intent.change.players));
+        }
+        return table?.setSettings(intent.change);
+      case "rename":
+        localStorage.setItem(NICKNAME_KEY, intent.name);
+        return table?.rename(intent.name);
       case "start":
         return table?.start();
     }

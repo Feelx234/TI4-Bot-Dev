@@ -6,6 +6,7 @@ import {
   type LobbyState,
   type MapPreview,
   PROTOCOL_VERSION,
+  type SetupOptions,
   type TableServerMessage,
 } from "./wire";
 
@@ -22,6 +23,19 @@ export interface TableState {
   viewer: string | null;
   /** The board that the table will play. Null until the server said it. */
   preview: MapPreview | null;
+  /** What a host can choose, with the names. Null until the server said it. */
+  options: SetupOptions | null;
+}
+
+/** A change of the setup of a table. A part that is left out stays as it is. */
+export interface TableSettings {
+  players?: number;
+  /** A set of strategy cards, by its id. */
+  cards?: string;
+  /** The wait before each answer of a seat that the server plays, in milliseconds. */
+  waitMs?: number;
+  /** The id of a scenario, or null for round 1. */
+  startFrom?: string | null;
 }
 
 export type TableEvent =
@@ -50,6 +64,10 @@ export interface Table {
   addBots(kind: string, fill?: boolean): void;
   /** Removes a seat that the server plays, or another player. Host only. */
   removeSeat(playerId: string): void;
+  /** Changes the setup. Host only. The change applies at once, for every player. */
+  setSettings(settings: TableSettings): void;
+  /** Gives the player of this page another name. */
+  rename(nickname: string): void;
   /** Starts the game. Host only, with every seat filled. */
   start(): void;
   close(): void;
@@ -92,6 +110,8 @@ export interface TableRequest {
   map?: string;
   /** "random": every other seat is played by the server at random, and the game starts at once. */
   fill?: "random";
+  /** The wait of the seats that the server plays, in milliseconds. Without it: the server's. */
+  waitMs?: number;
 }
 
 /** Makes a table on the server. The player of this page is its host. */
@@ -107,6 +127,7 @@ export async function createTable(
       nickname: request.nickname,
       ...(request.fill ? { fill_seats: request.fill } : {}),
       ...(request.seed === undefined ? {} : { seed: request.seed }),
+      ...(request.waitMs === undefined ? {} : { bot_delay_ms: request.waitMs }),
       ...(request.map === undefined
         ? {}
         : request.map === "random"
@@ -156,12 +177,11 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
   let preview: MapPreview | null = null;
   /** The `map_revision` of the preview that is there or asked for. */
   let previewed: number | null = null;
+  let options: SetupOptions | null = null;
   let failed: string | null = null;
   let offline = false;
   let closed = false;
   let attempt = 0;
-  /** The server asks for "Ready" before a start. The page says it once for its player. */
-  let readied = false;
   let link: Connection | null = null;
 
   const say = (event: TableEvent) => {
@@ -171,7 +191,7 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
   };
   const tell = () => {
     if (latest) {
-      say({ kind: "table", ...latest, preview });
+      say({ kind: "table", ...latest, preview, options });
       // A table ends the offline state for a listener, and only a table of the socket says that
       // the socket is back: the answer of a call or the board can come while it is away.
       if (offline) {
@@ -194,6 +214,25 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
       },
       body: JSON.stringify(body),
     });
+
+  /**
+   * The setup options are the same for every table of a server. They are asked when the socket
+   * opens, until they are there: a call that failed is made again with the next socket.
+   */
+  const askOptions = () => {
+    if (options) {
+      return;
+    }
+    fetcher("/api/setup-options")
+      .then(async (response) => {
+        if (closed || !response.ok) {
+          return;
+        }
+        options = await response.json();
+        tell();
+      })
+      .catch(() => {});
+  };
 
   const askPreview = (revision: number) => {
     previewed = revision;
@@ -229,13 +268,6 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
     latest = { lobby, viewer };
     if (lobby.phase === "lobby" && previewed !== lobby.map_revision) {
       askPreview(lobby.map_revision);
-    }
-    if (lobby.phase === "lobby" && viewer !== null && !readied) {
-      const own = lobby.slots.find((slot) => slot.occupant === viewer);
-      if (own && !own.ready) {
-        readied = true;
-        void change("ready", { ready: true });
-      }
     }
     tell();
   };
@@ -287,6 +319,7 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
 
   link = connect(() => open(gameId), {
     opened() {
+      askOptions();
       link?.send(
         JSON.stringify({
           type: "subscribe",
@@ -327,7 +360,7 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
         listener({ kind: "error", message: failed });
       } else {
         if (latest) {
-          listener({ kind: "table", ...latest, preview });
+          listener({ kind: "table", ...latest, preview, options });
         }
         if (offline) {
           listener({ kind: "offline" });
@@ -344,11 +377,8 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
           return null;
         }
         const made: Admission = await response.json();
-        const joined = { playerId: made.player.id, playerSession: made.player_session! };
-        // The server asks for "Ready" before a start: said here, for the tab that is not open yet.
-        const ready = await call("ready", { ready: true }, joined.playerSession);
-        take(ready.ok ? await ready.json() : made.lobby, latest?.viewer ?? null, false);
-        return joined;
+        take(made.lobby, latest?.viewer ?? null, false);
+        return { playerId: made.player.id, playerSession: made.player_session! };
       } catch {
         say({ kind: "rejected", reason: "The server cannot be reached. Nothing was changed." });
         return null;
@@ -357,6 +387,14 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
     leave: () => void change("leave", {}),
     addBots: (kind, fill = false) => void change("bots", fill ? { kind, fill: true } : { kind }),
     removeSeat: (playerId) => void change("remove-bot", { player_id: playerId }),
+    setSettings: (settings) =>
+      void change("settings", {
+        ...(settings.players === undefined ? {} : { player_count: settings.players }),
+        ...(settings.cards === undefined ? {} : { strategy_card_set: settings.cards }),
+        ...(settings.waitMs === undefined ? {} : { bot_delay_ms: settings.waitMs }),
+        ...(settings.startFrom === undefined ? {} : { start_from: settings.startFrom }),
+      }),
+    rename: (nickname) => void change("nickname", { nickname }),
     start: () => void change("start", {}),
     close() {
       closed = true;

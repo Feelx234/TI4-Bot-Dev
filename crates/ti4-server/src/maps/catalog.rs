@@ -62,13 +62,14 @@ pub struct MapChoiceView {
     pub recommended: bool,
 }
 
-/// One seat on the previewed map.
+/// The place of one seat on the previewed map. It names no faction: nobody knows before Start
+/// who sits where, and which faction a seat without a choice gets.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SeatPreview {
-    /// 1-based seat number, the lobby slot's position.
+    /// 1-based number of the place, in the seat order of the map.
     pub seat: usize,
-    pub faction: String,
-    pub faction_name: String,
+    /// The id of the tile of [`MapPreview::tiles`] that stands for the home of this seat
+    /// (`seat_1`, …). It is not a system of the game.
     pub home_system_id: String,
 }
 
@@ -88,31 +89,28 @@ fn placeholder_players(count: usize) -> Vec<PlayerId> {
         .collect()
 }
 
-/// The map a game of `player_count` seated in slot order gets for `choice` and `seed`.
+/// The id of the tile that stands for the home of the seat at `seat` (1-based) in a preview.
+#[must_use]
+pub fn seat_place_id(seat: usize) -> String {
+    format!("seat_{seat}")
+}
+
+/// The map a game of `player_count` seats gets for `choice` and `seed`, with a place for each
+/// seat where a home system will be.
+///
+/// The board is built with stand-in factions (the fixed table: the in-scope factions in order,
+/// then the two extra seats, `seating::seat_faction`), and each home is then sent as a place: a
+/// tile with no planets, at the position of the home. Every tile that is not a home is the tile
+/// of the started game, whichever factions sit (`a_preview_is_the_board_of_the_game_but_for_its_homes`).
+/// A faction that brings a tile of its own (the Ghosts of Creuss) adds it at Start.
 ///
 /// # Errors
 /// A message when the template is unknown, seats another number of players, or does not build.
 pub fn preview(choice: &MapChoice, player_count: usize, seed: u64) -> Result<MapPreview, String> {
-    // The fixed table: the in-scope factions in order, then the two extra seats of a seven or
-    // eight player table (`seating::seat_faction`).
-    let fixed: Vec<ti4_model::id::FactionId> = (0..player_count)
+    let content = ContentStore::embedded();
+    let factions: Vec<ti4_model::id::FactionId> = (0..player_count)
         .map(|seat| ti4_model::id::FactionId::new(seating::seat_faction(seat)))
         .collect();
-    preview_seated(choice, seed, &fixed)
-}
-
-/// [`preview`] with the faction of every seat given (one per seat, in seat order): the board a
-/// lobby's table gets once its bots' chosen factions are seated.
-///
-/// # Errors
-/// As [`preview`].
-pub fn preview_seated(
-    choice: &MapChoice,
-    seed: u64,
-    factions: &[ti4_model::id::FactionId],
-) -> Result<MapPreview, String> {
-    let content = ContentStore::embedded();
-    let player_count = factions.len();
     let players = placeholder_players(player_count);
     let assignments: std::collections::BTreeMap<PlayerId, ti4_model::id::FactionId> = players
         .iter()
@@ -130,27 +128,74 @@ pub fn preview_seated(
         &assignments,
         None,
     )?;
-    let tiles = crate::map::build_board_tiles(content, &galaxy);
-    let seats = factions
+    Ok(pictured(
+        choice.clone(),
+        crate::map::build_board_tiles(content, &galaxy),
+        &factions,
+    ))
+}
+
+/// The board of the game that the scenario `id` of `ti4_view::scenario` starts, with the homes
+/// of its seats as places. `choice` is what the table says of its map.
+///
+/// # Errors
+/// A message for an unknown scenario, or when its map does not build.
+pub fn scenario_preview(choice: &MapChoice, id: &str) -> Result<MapPreview, String> {
+    let content = ContentStore::embedded();
+    let players = ti4_view::scenario::find(id)
+        .ok_or_else(|| format!("no scenario '{id}'"))?
+        .players;
+    let (state, galaxy) = ti4_view::scenario::start(content, id, &placeholder_players(players))?;
+    let factions: Vec<ti4_model::id::FactionId> = state
+        .players
         .iter()
-        .enumerate()
-        .map(|(index, faction)| SeatPreview {
-            seat: index + 1,
-            faction: faction.as_str().to_owned(),
-            faction_name: ti4_content::factions::get(content, faction.as_str())
-                .and_then(|f| f.name().map(str::to_owned))
-                .unwrap_or_else(|| faction.as_str().to_owned()),
-            home_system_id: ti4_content::factions::get(content, faction.as_str())
-                .and_then(|f| f.home_system().map(str::to_owned))
-                .unwrap_or_default(),
-        })
+        .map(|seat| seat.faction.clone())
         .collect();
-    Ok(MapPreview {
-        choice: choice.clone(),
-        player_count,
+    Ok(pictured(
+        choice.clone(),
+        crate::map::build_board_tiles(content, &galaxy),
+        &factions,
+    ))
+}
+
+/// Turns the home of each seated faction into the place of a seat.
+fn pictured(
+    choice: MapChoice,
+    mut tiles: Vec<BoardTileView>,
+    factions: &[ti4_model::id::FactionId],
+) -> MapPreview {
+    let content = ContentStore::embedded();
+    let mut seats = Vec::with_capacity(factions.len());
+    for (index, faction) in factions.iter().enumerate() {
+        let home = ti4_content::factions::get(content, faction.as_str())
+            .and_then(|f| f.home_system().map(str::to_owned))
+            .unwrap_or_default();
+        let place = seat_place_id(index + 1);
+        if let Some(tile) = tiles.iter_mut().find(|tile| tile.system_id == home) {
+            *tile = BoardTileView {
+                system_id: place.clone(),
+                label: format!("Seat {}", index + 1),
+                q: tile.q,
+                r: tile.r,
+                hyperlane: false,
+                special_area: tile.special_area.clone(),
+                anomalies: Vec::new(),
+                wormholes: Vec::new(),
+                egress: false,
+                planets: Vec::new(),
+            };
+        }
+        seats.push(SeatPreview {
+            seat: index + 1,
+            home_system_id: place,
+        });
+    }
+    MapPreview {
+        player_count: factions.len(),
+        choice,
         tiles,
         seats,
-    })
+    }
 }
 
 /// Checks a choice for a lobby of `player_count` seats by building it once.
@@ -281,6 +326,121 @@ pub fn describe(choice: &MapChoice, player_count: usize) -> MapChoiceView {
                 systems,
                 hyperlanes,
                 recommended,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The tiles of the game that a table of these factions starts on `choice` and `seed`.
+    fn started(choice: &MapChoice, seed: u64, factions: &[&str]) -> Vec<BoardTileView> {
+        let content = ContentStore::embedded();
+        let players = placeholder_players(factions.len());
+        let assignments: BTreeMap<PlayerId, ti4_model::id::FactionId> = players
+            .iter()
+            .cloned()
+            .zip(factions.iter().map(|f| ti4_model::id::FactionId::new(*f)))
+            .collect();
+        let (_, galaxy) = crate::map::create_game_with_template_seated(
+            content,
+            &players,
+            seed,
+            choice.stored().as_deref(),
+            &assignments,
+            None,
+        )
+        .expect("the game builds");
+        crate::map::build_board_tiles(content, &galaxy)
+    }
+
+    #[test]
+    fn a_preview_names_no_faction_and_its_homes_are_places() {
+        let pictured = preview(&MapChoice::Random, 6, 3).unwrap();
+        assert_eq!(pictured.seats.len(), 6);
+        for seat in &pictured.seats {
+            let tile = pictured
+                .tiles
+                .iter()
+                .find(|tile| tile.system_id == seat.home_system_id)
+                .expect("the place of the seat is a tile");
+            assert!(tile.planets.is_empty());
+            assert_eq!(tile.label, format!("Seat {}", seat.seat));
+        }
+        let json = serde_json::to_string(&pictured).unwrap();
+        assert!(!json.contains("faction"), "{json}");
+        // No home system of a stand-in faction is left on the board.
+        for seat in 0..6 {
+            let home =
+                ti4_content::factions::get(ContentStore::embedded(), seating::seat_faction(seat))
+                    .and_then(|f| f.home_system())
+                    .unwrap();
+            assert!(pictured.tiles.iter().all(|tile| tile.system_id != home));
+        }
+    }
+
+    /// Which factions sit where changes the homes and nothing else, so the preview can be made
+    /// before the seats are drawn. The Ghosts of Creuss are at every table: their home is off
+    /// the map and a gate stands in its place.
+    #[test]
+    fn a_preview_is_the_board_of_the_game_but_for_its_homes() {
+        let on_map = |tile: &&BoardTileView| tile.special_area.is_none();
+        for (choice, count) in [
+            (
+                MapChoice::Template {
+                    alias: "4pHyperlanes".to_owned(),
+                },
+                4,
+            ),
+            (MapChoice::Random, 4),
+            (MapChoice::from_stored(recommended_for(6).as_deref()), 6),
+            (MapChoice::Random, 8),
+        ] {
+            for seed in [2, 17] {
+                let pictured = preview(&choice, count, seed).unwrap();
+                // Another table each time: the ghosts and a run of the lobby factions.
+                #[expect(clippy::cast_possible_truncation, reason = "a small test seed")]
+                let offset = seed as usize;
+                let mut factions = vec!["ghost"];
+                factions.extend(
+                    seating::LOBBY_FACTIONS
+                        .iter()
+                        .copied()
+                        .filter(|faction| *faction != "ghost")
+                        .cycle()
+                        .skip(offset)
+                        .take(count - 1),
+                );
+                factions.rotate_left(offset % count);
+                let game = started(&choice, seed, &factions);
+                assert_eq!(
+                    pictured.tiles.iter().filter(on_map).count(),
+                    game.iter().filter(on_map).count(),
+                    "{choice:?} {seed}: the main map has the same number of tiles"
+                );
+                for tile in &pictured.tiles {
+                    if pictured
+                        .seats
+                        .iter()
+                        .any(|seat| seat.home_system_id == tile.system_id)
+                    {
+                        assert!(
+                            game.iter()
+                                .filter(on_map)
+                                .any(|other| (other.q, other.r) == (tile.q, tile.r)),
+                            "{choice:?} {seed}: the game has no tile at {}",
+                            tile.label
+                        );
+                    } else {
+                        assert!(
+                            game.contains(tile),
+                            "{choice:?} {seed}: the game has another tile for {}",
+                            tile.system_id
+                        );
+                    }
+                }
             }
         }
     }

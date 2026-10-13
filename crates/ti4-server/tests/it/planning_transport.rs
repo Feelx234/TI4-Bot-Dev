@@ -93,7 +93,6 @@ impl Fixture {
                     PlayerLobbyMember {
                         bot: None,
                         faction: None,
-                        ready: true,
                         session: credential,
                         nickname: if id == A { "A" } else { "B" }.into(),
                     },
@@ -115,6 +114,9 @@ impl Fixture {
                 .collect(),
             players,
             seed: 42,
+            seat_order: None,
+            bot_delay_ms: None,
+            start_from: None,
             lobby_version: 1,
             map_template: None,
             start_preset: None,

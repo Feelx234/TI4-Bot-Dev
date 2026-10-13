@@ -1,5 +1,12 @@
 import type { MovementPlan, PlanStep } from "./movementPlan";
-import type { Catalog, DraftOutcome, DraftScope, DraftStep, SessionUpdate } from "./wire";
+import type {
+  Catalog,
+  DraftOutcome,
+  DraftScope,
+  DraftStep,
+  PublicTurnStatus,
+  SessionUpdate,
+} from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
 export interface PlanStopped {
@@ -32,6 +39,11 @@ export type TransportEvent =
       /** The game waits before a decision of this seat, which is not played here: `capabilities.stepping.step` goes on. */
       stepping?: { seat: string };
     }
+  /**
+   * Who the game waits for changed, and nothing else of the game: a seat that is not played here
+   * takes its time. What is staged stays.
+   */
+  | { kind: "status"; status: PublicTurnStatus }
   /** The game is played again up to where it was. The last update is out of date until the next. */
   | { kind: "replaying"; done: number; total: number }
   /** The game cannot go on. The text names the cause. */

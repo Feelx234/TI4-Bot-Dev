@@ -62,3 +62,17 @@ it("the address of a table says which player the tab is", () => {
   expect(tableAddress("g 1")).toBe("?online=g%201");
   expect(tableAddress("g1", "p_2")).toBe("?online=g1&seat=p_2");
 });
+
+it("the address names the wait of the seats that the server plays, in seconds", () => {
+  expect(read("online&fill=random&wait=1")).toEqual({ fill: "random", wait: 1 });
+  expect(tableRequest(read("online&wait=0.5"))).toMatchObject({ waitMs: 500 });
+  expect(tableRequest(read("online&wait=0"))).toMatchObject({ waitMs: 0 });
+  // The server takes 30 seconds at most.
+  expect(read("online&wait=31")).toEqual({});
+  expect(read("online&wait=-1")).toEqual({});
+  expect(read("online&wait=soon")).toEqual({});
+  expect(read(onlineAddress({ fill: "random", wait: 2 }).slice(1))).toEqual({
+    fill: "random",
+    wait: 2,
+  });
+});

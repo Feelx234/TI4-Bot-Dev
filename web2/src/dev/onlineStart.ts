@@ -1,8 +1,8 @@
 import type { TableRequest } from "../session/table";
 
 /**
- * The table that `?online` asks the server for. `?online&players=6&seed=3&name=Ada&map=random`:
- * each part can be left out. With `fill=random` it is the quick start: a game of eight, this
+ * The table that `?online` asks the server for.
+ * `?online&players=6&seed=3&name=Ada&map=random&wait=1`: each part can be left out. With `fill=random` it is the quick start: a game of eight, this
  * page has one seat, the other seats decide at random, and the game starts at once.
  */
 export interface OnlineStart {
@@ -15,6 +15,8 @@ export interface OnlineStart {
   /** The number of seats, 2 to 8. Without it: what this browser used last. */
   players?: number;
   fill?: "random";
+  /** The wait of the seats that the server plays, in seconds (0 to 30). Without it: the server's. */
+  wait?: number;
 }
 
 export const DEFAULT_NICKNAME = "Player";
@@ -29,6 +31,7 @@ export function onlineStart(params: URLSearchParams): OnlineStart {
   const seed = Number(params.get("seed") || Number.NaN);
   const players = Number(params.get("players") || Number.NaN);
   const map = params.get("map");
+  const wait = Number(params.get("wait") || Number.NaN);
   const nickname = params.get("name")?.trim();
   return {
     ...(nickname ? { nickname } : {}),
@@ -36,6 +39,7 @@ export function onlineStart(params: URLSearchParams): OnlineStart {
     ...(map ? { map } : {}),
     ...(seats(players) ? { players } : {}),
     ...(params.get("fill") === "random" ? { fill: "random" as const } : {}),
+    ...(wait >= 0 && wait <= 30 ? { wait } : {}),
   };
 }
 
@@ -56,6 +60,9 @@ export function onlineAddress(start: OnlineStart = {}): string {
   }
   if (start.map) {
     params.set("map", start.map);
+  }
+  if (start.wait !== undefined) {
+    params.set("wait", String(start.wait));
   }
   const rest = params.toString();
   return rest ? `?online&${rest}` : "?online";
@@ -84,5 +91,6 @@ export function tableRequest(
     ...(start.seed === undefined ? {} : { seed: start.seed }),
     ...(start.map === undefined ? {} : { map: start.map }),
     ...(start.fill ? { fill: start.fill } : {}),
+    ...(start.wait === undefined ? {} : { waitMs: Math.round(start.wait * 1000) }),
   };
 }

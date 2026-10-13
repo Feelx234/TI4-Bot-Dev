@@ -51,11 +51,10 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       slots.has(entry.slot_id) ||
       entry.position !== index + 1 ||
       (entry.occupant !== null && !isPlayerId(entry.occupant)) ||
-      typeof entry.ready !== "boolean" ||
       typeof entry.connected !== "boolean" ||
       typeof entry.can_take_over !== "boolean" ||
       (entry.occupant === null
-        ? entry.nickname !== null || entry.ready || entry.connected || entry.can_take_over
+        ? entry.nickname !== null || entry.connected || entry.can_take_over
         : !validNickname(entry.nickname)) ||
       (entry.occupant !== null && players.has(entry.occupant))
     )
@@ -74,7 +73,6 @@ export function decodeLobby(value: unknown, expectedGameId: string): LobbyDto {
       position: entry.position,
       occupant: entry.occupant,
       nickname: entry.nickname,
-      ready: entry.ready,
       connected: entry.connected,
       can_take_over: entry.can_take_over,
       ...(typeof entry.bot === "string" && entry.occupant !== null ? { bot: entry.bot } : {}),

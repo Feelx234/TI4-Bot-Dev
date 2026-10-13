@@ -42,6 +42,35 @@ async fn create(base: &str, body: Value) -> (StatusCode, Value) {
     )
 }
 
+/// The preview is the board of the started game but for the homes: a home of the preview is the
+/// place of a seat, and the game has the home system of the faction that was drawn for it there.
+/// A faction may bring a tile that is not on the main map (the Ghosts of Creuss).
+fn assert_preview_is_the_board(preview: &Value, tiles: &Value) {
+    let game = tiles.as_array().expect("the tiles of the game");
+    let on_map = |tile: &&Value| tile.get("special_area").is_none();
+    let at = |tile: &Value| (tile["q"].as_i64().unwrap(), tile["r"].as_i64().unwrap());
+    let pictured = preview["tiles"]
+        .as_array()
+        .expect("the tiles of the preview");
+    assert_eq!(
+        pictured.iter().filter(on_map).count(),
+        game.iter().filter(on_map).count(),
+        "the main map has the same number of tiles"
+    );
+    for tile in pictured {
+        if tile["system_id"].as_str().unwrap().starts_with("seat_") {
+            let home = game
+                .iter()
+                .filter(on_map)
+                .find(|other| at(other) == at(tile))
+                .unwrap_or_else(|| panic!("the game has no tile at the place {tile}"));
+            assert_ne!(home["system_id"], tile["system_id"]);
+        } else {
+            assert!(game.contains(tile), "the game has another tile for {tile}");
+        }
+    }
+}
+
 async fn lobby(base: &str, players: usize) -> Lobby {
     let (status, created) = create(
         base,
@@ -201,9 +230,6 @@ async fn only_the_host_may_choose_and_only_before_start() {
         .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
-    for token in [&made.host, &guest] {
-        made.post_ok("/ready", token, json!({"ready": true})).await;
-    }
     made.post_ok("/start", &made.host, Value::Null).await;
     let (status, _) = made.choose(&made.host, json!({"kind": "random"})).await;
     assert_eq!(status, StatusCode::CONFLICT);
@@ -277,29 +303,28 @@ async fn the_lobby_preview_equals_the_started_games_board() {
         let (status, _) = made.choose(&made.host, map.clone()).await;
         assert_eq!(status, StatusCode::OK);
         let preview = made.get("/map-preview").await;
-        assert_eq!(preview["seats"].as_array().unwrap().len(), 4);
-        // The seats are dealt by the seed from the pool of 24, each once.
-        let dealt: std::collections::BTreeSet<&str> = preview["seats"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|seat| seat["faction"].as_str().unwrap())
-            .collect();
-        assert_eq!(dealt.len(), 4, "{preview}");
-        assert!(
-            dealt
+        // A seat of the preview is a place: who sits there, and with which faction, is drawn at
+        // the start, and nothing of it is told before.
+        let seats = preview["seats"].as_array().unwrap();
+        assert_eq!(seats.len(), 4);
+        for seat in seats {
+            assert!(seat.get("faction").is_none(), "{seat}");
+            assert!(seat.get("faction_name").is_none(), "{seat}");
+            let place = seat["home_system_id"].as_str().unwrap();
+            let tile = preview["tiles"]
+                .as_array()
+                .unwrap()
                 .iter()
-                .all(|f| ti4_engine::seating::LOBBY_FACTIONS.contains(f))
-        );
+                .find(|tile| tile["system_id"] == place)
+                .unwrap_or_else(|| panic!("no tile for {place}"));
+            assert!(tile.get("planets").is_none(), "{tile}");
+        }
 
         let mut tokens = vec![made.host.clone()];
         for _ in 0..3 {
             tokens.push(made.join().await);
         }
-        for token in &tokens {
-            made.post_ok("/ready", token, json!({"ready": true})).await;
-        }
-        // The picture does not change when people join and get ready.
+        // The picture does not change when people join.
         assert_eq!(made.get("/map-preview").await, preview);
         made.post_ok("/start", &made.host, Value::Null).await;
         let tiles: Value = made
@@ -311,7 +336,7 @@ async fn the_lobby_preview_equals_the_started_games_board() {
             .json()
             .await
             .unwrap();
-        assert_eq!(tiles, preview["tiles"], "{map}");
+        assert_preview_is_the_board(&preview, &tiles);
         assert_eq!(made.get("/map-preview").await, preview);
     }
 }
@@ -471,9 +496,6 @@ async fn a_chosen_map_survives_a_restart_and_the_started_game_matches_the_previe
     for _ in 0..2 {
         tokens.push(after.join().await);
     }
-    for token in &tokens {
-        after.post_ok("/ready", token, json!({"ready": true})).await;
-    }
     after.post_ok("/start", &after.host, Value::Null).await;
     let tiles: Value = reqwest::get(format!("{}/api/games/{}/map", after.base, after.id))
         .await
@@ -481,7 +503,7 @@ async fn a_chosen_map_survives_a_restart_and_the_started_game_matches_the_previe
         .json()
         .await
         .unwrap();
-    assert_eq!(tiles, preview["tiles"]);
+    assert_preview_is_the_board(&preview, &tiles);
     let _ = std::fs::remove_dir_all(path);
 }
 
@@ -554,9 +576,6 @@ async fn a_dev_start_preset_rides_along_with_the_choice_and_is_validated() {
     let mut tokens = vec![made.host.clone()];
     for _ in 0..2 {
         tokens.push(made.join().await);
-    }
-    for token in &tokens {
-        made.post_ok("/ready", token, json!({"ready": true})).await;
     }
     made.post_ok("/start", &made.host, Value::Null).await;
 }

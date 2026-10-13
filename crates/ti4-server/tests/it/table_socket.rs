@@ -218,9 +218,6 @@ async fn a_second_connection_is_told_every_change_of_the_lobby() {
             json!({"kind": "random", "fill": true}),
         )
         .await;
-    server
-        .post(&game, "ready", Some(&host), json!({"ready": true}))
-        .await;
     server.post(&game, "start", Some(&host), json!({})).await;
     let table = table_where(&mut watcher, |t| t["lobby"]["phase"] == "running").await;
     assert_eq!(nicknames(&table).len(), 4);

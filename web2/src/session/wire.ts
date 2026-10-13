@@ -12,6 +12,8 @@ export type ViewerRole = { role: "player"; seat: string } | { role: "spectator" 
 export type PublicTurnStatus =
   | { kind: "active_turn"; player: string; phase: string; round: number }
   | { kind: "waiting_for_decision"; seat: string; phase: string; round: number; stage: string }
+  /** A reaction window is open, or looks open. It names no seat: who can react is private. */
+  | { kind: "waiting_for_reactions"; phase: string; round: number }
   | { kind: "phase_transition"; phase: string; round: number }
   | { kind: "game_over"; winner?: string | null };
 
@@ -633,13 +635,23 @@ export interface ScriptStopped {
 
 /**
  * `ti4_server::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
- * `pending_choice` and `turn_status` (an update has both), `action_accepted`, `game_over` (the
- * update before it says so), `pong`, and the messages of the planning runner (`planning_update`,
- * `planning_status`, `planning_result`).
+ * `pending_choice` (an update has it), `action_accepted`, `game_over` (the update before it says
+ * so), `pong`, and the messages of the planning runner (`planning_update`, `planning_status`,
+ * `planning_result`).
  */
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & StateMsg)
   | ({ type: "state_update" } & StateMsg)
+  /**
+   * Who the game waits for, when nothing else of the game changed: a seat that the server plays
+   * takes its time over a decision.
+   */
+  | {
+      type: "turn_status";
+      protocol_version: number;
+      game_version: number;
+      status: PublicTurnStatus;
+    }
   | { type: "action_rejected"; protocol_version: number; reason: RejectionReason }
   | {
       type: "error";
@@ -700,7 +712,6 @@ export interface LobbySlot {
   /** The id of the player in the seat. Null: the seat is open. */
   occupant: string | null;
   nickname: string | null;
-  ready: boolean;
   connected: boolean;
   can_take_over: boolean;
   /** The server plays the seat: "random" or "smart" (the rule bot). */
@@ -735,13 +746,40 @@ export interface LobbyState {
   strategy_card_set: string;
   speaker_order: string;
   factions: string[];
+  /** How the seats are given at the start: "random" (drawn from the seed) or "join". */
+  seat_order: string;
+  /** The wait before each answer of a seat that the server plays, in milliseconds. */
+  bot_delay_ms: number;
+  /** The scenario that the game starts from. Absent: round 1. */
+  start_from?: string;
+}
+
+/** `ti4_server::session::table::SetupOptions`: what a host can choose, with the names. */
+export interface SetupOptions {
+  min_players: number;
+  max_players: number;
+  strategy_card_sets: {
+    id: string;
+    name: string;
+    /** The table plays this set when it names none. */
+    default: boolean;
+    /** The eight cards, by initiative. */
+    cards: { id: string; name: string; initiative: number }[];
+  }[];
+  faction_groups: { name: string; factions: { id: string; name: string }[] }[];
+  bot_kinds: { id: string; name: string; description: string }[];
+  max_bot_delay_ms: number;
+  default_bot_delay_ms: number;
+  /** `ti4_view::scenario::Scenario`: the games that a table can start from. */
+  scenarios: { id: string; title: string; description: string; seed: number; players: number }[];
 }
 
 /** `ti4_server::maps::MapPreview`: the board that the table will play. */
 export interface MapPreview {
   player_count: number;
   tiles: BoardTileView[];
-  seats: { seat: number; faction: string; faction_name: string; home_system_id: string }[];
+  /** The place of a seat: `home_system_id` is a tile of `tiles`, not a system of the game. */
+  seats: { seat: number; home_system_id: string }[];
 }
 
 /** `ti4_server::ws::table::TableServerMessage` */

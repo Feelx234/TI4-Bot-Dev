@@ -66,7 +66,12 @@ test("phone: the start screen and the lobby of eight seats with the long names",
   await page.screenshot({ path: "shots/phone/online/lobby-players.png", animations: "disabled" });
 
   await pane(page, "Setup").tap();
-  await expect(page.getByRole("region", { name: "Setup" })).toContainText("Players8");
+  // The host has the controls of the setup: a counter is under a finger.
+  const setup = page.getByRole("region", { name: "Setup" });
+  await expect(setup.getByLabel("Players", { exact: true })).toHaveText("8");
+  await expect(setup.getByLabel("Strategy cards", { exact: true })).toHaveValue("te");
+  await setup.getByRole("button", { name: "Wait more" }).tap();
+  await expect(setup.getByLabel("Bots wait", { exact: true })).toHaveText("0.5 s");
   await expect(main(page)).toBeInViewport();
   await fits(page);
   await page.screenshot({ path: "shots/phone/online/lobby-setup.png", animations: "disabled" });

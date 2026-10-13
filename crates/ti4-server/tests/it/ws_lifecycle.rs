@@ -120,16 +120,6 @@ async fn ready_and_start(client: &reqwest::Client, addr: &str, game_id: &str, to
             .unwrap();
         all_tokens.push(joined["player_session"].as_str().unwrap().to_owned());
     }
-    for token in &all_tokens {
-        let response = client
-            .post(format!("http://{addr}/api/games/{game_id}/lobby/ready"))
-            .header("x-ti4-player-session", token)
-            .json(&serde_json::json!({ "ready": true }))
-            .send()
-            .await
-            .expect("ready seat");
-        assert_eq!(response.status(), reqwest::StatusCode::OK);
-    }
     let response = client
         .post(format!("http://{addr}/api/games/{game_id}/lobby/start"))
         .header("x-ti4-player-session", tokens[0])
@@ -149,7 +139,7 @@ async fn create_game(
     let response = client
         .post(format!("http://{addr}/api/games"))
         .json(
-            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host" }),
+            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host", "seat_order": "join" }),
         )
         .send()
         .await
