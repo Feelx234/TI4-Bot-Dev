@@ -479,8 +479,29 @@ export type EventVisibility =
 export type GameEventKind =
   | { kind: "game_initialized"; round: number; phase: string; speaker: string }
   | { kind: "decision_resolved" }
+  | { kind: "dice_rolled" }
   | { kind: "phase_transition"; phase: string; round: number }
   | { kind: "game_finished"; winner?: string | null };
+
+/** One public die roll (a `dice_rolled` event): who rolled, what for, what showed, what it did. */
+export interface PublicRoll {
+  /** Position in the game's roll history; a replay of the same roll has the same index. */
+  index: number;
+  roller?: string;
+  /** The engine's tag ("gravity rift", "space combat"). */
+  reason: string;
+  /** The tag in words ("Gravity rift"). */
+  label: string;
+  faces: number[];
+  hits_on?: number;
+  hits?: number;
+  /** Positions of the dice that are rerolls. */
+  rerolled?: number[];
+  /** The rift exited, else the system in play. */
+  system?: string;
+  /** "ship destroyed", "2 hits". */
+  outcome?: string;
+}
 
 export type GameEvent = {
   /** Nested object on the wire; decode with `visibilityKind` (protocol/eventVisibility.ts). */
@@ -503,6 +524,8 @@ export type GameEvent = {
   detail?: string;
   private_detail?: string;
   movement?: { actor: string; origin: string; destination: string; unit: string };
+  /** Present on `dice_rolled` events. */
+  roll?: PublicRoll;
   event: GameEventKind;
 };
 

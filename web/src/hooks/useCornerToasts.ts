@@ -11,6 +11,7 @@ import {
   mergeActionToast,
   victoryPointToasts,
 } from "../presentation/actionToasts.ts";
+import { rollToasts, type RollToast } from "../presentation/rollToasts.ts";
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
 import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
@@ -51,6 +52,7 @@ export interface CornerToastsInput {
 const MAX_RECAPS = 2;
 const MAX_INVASION_TOASTS = 3;
 const MAX_AGENDA_TOASTS = 2;
+const MAX_ROLL_TOASTS = 3;
 
 const INVASION_TAGS: Record<InvasionToast["kind"], string> = {
   bombardment: "Bombardment",
@@ -92,6 +94,7 @@ export function useCornerToasts({
   const [actions, setActions] = useState<Shown[]>([]);
   const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
   const [agendaToastList, setAgendaToasts] = useState<AgendaToast[]>([]);
+  const [rollToastList, setRollToasts] = useState<RollToast[]>([]);
   const [notices, setNotices] = useState<{ id: string; text: string; tag: string }[]>([]);
   const tableRef = useRef(table);
   tableRef.current = table;
@@ -172,6 +175,12 @@ export function useCornerToasts({
     openTurn.current = turns.open;
     emitRecap(turns.closed);
     if (mutedRef.current) return;
+    // Dice are rolled in the open: everyone is told, the roller included.
+    const rolled = rollToasts(fresh, (seat) => displayRef.current(seat).label, board);
+    if (rolled.length > 0)
+      setRollToasts((prev) =>
+        [...prev.filter((t) => !rolled.some((n) => n.id === t.id)), ...rolled].slice(-MAX_ROLL_TOASTS),
+      );
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
     // Card plays and scoring always toast at once: the recap only names the acting player's own,
     // so another seat's Sabotage inside the turn would otherwise vanish.
@@ -308,6 +317,7 @@ export function useCornerToasts({
       setActions([]);
       setInvasionToasts([]);
       setAgendaToasts([]);
+      setRollToasts([]);
       setNotices([]);
     }
   }, [muted]);
@@ -325,6 +335,7 @@ export function useCornerToasts({
       setRecaps((prev) => prev.filter((r) => r.id !== id));
       setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
       setAgendaToasts((prev) => prev.filter((t) => t.id !== id));
+      setRollToasts((prev) => prev.filter((t) => t.id !== id));
       setNotices((prev) => prev.filter((t) => t.id !== id));
       dismissAction(id);
       dismissToast(id);
@@ -366,6 +377,16 @@ export function useCornerToasts({
           tag: "Agenda",
         }),
       ),
+      ...rollToastList.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "notice",
+          decisionType: "",
+          selectedValue: "",
+          text: t.text,
+          tag: "Dice",
+        }),
+      ),
       ...notices.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -388,7 +409,7 @@ export function useCornerToasts({
         }),
       ),
     ],
-    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, notices],
+    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, rollToastList, notices],
   );
 
   // Everything that was shown, kept so a toast that faded can be read again.

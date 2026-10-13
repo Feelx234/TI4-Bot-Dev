@@ -29,6 +29,59 @@ const wrap = (
   </PlayerIdentityProvider>
 );
 
+const rolled = (cursor: number, faces: number[], hitsOn?: number): GameLogEntry => ({
+  id: `roll-${cursor}-${faces.join("")}`,
+  timestamp: "12:00",
+  visibility: { visibility: "public" as const },
+  decision_count: cursor,
+  round: 1,
+  phase: "action",
+  actor: "p1",
+  detail: "p1 rolled Gravity rift in system 67: 2 (ship destroyed)",
+  event: { kind: "dice_rolled" },
+  roll: {
+    index: 0,
+    roller: "p1",
+    reason: "gravity rift",
+    label: "Gravity rift",
+    faces,
+    hits_on: hitsOn,
+    system: "67",
+    outcome: "ship destroyed",
+  },
+});
+
+describe("dice rolls in the event log", () => {
+  it("lists a roll as its own line with the faces, hits marked, and nothing to undo", () => {
+    const entries = [decision(1), rolled(1, [2, 9], 4), decision(2)];
+    render(
+      wrap(entries, {
+        onRestore: vi.fn(),
+        currentPath: { round: 1, phase: "action", action_id: "action_1", stage: "movement" },
+      }),
+    );
+    const row = screen.getByTestId("event-log-roll");
+    expect(row).toHaveTextContent("Gravity rift in system 67");
+    expect(row).toHaveTextContent("ship destroyed");
+    const dice = row.querySelectorAll(".event-log__die");
+    expect([...dice].map((d) => [d.textContent, d.getAttribute("data-hit")])).toEqual([
+      ["2", "no"],
+      ["9", "yes"],
+    ]);
+    expect(row.querySelector(".event-log__undo")).toBeNull();
+    // The decisions around it keep their undo buttons and are not merged with it.
+    expect(screen.getAllByTestId("event-log-entry")).toHaveLength(2);
+    expect(screen.getAllByRole("button", { name: /Undo from decision/ })).toHaveLength(2);
+  });
+
+  it("keeps a roll between the decisions it happened between, without ending the action", () => {
+    const tree = buildEventTree([decision(1), rolled(1, [2], 4), decision(2, "movement")]);
+    const phase = tree[0].children[0];
+    expect(phase.children.map((n) => n.kind)).toEqual(["marker", "marker", "decision", "roll", "decision"]);
+    expect(phase.count).toBe(2);
+  });
+});
+
 describe("hierarchical event log", () => {
   it("disables undo and redo with the reason while a history change is running", () => {
     const entries = [decision(1)];
