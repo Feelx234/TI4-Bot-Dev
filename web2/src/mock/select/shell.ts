@@ -86,6 +86,7 @@ function toolbar(world: World, state: State): ToolbarView {
   const draft = state.mode === "draft" && world.mode === "draft";
   return {
     round: 3,
+    turn: 2,
     phase: "Action phase",
     status: statusText(world, state),
     workspace: world.mode,

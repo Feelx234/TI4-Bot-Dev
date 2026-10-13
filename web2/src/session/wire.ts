@@ -151,6 +151,8 @@ export interface TableView {
 /** `ti4_view::view::GameView` */
 export interface GameView {
   round: number;
+  /** The turn of the action phase, from 1; 0 in the other phases. */
+  turn: number;
   phase: string;
   speaker: string;
   seating_order: string[];

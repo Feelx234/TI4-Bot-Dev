@@ -58,6 +58,7 @@ export function Toolbar({
       <div className="flex min-w-0 flex-col text-xs leading-[1.3] text-muted phone:flex-1">
         <span>
           Round {view.round} · {view.phase}
+          {view.turn > 0 && ` · Turn ${view.turn}`}
         </span>
         <strong className="truncate text-sm font-semibold text-text">
           <i className="mr-1.5 mb-0.5 inline-block size-1.5 rounded-full bg-accent" />

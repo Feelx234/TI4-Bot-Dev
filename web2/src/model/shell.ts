@@ -7,6 +7,8 @@ export type Workspace = "live" | "draft" | "history";
 
 export interface ToolbarView {
   round: number;
+  /** The turn of the action phase (LRR 3), from 1; 0 outside the action phase. */
+  turn: number;
   phase: string;
   /** "Tactical action complete", or what the game waits for. */
   status: string;

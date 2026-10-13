@@ -107,6 +107,7 @@ export function selectShell(
         : "live",
     toolbar: {
       round: update.view.round,
+      turn: update.view.turn,
       phase: phaseName(update.view.phase),
       status: status(update, local, printed),
       workspace: local.draft ? "draft" : "live",

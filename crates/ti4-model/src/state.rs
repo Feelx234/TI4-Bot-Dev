@@ -1342,6 +1342,11 @@ pub struct GameState {
     /// increment between Fleet Logistics' first and second actions, because those are
     /// explicitly the same turn.
     pub turn_seq: u32,
+    /// The turn of the action phase (LRR 3): 1 for the first player's turn, 2 for the next
+    /// player's, and so on, counting every player's turn through the phase. Zero before the
+    /// first turn. Unlike [`GameState::turn_seq`] it restarts with each action phase.
+    #[serde(default)]
+    pub action_turn: u32,
     /// Allocator for typed secret-objective trigger occurrences.
     ///
     /// This sequence affects replay-visible event identity and is included in structural equality.
@@ -1636,6 +1641,7 @@ impl PartialEq for GameState {
             && self.production_seq == other.production_seq
             && self.activation_seq == other.activation_seq
             && self.turn_seq == other.turn_seq
+            && self.action_turn == other.action_turn
             && self.feat_occurrence_seq == other.feat_occurrence_seq
             && self.scored_feat_occurrences == other.scored_feat_occurrences
             && self.combat_draw_round == other.combat_draw_round
@@ -1779,6 +1785,7 @@ impl GameState {
             negotiations_this_action: BTreeMap::new(),
             negotiations_this_round: BTreeMap::new(),
             turn_seq: 0,
+            action_turn: 0,
             feat_occurrence_seq: 0,
             scored_feat_occurrences: BTreeSet::new(),
             vp_ledger: Vec::new(),

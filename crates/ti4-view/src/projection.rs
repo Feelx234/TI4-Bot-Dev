@@ -680,6 +680,11 @@ pub fn project_game_view_full(
 
     GameView {
         round: redacted.round,
+        turn: if redacted.phase == ti4_model::state::Phase::Action {
+            redacted.action_turn
+        } else {
+            0
+        },
         phase: redacted.phase,
         speaker: redacted.speaker.clone(),
         seating_order: redacted.seating_order.clone(),

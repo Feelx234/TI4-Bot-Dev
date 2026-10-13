@@ -284,6 +284,9 @@ pub struct TableView {
 #[serde(deny_unknown_fields)]
 pub struct GameView {
     pub round: u32,
+    /// The turn of the action phase (LRR 3), counted from 1; zero outside it.
+    #[serde(default)]
+    pub turn: u32,
     pub phase: Phase,
     pub speaker: PlayerId,
     pub seating_order: Vec<PlayerId>,

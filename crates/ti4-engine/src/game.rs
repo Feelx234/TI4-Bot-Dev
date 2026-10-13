@@ -8364,6 +8364,7 @@ mod tests {
         expected.active_system = None;
         expected.pending = None;
         expected.turn_seq += 1;
+        expected.action_turn += 1;
         expected.activation_seq += 1;
         expected.combat_round_seq += 1;
         expected.production_seq += 1;
