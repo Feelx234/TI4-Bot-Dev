@@ -6,6 +6,7 @@ import {
   SideLimits,
   isStagedEmpty,
   nearestDeals,
+  proposalId,
   sideLines,
   stagedToDealId,
   stagingLimits,
@@ -24,8 +25,10 @@ const Stepper: React.FC<{
   testId: string;
   value: number;
   max: number;
+  /** Any amount up to the purse is allowed, so the hint says so instead of "listed up to". */
+  freeForm?: boolean;
   onChange: (n: number) => void;
-}> = ({ label, testId, value, max, onChange }) => (
+}> = ({ label, testId, value, max, freeForm, onChange }) => (
   <div className="trade-stepper" role="group" aria-label={label} data-testid={testId}>
     <span className="trade-stepper__label">{label}</span>
     <div className="trade-stepper__controls">
@@ -52,7 +55,7 @@ const Stepper: React.FC<{
       >
         +
       </button>
-      <span className="trade-stepper__hint">listed up to {max}</span>
+      <span className="trade-stepper__hint">{freeForm ? `any amount up to ${max}` : `listed up to ${max}`}</span>
     </div>
   </div>
 );
@@ -91,6 +94,8 @@ interface ColumnProps {
   limits: SideLimits;
   held?: Holdings | null;
   heldLabel?: string;
+  /** Free-form deals: any amount the purse covers, not only what the list reaches. */
+  freeForm?: boolean;
   onChange: (side: StagedSide) => void;
 }
 
@@ -103,6 +108,7 @@ const Column: React.FC<ColumnProps> = ({
   limits,
   held,
   heldLabel,
+  freeForm,
   onChange,
 }) => {
   const set = (patch: Partial<StagedSide>) => onChange({ ...side, ...patch });
@@ -118,8 +124,10 @@ const Column: React.FC<ColumnProps> = ({
   const secrets = withStaged(limits.secrets, [side.secret]);
   const fragments = withStaged(limits.fragments, side.fragments);
   const hasSupport = limits.support || side.support;
-  const maxTg = Math.max(limits.maxTradeGoods, side.tradeGoods);
-  const maxCm = Math.max(limits.maxCommodities, side.commodities);
+  // Free-form: the purse is the only limit (both purses are public), so the steppers show even
+  // when the list reaches no amount of that kind.
+  const maxTg = Math.max(freeForm && held ? held.tradeGoods : limits.maxTradeGoods, side.tradeGoods);
+  const maxCm = Math.max(freeForm && held ? held.commodities : limits.maxCommodities, side.commodities);
   // The seat's own purse caps what it can give; the partner's is only a hint, the list is the limit.
   const capTg = type === "offer" && held ? Math.max(Math.min(maxTg, held.tradeGoods), side.tradeGoods) : maxTg;
   const capCm = type === "offer" && held ? Math.max(Math.min(maxCm, held.commodities), side.commodities) : maxCm;
@@ -149,6 +157,7 @@ const Column: React.FC<ColumnProps> = ({
           testId={`${testId}-tg`}
           value={side.tradeGoods}
           max={capTg}
+          freeForm={freeForm}
           onChange={(n) => set({ tradeGoods: n })}
         />
       )}
@@ -158,6 +167,7 @@ const Column: React.FC<ColumnProps> = ({
           testId={`${testId}-cm`}
           value={side.commodities}
           max={capCm}
+          freeForm={freeForm}
           onChange={(n) => set({ commodities: n })}
         />
       )}
@@ -234,6 +244,8 @@ export interface TradeStagingDeskProps {
   partnerFaction?: string | null;
   myHoldings?: Holdings | null;
   partnerHoldings?: Holdings | null;
+  /** The decision accepts a deal built from any amounts (`details.free_form`). */
+  freeForm?: boolean;
   /** Shown above the columns, e.g. that a counter-offer was pre-filled. */
   banner?: React.ReactNode;
 }
@@ -246,10 +258,12 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
   partnerFaction,
   myHoldings,
   partnerHoldings,
+  freeForm = false,
   banner,
 }) => {
   const limits = React.useMemo(() => stagingLimits(deals), [deals]);
   const matchId = stagedToDealId(staged, deals);
+  const freeId = freeForm ? proposalId(staged, deals, true, myHoldings, partnerHoldings) : null;
   const match = matchId ? (deals.find((d) => d.id === matchId) ?? null) : null;
   const suggestions = React.useMemo(
     () => (match || isStagedEmpty(staged) ? [] : nearestDeals(staged, deals, 3)),
@@ -270,6 +284,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
           limits={limits.give}
           held={myHoldings}
           heldLabel="You hold"
+          freeForm={freeForm}
           onChange={(give) => onChange({ ...staged, give })}
         />
         <Column
@@ -281,6 +296,7 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
           limits={limits.receive}
           held={partnerHoldings}
           heldLabel="They hold"
+          freeForm={freeForm}
           onChange={(receive) => onChange({ ...staged, receive })}
         />
       </div>
@@ -288,8 +304,9 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
       <div className="trade-desk__status" role="status" aria-live="polite" data-testid="stage-status">
         {isStagedEmpty(staged) ? (
           <p data-testid="stage-status-empty">
-            Stage what you give and what you want in return. The Propose button lights up when the
-            combination is one the server lists.
+            {freeForm
+              ? "Stage what you give and what you want in return, in any amounts you and your partner hold. Neither side has to match."
+              : "Stage what you give and what you want in return. The Propose button lights up when the combination is one the server lists."}
           </p>
         ) : match ? (
           <div data-testid="stage-status-valid" className="trade-desk__valid">
@@ -305,13 +322,19 @@ export const TradeStagingDesk: React.FC<TradeStagingDeskProps> = ({
               </span>
             )}
           </div>
+        ) : freeId ? (
+          <div data-testid="stage-status-custom" className="trade-desk__valid">
+            <strong>Ready to propose.</strong> A custom deal: {sideLines(staged.give).join(", ") || "nothing"}{" "}
+            for {sideLines(staged.receive).join(", ") || "nothing"}. Its value is not rated; your partner
+            decides.
+          </div>
         ) : (
           <div data-testid="stage-status-invalid" className="trade-desk__invalid">
             <p>
               <strong>This combination isn&apos;t available right now.</strong>
             </p>
             <ul>
-              {whyNoDeal(staged, deals).map((reason) => (
+              {whyNoDeal(staged, deals, freeForm, myHoldings, partnerHoldings).map((reason) => (
                 <li key={reason}>{reason}</li>
               ))}
             </ul>

@@ -153,7 +153,7 @@ impl StrictDecider {
                 ));
             }
         }
-        if choice.option(&record.chosen).is_none() {
+        if choice.answer_for(&record.chosen).is_none() {
             return Err(conflict(
                 ConflictKind::ChosenNotOffered,
                 format!("{:?} is not on offer", record.chosen),
@@ -217,9 +217,8 @@ impl Decider for StrictDecider {
                 }
                 shared.accepted += 1;
                 Ok(choice
-                    .option(&record.chosen)
-                    .expect("checked on offer")
-                    .clone())
+                    .answer_for(&record.chosen)
+                    .expect("checked on offer"))
             }
             Err(conflict) => {
                 let reason = format!("splice conflict: {:?}", conflict.kind);

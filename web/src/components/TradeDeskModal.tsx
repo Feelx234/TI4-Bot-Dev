@@ -14,6 +14,7 @@ import {
   Staged,
   emptyStaged,
   parseOfferPrompt,
+  proposalId,
   stageableDeals,
   stagedToDealId,
 } from "../presentation/tradeStaging.ts";
@@ -113,6 +114,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   }, [choice?.nonce, isAnswering, partnerSeat]);
 
   const currentTabOffers = decodedOffers.filter((o) => o.category === activeTab);
+  const freeForm = typeof choice?.details?.free_form === "string";
   const selectedId = stagedToDealId(staged, deals);
   const offered = useMemo(
     () => (choice && isAnswering ? parseOfferPrompt(choice.prompt) : null),
@@ -124,6 +126,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
   const holdings = (p?: PlayerView) =>
     p ? { tradeGoods: p.trade_goods, commodities: p.commodities } : null;
   const partnerLabel = partnerSeat ? display(partnerSeat).label : "your partner";
+  const submitId = proposalId(staged, deals, freeForm, holdings(viewer), holdings(partner));
   const acceptNet = choice?.options.find((o) => o.id === "accept")?.payload?.net;
 
   if (!isOpen || !choice) return null;
@@ -243,6 +246,7 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                       partnerFaction={partner?.faction ?? null}
                       myHoldings={holdings(viewer)}
                       partnerHoldings={holdings(partner)}
+                      freeForm={freeForm}
                       banner={
                         prefilled ? (
                           <p className="trade-desk__note" data-testid="counter-prefill-note">
@@ -331,11 +335,11 @@ export const TradeDeskModal: React.FC<TradeDeskModalProps> = ({
                         type="button"
                         data-testid="propose-trade-btn"
                         onClick={() => {
-                          if (!selectedId) return;
+                          if (!submitId) return;
                           rememberProposal(partnerSeat);
-                          void submitDirect(selectedId);
+                          void submitDirect(submitId);
                         }}
-                        disabled={!selectedId || isSubmitting}
+                        disabled={!submitId || isSubmitting}
                         className="button button--primary"
                       >
                         {isSubmitting ? "Proposing..." : "Propose Deal"}
