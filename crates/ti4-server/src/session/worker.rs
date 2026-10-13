@@ -110,6 +110,8 @@ pub struct SessionShared {
     pub replaying: bool,
     pub redo_events: Vec<GameEvent>,
     pub replay_complete: bool,
+    /// How many of the game's rolls the worker has already shown (see `record_rolls`).
+    pub rolls_seen: usize,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
     /// Forced random positions of a timeline made by a turn redo, by decision index.
@@ -301,6 +303,7 @@ impl SessionShared {
             redo_decisions: Vec::new(),
             history_active: false,
             replaying: false,
+            rolls_seen: 0,
             redo_events: Vec::new(),
             replay_complete: false,
             history_generation: 0,
@@ -453,7 +456,14 @@ impl SessionShared {
             movement,
             seat_detail,
             private_detail: None,
+            roll: None,
         };
+        self.push_event(entry)
+    }
+
+    /// Record and broadcast `entry`: persisted in the append-only log unless the history file
+    /// carries the timeline, kept in memory, and sent to every subscriber that may see it.
+    fn push_event(&mut self, entry: GameEvent) -> Result<(), String> {
         if !self.history_active
             && let Some(store) = &self.store
         {
@@ -485,6 +495,59 @@ impl SessionShared {
                         .is_ok()
                 })
         });
+        Ok(())
+    }
+
+    /// Publish die rolls as public events, each once: a roll whose history index already has an
+    /// event (a replay after a restart, a batch that recorded its own) is skipped.
+    ///
+    /// Reads the engine's roll history only; nothing here can reach back into the game.
+    pub fn record_rolls(
+        &mut self,
+        rolls: Vec<crate::protocol::server::PublicRoll>,
+        version: Option<u64>,
+    ) -> Result<(), String> {
+        for roll in rolls {
+            if self
+                .event_log
+                .iter()
+                .any(|event| event.roll.as_ref().is_some_and(|known| known.index == roll.index))
+            {
+                continue;
+            }
+            // The cursor the history file validates: decisions resolved so far.
+            let cursor = self
+                .event_log
+                .iter()
+                .filter(|event| matches!(event.event, GameEventKind::DecisionResolved))
+                .count();
+            self.event_counter += 1;
+            let entry = GameEvent {
+                id: format!("{}-{}", self.game_id, self.event_counter),
+                timestamp: current_utc_time_string(),
+                version,
+                visibility: EventVisibility::Public,
+                event: GameEventKind::DiceRolled,
+                decision_count: Some(cursor),
+                batch_id: None,
+                batch_start_cursor: None,
+                batch_end_cursor: None,
+                action_id: None,
+                action_start_cursor: None,
+                actor: roll.roller.clone(),
+                round: Some(self.latest_state.round),
+                phase: Some(self.latest_state.phase),
+                action_type: None,
+                action_actor: None,
+                stage: None,
+                detail: Some(roll.describe()),
+                movement: None,
+                seat_detail: None,
+                private_detail: None,
+                roll: Some(roll),
+            };
+            self.push_event(entry)?;
+        }
         Ok(())
     }
 
@@ -1243,6 +1306,9 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         // A nested engine step can offer (and accept) live decisions before the
         // replay step returns. They still need to be published and persisted.
         let mut prev_decision_count = prior_count;
+        // How much of the game's roll history is already public: whatever a replay or a resumed
+        // copy rolled before this point happened before the players' current view of the game.
+        let mut rolls_seen = game.rolls().len();
 
         'worker: loop {
             // Check stop signal
@@ -1444,6 +1510,31 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
                     }
                     prev_decision_count = game.table.log.records.len();
                     *published_count.lock().expect("published count lock") = prev_decision_count;
+                }
+                // Dice rolled by this step are public. Read from the engine's history after the
+                // fact; a replay of recorded decisions (restart, rewind) rolled them before.
+                let rolled = game.rolls().len();
+                rolls_seen = rolls_seen.min(rolled);
+                lock.rolls_seen = rolls_seen;
+                if rolled > rolls_seen {
+                    let replaying = !prior_queue.lock().expect("prior queue lock").is_empty();
+                    if !replaying {
+                        let active = game.state.active_system.as_ref().map(|id| id.as_str());
+                        let fresh: Vec<_> = game.rolls()[rolls_seen..]
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(offset, roll)| {
+                                crate::protocol::server::public_roll(rolls_seen + offset, roll, active)
+                            })
+                            .collect();
+                        let version = lock.game_version;
+                        if let Err(error) = lock.record_rolls(fresh, Some(version)) {
+                            lock.error = Some(error);
+                            break 'worker;
+                        }
+                    }
+                    rolls_seen = rolled;
+                    lock.rolls_seen = rolled;
                 }
                 if !lock.history_active
                     && game.table.log.records.len() - lock.snapshot_decision_count >= 32

@@ -147,6 +147,8 @@ pub enum GameEventKind {
         speaker: PlayerId,
     },
     DecisionResolved,
+    /// A die roll the table would see: gravity rifts, combat, abilities. Carries [`GameEvent::roll`].
+    DiceRolled,
     PhaseTransition {
         phase: Phase,
         round: u32,
@@ -200,6 +202,119 @@ pub struct GameEvent {
     /// Only populated on the acting seat's projected copy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub private_detail: Option<String>,
+    /// The roll behind a [`GameEventKind::DiceRolled`] event. Public: dice are rolled in the open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roll: Option<PublicRoll>,
+}
+
+/// One public die roll: who rolled, what for, what showed, and what it did.
+///
+/// Built from the engine's roll history after the fact, so publishing it cannot change any
+/// decision or draw. Rolls that decide hidden information (which card Spy takes) are not made
+/// public; see [`public_roll`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PublicRoll {
+    /// Position in the game's roll history. A restart replays the same rolls; this is how the
+    /// replay is told apart from a new roll.
+    pub index: usize,
+    /// Whose dice these are, when the engine said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub roller: Option<PlayerId>,
+    /// The engine's tag for the roll ("gravity rift", "space combat").
+    pub reason: String,
+    /// The tag in words.
+    pub label: String,
+    pub faces: Vec<u32>,
+    /// The face a die needs to hit, for hit rolls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits_on: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hits: Option<u32>,
+    /// Positions of the dice that are rerolls.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rerolled: Vec<usize>,
+    /// The system it happened in: a rift exited on the way, else the active system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system: Option<String>,
+    /// What it did ("ship destroyed", "2 hits").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+}
+
+/// Rolls whose face decides a hidden draw. Showing the die would show which card was taken.
+const HIDDEN_ROLLS: [&str; 1] = ["spy"];
+
+fn roll_label(reason: &str) -> String {
+    let words = reason.replace('_', " ");
+    let mut chars = words.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
+}
+
+/// The public face of roll number `index`, or `None` when it is internal bookkeeping or settles
+/// hidden information. `active` is the active system when the engine named none.
+#[must_use]
+pub fn public_roll(
+    index: usize,
+    roll: &ti4_engine::dice::Roll,
+    active: Option<&str>,
+) -> Option<PublicRoll> {
+    let reason = roll.reason.split(':').next().unwrap_or(&roll.reason);
+    if roll.faces.is_empty()
+        || HIDDEN_ROLLS.contains(&reason)
+        || reason.contains("rollback")
+        || reason.contains("probe")
+    {
+        return None;
+    }
+    let hits = roll.hits_on.map(|_| u32::try_from(roll.hits()).unwrap_or(u32::MAX));
+    let outcome = roll.outcome.clone().or_else(|| {
+        hits.map(|hits| match hits {
+            0 => "no hits".to_owned(),
+            1 => "1 hit".to_owned(),
+            n => format!("{n} hits"),
+        })
+    });
+    Some(PublicRoll {
+        index,
+        roller: roll.by.as_deref().map(PlayerId::new),
+        reason: roll.reason.clone(),
+        label: roll_label(reason),
+        faces: roll.faces.clone(),
+        hits_on: roll.hits_on,
+        hits,
+        rerolled: roll.rerolled.iter().copied().collect(),
+        system: roll.system.clone().or_else(|| active.map(str::to_owned)),
+        outcome,
+    })
+}
+
+impl PublicRoll {
+    /// The event-log line: `p1 rolled Gravity rift in system 25: 2 (ship destroyed)`.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        let faces = self
+            .faces
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        let who = self
+            .roller
+            .as_ref()
+            .map_or_else(|| "The game".to_owned(), ToString::to_string);
+        let place = self
+            .system
+            .as_ref()
+            .map_or_else(String::new, |system| format!(" in system {system}"));
+        let outcome = self
+            .outcome
+            .as_ref()
+            .map_or_else(String::new, |outcome| format!(" ({outcome})"));
+        format!("{who} rolled {}{place}: {faces}{outcome}", self.label)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -835,6 +950,106 @@ pub struct MovementFact {
 }
 
 #[cfg(test)]
+mod roll_tests {
+    use super::*;
+    use std::collections::BTreeSet;
+    use ti4_engine::dice::Roll;
+
+    fn roll(reason: &str, faces: &[u32], hits_on: Option<u32>) -> Roll {
+        Roll {
+            reason: reason.to_owned(),
+            faces: faces.to_vec(),
+            hits_on,
+            rerolled: BTreeSet::new(),
+            by: Some("p1".to_owned()),
+            system: None,
+            outcome: None,
+        }
+    }
+
+    #[test]
+    fn a_gravity_rift_roll_says_who_what_for_the_die_the_system_and_the_outcome() {
+        let mut rift = roll("gravity rift", &[2], Some(4));
+        rift.system = Some("67".to_owned());
+        rift.outcome = Some("ship destroyed".to_owned());
+        let public = public_roll(5, &rift, Some("01")).unwrap();
+        assert_eq!(public.index, 5);
+        assert_eq!(public.roller, Some(PlayerId::new("p1")));
+        assert_eq!(public.label, "Gravity rift");
+        assert_eq!(public.faces, vec![2]);
+        assert_eq!(public.system.as_deref(), Some("67"), "the rift, not the active system");
+        assert_eq!(public.describe(), "p1 rolled Gravity rift in system 67: 2 (ship destroyed)");
+    }
+
+    #[test]
+    fn hit_rolls_count_their_hits_and_default_to_the_active_system() {
+        let public = public_roll(0, &roll("space combat", &[8, 3, 10], Some(7)), Some("18")).unwrap();
+        assert_eq!(public.hits, Some(2));
+        assert_eq!(public.outcome.as_deref(), Some("2 hits"));
+        assert_eq!(public.system.as_deref(), Some("18"));
+        let miss = public_roll(1, &roll("space combat", &[1], Some(7)), None).unwrap();
+        assert_eq!(miss.outcome.as_deref(), Some("no hits"));
+        assert_eq!(miss.system, None);
+        let anti_fighter = public_roll(2, &roll("anti-fighter barrage", &[9], Some(9)), None).unwrap();
+        assert_eq!(anti_fighter.label, "Anti-fighter barrage");
+        assert_eq!(anti_fighter.outcome.as_deref(), Some("1 hit"));
+    }
+
+    #[test]
+    fn rerolls_report_which_dice_were_replaced() {
+        let mut again = roll("space combat:reroll", &[9, 2], Some(7));
+        again.rerolled = BTreeSet::from([1]);
+        let public = public_roll(3, &again, None).unwrap();
+        assert_eq!(public.rerolled, vec![1]);
+        assert_eq!(public.label, "Space combat");
+    }
+
+    #[test]
+    fn hidden_draws_and_bookkeeping_rolls_are_not_public() {
+        // Spy's die picks a card from a hand: showing it would show which card.
+        assert!(public_roll(0, &roll("spy", &[3], None), None).is_none());
+        assert!(public_roll(0, &roll("strict rollback", &[3], None), None).is_none());
+        assert!(public_roll(0, &roll("space combat", &[], Some(7)), None).is_none());
+    }
+
+    #[test]
+    fn a_roll_event_round_trips_and_is_visible_to_every_viewer() {
+        let public = public_roll(0, &roll("ambush", &[10, 4], Some(8)), Some("75")).unwrap();
+        let event = GameEvent {
+            id: "g-1".into(),
+            timestamp: String::new(),
+            version: Some(1),
+            visibility: EventVisibility::Public,
+            event: GameEventKind::DiceRolled,
+            decision_count: Some(0),
+            batch_id: None,
+            batch_start_cursor: None,
+            batch_end_cursor: None,
+            action_id: None,
+            action_start_cursor: None,
+            actor: public.roller.clone(),
+            round: None,
+            phase: None,
+            action_type: None,
+            action_actor: None,
+            stage: None,
+            detail: Some(public.describe()),
+            movement: None,
+            seat_detail: None,
+            private_detail: None,
+            roll: Some(public),
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["event"]["kind"], "dice_rolled");
+        assert_eq!(json["roll"]["faces"], serde_json::json!([10, 4]));
+        assert_eq!(serde_json::from_value::<GameEvent>(json).unwrap(), event);
+        for viewer in [ViewerRole::Spectator, ViewerRole::Player(PlayerId::new("p2"))] {
+            assert_eq!(event.for_viewer(&viewer).unwrap().roll, event.roll);
+        }
+    }
+}
+
+#[cfg(test)]
 mod fact_tests {
     use super::*;
     use ti4_engine::choice::DecisionRecord;
@@ -1332,6 +1547,7 @@ mod fact_tests {
             movement: None,
             seat_detail,
             private_detail: None,
+            roll: None,
         };
         let actor = event
             .for_viewer(&ViewerRole::Player(PlayerId::new("p1")))

@@ -533,13 +533,18 @@ pub fn survives_gravity_rifts(
     if rules.anomalies_ignored || rules.rifts_ignored {
         return true;
     }
-    for _ in rifts_exited(rules, path) {
+    for system in rifts_exited(rules, path) {
         let roll = dice.roll(rng, 1, "gravity rift", Some(RIFT_DESTROYS_ON + 1));
-        if roll
+        let destroyed = roll
             .faces
             .first()
-            .is_some_and(|face| *face <= RIFT_DESTROYS_ON)
-        {
+            .is_some_and(|face| *face <= RIFT_DESTROYS_ON);
+        // For the public roll feed: which rift, and what the die did to the ship.
+        dice.annotate_last(
+            Some(&system),
+            Some(if destroyed { "ship destroyed" } else { "ship survives" }),
+        );
+        if destroyed {
             return false;
         }
     }
@@ -1580,6 +1585,36 @@ mod tests {
             assert_eq!(dice.count(), 1, "exactly one die per rift exited");
         }
         assert!(survived > 0 && lost > 0, "{survived} survived, {lost} lost");
+    }
+
+    #[test]
+    fn a_rift_roll_names_its_rift_and_what_the_die_did() {
+        // The public roll feed reads these; they are notes on a die already rolled.
+        let (galaxy, rift, ids) = rift_setup();
+        let rules = MovementRules::new(
+            &galaxy,
+            ContentStore::embedded(),
+            POK,
+            &ids[0],
+            Board::default(),
+        );
+        let path = vec![rift.clone(), ids[0].clone()];
+        for seed in 0..30_u64 {
+            let mut dice = Dice::new();
+            let mut rng = GameRng::new(seed);
+            let survives = survives_gravity_rifts(&mut dice, &mut rng, &rules, &path);
+            let roll = &dice.history()[0];
+            assert_eq!(roll.system.as_deref(), Some(rift.as_str()));
+            assert_eq!(
+                roll.outcome.as_deref(),
+                Some(if survives { "ship survives" } else { "ship destroyed" })
+            );
+            // Notes are not draws: the same seed rolls the same faces without them.
+            let mut plain = Dice::new();
+            let mut plain_rng = GameRng::new(seed);
+            let bare = plain.roll(&mut plain_rng, 1, "gravity rift", Some(RIFT_DESTROYS_ON + 1));
+            assert_eq!(bare.faces, roll.faces);
+        }
     }
 
     #[test]

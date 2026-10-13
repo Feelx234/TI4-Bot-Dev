@@ -652,3 +652,69 @@ fn test_launch_score_objective_imperial_scenario() {
     let scored = updated.view.table.scored_objectives.get(&seat);
     assert!(scored.is_some_and(|objs| objs.contains(&ti4_model::id::ObjectiveId::new("lead"))));
 }
+
+/// Dice are public: the combat rolls of a live game reach the event log as `DiceRolled` events
+/// naming who rolled, what for, the faces and the outcome, and each roll appears once.
+#[test]
+fn combat_rolls_are_published_once_as_public_events() {
+    use ti4_server::protocol::server::{EventVisibility, GameEventKind};
+    let registry = Arc::new(GameRegistry::new());
+    let launched = execute_launch_scenario(&registry, "ongoing_combat", Some(42)).unwrap();
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
+    let session = registry.get_game(&launched.game_id).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    let rolls = loop {
+        let rolls: Vec<_> = session
+            .event_log()
+            .into_iter()
+            .filter(|event| matches!(event.event, GameEventKind::DiceRolled))
+            .collect();
+        if rolls.len() >= 2 {
+            break rolls;
+        }
+        let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
+        if let Some(pending) = snapshot.pending_choice.as_ref() {
+            // Decline every reaction and stay in the fight; that is enough to roll the dice.
+            let option = pending
+                .choice
+                .options
+                .iter()
+                .find(|o| o.id == "decline" || o.id == "stay" || o.id == "fight")
+                .unwrap_or(&pending.choice.options[0]);
+            let _ = session.submit_choice(&seat, &pending.nonce, snapshot.game_version, &option.id);
+        }
+        assert!(std::time::Instant::now() < deadline, "no dice were published");
+        thread::sleep(Duration::from_millis(5));
+    };
+    let indexes: Vec<usize> = rolls
+        .iter()
+        .map(|event| event.roll.as_ref().expect("a roll event carries its roll").index)
+        .collect();
+    let mut unique = indexes.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), indexes.len(), "each roll is published once: {indexes:?}");
+    for event in &rolls {
+        let roll = event.roll.as_ref().unwrap();
+        assert_eq!(event.visibility, EventVisibility::Public);
+        assert!(roll.roller.is_some(), "combat dice say whose they are");
+        assert!(
+            matches!(roll.reason.as_str(), "space combat" | "anti-fighter barrage"),
+            "{}",
+            roll.reason
+        );
+        assert!(!roll.faces.is_empty());
+        assert!(roll.system.is_some(), "and which system they were rolled in");
+        assert!(roll.outcome.is_some());
+        let detail = event.detail.as_deref().unwrap();
+        assert!(detail.contains(&format!("rolled {}", roll.label)), "{detail}");
+    }
+    // A spectator sees them too.
+    let seen = session.get_snapshot(&ViewerRole::Spectator);
+    assert!(
+        seen.events
+            .iter()
+            .any(|event| matches!(event.event, GameEventKind::DiceRolled)),
+        "dice rolls are in the public feed"
+    );
+}

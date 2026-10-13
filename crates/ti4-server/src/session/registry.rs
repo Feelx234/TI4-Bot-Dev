@@ -1137,6 +1137,7 @@ impl GameRegistry {
         let batch_id = format!("batch_{:032x}", rand::random::<u128>());
         let all_decisions: Vec<_> = prior.iter().chain(decisions.iter()).cloned().collect();
         let mut events = session.event_log();
+        let shown_rolls = session.rolls_seen();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
@@ -1193,6 +1194,7 @@ impl GameRegistry {
                 detail,
                 seat_detail,
                 private_detail: None,
+                roll: None,
             });
             for (_, phase, round) in simulation
                 .transitions
@@ -1225,6 +1227,43 @@ impl GameRegistry {
                     movement: None,
                     seat_detail: None,
                     private_detail: None,
+                    roll: None,
+                });
+            }
+            // Dice the batch rolled that the table has not been shown, after the decision that
+            // was current when their step returned.
+            for (index, roll, cursor) in &simulation.rolls {
+                if *index < shown_rolls || (*cursor).clamp(start_cursor + 1, end_cursor) != start_cursor + i + 1 {
+                    continue;
+                }
+                let active = boundary_state.active_system.as_ref().map(|id| id.as_str());
+                let Some(public) = crate::protocol::server::public_roll(*index, roll, active) else {
+                    continue;
+                };
+                counter += 1;
+                events.push(crate::protocol::server::GameEvent {
+                    id: format!("{game_id}-{counter}"),
+                    timestamp: timestamp.clone(),
+                    version: Some(request.expected_version),
+                    visibility: crate::protocol::server::EventVisibility::Public,
+                    event: crate::protocol::server::GameEventKind::DiceRolled,
+                    decision_count: Some(start_cursor + i + 1),
+                    batch_id: None,
+                    batch_start_cursor: None,
+                    batch_end_cursor: None,
+                    action_id: None,
+                    action_start_cursor: None,
+                    actor: public.roller.clone(),
+                    round: Some(boundary_state.round),
+                    phase: Some(boundary_state.phase),
+                    action_type: None,
+                    action_actor: None,
+                    stage: None,
+                    detail: Some(public.describe()),
+                    movement: None,
+                    seat_detail: None,
+                    private_detail: None,
+                    roll: Some(public),
                 });
             }
         }
@@ -1252,6 +1291,7 @@ impl GameRegistry {
                 movement: None,
                 seat_detail: None,
                 private_detail: None,
+                roll: None,
             });
         }
         let mut batches = session.batches();

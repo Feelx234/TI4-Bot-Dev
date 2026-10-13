@@ -585,6 +585,10 @@ pub struct Simulation {
     pub transitions: Vec<(usize, Phase, u32)>,
     pub winner: Option<Option<PlayerId>>,
     pub boundary_state: GameState,
+    /// Every die the simulated game had rolled when it stopped: its position in the roll history,
+    /// the roll, and how many decisions the log held when the step that rolled it returned. The
+    /// caller publishes the ones the live game has not shown yet.
+    pub rolls: Vec<(usize, ti4_engine::dice::Roll, usize)>,
     /// A copy of the game at the last step boundary near the end of the prefix, when asked for
     /// (see [`replay_boundary`]).
     pub tail_copy: Option<StepSnapshot>,
@@ -1328,6 +1332,7 @@ fn simulate_script(
     let mut round = game.state.round;
     let mut transitions = Vec::new();
     let mut tail_copy: Option<StepSnapshot> = None;
+    let mut rolls: Vec<(usize, ti4_engine::dice::Roll, usize)> = Vec::new();
     for _ in 0..(replayed
         .saturating_add(plan.steps.len())
         .saturating_mul(8)
@@ -1354,6 +1359,14 @@ fn simulate_script(
             }
         }
         let result = game.step();
+        let known = rolls.len();
+        rolls.extend(
+            game.rolls()
+                .iter()
+                .enumerate()
+                .skip(known)
+                .map(|(index, roll)| (index, roll.clone(), game.table.log.records.len())),
+        );
         if game.state.phase != phase || game.state.round != round {
             phase = game.state.phase;
             round = game.state.round;
@@ -1420,6 +1433,7 @@ fn simulate_script(
                 transitions,
                 winner: (game.state.finished || result.finished).then_some(winner),
                 boundary_state: game.state.clone(),
+                rolls,
                 tail_copy,
             });
         }
