@@ -81,7 +81,7 @@ impl Decider for RemoteHumanDecider {
             }
 
             // Submission identity and option validity were atomically reserved by GameSession.
-            if let Some(opt) = choice.options.iter().find(|o| o.id == submission.option_id) {
+            if let Some(opt) = choice.answer_for(&submission.option_id) {
                 let mut shared = self.shared.lock().expect("shared lock");
                 let pending = shared
                     .pending_decision
@@ -90,7 +90,7 @@ impl Decider for RemoteHumanDecider {
                 pending.submitted_option_id = Some(submission.option_id);
                 pending.reply_tx = Some(submission.reply_tx);
 
-                return Ok(opt.clone());
+                return Ok(opt);
             }
 
             // Option ID not in the offered set

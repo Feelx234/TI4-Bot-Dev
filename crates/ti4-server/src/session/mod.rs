@@ -373,12 +373,7 @@ impl GameSession {
                     current: pending.game_version,
                 });
             }
-            if !pending
-                .choice
-                .options
-                .iter()
-                .any(|option| option.id == option_id)
-            {
+            if pending.choice.answer_for(option_id).is_none() {
                 return Err(RejectionReason::UnknownOption {
                     option_id: option_id.to_owned(),
                 });

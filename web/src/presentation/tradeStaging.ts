@@ -120,6 +120,52 @@ export function stagedToDealId(staged: Staged, deals: readonly StagedDeal[]): st
   return deals.find((d) => stagedKey(d.staged) === key)?.id ?? null;
 }
 
+/** Holdings the free-form check compares a side against. */
+export interface PurseLimit {
+  tradeGoods: number;
+  commodities: number;
+}
+
+/**
+ * The free-form id (`x;gt=5;rc=2;...`, see `transactions::free_form_id`) for a staged combination,
+ * or null when it cannot be said that way: nothing staged, or the Support swap (a listed shape
+ * only). Side `g` is what the viewer gives, `r` what they receive.
+ */
+export function freeFormId(staged: Staged): string | null {
+  if (isStagedEmpty(staged) || staged.give.support || staged.receive.support) return null;
+  const fields = (tag: "g" | "r", s: StagedSide): string[] => {
+    const out: string[] = [];
+    if (s.tradeGoods > 0) out.push(`${tag}t=${s.tradeGoods}`);
+    if (s.commodities > 0) out.push(`${tag}c=${s.commodities}`);
+    if (s.note) out.push(`${tag}n=${s.note}`);
+    if (s.actionCard) out.push(`${tag}a=${s.actionCard}`);
+    if (s.secret) out.push(`${tag}s=${s.secret}`);
+    if (s.fragments.length) out.push(`${tag}f=${s.fragments.join(",")}`);
+    return out;
+  };
+  return `x;${[...fields("g", staged.give), ...fields("r", staged.receive)].join(";")};`;
+}
+
+/**
+ * What to submit for a staged combination: the listed deal id when the server lists one, else the
+ * free-form id when the decision accepts them and both purses cover the amounts (a deal one side
+ * cannot pay is rejected by the engine and ends the negotiation, so it is not sent).
+ */
+export function proposalId(
+  staged: Staged,
+  deals: readonly StagedDeal[],
+  freeForm: boolean,
+  mine?: PurseLimit | null,
+  theirs?: PurseLimit | null,
+): string | null {
+  const listed = stagedToDealId(staged, deals);
+  if (listed || !freeForm) return listed;
+  const within = (side: StagedSide, purse?: PurseLimit | null) =>
+    !purse || (side.tradeGoods <= purse.tradeGoods && side.commodities <= purse.commodities);
+  if (!within(staged.give, mine) || !within(staged.receive, theirs)) return null;
+  return freeFormId(staged);
+}
+
 /** How far two staged combinations are apart: amount differences plus 3 per differing item. */
 export function stagedDistance(a: Staged, b: Staged): number {
   const side = (x: StagedSide, y: StagedSide): number => {
@@ -181,9 +227,29 @@ export function stagingLimits(deals: readonly StagedDeal[]): StagingLimits {
 }
 
 /** A plain-words reason why a staged combination matches no listed deal. */
-export function whyNoDeal(staged: Staged, deals: readonly StagedDeal[]): string[] {
+export function whyNoDeal(
+  staged: Staged,
+  deals: readonly StagedDeal[],
+  freeForm = false,
+  mine?: PurseLimit | null,
+  theirs?: PurseLimit | null,
+): string[] {
   const reasons: string[] = [];
   if (isStagedEmpty(staged)) return ["Nothing is staged yet."];
+  if (freeForm) {
+    const over = (label: string, n: number, max: number | undefined, who: string) => {
+      if (max !== undefined && n > max) reasons.push(`${who} hold${who === "You" ? "" : "s"} only ${max} ${label}.`);
+    };
+    over("trade goods", staged.give.tradeGoods, mine?.tradeGoods, "You");
+    over("commodities", staged.give.commodities, mine?.commodities, "You");
+    over("trade goods", staged.receive.tradeGoods, theirs?.tradeGoods, "The partner");
+    over("commodities", staged.receive.commodities, theirs?.commodities, "The partner");
+    if (staged.give.support || staged.receive.support) {
+      reasons.push("Support for the Throne can only be swapped as a listed deal.");
+    }
+    if (reasons.length === 0) reasons.push("The server cannot take this combination.");
+    return reasons;
+  }
   const limits = stagingLimits(deals);
   const amount = (label: string, n: number, max: number, who: string) => {
     if (n > max) reasons.push(`${who} can list at most ${max} ${label} right now.`);

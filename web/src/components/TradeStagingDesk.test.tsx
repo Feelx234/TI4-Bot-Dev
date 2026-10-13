@@ -29,6 +29,12 @@ const proposeChoice = (nonce = "p1"): PendingChoiceDto => ({
   ],
 });
 
+/** The same menu from a server that accepts deals built from any amounts. */
+const freeFormChoice = (): PendingChoiceDto => ({
+  ...proposeChoice("f1"),
+  details: { free_form: "x;" },
+});
+
 const answerChoice = (): PendingChoiceDto => ({
   actor: "seat_2",
   nonce: "a1",
@@ -195,6 +201,50 @@ describe("TradeStagingDesk (propose)", () => {
     expect(screen.getByTestId("spectator-trade-notice")).toBeInTheDocument();
     expect(screen.queryByTestId("trade-staging-desk")).not.toBeInTheDocument();
     expect(screen.queryByTestId("trade-answer")).not.toBeInTheDocument();
+  });
+});
+
+describe("TradeStagingDesk (free-form amounts)", () => {
+  beforeEach(() => forgetNegotiation());
+
+  it("lets unequal amounts past the list up to each purse, and sends a free-form id", async () => {
+    const onSubmit = renderDesk(freeFormChoice(), "seat_1");
+    // 3 trade goods held: the list only reaches 2, the purse reaches 3
+    for (let i = 0; i < 3; i++) click("stage-give-tg-inc");
+    expect(screen.getByTestId("stage-give-tg-inc")).toBeDisabled();
+    expect(screen.getByTestId("stage-give-tg")).toHaveTextContent("any amount up to 3");
+    // the partner's 5 trade goods and 2 commodities: ask for 5 + 1, not on any list
+    for (let i = 0; i < 5; i++) click("stage-receive-tg-inc");
+    click("stage-receive-cm-inc");
+    expect(screen.getByTestId("stage-status-custom")).toHaveTextContent("Ready to propose");
+    await act(async () => {
+      click("propose-trade-btn");
+    });
+    expect(onSubmit).toHaveBeenCalledWith("x;gt=3;rt=5;rc=1;");
+  });
+
+  it("still sends the listed id when the combination is on the list", async () => {
+    const onSubmit = renderDesk(freeFormChoice(), "seat_1");
+    click("stage-give-tg-inc");
+    click("stage-receive-tg-inc");
+    await act(async () => {
+      click("propose-trade-btn");
+    });
+    expect(onSubmit).toHaveBeenCalledWith("1:1");
+  });
+
+  it("refuses more than a purse holds, and a server without free-form keeps the closed list", () => {
+    renderDesk(freeFormChoice(), "seat_1");
+    for (let i = 0; i < 4; i++) click("stage-receive-cm-inc"); // partner holds 2
+    expect(screen.getByTestId("stage-receive-cm-inc")).toBeDisabled();
+  });
+
+  it("without the server's free-form flag a combination off the list cannot be proposed", () => {
+    renderDesk(proposeChoice(), "seat_1");
+    click("stage-give-tg-inc");
+    click("stage-receive-cm-inc");
+    expect(screen.getByTestId("stage-status-invalid")).toBeInTheDocument();
+    expect(screen.getByTestId("propose-trade-btn")).toBeDisabled();
   });
 });
 
