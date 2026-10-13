@@ -1206,13 +1206,13 @@ block single player: the setup of phase 6 uses the default map of the count, and
 the list for both tables at once. Phase 4 loses its "independent of 5" place and comes after 6
 so that its list is built once over the `Table` seam, not twice.
 
-| Phase | Where | Size |
-| --- | --- | --- |
-| 0 web2 on the merged server | web2 | small to medium (not known before the tests are run) |
-| 1 the start screen, the lobby, its socket, bots, a seat for each tab | web2, ti4-server (the socket of a table) | large (two new screens, the frame taken out of `GameShell`, the keys, the addresses of the tests) |
-| 2 no Ready, random order, settings, the wait of a table, "Start from" | ti4-server, `web/`, ti4-bot-agent, web2 | large (many tests of the server and of `web/` change) |
-| 3 the choice of the faction | web2, ti4-view (facts of a faction sheet) | medium |
-| 4 the map (after phase 6) | web2 | medium |
-| 5 one setup, the crate of the bots, the wasm exports | ti4-view, ti4-rule-bot, ti4-server, ti4-wasm | built |
-| 6 single player on the same setup | web2, ti4-wasm | built |
-| 7 the table in the game | ti4-server, ti4-view (a fact), web2 | medium |
+| Phase                                                                 | Where                                        | Size                                                                                              |
+| --------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 0 web2 on the merged server                                           | web2                                         | small to medium (not known before the tests are run)                                              |
+| 1 the start screen, the lobby, its socket, bots, a seat for each tab  | web2, ti4-server (the socket of a table)     | large (two new screens, the frame taken out of `GameShell`, the keys, the addresses of the tests) |
+| 2 no Ready, random order, settings, the wait of a table, "Start from" | ti4-server, `web/`, ti4-bot-agent, web2      | large (many tests of the server and of `web/` change)                                             |
+| 3 the choice of the faction                                           | web2, ti4-view (facts of a faction sheet)    | medium                                                                                            |
+| 4 the map (after phase 6)                                             | web2                                         | medium                                                                                            |
+| 5 one setup, the crate of the bots, the wasm exports                  | ti4-view, ti4-rule-bot, ti4-server, ti4-wasm | built                                                                                             |
+| 6 single player on the same setup                                     | web2, ti4-wasm                               | built                                                                                             |
+| 7 the table in the game                                               | ti4-server, ti4-view (a fact), web2          | medium                                                                                            |

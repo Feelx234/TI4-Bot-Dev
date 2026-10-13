@@ -69,13 +69,13 @@ catalogue come from the local wasm in both modes.
      to set the mode of a card, and `filterOffers` of the page is removed. Phase 0;
    - the other seats: `SeededRandom` in both;
    - the page: `useLiveSession` and everything above it has no branch for the mode.
-   What stays different, on purpose: the undo (decision 3), the dev tools of a local game, and
-   the saved game.
-   One suite of tests of the `Transport` contract runs against both transports (phase 2).
-   The aim is less code, not more: each of these removes a copy. The two transports end as thin
-   adapters over the same operations (an update, an answer, a script that is run, a script or a
-   plan that is sent, the mode of a card, an undo): one calls an export of the wasm, the other
-   sends a message.
+     What stays different, on purpose: the undo (decision 3), the dev tools of a local game, and
+     the saved game.
+     One suite of tests of the `Transport` contract runs against both transports (phase 2).
+     The aim is less code, not more: each of these removes a copy. The two transports end as thin
+     adapters over the same operations (an update, an answer, a script that is run, a script or a
+     plan that is sent, the mode of a card, an undo): one calls an export of the wasm, the other
+     sends a message.
 
 ## Non-goals
 
@@ -425,7 +425,7 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
 
 1. **Server**: a per-seat undo point. The decision log (`DecisionLog`, replay in
    `session/replay.rs` `replay_session`) already records every decision. A recorded decision is
-   a *barrier* when one of these three holds:
+   a _barrier_ when one of these three holds:
    - **The engine latched it** (`barrier: "random"` or `"revealed"`). The engine has a mark for
      this already: `ExecutionObservation` (`ti4-engine/src/observation.rs`), with the bits
      `randomness` and `hidden_information`. `GameRng::stream` (`ti4-engine/src/rng.rs`) sets
@@ -472,6 +472,7 @@ information reveal (a card drawn, an exploration or a secret objective shown), a
    `canUndo` for a seat is "the last decision is its own and lies after the last barrier". Undo
    replaces the session like the host history does (`session/registry.rs` `HistoryAction`), but
    is allowed for the seat and bounded by the barrier.
+
 2. **Protocol**: `ClientMessage::Undo { protocol_version, game_id, expected_version }`; the update
    carries `can_undo` per viewer (extend `HistoryStatus` with a bool; do not reuse `cursor`, which
    is the host's). A rejected undo says why (`barrier: "revealed"|"random"|"other_seat"`).
@@ -639,7 +640,7 @@ draft is then the same code.
      primary changes what the secondary costs and gives.
    - The page must know that a card was played before the window is open. Both hosts set the
      hook and send the primary and the card as a fact of the update.
-   A draft before the card is played (a card that another seat holds) is not in this plan.
+     A draft before the card is played (a card that another seat holds) is not in this plan.
 
 #### Phase 5: what was built (2026-10-12)
 
@@ -733,15 +734,15 @@ last of the first version and may ship after the first playable multiplayer: wit
 Undo button is simply not shown online. Phase 5 needs phase 0 only for single player, and
 phase 2 for online.
 
-| Phase | Where | Size |
-| --- | --- | --- |
-| 0 seam (built) | web2, ti4-wasm | large (the async draft; plans and Never cards move to Rust) |
-| 1a facts in one place (built) | ti4-view, ti4-wasm | small |
-| 1b facts, random seats, script messages (built) | ti4-server | large |
-| 2 transport (built) | web2, ti4-server and ti4-view (two fields) | medium |
-| 3 undo (built) | ti4-server, ti4-engine (a latch that is cleared, three lines), ti4-view, web2 | medium |
-| 4 entry (built) | web2 | small |
-| 5 secondary draft | ti4-view, ti4-wasm, ti4-server, web2 | large |
+| Phase                                           | Where                                                                         | Size                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 0 seam (built)                                  | web2, ti4-wasm                                                                | large (the async draft; plans and Never cards move to Rust) |
+| 1a facts in one place (built)                   | ti4-view, ti4-wasm                                                            | small                                                       |
+| 1b facts, random seats, script messages (built) | ti4-server                                                                    | large                                                       |
+| 2 transport (built)                             | web2, ti4-server and ti4-view (two fields)                                    | medium                                                      |
+| 3 undo (built)                                  | ti4-server, ti4-engine (a latch that is cleared, three lines), ti4-view, web2 | medium                                                      |
+| 4 entry (built)                                 | web2                                                                          | small                                                       |
+| 5 secondary draft                               | ti4-view, ti4-wasm, ti4-server, web2                                          | large                                                       |
 
 ## Open
 

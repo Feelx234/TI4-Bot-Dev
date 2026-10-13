@@ -165,7 +165,9 @@ it("goes on to the landings and the production, with what the game asks before t
   expect(entryOf(setMovement(draft, [{ kind: "done_moving" }])).landings).toEqual(LAND);
   expect(entryOf(activate(draft, "24"))).toEqual({ system: "24", steps: null });
   // A step that is not drafted adds nothing: the run is open at its first question.
-  const skipped = entryOf(setProduction(setMovement(activate(newDraft(), "23"), MOVE), BUILD, true));
+  const skipped = entryOf(
+    setProduction(setMovement(activate(newDraft(), "23"), MOVE), BUILD, true),
+  );
   expect(scriptOf(skipped)).toEqual([choose("tactical"), choose("23"), ...MOVE, ...BUILD]);
 });
 
