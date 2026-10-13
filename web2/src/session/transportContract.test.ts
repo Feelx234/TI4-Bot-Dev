@@ -25,7 +25,7 @@ import { createWsTransport, openSocket } from "./wsTransport";
 // an undo goes (a local game has no barrier, the server ends at one).
 //
 // Both are built outside this suite, and a case is skipped without its build:
-// `scripts/build-wasm.sh`, and `cargo build -p ti4-server --bin server`.
+// `scripts/build-wasm.sh`, and `cargo b-web`.
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
 const SERVER = fileURLToPath(new URL("../../../target/debug/server", import.meta.url));
 

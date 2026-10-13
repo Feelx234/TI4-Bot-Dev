@@ -1425,7 +1425,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_eight_player_game_runs_with_random_deciders() {
+    fn slow_an_eight_player_game_runs_with_random_deciders() {
         let content = ContentStore::embedded();
         let mut game = new_game(content, 3, 8, None).unwrap();
         assert_eq!(game.state.players.len(), 8);
@@ -1591,7 +1591,7 @@ mod tests {
     /// One test for everything that plays through the host: the host and the update buffer are
     /// statics, so two such tests would not be independent.
     #[test]
-    fn the_host_is_asked_for_its_seats_can_leave_and_a_replay_is_the_same_game() {
+    fn slow_the_host_is_asked_for_its_seats_can_leave_and_a_replay_is_the_same_game() {
         use std::sync::{Arc, Mutex};
         let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
         let sink = seen.clone();

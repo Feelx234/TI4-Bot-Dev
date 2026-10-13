@@ -140,6 +140,19 @@ opt-level = "z"
 lto = "fat"
 panic = "abort"
 
+# The browser build for development: `web2/scripts/build-wasm.sh --dev`. Not optimized and
+# incremental, so a change of the engine is rebuilt in seconds; the file is about three times the
+# size of the release build and the engine is slower in the page. `panic = "abort"` as in the
+# release build, so a panic looks the same in both.
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 0
+debug = false
+# Without the names of the functions the file is much smaller, and it loads faster.
+strip = true
+panic = "abort"
+incremental = true
+
 [profile.dev]
 # Line numbers in backtraces, nothing else. Full debuginfo was copied into every test executable's
 # .dwp: 6 GB of a 17 GB target directory. For a debugger session use `--profile debugger`.

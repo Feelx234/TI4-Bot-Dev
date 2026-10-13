@@ -105,7 +105,7 @@ fn play(
 }
 
 #[test]
-fn every_faction_builds_as_a_chosen_seat_on_every_template_that_seats_the_table() {
+fn slow_every_faction_builds_as_a_chosen_seat_on_every_template_that_seats_the_table() {
     let mut combos = 0;
     for n in 3..=6usize {
         let players = ids(n);
@@ -135,7 +135,7 @@ fn every_faction_builds_as_a_chosen_seat_on_every_template_that_seats_the_table(
 }
 
 #[test]
-fn every_faction_chosen_at_a_four_seat_table_plays_smart_decisions() {
+fn slow_every_faction_chosen_at_a_four_seat_table_plays_smart_decisions() {
     let players = ids(4);
     for (i, faction) in LOBBY_FACTIONS.iter().enumerate() {
         let mut chosen = vec![None; 4];
@@ -155,7 +155,7 @@ fn every_faction_chosen_at_a_four_seat_table_plays_smart_decisions() {
 }
 
 #[test]
-fn undecided_tables_over_many_seeds_seat_distinct_pool_factions_and_play() {
+fn slow_undecided_tables_over_many_seeds_seat_distinct_pool_factions_and_play() {
     for (n, seed) in (3..=6usize).flat_map(|n| (0..12u64).map(move |s| (n, s * 7 + n as u64))) {
         let players = ids(n);
         let chosen = vec![None; n];
@@ -178,7 +178,7 @@ fn undecided_tables_over_many_seeds_seat_distinct_pool_factions_and_play() {
 }
 
 #[test]
-fn tricky_factions_play_a_longer_smart_game() {
+fn slow_tricky_factions_play_a_longer_smart_game() {
     let tricky = ["nekro", "ghost", "winnu", "naaz", "titans", "mahact", "empyrean", "nomad", "cabal", "yssaril", "argent", "arborec"];
     let players = ids(4);
     for (k, faction) in tricky.iter().enumerate() {

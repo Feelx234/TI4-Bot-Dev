@@ -100,7 +100,7 @@ fn run_to_end(id: &str, n: usize, seed: u64, card_set: &str, cap: usize) -> Outc
 }
 
 #[test]
-fn an_all_bot_game_plays_to_game_over_and_reports_speed() {
+fn slow_an_all_bot_game_plays_to_game_over_and_reports_speed() {
     let out = run_to_end("rb_one", 4, 7, "te", 6000);
     eprintln!(
         "decisions={} finished={} round={} err={:?} stalled={} elapsed={:?} ({:.0}/s)",
@@ -120,7 +120,7 @@ fn an_all_bot_game_plays_to_game_over_and_reports_speed() {
 }
 
 #[test]
-fn every_bot_decision_is_one_of_the_offered_options() {
+fn slow_every_bot_decision_is_one_of_the_offered_options() {
     let out = run_to_end("rb_legal", 3, 11, "pok", 6000);
     assert!(out.error.is_none(), "{:?}", out.error);
     assert!(!out.decisions.is_empty());
@@ -145,7 +145,7 @@ fn every_bot_decision_is_one_of_the_offered_options() {
 }
 
 #[test]
-fn the_same_seed_plays_the_same_game_and_another_seed_a_different_one() {
+fn slow_the_same_seed_plays_the_same_game_and_another_seed_a_different_one() {
     let a = run_to_end("rb_det_a", 4, 21, "te", 6000);
     let b = run_to_end("rb_det_b", 4, 21, "te", 6000);
     let c = run_to_end("rb_det_c", 4, 22, "te", 6000);
@@ -155,7 +155,7 @@ fn the_same_seed_plays_the_same_game_and_another_seed_a_different_one() {
 }
 
 #[test]
-fn a_bot_game_recovered_from_disk_mid_way_continues_to_the_same_end() {
+fn slow_a_bot_game_recovered_from_disk_mid_way_continues_to_the_same_end() {
     let reference = run_to_end("rb_rec", 4, 31, "te", 6000);
     assert!(reference.finished);
     let dir = std::env::temp_dir().join(format!("ti4_random_bots_{:016x}", rand::random::<u64>()));
@@ -348,7 +348,7 @@ fn wait_for_host_ask(t: &HostTable) {
 }
 
 #[test]
-fn redo_survives_the_bots_redeciding_and_replays_the_recorded_timeline() {
+fn slow_redo_survives_the_bots_redeciding_and_replays_the_recorded_timeline() {
     for seed in [3, 11] {
         let t = host_table(&format!("rb_redo_{seed}"), seed);
         for _ in 0..30 {

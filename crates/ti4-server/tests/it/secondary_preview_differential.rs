@@ -509,7 +509,7 @@ fn check(title: &str, sources: &[Source]) -> BTreeMap<String, Tally> {
 }
 
 #[test]
-fn the_preview_equals_the_real_questions_on_generated_games() {
+fn slow_the_preview_equals_the_real_questions_on_generated_games() {
     let sources: Vec<Source> = (1..=6)
         .map(|seed| generated(&format!("generated-{seed}"), 9_000 + seed, 900, 0))
         .collect();

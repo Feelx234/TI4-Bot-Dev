@@ -103,7 +103,7 @@ fn assert_clean(out: &Outcome) {
 }
 
 #[test]
-fn an_all_smart_table_plays_to_game_over_with_legal_answers() {
+fn slow_an_all_smart_table_plays_to_game_over_with_legal_answers() {
     let out = play("sb_full", 7, "te", &vec![SeatController::BotSmart; 4], 30);
     assert_clean(&out);
     eprintln!(
@@ -116,7 +116,7 @@ fn an_all_smart_table_plays_to_game_over_with_legal_answers() {
 }
 
 #[test]
-fn a_mixed_pok_table_plays_legally_and_the_same_seed_repeats() {
+fn slow_a_mixed_pok_table_plays_legally_and_the_same_seed_repeats() {
     let seats = [
         SeatController::BotSmart,
         SeatController::BotRandom,
@@ -145,7 +145,7 @@ fn standing(state: &GameState, player: &PlayerId) -> (usize, i32) {
 /// Smart and random seats alternate, and every seed is played twice with the seats swapped so
 /// neither kind keeps the better starting positions. Reports the totals after `ROUNDS` rounds.
 #[test]
-fn smart_bots_clearly_outplay_random_bots() {
+fn slow_smart_bots_clearly_outplay_random_bots() {
     const ROUNDS: u32 = 4;
     let seeds = [3u64, 17, 29];
     let (mut smart_planets, mut random_planets, mut smart_vp, mut random_vp) = (0, 0, 0, 0);
@@ -224,7 +224,7 @@ fn smart_bots_clearly_outplay_random_bots() {
 }
 
 #[test]
-fn smart_seats_are_saved_and_recovered_as_smart_seats_and_play_on_the_same() {
+fn slow_smart_seats_are_saved_and_recovered_as_smart_seats_and_play_on_the_same() {
     use std::sync::Arc;
     use ti4_server::session::GameRegistry;
     use ti4_server::storage::FileGameStore;

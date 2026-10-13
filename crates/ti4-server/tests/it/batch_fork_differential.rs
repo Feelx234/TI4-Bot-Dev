@@ -386,7 +386,7 @@ fn differential(source: &Source, default_points: usize) -> Coverage {
 }
 
 #[test]
-fn forked_batch_checks_match_the_full_replay_on_a_generated_game() {
+fn slow_forked_batch_checks_match_the_full_replay_on_a_generated_game() {
     let source = generated("generated-31", 31, 700, 0);
     let coverage = differential(&source, 40);
     eprintln!("{coverage:?}");
@@ -397,7 +397,7 @@ fn forked_batch_checks_match_the_full_replay_on_a_generated_game() {
 }
 
 #[test]
-fn forked_batch_checks_match_the_full_replay_with_forced_rng_positions() {
+fn slow_forked_batch_checks_match_the_full_replay_with_forced_rng_positions() {
     let source = generated("generated-marks-12", 12, 450, 17);
     let coverage = differential(&source, 30);
     eprintln!("{coverage:?}");
@@ -538,7 +538,7 @@ fn time_a_late_game_batch_check() {
 /// game. With a step-boundary copy only the tail is replayed, so a long history is accepted
 /// in a small fraction of even the flat 15 s, whatever its length.
 #[test]
-fn a_long_history_batch_check_is_accepted_far_inside_the_old_budget() {
+fn slow_a_long_history_batch_check_is_accepted_far_inside_the_old_budget() {
     let source = generated("generated-long", 31, 900, 0);
     assert!(source.records.len() > 400, "{}", source.records.len());
     let late = late_check(&source);

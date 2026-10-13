@@ -152,7 +152,7 @@ fn check(source: &Source, stride: usize, window: usize) -> Stats {
 }
 
 #[test]
-fn a_fork_of_a_generated_game_continues_identically() {
+fn slow_a_fork_of_a_generated_game_continues_identically() {
     let source = generated("generated-31", 31, 700, 0);
     assert!(source.records.len() > 300, "{}", source.records.len());
     let stats = check(&source, 5, 40);
@@ -164,7 +164,7 @@ fn a_fork_of_a_generated_game_continues_identically() {
 /// The factions added after the first six (Last Bastion, Deepwrought, Crimson, Ral Nel, Nekro,
 /// Firmament, with galvanize, breaches, plots and similar shared state) must fork like any other.
 #[test]
-fn a_fork_of_games_seating_the_newer_factions_continues_identically() {
+fn slow_a_fork_of_games_seating_the_newer_factions_continues_identically() {
     for (seed, factions) in [
         (5_u64, ["bastion", "deepwrought", "crimson", "ralnel"]),
         (8_u64, ["nekro", "firmament", "sol", "bastion"]),
@@ -178,7 +178,7 @@ fn a_fork_of_games_seating_the_newer_factions_continues_identically() {
 }
 
 #[test]
-fn a_fork_of_a_game_with_forced_rng_positions_continues_identically() {
+fn slow_a_fork_of_a_game_with_forced_rng_positions_continues_identically() {
     // A turn redo's marks restore stream positions when a decision is answered; until a draw
     // applies one, a snapshot would lose it, so those boundaries must be skipped, never forked.
     let source = generated("generated-marks-12", 12, 500, 17);

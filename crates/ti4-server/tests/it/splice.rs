@@ -119,7 +119,7 @@ fn replace(cursor: usize, option_id: &str) -> SpliceEdit {
 // ---- determinism --------------------------------------------------------------------------
 
 #[test]
-fn the_same_input_twice_gives_an_identical_report() {
+fn slow_the_same_input_twice_gives_an_identical_report() {
     let (state, galaxy, h) = base_history();
     for edit in [
         SpliceEdit::Remove { cursor: 44 },
@@ -143,7 +143,7 @@ fn the_same_input_twice_gives_an_identical_report() {
 }
 
 #[test]
-fn a_no_op_edit_survives_to_the_end_and_is_rng_neutral() {
+fn slow_a_no_op_edit_survives_to_the_end_and_is_rng_neutral() {
     let (state, galaxy, h) = base_history();
     let base = SpliceBaseline::new(&state, Some(&galaxy), &h);
     assert_eq!(
@@ -216,7 +216,7 @@ fn a_changed_menu_that_still_contains_the_answer_is_a_soft_conflict_with_the_dif
 }
 
 #[test]
-fn an_answer_that_is_no_longer_offered_is_a_hard_conflict() {
+fn slow_an_answer_that_is_no_longer_offered_is_a_hard_conflict() {
     let (state, galaxy, h) = base_history();
     let base = SpliceBaseline::new(&state, Some(&galaxy), &h);
     // Researching a different technology can strand a later pick.
@@ -369,7 +369,7 @@ fn a_neutral_segment_is_reported_neutral() {
 }
 
 #[test]
-fn dice_rolled_around_a_decision_are_counted() {
+fn slow_dice_rolled_around_a_decision_are_counted() {
     // The aggressive policy reaches a roll on seed 2; a removal at or just before the step
     // that rolled must report consumed dice. The budget is generous so that a shift in the
     // seeded game (e.g. a card no longer offered) does not push the first roll out of reach.

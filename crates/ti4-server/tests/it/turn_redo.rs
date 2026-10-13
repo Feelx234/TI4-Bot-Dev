@@ -445,7 +445,7 @@ fn final_state_json(
 }
 
 #[test]
-fn turn_spans_open_with_the_menu_and_do_not_overlap() {
+fn slow_turn_spans_open_with_the_menu_and_do_not_overlap() {
     let (_, _, all) = scenarios();
     let h = &all.iter().max_by_key(|s| s.cut).unwrap().hh;
     let spans = find_turns(h);
@@ -466,7 +466,7 @@ fn turn_spans_open_with_the_menu_and_do_not_overlap() {
 }
 
 #[test]
-fn every_redo_keeps_the_new_turn_then_others_recorded_decisions_unchanged() {
+fn slow_every_redo_keeps_the_new_turn_then_others_recorded_decisions_unchanged() {
     let (state, galaxy, all) = scenarios();
     assert!(
         all.len() >= 30,
@@ -553,7 +553,7 @@ fn an_unchanged_turn_reproduces_the_original_history_and_stops_at_the_seats_next
 }
 
 #[test]
-fn a_conflict_hands_control_to_the_seat_the_engine_asks() {
+fn slow_a_conflict_hands_control_to_the_seat_the_engine_asks() {
     let (state, galaxy, all) = scenarios();
     let mut checked = [0usize; 3];
     for s in all {
@@ -594,7 +594,7 @@ impl Scenario {
 }
 
 #[test]
-fn two_turns_back_rewinds_to_the_second_last_turn_and_hands_back_at_the_next_decision() {
+fn slow_two_turns_back_rewinds_to_the_second_last_turn_and_hands_back_at_the_next_decision() {
     let (_, _, all) = scenarios();
     let mut seen = 0;
     for two in all.iter().filter(|s| s.turns == 2) {
@@ -632,7 +632,7 @@ fn two_turns_back_rewinds_to_the_second_last_turn_and_hands_back_at_the_next_dec
 }
 
 #[test]
-fn the_same_redo_twice_gives_identical_results() {
+fn slow_the_same_redo_twice_gives_identical_results() {
     let (state, galaxy, all) = scenarios();
     for s in all.iter().step_by(7) {
         let r = &s.redo;
@@ -656,7 +656,7 @@ fn the_same_redo_twice_gives_identical_results() {
 }
 
 #[test]
-fn a_new_turn_that_is_not_finished_is_refused() {
+fn slow_a_new_turn_that_is_not_finished_is_refused() {
     let (state, galaxy, all) = scenarios();
     let s = &all[0];
     let r = &s.redo;
@@ -1107,7 +1107,7 @@ fn a_reserved_card_that_is_gone_is_a_conflict_that_hands_the_decision_to_the_ask
 }
 
 #[test]
-fn auto_play_stops_only_at_the_redoing_seats_next_turn_and_replays_its_other_decisions() {
+fn slow_auto_play_stops_only_at_the_redoing_seats_next_turn_and_replays_its_other_decisions() {
     let (state, galaxy, all) = scenarios();
     let (mut own_decisions, mut past_old_stop, mut handoffs) = (0, 0, 0);
     for s in all {
@@ -1156,7 +1156,7 @@ fn auto_play_stops_only_at_the_redoing_seats_next_turn_and_replays_its_other_dec
 }
 
 #[test]
-fn a_recorded_decision_of_the_redoing_seat_that_no_longer_fits_hands_it_live_control() {
+fn slow_a_recorded_decision_of_the_redoing_seat_that_no_longer_fits_hands_it_live_control() {
     let (state, galaxy, all) = scenarios();
     let (s, j) = all
         .iter()
@@ -1194,7 +1194,7 @@ fn a_recorded_decision_of_the_redoing_seat_that_no_longer_fits_hands_it_live_con
 }
 
 #[test]
-fn the_same_redo_with_stored_marks_gives_identical_decisions_marks_and_cards() {
+fn slow_the_same_redo_with_stored_marks_gives_identical_decisions_marks_and_cards() {
     let (state, galaxy, all) = scenarios();
     for s in all.iter().step_by(5) {
         let r = &s.redo;
@@ -1335,7 +1335,7 @@ fn replay_with_extra_draws(
 }
 
 #[test]
-fn a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards() {
+fn slow_a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards() {
     use ti4_model::deck_reserve::DeckSegment;
     // Game 1, p3's turn at 515: the recorded tail (others' turns) draws action cards (a Politics
     // play and more), so the action card deck is exactly what a changed number of draws shifts.

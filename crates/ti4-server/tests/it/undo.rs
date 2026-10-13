@@ -199,7 +199,7 @@ fn barriers(session: &GameSession, seat: &PlayerId, own: usize) -> BTreeSet<Stri
 }
 
 #[test]
-fn a_card_that_is_drawn_ends_the_undo_and_a_recovered_game_knows_it() {
+fn slow_a_card_that_is_drawn_ends_the_undo_and_a_recovered_game_knows_it() {
     let (straight, seat) = config("undo_barriers", 11);
     let session = GameSession::start(straight);
     // A seat that only passes rolls nothing after a decision of its own: the die is in the

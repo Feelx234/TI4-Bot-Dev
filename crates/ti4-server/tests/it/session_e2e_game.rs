@@ -10,7 +10,7 @@ use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig
 
 #[test]
 #[allow(clippy::too_many_lines, clippy::collapsible_if)]
-fn scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
+fn slow_scripted_end_to_end_game_handles_draft_action_and_nested_secondary_choice() {
     let p1 = PlayerId::new("p1");
     let p2 = PlayerId::new("p2");
     let p3 = PlayerId::new("p3");

@@ -1460,7 +1460,7 @@ mod tests {
     }
 
     #[test]
-    fn no_preset_leaves_a_seat_with_a_unit_in_a_form_it_does_not_own() {
+    fn slow_no_preset_leaves_a_seat_with_a_unit_in_a_form_it_does_not_own() {
         let presets = [
             COMBAT, INVASION, TECHS, SIEGE, BOMBARD, CAPTURE, WORLD, EXPLORE, NOTES, LEADERS,
             CARDS, RELICS, AGENDA, ENDGAME,
@@ -2268,7 +2268,7 @@ mod tests {
     }
 
     #[test]
-    fn every_preset_builds_with_roster_factions_and_short_at_every_table_size() {
+    fn slow_every_preset_builds_with_roster_factions_and_short_at_every_table_size() {
         let loader = crate::maps::TemplateLoader::load().unwrap();
         let mut failures = Vec::new();
         for base in KNOWN {

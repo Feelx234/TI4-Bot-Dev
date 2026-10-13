@@ -26,7 +26,9 @@ const PHONE = {
 
 const server = {
   name: "server",
-  command: "cargo run --quiet -p ti4-server --bin server",
+  // `b-web` builds the server with the features of `cargo t-web`, so the two share one build of
+  // the engine (`cargo run -p ti4-server` builds its own).
+  command: "cargo b-web --quiet && exec target/debug/server",
   cwd: "..",
   // The banner is printed after the port is bound. The first build takes minutes.
   wait: { stdout: new RegExp(`Listening on:\\s+http://127\\.0\\.0\\.1:${backendPort}`) },
