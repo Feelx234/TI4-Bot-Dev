@@ -32,6 +32,7 @@ import {
   type AgendaMemory,
 } from "./presentation/agendaStrip.ts";
 import { SeatInfoProvider } from "./presentation/SeatInfoContext.tsx";
+import { PublicStateProvider } from "./presentation/PublicStateContext.tsx";
 import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
 import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
@@ -53,6 +54,7 @@ import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
+import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { readAgendaLog } from "./presentation/agendaToasts.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
@@ -471,6 +473,7 @@ const GameViewContainer: React.FC<{
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
+  const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
@@ -597,6 +600,7 @@ const GameViewContainer: React.FC<{
   return (
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
+    <PublicStateProvider state={snapshot?.state}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
     <BluffScope
       gameId={gameId}
@@ -661,6 +665,7 @@ const GameViewContainer: React.FC<{
         ready={Boolean(snapshot)}
         localNotes={localNotes}
         explorations={explorationLog}
+        breakthroughs={breakthroughs}
         agendas={agendaLog}
         table={snapshot?.view.table}
       />
@@ -897,6 +902,7 @@ const GameViewContainer: React.FC<{
     </PreparedHintProvider>
     </BluffScope>
     </DecisionTableProvider>
+    </PublicStateProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>
   );

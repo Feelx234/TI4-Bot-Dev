@@ -11,6 +11,8 @@ import {
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
 import { FactionInfoButton } from "./UnitInfo.tsx";
+import { describeBreakthrough } from "../presentation/breakthroughs.ts";
+import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { SecondaryPrepModeToggle } from "./SecondaryPrepModeToggle.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
@@ -166,6 +168,43 @@ export interface PlayerSheetProps {
   onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
 }
 
+/**
+ * A seat's Thunder's Edge breakthrough: unlocked (printed text in full) or still locked (name only,
+ * the text on hover; the card is public). Nothing shows for a faction with no printed breakthrough.
+ */
+const BreakthroughRow: React.FC<{ faction: string; held: string | null }> = ({ faction, held }) => {
+  const line = describeBreakthrough(faction, held);
+  if (!line) return null;
+  const detail = `${line.name} (synergy ${line.synergy})${line.text ? `\n\n${line.text}` : ""}`;
+  return (
+    <div
+      data-testid="player-breakthrough"
+      data-unlocked={line.unlocked ? "true" : "false"}
+      title={detail}
+      style={{
+        fontSize: 11,
+        padding: "3px 6px",
+        borderRadius: 4,
+        border: `1px solid ${line.unlocked ? "#f59e0b" : "rgba(255, 255, 255, 0.12)"}`,
+        background: line.unlocked ? "rgba(245, 158, 11, 0.1)" : "transparent",
+        color: line.unlocked ? "#fde68a" : "#94a3b8",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
+        <span style={{ fontWeight: 600 }}>Breakthrough:</span>
+        <strong data-testid="player-breakthrough-name">{line.name}</strong>
+        <span data-testid="player-breakthrough-state">{line.unlocked ? "unlocked" : "locked"}</span>
+        <span>Synergy: {line.synergy}</span>
+      </div>
+      {line.unlocked && line.text && (
+        <div data-testid="player-breakthrough-text" style={{ marginTop: 3, whiteSpace: "pre-line", color: "#e2e8f0" }}>
+          {line.text}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   players,
   userSeat,
@@ -178,6 +217,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
+  const publicState = usePublicState();
   const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
@@ -380,6 +420,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                   {player.faction}
                   <FactionInfoButton
                     faction={player.faction}
+                    breakthroughHeld={publicState.breakthroughs[player.id] ?? null}
                     technologies={player.technologies}
                     leaders={player.leaders}
                   />
@@ -643,6 +684,8 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 Secret Obj: <strong>{player.secret_objectives_count}</strong>
               </span>
             </div>
+
+            <BreakthroughRow faction={player.faction} held={publicState.breakthroughs[player.id] ?? null} />
 
             {player.scored_secret_objectives && player.scored_secret_objectives.length > 0 && (
               <div style={{ display: "grid", gap: 4 }}>

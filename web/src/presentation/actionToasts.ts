@@ -17,6 +17,7 @@ export type ActionToastCategory =
   | "trade"
   | "politics"
   | "explore"
+  | "breakthrough"
   | "turn";
 
 export interface ActionToast {

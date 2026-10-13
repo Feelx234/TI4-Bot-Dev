@@ -31,11 +31,19 @@ export function explorationResultText(record: ExplorationRecordDto): string {
   const result = (record.result ?? "").trim();
   if (outcome.startsWith("attached:")) {
     const id = outcome.slice("attached:".length);
-    return `attached ${findAttachmentMeta(id)?.name ?? humanizeId(id)}`;
+    const meta = findAttachmentMeta(id);
+    const gains = [
+      meta?.resourcesModifier ? `${meta.resourcesModifier > 0 ? "+" : ""}${meta.resourcesModifier} resources` : "",
+      meta?.influenceModifier ? `${meta.influenceModifier > 0 ? "+" : ""}${meta.influenceModifier} influence` : "",
+    ].filter(Boolean);
+    return `attached ${meta?.name ?? humanizeId(id)}${gains.length ? ` (${gains.join(", ")})` : ""}`;
   }
   if (result) return result;
   if (SACRIFICE_CARDS.test(record.card)) return "no infantry removed, nothing gained";
-  return "nothing happened";
+  // A card that stays in the play area (Enigmatic Device) gains nothing now but is not "nothing".
+  const text = findExplorationCardMeta(record.card)?.description ?? "";
+  if (/place this card faceup in your play area/i.test(text)) return "kept faceup in the play area for later";
+  return "nothing gained";
 }
 
 /** The one-line summary of a finished exploration, without the actor's name. */
@@ -63,7 +71,13 @@ export function explorationToasts(
   let next = Math.min(from, log.length);
   for (let i = next; i < log.length; i++) {
     const record = log[i];
-    if (!record.outcome) break;
+    if (!record.outcome) {
+      // Only the newest record can still be waiting for its decision; an older one that never got
+      // an outcome must not hold back every toast after it.
+      if (i === log.length - 1) break;
+      next = i + 1;
+      continue;
+    }
     toasts.push({
       id: `explore:${i}:${record.player}:${record.card}`,
       actor: record.player,

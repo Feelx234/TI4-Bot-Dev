@@ -8,6 +8,7 @@ import { SpaceCombatOverlay, getSpaceCombatHexStyle } from "./SpaceCombatOverlay
 import { GroundCombatOverlay } from "./GroundCombatOverlay.tsx";
 import { TechBenefitsOverlay } from "./TechBenefitsOverlay.tsx";
 import { StandardOverlay } from "./StandardOverlay.tsx";
+import { ExplorationMarkers } from "./ExplorationMarkers.tsx";
 import { COMMAND_TOKEN_RADIUS, COMMAND_TOKEN_STEP } from "./boardLayout.ts";
 
 import { PlayerView } from "../../protocol/types.ts";
@@ -313,6 +314,8 @@ export const BoardTile: React.FC<BoardTileProps> = ({
           onSelectSystem={onSelectSystem}
         />
       )}
+
+      <ExplorationMarkers tile={tile} />
 
       {/* Command Tokens */}
       {tile.commandTokens.map((ct, cIdx) => {

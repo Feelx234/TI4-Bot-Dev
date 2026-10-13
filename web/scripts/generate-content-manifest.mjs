@@ -64,6 +64,7 @@ async function generate() {
     factionAbilities,
     promissoryNotes,
     relics,
+    breakthroughs,
   ] = await Promise.all([
     readJson("manifest.json"),
     readJson("strategy_cards.json"),
@@ -80,6 +81,7 @@ async function generate() {
     readJson("abilities.json"),
     readJson("promissory_notes.json"),
     readJson("relics.json"),
+    readJson("breakthroughs.json"),
   ]);
 
   const strategyCatalog = {};
@@ -331,6 +333,23 @@ async function generate() {
     );
   }
 
+  const breakthroughCatalog = {};
+  for (const breakthrough of breakthroughs) {
+    const id = requiredString(breakthrough, "alias", "breakthroughs");
+    addEntry(
+      breakthroughCatalog,
+      id,
+      defined([
+        ["id", id],
+        ["name", requiredString(breakthrough, "name", "breakthroughs")],
+        ["faction", optionalString(breakthrough, "faction") || undefined],
+        ["synergy", Array.isArray(breakthrough.synergy) ? breakthrough.synergy : []],
+        ["text", optionalString(breakthrough, "text") || undefined],
+      ]),
+      "breakthroughs",
+    );
+  }
+
   const factionCatalog = {};
   for (const faction of factions) {
     const id = requiredString(faction, "alias", "factions");
@@ -369,6 +388,7 @@ async function generate() {
     factionAbilities: sortedCatalog(factionAbilityCatalog),
     promissoryNotes: sortedCatalog(promissoryNoteCatalog),
     relics: sortedCatalog(relicCatalog),
+    breakthroughs: sortedCatalog(breakthroughCatalog),
   };
   const source = JSON.stringify(catalogs);
   const sourceDigest = createHash("sha256").update(source).digest("hex");
@@ -393,6 +413,7 @@ async function generate() {
         factionAbilities: factionAbilities.length,
         promissoryNotes: promissoryNotes.length,
         relics: relics.length,
+        breakthroughs: breakthroughs.length,
       },
     },
     null,
