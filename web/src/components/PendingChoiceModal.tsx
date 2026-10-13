@@ -25,6 +25,7 @@ import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
+import { NotOfferedNote } from "./NotOfferedNote.tsx";
 import { InvestmentsContextPanel, StrategyGoodsBadge, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
 import { describeAbilityOffer } from "../presentation/abilityOffer.ts";
 import { UnitPickOptionNote, UnitPickPanel } from "./UnitPickParts.tsx";
@@ -428,6 +429,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
+          <NotOfferedNote choice={choice} />
           {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
