@@ -7,6 +7,9 @@ import { DetailPanel } from "./DetailPanel.tsx";
 import { PlanetValuePair } from "./PlanetValueIcons.tsx";
 import { PlanetStructures } from "./PlanetStructures.tsx";
 import { splitStructures } from "../presentation/planetStructures.ts";
+import { UnitStatsTip } from "./UnitInfo.tsx";
+import { describeAnomaly } from "../presentation/anomalyRules.ts";
+import { findPlanetMeta } from "../protocol/contentCatalog.ts";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import {
   UnitIcon,
@@ -113,6 +116,19 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
         </div>
       )}
 
+      {system.anomalies.map((a) => {
+        const rule = describeAnomaly(a);
+        return rule ? (
+          <p
+            key={a}
+            data-testid="inspector-anomaly-rule"
+            style={{ margin: 0, fontSize: 12, color: "#fde68a", lineHeight: 1.4 }}
+          >
+            <strong>{rule.name}:</strong> {rule.text}
+          </p>
+        ) : null;
+      })}
+
       {/* Planets */}
       <div>
         <h4
@@ -200,6 +216,8 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                   </div>
                 )}
 
+                {p.legendary && <LegendaryAbility planetId={p.id} />}
+
                 <PlanetStructures planetId={p.id} units={system.planetUnits[p.id] ?? []} />
               </div>
             ))}
@@ -278,15 +296,19 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({ system, onClos
                             color: u.damagedCount > 0 ? "#fca5a5" : "#e2e8f0",
                           }}
                         >
-                          <UnitIcon
-                            type={u.baseType}
-                            size={14}
-                            color={playerColor}
-                            aria-hidden="true"
-                          />
-                          <span>
-                            {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
-                          </span>
+                          <UnitStatsTip unit={u.baseType} seat={pg.owner}>
+                            <UnitStatsTip unit={u.baseType} seat={pg.owner}>
+                              <UnitIcon
+                                type={u.baseType}
+                                size={14}
+                                color={playerColor}
+                                aria-hidden="true"
+                              />
+                              <span>
+                                {u.totalCount} × {getUnitDisplayName(u.baseType, u.totalCount)}
+                              </span>
+                            </UnitStatsTip>
+                          </UnitStatsTip>
                           {u.damagedCount > 0 && (
                             <span
                               style={{
@@ -505,3 +527,19 @@ function groupUnitsByPlayer(units: PlacedUnitPresentation[]): PlayerUnitGroup[] 
 
   return result;
 }
+
+/** The ability card a legendary planet carries, so the overview needs no trip to the card list. */
+const LegendaryAbility: React.FC<{ planetId: string }> = ({ planetId }) => {
+  const meta = findPlanetMeta(planetId);
+  const text = meta?.legendaryAbilityText?.trim();
+  if (!meta?.legendaryAbilityName && !text) return null;
+  return (
+    <div
+      data-testid={`inspector-legendary-${planetId}`}
+      style={{ marginTop: 4, fontSize: 11, color: "#fde68a", lineHeight: 1.4 }}
+    >
+      <strong>{meta?.legendaryAbilityName ?? "Legendary ability"}</strong>
+      {text ? `: ${text}` : ""}
+    </div>
+  );
+};
