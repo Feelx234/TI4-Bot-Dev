@@ -1781,9 +1781,34 @@ html,
 }
 .strategy-draft-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The grid scrolls (max-height); without this the rows are squeezed to fit it and the card
+     text, with the trade goods note at its end, spills out of the card and under the next one. */
+  grid-auto-rows: max-content;
+  align-content: start;
 }
 .strategy-draft-card {
   min-height: 160px;
+}
+.strategy-draft-card__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.strategy-goods-badge {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--color-warning);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-warning);
+  white-space: nowrap;
+}
+.strategy-goods-badge[data-empty="true"] {
+  border-color: var(--color-border, #334155);
+  color: var(--color-text-muted);
+  font-weight: 500;
 }
 .strategy-draft-card__text {
   margin-top: 8px;
@@ -3715,7 +3740,7 @@ select:focus-visible,
 }
 .production-drawer__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   max-height: min(55dvh, 500px);
   gap: 8px;
