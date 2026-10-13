@@ -39,7 +39,8 @@ fn play(count: usize) -> (Vec<DecisionRecord>, Vec<GameEvent>) {
         if let Some((seat, nonce, version)) = session.current_pending_decision() {
             let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
             if let Some(pending) = snapshot.pending_choice {
-                let _ = session.submit_choice(&seat, &nonce, version, &pending.choice.options[0].id);
+                let _ =
+                    session.submit_choice(&seat, &nonce, version, &pending.choice.options[0].id);
                 continue;
             }
         }
@@ -60,7 +61,9 @@ fn resume(decisions: &[DecisionRecord], events: &[GameEvent], step_snapshots: bo
     config.step_snapshots = step_snapshots;
     let session = GameSession::start(config);
     session.wait_replayed().expect("replayed");
-    let (seat, _, version) = session.current_pending_decision().expect("a human is asked");
+    let (seat, _, version) = session
+        .current_pending_decision()
+        .expect("a human is asked");
     let snapshot = session.get_snapshot(&ViewerRole::Player(seat.clone()));
     let position = serde_json::json!({
         "seat": seat,
@@ -83,7 +86,10 @@ fn a_replacement_session_forks_the_copy_and_reaches_the_full_replay_position() {
     let forked = resume(&decisions, &events, true);
     let full = resume(&decisions, &events, false);
 
-    assert_eq!(full.resumed_from, None, "without copies the worker replays it all");
+    assert_eq!(
+        full.resumed_from, None,
+        "without copies the worker replays it all"
+    );
     let at = forked
         .resumed_from
         .expect("the worker forks the copy its private replay took");

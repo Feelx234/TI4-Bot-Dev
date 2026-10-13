@@ -43,8 +43,11 @@ fn asked_with_never(
         never.iter().map(|name| (*name).to_owned()).collect(),
     ));
     let sink = skipped.clone();
-    let wrapper = ti4_server::session::reaction_modes::NeverOffer::new(Box::new(Recorder(asked.clone())), set)
-        .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
+    let wrapper = ti4_server::session::reaction_modes::NeverOffer::new(
+        Box::new(Recorder(asked.clone())),
+        set,
+    )
+    .on_skip(move |_, cards| sink.lock().unwrap().push(cards.to_vec()));
     let mut table = ti4_engine::choice::Table::with_default(Box::new(Recorder(asked.clone())));
     table.seat(PlayerId::new(reactor), Box::new(wrapper));
     let seats: Vec<PlayerId> = state.players.iter().map(|seat| seat.id.clone()).collect();
@@ -86,7 +89,11 @@ fn asked_with_never(
 fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
     let build = || {
         let mut state = ti4_engine::fixtures::game(&["a", "b"]);
-        state.player_mut(&PlayerId::new("a")).unwrap().action_cards.clear();
+        state
+            .player_mut(&PlayerId::new("a"))
+            .unwrap()
+            .action_cards
+            .clear();
         state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
             vec![ActionCardId::new("sabo1"), ActionCardId::new("sabo2")];
         state
@@ -119,7 +126,11 @@ fn a_never_card_window_is_declined_unasked_and_journaled_as_a_decline() {
 #[test]
 fn a_never_card_leaves_the_same_seats_other_cards_offered() {
     let mut state = ti4_engine::fixtures::game(&["a", "b"]);
-    state.player_mut(&PlayerId::new("b")).unwrap().action_cards.clear();
+    state
+        .player_mut(&PlayerId::new("b"))
+        .unwrap()
+        .action_cards
+        .clear();
     state.player_mut(&PlayerId::new("a")).unwrap().action_cards =
         vec![ActionCardId::new("silence_space"), ActionCardId::new("fs1")];
     let (asked, _, notes) = asked_with_never(
@@ -129,6 +140,9 @@ fn a_never_card_leaves_the_same_seats_other_cards_offered() {
         "SYSTEM_ACTIVATED",
         payload(&[("player", "a".into()), ("system", "27".into())]),
     );
-    assert!(!asked.is_empty(), "the seat is still asked about its other cards");
+    assert!(
+        !asked.is_empty(),
+        "the seat is still asked about its other cards"
+    );
     assert!(notes.is_empty());
 }

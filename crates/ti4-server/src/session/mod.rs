@@ -1,19 +1,19 @@
 pub mod batch;
 pub mod bluff;
 pub mod bluff_hold;
-pub mod reaction_modes;
 pub mod decider;
 mod planning;
 pub mod preview;
 pub mod random_bot;
+pub mod reaction_modes;
 pub mod registry;
 pub mod replay;
 pub mod rng_force;
 pub(crate) mod script;
 pub mod splice;
 pub mod step_snapshot;
-pub mod turn_redo;
 pub mod transport;
+pub mod turn_redo;
 pub(crate) mod undo;
 pub mod worker;
 
@@ -494,8 +494,11 @@ impl GameSession {
         lock.seat_tokens.iter().find_map(|(seat, candidate)| {
             // A bot seat has no usable credential, whatever its record holds.
             (candidate == token
-                && !lock.seats.get(seat).is_some_and(SeatController::is_in_process_bot))
-                .then(|| ViewerRole::Player(seat.clone()))
+                && !lock
+                    .seats
+                    .get(seat)
+                    .is_some_and(SeatController::is_in_process_bot))
+            .then(|| ViewerRole::Player(seat.clone()))
         })
     }
 
@@ -578,7 +581,12 @@ impl GameSession {
     /// under one lock so the two belong to the same moment. The copy is only a hint: a batch
     /// check uses it when `StepSnapshot::is_valid_for` accepts it and replays in full otherwise.
     #[must_use]
-    pub fn batch_basis(&self) -> (Vec<DecisionRecord>, Option<Arc<step_snapshot::StepSnapshot>>) {
+    pub fn batch_basis(
+        &self,
+    ) -> (
+        Vec<DecisionRecord>,
+        Option<Arc<step_snapshot::StepSnapshot>>,
+    ) {
         let lock = self.shared.lock().expect("shared lock");
         (lock.decision_log.clone(), lock.step_snapshot.clone())
     }
@@ -697,7 +705,10 @@ impl GameSession {
     /// Let the seat end its running bluff hold early; the seat's current bluff state is
     /// returned so a refused request can still re-sync the client.
     pub fn pass_reaction_hold(&self, seat: &PlayerId) {
-        self.shared.lock().expect("shared lock").pass_reaction_hold(seat);
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .pass_reaction_hold(seat);
     }
 
     /// The seat's own bluff state, as the protocol sends it to that seat only.
@@ -706,7 +717,10 @@ impl GameSession {
         &self,
         seat: &PlayerId,
     ) -> crate::protocol::server::ReactionIntentStateMsg {
-        self.shared.lock().expect("shared lock").reaction_intent_state(seat)
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .reaction_intent_state(seat)
     }
 
     /// Replace the bluff limits (tests use short durations; a running hold keeps its own).
@@ -717,7 +731,12 @@ impl GameSession {
     /// The seat whose bluff hold is running right now, if any.
     #[must_use]
     pub fn bluff_holding(&self) -> Option<PlayerId> {
-        self.shared.lock().expect("shared lock").bluff.holding().cloned()
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .bluff
+            .holding()
+            .cloned()
     }
 
     pub fn game_version(&self) -> u64 {

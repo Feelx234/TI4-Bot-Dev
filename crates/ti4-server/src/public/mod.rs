@@ -314,7 +314,11 @@ pub async fn guard(
 }
 
 impl PublicState {
-    async fn check_create_caps(&self, registry: &Arc<GameRegistry>, ip: IpAddr) -> Option<Response> {
+    async fn check_create_caps(
+        &self,
+        registry: &Arc<GameRegistry>,
+        ip: IpAddr,
+    ) -> Option<Response> {
         let games = registry.list_games();
         if let Some(max) = self.config.max_games
             && games.len() >= max
@@ -363,7 +367,11 @@ impl PublicState {
         }
         let (parts, body) = response.into_parts();
         let Ok(bytes) = axum::body::to_bytes(body, 256 * 1024).await else {
-            return json_error(StatusCode::INTERNAL_SERVER_ERROR, "internal", "response lost");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "response lost",
+            );
         };
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes)
             && let Some(id) = v.get("game_id").and_then(|g| g.as_str())

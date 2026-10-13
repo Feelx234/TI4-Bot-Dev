@@ -647,9 +647,12 @@ fn bombardment_target_question(
     }
     // Display only: what each answer would put at risk ("2 infantry, 1 mech").
     let forces = |player: &PlayerId| -> String {
-        let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut counts: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for unit in on_planet.iter().filter(|unit| &unit.owner == player) {
-            *counts.entry(unit.type_id.to_string().replace('_', " ")).or_insert(0) += 1;
+            *counts
+                .entry(unit.type_id.to_string().replace('_', " "))
+                .or_insert(0) += 1;
         }
         counts
             .into_iter()
@@ -5771,29 +5774,39 @@ mod tests {
         let system = SystemId::new("18");
         let planet = PlanetId::new("mecatolrex");
         let present: std::collections::BTreeSet<PlayerId> =
-            [PlayerId::new("b"), PlayerId::new("c")].into_iter().collect();
+            [PlayerId::new("b"), PlayerId::new("c")]
+                .into_iter()
+                .collect();
         let units = vec![
             Unit::new(UnitTypeId::new("infantry"), PlayerId::new("b")),
             Unit::new(UnitTypeId::new("infantry"), PlayerId::new("b")),
             Unit::new(UnitTypeId::new("mech"), PlayerId::new("b")),
             Unit::new(UnitTypeId::new("infantry"), PlayerId::new("c")),
         ];
-        let choice = bombardment_target_question(
-            &PlayerId::new("a"),
-            &system,
-            &planet,
-            2,
-            &present,
-            &units,
-        )
-        .expect("two seats present");
+        let choice =
+            bombardment_target_question(&PlayerId::new("a"), &system, &planet, 2, &present, &units)
+                .expect("two seats present");
         assert_eq!(choice.ids(), vec!["b", "c"]);
-        assert_eq!(choice.details.get("kind").and_then(serde_json::Value::as_str), Some("offer"));
+        assert_eq!(
+            choice
+                .details
+                .get("kind")
+                .and_then(serde_json::Value::as_str),
+            Some("offer")
+        );
         let captions = choice.details.get("captions").expect("captions");
         assert_eq!(captions["b"]["hint"], "2 infantry, 1 mech on mecatolrex");
         assert_eq!(captions["c"]["seat"], "c");
-        let facts = choice.details.get("facts").and_then(serde_json::Value::as_array).expect("facts");
-        assert!(facts.iter().any(|f| f["label"] == "Hits to assign" && f["value"] == "2"));
+        let facts = choice
+            .details
+            .get("facts")
+            .and_then(serde_json::Value::as_array)
+            .expect("facts");
+        assert!(
+            facts
+                .iter()
+                .any(|f| f["label"] == "Hits to assign" && f["value"] == "2")
+        );
     }
 
     /// OBS-008b5: a bombardment-target option names the system and planet it concerns, board
@@ -9337,9 +9350,8 @@ mod ground_routes {
         }
         assert!(custodians_removable(&state, content, POK, &a(), &mecatol));
 
-        let (capturing, seen) = crate::choice::Capturing::new(Box::new(
-            crate::choice::Scripted::new(["yes"]),
-        ));
+        let (capturing, seen) =
+            crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new(["yes"])));
         let mut table = Table::with_default(Box::new(capturing));
         let mut dice = Dice::new();
         let mut rng = GameRng::new(7);

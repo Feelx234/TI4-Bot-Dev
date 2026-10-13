@@ -286,7 +286,11 @@ async fn the_lobby_preview_equals_the_started_games_board() {
             .map(|seat| seat["faction"].as_str().unwrap())
             .collect();
         assert_eq!(dealt.len(), 4, "{preview}");
-        assert!(dealt.iter().all(|f| ti4_engine::seating::LOBBY_FACTIONS.contains(f)));
+        assert!(
+            dealt
+                .iter()
+                .all(|f| ti4_engine::seating::LOBBY_FACTIONS.contains(f))
+        );
 
         let mut tokens = vec![made.host.clone()];
         for _ in 0..3 {

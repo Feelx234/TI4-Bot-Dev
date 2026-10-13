@@ -121,7 +121,9 @@ fn step_of(option: &ChoiceOption) -> Option<(BatchKind, MovementStep)> {
         ),
         (k, _) if k == ti4_engine::combat::SUSTAIN_KIND => (
             BatchKind::Casualties,
-            MovementStep::Sustain { unit: text("unit")? },
+            MovementStep::Sustain {
+                unit: text("unit")?,
+            },
         ),
         (k, _)
             if k == ti4_engine::combat::CASUALTY_KIND
@@ -168,9 +170,8 @@ fn plans_for(choice: &Choice, destination: &str) -> Vec<MovementPlan> {
             .filter(|(other, _)| other == kind)
             .map(|(_, step)| step)
             .find(|step| {
-                terminal(*kind).is_none_or(|end| {
-                    std::mem::discriminant(&end) != std::mem::discriminant(*step)
-                })
+                terminal(*kind)
+                    .is_none_or(|end| std::mem::discriminant(&end) != std::mem::discriminant(*step))
             })
             .unwrap_or(first);
         let destination = matches!(kind, BatchKind::TacticalMovement | BatchKind::Production)
@@ -265,7 +266,12 @@ fn differential(source: &Source, default_points: usize) -> Coverage {
         }
     }
     let offers = offers.lock().unwrap().clone();
-    assert!(offers.len() >= total, "{}: offers {} of {total}", source.name, offers.len());
+    assert!(
+        offers.len() >= total,
+        "{}: offers {} of {total}",
+        source.name,
+        offers.len()
+    );
 
     // Which decisions to check: spread over the batchable ones, every kind represented.
     let batchable: Vec<usize> = (0..total)
@@ -342,7 +348,10 @@ fn differential(source: &Source, default_points: usize) -> Coverage {
                 }
                 for plan in plans_for(choice, &destination) {
                     coverage.plans += 1;
-                    *coverage.kinds.entry(format!("{:?}", plan.kind)).or_default() += 1;
+                    *coverage
+                        .kinds
+                        .entry(format!("{:?}", plan.kind))
+                        .or_default() += 1;
                     let prefix = &source.records[..point];
                     let forked = simulate_with(
                         &config,
@@ -369,7 +378,10 @@ fn differential(source: &Source, default_points: usize) -> Coverage {
                     match &forked {
                         Ok(simulation) => {
                             coverage.ok += 1;
-                            *coverage.ok_kinds.entry(format!("{:?}", plan.kind)).or_default() += 1;
+                            *coverage
+                                .ok_kinds
+                                .entry(format!("{:?}", plan.kind))
+                                .or_default() += 1;
                             assert_eq!(simulation.forked_at, Some(boundary));
                             coverage.forked += 1;
                         }
@@ -554,7 +566,9 @@ fn slow_a_long_history_batch_check_is_accepted_far_inside_the_old_budget() {
         SimulationMode::Auto,
     );
     let took = started.elapsed();
-    let simulation = forked.as_ref().unwrap_or_else(|failure| panic!("{failure:?}"));
+    let simulation = forked
+        .as_ref()
+        .unwrap_or_else(|failure| panic!("{failure:?}"));
     assert_eq!(simulation.forked_at, Some(late.boundary));
     assert!(
         took < ti4_server::session::batch::replay_budget(0) / 5,
@@ -590,7 +604,10 @@ fn a_copy_that_does_not_belong_to_the_history_is_not_used() {
     let prefix = &source.records[..at + 5];
     assert!(copy.is_valid_for(3, prefix));
     assert!(!copy.is_valid_for(4, prefix), "another history generation");
-    assert!(!copy.is_valid_for(3, &source.records[..at - 1]), "a shorter log");
+    assert!(
+        !copy.is_valid_for(3, &source.records[..at - 1]),
+        "a shorter log"
+    );
     let mut other = source.records[..at + 5].to_vec();
     other[at - 1].chosen.push('x');
     assert!(!copy.is_valid_for(3, &other), "a different log");
@@ -603,11 +620,28 @@ fn a_copy_that_does_not_belong_to_the_history_is_not_used() {
         steps: vec![MovementStep::DoneMoving],
     };
     let actor = source.records[at].player.clone();
-    let stale = simulate_with(&config, prefix, &actor, &plan, Some(&copy), SimulationMode::Auto);
-    let full = simulate_with(&config, prefix, &actor, &plan, None, SimulationMode::FullReplay);
+    let stale = simulate_with(
+        &config,
+        prefix,
+        &actor,
+        &plan,
+        Some(&copy),
+        SimulationMode::Auto,
+    );
+    let full = simulate_with(
+        &config,
+        prefix,
+        &actor,
+        &plan,
+        None,
+        SimulationMode::FullReplay,
+    );
     assert_eq!(config.history_generation, 0);
     assert_eq!(simulation_difference(&stale, &full), None);
     if let Ok(simulation) = &stale {
-        assert_eq!(simulation.forked_at, None, "generation 3 copy, generation 0 history");
+        assert_eq!(
+            simulation.forked_at, None,
+            "generation 3 copy, generation 0 history"
+        );
     }
 }

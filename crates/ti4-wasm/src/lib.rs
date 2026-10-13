@@ -27,7 +27,6 @@ use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation, SeededRandom, Table,
 };
 use ti4_engine::game::{Game, RunError};
-use ti4_view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
@@ -37,6 +36,7 @@ use ti4_view::maps::{TemplateLoader, default_template_for};
 use ti4_view::planning::audit::PlanScope;
 use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
 use ti4_view::projection::{FactsContext, project_game_view_full, project_session_update};
+use ti4_view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_view::secondary::SecondaryWatch;
 use ti4_view::status::ViewerRole;
 use ti4_view::view::{BoardTileView, GameView};

@@ -64,7 +64,13 @@ impl Server {
         )
     }
 
-    async fn post(&self, game: &str, route: &str, token: Option<&str>, body: Value) -> (StatusCode, Value) {
+    async fn post(
+        &self,
+        game: &str,
+        route: &str,
+        token: Option<&str>,
+        body: Value,
+    ) -> (StatusCode, Value) {
         let mut request = self
             .client
             .post(self.url(&format!("/api/games/{game}/lobby/{route}")))
@@ -123,7 +129,12 @@ async fn the_host_adds_one_random_bot_with_its_own_credential_and_no_password() 
     assert!(!body.to_string().contains("session"));
 
     let (status, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "nickname": "Robo"}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "nickname": "Robo"}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["slots"][2]["nickname"], "Robo");
@@ -134,13 +145,23 @@ async fn fill_seats_every_open_slot_and_count_adds_that_many() {
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host, _) = server.lobby(5).await;
     let (status, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "count": 2}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "count": 2}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(open_slots(&body), 2);
     assert_eq!(body["slots"][2]["nickname"], "Random bot 2");
     let (status, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(open_slots(&body), 0);
@@ -152,11 +173,22 @@ async fn fill_seats_every_open_slot_and_count_adds_that_many() {
         .collect();
     assert_eq!(
         names,
-        ["Host", "Random bot 1", "Random bot 2", "Random bot 3", "Random bot 4"]
+        [
+            "Host",
+            "Random bot 1",
+            "Random bot 2",
+            "Random bot 3",
+            "Random bot 4"
+        ]
     );
     // Nothing is left to fill.
     let (status, _) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
@@ -179,10 +211,14 @@ async fn validation_and_authorization() {
 
     // Not the host: 403. No credential: 403. Unknown credential: 403.
     for token in [Some(guest_token.as_str()), Some("nope")] {
-        let (status, _) = server.post(&game, "bots", token, json!({"kind": "random"})).await;
+        let (status, _) = server
+            .post(&game, "bots", token, json!({"kind": "random"}))
+            .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
     }
-    let (status, _) = server.post(&game, "bots", None, json!({"kind": "random"})).await;
+    let (status, _) = server
+        .post(&game, "bots", None, json!({"kind": "random"}))
+        .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
 
     // Unknown kind, mlp through this route, fill with count, count 0, nickname with several.
@@ -196,13 +232,20 @@ async fn validation_and_authorization() {
     ] {
         let (status, text) = server.post(&game, "bots", Some(&host), body.clone()).await;
         assert!(
-            status == StatusCode::BAD_REQUEST || status == StatusCode::UNPROCESSABLE_ENTITY || status == StatusCode::CONFLICT,
+            status == StatusCode::BAD_REQUEST
+                || status == StatusCode::UNPROCESSABLE_ENTITY
+                || status == StatusCode::CONFLICT,
             "{body} -> {status} {text}"
         );
     }
     // More than the open slots (1 left of 3 after the guest): refused whole, nothing added.
     let (status, _) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "count": 2}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "count": 2}),
+        )
         .await;
     assert_eq!(status, StatusCode::CONFLICT);
     assert_eq!(open_slots(&server.view(&game).await), 1);
@@ -210,14 +253,24 @@ async fn validation_and_authorization() {
     // A nickname names a single bot only.
     let (other, other_host, _) = server.lobby(4).await;
     let (status, _) = server
-        .post(&other, "bots", Some(&other_host), json!({"kind": "random", "nickname": "A", "fill": true}))
+        .post(
+            &other,
+            "bots",
+            Some(&other_host),
+            json!({"kind": "random", "nickname": "A", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(open_slots(&server.view(&other).await), 3);
 
     // Unknown game.
     let (status, _) = server
-        .post("missing_game", "bots", Some(&host), json!({"kind": "random"}))
+        .post(
+            "missing_game",
+            "bots",
+            Some(&host),
+            json!({"kind": "random"}),
+        )
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
@@ -239,10 +292,18 @@ async fn mlp_bots_stay_listed_when_the_service_is_configured() {
     });
     let server = serve(Arc::new(registry)).await;
     let (game, host, _) = server.lobby(3).await;
-    assert_eq!(server.view(&game).await["bot_kinds"], json!(["random", "smart", "mlp"]));
+    assert_eq!(
+        server.view(&game).await["bot_kinds"],
+        json!(["random", "smart", "mlp"])
+    );
     // Random bots do not count against the MLP child-process limit (0 here) and need no password.
     let (status, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     // The MLP path still checks its password and its limit.
@@ -257,7 +318,12 @@ async fn smart_bots_are_added_named_and_started_as_smart_seats() {
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host, host_id) = server.lobby(4).await;
     let (status, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "smart", "count": 2}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "smart", "count": 2}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["slots"][1]["nickname"], "Rule bot 1");
@@ -274,7 +340,9 @@ async fn smart_bots_are_added_named_and_started_as_smart_seats() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
-    let (status, _) = server.post(&game, "ready", Some(&host), json!({"ready": true})).await;
+    let (status, _) = server
+        .post(&game, "ready", Some(&host), json!({"ready": true}))
+        .await;
     assert_eq!(status, StatusCode::OK);
     let (status, started) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK, "{started}");
@@ -301,11 +369,18 @@ async fn a_lobby_of_a_host_and_bots_starts_and_the_bots_play() {
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host, host_id) = server.lobby(4).await;
     let (status, _) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK);
     // The host readies up (a bot never needs to) and starts.
-    let (status, _) = server.post(&game, "ready", Some(&host), json!({"ready": true})).await;
+    let (status, _) = server
+        .post(&game, "ready", Some(&host), json!({"ready": true}))
+        .await;
     assert_eq!(status, StatusCode::OK);
     let (status, started) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK, "{started}");
@@ -317,7 +392,10 @@ async fn a_lobby_of_a_host_and_bots_starts_and_the_bots_play() {
 
     let session = server.registry.get_game(&game).expect("session");
     let seats = session.lobby_details().1;
-    assert_eq!(seats[&PlayerId::new(host_id.clone())], SeatController::Human);
+    assert_eq!(
+        seats[&PlayerId::new(host_id.clone())],
+        SeatController::Human
+    );
     assert_eq!(
         seats
             .values()
@@ -361,11 +439,21 @@ async fn removing_a_random_bot_frees_its_seat_and_the_name_is_reused() {
     let server = serve(Arc::new(GameRegistry::new())).await;
     let (game, host, _) = server.lobby(3).await;
     let (_, body) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     let bot_id = body["slots"][1]["occupant"].as_str().unwrap().to_owned();
     let (status, body) = server
-        .post(&game, "remove-bot", Some(&host), json!({"player_id": bot_id}))
+        .post(
+            &game,
+            "remove-bot",
+            Some(&host),
+            json!({"player_id": bot_id}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(open_slots(&body), 1);
@@ -383,7 +471,12 @@ async fn bot_seats_survive_a_restart_of_the_lobby_and_of_the_running_game() {
     let server = serve(Arc::new(GameRegistry::new().with_store(store.clone()))).await;
     let (game, host, _) = server.lobby(3).await;
     server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "count": 1}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "count": 1}),
+        )
         .await;
     drop(server);
 
@@ -394,10 +487,17 @@ async fn bot_seats_survive_a_restart_of_the_lobby_and_of_the_running_game() {
     let view = server.view(&game).await;
     assert_eq!(view["slots"][1]["bot"], "random");
     let (status, _) = server
-        .post(&game, "bots", Some(&host), json!({"kind": "random", "fill": true}))
+        .post(
+            &game,
+            "bots",
+            Some(&host),
+            json!({"kind": "random", "fill": true}),
+        )
         .await;
     assert_eq!(status, StatusCode::OK);
-    server.post(&game, "ready", Some(&host), json!({"ready": true})).await;
+    server
+        .post(&game, "ready", Some(&host), json!({"ready": true}))
+        .await;
     let (status, _) = server.post(&game, "start", Some(&host), json!({})).await;
     assert_eq!(status, StatusCode::OK);
     let session = server.registry.get_game(&game).unwrap();

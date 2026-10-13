@@ -71,7 +71,12 @@ fn setup(seed: u64) -> (GameState, Galaxy) {
     let last = players.last().unwrap().clone();
     state.promissory_notes = ti4_engine::promissory::GENERIC
         .iter()
-        .map(|alias| (ti4_engine::promissory::note_id(alias, "generic"), last.clone()))
+        .map(|alias| {
+            (
+                ti4_engine::promissory::note_id(alias, "generic"),
+                last.clone(),
+            )
+        })
         .collect();
     (state, galaxy)
 }
@@ -104,7 +109,10 @@ fn base_history() -> (GameState, Galaxy, Vec<DecisionRecord>) {
     let (mut h, _) = play_with(&state, &galaxy, Box::new(Lcg(1, false)), 400);
     // One step can log several decisions, so the game may run a little past 400; the history
     // is the first 400 either way.
-    assert!(h.len() >= 400, "the fixture game should reach 400 decisions");
+    assert!(
+        h.len() >= 400,
+        "the fixture game should reach 400 decisions"
+    );
     h.truncate(400);
     (state, galaxy, h)
 }

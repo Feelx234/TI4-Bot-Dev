@@ -12,7 +12,9 @@ use std::collections::BTreeSet;
 use ti4_engine::game::Game;
 use ti4_server::session::RngForce;
 
-use crate::support::{Source, forced_decider, generated, generated_with_factions, saved_games, start_game};
+use crate::support::{
+    Source, forced_decider, generated, generated_with_factions, saved_games, start_game,
+};
 
 #[derive(Default, Debug)]
 struct Stats {
@@ -49,7 +51,11 @@ fn assert_same_end(original: &Game<'static>, fork: &Game<'static>, context: &str
         "{context}: states"
     );
     assert_eq!(original.events, fork.events, "{context}: events");
-    assert_eq!(original.timing.log(), fork.timing.log(), "{context}: timing log");
+    assert_eq!(
+        original.timing.log(),
+        fork.timing.log(),
+        "{context}: timing log"
+    );
     assert_eq!(
         original.timing.applied_events(),
         fork.timing.applied_events(),
@@ -61,7 +67,11 @@ fn assert_same_end(original: &Game<'static>, fork: &Game<'static>, context: &str
         fork.rng_positions(),
         "{context}: rng positions"
     );
-    assert_eq!(original.legal_options(), fork.legal_options(), "{context}: offer");
+    assert_eq!(
+        original.legal_options(),
+        fork.legal_options(),
+        "{context}: offer"
+    );
 }
 
 /// Walk `source` with one original; fork it every `stride` step boundaries and run each fork
@@ -111,7 +121,11 @@ fn check(source: &Source, stride: usize, window: usize) -> Stats {
                 source.name
             );
             let fork_result = fork.step();
-            assert_eq!(fork_result, result, "{}: step result at {boundary}", source.name);
+            assert_eq!(
+                fork_result, result,
+                "{}: step result at {boundary}",
+                source.name
+            );
             assert!(fork.table.log.records.len() <= original.table.log.records.len());
             assert_eq!(
                 fork.table.log.records.last(),
@@ -135,8 +149,7 @@ fn check(source: &Source, stride: usize, window: usize) -> Stats {
         }
         if let Some(error) = &result.error {
             assert!(
-                error.to_string().contains("recorded decisions exhausted")
-                    || len + 1 >= total,
+                error.to_string().contains("recorded decisions exhausted") || len + 1 >= total,
                 "{}: the recorded game stopped replaying at decision {len}: {error}",
                 source.name
             );
@@ -170,7 +183,11 @@ fn slow_a_fork_of_games_seating_the_newer_factions_continues_identically() {
         (8_u64, ["nekro", "firmament", "sol", "bastion"]),
     ] {
         let source = generated_with_factions(&format!("newer-{seed}"), seed, factions, 500, 17);
-        assert!(source.records.len() > 150, "{factions:?}: {}", source.records.len());
+        assert!(
+            source.records.len() > 150,
+            "{factions:?}: {}",
+            source.records.len()
+        );
         let stats = check(&source, 4, 30);
         eprintln!("{factions:?}: {stats:?}");
         assert!(stats.forks > 30, "{factions:?}: {stats:?}");
@@ -229,7 +246,9 @@ fn scan_saved_games() {
     let mut dirs = Vec::new();
     let mut stack = vec![std::path::PathBuf::from(root)];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -251,7 +270,10 @@ fn scan_saved_games() {
                 while game.table.log.records.len() < source.records.len() {
                     let result = game.step();
                     if let Some(error) = result.error {
-                        outcome = format!("stopped: {}", error.to_string().chars().take(100).collect::<String>());
+                        outcome = format!(
+                            "stopped: {}",
+                            error.to_string().chars().take(100).collect::<String>()
+                        );
                         break;
                     }
                 }

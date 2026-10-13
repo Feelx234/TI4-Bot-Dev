@@ -59,9 +59,9 @@ pub mod map_feasibility;
 pub mod movement;
 pub mod neutral_units;
 pub mod objectives;
-pub mod observation;
 #[cfg(test)]
 mod objectives_monument_tests;
+pub mod observation;
 pub mod opening;
 pub mod payment;
 pub mod phase;

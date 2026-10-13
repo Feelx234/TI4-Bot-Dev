@@ -19,9 +19,7 @@ pub struct HealthResponse {
 }
 
 /// Handler for `GET /health`.
-pub async fn health_handler(
-    State(registry): State<Arc<GameRegistry>>,
-) -> Json<HealthResponse> {
+pub async fn health_handler(State(registry): State<Arc<GameRegistry>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         protocol_version: PROTOCOL_VERSION,

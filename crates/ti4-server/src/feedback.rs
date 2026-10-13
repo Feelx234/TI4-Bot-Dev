@@ -82,7 +82,9 @@ pub fn store(
 ) -> std::io::Result<String> {
     let (y, m, d) = civil_from_unix(now_unix);
     let id = format!("fb_{now_unix}_{:08x}", rand::random::<u32>());
-    let dir = data_dir.join("feedback").join(format!("{y:04}-{m:02}-{d:02}"));
+    let dir = data_dir
+        .join("feedback")
+        .join(format!("{y:04}-{m:02}-{d:02}"));
     fs::create_dir_all(&dir)?;
     let secs_of_day = now_unix % 86_400;
     let record = StoredFeedback {
@@ -109,7 +111,12 @@ pub fn store(
 pub fn list_recent(data_dir: &Path, limit: usize) -> Vec<(PathBuf, StoredFeedback)> {
     let root = data_dir.join("feedback");
     let mut days: Vec<PathBuf> = fs::read_dir(&root)
-        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect())
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_dir())
+                .collect()
+        })
         .unwrap_or_default();
     days.sort();
     days.reverse();

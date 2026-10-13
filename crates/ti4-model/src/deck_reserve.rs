@@ -312,12 +312,24 @@ mod tests {
         let (mut r, c) = reserve(seg(vec![draw(5, "a"), draw(6, "b")]), 2);
         let mut d = deck();
         // The redone turn (cursor 2..5) draws past the reserved a and b.
-        assert_eq!(take_top(&mut r, "d", &mut d, Some("p1")).as_deref(), Some("c"));
-        assert_eq!(take_top(&mut r, "d", &mut d, Some("p1")).as_deref(), Some("d"));
+        assert_eq!(
+            take_top(&mut r, "d", &mut d, Some("p1")).as_deref(),
+            Some("c")
+        );
+        assert_eq!(
+            take_top(&mut r, "d", &mut d, Some("p1")).as_deref(),
+            Some("d")
+        );
         c.store(5, Ordering::Relaxed);
-        assert_eq!(take_top(&mut r, "d", &mut d, Some("p2")).as_deref(), Some("a"));
+        assert_eq!(
+            take_top(&mut r, "d", &mut d, Some("p2")).as_deref(),
+            Some("a")
+        );
         c.store(6, Ordering::Relaxed);
-        assert_eq!(take_top(&mut r, "d", &mut d, Some("p3")).as_deref(), Some("b"));
+        assert_eq!(
+            take_top(&mut r, "d", &mut d, Some("p3")).as_deref(),
+            Some("b")
+        );
         assert_eq!(d, vec!["e".to_owned()]);
         assert!(r.as_ref().unwrap().failure().is_none());
         // Past the segment the deck is drawn normally again.
@@ -330,7 +342,11 @@ mod tests {
         let (mut r, _c) = reserve(seg(vec![draw(3, "zz")]), 3);
         let mut d = deck();
         let got = take_top(&mut r, "d", &mut d, Some("p2"));
-        assert_eq!(got.as_deref(), Some("a"), "falls back so the state stays valid");
+        assert_eq!(
+            got.as_deref(),
+            Some("a"),
+            "falls back so the state stays valid"
+        );
         let f = r.unwrap().failure().cloned().unwrap();
         assert_eq!(
             (f.tag, f.card.as_str(), f.recipient.as_deref()),

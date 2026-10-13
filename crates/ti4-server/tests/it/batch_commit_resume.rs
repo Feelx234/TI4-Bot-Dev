@@ -227,11 +227,27 @@ fn a_batch_checked_and_resumed_from_step_copies_leaves_the_same_game_as_full_rep
         with_copies.resumed_from
     );
     assert_eq!(without.resumed_from, None);
-    assert_eq!(with_copies.live, without.live, "live game after the batch and six decisions");
+    assert_eq!(
+        with_copies.live, without.live,
+        "live game after the batch and six decisions"
+    );
     assert_eq!(with_copies.saved, without.saved, "history.json");
-    assert_eq!(with_copies.recovered, without.recovered, "recovery from disk");
-    assert_eq!(with_copies.redone, without.redone, "undo then redo of the batch");
-    for key in ["decisions", "events", "state", "batches", "history", "rng_marks"] {
+    assert_eq!(
+        with_copies.recovered, without.recovered,
+        "recovery from disk"
+    );
+    assert_eq!(
+        with_copies.redone, without.redone,
+        "undo then redo of the batch"
+    );
+    for key in [
+        "decisions",
+        "events",
+        "state",
+        "batches",
+        "history",
+        "rng_marks",
+    ] {
         assert_eq!(
             with_copies.live[key], with_copies.recovered[key],
             "recovery replays the saved log to the same {key}"

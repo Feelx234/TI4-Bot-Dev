@@ -5597,7 +5597,13 @@ impl<'a> Game<'a> {
                         .is_some_and(|target| target.starts_with("Elect Player"));
                     if elects_a_player && let Some(chosen) = self.committee_formation(&alias) {
                         self.emit(&format!("AGENDA_RESOLVED:{alias}:{chosen}"));
-                        self.push_agenda_record(&alias, Some(&chosen), BTreeMap::new(), false, false);
+                        self.push_agenda_record(
+                            &alias,
+                            Some(&chosen),
+                            BTreeMap::new(),
+                            false,
+                            false,
+                        );
                         if is_law(self.content, &alias) {
                             self.state.enact_law(&alias, &chosen);
                             self.emit(&format!("LAW_ENACTED:{alias}:{chosen}"));
@@ -6457,7 +6463,12 @@ impl<'a> Game<'a> {
 
     /// The public record of a finished vote, for viewers only (no rule reads it). Written once
     /// the outcome and a Deadly Plot discard are settled, before the agenda's effect is asked.
-    fn log_agenda(&mut self, window: &crate::vote::VoteWindow, outcome: Option<&str>, discarded: bool) {
+    fn log_agenda(
+        &mut self,
+        window: &crate::vote::VoteWindow,
+        outcome: Option<&str>,
+        discarded: bool,
+    ) {
         let ballot = window.ballot();
         let speaker_decided =
             outcome.is_some() && crate::vote::undisputed_winner(ballot, window.choices()).is_none();
@@ -9004,7 +9015,9 @@ mod tests {
         .with_galaxy(galaxy);
         let menu = game.legal_options().expect("a's action");
         assert!(
-            menu.options.iter().any(|o| o.id == "component|leader|naaluagent"),
+            menu.options
+                .iter()
+                .any(|o| o.id == "component|leader|naaluagent"),
             "Z'eu is offered: {:?}",
             menu.ids()
         );
@@ -9015,12 +9028,20 @@ mod tests {
             }
         }
         assert!(game.events.iter().any(|e| e == "FREE_TACTICAL_ACTION"));
-        assert_eq!(game.state.active.as_ref(), Some(&b), "the action ended a's turn");
+        assert_eq!(
+            game.state.active.as_ref(),
+            Some(&b),
+            "the action ended a's turn"
+        );
         let seat = game.state.player(&a).unwrap();
         assert_eq!(seat.tactic_tokens, 3, "no token spent");
-        assert!(!game.state.system_state(&ids[0]).command_tokens.contains(&a), "none placed");
+        assert!(
+            !game.state.system_state(&ids[0]).command_tokens.contains(&a),
+            "none placed"
+        );
         assert_eq!(
-            seat.leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            seat.leaders
+                .get(&ti4_model::id::LeaderId::new("naaluagent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted)
         );
     }
@@ -9031,13 +9052,8 @@ mod tests {
         let a = PlayerId::new("a");
         state.system_mut(&ids[1]).command_tokens.insert(a.clone());
         crate::fixtures::put(&mut state, &ids[0], "carrier", &a, 1);
-        let offered = crate::leaders::zeu_systems(
-            &state,
-            ContentStore::embedded(),
-            POK,
-            &galaxy,
-            &a,
-        );
+        let offered =
+            crate::leaders::zeu_systems(&state, ContentStore::embedded(), POK, &galaxy, &a);
         assert!(offered.contains(&ids[0]));
         assert!(!offered.contains(&ids[1]), "already holds a's token");
         assert!(!offered.contains(&ids[2]), "a home system");
@@ -9059,11 +9075,20 @@ mod tests {
         assert!(game.events.iter().any(|e| e == "COMPONENT_ACTION_FAILED"));
         assert_eq!(game.state.active.as_ref(), Some(&a), "still a's turn");
         assert_eq!(
-            game.state.player(&a).unwrap().leaders.get(&ti4_model::id::LeaderId::new("naaluagent")),
+            game.state
+                .player(&a)
+                .unwrap()
+                .leaders
+                .get(&ti4_model::id::LeaderId::new("naaluagent")),
             Some(&ti4_model::state::LeaderStatus::Readied)
         );
         let menu = game.legal_options().expect("a is asked again");
-        assert!(!menu.options.iter().any(|o| o.id == "component|leader|naaluagent"));
+        assert!(
+            !menu
+                .options
+                .iter()
+                .any(|o| o.id == "component|leader|naaluagent")
+        );
     }
 
     /// OP-07: Carth of Golden Sands prints "During the action phase:", not "ACTION:". Using it
@@ -13954,7 +13979,11 @@ mod tests {
                 .agenda_log
                 .iter()
                 .map(|record| {
-                    format!("{}:{}", record.agenda, record.outcome.as_deref().unwrap_or(""))
+                    format!(
+                        "{}:{}",
+                        record.agenda,
+                        record.outcome.as_deref().unwrap_or("")
+                    )
                 })
                 .collect();
             assert_eq!(logged, resolved, "one record per resolved agenda, in order");
@@ -13965,7 +13994,11 @@ mod tests {
                 assert!(!record.name.is_empty(), "the printed name travels with it");
                 assert_eq!(record.enacted, record.law && outcome != AGAINST);
                 let best = record.votes.values().copied().max().unwrap_or(0);
-                let leaders = record.votes.values().filter(|v| **v == best && best > 0).count();
+                let leaders = record
+                    .votes
+                    .values()
+                    .filter(|v| **v == best && best > 0)
+                    .count();
                 assert_eq!(
                     record.speaker_decided,
                     leaders != 1,
@@ -13977,11 +14010,17 @@ mod tests {
             }
             // Display only: the record travels in the state JSON but nothing reads it back.
             let json = serde_json::to_value(&game.state).unwrap();
-            assert!(json.get("agenda_log").is_some_and(serde_json::Value::is_array));
+            assert!(
+                json.get("agenda_log")
+                    .is_some_and(serde_json::Value::is_array)
+            );
         }
         let fresh = start_game(content, &players, POK, None).unwrap();
         let json = serde_json::to_value(&fresh).unwrap();
-        assert!(json.get("agenda_log").is_none(), "an empty log is not serialised");
+        assert!(
+            json.get("agenda_log").is_none(),
+            "an empty log is not serialised"
+        );
     }
 
     #[test]

@@ -19,8 +19,8 @@ struct Seats {
 
 /// Sol holds five action cards, Letnev one (Sabotage), Hacan none.
 fn launch(registry: &Arc<GameRegistry>) -> (Arc<GameSession>, Seats, String) {
-    let launch =
-        execute_launch_scenario(registry, "ongoing_combat_four_views", Some(54_322)).expect("launch");
+    let launch = execute_launch_scenario(registry, "ongoing_combat_four_views", Some(54_322))
+        .expect("launch");
     let session = registry.get_game(&launch.game_id).expect("game");
     let state = session.current_state();
     let by = |faction: &str| {
@@ -31,7 +31,11 @@ fn launch(registry: &Arc<GameRegistry>) -> (Arc<GameSession>, Seats, String) {
             .map(|player| player.id.clone())
             .expect("seat")
     };
-    let seats = Seats { sol: by("sol"), hacan: by("hacan"), letnev: by("letnev") };
+    let seats = Seats {
+        sol: by("sol"),
+        hacan: by("hacan"),
+        letnev: by("letnev"),
+    };
     (session, seats, launch.game_id)
 }
 
@@ -45,13 +49,26 @@ fn only_known_triggers_within_the_limit_and_the_first_declaration_is_free() {
     let registry = Arc::new(GameRegistry::new());
     let (session, seats, _) = launch(&registry);
     let letnev = &seats.letnev;
-    assert!(declare(&session, letnev, &["nonsense"]).unwrap_err().contains("unknown"));
-    assert!(declare(&session, letnev, &["agenda", "movement", "production", "turn_end"])
+    assert!(
+        declare(&session, letnev, &["nonsense"])
+            .unwrap_err()
+            .contains("unknown")
+    );
+    assert!(
+        declare(
+            &session,
+            letnev,
+            &["agenda", "movement", "production", "turn_end"]
+        )
         .unwrap_err()
-        .contains("at most 3"));
+        .contains("at most 3")
+    );
     assert!(session.reaction_intent_state(letnev).triggers.is_empty());
     declare(&session, letnev, &["movement", "agenda"]).expect("first declaration");
-    assert_eq!(session.reaction_intent_state(letnev).triggers, ["agenda", "movement"]);
+    assert_eq!(
+        session.reaction_intent_state(letnev).triggers,
+        ["agenda", "movement"]
+    );
 }
 
 #[test]
@@ -68,7 +85,10 @@ fn a_change_waits_for_the_next_round_but_a_resend_and_a_clear_do_not() {
 
     let error = declare(&session, letnev, &["production"]).unwrap_err();
     assert!(error.contains("after round 1"), "{error}");
-    assert_eq!(session.reaction_intent_state(letnev).triggers, ["agenda", "movement"]);
+    assert_eq!(
+        session.reaction_intent_state(letnev).triggers,
+        ["agenda", "movement"]
+    );
 
     // Clearing is always possible and does not re-open changes.
     declare(&session, letnev, &[]).expect("clear");
@@ -87,7 +107,11 @@ fn a_seat_without_cards_or_with_a_never_setting_cannot_declare() {
     assert!(!state.eligible && state.triggers.is_empty());
 
     session
-        .set_reaction_mode(&seats.sol, "Sabotage", ti4_model::state::ReactionMode::Never)
+        .set_reaction_mode(
+            &seats.sol,
+            "Sabotage",
+            ti4_model::state::ReactionMode::Never,
+        )
         .expect("mode");
     let error = declare(&session, &seats.sol, &["movement"]).unwrap_err();
     assert!(error.contains("Never"), "{error}");
@@ -96,7 +120,8 @@ fn a_seat_without_cards_or_with_a_never_setting_cannot_declare() {
 
 #[test]
 fn nobody_else_learns_the_declaration_and_nothing_is_saved() {
-    let dir = std::env::temp_dir().join(format!("ti4_bluff_intent_{:032x}", rand::random::<u128>()));
+    let dir =
+        std::env::temp_dir().join(format!("ti4_bluff_intent_{:032x}", rand::random::<u128>()));
     let store = Arc::new(FileGameStore::new(&dir).expect("store"));
     let registry = Arc::new(GameRegistry::new().with_store(store));
     let (session, seats, game_id) = launch(&registry);
@@ -121,7 +146,11 @@ fn nobody_else_learns_the_declaration_and_nothing_is_saved() {
         assert!(!wire.contains("reaction_intent"));
     }
     // Not in anything saved, not in the restart config.
-    assert_eq!(files(&dir.join(&game_id)), before, "storage is byte-identical");
+    assert_eq!(
+        files(&dir.join(&game_id)),
+        before,
+        "storage is byte-identical"
+    );
     let _ = session.restart_config();
     let _ = fs::remove_dir_all(dir);
 }
@@ -135,7 +164,10 @@ fn files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
             if entry.is_dir() {
                 stack.push(entry);
             } else {
-                out.push((entry.to_string_lossy().into_owned(), fs::read(&entry).expect("file")));
+                out.push((
+                    entry.to_string_lossy().into_owned(),
+                    fs::read(&entry).expect("file"),
+                ));
             }
         }
     }

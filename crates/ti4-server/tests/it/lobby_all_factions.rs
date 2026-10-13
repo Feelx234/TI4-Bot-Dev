@@ -43,20 +43,30 @@ fn check_seated(state: &GameState, players: &[PlayerId], chosen: &[Option<String
             assert_eq!(seat.faction.as_str(), want, "{what}");
         }
         assert!(LOBBY_FACTIONS.contains(&seat.faction.as_str()), "{what}");
-        assert!(seen.insert(seat.faction.as_str().to_owned()), "{what}: repeated faction");
+        assert!(
+            seen.insert(seat.faction.as_str().to_owned()),
+            "{what}: repeated faction"
+        );
         let units = state
             .board
             .values()
             .flat_map(|s| s.units.iter().chain(s.planet_units.values().flatten()))
             .filter(|u| &u.owner == player)
             .count();
-        assert!(units >= 3, "{what}: {} starts with {units} units", seat.faction);
+        assert!(
+            units >= 3,
+            "{what}: {} starts with {units} units",
+            seat.faction
+        );
         assert!(
             !state.controlled_planets(player).is_empty(),
             "{what}: {} controls no home planet",
             seat.faction
         );
-        assert!(seat.fleet_tokens > 0 || seat.tactic_tokens > 0, "{what}: no command tokens");
+        assert!(
+            seat.fleet_tokens > 0 || seat.tactic_tokens > 0,
+            "{what}: no command tokens"
+        );
     }
 }
 
@@ -101,7 +111,11 @@ fn play(
         std::thread::sleep(Duration::from_millis(10));
     }
     session.stop();
-    (session.current_state(), session.error().map(|e| format!("{e:?}")), session.decision_log().len())
+    (
+        session.current_state(),
+        session.error().map(|e| format!("{e:?}")),
+        session.decision_log().len(),
+    )
 }
 
 #[test]
@@ -143,8 +157,15 @@ fn slow_every_faction_chosen_at_a_four_seat_table_plays_smart_decisions() {
         let seed = 40 + i as u64;
         let (state, galaxy) = build(&players, seed, None, &chosen).expect("build");
         check_seated(&state, &players, &chosen, faction);
-        let (after, error, decisions) =
-            play(&players, state, galaxy, seed, 3, 120, Duration::from_secs(120));
+        let (after, error, decisions) = play(
+            &players,
+            state,
+            galaxy,
+            seed,
+            3,
+            120,
+            Duration::from_secs(120),
+        );
         assert!(error.is_none(), "{faction}: {error:?}");
         assert!(decisions >= 40, "{faction}: only {decisions} decisions");
         assert_eq!(
@@ -169,8 +190,15 @@ fn slow_undecided_tables_over_many_seeds_seat_distinct_pool_factions_and_play() 
             "{n} seats seed {seed}"
         );
         if seed % 4 == 0 {
-            let (_, error, decisions) =
-                play(&players, state, galaxy, seed, 2, 50, Duration::from_secs(60));
+            let (_, error, decisions) = play(
+                &players,
+                state,
+                galaxy,
+                seed,
+                2,
+                50,
+                Duration::from_secs(60),
+            );
             assert!(error.is_none(), "{n} seats seed {seed}: {error:?}");
             assert!(decisions > 10, "{n} seats seed {seed}");
         }
@@ -179,7 +207,10 @@ fn slow_undecided_tables_over_many_seeds_seat_distinct_pool_factions_and_play() 
 
 #[test]
 fn slow_tricky_factions_play_a_longer_smart_game() {
-    let tricky = ["nekro", "ghost", "winnu", "naaz", "titans", "mahact", "empyrean", "nomad", "cabal", "yssaril", "argent", "arborec"];
+    let tricky = [
+        "nekro", "ghost", "winnu", "naaz", "titans", "mahact", "empyrean", "nomad", "cabal",
+        "yssaril", "argent", "arborec",
+    ];
     let players = ids(4);
     for (k, faction) in tricky.iter().enumerate() {
         let mut chosen = vec![None; 4];
@@ -188,10 +219,21 @@ fn slow_tricky_factions_play_a_longer_smart_game() {
         chosen[1] = Some(tricky[(k + 5) % tricky.len()].to_owned());
         let seed = 900 + k as u64;
         let (state, galaxy) = build(&players, seed, None, &chosen).expect("build");
-        let (after, error, decisions) =
-            play(&players, state, galaxy, seed, 5, usize::MAX, Duration::from_secs(150));
+        let (after, error, decisions) = play(
+            &players,
+            state,
+            galaxy,
+            seed,
+            5,
+            usize::MAX,
+            Duration::from_secs(150),
+        );
         assert!(error.is_none(), "{faction}: {error:?}");
-        assert!(after.round >= 3 || decisions > 400, "{faction}: round {} after {decisions}", after.round);
+        assert!(
+            after.round >= 3 || decisions > 400,
+            "{faction}: round {} after {decisions}",
+            after.round
+        );
     }
 }
 
@@ -202,6 +244,9 @@ fn the_pool_is_the_survey_roster() {
     assert_eq!(roster, pool);
     // Plans exist for every faction in the pool.
     for faction in LOBBY_FACTIONS {
-        assert!(ti4_server::session::smart_bot_faction_plans::plan_for(faction).is_some(), "{faction}");
+        assert!(
+            ti4_server::session::smart_bot_faction_plans::plan_for(faction).is_some(),
+            "{faction}"
+        );
     }
 }

@@ -87,10 +87,7 @@ fn card_ids(session: &GameSession) -> Vec<String> {
 }
 
 fn temp(tag: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
-        "ti4_card_set_{tag}_{:016x}",
-        rand::random::<u64>()
-    ))
+    std::env::temp_dir().join(format!("ti4_card_set_{tag}_{:016x}", rand::random::<u64>()))
 }
 
 /// Takes `picks` strategy cards in the draft by choosing the first offered card each time.
@@ -292,8 +289,9 @@ async fn a_game_saved_before_the_option_existed_is_a_pok_game_and_replays_identi
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|file| {
-            std::fs::read_to_string(file)
-                .is_ok_and(|text| text.contains("host_player_id") && text.contains("strategy_card_set"))
+            std::fs::read_to_string(file).is_ok_and(|text| {
+                text.contains("host_player_id") && text.contains("strategy_card_set")
+            })
         })
         .expect("the lobby record carries the field");
     assert!(strip_field::<ti4_server::storage::PlayerLobbyRecord>(
@@ -340,8 +338,7 @@ fn the_legacy_path_and_the_pok_set_build_the_identical_opening_state() {
     let content = ContentStore::embedded();
     let players: Vec<PlayerId> = (1..=4).map(|i| PlayerId::new(format!("p{i}"))).collect();
     for template in [None, Some("4pStandard")] {
-        let Ok((legacy, legacy_galaxy)) =
-            create_game_with_template(content, &players, 5, template)
+        let Ok((legacy, legacy_galaxy)) = create_game_with_template(content, &players, 5, template)
         else {
             continue;
         };

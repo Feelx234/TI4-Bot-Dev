@@ -210,7 +210,10 @@ fn the_message_round_trips_through_the_server_message_envelope() {
     );
     let ok = ServerMessage::SecondaryPreview(SecondaryPreviewMsg {
         outcome: PreviewResult::Preview {
-            preview: ti4_engine::secondary_preview::SecondaryPreview::Complete { skipped: vec![], unused_answers: 0 },
+            preview: ti4_engine::secondary_preview::SecondaryPreview::Complete {
+                skipped: vec![],
+                unused_answers: 0,
+            },
         },
         ..refused
     });

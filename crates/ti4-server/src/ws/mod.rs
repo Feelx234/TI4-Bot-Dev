@@ -753,7 +753,9 @@ async fn handle_socket(
                         ErrorKind::MalformedMessage,
                         "set_reaction_intent game_id does not match the WebSocket path".to_owned(),
                     ))
-                } else if last_intent.is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL) {
+                } else if last_intent
+                    .is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL)
+                {
                     Some((
                         ErrorKind::MalformedMessage,
                         "too many reaction declarations; wait a moment".to_owned(),
@@ -864,7 +866,9 @@ async fn handle_socket(
                     .await;
                     running.store(false, Ordering::Release);
                     if let Ok(message) = result {
-                        let _ = outbound_tx.send(ServerMessage::SecondaryPreview(message)).await;
+                        let _ = outbound_tx
+                            .send(ServerMessage::SecondaryPreview(message))
+                            .await;
                     }
                 });
             }

@@ -28,9 +28,14 @@ fn draft_session(
     registry: &GameRegistry,
     game_id: &str,
 ) -> (Arc<GameSession>, String, Vec<PlayerId>) {
-    let ids: Vec<PlayerId> = ["p1", "p2", "p3", "p4"].iter().map(|id| PlayerId::new(*id)).collect();
+    let ids: Vec<PlayerId> = ["p1", "p2", "p3", "p4"]
+        .iter()
+        .map(|id| PlayerId::new(*id))
+        .collect();
     let state = start_game_seeded(ContentStore::embedded(), &ids, POK, None, 42).expect("game");
-    let mut config = SessionConfig::new(game_id, state).with_seed(42).with_player_ids(ids.clone());
+    let mut config = SessionConfig::new(game_id, state)
+        .with_seed(42)
+        .with_player_ids(ids.clone());
     for id in &ids {
         config = config.with_seat(id.clone(), SeatController::Human);
     }
@@ -62,7 +67,11 @@ fn heard(clients: &[MockClient]) -> Vec<String> {
 fn finish_draft(session: &GameSession) {
     let deadline = Instant::now() + Duration::from_secs(20);
     while session.current_state().phase == ti4_model::Phase::Strategy {
-        assert!(Instant::now() < deadline, "the draft stalled: {:?}", session.error());
+        assert!(
+            Instant::now() < deadline,
+            "the draft stalled: {:?}",
+            session.error()
+        );
         if let Some((seat, nonce, version)) = session.current_pending_decision() {
             let option = session.current_state().unclaimed_strategy_cards[0].to_string();
             let _ = session.submit_choice(&seat, &nonce, version, &option);
@@ -78,7 +87,10 @@ fn pick(session: &GameSession, times: usize) {
             assert!(Instant::now() < deadline, "no pick: {:?}", session.error());
             if let Some((seat, nonce, version)) = session.current_pending_decision() {
                 let option = session.current_state().unclaimed_strategy_cards[0].to_string();
-                if session.submit_choice(&seat, &nonce, version, &option).is_ok() {
+                if session
+                    .submit_choice(&seat, &nonce, version, &option)
+                    .is_ok()
+                {
                     break;
                 }
             }
@@ -100,12 +112,19 @@ fn after_an_undo_the_auto_resolve_note_is_published_as_in_a_fresh_game() {
         .expect("undo");
     let after = registry.get_game("hist_note_undo").expect("replacement");
     after.wait_replayed().expect("replayed");
-    assert!(!after.is_replaying(), "the replay is over once a live decision is pending");
+    assert!(
+        !after.is_replaying(),
+        "the replay is over once a live decision is pending"
+    );
     let seats = clients(&after, &ids);
     finish_draft(&after);
     std::thread::sleep(Duration::from_millis(100));
     let reasons = heard(&seats);
-    assert_eq!(reasons, ["only one strategy card left"], "the last card is taken for its picker");
+    assert_eq!(
+        reasons,
+        ["only one strategy card left"],
+        "the last card is taken for its picker"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -119,14 +138,21 @@ fn a_recovered_session_stays_quiet_while_it_replays_then_is_live() {
         session.stop();
     }
     let recovered = Arc::new(store.recover_session("hist_note_recover").expect("recover"));
-    let ids: Vec<PlayerId> = ["p1", "p2", "p3", "p4"].iter().map(|id| PlayerId::new(*id)).collect();
+    let ids: Vec<PlayerId> = ["p1", "p2", "p3", "p4"]
+        .iter()
+        .map(|id| PlayerId::new(*id))
+        .collect();
     // Subscribed before the replay can finish: nothing the players already saw is repeated.
     let seats = clients(&recovered, &ids);
     recovered.wait_replayed().expect("replayed");
     assert!(!recovered.is_replaying());
     std::thread::sleep(Duration::from_millis(100));
     let h = heard(&seats);
-    assert!(h.is_empty(), "the note of the recorded draft is not repeated: {h:?} {}", recovered.decision_log().len());
+    assert!(
+        h.is_empty(),
+        "the note of the recorded draft is not repeated: {h:?} {}",
+        recovered.decision_log().len()
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -154,18 +180,26 @@ fn drive(session: &GameSession, steps: usize) -> Vec<PlayerId> {
                 held.push(seat);
             }
             if let Some((seat, nonce, version)) = session.current_pending_decision()
-                && let Some(envelope) =
-                    session.get_snapshot(&ViewerRole::Player(seat.clone())).pending_choice
+                && let Some(envelope) = session
+                    .get_snapshot(&ViewerRole::Player(seat.clone()))
+                    .pending_choice
             {
                 let option = envelope.choice.options[0].id.clone();
-                if session.submit_choice(&seat, &nonce, version, &option).is_ok() {
+                if session
+                    .submit_choice(&seat, &nonce, version, &option)
+                    .is_ok()
+                {
                     break;
                 }
             }
             if session.is_finished() {
                 return held;
             }
-            assert!(Instant::now() < deadline, "no decision: {:?}", session.error());
+            assert!(
+                Instant::now() < deadline,
+                "no decision: {:?}",
+                session.error()
+            );
             std::thread::sleep(Duration::from_millis(2));
         }
     }
@@ -182,8 +216,8 @@ fn after_an_undo_a_declared_bluff_holds_the_game_as_in_a_fresh_one() {
         ..BluffPolicy::default()
     };
     let registry = Arc::new(GameRegistry::new());
-    let launch =
-        execute_launch_scenario(&registry, "ongoing_combat_four_views", Some(SEED)).expect("launch");
+    let launch = execute_launch_scenario(&registry, "ongoing_combat_four_views", Some(SEED))
+        .expect("launch");
     let session = registry.get_game(&launch.game_id).expect("game");
     wait_ready(&session);
     let version = session.game_version();
@@ -193,7 +227,9 @@ fn after_an_undo_a_declared_bluff_holds_the_game_as_in_a_fresh_one() {
             &launch.game_id,
             &launch.player_session,
             version,
-            HistoryAction::RestoreCursor { cursor: session.decision_log().len() - 1 },
+            HistoryAction::RestoreCursor {
+                cursor: session.decision_log().len() - 1,
+            },
         )
         .expect("restore");
     let after = registry.get_game(&launch.game_id).expect("replacement");
@@ -201,9 +237,14 @@ fn after_an_undo_a_declared_bluff_holds_the_game_as_in_a_fresh_one() {
     assert!(!after.is_replaying());
     after.set_bluff_policy(short);
     let letnev = faction_seat(&after, "letnev");
-    after.set_reaction_intent(&letnev, &["space_combat".to_owned()]).expect("declared");
+    after
+        .set_reaction_intent(&letnev, &["space_combat".to_owned()])
+        .expect("declared");
     let held = drive(&after, 10);
-    assert!(held.contains(&letnev), "the declared window stalled the game: {held:?}");
+    assert!(
+        held.contains(&letnev),
+        "the declared window stalled the game: {held:?}"
+    );
 }
 
 fn wait_pending(session: &GameSession) -> (PlayerId, String, u64) {
@@ -212,7 +253,11 @@ fn wait_pending(session: &GameSession) -> (PlayerId, String, u64) {
         if let Some(pending) = session.current_pending_decision() {
             return pending;
         }
-        assert!(Instant::now() < deadline, "no decision: {:?}", session.error());
+        assert!(
+            Instant::now() < deadline,
+            "no decision: {:?}",
+            session.error()
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -240,18 +285,32 @@ fn a_session_made_by_a_batch_commit_is_not_replaying_once_live() {
     assert!(!session.is_replaying(), "a fresh game never replays");
     for _ in 0..4 {
         let (seat, nonce, version) = wait_pending(&session);
-        let choice =
-            session.get_snapshot(&ViewerRole::Player(seat.clone())).pending_choice.unwrap().choice;
+        let choice = session
+            .get_snapshot(&ViewerRole::Player(seat.clone()))
+            .pending_choice
+            .unwrap()
+            .choice;
         let option = choice
             .options
             .iter()
             .find(|o| o.id == "tactical" || o.id == "22")
             .unwrap_or(&choice.options[0]);
-        session.submit_choice(&seat, &nonce, version, &option.id).unwrap();
+        session
+            .submit_choice(&seat, &nonce, version, &option.id)
+            .unwrap();
     }
     let (seat, nonce, version) = wait_pending(&session);
-    let choice = session.get_snapshot(&ViewerRole::Player(seat)).pending_choice.unwrap().choice;
-    let destination = session.current_state().active_system.unwrap().as_str().to_owned();
+    let choice = session
+        .get_snapshot(&ViewerRole::Player(seat))
+        .pending_choice
+        .unwrap()
+        .choice;
+    let destination = session
+        .current_state()
+        .active_system
+        .unwrap()
+        .as_str()
+        .to_owned();
     let mut steps = Vec::new();
     if let Some(option) = choice.options.iter().find(|option| option.kind == "move") {
         steps.push(MovementStep::Move {
@@ -272,20 +331,30 @@ fn a_session_made_by_a_batch_commit_is_not_replaying_once_live() {
                 request_id: "confirm_1".into(),
                 expected_version: version,
                 nonce,
-                plan: MovementPlan { kind: BatchKind::TacticalMovement, destination, steps },
+                plan: MovementPlan {
+                    kind: BatchKind::TacticalMovement,
+                    destination,
+                    steps,
+                },
             },
         )
         .unwrap();
     let committed = registry.get_game("hist_batch_live").unwrap();
     let _ = wait_pending(&committed);
-    assert!(!committed.is_replaying(), "the replacement is live once it asks a live question");
+    assert!(
+        !committed.is_replaying(),
+        "the replacement is live once it asks a live question"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
 
 fn wait_ready(session: &GameSession) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while !session.history_ready() {
-        assert!(Instant::now() < deadline, "never ready for a history change");
+        assert!(
+            Instant::now() < deadline,
+            "never ready for a history change"
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
 }

@@ -401,8 +401,10 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
             entry.0 += 1;
             let ok = matches!(
                 preview(&before, &card, &primary, &follower, &answers),
-                SecondaryPreview::Complete { unused_answers: 0, .. }
-                    | SecondaryPreview::Question { .. }
+                SecondaryPreview::Complete {
+                    unused_answers: 0,
+                    ..
+                } | SecondaryPreview::Question { .. }
             );
             // Staleness: the same answers against the position when the action began.
             if let Some(track) = track
@@ -412,8 +414,10 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
                 tally.lead_stale += 1;
                 if matches!(
                     preview(&track.start, &card, &primary, &follower, &answers),
-                    SecondaryPreview::Complete { unused_answers: 0, .. }
-                        | SecondaryPreview::Question { .. }
+                    SecondaryPreview::Complete {
+                        unused_answers: 0,
+                        ..
+                    } | SecondaryPreview::Question { .. }
                 ) {
                     tally.lead_stale_ok += 1;
                 }
@@ -422,7 +426,10 @@ fn walk(source: &Source, per_card: &mut BTreeMap<String, Tally>) {
                 tally.lead_replays_ok += 1;
                 entry.1 += 1;
             } else {
-                println!("{}: the recorded purchase {answers:?} was not accepted", source.name);
+                println!(
+                    "{}: the recorded purchase {answers:?} was not accepted",
+                    source.name
+                );
             }
         }
     }

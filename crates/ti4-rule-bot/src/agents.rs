@@ -27,7 +27,7 @@ use ti4_engine::decision_context::DecisionTrigger;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
 use super::{
-    ACTIVATION_THRESHOLD, CARRIER_COST, activation_value, expanding, exhausted_resources,
+    ACTIVATION_THRESHOLD, CARRIER_COST, activation_value, exhausted_resources, expanding,
     free_transports_and_ground, home_build_wanted, home_system, is_ground, pick_action,
     pick_secondary, spare_resources, target_near, transport_plan, unit_type, waiting_and_lift,
 };
@@ -132,7 +132,10 @@ pub fn decide(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize) 
         Some("doctor_sucaban_remove_infantry") => {
             return spare_site(choice, seen, me, |id| {
                 let (system, planet) = id.split_once(':')?;
-                Some((SystemId::new(system), (!planet.is_empty()).then(|| planet.to_owned())))
+                Some((
+                    SystemId::new(system),
+                    (!planet.is_empty()).then(|| planet.to_owned()),
+                ))
             })
             .or_else(decline);
         }
@@ -142,7 +145,10 @@ pub fn decide(choice: &Choice, seen: &Observed<'_>, me: &PlayerId, held: usize) 
                 let mut parts = id.strip_prefix("take|")?.split('|');
                 let system = parts.next()?;
                 let planet = parts.next()?;
-                Some((SystemId::new(system), (planet != "space").then(|| planet.to_owned())))
+                Some((
+                    SystemId::new(system),
+                    (planet != "space").then(|| planet.to_owned()),
+                ))
             })
             .or_else(decline);
         }
@@ -229,9 +235,9 @@ fn use_in_window(
 fn in_combat(seen: &Observed<'_>, me: &PlayerId) -> bool {
     seen.space_battle()
         .is_some_and(|(_, a, b)| &a == me || &b == me)
-        || seen
-            .invasion()
-            .is_some_and(|invasion| &invasion.invader == me || invasion.defender.as_ref() == Some(me))
+        || seen.invasion().is_some_and(|invasion| {
+            &invasion.invader == me || invasion.defender.as_ref() == Some(me)
+        })
 }
 
 /// Whether the bot has a ship in a wormhole system other than `active` (Emissary Taivra's link
@@ -245,10 +251,9 @@ fn ships_in_other_wormhole(seen: &Observed<'_>, me: &PlayerId, active: &SystemId
         .into_iter()
         .filter(|system| *system != active.as_str())
         .any(|system| {
-            seen.system(&SystemId::new(system))
-                .units
-                .iter()
-                .any(|u| &u.owner == me && unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_ship()))
+            seen.system(&SystemId::new(system)).units.iter().any(|u| {
+                &u.owner == me && unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_ship())
+            })
         })
 }
 
@@ -268,10 +273,16 @@ fn top_move(seen: &Observed<'_>) -> i64 {
 
 /// Own transports with ground forces to load that cannot reach `active` on their own move but can
 /// on the board's fastest: `(origin, unit type)`.
-fn saar_candidates(seen: &Observed<'_>, me: &PlayerId, active: &SystemId) -> Vec<(SystemId, String)> {
+fn saar_candidates(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    active: &SystemId,
+) -> Vec<(SystemId, String)> {
     let top = top_move(seen);
     let gravity = i64::from(seen.seat(me).is_some_and(|seat| {
-        seat.technologies.iter().any(|t| t.as_str() == super::GRAVITY_DRIVE)
+        seat.technologies
+            .iter()
+            .any(|t| t.as_str() == super::GRAVITY_DRIVE)
     }));
     let mut found = Vec::new();
     for (origin, system) in seen.board() {
@@ -294,7 +305,8 @@ fn saar_candidates(seen: &Observed<'_>, me: &PlayerId, active: &SystemId) -> Vec
             }
             let own = i32::try_from(kind.move_value() + gravity).unwrap_or(0);
             let raised = i32::try_from(top + gravity).unwrap_or(0);
-            if !seen.can_reach(me, origin, active, own) && seen.can_reach(me, origin, active, raised)
+            if !seen.can_reach(me, origin, active, own)
+                && seen.can_reach(me, origin, active, raised)
             {
                 found.push((origin.clone(), unit.type_id.to_string()));
             }
@@ -308,9 +320,9 @@ fn saar_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     let active = seen.active_system()?;
     let candidates = saar_candidates(seen, me, active);
     choice.options.iter().position(|o| {
-        candidates.iter().any(|(origin, unit)| {
-            o.label.starts_with(&format!("{unit} in {origin} ("))
-        })
+        candidates
+            .iter()
+            .any(|(origin, unit)| o.label.starts_with(&format!("{unit} in {origin} (")))
     })
 }
 
@@ -323,10 +335,12 @@ fn spare_at(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, planet: Optio
     let board = seen.system(system);
     let home = home_system(seen, me).is_some_and(|h| &h == system);
     let here = |p: &PlanetId| {
-        board
-            .planet_units
-            .get(p)
-            .map_or(0, |units| units.iter().filter(|u| &u.owner == me && is_ground(seen, u)).count())
+        board.planet_units.get(p).map_or(0, |units| {
+            units
+                .iter()
+                .filter(|u| &u.owner == me && is_ground(seen, u))
+                .count()
+        })
     };
     if home {
         let (waiting, lift) = waiting_and_lift(seen, me, system);
@@ -346,9 +360,7 @@ fn spare_at(seen: &Observed<'_>, me: &PlayerId, system: &SystemId, planet: Optio
 /// Spare ground forces across the board.
 fn spare_ground_total(seen: &Observed<'_>, me: &PlayerId) -> usize {
     let home = home_system(seen, me);
-    let mut total = home
-        .as_ref()
-        .map_or(0, |h| spare_at(seen, me, h, None));
+    let mut total = home.as_ref().map_or(0, |h| spare_at(seen, me, h, None));
     for (system, planet) in seen.controlled_planets(me) {
         if home.as_ref() == Some(system) {
             continue;
@@ -404,7 +416,10 @@ fn ospha_ship(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
 /// `ospha_replace`: a carrier while the opening is short of transports, else the dearest ship.
 fn ospha_replace(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let (transports, _) = free_transports_and_ground(seen, me);
-    let carrier = choice.options.iter().position(|o| o.id == "replace|carrier");
+    let carrier = choice
+        .options
+        .iter()
+        .position(|o| o.id == "replace|carrier");
     if expanding(seen) && transports < 3 && carrier.is_some() {
         return carrier;
     }
@@ -517,7 +532,10 @@ fn mahact_waiver(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<
     let probe = Choice::new(
         me.clone(),
         prompt,
-        vec![ChoiceOption::new("yes", "follow"), ChoiceOption::new("no", "follow")],
+        vec![
+            ChoiceOption::new("yes", "follow"),
+            ChoiceOption::new("no", "follow"),
+        ],
     );
     let follow = pick_secondary(&probe, seen, me);
     let cheap = prompt.contains("draw a secret objective")
@@ -560,8 +578,9 @@ fn ospha_target(seen: &Observed<'_>, me: &PlayerId) -> bool {
         !tokens.contains(id)
             && system.units.iter().any(|u| {
                 &u.owner == me
-                    && unit_type(seen, u.type_id.as_str())
-                        .is_some_and(|t| t.is_ship() && !t.is_fighter() && t.capacity() < 4 && t.cost() <= 2.0)
+                    && unit_type(seen, u.type_id.as_str()).is_some_and(|t| {
+                        t.is_ship() && !t.is_fighter() && t.capacity() < 4 && t.cost() <= 2.0
+                    })
             })
     })
 }
@@ -701,7 +720,13 @@ pub fn action_choice(
     me: &PlayerId,
     rng: &mut ChaCha8Rng,
 ) -> Option<Option<usize>> {
-    action_decision(choice, seen.observed(), me, seen.held_action_cards().len(), rng)
+    action_decision(
+        choice,
+        seen.observed(),
+        me,
+        seen.held_action_cards().len(),
+        rng,
+    )
 }
 
 /// [`action_choice`] on the public view plus the size of the bot's own hand.
@@ -713,10 +738,10 @@ pub fn action_decision(
     held: usize,
     rng: &mut ChaCha8Rng,
 ) -> Option<Option<usize>> {
-    let is_action = choice
-        .options
-        .iter()
-        .any(|o| o.kind == "action" && (o.id == "tactical" || o.id == "pass" || o.id.starts_with("strategic")));
+    let is_action = choice.options.iter().any(|o| {
+        o.kind == "action"
+            && (o.id == "tactical" || o.id == "pass" || o.id.starts_with("strategic"))
+    });
     let agents = choice
         .options
         .iter()
@@ -876,9 +901,18 @@ mod tests {
             agent_of("leader:saar:p1:yssarilagent:p2:saaragent:SYSTEM_ACTIVATED:after"),
             Some("saaragent")
         );
-        assert_eq!(agent_of("component|leader|yssarilagent|muaatagent"), Some("muaatagent"));
-        assert_eq!(agent_of("component|leader|arborecagent"), Some("arborecagent"));
-        assert_eq!(agent_of("leader:sardakk:sardakkagent_mark:SYSTEM_ACTIVATED:after"), None);
+        assert_eq!(
+            agent_of("component|leader|yssarilagent|muaatagent"),
+            Some("muaatagent")
+        );
+        assert_eq!(
+            agent_of("component|leader|arborecagent"),
+            Some("arborecagent")
+        );
+        assert_eq!(
+            agent_of("leader:sardakk:sardakkagent_mark:SYSTEM_ACTIVATED:after"),
+            None
+        );
         assert_eq!(agent_of("reaction:sabotage"), None);
     }
 
@@ -888,15 +922,32 @@ mod tests {
         let state = game(&["a", "b"]);
         let seen = observe(&state, &hub);
         for (ability, event) in [
-            ("leader:sardakk:sardakkagent:ACTION_COMPLETED:after", "TACTICAL_ACTION_ENDED"),
-            ("leader:winnu:winnuagent:PRODUCTION_USED:after", "PRODUCTION_USED"),
+            (
+                "leader:sardakk:sardakkagent:ACTION_COMPLETED:after",
+                "TACTICAL_ACTION_ENDED",
+            ),
+            (
+                "leader:winnu:winnuagent:PRODUCTION_USED:after",
+                "PRODUCTION_USED",
+            ),
             ("leader:naaz:naazagent:TURN_PASSED:after", "TURN_PASSED"),
-            ("leader:l1z1x:l1z1xagent:SYSTEM_ACTIVATED:after", "SYSTEM_ACTIVATED"),
+            (
+                "leader:l1z1x:l1z1xagent:SYSTEM_ACTIVATED:after",
+                "SYSTEM_ACTIVATED",
+            ),
         ] {
             let own = window(ability, event, &me(), TriggerKind::Other);
-            assert_eq!(decide(&own, &seen, &me(), 0), Some(0), "{ability} for itself");
+            assert_eq!(
+                decide(&own, &seen, &me(), 0),
+                Some(0),
+                "{ability} for itself"
+            );
             let theirs = window(ability, event, &foe(), TriggerKind::Other);
-            assert_eq!(decide(&theirs, &seen, &me(), 0), Some(1), "{ability} for another");
+            assert_eq!(
+                decide(&theirs, &seen, &me(), 0),
+                Some(1),
+                "{ability} for another"
+            );
         }
     }
 
@@ -934,7 +985,12 @@ mod tests {
         state.player_mut(&foe()).unwrap().commodities = 3;
         let seen = observe(&state, &hub);
         let ability = "leader:cabal:cabalagent:COMMODITIES_REPLENISHED:after";
-        let rich = window(ability, "COMMODITIES_REPLENISHED", &foe(), TriggerKind::Other);
+        let rich = window(
+            ability,
+            "COMMODITIES_REPLENISHED",
+            &foe(),
+            TriggerKind::Other,
+        );
         assert_eq!(decide(&rich, &seen, &me(), 0), Some(0));
         let mut poor_state = state.clone();
         poor_state.player_mut(&foe()).unwrap().commodities = 2;
@@ -992,7 +1048,10 @@ mod tests {
             Choice::new(
                 me(),
                 "pay",
-                vec![ChoiceOption::new("token|tactic", "nekro_malleon"), ChoiceOption::decline()],
+                vec![
+                    ChoiceOption::new("token|tactic", "nekro_malleon"),
+                    ChoiceOption::decline(),
+                ],
             ),
             "malleon_payment",
         );
@@ -1001,7 +1060,10 @@ mod tests {
             Choice::new(
                 me(),
                 "branch",
-                vec![ChoiceOption::new("b", "player"), ChoiceOption::new("self", "player")],
+                vec![
+                    ChoiceOption::new("b", "player"),
+                    ChoiceOption::new("self", "player"),
+                ],
             ),
             "leader_hacanagent_branch",
         );
@@ -1043,10 +1105,18 @@ mod tests {
             ),
             "ospha_replace",
         );
-        assert_eq!(decide(&replace, &seen, &me(), 0), Some(1), "short of transports");
+        assert_eq!(
+            decide(&replace, &seen, &me(), 0),
+            Some(1),
+            "short of transports"
+        );
         let mut later = state.clone();
         later.round = 3;
-        assert_eq!(decide(&replace, &observe(&later, &hub), &me(), 0), Some(2), "the dearest");
+        assert_eq!(
+            decide(&replace, &observe(&later, &hub), &me(), 0),
+            Some(2),
+            "the dearest"
+        );
     }
 
     #[test]
@@ -1113,7 +1183,9 @@ mod tests {
             .take(3)
             .collect();
         let (their_system, theirs) = placed.pop().expect("three planets");
-        state.system_mut(&their_system).set_control(theirs.clone(), foe());
+        state
+            .system_mut(&their_system)
+            .set_control(theirs.clone(), foe());
         for (system, planet) in &placed {
             state.system_mut(system).set_control(planet.clone(), me());
         }
@@ -1155,7 +1227,10 @@ mod tests {
         let state = game(&["a", "b"]);
         let seen = observe(&state, &hub);
         let mut rng = ChaCha8Rng::seed_from_u64(1);
-        assert_eq!(action_decision(&action_menu(&[]), &seen, &me(), 0, &mut rng), None);
+        assert_eq!(
+            action_decision(&action_menu(&[]), &seen, &me(), 0, &mut rng),
+            None
+        );
         // Nothing on this board is worth a token: the rule would pass; Malleon first, with a card.
         let menu = action_menu(&["component|leader|nekroagent"]);
         assert_eq!(

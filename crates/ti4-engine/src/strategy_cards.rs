@@ -4642,7 +4642,10 @@ mod tests {
 
         let (lost, asked, gained) = imperial(&letnev);
         assert_eq!(lost, vec![PlanetId::new("archonren")]);
-        assert!(!asked, "61.16: no public objective while Archon Ren is Letnev's");
+        assert!(
+            !asked,
+            "61.16: no public objective while Archon Ren is Letnev's"
+        );
         assert_eq!(gained, 1, "the Mecatol Rex point still follows");
 
         let (lost, asked, gained) = imperial(&xxcha);

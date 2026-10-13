@@ -180,9 +180,13 @@ mod tests {
     use ti4_model::id::PlayerId;
 
     fn card(id: &str, name: &str) -> ChoiceOption {
-        ChoiceOption::labelled(id, ti4_engine::reactions::ACTION_CARD_KIND, format!("play {name}"))
-            .with("card", id.to_owned())
-            .with("card_name", name.to_owned())
+        ChoiceOption::labelled(
+            id,
+            ti4_engine::reactions::ACTION_CARD_KIND,
+            format!("play {name}"),
+        )
+        .with("card", id.to_owned())
+        .with("card_name", name.to_owned())
     }
 
     fn slot(names: &[&str]) -> ChoiceOption {

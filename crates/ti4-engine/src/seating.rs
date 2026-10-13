@@ -1686,7 +1686,10 @@ mod tests {
     fn lobby_draw_seats_the_whole_pool_when_all_are_chosen_and_never_repeats_a_choice() {
         let all: Vec<Option<&str>> = LOBBY_FACTIONS.iter().map(|f| Some(*f)).collect();
         let table = lobby_faction_draw(&all, 3).unwrap();
-        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), LOBBY_FACTIONS);
+        assert_eq!(
+            table.iter().map(FactionId::as_str).collect::<Vec<_>>(),
+            LOBBY_FACTIONS
+        );
     }
 
     #[test]

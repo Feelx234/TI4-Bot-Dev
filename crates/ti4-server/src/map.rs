@@ -183,9 +183,16 @@ mod tests {
     fn a_rebuilt_galaxy_follows_the_seated_factions_not_the_in_scope_order() {
         let content = ContentStore::embedded();
         let list = players(4);
-        for preset in ["world", "combat+rot", "leaders", "agenda+fac:naalu:mentak", "combat"] {
+        for preset in [
+            "world",
+            "combat+rot",
+            "leaders",
+            "agenda+fac:naalu:mentak",
+            "combat",
+        ] {
             let (state, galaxy) =
-                create_game_with_preset(content, &list, 7, Some("4pHyperlanes"), Some(preset)).unwrap();
+                create_game_with_preset(content, &list, 7, Some("4pHyperlanes"), Some(preset))
+                    .unwrap();
             let rebuilt = rebuild_galaxy(content, &list, 7, Some("4pHyperlanes"), &state).unwrap();
             assert_eq!(
                 build_board_tiles(content, &galaxy),
@@ -275,11 +282,15 @@ mod tests {
                 // Both the plain map path and a preset (which seats named factions).
                 let (state, _) = create_game_with_map(content, &list, seed).unwrap();
                 assert!(
-                    state.promissory_notes.keys().all(|k| !k.ends_with(":generic")),
+                    state
+                        .promissory_notes
+                        .keys()
+                        .all(|k| !k.ends_with(":generic")),
                     "generic notes left in a {n}p default game"
                 );
                 let _ = &name;
-                let Ok((state, _)) = create_game_with_preset(content, &list, seed, None, Some(&name))
+                let Ok((state, _)) =
+                    create_game_with_preset(content, &list, seed, None, Some(&name))
                 else {
                     failures.push(format!("{alias} {n}p"));
                     continue;

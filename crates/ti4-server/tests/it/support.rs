@@ -152,8 +152,8 @@ pub fn factions_start(seed: u64, factions: [&str; 4]) -> (GameState, Galaxy) {
         .map(|system| system.to_string())
         .collect();
     let borrowed: Vec<&str> = filler.iter().map(String::as_str).collect();
-    let galaxy = ti4_engine::seating::build_board(content, &assignments, &borrowed, DEFAULT)
-        .expect("board");
+    let galaxy =
+        ti4_engine::seating::build_board(content, &assignments, &borrowed, DEFAULT).expect("board");
     for (player, faction) in &assignments {
         ti4_engine::seating::deploy(&mut state, content, player, faction, DEFAULT).expect("deploy");
     }
@@ -169,8 +169,8 @@ fn play_source(
     galaxy: Galaxy,
 ) -> Source {
     let table = Table::with_default(Box::new(SeededRandom::new(seed ^ 0x5eed)));
-    let mut game =
-        Game::with_table(state.clone(), ContentStore::embedded(), table).with_galaxy(galaxy.clone());
+    let mut game = Game::with_table(state.clone(), ContentStore::embedded(), table)
+        .with_galaxy(galaxy.clone());
     let mut marks = RngMarks::new();
     for _ in 0..max_decisions.saturating_mul(4) {
         let len = game.table.log.records.len();
@@ -205,7 +205,10 @@ pub fn load_saved(dir: &Path) -> Result<Source, String> {
         let bytes = std::fs::read(dir.join(file)).map_err(|e| format!("{file}: {e}"))?;
         let mut value: serde_json::Value =
             serde_json::from_slice(&bytes).map_err(|e| format!("{file}: {e}"))?;
-        Ok(value.get_mut("payload").map(serde_json::Value::take).unwrap_or(value))
+        Ok(value
+            .get_mut("payload")
+            .map(serde_json::Value::take)
+            .unwrap_or(value))
     };
     let init: GameInitRecord =
         serde_json::from_value(payload("init.json")?).map_err(|e| format!("init: {e}"))?;
@@ -286,7 +289,10 @@ pub fn strict_saved_games(limit: usize) -> Vec<Source> {
         if strictly_replayable(&source) {
             out.push(source);
         } else {
-            eprintln!("skipping {}: not strictly replayable on this engine", source.name);
+            eprintln!(
+                "skipping {}: not strictly replayable on this engine",
+                source.name
+            );
         }
     }
     out

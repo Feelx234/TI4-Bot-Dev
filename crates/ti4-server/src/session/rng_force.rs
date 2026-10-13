@@ -231,10 +231,20 @@ mod tests {
         assert_eq!(back, marks);
         let mut cut = marks.clone();
         cut.truncate_to(5);
-        assert_eq!(cut.deck_plan.len(), 1, "a segment that began after the cut goes");
-        assert_eq!(cut.deck_plan[0].until, 5, "one that reached past it ends there");
+        assert_eq!(
+            cut.deck_plan.len(),
+            1,
+            "a segment that began after the cut goes"
+        );
+        assert_eq!(
+            cut.deck_plan[0].until, 5,
+            "one that reached past it ends there"
+        );
         let mut open = marks;
         open.truncate_to(20);
-        assert_eq!(open.deck_plan[1].until, OPEN, "an unfinished redo stays open");
+        assert_eq!(
+            open.deck_plan[1].until, OPEN,
+            "an unfinished redo stays open"
+        );
     }
 }

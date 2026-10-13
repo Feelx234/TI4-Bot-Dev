@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
+use crate::session::reaction_modes::NeverOffer;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{
     AlwaysDecline, Choice, ChoiceOption, Decider, DecisionRecord, FirstOption, IllegalChoice,
@@ -11,7 +12,6 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
-use crate::session::reaction_modes::NeverOffer;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
@@ -414,7 +414,6 @@ impl SessionShared {
                 None => RejectionReason::NoPendingChoice,
             })
     }
-
 
     /// A live decision at log position `index` (0-based) was just accepted while a redo stack
     /// exists.
@@ -861,7 +860,11 @@ impl ReplayingDecider {
 
         if self.announce_tail
             && next_prior.is_some()
-            && self.prior_queue.lock().expect("prior queue lock").is_empty()
+            && self
+                .prior_queue
+                .lock()
+                .expect("prior queue lock")
+                .is_empty()
         {
             self.shared.lock().expect("shared lock").replaying = false;
         }
@@ -1178,18 +1181,20 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
         // live game waits a moment (see `session::bluff`). Never during a replay.
         let hold_shared = worker_shared.clone();
         let hold_prior = prior_queue.clone();
-        table.on_window_skipped(Box::new(move |seat, event_type, relation, state, publish| {
-            let replaying = !hold_prior.lock().expect("prior queue lock").is_empty();
-            crate::session::bluff_hold::maybe_hold(
-                &hold_shared,
-                replaying,
-                seat,
-                event_type,
-                relation,
-                state,
-                publish,
-            );
-        }));
+        table.on_window_skipped(Box::new(
+            move |seat, event_type, relation, state, publish| {
+                let replaying = !hold_prior.lock().expect("prior queue lock").is_empty();
+                crate::session::bluff_hold::maybe_hold(
+                    &hold_shared,
+                    replaying,
+                    seat,
+                    event_type,
+                    relation,
+                    state,
+                    publish,
+                );
+            },
+        ));
         table.on_observed_offer(move |records, state| {
             let mut lock = offer_shared.lock().expect("shared lock");
             lock.undo.observe(records.len(), state);
@@ -1430,8 +1435,10 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
             // the control flow of a step lives on this thread's stack and cannot. A batch
             // check forks the copy instead of replaying the whole game.
             if snapshot_wanted
-                && let Some(copy) =
-                    crate::session::step_snapshot::StepSnapshot::capture(&mut game, snapshot_generation)
+                && let Some(copy) = crate::session::step_snapshot::StepSnapshot::capture(
+                    &mut game,
+                    snapshot_generation,
+                )
             {
                 let mut lock = worker_shared.lock().expect("shared lock");
                 if !lock.stopped {

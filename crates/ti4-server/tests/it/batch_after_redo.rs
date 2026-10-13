@@ -165,7 +165,10 @@ fn scenario(step_snapshots: bool) -> Outcome {
         )
         .expect("redo");
     for _ in 0..200 {
-        let status = registry.turn_redo_status(GAME, &host_token).unwrap().unwrap();
+        let status = registry
+            .turn_redo_status(GAME, &host_token)
+            .unwrap()
+            .unwrap();
         if status.turn_complete {
             break;
         }
@@ -297,11 +300,17 @@ fn slow_a_batch_confirmed_after_a_turn_redo_matches_the_full_replay_in_game_mark
     assert_eq!(without.resumed_from, None);
     assert_eq!(with_copies.live, without.live, "live game after the batch");
     assert_eq!(with_copies.saved, without.saved, "saved history");
-    assert_eq!(with_copies.recovered, without.recovered, "recovery from disk");
+    assert_eq!(
+        with_copies.recovered, without.recovered,
+        "recovery from disk"
+    );
     assert_eq!(
         with_copies.live["rng_marks"], with_copies.recovered["rng_marks"],
         "marks survive recovery"
     );
     assert_eq!(with_copies.live["state"], with_copies.recovered["state"]);
-    assert_eq!(with_copies.live["decisions"], with_copies.recovered["decisions"]);
+    assert_eq!(
+        with_copies.live["decisions"],
+        with_copies.recovered["decisions"]
+    );
 }

@@ -757,11 +757,14 @@ mod tests {
         assert_eq!(serde_json::to_string(&message).expect("encodes"), pass);
         assert_eq!(message.validate_bounds(), Ok(()));
         // The declaration never shows up in debug output either.
-        let shown = format!("{:?}", ClientMessage::SetReactionIntent {
-            protocol_version: 3,
-            game_id: "g".to_owned(),
-            triggers: vec!["agenda".to_owned()],
-        });
+        let shown = format!(
+            "{:?}",
+            ClientMessage::SetReactionIntent {
+                protocol_version: 3,
+                game_id: "g".to_owned(),
+                triggers: vec!["agenda".to_owned()],
+            }
+        );
         assert!(!shown.contains("agenda"));
     }
 

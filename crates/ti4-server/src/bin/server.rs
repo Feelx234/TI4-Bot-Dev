@@ -114,12 +114,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.ok();
-            info!("Received shutdown signal, terminating server");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        })
-        .await?;
+    .with_graceful_shutdown(async {
+        tokio::signal::ctrl_c().await.ok();
+        info!("Received shutdown signal, terminating server");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    })
+    .await?;
 
     Ok(())
 }

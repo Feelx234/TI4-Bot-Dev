@@ -452,7 +452,6 @@ impl FileGameStore {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
         atomic_write_json_bounded(&dir.join("history.json"), history, MAX_LOG_BYTES)
-
     }
 
     pub fn load_history(&self, game_id: &str) -> Result<Option<GameHistory>, StorageError> {
@@ -749,7 +748,6 @@ impl FileGameStore {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
         atomic_write_json_bounded(&dir.join("turn_redo.json"), record, MAX_LOG_BYTES)
-
     }
 
     /// Loads the saved alternate timeline, if the game has one.
@@ -998,9 +996,9 @@ impl FileGameStore {
             history.as_ref().map_or(0, |h| h.generation),
         )
         .map_err(|source| StorageError::Replay {
-                game_id: game_id.to_owned(),
-                source,
-            })?;
+            game_id: game_id.to_owned(),
+            source,
+        })?;
 
         if !replay_report.hashes_match {
             return Err(StorageError::HashMismatch(game_id.to_owned()));
@@ -1435,13 +1433,27 @@ mod player_record_tests {
         let written = std::fs::read(&path).unwrap();
         let mut expected = serde_json::to_vec_pretty(&persist(&history).unwrap()).unwrap();
         expected.push(b'\n');
-        assert_eq!(written, expected, "the file is the pretty envelope plus a newline");
+        assert_eq!(
+            written, expected,
+            "the file is the pretty envelope plus a newline"
+        );
         assert!(!path.with_extension("tmp").exists());
-        assert_eq!(store.load_history("bounded_history").unwrap().unwrap().revision, 1);
+        assert_eq!(
+            store
+                .load_history("bounded_history")
+                .unwrap()
+                .unwrap()
+                .revision,
+            1
+        );
 
         let err = atomic_write_json_bounded(&path, &history, written.len() - 1).unwrap_err();
         assert!(matches!(err, StorageError::Oversized { .. }), "{err}");
-        assert_eq!(std::fs::read(&path).unwrap(), written, "an oversized save leaves the file alone");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            written,
+            "an oversized save leaves the file alone"
+        );
         atomic_write_json_bounded(&path, &history, written.len()).unwrap();
     }
 

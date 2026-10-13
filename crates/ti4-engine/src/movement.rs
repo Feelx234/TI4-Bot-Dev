@@ -1581,7 +1581,10 @@ mod tests {
                 Some(state),
             )
         };
-        assert!(!rules(&state).can_enter(&asteroid), "without the technology");
+        assert!(
+            !rules(&state).can_enter(&asteroid),
+            "without the technology"
+        );
         state
             .player_mut(&mover)
             .expect("seat")

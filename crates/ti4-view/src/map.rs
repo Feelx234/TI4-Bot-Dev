@@ -364,7 +364,9 @@ pub fn create_game_with_template_rotated(
     template: Option<&str>,
     rotation: usize,
 ) -> Result<(GameState, Galaxy), String> {
-    create_game_with_template_rotated_and_card_set(content, player_ids, seed, template, rotation, None)
+    create_game_with_template_rotated_and_card_set(
+        content, player_ids, seed, template, rotation, None,
+    )
 }
 
 /// As [`create_game_with_template`], with the strategy-card set named (`None`: the PoK-scope set).
@@ -592,21 +594,34 @@ mod template_tests {
                 for seed in 0..6 {
                     let (state, galaxy) =
                         create_game_with_template(content, &list, seed, template).unwrap();
-                    let homes: Vec<SystemId> =
-                        state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+                    let homes: Vec<SystemId> = state
+                        .players
+                        .iter()
+                        .filter_map(|p| p.home_system.clone())
+                        .collect();
                     let census = ti4_engine::map_feasibility::census(content, POK, &galaxy, &homes);
                     let public = ti4_engine::map_feasibility::unsatisfiable_public(&census);
                     let secret = ti4_engine::map_feasibility::unsatisfiable_secret(&census);
                     assert!(public.contains(&"deep_space") && secret.contains(&"btgk"));
-                    for id in state.revealed_objectives.iter().chain(&state.objective_deck) {
-                        assert!(!public.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                    for id in state
+                        .revealed_objectives
+                        .iter()
+                        .chain(&state.objective_deck)
+                    {
+                        assert!(
+                            !public.contains(&id.as_str()),
+                            "{template:?} {n}p {seed}: {id}"
+                        );
                     }
                     for id in state
                         .secret_deck
                         .iter()
                         .chain(state.players.iter().flat_map(|p| &p.secret_objectives))
                     {
-                        assert!(!secret.contains(&id.as_str()), "{template:?} {n}p {seed}: {id}");
+                        assert!(
+                            !secret.contains(&id.as_str()),
+                            "{template:?} {n}p {seed}: {id}"
+                        );
                     }
                     assert_eq!(state.revealed_objectives.len(), 2);
                     assert!(state.players.iter().all(|p| p.secret_objectives.len() == 1));

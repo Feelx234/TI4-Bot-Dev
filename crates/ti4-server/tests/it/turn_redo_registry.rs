@@ -573,7 +573,11 @@ fn the_redo_and_its_saved_original_survive_a_restart_with_their_forced_dice() {
     let session = registry.get_game(&t.id).unwrap();
     session.wait_replayed().expect("replays with its marks");
     assert_eq!(session.decision_log(), live);
-    assert_eq!(session.rng_marks().deck_plan, plan, "the card plan came back from disk");
+    assert_eq!(
+        session.rng_marks().deck_plan,
+        plan,
+        "the card plan came back from disk"
+    );
     let status = registry
         .turn_redo_status(&t.id, &t.host_token)
         .expect("status after restart")
@@ -783,13 +787,19 @@ fn a_redo_in_its_new_turn_recovers_from_disk_with_its_open_card_reservations() {
         .iter()
         .filter(|s| s.until == ti4_server::session::rng_force::OPEN)
         .collect();
-    assert_eq!(open.len(), 1, "the new turn is governed by one open segment");
+    assert_eq!(
+        open.len(),
+        1,
+        "the new turn is governed by one open segment"
+    );
     t.session().stop();
 
     let registry = Arc::new(GameRegistry::new().with_store(store.clone()));
     registry.recover_all_games().expect("recover");
     let session = registry.get_game(&t.id).unwrap();
-    session.wait_replayed().expect("replays with the open segment");
+    session
+        .wait_replayed()
+        .expect("replays with the open segment");
     assert_eq!(session.decision_log(), live);
     let status = registry
         .turn_redo_status(&t.id, &t.host_token)

@@ -412,9 +412,19 @@ fn a_preview_writes_nothing_to_storage() {
             answered += 1;
         }
     }
-    assert!(answered >= 2, "the follower is previewed while the primary resolves");
-    assert_eq!(files(&dir.join(&launch.game_id)), before, "storage is byte-identical");
-    assert_eq!(history, serde_json::to_vec(&session.replay_export().0).unwrap());
+    assert!(
+        answered >= 2,
+        "the follower is previewed while the primary resolves"
+    );
+    assert_eq!(
+        files(&dir.join(&launch.game_id)),
+        before,
+        "storage is byte-identical"
+    );
+    assert_eq!(
+        history,
+        serde_json::to_vec(&session.replay_export().0).unwrap()
+    );
     session.stop();
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -434,7 +444,10 @@ fn finish_leadership_primary(table: &Table) {
         } else {
             "no"
         };
-        table.c1.submit(&nonce, version, answer).expect("p1 answers");
+        table
+            .c1
+            .submit(&nonce, version, answer)
+            .expect("p1 answers");
         thread::sleep(Duration::from_millis(150));
     }
 }
@@ -544,7 +557,10 @@ fn a_leadership_purchase_is_previewed_and_then_asked_exactly_that_way() {
             break;
         };
         let (_, nonce, version) = pending(&table).unwrap();
-        table.c2.submit(&nonce, version, answer).expect("p2 answers");
+        table
+            .c2
+            .submit(&nonce, version, answer)
+            .expect("p2 answers");
         if let Some(next) = questions.get(index + 1) {
             let want = next.prompt.clone();
             wait_until("the next question", || {

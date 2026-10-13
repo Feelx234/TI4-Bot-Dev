@@ -94,7 +94,12 @@ pub fn drive(session: &GameSession, cap: usize, stall: Duration, wall: Duration)
 
 fn run_to_end(id: &str, n: usize, seed: u64, card_set: &str, cap: usize) -> Outcome {
     let session = GameSession::start(bot_config(id, n, seed, card_set));
-    let out = drive(&session, cap, Duration::from_secs(30), Duration::from_secs(600));
+    let out = drive(
+        &session,
+        cap,
+        Duration::from_secs(30),
+        Duration::from_secs(600),
+    );
     session.stop();
     out
 }
@@ -180,7 +185,12 @@ fn slow_a_bot_game_recovered_from_disk_mid_way_continues_to_the_same_end() {
     let registry = GameRegistry::new().with_store(store.clone());
     registry.recover_all_games().expect("recover");
     let session = registry.get_game("rb_rec").expect("recovered");
-    let out = drive(&session, 6000, Duration::from_secs(60), Duration::from_secs(900));
+    let out = drive(
+        &session,
+        6000,
+        Duration::from_secs(60),
+        Duration::from_secs(900),
+    );
     session.stop();
     assert!(out.error.is_none(), "{:?}", out.error);
     assert!(out.finished, "recovered game did not finish");
@@ -202,7 +212,10 @@ fn the_think_delay_spaces_decisions_and_a_stop_interrupts_it() {
     std::thread::sleep(Duration::from_millis(1000));
     let seen = session.decision_log().len();
     // About 200 ms (jittered 0.6-1.4) per decision: far fewer than delay 0 does in a second.
-    assert!((1..=14).contains(&seen), "{seen} decisions in 1 s at 200 ms");
+    assert!(
+        (1..=14).contains(&seen),
+        "{seen} decisions in 1 s at 200 ms"
+    );
     let stopped = Instant::now();
     session.stop();
     assert!(
@@ -273,7 +286,11 @@ impl HostTable {
                     return;
                 }
             }
-            assert!(Instant::now() < deadline, "timed out: {:?}", session.error());
+            assert!(
+                Instant::now() < deadline,
+                "timed out: {:?}",
+                session.error()
+            );
             std::thread::sleep(Duration::from_millis(3));
         }
     }
@@ -500,7 +517,9 @@ fn a_movement_batch_commits_beside_bot_seats_and_undoes() {
         let session = t.session();
         let (seat, nonce, version) = session.current_pending_decision().expect("host asked");
         let choice = session
-            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(seat.clone()))
+            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ))
             .pending_choice
             .unwrap()
             .choice;
@@ -534,7 +553,9 @@ fn a_movement_batch_commits_beside_bot_seats_and_undoes() {
             .unwrap_or(&choice.options[0])
             .id
             .clone();
-        session.submit_choice(&seat, &nonce, version, &option).unwrap();
+        session
+            .submit_choice(&seat, &nonce, version, &option)
+            .unwrap();
     }
     let request = request.expect("the host never reached a movement step");
     let before = t.session().decision_log();
@@ -564,7 +585,12 @@ fn soak_twenty_games() {
         let card_set = if game % 4 < 2 { "te" } else { "pok" };
         let seed = 9000 + game * 7;
         let session = GameSession::start(bot_config(&format!("soak_{game}"), n, seed, card_set));
-        let out = drive(&session, 4000, Duration::from_secs(20), Duration::from_secs(300));
+        let out = drive(
+            &session,
+            4000,
+            Duration::from_secs(20),
+            Duration::from_secs(300),
+        );
         session.stop();
         total_decisions += out.decisions.len();
         eprintln!(

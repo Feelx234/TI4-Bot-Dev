@@ -74,10 +74,10 @@ use rand_chacha::ChaCha8Rng;
 use serde_json::Value;
 use ti4_content::units::UnitType;
 use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
+use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 use ti4_engine::production::Spend;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::units::Unit;
-use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 
 // Objective layer (round 3+, and the scoring order).
 pub mod objectives;
@@ -190,9 +190,8 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("draft_strategy_card") => return pick_strategy_card(choice, observed, &me),
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
         Some("research_technology") => {
-            return pick_research(choice, observed, &me).or_else(|| {
-                faction_plans::research_pick(choice, observed, &me)
-            });
+            return pick_research(choice, observed, &me)
+                .or_else(|| faction_plans::research_pick(choice, observed, &me));
         }
         // Shuffling tokens between pools at random can empty the fleet pool: keep them.
         Some("predictive_intelligence_redistribute") => {

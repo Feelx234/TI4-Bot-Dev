@@ -1371,11 +1371,20 @@ mod tests {
     #[test]
     fn reaction_options_get_the_printed_name_instead_of_the_raw_id() {
         let content = ContentStore::embedded();
-        let passage = ability_label(Some(content), "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after");
+        let passage = ability_label(
+            Some(content),
+            "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after",
+        );
         assert_eq!(passage, "Aetherpassage (after system activated)");
-        let pillage = ability_label(Some(content), "ability:mentak:pillage:TRADE_GOODS_GAINED:after");
+        let pillage = ability_label(
+            Some(content),
+            "ability:mentak:pillage:TRADE_GOODS_GAINED:after",
+        );
         assert_eq!(pillage, "Pillage (after trade goods gained)");
-        let agent = ability_label(Some(content), "leader:mentak:mentakagent:PILLAGE_USED:after");
+        let agent = ability_label(
+            Some(content),
+            "leader:mentak:mentakagent:PILLAGE_USED:after",
+        );
         assert_eq!(agent, "Agent Suffi An (after pillage used)");
         // A copied leader names the copy's owner first; the label is still the leader.
         let copy = ability_label(
@@ -1385,12 +1394,18 @@ mod tests {
         assert_eq!(copy, "Agent I48S (after system activated)");
         // Without content the key is capitalised; a rule id stays as it is.
         assert_eq!(
-            ability_label(None, "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after"),
+            ability_label(
+                None,
+                "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after"
+            ),
             "Aetherpassage (after system activated)"
         );
         assert_eq!(ability_label(Some(content), "reaction:x"), "reaction:x");
         for label in [&passage, &pillage, &agent, &copy] {
-            assert!(!label.contains("SYSTEM_ACTIVATED") && !label.contains(':'), "{label}");
+            assert!(
+                !label.contains("SYSTEM_ACTIVATED") && !label.contains(':'),
+                "{label}"
+            );
         }
     }
 

@@ -63,13 +63,14 @@ impl Decider for PrefixThen {
                 force.before_answer(self.at);
             }
             self.at += 1;
-            return choice.option(wanted).cloned().ok_or_else(|| {
-                IllegalChoice::ScriptDiverged {
+            return choice
+                .option(wanted)
+                .cloned()
+                .ok_or_else(|| IllegalChoice::ScriptDiverged {
                     player: choice.player.clone(),
                     wanted: wanted.clone(),
                     offered: choice.ids().into_iter().map(str::to_owned).collect(),
-                }
-            });
+                });
         }
         if let Some(force) = &self.force {
             force.go_live();
@@ -135,7 +136,10 @@ struct Tally {
 impl Tally {
     fn add(&mut self, r: &AutoplayResult, to_handoff: usize, to_old: usize) {
         self.trials += 1;
-        let handed = matches!(r.stop, TurnRedoStop::Handoff { .. } | TurnRedoStop::TailExhausted);
+        let handed = matches!(
+            r.stop,
+            TurnRedoStop::Handoff { .. } | TurnRedoStop::TailExhausted
+        );
         if handed {
             self.reached_handoff += 1;
         }
@@ -211,9 +215,17 @@ fn main() {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--stride" => stride = args.next().and_then(|v| v.parse().ok()).expect("--stride S"),
+            "--stride" => {
+                stride = args
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .expect("--stride S")
+            }
             "--variants" => {
-                variants = args.next().and_then(|v| v.parse().ok()).expect("--variants V");
+                variants = args
+                    .next()
+                    .and_then(|v| v.parse().ok())
+                    .expect("--variants V");
             }
             _ => roots.push(PathBuf::from(arg)),
         }
@@ -232,7 +244,12 @@ fn main() {
         for id in ids {
             let (initial, player_ids, seed, template) =
                 if let Ok(init) = store.load_player_init(&id) {
-                    (init.initial_state, init.player_ids, init.seed, init.map_template)
+                    (
+                        init.initial_state,
+                        init.player_ids,
+                        init.seed,
+                        init.map_template,
+                    )
                 } else if let Ok(init) = store.load_init(&id) {
                     let Some(seed) = init.seed else { continue };
                     (init.initial_state, init.player_ids, seed, init.map_template)
@@ -241,7 +258,10 @@ fn main() {
                 };
             let (decisions, marks) = match store.load_history(&id) {
                 Ok(Some(h)) => (h.decisions, h.rng_marks),
-                _ => (store.load_decisions(&id).unwrap_or_default(), RngMarks::new()),
+                _ => (
+                    store.load_decisions(&id).unwrap_or_default(),
+                    RngMarks::new(),
+                ),
             };
             let Ok((_, galaxy)) = ti4_server::map::create_game_with_template(
                 content,
@@ -255,7 +275,11 @@ fn main() {
             let base = TailBaseline::new(&initial, Some(&galaxy), &decisions, &marks, &[]);
             let mut g = Game3::default();
             if base.replayed() < decisions.len() {
-                eprintln!("{id}: baseline replays {} of {}", base.replayed(), decisions.len());
+                eprintln!(
+                    "{id}: baseline replays {} of {}",
+                    base.replayed(),
+                    decisions.len()
+                );
             }
             let spans = find_turns(&decisions);
             for span in spans.iter().filter(|s| s.complete).step_by(stride) {
@@ -285,7 +309,9 @@ fn main() {
                 let mut prefix_marks = marks.clone();
                 prefix_marks.truncate_to(window.start);
                 let mut live_marks = prefix_marks.clone();
-                live_marks.deck_plan.push(open_segment(window.start, &source));
+                live_marks
+                    .deck_plan
+                    .push(open_segment(window.start, &source));
                 for variant in 1..=variants {
                     let Some(current) = new_turn(
                         &initial,

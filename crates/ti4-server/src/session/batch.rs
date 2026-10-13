@@ -1523,8 +1523,7 @@ mod tests {
             destination: String::new(),
             steps: Vec::new(),
         };
-        let simulation =
-            simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
+        let simulation = simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
         assert!(simulation.boundary_state.finished);
         assert!(
             simulation
@@ -2626,9 +2625,21 @@ mod tests {
 
     #[test]
     fn ready_plan_answers_both_questions_in_the_chosen_order() {
-        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
-        assert_eq!(decider.choose(&ready_ask(&["arcturus"])).unwrap().id, "arcturus");
+        let mut decider = decider(
+            BatchKind::ReadyPlanets,
+            vec![ready("jord"), ready("arcturus")],
+        );
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
+        assert_eq!(
+            decider.choose(&ready_ask(&["arcturus"])).unwrap().id,
+            "arcturus"
+        );
         assert!(decider.choose(&ready_ask(&[])).is_err());
         let script = decider.0.lock().unwrap();
         assert!(script.failure.is_none());
@@ -2639,7 +2650,13 @@ mod tests {
     #[test]
     fn ready_plan_with_one_planet_ends_at_the_boundary() {
         let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
         assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
         assert!(decider.0.lock().unwrap().failure.is_none());
     }
@@ -2649,13 +2666,25 @@ mod tests {
         let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
         assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
         let script = decider.0.lock().unwrap();
-        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+        assert_eq!(
+            script.failure.as_ref().unwrap().reason,
+            "option unavailable"
+        );
     }
 
     #[test]
     fn ready_plan_is_interrupted_when_the_engine_asks_something_else() {
-        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        let mut decider = decider(
+            BatchKind::ReadyPlanets,
+            vec![ready("jord"), ready("arcturus")],
+        );
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
         let other = offered(
             "gain_command_token",
             vec![ChoiceOption::labelled("tactic_tokens", "pool", "tactic")],
@@ -2698,11 +2727,14 @@ mod tests {
         let build = ChoiceOption::labelled("build|carrier|1", "produce", "produce 1x carrier")
             .with("unit", "carrier")
             .with("count", 1i64);
-        let exchange =
-            ChoiceOption::labelled("exchange|carrier", "produce", "produce 1x carrier by returning")
-                .with("unit", "carrier")
-                .with("count", 1i64)
-                .with("exchange", true);
+        let exchange = ChoiceOption::labelled(
+            "exchange|carrier",
+            "produce",
+            "produce 1x carrier by returning",
+        )
+        .with("unit", "carrier")
+        .with("count", 1i64)
+        .with("exchange", true);
         let plain = |exchange| MovementStep::Produce {
             unit: "carrier".into(),
             count: 1,
@@ -2723,7 +2755,16 @@ mod tests {
         )
         .unwrap();
         assert!(plan_problem(&parsed).is_none());
-        assert!(matches!(parsed.steps[0], MovementStep::Produce { exchange: true, .. }));
-        assert!(matches!(parsed.steps[1], MovementStep::Produce { exchange: false, .. }));
+        assert!(matches!(
+            parsed.steps[0],
+            MovementStep::Produce { exchange: true, .. }
+        ));
+        assert!(matches!(
+            parsed.steps[1],
+            MovementStep::Produce {
+                exchange: false,
+                ..
+            }
+        ));
     }
 }

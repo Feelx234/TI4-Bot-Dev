@@ -16,11 +16,21 @@ fn current(session: &GameSession) -> Pending {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some((seat, nonce, version)) = session.current_pending_decision() {
-            let snapshot = session
-                .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(seat.clone()));
-            return (seat, nonce, version, snapshot.pending_choice.unwrap().choice);
+            let snapshot = session.get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                seat.clone(),
+            ));
+            return (
+                seat,
+                nonce,
+                version,
+                snapshot.pending_choice.unwrap().choice,
+            );
         }
-        assert!(Instant::now() < deadline, "timed out: {:?}", session.error());
+        assert!(
+            Instant::now() < deadline,
+            "timed out: {:?}",
+            session.error()
+        );
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -43,14 +53,17 @@ fn at_ready(game_id: &str) -> Table {
     let (mut state, galaxy) =
         ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
     // Jord is p1's only home planet; two more make a real choice of which two to ready.
-    for (system, planet) in ti4_content::galaxy::all_planets(
-        ContentStore::embedded(),
-        ti4_model::content_types::POK,
-    )
-    .iter()
-    .filter(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play())
-    .filter(|(id, _)| ["lodor", "bereg"].contains(*id))
-    .map(|(id, planet)| (ti4_model::id::SystemId::new(planet.system_id().unwrap_or("18")), *id))
+    for (system, planet) in
+        ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK)
+            .iter()
+            .filter(|(_, planet)| planet.system_id().is_some() && !planet.is_placed_during_play())
+            .filter(|(id, _)| ["lodor", "bereg"].contains(*id))
+            .map(|(id, planet)| {
+                (
+                    ti4_model::id::SystemId::new(planet.system_id().unwrap_or("18")),
+                    *id,
+                )
+            })
     {
         state
             .system_mut(&system)
@@ -95,7 +108,9 @@ fn at_ready(game_id: &str) -> Table {
                     .find(|o| o.id.to_lowercase().contains("strategic") || o.id == "yes")
             })
             .unwrap_or(&choice.options[0]);
-        session.submit_choice(&seat, &nonce, version, &pick.id).unwrap();
+        session
+            .submit_choice(&seat, &nonce, version, &pick.id)
+            .unwrap();
     }
     panic!("never reached the ready question");
 }
@@ -131,14 +146,31 @@ fn both_planets_are_readied_by_one_batch() {
         .submit_batch(
             "dipl_both",
             &table.p1_token,
-            request("both", &pending, BatchKind::ReadyPlanets, vec![ready(&a), ready(&b)]),
+            request(
+                "both",
+                &pending,
+                BatchKind::ReadyPlanets,
+                vec![ready(&a), ready(&b)],
+            ),
         )
         .expect("a legal plan");
     let session = table.registry.get_game("dipl_both").unwrap();
     let state = session.current_state();
-    assert!(!state.exhausted_planets.contains(&ti4_model::id::PlanetId::new(a)));
-    assert!(!state.exhausted_planets.contains(&ti4_model::id::PlanetId::new(b)));
-    assert_eq!(session.decision_log().len(), log_before + 2, "one engine answer per planet");
+    assert!(
+        !state
+            .exhausted_planets
+            .contains(&ti4_model::id::PlanetId::new(a))
+    );
+    assert!(
+        !state
+            .exhausted_planets
+            .contains(&ti4_model::id::PlanetId::new(b))
+    );
+    assert_eq!(
+        session.decision_log().len(),
+        log_before + 2,
+        "one engine answer per planet"
+    );
     session.stop();
     std::fs::remove_dir_all(&table.path).unwrap();
 }
@@ -154,21 +186,34 @@ fn a_stale_or_short_plan_changes_nothing() {
     let stale = table.registry.submit_batch(
         "dipl_bad",
         &table.p1_token,
-        request("stale", &pending, BatchKind::ReadyPlanets, vec![ready("mecatol_rex_nowhere")]),
+        request(
+            "stale",
+            &pending,
+            BatchKind::ReadyPlanets,
+            vec![ready("mecatol_rex_nowhere")],
+        ),
     );
     assert!(stale.is_err());
     // A plan of one when two are still owed: the second question stays open and is not answered.
     let one = table.registry.submit_batch(
         "dipl_bad",
         &table.p1_token,
-        request("one", &pending, BatchKind::ReadyPlanets, vec![ready(&first)]),
+        request(
+            "one",
+            &pending,
+            BatchKind::ReadyPlanets,
+            vec![ready(&first)],
+        ),
     );
     let session = table.registry.get_game("dipl_bad").unwrap();
     if one.is_ok() {
         assert_eq!(session.decision_log().len(), log_before + 1);
         assert_eq!(current(&session).3.prompt, "ready which planet");
     } else {
-        assert_eq!(session.current_state().exhausted_planets, before.exhausted_planets);
+        assert_eq!(
+            session.current_state().exhausted_planets,
+            before.exhausted_planets
+        );
         assert_eq!(session.decision_log().len(), log_before);
     }
     session.stop();

@@ -83,8 +83,9 @@ pub fn project_combat_view_for(
     dice_rolls: &[crate::view::CombatDieRoll],
     viewer: Option<&ViewerRole>,
 ) -> Option<crate::view::CombatView> {
-    let pending_choice = pending_choice
-        .filter(|choice| !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player)));
+    let pending_choice = pending_choice.filter(|choice| {
+        !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player))
+    });
     let choice_ctx = pending_choice.and_then(|c| c.context.as_ref());
     let (sys_id, attacker, defender) = state.active_space_combat.clone()?;
     state.board.get(&sys_id)?;
@@ -1038,8 +1039,14 @@ mod tests {
         let asked = ViewerRole::Player(PlayerId::new("player_2"));
         assert!(is_reaction_window(&reaction));
         let generic = waiting_for_reactions_status(&state);
-        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
-            assert_eq!(project_turn_status_for(&state, Some(&reaction), &viewer), generic);
+        for viewer in [
+            ViewerRole::Player(PlayerId::new("player_1")),
+            ViewerRole::Spectator,
+        ] {
+            assert_eq!(
+                project_turn_status_for(&state, Some(&reaction), &viewer),
+                generic
+            );
         }
         assert_eq!(project_turn_status(&state, Some(&reaction)), generic);
         assert_eq!(
@@ -1052,7 +1059,11 @@ mod tests {
         // Any other question keeps naming its seat, for every viewer.
         let ordinary = Choice::new(PlayerId::new("player_2"), "action phase", vec![]);
         assert!(!is_reaction_window(&ordinary));
-        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator, asked] {
+        for viewer in [
+            ViewerRole::Player(PlayerId::new("player_1")),
+            ViewerRole::Spectator,
+            asked,
+        ] {
             assert_eq!(
                 project_turn_status_for(&state, Some(&ordinary), &viewer),
                 waiting_for_player_status(&state, &PlayerId::new("player_2"))
@@ -1072,8 +1083,12 @@ mod tests {
         let asked = ViewerRole::Player(PlayerId::new("player_2"));
         let mine = project_combat_view_for(&state, Some(&reaction), &[], Some(&asked)).unwrap();
         assert_eq!(mine.active_player, Some(PlayerId::new("player_2")));
-        for viewer in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
-            let seen = project_combat_view_for(&state, Some(&reaction), &[], Some(&viewer)).unwrap();
+        for viewer in [
+            ViewerRole::Player(PlayerId::new("player_1")),
+            ViewerRole::Spectator,
+        ] {
+            let seen =
+                project_combat_view_for(&state, Some(&reaction), &[], Some(&viewer)).unwrap();
             assert_eq!(seen.active_player, None);
             assert_eq!(seen.stage, None);
         }
@@ -1175,6 +1190,10 @@ mod tests {
 
         let home = state.system_mut(&SystemId::new("14"));
         home.set_control(PlanetId::new("archonren"), xxcha.clone());
-        assert!(!project_table_view(&state).home_system_lost.contains_key(&xxcha));
+        assert!(
+            !project_table_view(&state)
+                .home_system_lost
+                .contains_key(&xxcha)
+        );
     }
 }

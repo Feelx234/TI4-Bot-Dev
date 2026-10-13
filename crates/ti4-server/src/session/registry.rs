@@ -1799,9 +1799,12 @@ impl GameRegistry {
                     .is_some_and(SeatController::is_in_process_bot)
             };
             if is_bot(target) {
-                (0..=target).rev().find(|&index| !is_bot(index)).ok_or_else(|| {
-                    HistoryError::InvalidTarget("there is nothing to undo".to_owned())
-                })?
+                (0..=target)
+                    .rev()
+                    .find(|&index| !is_bot(index))
+                    .ok_or_else(|| {
+                        HistoryError::InvalidTarget("there is nothing to undo".to_owned())
+                    })?
             } else {
                 target
             }
@@ -1821,7 +1824,15 @@ impl GameRegistry {
             redo_events,
             event_counter,
         };
-        self.rewind(game_id, &session, expected_version, target, timeline, None, host)
+        self.rewind(
+            game_id,
+            &session,
+            expected_version,
+            target,
+            timeline,
+            None,
+            host,
+        )
     }
 
     /// Replace the live session by one that replays `history`, the shared tail of every history
@@ -2414,7 +2425,10 @@ impl GameRegistry {
 
     /// As [`Self::create_player_lobby_with_options`], also naming the strategy card set
     /// (one of [`crate::card_set::OFFERED`]).
-    #[allow(clippy::too_many_arguments, reason = "one argument per creation option")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per creation option"
+    )]
     pub fn create_player_lobby_with_card_set(
         &self,
         game_id: String,
@@ -3770,8 +3784,8 @@ impl GameRegistry {
                 .iter()
                 .find_map(|(seat, lobby_seat)| {
                     (!lobby_seat.controller.is_in_process_bot()
-                && lobby_seat.seat_token.as_deref() == Some(token))
-            .then(|| seat.clone())
+                        && lobby_seat.seat_token.as_deref() == Some(token))
+                    .then(|| seat.clone())
                 })
                 .ok_or(LobbyError::InvalidCapability)?,
             None => {

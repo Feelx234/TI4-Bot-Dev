@@ -117,9 +117,13 @@ fn play_to_the_flagship_production(seed: u64) -> Stopped {
 fn a_replay_that_ends_inside_the_flagship_production_still_matches_its_records() {
     let stopped = play_to_the_flagship_production(7);
     let galaxy = stopped.config.galaxy.as_ref();
-    let report =
-        replay_session_forced(&stopped.state, galaxy, &stopped.records, &Default::default())
-            .expect("replay");
+    let report = replay_session_forced(
+        &stopped.state,
+        galaxy,
+        &stopped.records,
+        &Default::default(),
+    )
+    .expect("replay");
     assert_eq!(report.decision_count, stopped.records.len());
     assert!(report.hashes_match, "{report:?}");
 }
@@ -188,7 +192,10 @@ fn batch_checks_inside_the_flagship_production_match_between_the_copy_and_the_fu
                 .as_ref()
                 .unwrap_or_else(|failure| panic!("{plan:?} was rejected: {failure:?}"));
             assert!(!simulation.selected.is_empty(), "{plan:?}");
-            assert_eq!(forked.as_ref().unwrap().forked_at, Some(stopped.copy.log_len));
+            assert_eq!(
+                forked.as_ref().unwrap().forked_at,
+                Some(stopped.copy.log_len)
+            );
         }
     }
 }

@@ -332,10 +332,16 @@ fn pay_with_mech_or_infantry(
     };
     // Display only: the card as printed, what is lost and exactly what is gained.
     let record = content.get(ContentType::Explores, card);
-    let name = record.and_then(|r| r.text("name")).unwrap_or(card).to_owned();
+    let name = record
+        .and_then(|r| r.text("name"))
+        .unwrap_or(card)
+        .to_owned();
     let tag = format!(
         "{} exploration card",
-        record.and_then(|r| r.text("type")).unwrap_or("").to_ascii_lowercase()
+        record
+            .and_then(|r| r.text("type"))
+            .unwrap_or("")
+            .to_ascii_lowercase()
     );
     let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
     let system_name = system.to_string();
@@ -351,7 +357,12 @@ fn pay_with_mech_or_infantry(
         ],
         |choice| {
             choice.offered(
-                crate::choice::offer_card(&name, &tag, Some("on exploring this planet"), printed.as_deref()),
+                crate::choice::offer_card(
+                    &name,
+                    &tag,
+                    Some("on exploring this planet"),
+                    printed.as_deref(),
+                ),
                 vec![
                     crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
                     crate::choice::offer_fact("You lose", "1 infantry on this planet"),
@@ -842,7 +853,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "gain 1 trade good",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "gain 1 trade good",
             ) {
                 crate::supply::gain_trade_goods_announced(state, ctx, player, 1, "exploration");
             }
@@ -853,7 +871,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "ready this planet",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "ready this planet",
             ) {
                 state.exhausted_planets.remove(planet);
             }
@@ -864,7 +889,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "gain 1 command token",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "gain 1 command token",
             ) {
                 state.gain_token(player, ti4_model::state::TokenPool::Strategic, 1);
             }
@@ -1083,8 +1115,9 @@ impl Holdings {
         Self {
             trade_goods: seat.map_or(0, |seat| seat.trade_goods),
             commodities: seat.map_or(0, |seat| seat.commodities),
-            command_tokens: seat
-                .map_or(0, |seat| seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens),
+            command_tokens: seat.map_or(0, |seat| {
+                seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+            }),
             action_cards: seat.map_or(0, |seat| seat.action_cards.len()),
             secrets: seat.map_or(0, |seat| seat.secret_objectives.len()),
             relics: seat.map_or(0, |seat| seat.relics.len()),
@@ -1096,7 +1129,12 @@ impl Holdings {
     }
 
     /// "gained 1 trade good, removed 1 infantry" -- empty when nothing the seat holds changed.
-    fn describe_change(&self, after: &Self, planet: Option<&PlanetId>, outcome: &Explored) -> String {
+    fn describe_change(
+        &self,
+        after: &Self,
+        planet: Option<&PlanetId>,
+        outcome: &Explored,
+    ) -> String {
         fn plural(n: i64, one: &str, many: &str) -> String {
             format!("{n} {}", if n == 1 { one } else { many })
         }
@@ -1104,24 +1142,45 @@ impl Holdings {
         let delta = |a: i64, b: i64| b - a;
         let goods = delta(i64::from(self.trade_goods), i64::from(after.trade_goods));
         if goods > 0 {
-            parts.push(format!("gained {}", plural(goods, "trade good", "trade goods")));
+            parts.push(format!(
+                "gained {}",
+                plural(goods, "trade good", "trade goods")
+            ));
         } else if goods < 0 {
-            parts.push(format!("spent {}", plural(-goods, "trade good", "trade goods")));
+            parts.push(format!(
+                "spent {}",
+                plural(-goods, "trade good", "trade goods")
+            ));
         }
         let commodities = delta(i64::from(self.commodities), i64::from(after.commodities));
         if commodities > 0 {
-            parts.push(format!("gained {}", plural(commodities, "commodity", "commodities")));
+            parts.push(format!(
+                "gained {}",
+                plural(commodities, "commodity", "commodities")
+            ));
         } else if commodities < 0 && goods <= 0 {
             // Converting commodities into trade goods is reported by the goods gained.
-            parts.push(format!("spent {}", plural(-commodities, "commodity", "commodities")));
+            parts.push(format!(
+                "spent {}",
+                plural(-commodities, "commodity", "commodities")
+            ));
         }
-        let tokens = delta(i64::from(self.command_tokens), i64::from(after.command_tokens));
+        let tokens = delta(
+            i64::from(self.command_tokens),
+            i64::from(after.command_tokens),
+        );
         if tokens > 0 {
-            parts.push(format!("gained {}", plural(tokens, "command token", "command tokens")));
+            parts.push(format!(
+                "gained {}",
+                plural(tokens, "command token", "command tokens")
+            ));
         }
         let cards = delta(self.action_cards as i64, after.action_cards as i64);
         if cards > 0 {
-            parts.push(format!("drew {}", plural(cards, "action card", "action cards")));
+            parts.push(format!(
+                "drew {}",
+                plural(cards, "action card", "action cards")
+            ));
         }
         if after.secrets > self.secrets {
             parts.push("drew a secret objective".to_owned());
@@ -1134,9 +1193,15 @@ impl Holdings {
         }
         let infantry = delta(self.own_infantry as i64, after.own_infantry as i64);
         if infantry < 0 {
-            parts.push(format!("removed {} from the planet", plural(-infantry, "infantry", "infantry")));
+            parts.push(format!(
+                "removed {} from the planet",
+                plural(-infantry, "infantry", "infantry")
+            ));
         } else if infantry > 0 {
-            parts.push(format!("placed {} on the planet", plural(infantry, "infantry", "infantry")));
+            parts.push(format!(
+                "placed {} on the planet",
+                plural(infantry, "infantry", "infantry")
+            ));
         }
         if after.own_mechs > self.own_mechs {
             parts.push("placed a mech on the planet".to_owned());
@@ -2159,17 +2224,30 @@ mod tests {
     #[test]
     fn the_infantry_sacrifice_shows_its_reward_and_the_log_says_what_happened() {
         for (card, reward, result) in [
-            ("cm1", "gain 1 trade good", "gained 1 trade good, removed 1 infantry from the planet"),
-            ("vfs1", "gain 1 command token", "gained 1 command token, removed 1 infantry from the planet"),
-            ("exp1", "ready this planet", "removed 1 infantry from the planet, readied the planet"),
+            (
+                "cm1",
+                "gain 1 trade good",
+                "gained 1 trade good, removed 1 infantry from the planet",
+            ),
+            (
+                "vfs1",
+                "gain 1 command token",
+                "gained 1 command token, removed 1 infantry from the planet",
+            ),
+            (
+                "exp1",
+                "ready this planet",
+                "removed 1 infantry from the planet, readied the planet",
+            ),
         ] {
             let (mut state, planet) = holder(0, 0);
             let system = crate::fixtures::a_placed_planet().0;
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player(), 1);
             state.exhausted_planets.insert(planet.clone());
-            let (decider, seen) = crate::choice::Capturing::new(Box::new(
-                crate::choice::Scripted::new(["remove_infantry".to_owned()]),
-            ));
+            let (decider, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                    "remove_infantry".to_owned(),
+                ])));
             let mut table = crate::choice::Table::with_default(Box::new(decider));
             let mut dice = crate::dice::Dice::new();
             let mut rng = crate::rng::GameRng::new(0);
@@ -2181,7 +2259,9 @@ mod tests {
                 table: &mut table,
                 timing: None,
             };
-            state.exploration_decks.insert("HAZARDOUS".to_owned(), vec![card.to_owned()]);
+            state
+                .exploration_decks
+                .insert("HAZARDOUS".to_owned(), vec![card.to_owned()]);
             explore_with(&mut state, &mut ctx, &player(), "HAZARDOUS", Some(&planet));
 
             let asked = seen.borrow();
@@ -2190,7 +2270,11 @@ mod tests {
             let facts = details["facts"].to_string();
             assert!(facts.contains(reward), "{card}: {facts}");
             assert!(facts.contains("1 infantry"), "{card}: {facts}");
-            assert!(details["card"]["text"].as_str().is_some_and(|t| t.contains("remove 1 infantry")));
+            assert!(
+                details["card"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.contains("remove 1 infantry"))
+            );
             assert_eq!(state.exploration_log[0].result, result, "{card}");
         }
     }
@@ -2347,10 +2431,20 @@ mod tests {
     fn freelancers_may_be_declined() {
         let before = holder(5, 0).0;
         let (state, seen) = freelancers(&["decline"]);
-        assert_eq!(units_of_player(&state), units_of_player(&before), "nothing built");
-        assert_eq!(state.player(&player()).unwrap().trade_goods, 5, "nothing paid");
+        assert_eq!(
+            units_of_player(&state),
+            units_of_player(&before),
+            "nothing built"
+        );
+        assert_eq!(
+            state.player(&player()).unwrap().trade_goods,
+            5,
+            "nothing paid"
+        );
         assert!(
-            !seen.iter().any(|c| c.options.iter().any(|o| o.kind == "pay")),
+            !seen
+                .iter()
+                .any(|c| c.options.iter().any(|o| o.kind == "pay")),
             "declining asks for no payment"
         );
         assert!(

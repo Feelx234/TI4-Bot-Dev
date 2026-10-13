@@ -22,8 +22,8 @@
 
 use std::collections::BTreeMap;
 
-use ti4_content::ContentStore;
 use crate::choice::Observed;
+use ti4_content::ContentStore;
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 

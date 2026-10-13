@@ -9,11 +9,11 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, Table};
 use ti4_engine::dice::Roll;
 use ti4_engine::game::Game;
+use ti4_model::deck_reserve::ReservedDraw;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_server::protocol::splice::ConflictKind;
 use ti4_server::protocol::turn_redo::TurnRedoStop;
-use ti4_model::deck_reserve::ReservedDraw;
 use ti4_server::session::turn_redo::{
     AutoplayResult, RedoWindow, TailBaseline, TailSource, TurnRedoError, autoplay, find_turns,
     next_turn_start, open_segment, redo_window,
@@ -50,7 +50,8 @@ impl Decider for Lcg {
         // The inner "play an action card" pick gained a decline (a "may" choice; the window's
         // slot is offered again). The fixtures below were tuned on the option set without it, so
         // this decider keeps sampling among the cards only.
-        let options: Vec<&ChoiceOption> = if choice.options.iter().any(|o| o.kind == "action_card") {
+        let options: Vec<&ChoiceOption> = if choice.options.iter().any(|o| o.kind == "action_card")
+        {
             choice.options.iter().filter(|o| !o.is_decline()).collect()
         } else {
             choice.options.iter().collect()
@@ -104,7 +105,12 @@ pub fn setup(seed: u64) -> (GameState, Galaxy) {
     let last = players.last().unwrap().clone();
     state.promissory_notes = ti4_engine::promissory::GENERIC
         .iter()
-        .map(|alias| (ti4_engine::promissory::note_id(alias, "generic"), last.clone()))
+        .map(|alias| {
+            (
+                ti4_engine::promissory::note_id(alias, "generic"),
+                last.clone(),
+            )
+        })
         .collect();
     (state, galaxy)
 }
@@ -267,7 +273,9 @@ pub fn redo(
     let source = base.tail(&window).ok()?;
     let mut current_marks = orig_marks.clone();
     current_marks.truncate_to(window.start);
-    current_marks.deck_plan.push(open_segment(window.start, &source));
+    current_marks
+        .deck_plan
+        .push(open_segment(window.start, &source));
     let current = play_new_turn(
         state,
         galaxy,
@@ -930,15 +938,30 @@ pub fn fixtures() -> &'static Vec<Fixture> {
     CELL.get_or_init(|| {
         let mut out = Vec::new();
         for (label, more, game_seed, start, variant) in [
-            ("game 6 turn at 102: explores twice more than before", true, 6u64, 102usize, 1u64),
+            (
+                "game 6 turn at 102: explores twice more than before",
+                true,
+                6u64,
+                102usize,
+                1u64,
+            ),
             ("game 6 turn at 258: draws one more", true, 6, 258, 1),
-            ("game 4 turn at 99: no longer draws a secret objective", false, 4, 99, 1),
+            (
+                "game 4 turn at 99: no longer draws a secret objective",
+                false,
+                4,
+                99,
+                1,
+            ),
             ("game 6 turn at 317: eight draws fewer", false, 6, 317, 3),
         ] {
             let (state, galaxy) = setup(game_seed);
             let full = play(&state, &galaxy, Box::new(Lcg(game_seed, true)), 700);
             let spans = find_turns(&full);
-            let n = spans.iter().position(|t| t.start == start).expect("the fixture turn");
+            let n = spans
+                .iter()
+                .position(|t| t.start == start)
+                .expect("the fixture turn");
             let seat = spans[n].seat.clone();
             // Cut where the seat's next turn begins: the redone turn is its last, the tail is
             // everything the others did before that.
@@ -981,11 +1004,7 @@ pub fn fixtures() -> &'static Vec<Fixture> {
 
 /// Checks the card identity of one redo and reports `(new turn drew more, fewer, the kept tail
 /// drew cards, a positional replay would have handed the tail other cards)`.
-fn check_identity(
-    state: &GameState,
-    galaxy: &Galaxy,
-    s: &Scenario,
-) -> (bool, bool, bool, bool) {
+fn check_identity(state: &GameState, galaxy: &Galaxy, s: &Scenario) -> (bool, bool, bool, bool) {
     let r = &s.redo;
     let orig = replay_draws(state, galaxy, &s.hh, &RngMarks::new());
     let new = replay_draws(state, galaxy, &r.result.decisions, &r.result.marks);
@@ -1150,7 +1169,10 @@ fn slow_auto_play_stops_only_at_the_redoing_seats_next_turn_and_replays_its_othe
             assert!(result.decisions.len() <= s.hh.len() + result.prefix_len);
         }
     }
-    assert!(own_decisions > 0, "the seat's own non-turn decisions are replayed");
+    assert!(
+        own_decisions > 0,
+        "the seat's own non-turn decisions are replayed"
+    );
     assert!(past_old_stop > 0, "auto-play now passes the old stop point");
     assert!(handoffs > 0);
 }
@@ -1199,7 +1221,9 @@ fn slow_the_same_redo_with_stored_marks_gives_identical_decisions_marks_and_card
     for s in all.iter().step_by(5) {
         let r = &s.redo;
         let mut marks = RngMarks::new();
-        marks.deck_plan.push(open_segment(r.window.start, &r.source));
+        marks
+            .deck_plan
+            .push(open_segment(r.window.start, &r.source));
         let a = autoplay(
             state,
             Some(galaxy),
@@ -1331,7 +1355,10 @@ fn replay_with_extra_draws(
         }
     }
     let reserve = game.state.deck_reserve.as_ref().unwrap();
-    (reserve.draws().to_vec(), completed && reserve.failure().is_none())
+    (
+        reserve.draws().to_vec(),
+        completed && reserve.failure().is_none(),
+    )
 }
 
 #[test]
@@ -1406,7 +1433,10 @@ fn slow_a_deck_shifted_by_the_new_turn_still_hands_the_tail_its_original_cards()
     for extra in [1usize, 3] {
         // Identity: the tail still gets exactly the original cards...
         let (with_plan, ok) = run(&plan_for(&source.reserved), extra);
-        assert!(ok, "the whole history replays with the plan ({extra} extra)");
+        assert!(
+            ok,
+            "the whole history replays with the plan ({extra} extra)"
+        );
         assert_eq!(
             draws_between(&with_plan, window.end, hh.len()),
             orig_tail,
@@ -1477,7 +1507,11 @@ fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor(
         }
     }
     fn cursor(game: &Game<'static>) -> usize {
-        game.state.deck_reserve.as_ref().expect("a reserve").cursor()
+        game.state
+            .deck_reserve
+            .as_ref()
+            .expect("a reserve")
+            .cursor()
     }
     fn outcome(game: &Game<'static>) -> (serde_json::Value, Vec<ReservedDraw>, Vec<String>) {
         (
@@ -1487,7 +1521,12 @@ fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor(
                 .as_ref()
                 .map(|r| r.draws().to_vec())
                 .unwrap_or_default(),
-            game.table.log.records.iter().map(|r| r.chosen.clone()).collect(),
+            game.table
+                .log
+                .records
+                .iter()
+                .map(|r| r.chosen.clone())
+                .collect(),
         )
     }
 
@@ -1535,7 +1574,11 @@ fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor(
                 game.state.deck_reserve.as_ref().unwrap(),
                 fork.state.deck_reserve.as_ref().unwrap(),
             );
-            assert!(!own.shares_cursor_with(forked), "{}: a fork shares the cursor", f.label);
+            assert!(
+                !own.shares_cursor_with(forked),
+                "{}: a fork shares the cursor",
+                f.label
+            );
             assert_eq!(own.draws(), forked.draws());
             let snapshot_game = game.snapshot().instantiate();
             assert!(
@@ -1550,9 +1593,19 @@ fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor(
                 force: fork_force.clone(),
             }));
             fork_force.attach(&mut fork);
-            assert_eq!(cursor(&fork), before, "{}: the fork starts at the same position", f.label);
+            assert_eq!(
+                cursor(&fork),
+                before,
+                "{}: the fork starts at the same position",
+                f.label
+            );
             run_out(&mut fork, decisions.len());
-            assert_eq!(cursor(&game), before, "{}: the fork moved the original's cursor", f.label);
+            assert_eq!(
+                cursor(&game),
+                before,
+                "{}: the fork moved the original's cursor",
+                f.label
+            );
             assert_eq!(
                 game.state.deck_reserve.as_ref().map(|r| r.draws().len()),
                 logged_before,
@@ -1564,8 +1617,16 @@ fn a_fork_during_a_redo_timeline_continues_identically_and_keeps_its_own_cursor(
             forks_with_reservations += usize::from(before != ti4_model::deck_reserve::IDLE);
         }
         run_out(&mut game, decisions.len());
-        assert_eq!(outcome(&game), reference, "{}: the forked-from original", f.label);
+        assert_eq!(
+            outcome(&game),
+            reference,
+            "{}: the forked-from original",
+            f.label
+        );
     }
     assert!(forks >= 12, "forks checked: {forks}");
-    assert!(forks_with_reservations >= 8, "forks inside the replay: {forks_with_reservations}");
+    assert!(
+        forks_with_reservations >= 8,
+        "forks inside the replay: {forks_with_reservations}"
+    );
 }

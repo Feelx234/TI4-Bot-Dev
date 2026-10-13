@@ -966,14 +966,18 @@ async fn reaction_intent_is_seated_players_only_validated_and_rate_limited() {
         token: Option<&str>,
     ) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>
     {
-        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url).await.expect("connect");
+        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url)
+            .await
+            .expect("connect");
         let subscribe = ClientMessage::Subscribe {
             protocol_version: PROTOCOL_VERSION,
             game_id: game_id.to_owned(),
             player_session: token.map(str::to_owned),
         };
         stream
-            .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+            .send(Message::Text(
+                serde_json::to_string(&subscribe).unwrap().into(),
+            ))
             .await
             .expect("subscribe");
         let reply = stream.next().await.expect("snapshot").expect("ws ok");
@@ -1031,7 +1035,10 @@ async fn reaction_intent_is_seated_players_only_validated_and_rate_limited() {
     let mut owner = connect(&ws_url, &game_id, Some(&p1_token)).await;
     owner.send(intent(&["agenda"])).await.unwrap();
     let (kind, message) = next_error(&mut owner).await;
-    assert_eq!(kind, ti4_server::protocol::error::ErrorKind::MalformedMessage);
+    assert_eq!(
+        kind,
+        ti4_server::protocol::error::ErrorKind::MalformedMessage
+    );
     assert!(message.contains("no action cards"), "{message}");
     let state = loop {
         let reply = owner.next().await.expect("reply").expect("ws ok");

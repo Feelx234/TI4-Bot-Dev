@@ -1217,7 +1217,10 @@ mod tests {
         assert!(galaxy.is_hyperlane(hyperlane));
         assert!(!galaxy.is_hyperlane("18"));
         assert!(!galaxy.is_hyperlane("not-on-the-board"));
-        assert!(galaxy.system_ids().contains(&hyperlane), "it is still on the map");
+        assert!(
+            galaxy.system_ids().contains(&hyperlane),
+            "it is still on the map"
+        );
         assert_eq!(galaxy.system_ids_holding_things(), vec!["18", "19"]);
     }
 
