@@ -14,8 +14,20 @@ What exists:
   (public alpha: `/var/lib/ti4-public/feedback/`, owned by `ti4`, readable as root). Each holds
   category, text, build id and context (game id, faction, phase, pending decision, recent public
   events). The game id points at `/var/lib/ti4-public/game_*`, so a report can be replayed.
+- Names (added 2026-10-13): each report says who sent it, inside `context`. `context.sender` has
+  `nickname` (the roster nickname of the viewer's seat), `position`, `lobby_nickname` (the nickname
+  this browser remembers from the lobby, only when it differs) and `typed_name` (the optional "Your
+  name" field, shown only when there is no nickname, for example a spectator). With "Include game
+  info" ticked, `context.players` lists every seat: `seat`, `position`, `nickname`, `bot`,
+  `faction`, `is_sender`, so "np gave me a note" maps to a person. The sender block is sent even
+  with the box unticked (the sheet's privacy line says so); the table is not. Nothing secret:
+  the seat id is public to the table, the seat token (`playerSession`), nonces and passwords are
+  never read. Older reports have none of these keys and still load and list. Names are
+  clipped to 300 characters by the client and stripped of control characters by the lister.
 - Reading it: `tools/public/list_feedback.sh [-n N] [-v] [DATA_DIR]` or
-  `server feedback-list --data-dir DIR --limit N --verbose`.
+  `server feedback-list --data-dir DIR --limit N --verbose`. Both print a line under each header,
+  `from Alex | table: Alex* (sol), np (letnev)`, when names are present (`*` marks the sender).
+  The jq fallback of the script needs jq, which is not installed on every box.
 
 Not built from the options below: no Discord/Telegram/GitHub forwarding (the file on the server
 is the only copy, so the team needs server access or someone to relay it), no confirmation
