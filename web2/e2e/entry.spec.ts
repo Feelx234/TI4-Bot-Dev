@@ -33,7 +33,6 @@ test("the bare address is the choice between single player and multiplayer", asy
 
 test("single player is the local game: seed 42, eight seats", async ({ page }) => {
   test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
-  test.setTimeout(120_000);
   await page.goto("/");
   await page.getByRole("link", { name: /Single player/ }).click();
   await expect(page).toHaveURL(SINGLE_PLAYER);

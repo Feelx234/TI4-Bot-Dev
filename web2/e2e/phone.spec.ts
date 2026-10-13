@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { EXAMPLE_IDS as EXAMPLES } from "../src/mock/exampleList";
 
 // The phone shell on a Pixel 9 in portrait: one pane at a time, the footer of the action under each.
-// Run: `npm run shots -- --project=phone`. The screenshots go to shots/phone/.
+// Run: `npm run shots` (with the desktop), or `WEB2_SHOTS=1 npx playwright test --project=shots-phone`.
+// The screenshots go to shots/phone/.
 
 const shot = (page: Page, name: string) =>
   page.screenshot({ path: `shots/phone/${name}.png`, animations: "disabled" });

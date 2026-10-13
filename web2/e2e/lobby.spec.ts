@@ -8,7 +8,6 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 const WASM = fileURLToPath(new URL("../src/session/ti4.wasm", import.meta.url));
 test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
 test.use({ viewport: { width: 1920, height: 1080 } });
-test.setTimeout(120_000);
 
 /** The two long names of the demo data: a name is cut, never the row. */
 const LONG = [
@@ -68,6 +67,8 @@ test("three tabs of one browser make a table from the start screen, fill it and 
   page,
   context,
 }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   const errors = errorsOf(page);
   // The start screen: the name, then "Multiplayer", which makes a table of four.
   await page.goto("/");
@@ -302,7 +303,7 @@ test("a lost connection of the lobby is said in the header, and the table comes 
   // What changed meanwhile is there when the page is back.
   await table.call("bots", { kind: "random" });
   down = false;
-  await expect(players(page)).toContainText("2 of 3", { timeout: 20_000 });
+  await expect(players(page)).toContainText("2 of 3");
   await expect(page.locator("header").getByRole("status")).toHaveCount(0);
   expect(errors).toEqual([]);
 });

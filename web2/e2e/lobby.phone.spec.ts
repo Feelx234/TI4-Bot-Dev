@@ -2,7 +2,6 @@ import { expect, test, type Page } from "@playwright/test";
 
 // The lobby of a table on a Pixel 9 in portrait: the panes of the game shell, Map · Players ·
 // Setup, with the footer under every pane.
-test.setTimeout(120_000);
 
 const LONG = [
   "Bartholomew Featherstonehaugh the Third of Mecatol",

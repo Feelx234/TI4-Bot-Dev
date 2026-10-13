@@ -5,9 +5,8 @@ import { expect, test } from "@playwright/test";
 // Local play on a Pixel 9 in portrait. Needs the engine: `scripts/build-wasm.sh`.
 const WASM = fileURLToPath(new URL("../src/session/ti4.wasm", import.meta.url));
 test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
-test.setTimeout(120_000);
 
-test("phone: a game of eight is played through the decision list", async ({ page }) => {
+test("phone: a game of eight is played through the decision list @slow", async ({ page }) => {
   await page.goto("/?local=3&players=8&humans=1");
   // The main button of the footer: "Send", "Activate system", "Move nothing".
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
@@ -109,11 +108,9 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   const fits = async () =>
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   await expect(send).toBeDisabled();
-  for (const name of ["8. Imperial", "Decline"]) {
-    await pane("Action").click();
-    await row(name).click();
-    await send.click();
-  }
+  await pane("Action").click();
+  await row("8. Imperial").click();
+  await send.click();
   await expect(row("Take a tactical action")).toBeVisible();
 
   await page
@@ -233,6 +230,8 @@ test("phone: the Dev sheet leads to a game on the server, and its menu leads bac
 });
 
 test("phone: the landings are staged in a sheet over the map", async ({ page }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   await page.goto("/?scenario=late-game&humans=1");
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
   const pane = (name: string) =>
@@ -273,7 +272,10 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
     decks.getByRole("region", { name: "Hazardous deck" }).getByText("19 of 20 cards left"),
   ).toBeVisible();
   await fits();
-  await page.screenshot({ path: "shots/phone/local/exploration-deck.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/exploration-deck.png",
+    animations: "disabled",
+  });
   await page.getByRole("button", { name: "Close Exploration" }).click();
   await expect(sheet).toBeVisible();
   // The check of the sheet closes it: the main button is back, in view.
@@ -297,6 +299,8 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
 });
 
 test("phone: a production is a sheet on the map, then the map is the payment", async ({ page }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?scenario=late-game&humans=1");
@@ -331,12 +335,18 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   await expect(card).toContainText("BOMBARDMENT 3+ (x3)");
   await expect(card).toBeInViewport({ ratio: 1 });
   await fits();
-  await page.screenshot({ path: "shots/phone/local/production-card.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/production-card.png",
+    animations: "disabled",
+  });
   await sheet.getByRole("button", { name: "War sun, printed values" }).tap();
   await expect(card).toHaveCount(0);
   await expect(sheet.getByRole("status").first()).toContainText("5 units · 3 resources");
   await fits();
-  await page.screenshot({ path: "shots/phone/local/production-build.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/production-build.png",
+    animations: "disabled",
+  });
 
   // The check of the sheet closes it: the map is the payment, and the main button is in view.
   await sheet.getByRole("button", { name: "Done with the build" }).click();
@@ -356,11 +366,17 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   await expect(bar.getByRole("status").first()).toContainText("✓ Paid");
   await expect(send).toBeEnabled();
   await fits();
-  await page.screenshot({ path: "shots/phone/local/production-paid.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/production-paid.png",
+    animations: "disabled",
+  });
   // The panel says what is produced, and a row of it opens the build again.
   await pane("Action").click();
   await fits();
-  await page.screenshot({ path: "shots/phone/local/production-panel.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/production-panel.png",
+    animations: "disabled",
+  });
   await row(/^Planet Velnor 2 Infantry$/).click();
   await pane("Map").click();
   await expect(sheet).toBeVisible();
@@ -371,6 +387,8 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
 });
 
 test("phone: a draft goes on to the landings and the production", async ({ page }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?scenario=late-game&humans=1");
@@ -403,7 +421,10 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   await sheet.getByRole("button", { name: "Add Cruiser" }).click();
   await expect(sheet.getByRole("status").first()).toContainText("1 unit · 1 resource");
   await fits();
-  await page.screenshot({ path: "shots/phone/local/draft-production.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/draft-production.png",
+    animations: "disabled",
+  });
   // The check of the sheet goes on to the payment; a planet pays, and the draft is whole.
   await sheet.getByRole("button", { name: "Done with the build" }).click();
   await expect(sheet).toBeHidden();
@@ -508,9 +529,12 @@ test("phone: the Agendas sheet has the laws and the open groups in its width", a
 test("phone: the draft of a secondary is the row of the viewer in the list of the seats", async ({
   page,
 }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   // The other seats wait for a step, so that the page is shown the game between their decisions.
   await page.addInitScript(() => localStorage.setItem("ti4.local.stepping", "1"));
-  await page.goto("/?local=3&players=8&humans=1");
+  // In the game of this seed Politics is played before the seat has its turn.
+  await page.goto("/?local=6&players=8&humans=1");
   const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
   const panel = page.locator("#step-panel");
   const pane = (name: string) =>
@@ -519,7 +543,7 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   await pane("Action").click();
   await panel.getByRole("button", { name: "8. Imperial" }).click();
   await send.click();
-  // Seat g plays Politics after some steps of the seats before it.
+  // Another seat plays Politics after some steps of the seats before it.
   const draft = panel.getByText("✎ Private draft");
   const step = page.getByRole("button", { name: /^Step/ });
   for (let steps = 0; steps < 200 && !(await draft.isVisible()); steps++) {
@@ -528,7 +552,10 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   }
   await expect(draft).toBeVisible();
   await expect(panel.getByText("Strategy pool 2 → 1")).toBeVisible();
-  await page.screenshot({ path: "shots/phone/local/secondary-draft.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/secondary-draft.png",
+    animations: "disabled",
+  });
   // Nothing is cut at the side, and every button of the footer is in view.
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   const content = page.locator("#step-panel > div.overflow-y-auto");
@@ -543,6 +570,9 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   await expect(send).toHaveText(/^Mark draft ready/);
   await send.click();
   await expect(panel.getByText("✎ Draft ready")).toBeVisible();
-  await page.screenshot({ path: "shots/phone/local/secondary-ready.png", animations: "disabled" });
+  await page.screenshot({
+    path: "shots/phone/local/secondary-ready.png",
+    animations: "disabled",
+  });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
 });

@@ -9,7 +9,6 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 const WASM = fileURLToPath(new URL("../src/session/ti4.wasm", import.meta.url));
 test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
 test.use({ viewport: { width: 1920, height: 1080 } });
-test.setTimeout(120_000);
 
 /** `ti4_engine::seating::LOBBY_FACTIONS`, with the name that a table calls each by. */
 const FACTIONS: [id: string, name: string][] = [
@@ -138,7 +137,7 @@ for (const [index, table] of TABLES.entries()) {
     // The seat answers what it is asked, up to the menu of its first turn.
     for (let count = 0; ; count++) {
       expect(count).toBeLessThan(40);
-      await expect(status(page)).toHaveText("Your decision", { timeout: 30_000 });
+      await expect(status(page)).toHaveText("Your decision");
       if (await panel(page).getByRole("button", { name: "Take a tactical action" }).count()) {
         break;
       }
@@ -152,12 +151,15 @@ for (const [index, table] of TABLES.entries()) {
     const column = await players(page)
       .locator("thead tr > *")
       .evaluateAll((cells) => cells.findIndex((cell) => cell.textContent === "Strategy cards"));
+    // A seat that had its turn before this one may have played its card: the card has "✓" then.
     const held = (
       await rows.evaluateAll(
         (all, at) => all.map((row) => row.children[at]?.textContent?.trim() ?? ""),
         column,
       )
-    ).sort();
+    )
+      .map((card) => card.replace(/ ✓$/, ""))
+      .sort();
     expect(held).toHaveLength(8);
     for (const card of held) {
       expect(card).toMatch(/^[1-8] [A-Z][a-z]+$/);

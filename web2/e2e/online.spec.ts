@@ -8,7 +8,6 @@ import { expect, test, type Page } from "@playwright/test";
 const WASM = fileURLToPath(new URL("../src/session/ti4.wasm", import.meta.url));
 test.skip(!existsSync(WASM), "the engine is not built: run web2/scripts/build-wasm.sh");
 test.use({ viewport: { width: 1920, height: 1080 } });
-test.setTimeout(120_000);
 
 const panel = (page: Page) => page.locator("#step-panel");
 const send = (page: Page) => page.locator('footer button[aria-keyshortcuts="Enter"]');
@@ -31,6 +30,8 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   page,
   request,
 }) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
   const errors = errorsOf(page);
   // The game is made as the page makes it, with a seed, so that the board is the same each run.
   const response = await request.post("/api/games", {
@@ -81,35 +82,49 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   await workspace(page, "Draft").click();
   await expect(heading(page)).toHaveText("Activation");
   await expect(page.getByText("Private draft").first()).toBeVisible();
-  await system(page, "23").click();
+  // The server draws the faction of the seat, so the test reads the board: the first plain system
+  // that the ships of the seat reach (no ships there, no anomaly) is activated, and two ships of
+  // the home system move there.
+  const labels = await page
+    .locator("g.system.target:not(.plain)")
+    .evaluateAll((all) => all.map((one) => one.getAttribute("aria-label") ?? ""));
+  const target = labels
+    .map((label) => /^Activate [^,]+, system (\w+)$/.exec(label)?.[1])
+    .find(Boolean)!;
+  await system(page, target).click();
   await page.keyboard.press("Enter");
   await expect(heading(page)).toHaveText("Movement");
-  await system(page, "01").click();
-  const sheet = page.getByRole("group", { name: /^Move from Jord/ });
-  await sheet.getByRole("button", { name: "Carrier 1 of 2" }).click();
-  await sheet.getByRole("button", { name: "Destroyer 1 of 1" }).click();
+  // The row of the panel is there when the server has played the draft up to the movement.
+  await panel(page)
+    .getByRole("button", { name: /Nothing staged$/ })
+    .first()
+    .click();
+  const sheet = page.getByRole("group", { name: /^Move from / });
+  const ships = sheet.getByRole("button", { name: /^[A-Z][a-z ]+ \d of \d$/, pressed: false });
+  await ships.first().click();
+  await ships.first().click();
   await expect(sheet.getByText(/· 2 ships$/)).toBeVisible();
-  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
   await expect(page.locator("footer").getByText("The action ends here.")).toBeVisible();
   await page.screenshot({ path: "shots/online/draft-movement.png", animations: "disabled" });
 
   // A reload resumes the game as the same player, and the draft is kept for this game.
   await page.reload();
   await expect(row(page, "Take a tactical action")).toBeVisible();
-  await expect(system(page, "23")).not.toHaveAttribute("aria-label", /Sol ship/);
+  await expect(system(page, target)).not.toHaveAttribute("aria-label", / ships?$/);
   await workspace(page, "Draft").click();
   await expect(heading(page)).toHaveText("Movement");
-  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
 
   // "Apply to Live" sends the action, the system and the movement as one request.
   const apply = page.getByRole("button", { name: "Apply to Live" });
   await expect(apply).toBeEnabled();
   await apply.click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByText(/^Activate .+ · #23$/)).toBeVisible();
+  await expect(dialog.getByText(new RegExp(`^Activate .+ · #${target}$`))).toBeVisible();
   await dialog.getByRole("button", { name: "Apply to Live" }).click();
   await expect(workspace(page, "Live")).toHaveAttribute("aria-pressed", "true");
-  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
   await expect(heading(page)).not.toHaveText("Movement");
   await page.screenshot({ path: "shots/online/after-draft.png", animations: "disabled" });
 
@@ -118,12 +133,12 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(heading(page)).toHaveText("Movement");
   await expect(status(page)).toHaveText("Your decision");
-  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
   await page.screenshot({ path: "shots/online/after-undo.png", animations: "disabled" });
   await expect(send(page)).toHaveText(/Move fleet/);
   await send(page).click();
   await expect(heading(page)).not.toHaveText("Movement");
-  await expect(system(page, "23")).toHaveAttribute("aria-label", /2 Sol ships/);
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
 
   // The sheets have the facts that the server sends, as in a local game.
   await page.getByRole("button", { name: "Cards", exact: true }).click();
@@ -156,9 +171,7 @@ test("the quick start is a game on the server, at its address", async ({ page })
   // The page asks the table first, then loads the engine and opens the game. The speaker is
   // drawn: a seat that chooses last is given the last strategy card, and is asked in the
   // action phase first.
-  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible();
   await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(8);
   // The page plays a seat: it is asked, or it waits for a seat before it.
   await expect(status(page)).toHaveText(/^(Your decision|Waiting for .+|Turn of .+)$/);
@@ -222,9 +235,7 @@ test("a lost connection is said in the toolbar, and the game comes back by itsel
     open.push(socket);
   });
   await page.goto("/?online&fill=random");
-  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible();
   const before = await status(page).textContent();
 
   down = true;
@@ -238,6 +249,6 @@ test("a lost connection is said in the toolbar, and the game comes back by itsel
 
   // The page tries again by itself, and the snapshot after it is the game as it is.
   down = false;
-  await expect(status(page)).toHaveText(before ?? "", { timeout: 20_000 });
+  await expect(status(page)).toHaveText(before ?? "");
   expect(errors).toEqual([]);
 });

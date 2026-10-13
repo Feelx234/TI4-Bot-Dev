@@ -2,7 +2,8 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { EXAMPLE_IDS as EXAMPLES } from "../src/mock/exampleList";
 
 // Screenshots of every example.
-// Run all: `npm run shots`. Run some: `npm run shots -- -g draft-movement`.
+// Run all: `npm run shots` (the projects "shots" and "shots-phone"; not part of `npm run e2e`).
+// Run some: `npm run shots -- -g draft-movement`.
 // One size: the design target is 1920×1080 or larger. Narrower screens are a non-goal (AGENTS.md).
 const SIZE = { width: 1920, height: 1080 };
 
