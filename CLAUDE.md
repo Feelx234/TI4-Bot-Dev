@@ -10,3 +10,9 @@
   and `_shared/` helpers (`openMockedGame`, `shot`, `build-artifact.mjs`). Run them with
   `cd web && npm run screenshots -- <letter>`; see `web/e2e/screenshots/README.md`. Publish the
   artifact from the generated page, not from ad-hoc screenshots.
+
+## Alpha feedback
+
+- Testers' reports from the public alpha are files in `/var/lib/ti4-public/feedback/<date>/`
+  (the in-game feedback button is built); read them with `tools/public/list_feedback.sh`. See
+  `docs/FEEDBACK_BUTTON_NOTES.md`. When triaging, replay the game id from the report's context.

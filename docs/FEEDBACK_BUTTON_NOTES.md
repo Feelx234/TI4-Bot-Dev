@@ -1,4 +1,28 @@
-# In-game feedback button: notes (not started)
+# In-game feedback button: BUILT (design notes kept below)
+
+**Status: implemented** in commits `171d9721` (server) and `52c851bd` (web UI), 2026-10-12, and
+running in the public alpha. It is on `main`, `consolidated-final-2026-10-11`,
+`public-playtest-2026-10-12` and `felix-merge-2026-10-12`, but not on every older branch.
+
+What exists:
+
+- Web: `web/src/feedback/` (`FeedbackLauncher`, `FeedbackSheet`, `context.ts` builds a
+  viewer-safe context, so no hidden cards). Category is bug / confusing / idea plus free text.
+- Server: `POST /api/feedback` (`crates/ti4-server/src/http/feedback.rs`,
+  `crates/ti4-server/src/feedback.rs`), per-IP rate limit (`public/ratelimit.rs`).
+- Storage: one JSON file per report at `<data_dir>/feedback/YYYY-MM-DD/fb_<unix>_<hash>.json`
+  (public alpha: `/var/lib/ti4-public/feedback/`, owned by `ti4`, readable as root). Each holds
+  category, text, build id and context (game id, faction, phase, pending decision, recent public
+  events). The game id points at `/var/lib/ti4-public/game_*`, so a report can be replayed.
+- Reading it: `tools/public/list_feedback.sh [-n N] [-v] [DATA_DIR]` or
+  `server feedback-list --data-dir DIR --limit N --verbose`.
+
+Not built from the options below: no Discord/Telegram/GitHub forwarding (the file on the server
+is the only copy, so the team needs server access or someone to relay it), no confirmation
+reference id for the player. The first alpha batch (39 usable reports, 12-13 Oct, build
+`23cfb192`) was triaged on 2026-10-13.
+
+The text below is the original 2026-10-06 plan and is kept for the open questions.
 
 Idea: a "Give feedback" button in the web UI. The player writes feedback, and it is sent
 together with the game history. Collected 2026-10-06 for later; nothing is built yet.
