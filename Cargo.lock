@@ -4191,6 +4191,7 @@ dependencies = [
  "axum",
  "serde",
  "serde_json",
+ "ti4-calc",
  "ti4-content",
  "ti4-engine",
  "ti4-mlp",
@@ -4198,7 +4199,6 @@ dependencies = [
  "ti4-policy",
  "ti4-server",
  "ti4-tensor",
- "ti4-training",
  "tokio",
 ]
 
@@ -4237,6 +4237,16 @@ dependencies = [
  "ti4-engine",
  "ti4-model",
  "tracing",
+]
+
+[[package]]
+name = "ti4-calc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-model",
 ]
 
 [[package]]
@@ -4515,6 +4525,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.20",
+ "ti4-calc",
  "ti4-content",
  "ti4-engine",
  "ti4-model",

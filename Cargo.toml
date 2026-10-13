@@ -6,6 +6,7 @@ members = [
     "crates/ti4-engine",
     "crates/ti4-policy",
     "crates/ti4-sim",
+    "crates/ti4-calc",
     "crates/ti4-training",
     "crates/ti4-bridge",
     "crates/ti4-legacy",
@@ -35,6 +36,7 @@ ti4-content = { path = "crates/ti4-content" }
 ti4-engine = { path = "crates/ti4-engine" }
 ti4-policy = { path = "crates/ti4-policy" }
 ti4-sim = { path = "crates/ti4-sim" }
+ti4-calc = { path = "crates/ti4-calc" }
 ti4-training = { path = "crates/ti4-training" }
 ti4-bridge = { path = "crates/ti4-bridge" }
 ti4-legacy = { path = "crates/ti4-legacy" }
