@@ -578,6 +578,8 @@ pub fn apply_reroll_dice(
             hits_on: entry.hits_on,
             rerolled: std::collections::BTreeSet::new(),
             by: None,
+            system: None,
+            outcome: None,
         };
         let again = dice.reroll(rng, &original, [*die], Some(reason));
         entry.faces = again.faces;
@@ -7477,6 +7479,8 @@ mod tests {
             hits_on: Some(7),
             rerolled: std::collections::BTreeSet::new(),
             by: None,
+            system: None,
+            outcome: None,
         };
         let rerolled = reroll_munitions_misses(&state, &mut dice, &mut rng, &attacker(), &original);
 

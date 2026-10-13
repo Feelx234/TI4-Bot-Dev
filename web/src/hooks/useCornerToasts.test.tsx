@@ -21,6 +21,29 @@ const base: Props = { events: [], viewerSeat: "p1", ready: true };
 describe("useCornerToasts", () => {
   beforeEach(() => localStorage.clear());
 
+  it("toasts a new gravity rift roll for every seat, the roller included, and not the ones at load", () => {
+    const roll = (id: string, roller: string): GameEvent =>
+      ({
+        id,
+        timestamp: "1",
+        visibility: { visibility: "public" as const },
+        event: { kind: "dice_rolled" },
+        actor: roller,
+        detail: `${roller} rolled Gravity rift in system 67: 2 (ship destroyed)`,
+        roll: { index: 0, roller, reason: "gravity rift", label: "Gravity rift", faces: [2], system: "67", outcome: "ship destroyed" },
+      }) as GameEvent;
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, events: [roll("old", "p2")] },
+    });
+    expect(result.current.notifications).toHaveLength(0);
+    rerender({ ...base, events: [roll("old", "p2"), roll("mine", "p1")] });
+    const dice = result.current.notifications.filter((t) => t.tag === "Dice");
+    expect(dice).toHaveLength(1);
+    expect(dice[0].text).toMatch(/rolled Gravity rift in #67.*: 2 \u00b7 ship destroyed/);
+    // Muting clears them like every other toast.
+    act(() => localStorage.setItem(TOAST_MUTE_KEY, "true"));
+  });
+
   it("does not toast what was already in the log when the game loaded", () => {
     const { result } = renderHook((p: Props) => useCornerToasts(p), {
       initialProps: { ...base, events: [ev("a", "p2", "played Sabotage")] },

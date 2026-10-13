@@ -378,6 +378,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
                 detail: "Private objective: hidden_test".into(),
             }),
             private_detail: None,
+            roll: None,
         },
         GameEvent {
             id: "test-2".to_owned(),
@@ -401,6 +402,7 @@ fn event_history_is_projected_to_its_explicit_audience() {
             movement: None,
             seat_detail: None,
             private_detail: None,
+            roll: None,
         },
     ];
 

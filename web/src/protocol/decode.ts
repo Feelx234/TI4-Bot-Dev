@@ -294,6 +294,18 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
         typeof value.entry.private_detail !== "string"
       )
         fail("invalid private event detail");
+      if (value.entry.roll !== undefined) {
+        const roll = value.entry.roll;
+        if (
+          !isRecord(roll) ||
+          !isNonNegativeInteger(roll.index) ||
+          typeof roll.reason !== "string" ||
+          typeof roll.label !== "string" ||
+          !Array.isArray(roll.faces) ||
+          !roll.faces.every(isNonNegativeInteger)
+        )
+          fail("invalid dice roll");
+      }
       for (const field of ["batch_start_cursor", "batch_end_cursor", "action_start_cursor"]) {
         if (value.entry[field] !== undefined && !isNonNegativeInteger(value.entry[field]))
           fail(`invalid ${field}`);

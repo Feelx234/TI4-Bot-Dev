@@ -315,6 +315,37 @@ html,
   opacity: 0.7;
 }
 
+/* A die roll: the same line as a decision, with its faces as small chips (hits filled). */
+.event-log__entry--roll {
+  border-left: 2px solid var(--color-border-faint);
+}
+.event-log__dice {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-left: auto;
+}
+.event-log__die {
+  min-width: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-faint);
+  border-radius: 4px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.event-log__die[data-hit="yes"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent, #0b1020);
+}
+.event-log__die[data-hit="no"] {
+  opacity: 0.6;
+}
+.event-log__die[data-reroll="yes"] {
+  border-style: dashed;
+}
+
 .event-log__action-marker {
   display: flex;
   align-items: center;

@@ -566,6 +566,12 @@ impl GameSession {
         (lock.decision_log.clone(), lock.step_snapshot.clone())
     }
 
+    /// How many of the game's dice the worker has published (the next one's history index).
+    #[must_use]
+    pub fn rolls_seen(&self) -> usize {
+        self.shared.lock().expect("shared lock").rolls_seen
+    }
+
     /// Diagnostic: the number of decisions this session did not have to replay because it
     /// started from a copy of the game (`None`: it replayed from the opening state).
     #[must_use]

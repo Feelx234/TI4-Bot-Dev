@@ -32,6 +32,8 @@ pub struct ReplayReport {
     pub replayed_hashes: Vec<CanonicalHash>,
     pub hashes_match: bool,
     pub final_state: GameState,
+    /// Every die the replayed game rolled, in order. Presentation: nothing decides from these.
+    pub rolls: Vec<ti4_engine::dice::Roll>,
 }
 
 struct ReplayDecider {
@@ -218,6 +220,7 @@ fn replay(
             original_hashes,
             replayed_hashes,
             hashes_match,
+            rolls: game.rolls().to_vec(),
             final_state: game.state,
         },
         copy,
