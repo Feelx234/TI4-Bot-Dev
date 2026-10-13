@@ -3455,12 +3455,15 @@ select:focus-visible,
   gap: 10px;
   padding: 10px;
 }
+/* Rendered inside .app-shell__overlays (pointer-events: none): the standalone landing tray (no
+   board invasion, e.g. Sardakk's hero skipping to Commit Ground Forces) was unclickable. */
 .decision-frame {
   position: relative;
   margin: 16px;
   padding: 20px;
   max-width: 480px;
   z-index: var(--layer-modal);
+  pointer-events: auto;
 }
 .decision-modal__panel,
 .choice-dialog__panel,
