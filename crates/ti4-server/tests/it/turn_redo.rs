@@ -426,14 +426,6 @@ pub fn scenarios() -> &'static (GameState, Galaxy, Vec<Scenario>) {
     })
 }
 
-pub fn kind(stop: &TurnRedoStop) -> String {
-    match stop {
-        TurnRedoStop::Handoff { .. } => "handoff".to_owned(),
-        TurnRedoStop::TailExhausted => "exhausted".to_owned(),
-        TurnRedoStop::Conflict { conflict } => format!("{:?}", conflict.kind),
-    }
-}
-
 // ---- tests ---------------------------------------------------------------------------------
 
 fn ids(records: &[DecisionRecord]) -> Vec<String> {

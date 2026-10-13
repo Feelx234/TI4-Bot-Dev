@@ -3444,6 +3444,7 @@ pub fn announce_staged_destructions(state: &mut GameState, ctx: &mut Resolving<'
 }
 
 /// 78.6: the owning player chooses which of their own units dies.
+#[cfg(test)]
 pub(crate) fn choose_casualty(
     state: &GameState,
     content: &ContentStore,
