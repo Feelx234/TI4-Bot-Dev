@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
-import { useTurnSound } from "./hooks/useTurnSound.ts";
+import { shouldPlayTurnSound, useTurnSound } from "./hooks/useTurnSound.ts";
 import { useTurnRedo } from "./hooks/useTurnRedo.ts";
 import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
@@ -16,6 +16,7 @@ import { MobileTopMenu, menuAttention } from "./components/MobileTopMenu.tsx";
 import { MobileMenuSlotContext } from "./presentation/MobileMenuSlot.tsx";
 import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
+import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
@@ -167,6 +168,7 @@ const AppRoutes: React.FC = () => {
         <CreateLobby
           onError={setError}
           onCreated={(created) => navigate(created.game_id, created.player_session)}
+          onOpenGame={(id, openToken) => navigate(id, openToken)}
         />
         {error && (
           <div className="session-error" role="alert">
@@ -182,6 +184,7 @@ const AppRoutes: React.FC = () => {
       token={token}
       onCredential={(credential) => {
         sessionStorage.setItem(storageKey(gameId), credential);
+        rememberMyGame({ gameId, token: credential });
         setToken(credential);
       }}
       onCredentialInvalid={() => {
@@ -231,6 +234,7 @@ const GameRoute: React.FC<{
   useRegisterFeedbackSource("lobby", () => ({
     gameId,
     viewer: token && playerId ? { role: "player", seat: playerId, playerSession: token } : { role: "spectator" },
+    lobby,
   }));
   useEffect(() => {
     if (invalidCredential) onCredentialInvalid();
@@ -371,6 +375,7 @@ const GameViewContainer: React.FC<{
     viewer,
     snapshot,
     pendingChoice: realPendingChoice,
+    lobby,
     events,
   }));
   const reconnecting = useAfterDelay(
@@ -513,17 +518,15 @@ const GameViewContainer: React.FC<{
     : null;
   const agendaPill = agendaStrip ? agendaPillLabel(agendaStrip, realPendingChoice) : null;
 
-  // Play sound notification when it becomes the player's turn
-  const previousPendingChoiceRef = useRef<string | null>(null);
+  // One sound when the decision passes to the viewer, not one per decision: a turn is a run of
+  // questions for the same seat (menu, system, moves, production, ...) and only the first beeps.
+  const wasViewerDecisionRef = useRef(false);
   useEffect(() => {
-    const isPendingChoiceForViewer =
-      realPendingChoice && userSeat && realPendingChoice.actor === userSeat;
-
-    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== realPendingChoice.nonce) {
-      playTurnNotification();
-    }
-
-    previousPendingChoiceRef.current = realPendingChoice?.nonce ?? null;
+    const isViewerDecision = Boolean(
+      realPendingChoice && userSeat && realPendingChoice.actor === userSeat,
+    );
+    if (shouldPlayTurnSound(wasViewerDecisionRef.current, isViewerDecision)) playTurnNotification();
+    wasViewerDecisionRef.current = isViewerDecision;
   }, [realPendingChoice?.nonce, userSeat, realPendingChoice?.actor, playTurnNotification]);
 
   useEffect(() => {

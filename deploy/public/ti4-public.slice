@@ -4,4 +4,4 @@ Description=TI4 public playtest slice
 
 [Slice]
 CPUWeight=400
-MemoryMax=3500M
+MemoryMax=6500M

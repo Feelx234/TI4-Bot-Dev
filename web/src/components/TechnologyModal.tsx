@@ -21,6 +21,13 @@ import {
   checkTechPrerequisites,
   type HydratedTech,
 } from "../presentation/technologyData.ts";
+import {
+  NO_TECH_FILTER,
+  isTechFilterActive,
+  matchesTechFilter,
+  type TechColorFilter,
+  type TechFilter,
+} from "../presentation/techFilter.ts";
 import "./TechnologyModal.css";
 
 export interface TechnologyModalProps {
@@ -453,6 +460,26 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     return UNIT_UPGRADE_TECH_IDS.map(hydrateTech);
   }, []);
 
+  const [filter, setFilter] = useState<TechFilter>(NO_TECH_FILTER);
+  const filtering = isTechFilterActive(filter);
+
+  /** Researchable right now: not owned, open to the faction, prerequisites met (research mode: legal). */
+  const isAvailableNow = (tech: HydratedTech): boolean => {
+    if (activeResearchMode) return isTechResearchable(tech);
+    if (!viewerPlayer) return false;
+    if (hasResearchedTech(viewerPlayer, tech.id)) return false;
+    if (!isTechAllowedForFaction(tech, viewerPlayer.faction)) return false;
+    return checkTechPrerequisites(tech, ownedTrackCounts, toggledSkipCounts, viewerPlayer.faction);
+  };
+  const shown = (tech: HydratedTech): boolean =>
+    matchesTechFilter(tech, filter, !filter.availableOnly || isAvailableNow(tech));
+
+  const standardVisible = TECH_TIERS.some((tierGroup) =>
+    tierGroup.rows.some((row) => row.some((id) => shown(hydrateTech(id)))),
+  );
+  const unitUpgradesVisible = unitUpgradeTechs.filter(shown).length > 0;
+  const factionVisible = factionTechs.filter(shown).length > 0;
+
   if (!isOpen) return null;
 
   return (
@@ -741,6 +768,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
             </div>
           )}
 
+          <TechFilterBar
+            filter={filter}
+            onChange={setFilter}
+            canFilterAvailable={Boolean(viewerPlayer)}
+          />
+
           {lastError && (
             <div className="session-error" role="alert" style={{ margin: "10px 24px 0" }}>
               {lastError}
@@ -751,7 +784,12 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
           <div className="technology-modal__scroll-body">
             <div className="technology-modal__content-container">
               {/* Faction Technologies - ALWAYS FIRST AT THE TOP! */}
-              {factionTechs.length > 0 && (
+              {filtering && !factionVisible && !standardVisible && !unitUpgradesVisible && (
+                <p className="technology-filter__empty" data-testid="tech-filter-empty">
+                  No technology matches this filter.
+                </p>
+              )}
+              {factionVisible && (
                 <section
                   className="technology-modal__faction-section"
                   aria-label="Faction Technologies"
@@ -766,7 +804,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                     )}
                   </h3>
                   <div className="technology-modal__faction-grid">
-                    {factionTechs.map((tech) => (
+                    {factionTechs.filter(shown).map((tech) => (
                       <TechCard
                         key={tech.id}
                         tech={tech}
@@ -784,11 +822,11 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
               )}
 
               {/* Color Tracks Section */}
-              <section aria-label="Color Technologies">
+              <section aria-label="Color Technologies" hidden={!standardVisible}>
                 <h3 className="technology-modal__section-heading">Standard Technologies</h3>
 
                 {/* Column Headers */}
-                <div className="technology-track-headers">
+                <div className="technology-track-headers" hidden={filtering}>
                   {TECH_TRACKS.map((track) => (
                     <div
                       key={track.id}
@@ -815,7 +853,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 
                 {/* Tier Sections with Row-aligned Grids */}
                 <div className="technology-tiers-container">
-                  {TECH_TIERS.map((tierGroup) => (
+                  {TECH_TIERS.map((tierGroup) =>
+                    tierGroup.rows.some((row) => row.some((id) => shown(hydrateTech(id)))) ? (
                     <div key={tierGroup.tier} className="technology-tier-section">
                       <div className="technology-tier-divider">
                         <span className="technology-tier-badge">{tierGroup.label}</span>
@@ -824,10 +863,11 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 
                       <div className="technology-tier-rows">
                         {tierGroup.rows.map((rowTechIds, rowIdx) => (
-                          <div key={rowIdx} className="technology-grid-row">
+                          <div key={rowIdx} className="technology-grid-row" data-filtered={filtering || undefined}>
                             {rowTechIds.map((techId, colIdx) => {
                               const track = TECH_TRACKS[colIdx];
                               const tech = hydrateTech(techId);
+                              if (!shown(tech)) return null;
                               return (
                                 <TechCard
                                   key={tech.id}
@@ -847,18 +887,19 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         ))}
                       </div>
                     </div>
-                  ))}
+                    ) : null,
+                  )}
                 </div>
               </section>
 
               {/* Unit Upgrades Section */}
-              <section aria-label="Unit Upgrade Technologies">
+              <section aria-label="Unit Upgrade Technologies" hidden={!unitUpgradesVisible}>
                 <h3 className="technology-modal__section-heading">
                   Unit Upgrades{" "}
-                  <small style={{ color: "#94a3b8" }}>({unitUpgradeTechs.length})</small>
+                  <small style={{ color: "#94a3b8" }}>({unitUpgradeTechs.filter(shown).length})</small>
                 </h3>
                 <div className="technology-modal__unit-grid" data-testid="tech-track-unitupgrade">
-                  {unitUpgradeTechs.map((tech) => (
+                  {unitUpgradeTechs.filter(shown).map((tech) => (
                     <TechCard
                       key={tech.id}
                       tech={tech}
@@ -1010,3 +1051,51 @@ const TechCard: React.FC<TechCardProps> = ({
     </div>
   );
 };
+
+const COLOR_CHIPS: { id: TechColorFilter; label: string; accent: string }[] = [
+  ...TECH_TRACKS.map((track) => ({ id: track.id, label: track.colorName, accent: track.accentColor })),
+  { id: "UNIT_UPGRADE", label: "Unit upgrades", accent: "#c084fc" },
+];
+
+/** Colour chips and a "can research now" toggle; each chip is a 44 px target on a phone. */
+const TechFilterBar: React.FC<{
+  filter: TechFilter;
+  onChange: (next: TechFilter) => void;
+  canFilterAvailable: boolean;
+}> = ({ filter, onChange, canFilterAvailable }) => (
+  <div className="technology-filter" role="group" aria-label="Filter technologies" data-testid="tech-filter">
+    <button
+      type="button"
+      className="technology-filter__chip"
+      aria-pressed={filter.color === null}
+      data-testid="tech-filter-all"
+      onClick={() => onChange({ ...filter, color: null })}
+    >
+      All colours
+    </button>
+    {COLOR_CHIPS.map((chip) => (
+      <button
+        key={chip.id}
+        type="button"
+        className="technology-filter__chip"
+        style={{ "--chip-accent": chip.accent } as React.CSSProperties}
+        aria-pressed={filter.color === chip.id}
+        data-testid={`tech-filter-${chip.id.toLowerCase()}`}
+        onClick={() => onChange({ ...filter, color: filter.color === chip.id ? null : chip.id })}
+      >
+        {chip.label}
+      </button>
+    ))}
+    {canFilterAvailable && (
+      <button
+        type="button"
+        className="technology-filter__chip technology-filter__chip--available"
+        aria-pressed={filter.availableOnly}
+        data-testid="tech-filter-available"
+        onClick={() => onChange({ ...filter, availableOnly: !filter.availableOnly })}
+      >
+        Can research now
+      </button>
+    )}
+  </div>
+);

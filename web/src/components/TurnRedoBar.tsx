@@ -138,6 +138,8 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   // The phone panel is collapsed unless the player has to decide; their own toggle wins for as long as the state stays.
   const [toggled, setToggled] = useState<{ state: string; open: boolean } | null>(null);
   const [moreDetail, setMoreDetail] = useState(false);
+  // The bar the viewer sent away (viewer local); a different state of the redo shows it again.
+  const [hiddenKey, setHiddenKey] = useState<string | null>(null);
   if (!status && !busy && !error) return null;
 
   let state = "idle";
@@ -201,6 +203,21 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
   }
 
   const control = status?.can_control ?? false;
+  const barKey = `${state}:${status?.seat ?? ""}:${status?.rewound_to ?? ""}:${status?.redo_count ?? ""}`;
+  if (hiddenKey === barKey) return null;
+  // Restore / Keep are the answer while the viewer decides; any other state can be waved away.
+  const canHide = !(control && (actions === "restore" || actions === "decide"));
+  const hideButton = canHide && (
+    <button
+      type="button"
+      className="button button--secondary button--sm turn-redo__hide"
+      data-testid="turn-redo-hide"
+      aria-label="Hide the turn redo bar"
+      onClick={() => setHiddenKey(barKey)}
+    >
+      Hide
+    </button>
+  );
 
   const actionButtons = control && (
     <>
@@ -266,6 +283,7 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
           >
             {expanded ? "Close" : mustDecide ? "Decide" : "Open"}
           </button>
+          {hideButton}
         </div>
         {expanded && (
           <TurnRedoSheet id={sheetId} anchorRef={pillRef}>
@@ -333,7 +351,12 @@ export const TurnRedoBar: React.FC<TurnRedoBarProps> = ({
           </span>
         )}
       </div>
-      {control && <div className="turn-redo__actions">{actionButtons}</div>}
+      {(control || canHide) && (
+        <div className="turn-redo__actions">
+          {control && actionButtons}
+          {hideButton}
+        </div>
+      )}
     </div>
   );
 };

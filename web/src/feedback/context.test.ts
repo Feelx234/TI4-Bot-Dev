@@ -136,4 +136,56 @@ describe("buildFeedbackContext", () => {
     expect(ctx).not.toHaveProperty("viewer_seat");
     expect(ctx).not.toHaveProperty("faction");
   });
+
+  describe("sender names", () => {
+    const lobby = {
+      slots: [
+        { slot_id: "s1", position: 1, occupant: "p1", nickname: "Alex", ready: true, connected: true, can_take_over: false },
+        { slot_id: "s2", position: 2, occupant: "p2", nickname: "np", ready: true, connected: true, can_take_over: false },
+        { slot_id: "s3", position: 3, occupant: "b1", nickname: "Bot 3", ready: true, connected: true, can_take_over: false, bot: "smart" },
+      ],
+    } as unknown as import("../protocol/types.ts").LobbyDto;
+    const viewer = { role: "player", seat: "p1", playerSession: "SECRET-TOKEN" } as const;
+    const snap = {
+      ...(snapshot as object),
+      view: { ...(snapshot as unknown as { view: object }).view, players: [
+        { id: "p1", faction: "arborec" }, { id: "p2", faction: "letnev" }, { id: "b1", faction: "sol" },
+      ] },
+    } as unknown as SnapshotState;
+
+    it("records the sender's nickname and every seat's nickname and faction", () => {
+      const ctx = buildFeedbackContext({ gameId: "g", viewer, snapshot: snap, lobby }, env, true);
+      expect(ctx.sender).toEqual({ nickname: "Alex", position: 1 });
+      expect(ctx.players).toEqual([
+        { seat: "p1", position: 1, nickname: "Alex", bot: null, faction: "arborec", is_sender: true },
+        { seat: "p2", position: 2, nickname: "np", bot: null, faction: "letnev", is_sender: false },
+        { seat: "b1", position: 3, nickname: "Bot 3", bot: "smart", faction: "sol", is_sender: false },
+      ]);
+      expect(JSON.stringify(ctx)).not.toContain("SECRET-TOKEN");
+    });
+
+    it("adds the remembered lobby nickname only when it differs", () => {
+      expect(buildFeedbackContext({ gameId: "g", viewer, lobby }, { ...env, storedNickname: "Alex" }, true).sender).toEqual({
+        nickname: "Alex",
+        position: 1,
+      });
+      expect(buildFeedbackContext({ gameId: "g", viewer, lobby }, { ...env, storedNickname: "Al" }, true).sender).toEqual({
+        nickname: "Alex",
+        position: 1,
+        lobby_nickname: "Al",
+      });
+    });
+
+    it("keeps the typed name for a sender without a nickname, even with game info unticked", () => {
+      const ctx = buildFeedbackContext({ viewer: { role: "spectator" } }, { ...env, typedName: "  Sam " }, false);
+      expect(ctx.sender).toEqual({ typed_name: "Sam" });
+      expect(ctx).not.toHaveProperty("players");
+    });
+
+    it("leaves the other nicknames out when game info is unticked", () => {
+      const ctx = buildFeedbackContext({ gameId: "g", viewer, snapshot: snap, lobby }, env, false);
+      expect(ctx.sender).toEqual({ nickname: "Alex", position: 1 });
+      expect(ctx).not.toHaveProperty("players");
+    });
+  });
 });

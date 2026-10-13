@@ -29,10 +29,10 @@ RestartSec=3
 TimeoutStartSec=300
 
 # Resource limits and priority (the box also runs builds and the nightly sweep).
-MemoryMax=3G
-MemoryHigh=2560M
-TasksMax=512
-LimitNOFILE=4096
+MemoryMax=6G
+MemoryHigh=5G
+TasksMax=2048
+LimitNOFILE=8192
 Nice=-5
 CPUWeight=400
 IOWeight=200

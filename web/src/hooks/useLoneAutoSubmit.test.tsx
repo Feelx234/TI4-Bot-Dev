@@ -75,6 +75,20 @@ describe("loneAction", () => {
   });
 });
 
+const movement = (nonce: string, ids: string[]): PendingChoiceDto => ({
+  actor: "a",
+  nonce,
+  prompt: "movement",
+  options: ids.map((id) => opt(id, id === "done_moving" ? "decline" : "move")),
+});
+
+describe("loneAction movement", () => {
+  it("matches movement only when finishing is the one option", () => {
+    expect(loneAction(movement("1", ["done_moving"]))).toMatchObject({ kind: "movement", optionId: "done_moving" });
+    expect(loneAction(movement("1", ["move|1|0", "done_moving"]))).toBeNull();
+  });
+});
+
 describe("useLoneAutoSubmit", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -108,6 +122,29 @@ describe("useLoneAutoSubmit", () => {
     expect(submit).toHaveBeenCalledTimes(1);
     expect(submit).toHaveBeenCalledWith("33");
     expect(onNotice).toHaveBeenCalledWith({ id: "lone-n2", text: "activate system 33" });
+  });
+
+  it("finishes a movement with no movable unit and keeps its dialog closed meanwhile", () => {
+    const { submit, onNotice, hook, wait } = setup({ choice: null, history: hist(5) });
+    hook.rerender({ choice: movement("m1", ["done_moving"]), history: hist(6) });
+    expect(hook.result.current.answeringNonce).toBe("m1");
+    wait();
+    expect(submit).toHaveBeenCalledWith("done_moving");
+    expect(onNotice).toHaveBeenCalledWith({ id: "lone-m1", text: "no unit can move, finishing movement" });
+  });
+
+  it("asks (dialog stays) for movement with moves on offer, or when the setting is off", () => {
+    const a = setup({ choice: null, history: hist(5) });
+    a.hook.rerender({ choice: movement("m1", ["move|1|0", "done_moving"]), history: hist(6) });
+    a.wait();
+    expect(a.submit).not.toHaveBeenCalled();
+    expect(a.hook.result.current.answeringNonce).toBeNull();
+    localStorage.setItem(AUTO_SUBMIT_KEY, "false");
+    const b = setup({ choice: null, history: hist(5) });
+    b.hook.rerender({ choice: movement("m2", ["done_moving"]), history: hist(6) });
+    b.wait();
+    expect(b.submit).not.toHaveBeenCalled();
+    expect(b.hook.result.current.answeringNonce).toBeNull();
   });
 
   it("asks when several systems can be activated", () => {

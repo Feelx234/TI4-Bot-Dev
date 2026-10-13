@@ -137,6 +137,15 @@ html,
 .app-shell__player-sheet .player-sheet-panel {
   width: 100% !important;
   height: 100% !important;
+  /* The turn action bar (its height is published as --bottom-bar-offset) is drawn over the lower
+     edge of the column; the room under the last player sheet lets it scroll out from behind. */
+  padding-bottom: calc(12px + var(--bottom-bar-offset, 0px)) !important;
+  overscroll-behavior: contain;
+}
+
+/* Only the phone drawers have a close button; the desktop column is always there. */
+.app-shell__drawer-close {
+  display: none;
 }
 
 .app-shell__event-log {
@@ -1781,9 +1790,34 @@ html,
 }
 .strategy-draft-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* The grid scrolls (max-height); without this the rows are squeezed to fit it and the card
+     text, with the trade goods note at its end, spills out of the card and under the next one. */
+  grid-auto-rows: max-content;
+  align-content: start;
 }
 .strategy-draft-card {
   min-height: 160px;
+}
+.strategy-draft-card__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.strategy-goods-badge {
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--color-warning);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-warning);
+  white-space: nowrap;
+}
+.strategy-goods-badge[data-empty="true"] {
+  border-color: var(--color-border, #334155);
+  color: var(--color-text-muted);
+  font-weight: 500;
 }
 .strategy-draft-card__text {
   margin-top: 8px;
@@ -2180,6 +2214,21 @@ html,
     min-height: 35vh;
     border-top: 1px solid var(--color-border);
     border-left: none !important;
+    /* Clear the floating Players / Objectives / Events buttons so the last sheet is fully
+       reachable; the drawer itself is the one scroller. */
+    padding-bottom: 72px !important;
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .app-shell__drawer-close {
+    display: block;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    margin: 0 0 0 auto;
+    padding: 6px 14px;
+    min-height: 36px;
   }
 
   .app-shell__mobile-actions {
@@ -3715,7 +3764,7 @@ select:focus-visible,
 }
 .production-drawer__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   max-height: min(55dvh, 500px);
   gap: 8px;
@@ -5200,4 +5249,85 @@ select:focus-visible,
 .lobby-list__item .faction-picker__button,
 .lobby-list__item .faction-picker__name {
   white-space: nowrap;
+}
+
+/* "My games" / too-many-games dialog. */
+.button--danger {
+  background: var(--color-danger);
+  color: #fff;
+  font-weight: 700;
+}
+.button--danger-outline {
+  background: transparent;
+  border: 1px solid var(--color-danger);
+  color: var(--color-danger);
+}
+.mygames-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--layer-modal) + 5);
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+}
+.mygames {
+  width: min(100%, 560px);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mygames h2 {
+  margin: 0;
+  color: var(--color-accent);
+  font-size: 20px;
+}
+.mygames__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mygames__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.mygames__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.mygames__actions,
+.mygames__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.mygames__footer {
+  justify-content: flex-end;
+}
+.mygames__actions .button,
+.mygames__footer .button {
+  min-height: 40px;
+}
+.mygames__ask {
+  font-weight: 700;
+}
+.mygames__error {
+  margin: 0;
+  color: var(--color-danger);
 }

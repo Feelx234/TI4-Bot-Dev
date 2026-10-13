@@ -29,6 +29,6 @@ done
 command -v jq >/dev/null || { echo "need the server binary or jq" >&2; exit 1; }
 # shellcheck disable=SC2012
 ls -1t "$data_dir"/feedback/*/*.json 2>/dev/null | head -n "$limit" | while read -r f; do
-  jq -r '"=== \(.id) | \(.received_at) | \(.category | ascii_upcase) | client \(.context.build_commit // "-") | game \(.context.game_id // "-") | seat \(.context.viewer_seat // "-") | round \(.context.round // "-") \(.context.phase // "")\n\(.text)\n    file: '"$f"'\n"' "$f"
+  jq -r '"=== \(.id) | \(.received_at) | \(.category | ascii_upcase) | client \(.context.build_commit // "-") | game \(.context.game_id // "-") | seat \(.context.viewer_seat // "-") | round \(.context.round // "-") \(.context.phase // "")\n\(if .context.sender or .context.players then "    from \(.context.sender.nickname // .context.sender.typed_name // (if .context.sender.lobby_nickname then "lobby name " + .context.sender.lobby_nickname else "?" end))" + (if .context.players then " | table: " + ([.context.players[] | "\(.nickname // "?")\(if .is_sender then "*" else "" end) (\(.faction // "?"))"] | join(", ")) else "" end) + "\n" else "" end)\(.text)\n    file: '"$f"'\n"' "$f"
   if [[ -n "$verbose" ]]; then jq '.context' "$f"; fi
 done

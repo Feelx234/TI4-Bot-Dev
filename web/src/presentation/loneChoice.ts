@@ -1,8 +1,8 @@
 import type { PendingChoiceDto } from "../protocol/types.ts";
 
-/** The two decisions the client answers for a seat when the engine offers exactly one option. */
+/** The decisions the client answers for a seat when the engine offers exactly one option. */
 export interface LoneAction {
-  kind: "strategic" | "activate";
+  kind: "strategic" | "activate" | "movement";
   optionId: string;
   /** Toast wording after "Only one choice: ". */
   text: string;
@@ -14,7 +14,9 @@ export interface LoneAction {
  *    `strategic` entry: the seat cannot pass or do anything else, so the card is the one move;
  *  - the tactical action's activation step (subtype `activate_system`, prompt "activate a system")
  *    with exactly one `activate` option. Free tactical actions (Warfare) use another prompt and
- *    subtype and are never matched.
+ *    subtype and are never matched;
+ *  - the movement step (prompt "movement") whose only option is `done_moving`: no unit can move,
+ *    so there is nothing to show in the movement dialog.
  * Anything else, including a seat that can pass, returns null.
  */
 export function loneAction(choice: PendingChoiceDto | null | undefined): LoneAction | null {
@@ -33,5 +35,7 @@ export function loneAction(choice: PendingChoiceDto | null | undefined): LoneAct
     only.kind === "activate"
   )
     return { kind: "activate", optionId: only.id, text: `activate system ${only.id}` };
+  if (choice.prompt === "movement" && only.id === "done_moving")
+    return { kind: "movement", optionId: only.id, text: "no unit can move, finishing movement" };
   return null;
 }

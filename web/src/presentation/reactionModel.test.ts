@@ -287,3 +287,60 @@ describe("describeReaction", () => {
     expect(model.sentence).toBe("Anna played the action card Plague.");
   });
 });
+
+describe("Salvage effect", () => {
+  const salvageOffer = (): PendingChoiceDto => ({
+    actor: "p1",
+    nonce: "1",
+    prompt: "after SPACE_COMBAT_WON",
+    context: {
+      subtype: "reaction_after_SPACE_COMBAT_WON",
+      optional: true,
+      trigger: {
+        kind: "space_combat_won",
+        event_type: "SPACE_COMBAT_WON",
+        event_id: 7,
+        relation: "after",
+        actor: "p1",
+        system: "27",
+      },
+    },
+    options: [
+      {
+        id: "reaction:Sol:SPACE_COMBAT_WON:after",
+        kind: "ability",
+        label: "Play Salvage",
+        payload: { card: "salvage", card_name: "Salvage" },
+      },
+      { id: "decline", kind: "decline", label: "Pass" },
+    ],
+  });
+  const board = {
+    systems: {},
+    combat: { system_id: "27", round: 2, attacker: "p1", defender: "p2" },
+  } as never;
+
+  it("says how many commodities the opponent would hand over", () => {
+    const model = describeReaction({
+      choice: salvageOffer(),
+      ...labels,
+      viewerSeat: "p1",
+      board,
+      commodities: (seat) => ({ p1: 1, p2: 3 })[seat] ?? null,
+    });
+    expect(model.reactions[0].effect).toBe("You would gain 3 commodities from Bob, as trade goods.");
+  });
+
+  it("says so when there is nothing to take, and stays silent when the opponent is unknown", () => {
+    const empty = describeReaction({
+      choice: salvageOffer(),
+      ...labels,
+      viewerSeat: "p1",
+      board,
+      commodities: () => 0,
+    });
+    expect(empty.reactions[0].effect).toContain("would gain nothing");
+    const unknown = describeReaction({ choice: salvageOffer(), ...labels, viewerSeat: "p1" });
+    expect(unknown.reactions[0].effect).toBeNull();
+  });
+});

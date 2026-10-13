@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { act, render, screen, fireEvent } from "@testing-library/react";
 import { SystemInspector } from "./SystemInspector.tsx";
 import { SelectedSystemDetails } from "../presentation/boardPresentation.ts";
 
@@ -141,5 +141,31 @@ describe("SystemInspector Component", () => {
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains what the anomaly does and shows a legendary planet's ability", () => {
+    const system = {
+      ...mockSystem,
+      anomalies: ["gravity rift"],
+      planets: [{ ...mockSystem.planets[0], id: "primor", label: "Primor", legendary: true }],
+      planetUnits: {},
+    };
+    render(<SystemInspector system={system} onClose={vi.fn()} />);
+    expect(screen.getByTestId("inspector-anomaly-rule")).toHaveTextContent(
+      /Gravity rift:.*\+1 to its move value.*1 to 3/,
+    );
+    expect(screen.getByTestId("inspector-legendary-primor")).toHaveTextContent(/The Atrament/i);
+  });
+
+  it("shows a rival's unit card on hover", async () => {
+    vi.useFakeTimers();
+    render(<SystemInspector system={mockSystem} onClose={vi.fn()} />);
+    const chip = screen.getByTestId("inspector-space-unit").querySelector("[data-unit-stats]")!;
+    fireEvent.pointerEnter(chip);
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    vi.useRealTimers();
+    expect(screen.getByTestId("unit-info-card")).toHaveTextContent(/Dreadnought/);
   });
 });

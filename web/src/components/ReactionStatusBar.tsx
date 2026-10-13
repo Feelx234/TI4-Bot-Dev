@@ -132,6 +132,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       activeSystemId: activeSystemId ?? boardView?.active_system ?? null,
       viewerSeat,
       board: boardView,
+      commodities: (seat) => players?.[seat]?.commodities ?? null,
       playerLabel: (id) => display(id).label,
       systemLabel: (id) => {
         const planets = Object.keys(boardView?.systems?.[id]?.planets ?? {});
@@ -140,7 +141,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
           : `System ${id}`;
       },
     });
-  }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display]);
+  }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display, players]);
 
   // Reset state on nonce change
   useEffect(() => {
@@ -318,6 +319,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 <li key={row.optionId} className="reaction-status-bar__row">
                   {!row.card && <div className="reaction-card__name">{row.name}</div>}
                   <CardBlock card={row.card} note={row.note} prefs={prefs} showWindow />
+                  {row.effect && (
+                    <p className="reaction-status-bar__effect" data-testid="reaction-row-effect">
+                      {row.effect}
+                    </p>
+                  )}
                   {row.card && onSetReactionMode && (
                     <label className="reaction-status-bar__never">
                       <input

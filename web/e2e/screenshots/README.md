@@ -84,3 +84,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Public playtest (CX-public-playtest)
 
 `CX-public-playtest` shows the shared-password screen, the Alpha notice with the build footer in the lobby, the floating Feedback button (lobby, game, phone menu entry) and the feedback sheet (empty, filled, sent), desktop 1440x900 and phone 390x844. The mocked `/health` answers `public: true`, which is what turns the notice and button on. `npm run screenshots -- CX` asserts 44 px targets, 16px inputs, no horizontal scroll, the button clear of the turn action bar and that the sent report carries the build commit and seat but no session token.
+
+## Too many games dialog (DA-terminate-games)
+
+`DA-terminate-games` shows the dialog that replaces the red 429 error: the caller's unfinished games with Open / Terminate, the inline confirm, a "Not yours (other browser)" row and the Create game retry. Desktop and 390x844; the capture asserts the dialog stays inside the phone viewport and Yes/No are at least 40 px tall.

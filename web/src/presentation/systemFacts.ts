@@ -97,6 +97,21 @@ export function systemCommonName(systemId: string, board?: BoardView | null): st
   return anomaly ? `${label}, ${anomaly}` : label;
 }
 
+/**
+ * "Lodor (System 27)", "Sol home system (System 1)", "System 41": the system by name, for dialog
+ * titles. A tile the board has no name for falls back to its planets, then to the bare number.
+ */
+export function systemNamedLabel(systemId: string, board?: BoardView | null): string {
+  const bare = `System ${systemId}`;
+  const name =
+    systemCommonName(systemId, board) ??
+    ((board?.map_tiles?.find((t) => t.system_id === systemId)?.planets ?? [])
+      .map((planet) => humanizeId(planet.id))
+      .join(" / ") ||
+      null);
+  return name ? `${name} (${bare})` : bare;
+}
+
 /** "#18 [Mecatol Rex]", "#01 [Sol home system]", "#41 [Gravity rift]"; "#99" when unknown. */
 export function systemTag(systemId: string, board?: BoardView | null): string {
   const name = systemCommonName(systemId, board);
