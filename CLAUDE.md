@@ -1,5 +1,12 @@
 # Project notes
 
+## How to work here
+
+- The main session stays brief: answer questions, plan, coordinate and report. Most or all actual
+  work (investigation, code changes, tests, screenshots, research, merges) is delegated to
+  subagents, each in its own git worktree and branch. Only do a task inline when it is a
+  one-liner or a quick lookup.
+
 ## UI work
 
 - Every new UI implementation must also ship an artifact visualizing it: screenshots of the new
