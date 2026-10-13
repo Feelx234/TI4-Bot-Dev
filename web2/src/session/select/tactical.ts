@@ -14,6 +14,7 @@ import { landed } from "../landingDraft";
 import { isEmpty, overrun, totals } from "../productionDraft";
 import type {
   ActivationFacts,
+  Catalog,
   ExplorationCatalog,
   InvasionFacts,
   MovementFacts,
@@ -76,7 +77,12 @@ function draftFooter(
     actions: !info?.recorded
       ? [main(nothing, { type: "commitEdit" })]
       : info.next
-        ? [main(`Go to ${STEPS[TAB[info.next]].toLowerCase()}`, { type: "selectStep", step: TAB[info.next] })]
+        ? [
+            main(`Go to ${STEPS[TAB[info.next]].toLowerCase()}`, {
+              type: "selectStep",
+              step: TAB[info.next],
+            }),
+          ]
         : [],
   };
 }
@@ -331,8 +337,7 @@ function production(
     content,
     footer: {
       note:
-        local.planNote?.text ??
-        (blocked ? problems.join(" · ") : "This commits to the live game."),
+        local.planNote?.text ?? (blocked ? problems.join(" · ") : "This commits to the live game."),
       error: !!local.planNote?.error || blocked,
       // The open payment, as one line. Its controls are on the board.
       payment: paying ? content.payment : undefined,
@@ -370,6 +375,8 @@ export function selectTactical(
   local: LocalState,
   facts: TacticalFacts,
   catalog: ExplorationCatalog | null = null,
+  /** The printed names. Without it a faction is shown by its id. */
+  printed: Catalog | null = null,
 ): TacticalActionView {
   const current = CURRENT[facts.kind];
   const selected = facts.kind === "movement" && local.step === 0 ? 0 : current;
@@ -387,6 +394,7 @@ export function selectTactical(
   const seat = update.pending_choice?.choice.player ?? "";
   const faction = factionName(
     update.view.players.find((player) => player.id === seat)?.faction ?? seat,
+    printed,
   );
   const ships = Object.keys(local.movement).length;
   // A draft opens every step that the game came to with it, also the steps after the one in view.

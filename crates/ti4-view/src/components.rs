@@ -124,6 +124,27 @@ pub struct AgendaCard {
     pub group: String,
 }
 
+/// What a table says of a faction wherever it names a seat.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FactionSheet {
+    /// The name that a table calls the faction by: "Sol".
+    pub name: String,
+    /// The name as printed: "The Federation of Sol".
+    pub title: String,
+    /// The commodity value of the faction sheet.
+    pub commodities: i32,
+}
+
+/// One strategy card as printed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyCard {
+    pub id: String,
+    pub name: String,
+    pub initiative: i64,
+}
+
 /// The printed cards of the play areas. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,6 +152,12 @@ pub struct ComponentCatalog {
     pub abilities: Vec<AbilityCard>,
     /// The abilities of each faction, in the order of the faction sheet.
     pub factions: BTreeMap<String, Vec<String>>,
+    /// The name and the commodity value of each faction.
+    pub faction_sheets: BTreeMap<String, FactionSheet>,
+    /// The strategy cards of every set, by initiative: a game names its cards by id, and the id
+    /// of a card of an older printing has no name in it (`base4`). They are not only those of
+    /// the sources: a game can play a set of another source than its other cards (`te`).
+    pub strategy_cards: Vec<StrategyCard>,
     pub leaders: Vec<LeaderCard>,
     pub technologies: Vec<PrintedCard>,
     pub relics: Vec<PrintedCard>,
@@ -250,6 +277,35 @@ pub fn component_catalog(content: &ContentStore, sources: SourceSet) -> Componen
                 )
             })
             .collect(),
+        faction_sheets: ti4_content::factions::catalogue(content, sources)
+            .into_iter()
+            .map(|(alias, faction)| {
+                (
+                    alias.to_owned(),
+                    FactionSheet {
+                        name: faction.short_name().to_owned(),
+                        title: faction.name().unwrap_or(alias).to_owned(),
+                        commodities: faction.commodities(),
+                    },
+                )
+            })
+            .collect(),
+        strategy_cards: {
+            let mut cards: Vec<StrategyCard> = content
+                .records(ContentType::StrategyCards)
+                .iter()
+                .filter_map(|record| {
+                    let id = record.id()?;
+                    Some(StrategyCard {
+                        id: id.to_owned(),
+                        name: record.text("name").unwrap_or(id).to_owned(),
+                        initiative: record.int("initiative")?,
+                    })
+                })
+                .collect();
+            cards.sort_by(|a, b| (a.initiative, &a.id).cmp(&(b.initiative, &b.id)));
+            cards
+        },
         leaders: records(ContentType::Leaders)
             .filter_map(|record| {
                 let id = record.id()?;
@@ -433,6 +489,43 @@ mod tests {
         assert_eq!(drop.name, "Orbital Drop");
         assert_eq!(drop.window, "ACTION");
         assert!(drop.text.contains("2 infantry"));
+    }
+
+    #[test]
+    fn every_faction_of_a_lobby_has_its_name_and_its_commodities() {
+        let catalog = printed();
+        for faction in ti4_engine::seating::LOBBY_FACTIONS {
+            let sheet = catalog
+                .faction_sheets
+                .get(faction)
+                .unwrap_or_else(|| panic!("{faction} has a sheet"));
+            assert!(sheet.title.contains(sheet.name.split(' ').next().unwrap()));
+            assert!(sheet.commodities > 0, "{faction}");
+        }
+        let sol = &catalog.faction_sheets["sol"];
+        assert_eq!(
+            (sol.name.as_str(), sol.title.as_str(), sol.commodities),
+            ("Sol", "The Federation of Sol", 4)
+        );
+        assert_eq!(catalog.faction_sheets["sardakk"].name, "Sardakk N'orr");
+    }
+
+    #[test]
+    fn a_strategy_card_of_every_set_has_its_name() {
+        let catalog = printed();
+        let name = |id: &str| {
+            catalog
+                .strategy_cards
+                .iter()
+                .find(|card| card.id == id)
+                .map(|card| (card.initiative, card.name.as_str()))
+        };
+        // The sets that a table can play: `pok`, `te` and `base_game_codex1`.
+        assert_eq!(name("pok4construction"), Some((4, "Construction")));
+        assert_eq!(name("te4construction"), Some((4, "Construction")));
+        assert_eq!(name("te6warfare"), Some((6, "Warfare")));
+        assert_eq!(name("base4"), Some((4, "Construction")));
+        assert_eq!(name("pok8imperial"), Some((8, "Imperial")));
     }
 
     #[test]

@@ -1,5 +1,6 @@
 // How ids of the wire protocol are shown. Presentation only: no rule is decided here.
 import type { Force, TechColor, UnitType } from "../../model";
+import type { Catalog } from "../wire";
 
 const SYMBOLS = ["●", "◆", "▲", "■", "✚", "✖", "♣", "★"];
 const COLORS = [
@@ -25,26 +26,28 @@ export const titleCase = (text: string) =>
   );
 
 /**
- * The printed name and the commodity value of a faction.
- * Cleanup: the view does not carry them yet. When it does, remove this table.
+ * The name that a table calls a faction by, from the catalogue ("Jol-Nar"). Without the
+ * catalogue it is the id.
  */
-const FACTIONS: Record<string, [name: string, commodities: number]> = {
-  sol: ["Sol", 4],
-  hacan: ["Hacan", 6],
-  letnev: ["Letnev", 2],
-  xxcha: ["Xxcha", 4],
-  jolnar: ["Jol-Nar", 4],
-  l1z1x: ["L1Z1X", 2],
-  sardakk: ["Sardakk N'orr", 3],
-  yin: ["Yin", 2],
-};
-export const factionName = (id: string) => FACTIONS[id]?.[0] ?? titleCase(id);
-/** Null for a faction that the table above does not have. */
-export const commodityValue = (id: string): number | null => FACTIONS[id]?.[1] ?? null;
+export const factionName = (id: string, catalog: Catalog | null) =>
+  catalog?.components.faction_sheets?.[id]?.name ?? titleCase(id);
+/** The commodity value of the faction sheet. Null without the catalogue. */
+export const commodityValue = (id: string, catalog: Catalog | null): number | null =>
+  catalog?.components.faction_sheets?.[id]?.commodities ?? null;
 
-/** "pok5trade" is card 5, "Trade". The id is the card set, the initiative and the name. */
-export function strategyCard(id: string): { number: number; name: string } {
-  const [, number = "0", name = id] = /(\d)([a-z]*)$/.exec(id) ?? [];
+/**
+ * The initiative and the name of a strategy card, from the catalogue. Without the catalogue
+ * they are read from the id, which most cards allow: "pok5trade" is card 5, "Trade".
+ */
+export function strategyCard(
+  id: string,
+  catalog: Catalog | null,
+): { number: number; name: string } {
+  const card = catalog?.components.strategy_cards?.find((item) => item.id === id);
+  if (card) {
+    return { number: card.initiative, name: card.name };
+  }
+  const [, number = "0", name = ""] = /(\d)([a-z]*)$/.exec(id) ?? [];
   return { number: Number(number), name: name ? titleCase(name) : id };
 }
 
@@ -64,12 +67,12 @@ const UNITS: [suffix: string, unit: UnitType][] = [
 /** The display order of unit types. */
 export const UNIT_ORDER: UnitType[] = UNITS.map(([, unit]) => unit);
 /**
- * A faction's unit has the base type at the end of its id ("sol_carrier"), and an upgraded unit
- * has a 2 after it ("cruiser2", "sol_carrier2").
+ * A faction's unit has the base type as a part of its id ("sol_carrier", "naaz_mech_space"),
+ * and an upgraded unit has a 2 after it ("cruiser2", "sol_carrier2").
  */
 export function unitType(id: string): UnitType | null {
-  const base = id.replace(/2$/, "");
-  return UNITS.find(([suffix]) => base === suffix || base.endsWith(`_${suffix}`))?.[1] ?? null;
+  const parts = id.split("_").map((part) => part.replace(/2$/, ""));
+  return UNITS.find(([name]) => parts.includes(name))?.[1] ?? null;
 }
 
 /** Units counted by type, in display order. */

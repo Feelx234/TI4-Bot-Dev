@@ -14,10 +14,10 @@ import { selectSecrets } from "./secrets";
 import { selectStrategy, showsStrategy } from "./strategy";
 import { selectTactical, tacticalFacts } from "./tactical";
 
-function status(update: SessionUpdate, local: LocalState): string {
+function status(update: SessionUpdate, local: LocalState, printed: Catalog | null): string {
   const turn = update.turn_status;
   const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat);
+    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, printed);
   if (local.error) {
     return "The game stopped";
   }
@@ -89,12 +89,12 @@ export function selectShell(
         }
       : null;
   const action = facts
-    ? selectTactical(update, local, facts, catalog)
+    ? selectTactical(update, local, facts, catalog, printed)
     : showsStrategy(update, local)
-      ? selectStrategy(update, local, catalog)
-      : selectAction(update, local, catalog);
+      ? selectStrategy(update, local, catalog, printed)
+      : selectAction(update, local, catalog, printed);
   return {
-    seats: selectSeats(update),
+    seats: selectSeats(update, printed),
     accent:
       local.draft ||
       local.staged ||
@@ -106,7 +106,7 @@ export function selectShell(
     toolbar: {
       round: update.view.round,
       phase: phaseName(update.view.phase),
-      status: status(update, local),
+      status: status(update, local, printed),
       workspace: local.draft ? "draft" : "live",
       draftLocked: local.draftLocked,
       past: null,
@@ -135,7 +135,7 @@ export function selectShell(
       actionCards: selectActionCards(update, printed, cards),
       secrets: selectSecrets(update, printed),
       agendas: selectAgendas(update, printed),
-      exploration: selectExploration(update, catalog),
+      exploration: selectExploration(update, catalog, printed),
       log: [],
     },
     apply: local.draft?.apply ?? null,

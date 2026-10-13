@@ -3,7 +3,7 @@
 // of its secondary. The choice itself is still a list (`selectAction`); the editors of the
 // cards come later.
 import type { ActionButtonView, BlockView, FlowActionView, SeatRowView } from "../../model";
-import type { ExplorationCatalog, SecondaryFacts, SessionUpdate } from "../wire";
+import type { Catalog, ExplorationCatalog, SecondaryFacts, SessionUpdate } from "../wire";
 import { type LocalState, openChoice, selectAction } from "./action";
 import { factionName, sentence } from "./names";
 
@@ -41,6 +41,8 @@ export function selectStrategy(
   update: SessionUpdate,
   local: LocalState,
   catalog: ExplorationCatalog | null = null,
+  /** The printed names. Without it a faction is shown by its id. */
+  printed: Catalog | null = null,
 ): FlowActionView {
   const action = update.secondary!;
   const seat = update.viewer.role === "player" ? update.viewer.seat : null;
@@ -53,12 +55,12 @@ export function selectStrategy(
   const follow = nothing ? null : (local.follow ?? null);
   const choice = openChoice(update, local);
   // The choice, the note and the buttons of a decision are those of every decision.
-  const inner = selectAction(update, local, catalog);
+  const inner = selectAction(update, local, catalog, printed);
   const deciding = decidingSeat(action);
   const name = (id: string) =>
     id === seat
       ? "You"
-      : factionName(update.view.players.find((player) => player.id === id)?.faction ?? id);
+      : factionName(update.view.players.find((player) => player.id === id)?.faction ?? id, printed);
   /** The live game asks the viewer for its part of the action. */
   const live = !!choice && !follow?.editing;
   // The card is the heading, so the question is said in the row. The question of a secondary

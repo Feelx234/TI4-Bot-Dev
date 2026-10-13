@@ -8,7 +8,7 @@ import type {
   PlanetTraitsView,
   PlanetType,
 } from "../../model";
-import type { ExplorationCatalog, PlanetMetaView, SessionUpdate } from "../wire";
+import type { Catalog, ExplorationCatalog, PlanetMetaView, SessionUpdate } from "../wire";
 import { TECH_COLORS, factionName, titleCase } from "./names";
 
 /** The decks in the order of every screen, with the key of the engine. */
@@ -101,6 +101,8 @@ export const NO_TRAITS: PlanetTraitsView = { types: [], unexplored: false, attac
 export function selectExploration(
   update: SessionUpdate,
   catalog: ExplorationCatalog | null,
+  /** The printed names. Without it a faction is shown by its id. */
+  names: Catalog | null = null,
 ): ExplorationDeckView[] {
   const facts = update.exploration;
   if (!facts) {
@@ -113,7 +115,7 @@ export function selectExploration(
     ),
   );
   const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat);
+    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, names);
   return DECKS.map(([key, deck]) => {
     const left = facts.decks[key] ?? [];
     const drawn = facts.drawn.filter((record) => record.deck === key);

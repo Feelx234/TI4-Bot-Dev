@@ -386,7 +386,14 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
     // plays only when the server has the same corpus.
     engine = { catalog: await catalogOf(await WebAssembly.compile(readFileSync(WASM))) };
     server = spawn(SERVER, [], {
-      env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), TI4_DATA_DIR: data },
+      env: {
+        ...process.env,
+        HOST: "127.0.0.1",
+        PORT: String(port),
+        TI4_DATA_DIR: data,
+        // A seat that the server plays answers at once: by default it waits before each answer.
+        TI4_RANDOM_BOT_DELAY_MS: "0",
+      },
       stdio: ["ignore", "pipe", "inherit"],
     });
     await new Promise<void>((ready, failed) => {

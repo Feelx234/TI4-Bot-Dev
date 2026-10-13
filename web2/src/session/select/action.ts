@@ -5,7 +5,7 @@ import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
 import type { MovementPlan } from "../movementPlan";
 import type { ProductionDraft } from "../productionDraft";
-import type { Choice, ExplorationCatalog, SessionUpdate } from "../wire";
+import type { Catalog, Choice, ExplorationCatalog, SessionUpdate } from "../wire";
 import { exploringCard } from "./exploration";
 import { factionName, sentence } from "./names";
 
@@ -150,6 +150,8 @@ export function selectAction(
   update: SessionUpdate,
   local: LocalState,
   catalog: ExplorationCatalog | null = null,
+  /** The printed names. Without it a faction is shown by its id. */
+  printed: Catalog | null = null,
 ): FlowActionView {
   const choice = openChoice(update, local);
   // The source is on top: an exploration card that asks is shown as printed.
@@ -165,7 +167,7 @@ export function selectAction(
   }));
   const status = update.turn_status;
   const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat);
+    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, printed);
   const stepping = !choice && !local.error && !local.replaying ? local.stepping : null;
   const idle = local.draft
     ? (local.draft.problem ??

@@ -138,7 +138,7 @@ it.skipIf(!built)(
   async () => {
     const { transport, next, nonce, answers } = await play();
     // Seat a takes a tactical action and activates the system next to its home.
-    for (const answer of ["pok8imperial", "no", "tactical", "23"]) {
+    for (const answer of ["pok8imperial", "tactical", "23"]) {
       transport.submitChoice(nonce(await next()), answer);
     }
     const open = await next();
@@ -185,7 +185,7 @@ it.skipIf(!built)(
       reason: "The game does not offer to move dreadnought from 01.",
     });
     expect(nonce(refused)).toBe(nonce(open));
-    expect(answers()).toHaveLength(4);
+    expect(answers()).toHaveLength(3);
     expect(shipsIn(refused.update, "23")).toEqual([]);
     expect(shipsIn(refused.update, "01")).toEqual(home);
     expect((refused.update.tactical as MovementFacts).moved).toBe(0);
@@ -204,7 +204,7 @@ it.skipIf(!built)(
       "sol_infantry",
     ]);
     // move, three loads, the closed hold, move, done: each is an answer of the saved game.
-    expect(answers().slice(4)).toEqual([
+    expect(answers().slice(3)).toEqual([
       "move|01|0",
       "load|0",
       "load|3",
@@ -220,7 +220,7 @@ it.skipIf(!built)(
     const again = await next();
     expect(subtype(again)).toBe("movement_step");
     expect(nonce(again)).toBe(nonce(open));
-    expect(answers()).toHaveLength(4);
+    expect(answers()).toHaveLength(3);
     expect(shipsIn(again.update, "23")).toEqual([]);
     expect(shipsIn(again.update, "01")).toEqual(home);
     // The update tells what was taken back: the draft of the movement is staged from it.
@@ -232,7 +232,7 @@ it.skipIf(!built)(
     const activation = await next();
     expect(subtype(activation)).toBe("activate_system");
     expect(activation.undone).toBeUndefined();
-    expect(answers()).toHaveLength(3);
+    expect(answers()).toHaveLength(2);
     transport.close();
   },
   60_000,
@@ -242,7 +242,7 @@ it.skipIf(!built)(
   "sends the landings as one plan, takes a refused plan back, and undoes the landings whole",
   async () => {
     const { transport, next, nonce, answers } = await play();
-    for (const answer of ["pok8imperial", "no", "tactical", "23"]) {
+    for (const answer of ["pok8imperial", "tactical", "23"]) {
       transport.submitChoice(nonce(await next()), answer);
     }
     // A carrier moves with two infantry to the system next to the home, which has one planet.
@@ -324,7 +324,7 @@ it.skipIf(!built)(
   "plays a saved game again, and still undoes its movement whole",
   async () => {
     const first = await play();
-    for (const answer of ["pok8imperial", "no", "tactical", "23"]) {
+    for (const answer of ["pok8imperial", "tactical", "23"]) {
       first.transport.submitChoice(first.nonce(await first.next()), answer);
     }
     const open = await first.next();
@@ -335,7 +335,7 @@ it.skipIf(!built)(
     const saved = [...first.answers()];
     first.transport.close();
     // The hold of the carrier was declined, though the plan loads nothing.
-    expect(saved.slice(4)).toEqual(["move|01|0", "done_loading", "move|01|1", "done_moving"]);
+    expect(saved.slice(3)).toEqual(["move|01|0", "done_loading", "move|01|1", "done_moving"]);
 
     // A new visit: the page does not know which answers were one plan.
     const engine: Engine = {
@@ -372,7 +372,7 @@ it.skipIf(!built)(
     expect((back.update.tactical as MovementFacts).moved).toBe(0);
     // Also in a new visit: the game that was played again says what its answers chose.
     expect(back.undone).toEqual(steps);
-    expect(answers).toHaveLength(4);
+    expect(answers).toHaveLength(3);
     transport.close();
   },
   60_000,
@@ -382,9 +382,7 @@ it.skipIf(!built)(
   "runs a draft on a copy of the game, and applies it as one request",
   async () => {
     const { transport, next, nonce, answers, draft: ask } = await play();
-    for (const answer of ["pok8imperial", "no"]) {
-      transport.submitChoice(nonce(await next()), answer);
-    }
+    transport.submitChoice(nonce(await next()), "pok8imperial");
     const menu = await next();
     expect(subtype(menu)).toBe("action_menu");
 
@@ -431,7 +429,7 @@ it.skipIf(!built)(
     expect(bad.consumed).toBe(2);
 
     // Nothing of this is in the game.
-    expect(answers()).toHaveLength(2);
+    expect(answers()).toHaveLength(1);
 
     transport.applyDraft(nonce(menu), {
       choices: ["tactical", "23"],
@@ -440,7 +438,7 @@ it.skipIf(!built)(
     const after = await next();
     expect(after.plan).toBeUndefined();
     expect(shipsIn(after.update, "23")).toEqual(["destroyer", "sol_carrier"]);
-    expect(answers().slice(2)).toEqual([
+    expect(answers().slice(1)).toEqual([
       "tactical",
       "23",
       "move|01|0",
@@ -457,9 +455,7 @@ it.skipIf(!built)(
   "takes a draft back whole when the game does not offer one of its choices",
   async () => {
     const { transport, next, nonce, answers } = await play();
-    for (const answer of ["pok8imperial", "no"]) {
-      transport.submitChoice(nonce(await next()), answer);
-    }
+    transport.submitChoice(nonce(await next()), "pok8imperial");
     const menu = await next();
     transport.applyDraft(nonce(menu), { choices: ["tactical", "no such system"], plan: null });
     const refused = await next();
@@ -469,7 +465,7 @@ it.skipIf(!built)(
       reason: 'The game does not offer "no such system" here.',
     });
     expect(nonce(refused)).toBe(nonce(menu));
-    expect(answers()).toHaveLength(2);
+    expect(answers()).toHaveLength(1);
     transport.close();
   },
   60_000,
@@ -480,7 +476,7 @@ it.skipIf(!built)(
   async () => {
     const run = await play();
     const stepped = await play(true);
-    const answersOf = ["pok8imperial", "no", "tactical", "23"];
+    const answersOf = ["pok8imperial", "tactical", "23"];
     for (const answer of answersOf) {
       run.transport.submitChoice(run.nonce(await run.next()), answer);
     }
@@ -955,6 +951,18 @@ it.skipIf(!built)(
       ["The Prophet's Tears", "Relic", "exhausted"],
     ]);
     expect(sol.technologies).toContain("GD");
+    // The name and the commodity value of a faction, and the name of a strategy card, are
+    // printed: every faction and every card set that a table of the server can play has them.
+    const sheets = catalog.components.faction_sheets!;
+    expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(24);
+    expect(sheets.ghost).toEqual({ name: "Creuss", title: "The Ghosts of Creuss", commodities: 4 });
+    expect(sol.commodities[1]).toBe(4);
+    const cards = new Map(catalog.components.strategy_cards!.map((card) => [card.id, card.name]));
+    expect(["te4construction", "te6warfare", "base4"].map((id) => cards.get(id))).toEqual([
+      "Construction",
+      "Warfare",
+      "Construction",
+    ]);
     // Without the catalogue the leaders keep their kind and their state.
     const bare = selectPlayers(update).rows.find((row) => row.seat === "a")!;
     expect(bare.leaders.map((card) => [card.name, card.state])).toEqual([

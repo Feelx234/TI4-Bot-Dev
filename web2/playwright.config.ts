@@ -42,6 +42,8 @@ export default defineConfig({
         HOST: "127.0.0.1",
         // The games of a run are its own: nothing is recovered, and nothing is kept.
         TI4_DATA_DIR: `/tmp/ti4-web2-e2e-games-${backendPort}-${process.pid}`,
+        // A seat that the server plays answers at once: by default it waits before each answer.
+        TI4_RANDOM_BOT_DELAY_MS: "0",
       },
     },
     {

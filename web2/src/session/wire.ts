@@ -349,6 +349,16 @@ export interface ComponentCatalog {
   abilities: { id: string; name: string; window?: string; text: string }[];
   /** The ability ids of each faction, in the order of the faction sheet. */
   factions: Record<string, string[]>;
+  /**
+   * `ti4_view::components::FactionSheet`: the name that a table calls each faction by ("Sol"),
+   * the name as printed and the commodity value. Absent from the demo.
+   */
+  faction_sheets?: Record<string, { name: string; title: string; commodities: number }>;
+  /**
+   * `ti4_view::components::StrategyCard`: the strategy cards of every set. The id of a card of
+   * an older printing has no name in it (`base4`). Absent from the demo.
+   */
+  strategy_cards?: { id: string; name: string; initiative: number }[];
   leaders: {
     id: string;
     /** "agent", "commander" or "hero". */

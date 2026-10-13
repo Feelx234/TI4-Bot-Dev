@@ -8,9 +8,9 @@ import { type DraftStore, type LiveSession, useLiveSession } from "./useLiveSess
 import { type Engine, createWasmTransport } from "./wasmTransport";
 
 // The private draft of a secondary, on the real engine (`scripts/build-wasm.sh`): a game of
-// seed 3 with seat a on this side. The other seats wait for a step before each decision, so
-// the page is shown the game while another seat resolves its primary. Seat b plays Leadership
-// first, which asks seat a nothing; then seat g plays Politics.
+// seed 4 with seat a on this side. The other seats wait for a step before each decision, so
+// the page is shown the game while another seat resolves its primary. A seat plays Leadership
+// first, which asks seat a nothing; then another seat plays Politics.
 // In the DOM project of the tests a module has no file address: the tests run from `web2/`.
 const WASM = resolve(process.cwd(), "src/session/ti4.wasm");
 const built = existsSync(WASM);
@@ -34,7 +34,7 @@ async function open() {
   };
   const transport = createWasmTransport(
     engine,
-    { seed: 3, players: 8, humans: 1 },
+    { seed: 4, players: 8, humans: 1 },
     { stepping: true },
   );
   const applyDraft = vi.spyOn(transport, "applyDraft");

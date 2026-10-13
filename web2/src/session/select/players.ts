@@ -11,7 +11,11 @@ export const seated = (update: SessionUpdate): PlayerView[] => {
   return [...update.view.players].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
 };
 
-export function selectSeats(update: SessionUpdate): Record<SeatId, SeatView> {
+export function selectSeats(
+  update: SessionUpdate,
+  /** The printed names. Without it a faction is shown by its id. */
+  catalog: Catalog | null = null,
+): Record<SeatId, SeatView> {
   return Object.fromEntries(
     seated(update).map((player, index) => [
       player.id,
@@ -19,7 +23,7 @@ export function selectSeats(update: SessionUpdate): Record<SeatId, SeatView> {
         id: player.id,
         // A local game has no player names. The seat letter tells the seats apart.
         name: `Seat ${player.id.toUpperCase()}`,
-        faction: factionName(player.faction),
+        faction: factionName(player.faction, catalog),
         ...seatMark(index),
       },
     ]),
@@ -78,14 +82,17 @@ export function selectPlayers(
       victoryPoints: player.victory_points,
       strategyCards: player.strategy_cards
         .map((id) => ({
-          ...strategyCard(id),
+          ...strategyCard(id, catalog),
           used: player.exhausted_strategy_cards.includes(id),
         }))
         .sort((a, b) => a.number - b.number),
       resources,
       influence,
       tradeGoods: player.trade_goods,
-      commodities: [player.commodities, commodityValue(player.faction) ?? player.commodities],
+      commodities: [
+        player.commodities,
+        commodityValue(player.faction, catalog) ?? player.commodities,
+      ],
       tokens: [player.tactic_tokens, player.fleet_tokens, player.strategic_tokens],
       actionCards: player.action_cards_count,
       secrets: [
@@ -109,7 +116,7 @@ export function selectPlayers(
     rows: seated(update).map(row),
     freeCards: view.table.unclaimed_strategy_cards
       .map((id) => ({
-        ...strategyCard(id),
+        ...strategyCard(id, catalog),
         tradeGoods: view.table.strategy_card_goods[id] ?? 0,
       }))
       .sort((a, b) => a.number - b.number),
