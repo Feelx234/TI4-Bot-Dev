@@ -88,3 +88,8 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Too many games dialog (DA-terminate-games)
 
 `DA-terminate-games` shows the dialog that replaces the red 429 error: the caller's unfinished games with Open / Terminate, the inline confirm, a "Not yours (other browser)" row and the Create game retry. Desktop and 390x844; the capture asserts the dialog stays inside the phone viewport and Yes/No are at least 40 px tall.
+
+## Who can go here and units per owner (DD-who-can-go-here)
+
+`DD-who-can-go-here` shows the system overview's Who can go here tab (own-only, other-players-only, mixed and empty answers, a picked entry, and the folded panel on a phone) and the Details tab's units listed strictly per owner, desktop and 390x844. The engine's answer is mocked (`query_reach` / `reach_into` over the mocked websocket); `npm run screenshots -- DD` asserts the texts, the green/red arrow counts, 44 px tabs and no horizontal scroll on the phone.
+
