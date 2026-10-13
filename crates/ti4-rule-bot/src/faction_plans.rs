@@ -1,4 +1,4 @@
-//! Faction plans for the rule bot ([`crate::session::smart_bot`]): what each faction researches
+//! Faction plans for the rule bot ([`crate`]): what each faction researches
 //! and builds from round 3 on.
 //!
 //! The profiles behind the data are written up in `crates/ti4-server/docs/FACTION_PLANS.md`.
@@ -11,7 +11,7 @@
 //!   still lack, preferring one that is itself on the plan, then the cheapest); then the same
 //!   over [`GENERAL`], the order every faction falls back on.
 //! - [`unit_weight`]: a multiplier on a production option's worth, 1.0 in the opening rounds
-//!   ([`crate::session::smart_bot::EXPANSION_ROUNDS`]) so the opening is unchanged.
+//!   ([`crate::EXPANSION_ROUNDS`]) so the opening is unchanged.
 //! - [`preferred_card`]: from round 3 the strategy card the plan prefers, only where the smart
 //!   bot's own rules leave the draft open.
 //! - [`ships_wanted`]: how many non-fighter ships the seat builds toward before a dock is no
@@ -26,7 +26,7 @@ use ti4_engine::choice::{Choice, Observed};
 use ti4_model::id::{PlayerId, TechnologyId};
 
 /// The opening's fleet size: below this many non-fighter ships a dock is worth activating to
-/// build ([`crate::session::smart_bot`]'s rule before faction plans).
+/// build ([`crate`]'s rule before faction plans).
 pub const OPENING_SHIPS: usize = 6;
 /// Weight multiplier while the seat has fewer of a unit type than its plan wants this phase.
 pub const SHORT_BONUS: f64 = 1.5;
@@ -34,7 +34,7 @@ pub const SHORT_BONUS: f64 = 1.5;
 pub const UPGRADED_BONUS: f64 = 1.15;
 /// The first round of the late game; rounds from 3 up to this one are the mid game.
 pub const LATE_FROM: u32 = 5;
-/// The last round of the opening (as [`crate::session::smart_bot::EXPANSION_ROUNDS`]).
+/// The last round of the opening (as [`crate::EXPANSION_ROUNDS`]).
 const OPENING_ROUNDS: u32 = 2;
 
 /// One unit type's emphasis: `(base type, weight mid, weight late, wanted mid, wanted late)`.

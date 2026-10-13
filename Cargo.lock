@@ -4425,6 +4425,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-rule-bot"
+version = "0.1.0"
+dependencies = [
+ "rand 0.9.5",
+ "rand_chacha 0.9.0",
+ "serde_json",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-model",
+]
+
+[[package]]
 name = "ti4-server"
 version = "0.1.0"
 dependencies = [
@@ -4443,6 +4455,7 @@ dependencies = [
  "ti4-engine",
  "ti4-model",
  "ti4-policy",
+ "ti4-rule-bot",
  "ti4-view",
  "tokio",
  "tokio-tungstenite 0.26.2",
@@ -4534,6 +4547,7 @@ dependencies = [
  "ti4-content",
  "ti4-engine",
  "ti4-model",
+ "ti4-rule-bot",
  "ti4-view",
 ]
 

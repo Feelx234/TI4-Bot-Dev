@@ -17,13 +17,15 @@ pub mod buffer;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{self, Write as _};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 
 use serde::Serialize;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
-use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeededRandom, Table};
+use ti4_engine::choice::{
+    Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation, SeededRandom, Table,
+};
 use ti4_engine::game::{Game, RunError};
 use ti4_view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_model::content_types::POK;
@@ -227,6 +229,8 @@ struct Host {
     /// The seats of the game, and which of them the host answers (bit 0 is seat `a`).
     players: usize,
     humans: u32,
+    /// The seed of the game: a rule seat decides from it ([`ti4_rule_bot::choose`]).
+    seed: u64,
     /// The game waits before a decision of a random seat ([`ti4_set_stepping`]), not in a choice.
     paused: bool,
     /// How many decisions the seats made, the random seats included. A checkpoint keeps it.
@@ -337,6 +341,7 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     oldest: None,
     players: 0,
     humans: 0,
+    seed: 0,
     paused: false,
     decided: 0,
     switches: Vec::new(),
@@ -375,12 +380,15 @@ pub const UNDO: i32 = -2;
 /// these is taken back by playing the game again from its seed, which the host does itself.
 const CHECKPOINT_LIMIT: usize = 32;
 
+/// The seats that the rule bot plays where the host does not ([`ti4_set_rule_seats`]).
+static RULE_SEATS: AtomicU32 = AtomicU32::new(0);
+
 /// The stream of the seats that decide at random. It is here, not inside the table, so that a
 /// checkpoint can keep its position.
 static RANDOM: Mutex<Option<SeededRandom>> = Mutex::new(None);
 
-/// Every seat of a played game: the host answers the seats of its mask, and the others draw
-/// from [`RANDOM`]. The mask can change during the game ([`ti4_switch_seats`]), so the decider
+/// Every seat of a played game: the host answers the seats of its mask, the rule bot those of
+/// [`RULE_SEATS`], and the others draw from [`RANDOM`]. The mask can change during the game ([`ti4_switch_seats`]), so the decider
 /// of a seat is found at each decision.
 struct Seat {
     /// The host, behind its Never cards: a window that offers only such cards is declined
@@ -410,12 +418,17 @@ impl Seat {
     }
 }
 
-impl Decider for Seat {
-    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+impl Seat {
+    /// With `seen`, the seat can be played by the rule bot.
+    fn decide(
+        &mut self,
+        choice: &Choice,
+        seen: Option<&SeatObservation<'_>>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
         loop {
             let ours = host().plays(&choice.player);
             let answer = if !ours {
-                draw(choice)?
+                draw(choice, seen.filter(|_| rule_seat(&choice.player)))?
             } else if let Some(option) = given(choice)? {
                 Some(option)
             } else {
@@ -443,6 +456,28 @@ impl Decider for Seat {
             }
         }
     }
+}
+
+impl Decider for Seat {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.decide(choice, None)
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        self.decide(choice, Some(seen))
+    }
+}
+
+/// Whether the rule bot plays the seat of `player` when the host does not.
+fn rule_seat(player: &PlayerId) -> bool {
+    SEATS
+        .iter()
+        .position(|seat| *seat == player.as_str())
+        .is_some_and(|index| RULE_SEATS.load(Ordering::Relaxed) & (1 << index) != 0)
 }
 
 /// The host itself: every choice that reaches it is handed out.
@@ -491,11 +526,28 @@ fn given(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
         })
 }
 
-/// A decision of a random seat: all random seats share one stream, in decision order. None
+/// A decision of a seat that the host does not play: of the rule bot with `rule`, else from the
+/// stream that all random seats share, in decision order. None
 /// when the host changed its seats while the seat waited for it.
-fn draw(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
+fn draw(
+    choice: &Choice,
+    rule: Option<&SeatObservation<'_>>,
+) -> Result<Option<ChoiceOption>, IllegalChoice> {
     if STEPPING.load(Ordering::Relaxed) && !wait_for_go(choice)? {
         return Ok(None);
+    }
+    if let Some(seen) = rule
+        && !choice.options.is_empty()
+    {
+        // The seed, the seat and the number of the decision give the answer, so a checkpoint
+        // keeps nothing for it, and the stream of the random seats does not move.
+        let (seed, index) = {
+            let host = host();
+            (host.seed, host.decided)
+        };
+        let index = usize::try_from(index).expect("a game has fewer decisions than 2^32");
+        let (picked, _) = ti4_rule_bot::choose(choice, Some(seen), seed, &choice.player, index);
+        return Ok(Some(choice.options[picked].clone()));
     }
     RANDOM
         .lock()
@@ -776,6 +828,7 @@ fn play(
         *host = Host {
             players,
             humans: human_mask,
+            seed,
             switches,
             saved,
             ..Host::default()
@@ -1166,6 +1219,17 @@ pub extern "C" fn ti4_catalog() -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_set_stepping(on: u32) {
     STEPPING.store(on != 0, Ordering::Relaxed);
+}
+
+/// The rule bot plays the seats of `mask` (bit 0 is seat `a`) wherever the host does not; the
+/// remaining seats decide at random. It decides from the seed, the seat and the number of the
+/// decision, as on the server.
+///
+/// The host calls this before [`ti4_play`], and with the same mask for a game that is played
+/// again. The mask stays until it is set again.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_set_rule_seats(mask: u32) {
+    RULE_SEATS.store(mask, Ordering::Relaxed);
 }
 
 /// How many decisions the seats of the game made, the random seats included. While the game
@@ -2190,5 +2254,40 @@ mod tests {
             assert_eq!(seen[4], ("5".to_owned(), "movement_step".to_owned()));
             assert!(passed().is_empty());
         }
+
+        // The rule bot plays the seats of its mask. It decides from the seed, the seat and the
+        // number of the decision, so the same answers of the host reach the same positions, and
+        // they are not the positions of a game with random seats.
+        let play = |rule: u32| {
+            let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+            let sink = seen.clone();
+            set_native_host(move |update| {
+                let mut seen = sink.lock().unwrap();
+                seen.push(update.to_owned());
+                if seen.len() == 40 { -1 } else { 0 }
+            });
+            ti4_set_rule_seats(rule);
+            let status = ti4_play(3, 6, 1);
+            assert!(response(status).unwrap().contains(LEFT));
+            let decided = ti4_decided();
+            ti4_set_rule_seats(0);
+            let seen = seen.lock().unwrap().clone();
+            assert_eq!(seen.len(), 40);
+            (seen, decided)
+        };
+        let ruled = play(0b11_1110);
+        assert_eq!(ruled, play(0b11_1110));
+        assert_ne!(ruled.0, play(0).0);
+
+        // Without the host, the rule bot plays a game to its end.
+        ti4_set_rule_seats(0b1111);
+        let status = ti4_play(3, 4, 0);
+        ti4_set_rule_seats(0);
+        let report: serde_json::Value = serde_json::from_str(&response(status).unwrap()).unwrap();
+        assert!(report["stopped"].is_null(), "{report}");
+        assert!(
+            LATEST.lock().unwrap().as_ref().unwrap().state.finished,
+            "{report}"
+        );
     }
 }

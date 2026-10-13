@@ -70,7 +70,7 @@ pub const DENY_WITHIN: i32 = 3;
 const WIN: i32 = 10;
 
 /// Which seats play the layer: all (`None`, the default) or only those named. For before/after
-/// surveys (`tests/smart_bot_objectives_survey.rs`), like the random bots' delay override.
+/// surveys (`ti4-server/tests/it/smart_bot_objectives_survey.rs`), like the random bots' delay override.
 static ENABLED: std::sync::Mutex<Option<BTreeSet<String>>> = std::sync::Mutex::new(None);
 
 /// Switch the objective layer on or off for every seat, process-wide (surveys only).

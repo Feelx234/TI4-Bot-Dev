@@ -10,14 +10,16 @@ pub mod registry;
 pub mod replay;
 pub mod rng_force;
 pub(crate) mod script;
-pub mod smart_bot;
-pub mod smart_bot_faction_plans;
 pub mod splice;
 pub mod step_snapshot;
 pub mod turn_redo;
 pub mod transport;
 pub(crate) mod undo;
 pub mod worker;
+
+/// The rule bot, under the paths it had before it moved to its own crate (`ti4-rule-bot`).
+pub use ti4_rule_bot as smart_bot;
+pub use ti4_rule_bot::faction_plans as smart_bot_faction_plans;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, Weak, mpsc};

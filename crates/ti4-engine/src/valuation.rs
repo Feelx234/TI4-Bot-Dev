@@ -23,7 +23,7 @@
 use std::collections::BTreeMap;
 
 use ti4_content::ContentStore;
-use ti4_engine::choice::Observed;
+use crate::choice::Observed;
 use ti4_model::content_types::SourceSet;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
@@ -148,7 +148,7 @@ fn objective_pressure(seen: &Observed<'_>, player: &PlayerId) -> f64 {
     let outstanding = seen
         .revealed_objectives()
         .iter()
-        .filter(|alias| ti4_engine::objectives::requirement_for(alias).is_some())
+        .filter(|alias| crate::objectives::requirement_for(alias).is_some())
         .any(|alias| !scored.contains(alias));
     if !outstanding {
         return 0.0;
@@ -278,7 +278,7 @@ mod tests {
     }
 
     fn table() -> ti4_model::state::GameState {
-        ti4_engine::fixtures::game(&["a", "b"])
+        crate::fixtures::game(&["a", "b"])
     }
 
     /// A position with no map. Enough for anything that reads seats and planets.
@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn a_defended_system_is_worth_less_than_an_empty_one() {
-        let hub = ti4_engine::fixtures::plain_hub();
+        let hub = crate::fixtures::plain_hub();
         let state = table();
         let player = PlayerId::new("a");
         let target = SystemId::new(hub.outer[0].clone());
@@ -418,7 +418,7 @@ mod tests {
         let empty = system_value(&watching_map(&state, &hub.galaxy), &player, &target);
 
         let mut defended = table();
-        ti4_engine::fixtures::put(
+        crate::fixtures::put(
             &mut defended,
             &target,
             "dreadnought",
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn a_system_whose_planets_you_already_hold_is_no_prize() {
-        let hub = ti4_engine::fixtures::plain_hub();
+        let hub = crate::fixtures::plain_hub();
         let mut state = table();
         let player = PlayerId::new("a");
         let target = SystemId::new(hub.outer[0].clone());
@@ -457,10 +457,10 @@ mod tests {
     #[test]
     fn stranded_troops_counts_only_your_own_ground_forces() {
         let mut state = table();
-        let (system, planet) = ti4_engine::fixtures::a_placed_planet();
+        let (system, planet) = crate::fixtures::a_placed_planet();
         let mine = PlayerId::new("a");
-        ti4_engine::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &mine, 3);
-        ti4_engine::fixtures::put_on_planet(
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &mine, 3);
+        crate::fixtures::put_on_planet(
             &mut state,
             &system,
             &planet,
@@ -470,7 +470,7 @@ mod tests {
         );
         // A structure sits on the planet too, and is not a troop. There is deliberately no unit
         // in space: troops waiting only on a planet are exactly the stranded case this counts.
-        ti4_engine::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &mine, 1);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &mine, 1);
 
         assert_eq!(stranded_troops(&watching(&state), &mine), 3);
     }

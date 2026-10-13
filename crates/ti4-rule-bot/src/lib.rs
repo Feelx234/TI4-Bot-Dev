@@ -1,8 +1,8 @@
-//! The rule bot: the random bot ([`crate::session::random_bot`]) with an opinion on the board.
+//! The rule bot: the random bot (`ti4_server::session::random_bot`) with an opinion on the board.
 //!
 //! # Plan
 //!
-//! A `BotSmart` seat is a [`crate::session::random_bot::RandomBotDecider`] in smart mode. For
+//! A `BotSmart` seat is a `ti4_server::session::random_bot::RandomBotDecider` in smart mode. For
 //! every question it first draws the random bot's pick (so the RNG stream matches), then asks
 //! [`pick`] here. `pick` returns `Some(index)` only for the questions it has a simple opinion on,
 //! and `None` for everything else, which keeps the random pick. An index is always one of the
@@ -20,7 +20,7 @@
 //! - **Activation**: value each system as the planets it can take (resources + influence, Mecatol
 //!   Rex extra while the custodians point is there to win), counting only the planets its
 //!   reachable carriers can bring enough ground forces to; a hostile fleet must be beaten clearly
-//!   (fleet-strength matchup, [`ti4_policy::fleet_strength`]) or the system is avoided. A system
+//!   (fleet-strength matchup, [`ti4_engine::fleet_strength`]) or the system is avoided. A system
 //!   with its space dock is worth activating to build when the seat is short of units it could
 //!   build there with plenty to spend ([`PLENTY_RESOURCES`]), or to fetch an empty transport for
 //!   the ground forces waiting there.
@@ -59,7 +59,7 @@
 //!   Mid-round redistributions shrink the fleet pool to the biggest stack and make tactic tokens.
 //!   Strategy tokens are kept for Warfare's secondary while it is still to come.
 //! - **Research**: Gravity Drive whenever offered.
-//! - **Faction plans** (from round 3, [`crate::session::smart_bot_faction_plans`]): research
+//! - **Faction plans** (from round 3, [`faction_plans`]): research
 //!   follows the faction's technology order, production weighs units by its plan, and a dock is
 //!   worth a token to build at until the plan's fleet size. A strategy card the rules above
 //!   leave open goes to the plan's preferred card.
@@ -77,15 +77,16 @@ use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
 use ti4_engine::production::Spend;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::units::Unit;
-use ti4_policy::fleet_strength::{Descriptors, descriptors, matchup};
+use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 
-// Objective layer (round 3+, and the scoring order): `smart_bot_objectives.rs`.
-#[path = "smart_bot_objectives.rs"]
+// Objective layer (round 3+, and the scoring order).
 pub mod objectives;
 
-// Agent layer (when to use a faction agent): `smart_bot_agents.rs`.
-#[path = "smart_bot_agents.rs"]
+// Agent layer (when to use a faction agent).
 pub mod agents;
+
+pub mod faction_plans;
+pub mod random;
 
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.
@@ -121,6 +122,30 @@ pub const ENOUGH_TOKENS: i32 = 7;
 /// Gravity Drive's alias.
 const GRAVITY_DRIVE: &str = "gd";
 
+/// The answer of a bot seat to its decision number `index` of the game with `game_seed`: the
+/// index of one of the options, and the generator after the draws (for the host's think time).
+/// With `seen` the seat is a rule bot, without it a random bot. The choice must have at least
+/// one option.
+///
+/// The random pick is always drawn first, so the stream is the same whether or not the
+/// heuristic overrides it.
+#[must_use]
+pub fn choose(
+    choice: &Choice,
+    seen: Option<&SeatObservation<'_>>,
+    game_seed: u64,
+    seat: &PlayerId,
+    index: usize,
+) -> (usize, ChaCha8Rng) {
+    let mut rng = random::decision_rng(game_seed, seat, index);
+    let random_pick = random::pick_index(choice, &mut rng);
+    let picked = seen
+        .and_then(|seen| pick(choice, seen, &mut rng))
+        .filter(|&smart| smart < choice.options.len())
+        .unwrap_or(random_pick);
+    (picked, rng)
+}
+
 /// The smart answer to `choice`, or `None` to keep the random pick.
 #[must_use]
 pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -> Option<usize> {
@@ -136,12 +161,12 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     {
         return Some(index);
     }
-    // -- objective layer hook (smart_bot_objectives.rs) --
+    // -- objective layer hook (objectives.rs) --
     if let Some(index) = objectives::pick(choice, seen, &me, rng) {
         return Some(index);
     }
     // -- end objective layer hook --
-    // -- agent layer hook (smart_bot_agents.rs) --
+    // -- agent layer hook (agents.rs) --
     if let Some(index) = agents::pick(choice, seen, &me) {
         return Some(index);
     }
@@ -166,7 +191,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
         Some("research_technology") => {
             return pick_research(choice, observed, &me).or_else(|| {
-                crate::session::smart_bot_faction_plans::research_pick(choice, observed, &me)
+                faction_plans::research_pick(choice, observed, &me)
             });
         }
         // Shuffling tokens between pools at random can empty the fleet pool: keep them.
@@ -543,7 +568,7 @@ fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool
     let fleet = seen
         .seat(me)
         .map_or(0, |seat| usize::try_from(seat.fleet_tokens).unwrap_or(0));
-    let wanted = crate::session::smart_bot_faction_plans::ships_wanted(seen, me);
+    let wanted = faction_plans::ships_wanted(seen, me);
     (ships < wanted && here < fleet) || !enough_ground(seen, me)
 }
 
@@ -1714,7 +1739,7 @@ fn strength(kind: UnitType<'_>) -> f64 {
     let dice = kind.combat_dice() as f64;
     let hits = kind
         .combat_hits_on()
-        .map_or(0.0, |on| ti4_policy::fleet_strength::hit_chance(on, 0));
+        .map_or(0.0, |on| ti4_engine::fleet_strength::hit_chance(on, 0));
     dice * hits * (1.0 + f64::from(u8::from(kind.sustain_damage())))
 }
 
@@ -2157,7 +2182,7 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
             continue;
         }
         let mut worth =
-            count * ti4_policy::valuation::unit_value(seen.content(), seen.sources(), kind.id());
+            count * ti4_engine::valuation::unit_value(seen.content(), seen.sources(), kind.id());
         if kind.is_ground_force() && ground < 6 {
             worth *= 1.6;
         }
@@ -2184,7 +2209,7 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
             worth *= 0.6;
         }
         // The faction's plan from round 3 on (1.0 in the opening).
-        worth *= crate::session::smart_bot_faction_plans::unit_weight(seen, me, kind);
+        worth *= faction_plans::unit_weight(seen, me, kind);
         // With resources to spare, production slots are what runs out: value per slot.
         let rich = payload_f64(option, "available_resources").unwrap_or(0.0) >= RICH_RESOURCES;
         let price = if rich {
@@ -2261,7 +2286,7 @@ fn pick_cheapest_removal(choice: &Choice, seen: &Observed<'_>) -> Option<usize> 
             let unit = o.label.strip_prefix("remove ")?;
             Some((
                 i,
-                ti4_policy::valuation::unit_value(seen.content(), seen.sources(), unit),
+                ti4_engine::valuation::unit_value(seen.content(), seen.sources(), unit),
             ))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1))
@@ -2293,7 +2318,7 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
                     .collect();
                 best_above(&scored, 1.0)
             })
-            .or_else(|| crate::session::smart_bot_faction_plans::preferred_card(choice, seen, me));
+            .or_else(|| faction_plans::preferred_card(choice, seen, me));
     }
     let scored: Vec<(usize, f64)> = choice
         .options

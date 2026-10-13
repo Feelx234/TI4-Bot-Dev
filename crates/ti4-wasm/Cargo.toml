@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 ti4-model.workspace = true
 ti4-content.workspace = true
 ti4-engine.workspace = true
+ti4-rule-bot.workspace = true
 ti4-view.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -152,6 +152,7 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
 | `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `content` (the digest of the corpus, which a page compares with the one of a server before it plays there), `exploration` (the exploration cards and the attachments) and `components` (abilities, leaders, technologies, relics, legendary planets). See "The exploration". |
 | `ti4_can_undo() -> 0 or 1` | While the game waits in a choice: whether the host may answer it with `-2`. |
+| `ti4_set_rule_seats(mask)` | The rule bot (`ti4-rule-bot`, the server's rule bot) plays the seats of the mask wherever the host does not; the remaining seats decide at random. Set before `ti4_play`. See "Rule seats". |
 | `ti4_set_stepping(0 or 1)` | Whether the host is asked before each decision of a random seat. See "Stepping". |
 | `ti4_decided() -> count` | How many decisions the seats made, the random seats included. See "Switching seats". |
 | `ti4_switch_seats(decision, human_mask)` | From the decision with this number on, the host answers the seats of the mask. See "Switching seats". |
@@ -192,6 +193,20 @@ when `ti4_can_undo` returns 1. Any other answer leaves the game.
 - A step is not a choice: it has no number, makes no checkpoint, and is not in a saved game. The
   game with steps is the same game.
 - The export only sets a flag, so the host calls it at any time.
+
+### Rule seats
+
+- `ti4_set_rule_seats(mask)` names the seats of the rule bot. The mask stays until it is set
+  again, so a game that is played again (a saved game, an undo past the checkpoints) needs the
+  same mask before `ti4_play`.
+- A seat of the host's mask is answered by the host. When the host gives a seat up
+  (`ti4_switch_seats`), the rule bot plays it if its bit is set, else it decides at random.
+- The bot decides as on the server: from the seed, the seat and the number of the decision
+  (`ti4_rule_bot::choose`). It does not draw from the random seats' stream, so a checkpoint
+  keeps nothing for it.
+- Stepping asks the host before a decision of a rule seat as before one of a random seat.
+- With the rule bot the file is 5.68 MB raw, 0.21 MB more than without (2026-10-12; gzip and
+  brotli not measured).
 
 ### Switching seats
 
