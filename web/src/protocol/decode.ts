@@ -366,6 +366,28 @@ export function decodeServerMessage(value: unknown, expectedGameId: string): Ser
       }
       return value as unknown as ServerMessage;
     }
+    case "reach_into":
+      if (
+        !isNonNegativeInteger(value.request_id) ||
+        !isNonNegativeInteger(value.as_of_version) ||
+        typeof value.system_id !== "string" ||
+        !Array.isArray(value.origins) ||
+        !value.origins.every(
+          (origin) =>
+            isRecord(origin) &&
+            typeof origin.owner === "string" &&
+            typeof origin.origin === "string" &&
+            Array.isArray(origin.ships) &&
+            origin.ships.every(
+              (ship) =>
+                isRecord(ship) &&
+                typeof ship.type_id === "string" &&
+                isNonNegativeInteger(ship.count),
+            ),
+        )
+      )
+        fail("invalid reach answer");
+      return value as unknown as ServerMessage;
     default:
       return fail("unknown message type");
   }

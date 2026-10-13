@@ -150,16 +150,25 @@ const TileUnitStats: React.FC<{ units: TilePresentation["units"] }> = ({ units }
     row.count += 1;
     rows.set(key, row);
   }
+  // One block per owner (first seen first), so two players' units are never interleaved.
+  const owners = [...new Set([...rows.values()].map((row) => row.owner))];
   return (
     <div data-testid="tooltip-unit-stats" style={{ marginTop: 6, fontSize: 11, color: "#cbd5e1" }}>
-      {[...rows.values()].map((row) => (
-        <div key={`${row.owner}|${row.type}`} style={{ marginTop: 2 }}>
-          <strong>
-            {display(row.owner).label}: {row.count} × {getUnitDisplayName(row.type, row.count)}
-          </strong>
-          <div style={{ color: "#94a3b8" }}>
-            <UnitStatLine unit={row.type} seat={row.owner} />
-          </div>
+      {owners.map((owner) => (
+        <div key={owner} data-testid={`tooltip-owner-${owner}`} style={{ marginTop: 4 }}>
+          <strong>{display(owner).label}</strong>
+          {[...rows.values()]
+            .filter((row) => row.owner === owner)
+            .map((row) => (
+              <div key={row.type} style={{ marginTop: 2, marginLeft: 6 }}>
+                <span>
+                  {row.count} × {getUnitDisplayName(row.type, row.count)}
+                </span>
+                <div style={{ color: "#94a3b8" }}>
+                  <UnitStatLine unit={row.type} seat={owner} />
+                </div>
+              </div>
+            ))}
         </div>
       ))}
     </div>

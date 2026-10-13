@@ -4,6 +4,7 @@ pub mod bluff_hold;
 pub mod reaction_modes;
 pub mod decider;
 pub mod preview;
+pub mod reach;
 pub mod random_bot;
 pub mod smart_bot;
 pub mod smart_bot_faction_plans;
@@ -644,6 +645,17 @@ impl GameSession {
         request: &preview::PreviewRequest,
     ) -> crate::protocol::server::SecondaryPreviewMsg {
         preview::answer(&self.shared, &self.game_id, seat, request)
+    }
+
+    /// Which ships could move into `system_id` if it were activated now (see `session::reach`).
+    /// Read only: copies the newest published position under the lock and asks the engine.
+    #[must_use]
+    pub fn reach_into(
+        &self,
+        request_id: u64,
+        system_id: &str,
+    ) -> crate::protocol::reach::ReachIntoMsg {
+        reach::answer(&self.shared, &self.game_id, request_id, system_id)
     }
 
     /// Let the seat end its running bluff hold early; the seat's current bluff state is

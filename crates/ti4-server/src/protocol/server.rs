@@ -1889,6 +1889,9 @@ pub enum ServerMessage {
     /// What a seat would be asked for the secondary in progress, as of now. Sent only to the
     /// connection that asked; ephemeral.
     SecondaryPreview(SecondaryPreviewMsg),
+    /// Which ships could move into a system, as of now. Sent only to the connection that asked;
+    /// ephemeral.
+    ReachInto(super::reach::ReachIntoMsg),
 }
 
 impl ServerMessage {
@@ -1908,6 +1911,7 @@ impl ServerMessage {
             Self::Event(m) => m.protocol_version,
             Self::ReactionIntentState(m) => m.protocol_version,
             Self::SecondaryPreview(m) => m.protocol_version,
+            Self::ReachInto(m) => m.protocol_version,
         }
     }
 
@@ -1925,6 +1929,7 @@ impl ServerMessage {
             Self::Event(m) => Some(&m.game_id),
             Self::ReactionIntentState(m) => Some(&m.game_id),
             Self::SecondaryPreview(m) => Some(&m.game_id),
+            Self::ReachInto(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1946,7 +1951,8 @@ impl ServerMessage {
             Self::Error(_)
             | Self::Pong(_)
             | Self::ReactionIntentState(_)
-            | Self::SecondaryPreview(_) => None,
+            | Self::SecondaryPreview(_)
+            | Self::ReachInto(_) => None,
         }
     }
 }

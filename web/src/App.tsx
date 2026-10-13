@@ -367,6 +367,7 @@ const GameViewContainer: React.FC<{
     submitMovementBatch,
     submitBatch,
     previewSecondary,
+    queryReach,
     batchResume,
     resumeBatch,
     dismissBatchResume,
@@ -743,6 +744,7 @@ const GameViewContainer: React.FC<{
               pendingChoice={pendingChoice}
               viewerSeat={userSeat}
               selectedSystemId={selectedSystemId}
+              queryReach={queryReach}
               onSelectSystem={(id) => {
                 setSelectedSystemId(id);
                 setCardSubject(null);
