@@ -14653,7 +14653,10 @@ mod tests {
     /// Picks the first offered "yes"/"strategic"/trade opening and declines everything else,
     /// recording what each seat was asked (seat, prompt, `costs_token`).
     #[derive(Clone, Default)]
-    struct TradeSeats(Arc<Mutex<Vec<(String, String, Option<bool>)>>>);
+    struct TradeSeats(Arc<Mutex<Vec<TradeQuestion>>>);
+
+    /// A question as [`TradeSeats`] records it: seat, prompt, `costs_token`.
+    type TradeQuestion = (String, String, Option<bool>);
 
     impl Decider for TradeSeats {
         fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {

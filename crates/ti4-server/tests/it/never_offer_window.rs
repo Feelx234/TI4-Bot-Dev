@@ -16,6 +16,10 @@ fn payload(pairs: &[(&str, serde_json::Value)]) -> BTreeMap<String, serde_json::
         .collect()
 }
 
+/// What [`asked_with_never`] saw: the questions asked, the decisions recorded as (seat, answer),
+/// and the cards of each skip note.
+type Asked = (Vec<String>, Vec<(String, String)>, Vec<Vec<String>>);
+
 /// Emit through an armed resolver with seat `reactor` answered by `NeverOffer` over a decider
 /// that records every question it is really asked. Returns (questions asked, decisions
 /// recorded, skip notes).
@@ -25,7 +29,7 @@ fn asked_with_never(
     never: &[&str],
     event_type: &str,
     payload: BTreeMap<String, serde_json::Value>,
-) -> (Vec<String>, Vec<(String, String)>, Vec<Vec<String>>) {
+) -> Asked {
     use std::sync::{Arc, Mutex};
     struct Recorder(Arc<Mutex<Vec<String>>>);
     impl ti4_engine::choice::Decider for Recorder {
