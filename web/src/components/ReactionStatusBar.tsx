@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { readableEventTypes } from "../presentation/participantText.ts";
 import type {
   BoardView,
   GameEvent,
@@ -239,7 +240,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       aria-label="Reaction Window"
       data-testid="reaction-status-bar"
       className="reaction-status-bar"
-      title={choice.prompt}
+      title={readableEventTypes(choice.prompt)}
     >
       <DecisionHeader
         actor={choice.actor}

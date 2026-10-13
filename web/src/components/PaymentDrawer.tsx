@@ -1,3 +1,4 @@
+import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import React, { useState, useEffect, useMemo } from "react";
 import { usePlanetInfluence, usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { PendingChoiceDto, PlayerView } from "../protocol/types.ts";
@@ -57,6 +58,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
   selectedOptionId,
 }) => {
   const display = usePlayerIdentity();
+  const present = useParticipantText();
   const shared = useSharedPaymentDraft();
   const resourcesOf = usePlanetResources();
   const influenceOf = usePlanetInfluence();
@@ -206,7 +208,7 @@ export const PaymentDrawer: React.FC<PaymentDrawerProps> = ({
           instruction={
             production.panel
               ? `You pay once: the engine asks for ${production.panel.builds} builds one after another and the later payments follow this choice.`
-              : choice.prompt
+              : present(choice.prompt)
           }
           progress={
             constraints?.amount === undefined
