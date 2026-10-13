@@ -17,7 +17,6 @@ import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../pr
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
 import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
-import { reactionCardNotice } from "../presentation/reactionNotice.ts";
 import { recordToasts, type ToastHistoryEntry } from "../presentation/toastHistory.ts";
 import { useTurnRecapSetting } from "./useTurnRecapSetting.ts";
 import { useAutoResolveToasts } from "./useAutoResolveToasts.ts";
@@ -255,25 +254,6 @@ export function useCornerToasts({
       [...prev.filter((t) => !toasts.some((n) => n.id === t.id)), ...toasts].slice(-MAX_AGENDA_TOASTS),
     );
   }, [agendas, ready, historyGeneration]);
-
-  // Another player's action card opened a reaction window for the viewer: say which card and
-  // what it targets, since the dialog only asks about the viewer's own response.
-  const reactionNoticed = useRef<string | null>(null);
-  const boardRef = useRef(board);
-  boardRef.current = board;
-  useEffect(() => {
-    const notice = reactionCardNotice(
-      pendingChoice,
-      viewerSeat,
-      { actor: (seat) => displayRef.current(seat).label },
-      boardRef.current,
-    );
-    if (!notice || reactionNoticed.current === notice.id || mutedRef.current) return;
-    reactionNoticed.current = notice.id;
-    setNotices((prev) =>
-      [...prev.filter((n) => n.id !== notice.id), { id: notice.id, text: notice.text, tag: "Action card" }].slice(-2),
-    );
-  }, [pendingChoice, viewerSeat]);
 
   const { showToast } = auto;
   useEffect(() => {

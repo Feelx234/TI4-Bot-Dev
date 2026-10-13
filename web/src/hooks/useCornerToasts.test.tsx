@@ -215,23 +215,4 @@ describe("useCornerToasts", () => {
     expect(result.current.history).toHaveLength(1);
   });
 
-  it("announces another player's action card when the viewer is asked to react to it", () => {
-    const asked = {
-      actor: "p1",
-      prompt: "when ACTION_CARD_PLAYED",
-      nonce: "n1",
-      options: [],
-      context: {
-        subtype: "reaction_when_ACTION_CARD_PLAYED",
-        trigger: { kind: "action_card_played", event_type: "ACTION_CARD_PLAYED", event_id: 4, relation: "when", actor: "p2", card: "sabotage" },
-      },
-    } as unknown as Props["pendingChoice"];
-    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), { initialProps: base });
-    rerender({ ...base, pendingChoice: asked });
-    expect(result.current.notifications).toHaveLength(1);
-    expect(result.current.notifications[0]).toMatchObject({ kind: "notice", tag: "Action card" });
-    expect(result.current.notifications[0].text).toContain("played the action card Sabotage");
-    rerender({ ...base, pendingChoice: { ...asked!, nonce: "n2" } });
-    expect(result.current.history).toHaveLength(1);
-  });
 });
