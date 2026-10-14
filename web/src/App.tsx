@@ -20,6 +20,9 @@ import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
 import { OfflineRoutes, isOfflinePath } from "./offline/OfflineRoutes.tsx";
 import { useOfflineLauncher } from "./offline/useOfflineLauncher.ts";
+import { registerLocalLauncher } from "./offline/local/register.ts";
+import { useCapability } from "./offline/capabilities.ts";
+import type { GameTransport } from "./protocol/transport.ts";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
@@ -98,6 +101,12 @@ const DevToastGallery = import.meta.env.DEV
     )
   : null;
 
+const OfflineGameScreen = React.lazy(() =>
+  import("./offline/local/OfflineGameScreen.tsx").then((m) => ({ default: m.OfflineGameScreen })),
+);
+
+// The real offline launcher, when this build has the engine file (otherwise "Play offline" is absent).
+registerLocalLauncher();
 // Dev builds can register the in-memory offline launcher (screenshots, local work).
 if (import.meta.env.DEV) void import("./offline/devMock.ts");
 
@@ -179,6 +188,15 @@ const AppRoutes: React.FC = () => {
           history.pushState({}, "", "/");
           setOffline(false);
         }}
+        renderGame={(handle, banner) => (
+          <React.Suspense fallback={<main className="lobby-page">Loading the game…</main>}>
+            <OfflineGameScreen
+              handle={handle}
+              banner={banner}
+              renderGame={(props) => <GameViewContainer {...props} />}
+            />
+          </React.Suspense>
+        )}
       />
     );
   if (!gameId)
@@ -363,8 +381,11 @@ const GameViewContainer: React.FC<{
   lobby: import("./protocol/types.ts").LobbyDto;
   viewer: ViewerRole;
   onLeave?: () => void;
-}> = ({ gameId, lobby, viewer, lobbyConnectionLost }) => {
+  /** An offline game passes its local transport; online games use the server client. */
+  createTransport?: () => GameTransport;
+}> = ({ gameId, lobby, viewer, lobbyConnectionLost, createTransport }) => {
   const {
+    capabilities,
     status,
     gameVersion,
     snapshot,
@@ -392,8 +413,14 @@ const GameViewContainer: React.FC<{
     batchResume,
     resumeBatch,
     dismissBatchResume,
-  } = useGameSession({ gameId, viewer });
+  } = useGameSession({ gameId, viewer, createTransport });
   const buildInfo = useBuildInfo();
+  // What this session can do: the transport says what it offers, the offline shell's context what
+  // the product offers. Features that are off are hidden, not disabled.
+  const shellTurnRedo = useCapability("turnRedo");
+  const shellMultiplayer = useCapability("multiplayer");
+  const turnRedoOn = capabilities.turnRedo && shellTurnRedo;
+  const multiplayerOn = capabilities.multiplayer && shellMultiplayer;
   useRegisterFeedbackSource("game", () => ({
     gameId,
     viewer,
@@ -452,7 +479,7 @@ const GameViewContainer: React.FC<{
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
   const turnRedo = useTurnRedo({
-    enabled: viewer.role === "player",
+    enabled: viewer.role === "player" && turnRedoOn,
     fetchStatus: fetchTurnRedoStatus,
     command: turnRedoCommand,
     gameVersion,
@@ -626,7 +653,7 @@ const GameViewContainer: React.FC<{
     <DecisionTableProvider table={snapshot?.view ?? null}>
     <BluffScope
       gameId={gameId}
-      seat={userSeat}
+      seat={multiplayerOn ? userSeat : undefined}
       intent={reactionIntent}
       round={snapshot?.view.round ?? 0}
       onChange={setReactionIntent}
@@ -705,7 +732,7 @@ const GameViewContainer: React.FC<{
               trailing={
                 compactLayout ? (
                   <MobileTopMenu
-                    onOpenFeedback={buildInfo.isPublic ? openFeedback : undefined}
+                    onOpenFeedback={buildInfo.isPublic || createTransport ? openFeedback : undefined}
                     attention={menuAttention({
                       connected: status === "connected",
                       yourDecision: Boolean(
@@ -833,7 +860,7 @@ const GameViewContainer: React.FC<{
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
         onFetchReplay={userSeat ? fetchReplay : undefined}
         turnRedo={
-          userSeat
+          userSeat && turnRedoOn
             ? {
                 status: turnRedo.status,
                 busy: turnRedo.busy,
