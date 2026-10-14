@@ -77,6 +77,12 @@ pub struct Resume {
     /// The time of day of each event, so a game that is played again keeps the times it had.
     #[serde(default)]
     pub event_times: Vec<String>,
+    /// The version each event was made at.
+    #[serde(default)]
+    pub event_versions: Vec<Option<u64>>,
+    /// The version of the game when it was saved: the next one follows it.
+    #[serde(default)]
+    pub version: u64,
     #[serde(default)]
     pub generation: u64,
     /// How many decisions the saved game had, and their hash: checked when the replay ends.

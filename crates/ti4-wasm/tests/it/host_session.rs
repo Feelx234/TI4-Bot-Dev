@@ -14,8 +14,7 @@ use ti4_host::protocol::server::ServerMessage;
 use ti4_model::id::PlayerId;
 use ti4_wasm::host_api;
 
-/// The exports keep their game in statics: one game at a time.
-static SERIAL: Mutex<()> = Mutex::new(());
+
 
 const GAME: &str = "local";
 
@@ -152,7 +151,7 @@ fn kinds(messages: &[Value]) -> Vec<&str> {
 
 #[test]
 fn slow_a_game_for_one_person_speaks_the_servers_messages() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = crate::common::serial();
     let page = Arc::new(Mutex::new(Page::default()));
     install_person(&page, 11, "a");
     let (_, end) = start(&setup(11, 4), None);
@@ -234,7 +233,7 @@ fn slow_a_game_for_one_person_speaks_the_servers_messages() {
 
 #[test]
 fn a_command_that_is_not_the_servers_is_refused_the_servers_way() {
-    let _serial = SERIAL.lock().unwrap();
+    let _serial = crate::common::serial();
     let page = Arc::new(Mutex::new(Page {
         leave_after: Some(3),
         ..Page::default()

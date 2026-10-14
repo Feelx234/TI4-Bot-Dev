@@ -335,7 +335,15 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         resume.answers.len(),
         resume.redo.clone(),
         resume.generation,
-        resume.event_times.clone(),
+        resume.version,
+        resume
+            .event_times
+            .iter()
+            .enumerate()
+            .map(|(index, time)| {
+                (time.clone(), resume.event_versions.get(index).copied().flatten())
+            })
+            .collect(),
     );
     *session_lock() = Some(session);
     *REPLAY.lock().expect("replay lock") = Some(Replay {

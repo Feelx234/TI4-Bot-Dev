@@ -223,7 +223,7 @@ pub struct HostSession {
     // Replay of a save.
     /// The person's answers that are replayed from a save: no redo bookkeeping, no notes.
     quiet: usize,
-    saved_times: Vec<String>,
+    saved_events: Vec<(String, Option<u64>)>,
     // The end.
     finished: bool,
     error: Option<String>,
@@ -252,7 +252,8 @@ impl HostSession {
         answers_to_replay: usize,
         redo: Vec<String>,
         generation: u64,
-        saved_times: Vec<String>,
+        version: u64,
+        saved_events: Vec<(String, Option<u64>)>,
     ) -> Self {
         let layout = galaxy.as_ref().map_or_else(
             || GalaxyLayout {
@@ -269,7 +270,7 @@ impl HostSession {
             clock,
             viewer,
             never,
-            version: 1,
+            version: version.max(1),
             generation,
             decision_log: Vec::new(),
             events: Vec::new(),
@@ -296,7 +297,7 @@ impl HostSession {
             batch: None,
             batch_result: None,
             quiet: answers_to_replay,
-            saved_times,
+            saved_events,
             finished: false,
             error: None,
             out: Vec::new(),
@@ -399,8 +400,11 @@ impl HostSession {
     // --- events -------------------------------------------------------------------------
 
     fn emit_event(&mut self, mut entry: GameEvent) {
-        if let Some(time) = self.saved_times.get(self.events.len()) {
+        if let Some((time, version)) = self.saved_events.get(self.events.len()) {
             entry.timestamp.clone_from(time);
+            if version.is_some() {
+                entry.version = *version;
+            }
         }
         if !self.fresh
             && let Some(projected) = entry.for_viewer(&self.viewer())
@@ -825,7 +829,7 @@ impl HostSession {
         self.prev_phase = mark.phase;
         self.prev_round = mark.round;
         self.selected.clear();
-        self.saved_times.clear();
+        self.saved_events.clear();
         self.pending = None;
         self.awaiting = None;
         self.script = None;
@@ -1319,6 +1323,8 @@ impl HostSession {
             "redo": self.redo,
             "never": self.never.lock().expect("never set lock").iter().collect::<BTreeSet<_>>(),
             "event_times": self.events.iter().map(|event| event.timestamp.clone()).collect::<Vec<_>>(),
+            "event_versions": self.events.iter().map(|event| event.version).collect::<Vec<_>>(),
+            "version": self.version,
             "generation": self.generation,
             "decisions": self.decision_log.len(),
             "decisions_hash": decisions_hash(&self.decision_log),
