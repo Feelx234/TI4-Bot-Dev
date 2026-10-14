@@ -113,3 +113,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Offline game screen (DO-offline-game)
 
 `DO-offline-game` shows a real offline game (the real launcher and engine, not the DN mock): the first decision, the board under the offline banner, the action phase, the event log without turn redo, a refresh in mid-game and queued feedback, desktop and 390x844. It needs the engine file: run `npm run build:wasm` first (or `TI4_WASM_FILE=<built ti4_wasm.wasm>`), then `npm run screenshots -- DO`. The table is seeded (dev seed field), so the bots and the dealt cards repeat; the human's clicks come from `e2e/offlineDriver.ts`.
+
+## Offline saves and engine checks (DP-offline-saves)
+
+`DP-offline-saves` shows the saved-games list with several real games, import (done and refused), the engine-mismatch dialog (view only, delete confirmation), the storage-warning banner, the feedback chip (queued, sent, failed with Retry) and the "engine <hash>" label in the banner and build footer, desktop and 390x844. Like DO it needs the engine: `npm run build:wasm`, then `npm run screenshots -- DP`. The other-engine save, the missing IndexedDB and the feedback answers are simulated.
