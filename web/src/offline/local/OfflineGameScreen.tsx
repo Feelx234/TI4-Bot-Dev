@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo } from "react";
 import { setActiveOfflineGame } from "../registry.ts";
-import type { OfflineGameHandle } from "../types.ts";
+import type { OfflineFeedbackLocal, OfflineGameHandle } from "../types.ts";
 import type { GameTransport } from "../../protocol/transport.ts";
 import type { LobbyDto, ViewerRole } from "../../protocol/types.ts";
 import type { LocalTransport } from "./LocalTransport.ts";
@@ -64,18 +64,19 @@ export const OfflineGameScreen: React.FC<{
       gameId: handle.gameId,
       local: () => {
         const save = transport.latestSave();
+        if (!save) throw new Error("The game has not started");
         return {
-          gameId: handle.gameId,
-          seed: save?.seed ?? 0,
-          answers: save?.answers ?? [],
-          engineHash: transport.engineHash,
-          playerCount: save?.players ?? seating?.length ?? 0,
-          humanSeat: save?.human_seat ?? 0,
+          seed: save.seed,
+          setup: save.setup,
+          answers: save.answers,
+          engine: { build: save.engine.build, content_digest: save.engine.content_digest },
+          wasm_sha256: transport.wasmSha256,
+          save: save as unknown as OfflineFeedbackLocal["save"],
         };
       },
     });
     return () => setActiveOfflineGame(null);
-  }, [handle.gameId, transport, seating?.length]);
+  }, [handle.gameId, transport]);
 
   if (!seat || !lobby)
     return (

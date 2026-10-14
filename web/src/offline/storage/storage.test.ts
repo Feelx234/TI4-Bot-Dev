@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAutosave } from "./autosave.ts";
 import { MemoryBackend } from "./backend.ts";
 import { engineMismatchPrompt, replayDivergedPrompt } from "./engineCheck.ts";
-import { backoffDelay, createDurableFeedbackQueue } from "./feedbackQueue.ts";
+import { backoffDelay, createDurableFeedbackQueue, httpFeedbackSender } from "./feedbackQueue.ts";
+import type { OfflineFeedbackLocal } from "../types.ts";
 import { openOfflineSaveStore } from "./saveStore.ts";
 import {
   type EngineIdentity,
@@ -395,8 +396,20 @@ describe("autosave", () => {
   });
 });
 
+const LOCAL: OfflineFeedbackLocal = {
+  seed: 1,
+  setup: { players: 4 },
+  answers: ["x"],
+  engine: { build: "0.1.0", content_digest: "dig" },
+  wasm_sha256: "ab".repeat(32),
+  save: {
+    seed: 1, setup: { players: 4 }, answers: ["x"], redo: [], never: [], event_times: [], event_versions: [],
+    generation: 0, version: 1, decisions: 1, decisions_hash: "h",
+  },
+};
+
 describe("feedback queue", () => {
-  const report = { category: "bug" as const, text: "broken", context: { a: 1 }, local: { gameId: "g", seed: 1, answers: ["x"], engineHash: "w", playerCount: 4, humanSeat: 1 } };
+  const report = { category: "bug" as const, text: "broken", context: { a: 1 }, local: LOCAL };
 
   async function setup(results: FeedbackSendResult[] | ((n: number) => FeedbackSendResult), store?: OfflineSaveStore) {
     const s = store ?? (await openOfflineSaveStore({ backend: new MemoryBackend() }));
@@ -414,6 +427,7 @@ describe("feedback queue", () => {
       now: () => t,
       random: () => 0.5,
       newId: () => `q${++ids}`,
+      newReportId: () => `report_${ids}`,
       baseDelayMs: 1000,
       maxDelayMs: 8000,
       maxAttempts: 4,
@@ -499,7 +513,7 @@ describe("feedback queue", () => {
     const hang = setup([{ ok: true, serverId: "s" }], s);
     const first = await hang;
     // Simulate a crash mid-send: a sender that never answers.
-    const q1 = createDurableFeedbackQueue({ backend: s.feedbackBackend, send: () => new Promise(() => undefined), onlineTarget: null, newId: () => "k1" });
+    const q1 = createDurableFeedbackQueue({ backend: s.feedbackBackend, send: () => new Promise(() => undefined), onlineTarget: null, newId: () => "k1", newReportId: () => "k1_report" });
     await q1.start();
     await q1.enqueue(report);
     await vi.waitFor(async () => expect((await s.feedbackBackend.getAll())[0]!.state).toBe("sending"));
@@ -517,7 +531,7 @@ describe("feedback queue", () => {
     });
     await q2.start();
     await q2.flush();
-    expect(sent).toEqual(["k1"]); // reportId == the one created before the crash
+    expect(sent).toEqual(["k1_report"]); // reportId == the one created before the crash
     expect(q2.list()[0]!.state).toBe("sent");
     q2.dispose();
   });
@@ -525,10 +539,19 @@ describe("feedback queue", () => {
   it("enqueue with a known reportId is idempotent", async () => {
     const { q } = await setup([{ ok: false, retryable: true, message: "x" }]);
     await q.start();
-    const a = await (q.enqueue as any)(report, { reportId: "R" });
-    const b = await (q.enqueue as any)(report, { reportId: "R" });
+    const a = await q.enqueue({ ...report, reportId: "R_report_1" });
+    const b = await q.enqueue({ ...report, reportId: "R_report_1" });
     expect(b.localId).toBe(a.localId);
     expect(q.list()).toHaveLength(1);
+    q.dispose();
+  });
+
+  it("takes the report id the caller made and keeps it across restarts", async () => {
+    const { q, sent } = await setup([{ ok: true, serverId: "s" }]);
+    await q.start();
+    await q.enqueue({ ...report, reportId: "r_0123456789ab" });
+    await q.flush();
+    expect((sent[0] as { reportId: string }).reportId).toBe("r_0123456789ab");
     q.dispose();
   });
 
@@ -643,3 +666,39 @@ async function withThrowingAccessor<T>(fn: () => Promise<T>): Promise<T> {
     if (saved) Object.defineProperty(globalThis, "indexedDB", saved);
   }
 }
+
+describe("the feedback sender follows the server contract", () => {
+  const payload = { reportId: "r_0123456789ab", category: "bug" as const, text: "t", context: { a: 1 }, local: LOCAL };
+  const reply = (status: number, body: unknown = {}) =>
+    vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify(body), { status }));
+
+  it("posts report_id at the top level and the replay data in context.local, no header", async () => {
+    const fetchImpl = reply(200, { id: "fb_1", duplicate: false });
+    const result = await httpFeedbackSender(fetchImpl as unknown as typeof fetch)(payload);
+    expect(result).toEqual({ ok: true, serverId: "fb_1" });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("/api/feedback");
+    expect(Object.keys(init!.headers as Record<string, string>)).toEqual(["content-type"]);
+    const body = JSON.parse(init!.body as string);
+    expect(body).toEqual({
+      category: "bug",
+      text: "t",
+      context: { a: 1, local: LOCAL },
+      report_id: "r_0123456789ab",
+    });
+    expect(body.context.offline).toBeUndefined();
+  });
+
+  it("counts duplicate:true as sent", async () => {
+    const result = await httpFeedbackSender(reply(200, { id: "fb_1", duplicate: true }) as unknown as typeof fetch)(payload);
+    expect(result).toEqual({ ok: true, serverId: "fb_1" });
+  });
+
+  it("retries 429 and 5xx, gives up on 400, retries a network error", async () => {
+    for (const status of [429, 500, 503])
+      expect(await httpFeedbackSender(reply(status) as unknown as typeof fetch)(payload)).toMatchObject({ ok: false, retryable: true });
+    expect(await httpFeedbackSender(reply(400) as unknown as typeof fetch)(payload)).toMatchObject({ ok: false, retryable: false });
+    const down = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+    expect(await httpFeedbackSender(down as unknown as typeof fetch)(payload)).toMatchObject({ ok: false, retryable: true });
+  });
+});

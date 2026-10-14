@@ -38,16 +38,30 @@ const CLOSE_DELAY_MS = 1_500;
 
 export interface LocalTransportOptions {
   gameId: string;
-  /** Hash of the engine file this game runs on (for feedback and the export). */
+  /** Hash in the name of the engine file this game runs on. */
   engineHash?: string;
+  /** sha-256 of the engine file itself: what feedback and the saved game name. */
+  wasmSha256?: string;
+  /** Open to look at only: every command that would change the game is refused. */
+  viewOnly?: boolean;
+  /**
+   * The replay of a saved game gave other decisions than the save had. The answer says what to
+   * do (the page asks the person); without this the run fails as "gone".
+   */
+  onDiverged?: (check: { ok: boolean; [key: string]: unknown }) => Promise<"view-only" | "try-anyway" | "delete">;
   /** The player's name; stays on this device (the engine never sees it). */
   nickname?: string;
   /** A port to an engine that has its module (a Worker after `init`). Called again to recover. */
   createPort: () => Promise<HostPort>;
   /** How the first run starts: a new game, or a save to play again. */
   config: StartConfig;
-  /** The game as it stands at each question (and when it ends): the launcher stores it. */
-  onSave?: (save: HostSave) => void;
+  /**
+   * The game as it stands at each question (and when it ends): the launcher stores it. The
+   * promise settles when the save is durable; the next command of the person (an answer, a
+   * batch, a history change) waits for it, so an answer is never given on top of an unsaved
+   * position.
+   */
+  onSave?: (save: HostSave) => void | Promise<void>;
   /** Replay progress, while a saved game (or a rewind) is played again. */
   onProgress?: (progress: HostProgress) => void;
 }
@@ -87,11 +101,16 @@ export class LocalTransport implements GameTransport {
   private latest: HostSave | null = null;
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
   private closed = false;
+  private saving: Promise<void> = Promise.resolve();
+  private readOnly: boolean;
+  /** Set when the person chose to delete the game while it was being opened. */
+  deletedOnRequest = false;
   private readyHandlers: { resolve: () => void; reject: (error: Error) => void } | null = null;
   /** Resolves with the first question; rejects if the run cannot start (or the save cannot be played). */
   readonly ready: Promise<void>;
 
   constructor(private readonly options: LocalTransportOptions) {
+    this.readOnly = options.viewOnly === true;
     this.ready = new Promise<void>((resolve, reject) => {
       this.readyHandlers = { resolve, reject };
     });
@@ -101,6 +120,15 @@ export class LocalTransport implements GameTransport {
 
   get engineHash(): string {
     return this.options.engineHash ?? "dev";
+  }
+
+  get wasmSha256(): string {
+    return this.options.wasmSha256 ?? "unknown";
+  }
+
+  /** True while the game is open to look at only. */
+  get viewOnly(): boolean {
+    return this.readOnly;
   }
 
   get nickname(): string {
@@ -201,13 +229,35 @@ export class LocalTransport implements GameTransport {
   }
 
   private onAsk(envelope: Envelope, save: HostSave | null): void {
-    if (envelope.resume_check && !envelope.resume_check.ok) {
-      this.fail(
-        "This saved game does not play back to where it was. The game engine has changed since it was saved.",
-        "gone",
+    const check = envelope.resume_check;
+    if (check && !check.ok && !this.readOnly) {
+      const decide = this.options.onDiverged;
+      if (!decide) {
+        this.fail(
+          "This saved game does not play back to where it was. The game engine has changed since it was saved.",
+          "gone",
+        );
+        return;
+      }
+      void decide(check).then(
+        (choice) => {
+          if (this.closed) return;
+          if (choice === "delete") {
+            this.deletedOnRequest = true;
+            this.fail("The game was deleted.", "gone");
+            return;
+          }
+          if (choice === "view-only") this.readOnly = true;
+          this.accept(envelope, save);
+        },
+        (error: unknown) => this.fail(error instanceof Error ? error.message : String(error), "gone"),
       );
       return;
     }
+    this.accept(envelope, save);
+  }
+
+  private accept(envelope: Envelope, save: HostSave | null): void {
     this.remember(save);
     this.ingest(envelope.messages);
     this.store.set({ ...this.store.get(), status: "connected", fatal: null, reconnecting: false });
@@ -233,7 +283,18 @@ export class LocalTransport implements GameTransport {
   private remember(save: HostSave | null): void {
     if (!save) return;
     this.latest = save;
-    this.options.onSave?.(save);
+    if (this.readOnly || !this.options.onSave) return;
+    // Saves are written one after the other, newest last; a failing store never stops the game.
+    const previous = this.saving;
+    this.saving = previous
+      .then(() => this.options.onSave?.(save))
+      .catch(() => undefined);
+  }
+
+  /** The write-ahead: waits until the position the person is looking at is stored. */
+  private async stored(): Promise<void> {
+    if (this.readOnly) throw new Error(VIEW_ONLY);
+    await this.saving;
   }
 
   /** Decodes like the WebSocket path of GameSessionClient and feeds the shared reducer. */
@@ -310,6 +371,7 @@ export class LocalTransport implements GameTransport {
   }
 
   async submitChoice(optionId: string): Promise<void> {
+    if (this.readOnly) return this.setError(VIEW_ONLY);
     const { pendingChoice, gameVersion } = this.store.get();
     if (!pendingChoice) return this.setError("No decision currently pending");
     if (this.inflight) {
@@ -321,6 +383,7 @@ export class LocalTransport implements GameTransport {
     }
     const entry = { nonce: pendingChoice.nonce, optionId, promise: Promise.resolve() };
     entry.promise = (async () => {
+      await this.stored();
       const next = this.nextQuestion();
       try {
         const reply = await this.send(
@@ -353,6 +416,7 @@ export class LocalTransport implements GameTransport {
   }
 
   async submitBatch(plan: BatchPlan): Promise<void> {
+    if (this.readOnly) throw new Error(VIEW_ONLY);
     const pending = this.store.get().pendingChoice;
     const seat = this.seat();
     if (!pending || pending.actor !== seat || !pending.context) throw new Error("Decision is no longer pending");
@@ -365,6 +429,7 @@ export class LocalTransport implements GameTransport {
     }
     const entry = { nonce: pending.nonce, plan: serialized, promise: Promise.resolve() };
     entry.promise = (async () => {
+      await this.stored();
       const next = this.nextQuestion();
       try {
         const reply = await this.send({
@@ -432,6 +497,7 @@ export class LocalTransport implements GameTransport {
   }
 
   setReactionMode(card: string, mode: ReactionModeSetting): void {
+    if (this.readOnly) return;
     void this.send(this.message({ type: "set_reaction_mode", card, mode }))
       .then((reply) => this.ingest(reply.messages))
       .catch((error: unknown) =>
@@ -453,6 +519,7 @@ export class LocalTransport implements GameTransport {
         : "cursor" in action
           ? { restore_cursor: { cursor: action.cursor } }
           : { restore: { event_id: action.eventId } };
+    await this.stored();
     const next = this.nextQuestion();
     try {
       const reply = await this.send({ type: "history", action: wire });
@@ -521,6 +588,8 @@ export class LocalTransport implements GameTransport {
     return snapshot?.viewer.role === "player" ? snapshot.viewer.seat : null;
   }
 }
+
+const VIEW_ONLY = "This game is open to look at only (it was saved with another version of the engine).";
 
 const batchFailure = (message: string | undefined): string =>
   message ? `Batch rejected: ${message}` : "Batch rejected";

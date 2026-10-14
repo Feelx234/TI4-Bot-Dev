@@ -1,20 +1,27 @@
 import { useRef, useState } from "react";
-import { type ImportOutcome, type OfflineSaveStore, type EngineIdentity, StoreError } from "./types.ts";
+import { StoreError } from "./types.ts";
 
 /**
  * "Import a game" button: a file picker that hands the chosen JSON file to `store.importGame`.
- * Not wired anywhere yet; T5/T2 put it into "My offline games". No styling beyond a button.
+ * Sits next to "My offline games". A problem with the file is shown under the button.
  */
 export function ImportGameButton(props: {
-  store: OfflineSaveStore;
-  currentEngine?: EngineIdentity;
-  onImported: (outcome: ImportOutcome) => void;
+  /** `OfflineSaveStore.importGame`, or the launcher's `storage.importGame`. */
+  importGame: (file: Blob) => Promise<{ id: string; engineDiffers: boolean }>;
+  onImported: (outcome: { id: string; engineDiffers: boolean }) => void;
+  disabled?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [problem, setProblem] = useState<string | null>(null);
   return (
     <>
-      <button type="button" onClick={() => input.current?.click()}>
+      <button
+        type="button"
+        className="button button--outline"
+        data-testid="offline-import"
+        disabled={props.disabled}
+        onClick={() => input.current?.click()}
+      >
         Import a game
       </button>
       <input
@@ -29,13 +36,17 @@ export function ImportGameButton(props: {
           if (!file) return;
           setProblem(null);
           try {
-            props.onImported(await props.store.importGame(file, props.currentEngine));
+            props.onImported(await props.importGame(file));
           } catch (err) {
             setProblem(err instanceof StoreError ? err.message : "The file could not be imported.");
           }
         }}
       />
-      {problem && <p role="alert">{problem}</p>}
+      {problem && (
+        <p role="alert" className="session-error offline-error" data-testid="offline-import-problem">
+          {problem}
+        </p>
+      )}
     </>
   );
 }

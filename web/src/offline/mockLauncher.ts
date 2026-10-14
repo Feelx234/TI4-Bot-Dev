@@ -1,8 +1,10 @@
 import { OFFLINE_CAPABILITIES } from "./capabilities.ts";
+import { OfflineGameDeletedError } from "./types.ts";
 import type {
   OfflineGameHandle,
   OfflineGameSummary,
   OfflineLauncher,
+  OfflineMismatchPrompt,
   OfflineProgressListener,
   OfflineSetup,
   QueuedFeedbackItem,
@@ -26,6 +28,10 @@ export interface MockOptions {
   failResume?: string;
   /** The progress stays at this fraction forever (for screenshots). */
   freezeAt?: number;
+  /** Text of the storage warning banner (private window, quota). */
+  storageWarning?: string;
+  /** A resume asks this question first (a saved game of another engine). */
+  mismatch?: OfflineMismatchPrompt;
 }
 
 /**
@@ -89,7 +95,14 @@ export function createMockLauncher(options: MockOptions = {}): OfflineLauncher {
       ];
       return { gameId, transport: null };
     },
-    async resume(gameId, onProgress, signal) {
+    async resume(gameId, onProgress, signal, resumeOptions) {
+      if (options.mismatch && resumeOptions?.decide) {
+        const choice = await resumeOptions.decide(options.mismatch);
+        if (choice === "delete") {
+          games = games.filter((g) => g.gameId !== gameId);
+          throw new OfflineGameDeletedError();
+        }
+      }
       await play(onProgress, signal, true);
       if (options.failResume) throw new Error(options.failResume);
       return { gameId, transport: null };
@@ -101,6 +114,25 @@ export function createMockLauncher(options: MockOptions = {}): OfflineLauncher {
       filename: `ti4-offline-${gameId}.json`,
       blob: new Blob([JSON.stringify({ gameId })], { type: "application/json" }),
     }),
+    storage: {
+      status: () => ({
+        persistence: options.storageWarning ? "memory" : "indexeddb",
+        warning: options.storageWarning ?? null,
+        persisted: options.storageWarning ? null : true,
+      }),
+      subscribe: () => () => undefined,
+      importGame: async () => {
+        games = [
+          {
+            gameId: `off_imported_${games.length + 1}`, playerCount: 4, humanFaction: "sol", humanSeat: 1,
+            round: 2, phase: "action", answers: 60, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000,
+            status: "in_progress", resumeEstimateMs: 700,
+          },
+          ...games,
+        ];
+        return { id: games[0].gameId, engineDiffers: Boolean(options.mismatch) };
+      },
+    },
     feedback: {
       async enqueue(report: QueuedFeedbackReport) {
         const item: QueuedFeedbackItem = {
