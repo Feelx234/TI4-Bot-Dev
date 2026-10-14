@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–4 done (2026-10-14); Step 5 open.
+Status: Steps 1–4 done (2026-10-14); Steps 5–6 open.
 
 ## Context
 
@@ -64,6 +64,44 @@ both are wasm-clean. It has no `tests/` dir; its only asset is
 `src/maps/community_maps.json` (+ `include_str!` of `ti4-content/content/map_templates.json`,
 same relative depth after the move). Half of D (the host-side shims) exists only because of the
 crate split.
+
+**H. Server code that is not about hosting.** After Step 5, `HostSession` has several local human
+seats (hot seat). It then needs the per-seat logic that only the server has, and web2 drives
+both hosts through one `ServerMessage` transport. Still in `ti4-server`:
+- Re-export shims missed by Step 4: `session/mod.rs:20-21` (`smart_bot`,
+  `smart_bot_faction_plans`), `:86-88` (`ti4_host::{batch, replay, rng_force, step_snapshot}`,
+  `replay_session*`, `RngForce`, `RngMarks`). About 35 files use them.
+- Undo exists twice: the server's `session/undo.rs` `UndoTrack` (barriers
+  `OtherSeat`/`Random`/`Revealed`) and the wasm host's `own` + seat-switch fence + `undo_start`.
+  `planning::undo::{inside, start}` is already shared. The two differ only in which events are
+  barriers.
+- The script application exists twice: the server's `session/script.rs` (`ScriptApplication`,
+  per seat) and the wasm host's `host_session.rs` (`ScriptRun`, one person). The precheck also
+  exists twice: the server's `check_script`/`Probe` and the wasm `host_api.rs` refusal of
+  `draft_outcome`.
+- The server keeps staged work and sends a ready secondary (`session/staged.rs`,
+  `ready_secondary.rs`). The wasm host ignores `PutStaged`, and web2 has a second path
+  (`localSeatStore`, the client-side ready send in `useLiveSession.ts`).
+- The choice submission check (nonce, version, option) exists in both `GameSession::submit_choice` and
+  `HostSession`.
+- `session/splice.rs`, `session/turn_redo.rs`: pure history logic. Their DTOs are already in
+  `ti4_host::protocol`. Their only server type is `storage::BatchRecord`.
+- `session/preview.rs::basis`: pure, except for the "busy" clause. `HostSession` refuses
+  `preview_secondary`.
+
+**I. The planning-runner protocol has no client.** `ti4-server/src/planning/runner.rs` (1001 lines),
+the runners/applications/`SecondaryRound` of `session/planning.rs`, the `ClientMessage`s
+`start_planning`, `reset_planning`, `edit_planning_movement`, `apply_planning`,
+`submit_planning_choice`, `secondary_planning`, and the `planning_status`/`planning_update`/`planning_result`
+messages. web2 (`src/session/wire.ts:777`) and web/ (`src/protocol/client.ts:46`,
+`offline/local/LocalTransport.ts:34`) ignore them, and `HostSession` refuses them. Both hosts use
+drafts (`run_draft`/`apply_draft`).
+
+**J. Two scenario systems.** `ti4-server/src/dev/scenarios.rs` (1349 lines, 14 ids on a 3-seat base
+game; a thread answers through `MockClient` with sleeps until the wanted question) serves
+`/api/dev/scenarios[/launch]`, the web/ e2e specs, `web/src/dev/DecisionGallery.tsx`,
+`ti4-bot-agent` and 10 server tests. `ti4_host::view::scenario` (`late-game`,
+`late-game-deflectors`) is a function over the state of a new game, and both hosts start it through `TableSetup`.
 
 ## Plan (one PR per step, in order)
 
@@ -144,6 +182,89 @@ Keep `create_game_with_template_seated` (the real builder) and one
 4. Update `ti4-wasm/README.md`, `ti4-host/README.md`, `web2/AGENTS.md` ("Local play": saved game
    format, `ti4_journal`, `ti4_set_stepping`).
 
+### Step 6: the rest of the server's game logic into the host (H, I, J)
+One commit per item, in this order (planning deletion early, so `worker.rs`/`session/mod.rs` are
+smaller before the moves; scripts before undo, both touch `HostSession::selected`; scenarios last).
+Starts after Step 5 is committed.
+
+1. **Shims.** Rewrite the users of `session/mod.rs:20-21,86-88` to `ti4_host::…` /
+   `ti4_rule_bot::…`, delete the shims, `cargo clippy --fix`.
+2. **Delete the planning runner (I).**
+   - Delete `ti4-server/src/planning/`, the six planning `ClientMessage`s and their handlers
+     (`ws/mod.rs`, `session/mod.rs` `submit_planning_choice*` …, `registry.rs`), the
+     `planning_status`/`planning_update`/`planning_result` messages, `ti4_host::planning::wire`
+     (`PlayerPlan`, `AttemptIdentity`, `PlanningEnvelope`, `PlanningUpdate`, `Progress`,
+     `FailureCategory`, `SubmissionError`), `DraftApplication`/`SecondaryDraftStatus` when they are
+     left without a user, and the tests `planning_runner`, `planning`, `session_planning`,
+     `session_secondary_planning`, `secondary_planning_runner`, `planning_transport` (+ their cases in
+     `protocol_roundtrip`, `ws_lifecycle`).
+   - Keep `ti4_host::planning::{draft, audit, fork, steps, undo}` (the draft uses `audit_offer`,
+     `validate_knowledge`, `guard_fork`, `activity_stop`), and keep `RecordingDecider`/`ReplayDecider`
+     (`replay.rs`, `ti4-mlp/examples/capture_offline_pilot.rs`).
+   - `session/planning.rs` becomes a `DraftBasis`: `completed_step`, `fork()` (the checkpoint
+     factory) and `watch: SecondaryWatch`, as `run_draft_on` and `ready_secondary` use them. The hooks
+     in `worker.rs` go (`application_option`, `application_answered`, `announce_primary`,
+     `begin_secondary_application`).
+   - Clients: remove the `planning_*` types and ignore lists (`web2/src/session/wire.ts`,
+     `web/src/protocol/client.ts` + test, `web/src/offline/local/LocalTransport.ts`). Bump
+     `PROTOCOL_VERSION`.
+3. **Submission check.** `ti4_host::protocol::check_submission(pending, nonce, pending_nonce,
+   expected, current, option_id) -> Result<(), RejectionReason>`. Both hosts call it. The seat and
+   reservation checks stay in the server.
+4. **Script application.** `ti4_host::planning::script::ScriptRuns` (map seat → run; `begin`,
+   `answer(&Choice) -> (Option<ChoiceOption>, Vec<Ended>)`, `after_step(tactical_complete, active)
+   -> Vec<Ended>`; it stops another human seat's script when that seat is asked). `ACTION_OVER`,
+   `refused` and `tactical_complete` move with it. Each host only sends `DraftApplied`.
+5. **Script precheck.** `check_script`/`Probe`/`Check` → `ti4_host::planning::script`.
+   `HostSession` uses it with a copy at the last checkpoint + the tail, in place of the
+   `draft_outcome` refusal in `host_api.rs`.
+6. **Undo.** `ti4_host::planning::undo::UndoTrack` with `UndoRules`:
+   - `Table` (server): another seat, a die, a shuffle, a revealed card cut the tail.
+   - `Local` (wasm): only a change of the page's seats cuts, because a checkpoint restores the dice.
+     Entries keep `decision` and `asked`, which the checkpoint reach needs.
+   `Watched` (it holds `Arc<Mutex<SessionShared>>`) stays in the server. `HostSession` feeds the
+   track from `selected`/`after_step`. `HostSession::{own, undo_start}` and the server's `start`
+   wrapper go.
+7. **Staged work and the ready secondary.**
+   - `ti4_host::staged` (`SeatStaged`, `Put`, `SecondaryDraft`, `DraftAnswer`) and
+     `ti4_host::staged::ready` (`asked`, `ready_draft` over `&BTreeMap<PlayerId, SeatStaged>`,
+     `judge(&DraftOutcome, len) -> Check`, `unready_value`).
+   - The server keeps `StagedBook`, `put_and_tell`, storage, `may_send`.
+   - `HostSession` handles `PutStaged`, sends `SeatStaged` and the ready secondary, and saves the
+     slots in `save_state`.
+   - web2: delete the `localSeatStore` path and the client-side ready send
+     (`useLiveSession.ts`, the `!serverSends` branch).
+8. **History rewrite.** `git mv` `session/splice.rs`, `session/turn_redo.rs` →
+   `ti4-host/src/history/`, and `BatchRecord` → `ti4_host::batch`. `registry/turn_redo_ops.rs`
+   stays (gates, publish, storage).
+9. **Secondary preview.** `ti4_host::preview::{eligibility, answer}`. The server's `preview.rs` keeps
+   the lock and the busy check. `HostSession` answers `preview_secondary`.
+10. **One scenario system (J).** `ti4_host::view::scenario` is the only one:
+    - `Scenario` gains `humans` (seat places played by people; the rest are rule bots), `any_seed`
+      (a scenario that finds its systems by seat takes the caller's seed), and
+      `opening: Option<fn(&Choice, &Opening) -> OpeningAnswer>` (`Answer(id)` / `Stop`;
+      `Opening` carries what the scenario computed, e.g. the border system).
+    - Each dev builder is ported: `setup_base_3p_game` + `build_*` + the edits in
+      `launch_scenario` → `apply`; the `advance_into_*` / `wait_for_decision_subtype` loops →
+      `opening` (the same picks and stop conditions, without waiting).
+    - Both hosts play the opening in the decider of the scenario's first human seat until `Stop`
+      (server: `worker.rs`; `HostSession`: before `ask`). The answers are ordinary recorded
+      decisions.
+    - `/api/dev/scenarios` lists `SCENARIOS`. `/launch` keeps its request and response
+      (`scenario_id`, `seed`, `game_id`, `player_session`, `player_id`, `test_seats`) and starts a
+      table with the scenario through the lobby start (`setup::draw/create`). Delete
+      `dev/scenarios.rs`, `GameRegistry::launch_dev_scenario`, the `MockClient` polling. web2's
+      `setup_options` lists the ported scenarios.
+11. Docs, with each item: `ti4-host/README.md` (module table: `planning::script`, `staged`,
+    `history`, `preview`; the host API rows for planning; "What the host crate does not do"),
+    `crates/ti4-wasm/README.md` (the list of differences), `web2/AGENTS.md` (local play).
+
+Stays in the server: `worker`, `registry`, `decider`, `transport`, `mod.rs` (threads, channels,
+lobby, reservations); `bluff`, `bluff_hold` (they hide a hand from remote people); `random_bot`
+(the pick is already `ti4_rule_bot::choose`; what stays is the delay and the pause handshake);
+`reach.rs` (thin wrapper); `table.rs` (lobby record → `TableSetup`); `storage`, `http`, `ws`,
+`public`, `feedback`, `fixtures`, the `dev/` HTTP glue.
+
 (Not in scope: moving server `SessionShared` onto `HostSession`; `server_parity` already guards it.)
 
 ## Verification
@@ -165,3 +286,11 @@ Builds only through the aliases of `.cargo/config.toml` (no `-p` subsets, no `--
   byte-identical before/after each step (built with the alias package set).
 - Step 5: `npm test` in `web2/` and `web/`; a web2 local game in the browser (start a table,
   hot-seat switch, undo, draft, reload from save); web/ offline e2e.
+- Step 6: per item `cargo t-web` with the filters `undo`, `script`, `draft`, `ready_secondary`,
+  `staged`, `turn_redo`, `splice`, `secondary_preview`, `server_parity`, `history`,
+  `dev_scenario`, `protocol_roundtrip`; `hash_survey` byte-identical; `npm test` in `web2/` and
+  `web/`. In the browser: a web2 local hot-seat game with an undo across a seat switch, a ready
+  secondary sent offline, staged work that survives a reload. Scenarios: a new server test per id
+  (launch → first pending choice: subtype and seat as before); the web/ e2e scenario specs
+  (`space_combat_four_views` with seed 42 keeps its dice); a ported scenario in web2 local play
+  opens at the same question as on the server.
