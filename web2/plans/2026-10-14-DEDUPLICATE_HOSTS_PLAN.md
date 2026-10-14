@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–3 done (2026-10-14), items 4–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–4 done (2026-10-14), items 5–11 open.
 
 ## Context
 
@@ -218,10 +218,14 @@ Starts after Step 5 is committed.
    while a submission reserves the choice); `HostSession::check_pending` calls it and then refuses
    a free-form answer, which has no place among the options. The seat and reservation checks stay
    in the server.
-4. **Script application.** `ti4_host::planning::script::ScriptRuns` (map seat → run; `begin`,
-   `answer(&Choice) -> (Option<ChoiceOption>, Vec<Ended>)`, `after_step(tactical_complete, active)
-   -> Vec<Ended>`; it stops another human seat's script when that seat is asked). `ACTION_OVER`,
-   `refused` and `tactical_complete` move with it. Each host only sends `DraftApplied`.
+4. **Script application.** (Done.) `ti4_host::planning::script::ScriptRuns` (map seat → run;
+   `begin`, `answer(&Choice) -> (Option<ChoiceOption>, Vec<Ended>)`, `after_step(tactical_complete,
+   active) -> Vec<Ended>`; it stops another human seat's script when that seat is asked).
+   `OnMismatch` says what a refused entry does: `Stop` (server: the earlier entries stay) or
+   `TakeBack` (wasm: `Ended::taken_back`, the host rolls back to the choice the nonce numbers and
+   reports the script as sent). `first_answer` (the first answer, or why the game refuses the
+   script), `ACTION_OVER`, `refused` and `tactical_complete` move with it. Each host only sends
+   `DraftApplied`; the server's `check_script` stays until item 5.
 5. **Script precheck.** `check_script`/`Probe`/`Check` → `ti4_host::planning::script`.
    `HostSession` uses it with a copy at the last checkpoint + the tail. (Step 5 removed the
    `draft_outcome` refusal of `host_api.rs`, which used the scope of a tactical turn and so

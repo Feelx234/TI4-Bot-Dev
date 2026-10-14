@@ -43,9 +43,11 @@ use ti4_host::batch::{LiveBatch, LiveStep, MovementPlan};
 use ti4_host::clock::Clock;
 use ti4_host::journal::{self, EventDraft};
 use ti4_host::map::GalaxyLayout;
-use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_host::planning::fork::TACTICAL_COMPLETE;
-use ti4_host::planning::steps::{INTERRUPTED, PlanStep};
+use ti4_host::planning::draft::DraftStep;
+use ti4_host::planning::script::{
+    Ended, First, OnMismatch, ScriptRuns, first_answer, refused, tactical_complete,
+};
+use ti4_host::planning::steps::PlanStep;
 use ti4_host::planning::undo::{self, Answered};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
 use ti4_host::protocol::check_submission;
@@ -55,8 +57,8 @@ use ti4_host::protocol::reach::ReachIntoMsg;
 use ti4_host::protocol::server::{
     ActionAcceptedMsg, ActionRejectedMsg, AutoResolvedNote, DraftAppliedMsg, EventVisibility,
     GameEvent, GameEventKind, GameEventMsg, GameOverMsg, MovementFact, PongMsg, ProtocolErrorMsg,
-    ScriptStopped, SeatDecisionDetail, ServerMessage, StateUpdateMsg, current_log_path,
-    public_roll, verified_decision_facts,
+    SeatDecisionDetail, ServerMessage, StateUpdateMsg, current_log_path, public_roll,
+    verified_decision_facts,
 };
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::protocol::view::BoardTileView;
@@ -180,21 +182,6 @@ pub enum HistoryAction {
     RedoPipeline,
     RestoreCursor { cursor: usize },
     Restore { event_id: String },
-}
-
-/// A script (a draft or a batch) that answers the person's choices from the engine thread.
-#[derive(Debug, Clone)]
-pub struct ScriptRun {
-    nonce: String,
-    /// The script as it was sent: what a refusal says is not in the game.
-    sent: Vec<DraftStep>,
-    /// The number of the choice the script began at: a script that the game refuses goes back
-    /// to it, all or nothing.
-    start: u64,
-    script: Vec<DraftStep>,
-    next: usize,
-    /// Whose turn it was. The script does not outlive that turn.
-    active: Option<PlayerId>,
 }
 
 /// A batch (a staged movement, production or payment) that answers the person's choices.
@@ -339,7 +326,8 @@ pub struct HostSession {
     /// Notes of the game's auto-resolved single-option steps, for the next update.
     auto_resolved: Vec<(PlayerId, AutoResolvedNote)>,
     undone: Vec<PlanStep>,
-    script: Option<ScriptRun>,
+    /// The scripts that are being sent to the game. A refused entry takes the whole script back.
+    scripts: ScriptRuns,
     batch: Option<BatchRun>,
     /// How the last batch ended, for the host (taken by [`HostSession::take_batch_result`]).
     batch_result: Option<serde_json::Value>,
@@ -412,7 +400,7 @@ impl HostSession {
             fresh: true,
             auto_resolved: Vec::new(),
             undone: resume.undone.clone(),
-            script: None,
+            scripts: ScriptRuns::new(OnMismatch::TakeBack),
             batch: None,
             batch_result: None,
             quiet: if resume.log.is_empty() {
@@ -817,13 +805,11 @@ impl HostSession {
             self.state.clone_from(&game.state);
             self.finish(&game.state);
         }
-        let tactical_over = game
-            .events
-            .get(events_before..)
-            .unwrap_or_default()
-            .iter()
-            .any(|event| event == TACTICAL_COMPLETE);
-        self.script_after_step(tactical_over, &game.state);
+        let tactical_over = tactical_complete(game.events.get(events_before..).unwrap_or_default());
+        let ended = self
+            .scripts
+            .after_step(tactical_over, game.state.active.as_ref());
+        self.tell_scripts(ended);
     }
 
     fn finish(&mut self, state: &GameState) {
@@ -1083,7 +1069,7 @@ impl HostSession {
         self.waiting = None;
         self.resuming = true;
         self.awaiting = None;
-        self.script = None;
+        self.scripts.clear();
         self.auto_resolved.clear();
         self.batch = None;
         self.fresh = true;
@@ -1094,66 +1080,28 @@ impl HostSession {
     /// The answer of a running script to `choice` of the page, when it has one. A step that the
     /// game does not offer takes the whole script back: nothing of it stays in the game.
     fn script_answer(&mut self, choice: &Choice) -> Option<Scripted> {
-        let application = self.script.as_mut()?;
-        match script_answer(&application.script, application.next, choice, &self.viewer) {
-            ScriptAnswer::Answer {
-                option,
-                next,
-                script,
-            } => {
-                application.next = next;
-                if let Some(script) = script {
-                    application.script = script;
-                }
-                if application.next >= application.script.len() {
-                    self.end_script(|_| None);
-                }
-                Some(Scripted::Answer(option))
-            }
-            ScriptAnswer::Done => {
-                self.end_script(|_| None);
-                None
-            }
-            ScriptAnswer::Interrupted { reason } => {
-                // The entries before this one are in the game and stay there.
-                self.end_script(|application| Some(stopped(application, &reason)));
-                None
-            }
-            ScriptAnswer::Mismatch { reason, .. } => {
-                let application = self.script.take()?;
-                self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
-                    protocol_version: PROTOCOL_VERSION,
-                    game_id: self.identity.game_id.clone(),
-                    nonce: application.nonce,
-                    stopped: Some(refused(&application.sent, reason)),
-                }));
-                Some(Scripted::Rollback(application.start))
-            }
+        let (option, ended) = self.scripts.answer(choice);
+        // The script began at the choice that its nonce numbers.
+        let back = ended
+            .iter()
+            .find(|end| end.taken_back)
+            .map(|end| end.nonce.parse().unwrap_or(0));
+        self.tell_scripts(ended);
+        match back {
+            Some(start) => Some(Scripted::Rollback(start)),
+            None => option.map(Scripted::Answer),
         }
     }
 
-    fn end_script(&mut self, stop: impl FnOnce(&ScriptRun) -> Option<ScriptStopped>) {
-        if let Some(application) = self.script.take() {
-            let stopped = stop(&application);
+    /// Tells the page what became of its scripts.
+    fn tell_scripts(&mut self, ended: Vec<Ended>) {
+        for end in ended {
             self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
                 protocol_version: PROTOCOL_VERSION,
                 game_id: self.identity.game_id.clone(),
-                nonce: application.nonce,
-                stopped,
+                nonce: end.nonce,
+                stopped: end.stopped,
             }));
-        }
-    }
-
-    fn script_after_step(&mut self, tactical_over: bool, state: &GameState) {
-        let over = self
-            .script
-            .as_ref()
-            .is_some_and(|application| tactical_over || application.active != state.active);
-        if over {
-            self.end_script(|application| {
-                (!needless(&application.script[application.next..]))
-                    .then(|| stopped(application, ACTION_OVER))
-            });
         }
     }
 
@@ -1314,45 +1262,29 @@ impl HostSession {
     ) -> Option<Resume> {
         self.check_pending(nonce, expected_version, None)?;
         let (choice, _) = self.pending.clone()?;
-        let refuse = |this: &mut Self, reason: String| {
-            this.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
-                protocol_version: PROTOCOL_VERSION,
-                game_id: this.identity.game_id.clone(),
-                nonce: nonce.to_owned(),
-                stopped: Some(refused(&script, reason)),
-            }));
-        };
-        let first = script_answer(&script, 0, &choice, &self.viewer);
-        let (option, next, reordered) = match first {
-            ScriptAnswer::Answer {
-                option,
-                next,
-                script,
-            } => (option, next, script),
-            ScriptAnswer::Done => {
-                refuse(self, "The script has no answer for this choice.".to_owned());
-                return None;
-            }
-            ScriptAnswer::Interrupted { reason } | ScriptAnswer::Mismatch { reason, .. } => {
-                refuse(self, reason);
+        let First {
+            option,
+            next,
+            script: ordered,
+        } = match first_answer(&script, &choice, &choice.player) {
+            Ok(first) => first,
+            Err(reason) => {
+                self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    game_id: self.identity.game_id.clone(),
+                    nonce: nonce.to_owned(),
+                    stopped: Some(refused(&script, reason)),
+                }));
                 return None;
             }
         };
         let index = choice.options.iter().position(|o| o.id == option.id)?;
-        let script_vec = reordered.unwrap_or_else(|| script.clone());
-        let whole = next >= script_vec.len();
-        self.script = Some(ScriptRun {
-            nonce: nonce.to_owned(),
-            sent: script.clone(),
-            start: nonce.parse().unwrap_or(0),
-            script: script_vec,
-            next,
-            active: self.state.active.clone(),
-        });
+        let active = self.state.active.clone();
+        let ended = self
+            .scripts
+            .begin(&choice.player, nonce, script, ordered, next, active);
+        self.tell_scripts(ended);
         self.awaiting = Some(option.id);
-        if whole {
-            self.end_script(|_| None);
-        }
         Some(Resume::Answer(index))
     }
 
@@ -1676,32 +1608,6 @@ impl HostSession {
             ServerMessage::StateUpdate(update) => update,
             _ => unreachable!("state_update_for builds a StateUpdate"),
         }
-    }
-}
-
-const ACTION_OVER: &str = "The action is over before this.";
-
-fn stopped(application: &ScriptRun, reason: &str) -> ScriptStopped {
-    ScriptStopped {
-        applied: application.next,
-        remaining: application.script[application.next..].to_vec(),
-        interrupted: true,
-        reason: if reason.is_empty() {
-            INTERRUPTED
-        } else {
-            reason
-        }
-        .to_owned(),
-    }
-}
-
-/// A script that changes nothing: the game refuses it before its first answer.
-fn refused(script: &[DraftStep], reason: String) -> ScriptStopped {
-    ScriptStopped {
-        applied: 0,
-        remaining: script.to_vec(),
-        interrupted: false,
-        reason,
     }
 }
 

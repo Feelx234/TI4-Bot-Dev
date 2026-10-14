@@ -21,6 +21,7 @@
 pub mod audit;
 pub mod draft;
 pub mod fork;
+pub mod script;
 pub mod steps;
 pub mod undo;
 

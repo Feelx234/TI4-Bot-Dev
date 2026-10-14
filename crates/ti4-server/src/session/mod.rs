@@ -944,7 +944,7 @@ impl GameSession {
         expected_version: u64,
         script: &[ti4_host::planning::draft::DraftStep],
     ) -> Result<Option<ti4_host::protocol::server::ScriptStopped>, RejectionReason> {
-        use ti4_host::planning::draft::{ScriptAnswer, script_answer};
+        use ti4_host::planning::script::{First, first_answer, refused};
         // The choice is reserved while the copy plays, so no other answer can take it.
         let (choice, copy, tail, never) = {
             let mut lock = self.shared.lock().expect("shared lock");
@@ -994,9 +994,9 @@ impl GameSession {
                 pending.submission_state = PendingSubmissionState::AwaitingSubmission;
             }
         };
-        let first = script_answer(script, 0, &choice, player);
+        let first = first_answer(script, &choice, player);
         let refusal = match &first {
-            ScriptAnswer::Answer { .. } => match copy.zip(tail) {
+            Ok(_) => match copy.zip(tail) {
                 Some((game, tail)) => {
                     match script::check_script(game, tail, &choice, script, player, never) {
                         script::Check::Refused { reason, .. } => Some(reason),
@@ -1005,21 +1005,18 @@ impl GameSession {
                 }
                 None => None,
             },
-            ScriptAnswer::Done => Some("The script has no answer for this choice.".to_owned()),
-            ScriptAnswer::Interrupted { reason } | ScriptAnswer::Mismatch { reason, .. } => {
-                Some(reason.clone())
-            }
+            Err(reason) => Some(reason.clone()),
         };
         let mut lock = self.shared.lock().expect("shared lock");
         if let Some(reason) = refusal {
             release(&mut lock);
-            return Ok(Some(script::refused(script, reason)));
+            return Ok(Some(refused(script, reason)));
         }
-        let ScriptAnswer::Answer {
+        let Ok(First {
             option,
             next,
-            script: reordered,
-        } = first
+            script: ordered,
+        }) = first
         else {
             unreachable!("every other answer is a refusal");
         };
@@ -1041,12 +1038,7 @@ impl GameSession {
             release(&mut lock);
             return Err(RejectionReason::NoPendingChoice);
         }
-        lock.begin_script(
-            player,
-            nonce,
-            reordered.unwrap_or_else(|| script.to_vec()),
-            next,
-        );
+        lock.begin_script(player, nonce, ordered, next);
         Ok(None)
     }
 

@@ -13,6 +13,7 @@ use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash
 use ti4_engine::game::Game;
 use ti4_host::clock::SystemClock;
 use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
+use ti4_host::planning::script::{OnMismatch, ScriptRuns};
 use ti4_host::projection::project_turn_status;
 use ti4_host::protocol::PROTOCOL_VERSION;
 use ti4_host::protocol::server::{
@@ -78,8 +79,9 @@ pub struct Subscriber {
 /// Shared session state accessible across threads.
 pub struct SessionShared {
     pub(crate) basis: super::draft_basis::DraftBasis,
-    /// The scripts that are being sent to the game, by their seat ([`super::script`]).
-    pub(crate) scripts: BTreeMap<PlayerId, super::script::ScriptApplication>,
+    /// The scripts that are being sent to the game, by their seat ([`super::script`]). A refused
+    /// entry stops a script: what it played before is in the game.
+    pub(crate) scripts: ScriptRuns,
     /// A history change (undo, redo, ...) is running: a random bot that has picked its answer
     /// holds it back instead of returning it, so no decision lands while the rewind compares
     /// versions and stops the worker.
@@ -365,7 +367,7 @@ impl SessionShared {
     pub fn new(game_id: String, initial_state: GameState) -> Self {
         Self {
             basis: super::draft_basis::DraftBasis::default(),
-            scripts: BTreeMap::new(),
+            scripts: ScriptRuns::new(OnMismatch::Stop),
             game_id,
             game_version: 1,
             latest_state: initial_state,
@@ -429,7 +431,7 @@ impl SessionShared {
             && self.error.is_none()
             && self.replay_complete
             && self.in_flight_submissions.is_empty()
-            && !self.scripts.contains_key(seat)
+            && !self.scripts.running(seat)
             && self.decision_log.len() == self.undo.count()
             && self.pending_decision.as_ref().is_some_and(|pending| {
                 &pending.seat == seat
@@ -1771,7 +1773,7 @@ pub fn spawn_session_worker(
                 lock.publish_history_events_since(event_start);
 
                 lock.basis.completed_step(&game);
-                let action_over = super::script::tactical_complete(
+                let action_over = ti4_host::planning::script::tactical_complete(
                     game.events.get(events_before..).unwrap_or_default(),
                 );
                 lock.scripts_after_step(action_over);

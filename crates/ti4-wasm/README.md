@@ -459,12 +459,14 @@ answers a run of a draft (`ti4_host::planning::draft::script_answer`): one copy 
 for the draft, for the live game and for the server.
 
 - The session answers each choice of the page from the script while it runs
-  (`HostSession::scripted`), and the page is not asked.
+  (`HostSession::scripted`), and the page is not asked. The runs are the server's
+  (`ti4_host::planning::script::ScriptRuns`, one per seat); what differs is
+  `OnMismatch::TakeBack` below.
 - All or nothing: a step that the game does not offer takes the whole script back (the run goes
   back to the checkpoint of the choice the script began at, as a failed `submit_batch` does),
   and `draft_applied` says it was refused, with nothing applied. A question that is not of the
-  script (another seat, a reaction window) stops it with its earlier steps in the game
-  (`interrupted`).
+  script (another seat, also another seat played by the page, a reaction window) stops it with
+  its earlier steps in the game (`interrupted`), and so does the end of its action or turn.
 - A window that the Never cards of the page decline is declined before the script sees it, so
   it does not stop the script.
 - Before a decision of another seat (stepping) the choice is that seat's, and a script never
