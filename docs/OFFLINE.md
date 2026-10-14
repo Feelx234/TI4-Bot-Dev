@@ -136,6 +136,10 @@ changed engine can answer the same question differently and make an old answer l
   `prebuild` hook of `npm run build`) with `TI4_REQUIRE_WASM=1`: a missing wasm32 target or a
   failed cargo build stops the deploy instead of shipping a release without "Play offline", and so
   does a `web/dist` without a `.wasm`.
+* The nightly smoke sweep can play offline games instead of (or beside) the proctored server games:
+  `NIGHTLY_MODE=offline|both`, see `tools/nightly-smoke/README.md`, "Offline mode". It plays full games with the
+  production bundle and no server, reports findings in the usual night report, and keeps each game's save blob
+  (`trace/save.json`) so `tools/nightly-smoke/offline_replay.sh` can replay it natively.
 * Check headers after any proxy change: `deploy/public/check-headers.sh` starts the server and a
   throwaway Caddy with the repo Caddyfile on loopback and asserts content type, cache, br/gzip,
   CSP and the absence of COOP/COEP.

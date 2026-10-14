@@ -131,7 +131,7 @@ export interface PlaythroughReport {
 }
 
 // Containers that render a decision for the acting seat.
-const DECISION_CONTAINERS = [
+export const DECISION_CONTAINERS = [
   "turn-action-bar",
   "pending-choice-dialog",
   "system-activation-bar",
@@ -157,7 +157,7 @@ const DECISION_CONTAINERS = [
 // New UI surfaces worth a look by the proctor: the first time one is on screen during a run (and
 // the first decision of each round), a screenshot of the acting seat's tab lands in
 // `<traceDir>/shots/`. A handful per run, so the disk and the proctor's reading stay small.
-const SHOT_TARGETS = [
+export const SHOT_TARGETS = [
   "trade-staging-desk",
   "trade-offer-columns",
   "production-builder-drawer",
@@ -174,7 +174,7 @@ const SHOT_TARGETS = [
 // (tour, redo) count inside the cap and only fit while there is room left.
 
 
-const ERROR_BANNERS = [
+export const ERROR_BANNERS = [
   "choice-error-banner",
   "movement-error-banner",
   "activation-error",
@@ -190,7 +190,7 @@ const ERROR_BANNERS = [
 const EXCLUDED = EXCLUDED_CONTROLS;
 // Controls that take back staged selections. Only used to escape a staging dead end, such as
 // cargo over transport capacity, where every submit button is disabled.
-interface Candidate {
+export interface Candidate {
   idx: number;
   desc: string;
   /** Untruncated description used for steering. */
@@ -201,7 +201,7 @@ interface Candidate {
   checked: boolean;
 }
 
-function mulberry32(seed: number) {
+export function mulberry32(seed: number) {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -345,7 +345,7 @@ function shipMove(unitType: string): number {
  * holding another player's units. The UI does not show reachability, so this reads the actor's
  * board view.
  */
-function activationWeights(
+export function activationWeights(
   board: BoardView,
   actor: string,
   exploreMode = false,
@@ -433,7 +433,7 @@ function weightedPick(
   return pool[pool.length - 1];
 }
 
-function pick(
+export function pick(
   candidates: Candidate[],
   clicks: number,
   rng: () => number,
@@ -523,7 +523,7 @@ async function uiVersion(page: Page): Promise<number> {
   return Number(text.replace(/^v/, "")) || 0;
 }
 
-async function visibleErrors(page: Page): Promise<string[]> {
+export async function visibleErrors(page: Page): Promise<string[]> {
   const texts: string[] = [];
   for (const id of ERROR_BANNERS) {
     for (const el of await page.getByTestId(id).all()) {
