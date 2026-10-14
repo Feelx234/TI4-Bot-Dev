@@ -14,8 +14,6 @@ use ti4_host::protocol::server::ServerMessage;
 use ti4_model::id::PlayerId;
 use ti4_wasm::host_api;
 
-
-
 const GAME: &str = "local";
 
 /// The messages the page received, in order, and the answers it gave.
@@ -91,7 +89,10 @@ fn install_person(page: &Arc<Mutex<Page>>, seed: u64, viewer: &str) {
             page.messages
                 .extend(answered["messages"].as_array().unwrap().clone());
         }
-        if page.leave_after.is_some_and(|limit| page.answers.len() >= limit) {
+        if page
+            .leave_after
+            .is_some_and(|limit| page.answers.len() >= limit)
+        {
             return -1;
         }
         let (nonce, version, choice, cursor) =
@@ -132,8 +133,10 @@ fn setup(seed: u64, players: usize) -> Value {
 /// Every message is a message of the server, and serializes back to what was sent.
 fn assert_server_shapes(messages: &[Value]) {
     for (index, message) in messages.iter().enumerate() {
-        let parsed: ServerMessage = serde_json::from_value(message.clone())
-            .unwrap_or_else(|error| panic!("message {index} is no ServerMessage: {error}\n{message}"));
+        let parsed: ServerMessage =
+            serde_json::from_value(message.clone()).unwrap_or_else(|error| {
+                panic!("message {index} is no ServerMessage: {error}\n{message}")
+            });
         assert_eq!(
             &serde_json::to_value(&parsed).unwrap(),
             message,
@@ -169,10 +172,19 @@ fn slow_a_game_for_one_person_speaks_the_servers_messages() {
     assert_eq!(kinds.first(), Some(&"initial_snapshot"));
     assert_eq!(kinds.last(), Some(&"game_over"));
     assert_eq!(kinds[kinds.len() - 2], "state_update");
-    assert_eq!(kinds.iter().filter(|kind| **kind == "initial_snapshot").count(), 1);
+    assert_eq!(
+        kinds
+            .iter()
+            .filter(|kind| **kind == "initial_snapshot")
+            .count(),
+        1
+    );
 
     // Each answer was accepted once; nothing was rejected.
-    let accepted = kinds.iter().filter(|kind| **kind == "action_accepted").count();
+    let accepted = kinds
+        .iter()
+        .filter(|kind| **kind == "action_accepted")
+        .count();
     assert_eq!(accepted, page.answers.len());
     assert!(!kinds.contains(&"action_rejected"));
     assert!(!kinds.contains(&"error"));
@@ -185,8 +197,10 @@ fn slow_a_game_for_one_person_speaks_the_servers_messages() {
             assert!(next >= version, "a version went back: {message}");
             version = next;
         }
-        if matches!(message["type"].as_str(), Some("state_update" | "initial_snapshot"))
-            && let Some(pending) = message.get("pending_choice")
+        if matches!(
+            message["type"].as_str(),
+            Some("state_update" | "initial_snapshot")
+        ) && let Some(pending) = message.get("pending_choice")
         {
             assert!(nonces.insert(pending["nonce"].as_str().unwrap().to_owned()));
             assert_eq!(pending["choice"]["player"], "a", "only the person is asked");
@@ -202,8 +216,10 @@ fn slow_a_game_for_one_person_speaks_the_servers_messages() {
         .collect();
     let snapshot_events = all[0]["events"].as_array().map_or(0, Vec::len);
     assert!(snapshot_events >= 1, "the snapshot has the opening event");
-    let ids: std::collections::BTreeSet<&str> =
-        events.iter().map(|event| event["id"].as_str().unwrap()).collect();
+    let ids: std::collections::BTreeSet<&str> = events
+        .iter()
+        .map(|event| event["id"].as_str().unwrap())
+        .collect();
     assert_eq!(ids.len(), events.len());
     let mut cursor = 0;
     for event in &events {
@@ -216,17 +232,32 @@ fn slow_a_game_for_one_person_speaks_the_servers_messages() {
         .iter()
         .map(|event| event["event"]["kind"].as_str().unwrap_or("?"))
         .collect();
-    for wanted in ["decision_resolved", "dice_rolled", "phase_transition", "game_finished"] {
-        assert!(kinds_of_events.contains(wanted), "{wanted} in {kinds_of_events:?}");
+    for wanted in [
+        "decision_resolved",
+        "dice_rolled",
+        "phase_transition",
+        "game_finished",
+    ] {
+        assert!(
+            kinds_of_events.contains(wanted),
+            "{wanted} in {kinds_of_events:?}"
+        );
     }
     let roll = events
         .iter()
         .find(|event| event["event"]["kind"] == "dice_rolled")
         .unwrap();
-    assert!(roll["roll"]["faces"].is_array() || roll["roll"].is_object(), "{roll}");
+    assert!(
+        roll["roll"]["faces"].is_array() || roll["roll"].is_object(),
+        "{roll}"
+    );
 
     // The person never sees a hidden thing: the redacted state of an update hides other hands.
-    let update = all.iter().rev().find(|m| m["type"] == "state_update").unwrap();
+    let update = all
+        .iter()
+        .rev()
+        .find(|m| m["type"] == "state_update")
+        .unwrap();
     assert_eq!(update["viewer"]["role"], "player");
     assert_eq!(update["turn_status"]["kind"], "game_over");
 }
@@ -254,7 +285,10 @@ fn a_command_that_is_not_the_servers_is_refused_the_servers_way() {
     let kinds = kinds(&page.messages);
     assert!(kinds.contains(&"action_rejected"), "{kinds:?}");
     assert!(kinds.contains(&"pong"));
-    assert!(kinds.contains(&"error"), "preview is not offered: {kinds:?}");
+    assert!(
+        kinds.contains(&"error"),
+        "preview is not offered: {kinds:?}"
+    );
     let rejected: Vec<&Value> = page
         .messages
         .iter()

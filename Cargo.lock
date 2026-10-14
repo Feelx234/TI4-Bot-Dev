@@ -4571,8 +4571,10 @@ dependencies = [
  "sha2",
  "ti4-content",
  "ti4-engine",
+ "ti4-host",
  "ti4-model",
  "ti4-rule-bot",
+ "ti4-server",
  "ti4-view",
 ]
 

@@ -129,8 +129,8 @@ impl Setup {
     pub fn resolved(&self) -> Result<Self, String> {
         let mut setup = self.clone();
         if let Some(id) = &setup.scenario {
-            let scenario = ti4_view::scenario::find(id)
-                .ok_or_else(|| format!("no scenario '{id}'"))?;
+            let scenario =
+                ti4_view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
             setup.seed = scenario.seed;
             setup.players = scenario.players;
         } else if !(MIN_PLAYERS..=MAX_PLAYERS).contains(&setup.players) {
@@ -141,7 +141,12 @@ impl Setup {
         }
         let human = match setup.human_seat {
             Some(seat) if seat < setup.players => seat,
-            Some(seat) => return Err(format!("seat {seat} is not at a table of {}", setup.players)),
+            Some(seat) => {
+                return Err(format!(
+                    "seat {seat} is not at a table of {}",
+                    setup.players
+                ));
+            }
             None => usize::try_from(mix(setup.seed) % setup.players as u64)
                 .expect("a seat fits a usize"),
         };

@@ -366,7 +366,8 @@ static HOST: Mutex<Host> = Mutex::new(Host {
 
 /// The printed names of the action cards that the host is never offered
 /// ([`ti4_set_reaction_mode`]). A setting of the host, not of the game.
-pub(crate) static NEVER: LazyLock<NeverSet> = LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
+pub(crate) static NEVER: LazyLock<NeverSet> =
+    LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
 
 /// A window that was passed for the host: the option that declined it, and the cards.
 #[derive(Serialize)]
@@ -560,7 +561,7 @@ fn given(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
     if preloaded {
         if left == 0 {
             host_api::replay_finished();
-        } else if left % PROGRESS_EVERY == 0
+        } else if left.is_multiple_of(PROGRESS_EVERY)
             && let Some((done, total)) = host_api::replay_progress(left)
         {
             host_api::write_progress(done, total);

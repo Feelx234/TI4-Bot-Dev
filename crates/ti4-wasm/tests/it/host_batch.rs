@@ -90,22 +90,27 @@ fn slow_a_movement_plan_is_applied_whole_or_not_at_all() {
     let page_after = page.clone();
     let checked = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let checked_in = checked.clone();
-    page.lock().unwrap().script.push_back(Act::Probe(Box::new(move |page| {
-        checked_in.store(true, std::sync::atomic::Ordering::Relaxed);
-        let asks = &page.asks;
-        let (this, previous) = (&asks[asks.len() - 1], &asks[asks.len() - 2]);
-        // After a rolled-back batch the same question is asked again (same nonce).
-        let nonce = |ask: &Value| {
-            crate::common::pending(ask["messages"].as_array().unwrap())
-                .map(|(nonce, ..)| nonce)
-        };
-        assert_eq!(nonce(this), nonce(previous), "the same question again");
-        assert_eq!(this["batch"]["status"], "refused", "{}", this["batch"]);
-        let _ = &page_after;
-    })));
+    page.lock()
+        .unwrap()
+        .script
+        .push_back(Act::Probe(Box::new(move |page| {
+            checked_in.store(true, std::sync::atomic::Ordering::Relaxed);
+            let asks = &page.asks;
+            let (this, previous) = (&asks[asks.len() - 1], &asks[asks.len() - 2]);
+            // After a rolled-back batch the same question is asked again (same nonce).
+            let nonce = |ask: &Value| {
+                crate::common::pending(ask["messages"].as_array().unwrap()).map(|(nonce, ..)| nonce)
+            };
+            assert_eq!(nonce(this), nonce(previous), "the same question again");
+            assert_eq!(this["batch"]["status"], "refused", "{}", this["batch"]);
+            let _ = &page_after;
+        })));
     let end = start(&setup(seed, 4), None);
     assert!(end["end"]["error"].is_null(), "{end}");
-    assert!(checked.load(std::sync::atomic::Ordering::Relaxed), "the rollback was seen");
+    assert!(
+        checked.load(std::sync::atomic::Ordering::Relaxed),
+        "the rollback was seen"
+    );
 
     // 3. A good plan is applied as the engine asks, and is told once it ended.
     let page = Arc::new(Mutex::new(Page {
@@ -118,7 +123,9 @@ fn slow_a_movement_plan_is_applied_whole_or_not_at_all() {
                 page.script.push_front(Act::Probe(Box::new(move |page| {
                     let ask = page.asks.last().unwrap();
                     assert_eq!(ask["batch"]["status"], "applied", "{}", ask["batch"]);
-                    let now = last_question(&page.messages)["history"]["cursor"].as_u64().unwrap();
+                    let now = last_question(&page.messages)["history"]["cursor"]
+                        .as_u64()
+                        .unwrap();
                     assert!(now >= cursor + 2, "the move and done_moving were decided");
                 })));
                 page.script.push_front(Act::Cmd(submit(&question, plan)));
