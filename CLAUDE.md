@@ -23,3 +23,9 @@
 - Testers' reports from the public alpha are files in `/var/lib/ti4-public/feedback/<date>/`
   (the in-game feedback button is built); read them with `tools/public/list_feedback.sh`. See
   `docs/FEEDBACK_BUTTON_NOTES.md`. When triaging, replay the game id from the report's context.
+
+## Time
+
+- We use Berlin time (Europe/Berlin). Whenever you talk about "today", "tonight" or the nightly
+  sweep, check the clock first (`TZ=Europe/Berlin date`) instead of assuming. Nightly names
+  (`nightly-fixes-<night>`) use the date the sweep started, 20:30 Berlin.
