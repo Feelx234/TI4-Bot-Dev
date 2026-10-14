@@ -163,6 +163,14 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
     );
     let restart = rewinding.lock().unwrap().replies.last().unwrap()["restart"].clone();
     assert_eq!(restart["generation"], 1);
+    let last_version = rewinding.lock().unwrap().asks.last().unwrap()["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["game_version"].as_u64())
+        .max()
+        .unwrap();
+    assert!(restart["version"].as_u64().unwrap() >= last_version);
     let answers = restart["answers"].as_array().unwrap().len();
     let redo = restart["redo"].as_array().unwrap().len();
     assert!(answers <= 12 && answers > 0, "{answers}");
@@ -178,8 +186,7 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
             .push_front(Act::Cmd(json!({ "type": "history", "action": "redo" })));
     }))]);
     install(&again, seed, "a");
-    let resume = json!({ "answers": restart["answers"], "redo": restart["redo"],
-                         "generation": restart["generation"] });
+    let resume = restart.clone();
     let end = start(&setup(seed, 3), Some(&resume));
     assert_eq!(end["end"]["left"], true);
     let redone = again.lock().unwrap().replies.last().unwrap()["restart"].clone();
@@ -188,8 +195,7 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
 
     let rest = page(vec![]);
     install(&rest, seed, "a");
-    let resume = json!({ "answers": redone["answers"], "redo": redone["redo"],
-                         "generation": redone["generation"] });
+    let resume = redone.clone();
     let end = start(&setup(seed, 3), Some(&resume));
     assert_eq!(end["end"]["finished"], true);
     assert_eq!(decisions_hash(), want);
@@ -272,7 +278,10 @@ fn slow_queries_and_settings_answer_in_the_servers_shapes() {
         .keys()
         .filter(|key| drafted[key.as_str()] != now[key.as_str()])
         .collect();
-    assert!(differing.is_empty(), "the draft starts where the game is: {differing:?}");
+    assert!(
+        differing.is_empty(),
+        "the draft starts where the game is: {differing:?}"
+    );
     let update = find("state_update");
     assert_eq!(
         update.last().unwrap()["reaction_modes"][&card],

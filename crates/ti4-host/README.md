@@ -27,6 +27,8 @@ Contract (checked by CI for T4):
 | `step_snapshot` | `StepSnapshot` (copy of the game at a step boundary, fork for fast resume) | worker, batch |
 | `batch` | `BatchRequest`, `MovementPlan`, `MovementStep`, `simulate[_with]`, `replay_boundary[_state]`, `replay_budget`, `ReplayBasis` (trait) | registry `submit_batch` |
 | `clock` | `Clock`, `Deadline`, `NonceSource`, `SystemClock` (native only), `ManualClock`, `CounterNonce` | all of the above that need time |
+| `preset`, `card_set`, `map`, `maps` | Game setup: start presets, the strategy-card sets, `create_game_with_factions` (what a lobby start calls), the map catalogue and previews (`maps::catalog`). Moved from `ti4-server` unchanged (it re-exports them); the browser host builds the same opening state from the same seed. | lobby start, `/api/maps` |
+| `batch::LiveBatch` | A batch applied to the live game one question at a time (the same decider as `simulate`), for a host with no network between the request and its answers | (browser host only) |
 
 ### Injected time and nonces
 
@@ -84,14 +86,16 @@ Batches (`BatchRequest` and the movement/production basket as one request) are d
 glue is in `ti4-server/src/session/registry.rs::submit_batch`. Offline it can instead be
 mapped to a `PlanStep` script for `ti4-view::planning::script_answer`, see the plan, 2.2.
 
-### What the host crate does not do (yet): the session core
+### What the host crate does not do: the session core
 
 The state machine that owns the decision log, the event log, the redo stack, the batches and
 `game_version` is still `ti4_server::session::worker::SessionShared` (fields are coupled to
-`mpsc` subscribers, the file store, bluff books and planning threads), so T4 builds a small
-`HostSession` in `ti4-wasm` out of the pieces above. The sequence that
-`SessionShared` performs after each engine step is the specification, and it only calls host
-functions for the logic:
+`mpsc` subscribers, the file store, bluff books and planning threads). The browser has its own,
+small one: `ti4_wasm::host_session::HostSession`, built out of the pieces above (see
+`crates/ti4-wasm/README.md`, "The hosted game"). It produces the same events and decisions as
+`SessionShared` for the same seed and answers (`crates/ti4-wasm/tests/it/server_parity.rs` checks
+that against a real server session). The sequence that `SessionShared` performs after each engine
+step is its specification, and it only calls host functions for the logic:
 
 1. For each newly recorded `DecisionRecord`: `protocol::server::verified_decision_facts(record,
    selected, active_system, &state)` gives `(detail, movement, seat_detail)`.
