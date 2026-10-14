@@ -213,6 +213,8 @@ export interface ExecutionPlan {
   }[];
   remainingCargo: {
     origin: string;
+    /** Where the unit stands: the origin or a system the ship moves through (95.1). */
+    pickupSystem: string;
     unitType: string;
     source: string | null;
     damaged: boolean;
@@ -762,9 +764,13 @@ export const TacticalMovementOverlay: React.FC<
               pUnit.toLowerCase() === item.unitType.toLowerCase() ||
               getUnitBaseType(pUnit) === getUnitBaseType(item.unitType);
             const matchesSource = pSource === item.source;
+            const pPickup = o.payload?.pickup_system;
+            const matchesPickup =
+              typeof pPickup !== "string" || pPickup === item.pickupSystem;
             return (
               matchesUnit &&
               matchesSource &&
+              matchesPickup &&
               (o.payload?.damaged === true) === item.damaged
             );
           });
@@ -880,6 +886,7 @@ export const TacticalMovementOverlay: React.FC<
       for (let i = 0; i < count; i++) {
         cargo.push({
           origin: c.originSystemId,
+          pickupSystem: c.pickupSystemId,
           unitType: c.unitType,
           source: c.source,
           damaged: c.damaged,
@@ -893,6 +900,7 @@ export const TacticalMovementOverlay: React.FC<
       for (let i = 0; i < count; i++) {
         cargo.push({
           origin: g.originSystemId,
+          pickupSystem: g.originSystemId,
           unitType: g.unitType,
           source: null,
           damaged: g.damaged,
@@ -1005,6 +1013,9 @@ export const TacticalMovementOverlay: React.FC<
             unit: item.unitType,
             source: item.source,
             damaged: item.damaged,
+            // Units of the same kind may wait in the origin and the active system alike; the
+            // engine offers one load per system (run s2-01-2031).
+            pickup_system: item.pickupSystem,
           });
           loaded++;
           if (ridesFree(item.unitType)) freeLoaded++;

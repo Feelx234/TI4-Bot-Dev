@@ -96,7 +96,7 @@ describe("TacticalMovementOverlay Component", () => {
     await waitFor(() =>
       expect(onSubmitBatch).toHaveBeenCalledExactlyOnceWith("18", [
         { kind: "move", origin: "24", unit: "carrier", damaged: false },
-        { kind: "load", origin: "24", unit: "infantry", source: "jord", damaged: false },
+        { kind: "load", origin: "24", unit: "infantry", source: "jord", damaged: false, pickup_system: "24" },
         { kind: "done_moving" },
       ]),
     );
@@ -139,7 +139,7 @@ describe("TacticalMovementOverlay Component", () => {
     await waitFor(() =>
       expect(onSubmitBatch).toHaveBeenCalledExactlyOnceWith("18", [
         { kind: "move", origin: "24", unit: "carrier", damaged: false },
-        { kind: "load", origin: "24", unit: "infantry", source: "jord", damaged: false },
+        { kind: "load", origin: "24", unit: "infantry", source: "jord", damaged: false, pickup_system: "24" },
         { kind: "done_loading" },
         { kind: "done_moving" },
       ]),

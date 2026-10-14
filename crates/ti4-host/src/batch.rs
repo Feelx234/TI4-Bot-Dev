@@ -113,6 +113,8 @@ enum MovementOnlyStep {
         damaged: bool,
         #[serde(default)]
         galvanized: Option<bool>,
+        #[serde(default)]
+        pickup_system: Option<String>,
     },
     DoneLoading,
     DoneMoving,
@@ -233,12 +235,14 @@ impl From<MovementOnlyStep> for MovementStep {
                 source,
                 damaged,
                 galvanized,
+                pickup_system,
             } => Self::Load {
                 origin,
                 unit,
                 source,
                 damaged,
                 galvanized,
+                pickup_system,
             },
             MovementOnlyStep::DoneLoading => Self::DoneLoading,
             MovementOnlyStep::DoneMoving => Self::DoneMoving,
@@ -337,6 +341,10 @@ pub enum MovementStep {
         damaged: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         galvanized: Option<bool>,
+        /// The system the unit stands in (the origin, the active system or one passed through,
+        /// 95.1). Two otherwise identical loads from different systems need it to tell apart.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pickup_system: Option<String>,
     },
     DoneLoading,
     DoneMoving,
@@ -434,9 +442,13 @@ impl MovementStep {
                 source,
                 damaged,
                 galvanized,
+                pickup_system,
             } => {
                 option.kind == "load"
                     && value("system") == Some(origin.as_str())
+                    && pickup_system
+                        .as_deref()
+                        .is_none_or(|pickup| value("pickup_system") == Some(pickup))
                     && value("unit") == Some(unit.as_str())
                     && value("source") == source.as_deref()
                     && galvanized.is_none_or(|expected| {
@@ -1763,6 +1775,45 @@ mod tests {
         }
     }
 
+    /// Run s2-01-2031 (2026-10-14): Saar's Floating Factory in 11 could take infantry from 11 or
+    /// from the active system 72; both loads look the same apart from `pickup_system`, so the
+    /// plan was rejected as "ambiguous option".
+    #[test]
+    fn movement_load_matches_the_pickup_system_from_the_wire() {
+        for pickup in ["11", "72"] {
+            let plan: MovementPlan = serde_json::from_value(serde_json::json!({
+                "kind": "tactical_movement",
+                "destination": "72",
+                "steps": [{
+                    "kind": "load", "origin": "11", "unit": "infantry", "source": null,
+                    "damaged": false, "pickup_system": pickup
+                }, {"kind": "done_moving"}]
+            }))
+            .expect("browser pickup system must deserialize");
+            let options = ["11", "72"].map(|system| {
+                let mut option = ChoiceOption::labelled(
+                    format!("load|{system}"),
+                    "load",
+                    "load infantry from space",
+                );
+                option.payload = serde_json::from_value(serde_json::json!({
+                    "system": "11", "unit": "infantry", "source": null,
+                    "pickup_system": system, "damaged": false, "galvanized": false
+                }))
+                .unwrap();
+                option
+            });
+            let mut choice = offered("load_cargo", options.to_vec());
+            choice.context.as_mut().unwrap().target =
+                Some(DecisionTarget::System(ti4_model::id::SystemId::new("11")));
+            let mut script = decider(plan.kind, plan.steps);
+            let selected = script
+                .choose(&choice)
+                .expect("explicit pickup system is unambiguous");
+            assert_eq!(selected.payload["pickup_system"], pickup);
+        }
+    }
+
     #[test]
     fn legacy_load_without_a_cargo_variant_still_rejects_ambiguity() {
         let plan: MovementPlan = serde_json::from_str(
@@ -1879,6 +1930,7 @@ mod tests {
                 source: None,
                 damaged: false,
                 galvanized: None,
+                pickup_system: None,
             }],
         );
         let hold = offered(

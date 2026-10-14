@@ -104,6 +104,7 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
           unit: "infantry",
           source: "mid",
           damaged: false,
+          pickup_system: "30",
         },
         {
           kind: "load",
@@ -111,6 +112,7 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
           unit: "infantry",
           source: "mid",
           damaged: false,
+          pickup_system: "30",
         },
         {
           kind: "load",
@@ -118,11 +120,33 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
           unit: "fighter",
           source: null,
           damaged: false,
+          pickup_system: "30",
         },
         { kind: "done_loading" },
         { kind: "done_moving" },
       ]),
     );
+  });
+
+  // Run s2-01-2031: infantry waited in space in the origin and in the active system; the engine
+  // offers one load per system, so a load without its pickup system was "ambiguous".
+  it("names the pickup system of an origin load when the active system holds the same unit", async () => {
+    const b = board(sys("30", []));
+    b.systems["24"].units.push({ owner: "p1", unit_type: "infantry", damaged: false });
+    b.systems["18"].units.push({ owner: "p1", unit_type: "infantry", damaged: false });
+    const onSubmitBatch = renderOverlay(b);
+    fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
+    fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-space"));
+    fireEvent.click(screen.getByTestId("commit-moves-btn"));
+    await waitFor(() => expect(onSubmitBatch).toHaveBeenCalledOnce());
+    expect(onSubmitBatch.mock.calls[0][1]).toContainEqual({
+      kind: "load",
+      origin: "24",
+      unit: "infantry",
+      source: null,
+      damaged: false,
+      pickup_system: "24",
+    });
   });
 
   it("offers nothing from a system with the player's command token (95.5)", () => {
@@ -213,6 +237,7 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
             unit: "mech",
             source: "mid",
             damaged: false,
+            pickup_system: "30",
           },
           { kind: "done_loading" },
           { kind: "done_moving" },
@@ -236,6 +261,7 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
             unit: "mech",
             source: null,
             damaged: false,
+            pickup_system: "30",
           },
           { kind: "done_loading" },
           { kind: "done_moving" },
