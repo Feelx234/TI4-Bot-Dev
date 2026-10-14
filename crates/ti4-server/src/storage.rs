@@ -152,6 +152,11 @@ pub struct PlayerLobbySlot {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(from = "StoredLobbyMember")]
 pub struct PlayerLobbyMember {
+    /// The "Ready" flag of a record written before 2026-10-13. Nothing reads it. It is kept only so
+    /// that such a record serializes back to the bytes its checksum was made over; it is never set
+    /// for a new member and is not written when absent.
+    #[serde(default, rename = "ready", skip_serializing_if = "Option::is_none")]
+    pub legacy_ready: Option<bool>,
     pub session: PlayerSession,
     pub nickname: String,
     /// `Some("random")` for an in-process random bot: its seat has no usable credential
@@ -182,6 +187,7 @@ struct StoredLobbyMember {
 impl From<StoredLobbyMember> for PlayerLobbyMember {
     fn from(stored: StoredLobbyMember) -> Self {
         Self {
+            legacy_ready: stored._ready,
             session: stored.session,
             nickname: stored.nickname,
             bot: stored.bot,
@@ -1468,8 +1474,17 @@ fn envelope_checksum<T: Serialize>(
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
+/// Fingerprint of a state for comparing a stored snapshot with its replay. Fields that are only
+/// displayed and that a newer release records in more detail (the `gains` and `placed` of an
+/// exploration record, added 2026-10-13) are left out, so a snapshot written by an older release
+/// still matches the replay of the same decisions. Nothing a rule reads is left out.
 fn state_checksum(state: &GameState) -> Result<String, StorageError> {
-    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(state)?)))
+    let mut state = state.clone();
+    for record in &mut state.exploration_log {
+        record.gains.clear();
+        record.placed.clear();
+    }
+    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(&state)?)))
 }
 
 fn content_identity() -> String {
@@ -1557,6 +1572,27 @@ mod player_record_tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A lobby written by the release before the "Ready" flag was dropped (members carry
+    /// `ready`). Its checksum was made over that shape, so it must still load, and must write
+    /// back to the same bytes. The fixture is a real alpha record with ids and sessions replaced.
+    #[test]
+    fn lobby_written_with_ready_flags_still_loads() {
+        let (store, dir) = store();
+        let id = "game_00000000000000000000000000000001";
+        let game = store.game_dir(id).unwrap();
+        fs::create_dir_all(&game).unwrap();
+        let fixture = include_str!("../tests/fixtures/lobby_v1_with_ready.json");
+        assert!(fixture.contains("\"ready\""));
+        fs::write(game.join("lobby.json"), fixture).unwrap();
+        let lobby = store.load_player_lobby(id).unwrap().expect("lobby loads");
+        assert_eq!(lobby.players.len(), 8);
+        assert!(lobby.players.values().all(|m| m.legacy_ready.is_some()));
+        // Saving it again keeps the checksum valid.
+        store.save_player_lobby(&lobby).unwrap();
+        assert!(store.load_player_lobby(id).unwrap().is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn repeated_generated_ids_are_unique_and_collision_is_skipped() {
         let mut players = BTreeMap::new();
@@ -1568,6 +1604,7 @@ mod player_record_tests {
                     .insert(
                         id,
                         PlayerLobbyMember {
+                            legacy_ready: None,
                             bot: None,
                             faction: None,
                             session: PlayerSession::generate(),
@@ -1654,6 +1691,7 @@ mod player_record_tests {
         lobby.players.insert(
             PlayerId::new(hex_random_256("player_")),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
                 session: lobby.players[&id].session.clone(),

@@ -607,6 +607,7 @@ impl PlayerLobbyRecord {
         players.insert(
             host_player_id.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
                 session: session.clone(),
@@ -2728,6 +2729,7 @@ impl GameRegistry {
         updated.players.insert(
             player.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
                 session: session.clone(),
@@ -3739,6 +3741,7 @@ impl GameRegistry {
             updated.players.insert(
                 player,
                 PlayerLobbyMember {
+                    legacy_ready: None,
                     bot: Some(kind.to_owned()),
                     faction: faction.map(str::to_owned),
                     session,

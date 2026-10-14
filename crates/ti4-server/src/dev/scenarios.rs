@@ -1060,6 +1060,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
     existing_players.insert(
         p1.clone(),
         PlayerLobbyMember {
+            legacy_ready: None,
             bot: None,
             faction: None,
             session: session1.clone(),
@@ -1072,6 +1073,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
     existing_players.insert(
         p2.clone(),
         PlayerLobbyMember {
+            legacy_ready: None,
             bot: None,
             faction: None,
             session: session2.clone(),
@@ -1084,6 +1086,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
     existing_players.insert(
         p3.clone(),
         PlayerLobbyMember {
+            legacy_ready: None,
             bot: None,
             faction: None,
             session: session3.clone(),
