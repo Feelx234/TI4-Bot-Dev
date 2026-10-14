@@ -388,6 +388,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     let sheetAt: { key: string; system: string } | null = null;
     /** What the inspector showed before the landings opened. */
     let inspectedBefore: string | null = null;
+    /** The question of the viewer at the last update. Undefined: the game asked the viewer nothing. */
+    let choiceAt: string | undefined;
     return transport?.subscribe((event) => {
       if (event.kind === "error") {
         setLocal((now) => ({ ...now, staged: null, replaying: null, error: event.message }));
@@ -430,11 +432,14 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         const { status } = event;
         return setUpdate((now) => now && { ...now, turn_status: status });
       }
+      // An answer that was lost or refused is not sent: the next update has the same question,
+      // and it can be answered again.
       if (event.kind === "offline") {
-        return setLocal((now) => ({ ...now, offline: true }));
+        return setLocal((now) => ({ ...now, offline: true, sent: null }));
       }
       if (event.kind === "rejected") {
         const { reason } = event;
+        setLocal((now) => ({ ...now, sent: null }));
         return setToast((now) => ({ id: (now?.id ?? 0) + 1, text: reason }));
       }
       setUpdate(event.update);
@@ -451,8 +456,32 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       // When their step is over (sent, or taken back), the board is where the player left it.
       const closes = sheet === null ? (sheetAt?.system ?? null) : null;
       sheetAt = sheet;
+      // An update of another seat leaves the question of the viewer as it was: what the player
+      // staged, live or in a draft, stays.
+      const fresh =
+        event.update.pending_choice?.nonce !== choiceAt || !!event.plan || !!event.undone;
+      choiceAt = event.update.pending_choice?.nonce;
       // A new choice starts with nothing staged. The inspector stays where the player left it.
       setLocal((now) => {
+        if (opens) {
+          inspectedBefore = now.inspected;
+        }
+        const inspected = opens
+          ? (sheet?.system ?? null)
+          : closes !== null && now.inspected === closes
+            ? inspectedBefore
+            : now.inspected;
+        if (!fresh) {
+          return {
+            ...now,
+            inspected,
+            error: null,
+            offline: false,
+            replaying: null,
+            canUndo: event.canUndo,
+            stepping: event.stepping?.seat ?? null,
+          };
+        }
         const facts = event.update.tactical;
         const stopped = event.plan;
         // A movement that another decision stopped is staged again when the movement goes on.
@@ -515,16 +544,9 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           // The action is over, or another one starts.
           remaining = null;
         }
-        if (opens) {
-          inspectedBefore = now.inspected;
-        }
         return {
           ...now,
-          inspected: opens
-            ? (sheet?.system ?? null)
-            : closes !== null && now.inspected === closes
-              ? inspectedBefore
-              : now.inspected,
+          inspected,
           staged: null,
           sent: null,
           error: null,
@@ -641,8 +663,18 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     asked.current = { wanted, base: update };
     transport.draft(wanted.script, wanted.scope);
   }, [transport, update, wanted]);
-  /** The answer is of this script on this game. Until it is, the last one stays in view. */
-  const answered = !!run && run.wanted === wanted && run.base === update;
+  /**
+   * The answer is of this script. The game may have changed since (another seat acted): the
+   * screen and its main button stay as they are, and the answer for the new game replaces it.
+   */
+  const settled =
+    !!run &&
+    !!wanted &&
+    (run.wanted === wanted ||
+      (same(run.wanted.script, wanted.script) &&
+        same(run.wanted.scope ?? null, wanted.scope ?? null)));
+  /** The answer is of this script on this game. */
+  const answered = settled && run.base === update;
   const tactical = !!wanted && !wanted.scope;
   // Before the first answer the draft is open with nothing to decide, so that nothing of the
   // live game can be sent from it.
@@ -655,18 +687,21 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   }, [update]);
   const outcome = !tactical
     ? null
-    : answered
+    : settled
       ? run.outcome
       : ((run && !run.wanted.scope ? run.outcome : null) ?? unanswered);
-  const waiting = tactical && !answered;
+  const waiting = tactical && !settled;
   /** What the game made of the draft of the secondary. Until the answer, of the draft before. */
   const followOutcome = wanted?.scope && run?.wanted.scope ? run.outcome : null;
-  const followChecked = !!wanted?.scope && answered;
+  const followChecked = !!wanted?.scope && settled;
+  /** The draft of the secondary is checked on the game as it is now. */
+  const followFresh = !!wanted?.scope && answered;
 
   // A ready draft is sent when the game asks the seat, if the game still plays it whole. One
-  // that no longer fits is not ready, and the seat decides in Live.
+  // that no longer fits is not ready, and the seat decides in Live. Both need the check of the
+  // game as it is now.
   useEffect(() => {
-    if (!transport || !mine?.ready || !followChecked || !followOutcome) {
+    if (!transport || !mine?.ready || !followFresh || !followOutcome) {
       return;
     }
     const fits = isOver(mine, followOutcome);
@@ -681,7 +716,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         planNote: { text: "Your draft no longer fits the game. It is not ready.", error: true },
       }));
     }
-  }, [transport, mine, followChecked, followOutcome, reached]);
+  }, [transport, mine, followFresh, followOutcome, reached]);
 
   // The sheet of the landings or of the build opens when the draft comes to that step.
   const draftStage =

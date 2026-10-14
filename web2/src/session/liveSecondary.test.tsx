@@ -124,8 +124,17 @@ it.skipIf(!built)(
     expect(options.map((row) => row.title)).toEqual(["Decline", "Draw"]);
     expect(button("Record")?.disabled).toBe(true);
 
-    // An answer is recorded, not sent: the game is asked again, and the secondary is over.
+    // What is staged stays while another seat acts, and so does the main button.
     await dispatch(options[0].intent);
+    expect(button("Record")?.disabled).toBe(false);
+    expect(button("Step")).toBeDefined();
+    const before = game.result.current.session;
+    await dispatch({ type: "simulate" });
+    await waitFor(() => expect(game.result.current.session).not.toBe(before));
+    expect(button("Record")?.disabled).toBe(false);
+    expect(menu(mine()?.open).map((row) => row.title)).toEqual(["Decline", "Draw"]);
+
+    // An answer is recorded, not sent: the game is asked again, and the secondary is over.
     await dispatch({ type: "flow", action: "resolve" });
     await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
     expect(mine()).toMatchObject({ status: { label: "Private draft" }, text: "Decline" });
