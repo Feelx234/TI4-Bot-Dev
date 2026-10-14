@@ -427,6 +427,7 @@ async fn run_connection(
             protocol_version: PROTOCOL_VERSION,
             game_id: config.game_id.clone(),
             player_session: Some(admission.session.clone()),
+            staged: false,
         },
         config.timeout,
     )
@@ -904,6 +905,7 @@ mod tests {
                     protocol_version: PROTOCOL_VERSION,
                     game_id: game.to_owned(),
                     player_session: Some(admitted.session.clone()),
+                    staged: false,
                 },
                 Duration::from_secs(2),
             )

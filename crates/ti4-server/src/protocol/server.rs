@@ -1893,6 +1893,47 @@ pub struct DraftAppliedMsg {
     pub stopped: Option<ScriptStopped>,
 }
 
+/// What the seat of a connection has staged (`crate::session::staged`). Sent only to the
+/// connections of that seat that asked for it (`ClientMessage::Subscribe::staged`): after the
+/// snapshot, after every write of any of them, and to a connection whose write was stale.
+/// Carries no game version on purpose: a stale-version filter must never drop it; the newest
+/// message is the one with the highest `revision`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeatStagedMsg {
+    pub protocol_version: u16,
+    pub game_id: String,
+    /// The revision of the newest write of any slot (0: never written).
+    pub revision: u64,
+    /// The slots that were ever written; a cleared slot has no value.
+    pub slots: std::collections::BTreeMap<
+        crate::session::staged::StagedSlot,
+        crate::session::staged::StagedValue,
+    >,
+    /// The connection whose write this is, so that it can skip its own echo. Absent in the
+    /// message after the snapshot and in the answer to a stale write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer: Option<u64>,
+    /// The id of the connection that is sent this message, in the message after its snapshot
+    /// only: the `writer` of its own writes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<u64>,
+}
+
+impl SeatStagedMsg {
+    #[must_use]
+    pub fn new(game_id: &str, staged: crate::session::staged::SeatStaged) -> Self {
+        Self {
+            protocol_version: crate::protocol::PROTOCOL_VERSION,
+            game_id: game_id.to_owned(),
+            revision: staged.revision,
+            slots: staged.slots,
+            writer: None,
+            connection: None,
+        }
+    }
+}
+
 /// Messages emitted from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -1917,6 +1958,8 @@ pub enum ServerMessage {
     /// What a seat would be asked for the secondary in progress, as of now. Sent only to the
     /// connection that asked; ephemeral.
     SecondaryPreview(SecondaryPreviewMsg),
+    /// What the seat has staged. Sent only to the connections of that seat that asked for it.
+    SeatStaged(SeatStagedMsg),
 }
 
 impl ServerMessage {
@@ -1941,6 +1984,7 @@ impl ServerMessage {
             Self::DraftApplied(m) => m.protocol_version,
             Self::ReactionIntentState(m) => m.protocol_version,
             Self::SecondaryPreview(m) => m.protocol_version,
+            Self::SeatStaged(m) => m.protocol_version,
         }
     }
 
@@ -1963,6 +2007,7 @@ impl ServerMessage {
             Self::DraftApplied(m) => Some(&m.game_id),
             Self::ReactionIntentState(m) => Some(&m.game_id),
             Self::SecondaryPreview(m) => Some(&m.game_id),
+            Self::SeatStaged(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -1989,7 +2034,8 @@ impl ServerMessage {
             | Self::DraftOutcome(_)
             | Self::DraftApplied(_)
             | Self::ReactionIntentState(_)
-            | Self::SecondaryPreview(_) => None,
+            | Self::SecondaryPreview(_)
+            | Self::SeatStaged(_) => None,
         }
     }
 }

@@ -164,6 +164,7 @@ impl Fixture {
                 protocol_version: PROTOCOL_VERSION,
                 game_id: self.session.id().into(),
                 player_session: player.map(|player| self.token(player)),
+                staged: false,
             },
         )
         .await;
@@ -759,6 +760,7 @@ async fn revoked_credential_cannot_answer_or_receive_a_planning_offer() {
             protocol_version: PROTOCOL_VERSION,
             game_id: fixture.session.id().into(),
             player_session: Some(credential.as_str().into()),
+            staged: false,
         },
     )
     .await;

@@ -105,13 +105,14 @@ fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
     assert_eq!(subtype(&choice), "movement_step");
     assert_eq!(ships_at(&session, &target, &seat, &unit), before);
     assert_eq!(session.decision_log().len(), at_the_menu.len() + 2);
-    let undone = session.take_undone(&seat);
+    let undone = session.undone_for(&seat);
     let sent = steps(&script);
     assert_eq!(undone.first(), sent.first());
     assert_eq!(undone.last(), Some(&PlanStep::DoneMoving));
-    assert!(
-        session.take_undone(&seat).is_empty(),
-        "the steps are told once"
+    assert_eq!(
+        session.undone_for(&seat),
+        undone,
+        "every connection of the seat is told the steps"
     );
 
     // Then the activation, then the choice of the action: one answer each.
@@ -122,7 +123,7 @@ fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
     let session = registry.get_game(game_id).expect("the game runs");
     let (_, _, version) = asked(&session, &seat);
     assert_eq!(session.decision_log().len(), at_the_menu.len() + 1);
-    assert!(session.take_undone(&seat).is_empty());
+    assert!(session.undone_for(&seat).is_empty());
     registry
         .undo_player(game_id, &credential, &seat, &session, version)
         .expect("the undo is taken");
@@ -249,6 +250,7 @@ async fn an_undo_over_the_websocket_ends_the_connection_and_the_next_snapshot_ha
             protocol_version: PROTOCOL_VERSION,
             game_id: game_id.clone(),
             player_session: Some(credential.clone()),
+            staged: false,
         })
     };
     let undo = |expected_version: u64| {
@@ -313,7 +315,8 @@ async fn an_undo_over_the_websocket_ends_the_connection_and_the_next_snapshot_ha
     .expect("the connection is closed");
     assert_eq!(closed, Some(4001));
 
-    // The page subscribes again: the movement is open, and its steps are told once.
+    // The page subscribes again: the movement is open, and every tab of the seat is told its
+    // steps.
     let (mut socket, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     socket.send(subscribe()).await.unwrap();
     let snapshot = next_message(&mut socket, |message| {
@@ -341,5 +344,5 @@ async fn an_undo_over_the_websocket_ends_the_connection_and_the_next_snapshot_ha
     let ServerMessage::InitialSnapshot(again) = again else {
         unreachable!()
     };
-    assert!(again.undone.is_empty());
+    assert_eq!(again.undone, snapshot.undone);
 }

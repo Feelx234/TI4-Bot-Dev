@@ -423,6 +423,16 @@ pub struct ReactionModesRecord {
     pub modes: BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>>,
 }
 
+/// What each seat has staged and not sent (`session::staged`), saved in `staged.json`.
+///
+/// Not a game input: replay never reads it. A game without the file has nothing staged, which
+/// is how every older save loads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagedRecord {
+    #[serde(default)]
+    pub seats: BTreeMap<PlayerId, crate::session::staged::SeatStaged>,
+}
+
 impl ReactionModesRecord {
     /// The modes of every seat, with the Never cards of an older save among them.
     #[must_use]
@@ -802,6 +812,28 @@ impl FileGameStore {
         read_json_file(&path, MAX_SNAPSHOT_BYTES)
     }
 
+    /// Atomically stores what every seat has staged.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the record is too large or cannot be written.
+    pub fn save_staged(&self, game_id: &str, record: &StagedRecord) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json_bounded(&dir.join("staged.json"), record, MAX_SNAPSHOT_BYTES)
+    }
+
+    /// Loads what the seats have staged; a game that never staged anything has none.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_staged(&self, game_id: &str) -> Result<StagedRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("staged.json");
+        if !path.exists() {
+            return Ok(StagedRecord::default());
+        }
+        read_json_file(&path, MAX_SNAPSHOT_BYTES)
+    }
+
     /// Saves the alternate timeline kept by a turn redo (`turn_redo.json`).
     ///
     /// # Errors
@@ -1154,6 +1186,7 @@ impl FileGameStore {
                 .with_store(self.clone())
                 .with_reaction_modes(self.load_reaction_modes(game_id)?.into_modes())
                 .with_prior_history(decisions.clone(), events.clone());
+        config.staged = crate::session::staged::StagedBook::new(self.load_staged(game_id)?.seats);
         config.resume = replay_copy.map(Arc::new);
         config.random_bot_delay_ms = bot_delay_ms;
         if let Some(history) = history {

@@ -15,6 +15,9 @@ pub const MAX_SCRIPT_ENTRIES: usize = 512;
 /// `session::bluff::MAX_DECLARED_TRIGGERS`) and the longest id.
 pub const MAX_INTENT_TRIGGERS: usize = 16;
 pub const MAX_TRIGGER_ID_BYTES: usize = 32;
+/// The largest value of one slot of `PutStaged`, as JSON: room for a draft with its undo
+/// history, under the size of a whole message.
+pub const MAX_STAGED_VALUE_BYTES: usize = 48 * 1024;
 /// Most answers one `PreviewSecondary` may carry (a Leadership purchase scripts its whole payment).
 pub const MAX_PREVIEW_ANSWERS: usize = ti4_engine::secondary_preview::MAX_ANSWERS;
 
@@ -28,6 +31,11 @@ pub enum ClientMessage {
         game_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         player_session: Option<String>,
+        /// The connection takes part in the staged work of its seat: it is sent
+        /// `ServerMessage::SeatStaged` after the snapshot and after every change, from any
+        /// connection of the seat. Left out by a client that keeps its staged work itself.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        staged: bool,
     },
     /// Submit an engine-offered option ID for an outstanding decision.
     SubmitChoice {
@@ -162,6 +170,20 @@ pub enum ClientMessage {
         #[serde(default)]
         answers: Vec<String>,
     },
+    /// Replace what this connection's seat has staged in one slot (`None` clears it). The
+    /// server keeps it for the seat, not for the connection, so every tab and device of the
+    /// seat has it. The value is the client's and the server does not read it. The put is a
+    /// compare-and-set: `base_revision` is the revision of the slot that the client changed
+    /// (0 for a slot that was never written). A stale one writes nothing, and the connection is
+    /// sent the slots as they are.
+    PutStaged {
+        protocol_version: u16,
+        game_id: String,
+        slot: crate::session::staged::StagedSlot,
+        base_revision: u64,
+        #[serde(default)]
+        value: Option<serde_json::Value>,
+    },
     /// Keep-alive ping message.
     Ping {
         protocol_version: u16,
@@ -256,6 +278,7 @@ impl std::fmt::Debug for ClientMessage {
                 protocol_version,
                 game_id,
                 player_session,
+                staged,
             } => f
                 .debug_struct("Subscribe")
                 .field("protocol_version", protocol_version)
@@ -264,6 +287,20 @@ impl std::fmt::Debug for ClientMessage {
                     "player_session",
                     &player_session.as_ref().map(|_| "[redacted]"),
                 )
+                .field("staged", staged)
+                .finish(),
+            Self::PutStaged {
+                game_id,
+                slot,
+                base_revision,
+                value,
+                ..
+            } => f
+                .debug_struct("PutStaged")
+                .field("game_id", game_id)
+                .field("slot", slot)
+                .field("base_revision", base_revision)
+                .field("cleared", &value.is_none())
                 .finish(),
             Self::SubmitChoice {
                 protocol_version,
@@ -394,6 +431,9 @@ impl ClientMessage {
                 protocol_version, ..
             }
             | Self::Ping {
+                protocol_version, ..
+            }
+            | Self::PutStaged {
                 protocol_version, ..
             }
             | Self::RunDraft {
@@ -532,6 +572,15 @@ impl ClientMessage {
                 }
                 for answer in answers {
                     bounded(answer, MAX_OPTION_ID_BYTES, "answers")?;
+                }
+            }
+            Self::PutStaged { game_id, value, .. } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                if value.as_ref().is_some_and(|value| {
+                    !serde_json::to_string(value)
+                        .is_ok_and(|text| text.len() <= MAX_STAGED_VALUE_BYTES)
+                }) {
+                    return Err("value");
                 }
             }
             Self::Ping { .. } => {}

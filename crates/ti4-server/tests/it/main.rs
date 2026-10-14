@@ -58,6 +58,7 @@ mod smart_bot_survey;
 mod smart_bots;
 mod splice;
 mod splice_http;
+mod staged;
 mod strategy_card_set;
 mod support;
 mod table_http;

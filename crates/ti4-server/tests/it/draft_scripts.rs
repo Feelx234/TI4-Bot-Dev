@@ -413,6 +413,7 @@ async fn the_script_messages_are_answered_over_the_websocket() {
             protocol_version: PROTOCOL_VERSION,
             game_id: game_id.clone(),
             player_session: Some(credential.as_str().to_owned()),
+            staged: false,
         }))
         .await
         .unwrap();

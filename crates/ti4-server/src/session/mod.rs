@@ -11,6 +11,7 @@ pub mod replay;
 pub mod rng_force;
 pub(crate) mod script;
 pub mod splice;
+pub mod staged;
 pub mod step_snapshot;
 pub mod table;
 pub mod transport;
@@ -158,8 +159,11 @@ pub struct SessionConfig {
     pub announce_tail: bool,
     /// The mode of each reaction that a seat set (see `reaction_modes`).
     pub reaction_modes: BTreeMap<PlayerId, reaction_modes::Modes>,
+    /// What each seat has staged (see `staged`). Shared, not copied, by the sessions that
+    /// replace each other.
+    pub staged: staged::StagedBook,
     /// The steps that the undo of a seat took back, when this session is what that undo left.
-    /// The seat is told them with its next snapshot.
+    /// Every first snapshot of a connection of the seat has them, until the seat decides again.
     pub undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
     /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
     /// `step_snapshot`). Off only in tests that compare against the full-replay path.
@@ -208,6 +212,7 @@ impl SessionConfig {
             replay_boundary_state: None,
             announce_tail: false,
             reaction_modes: BTreeMap::new(),
+            staged: staged::StagedBook::default(),
             undone: BTreeMap::new(),
             step_snapshots: true,
             random_bot_delay_ms: None,
@@ -657,16 +662,81 @@ impl GameSession {
             .undo_plan(seat, expected_version)
     }
 
-    /// The steps that the undo before this session took back for `seat`. They are told once,
-    /// with the first snapshot of the seat, as a local game tells them with one update.
+    /// The steps that the undo before this session took back for `seat`. Every connection of
+    /// the seat is told them with its first snapshot of this session, as a local game tells them
+    /// with one update; they are forgotten when the seat decides again.
     #[must_use]
-    pub fn take_undone(&self, seat: &PlayerId) -> Vec<ti4_view::planning::steps::PlanStep> {
+    pub fn undone_for(&self, seat: &PlayerId) -> Vec<ti4_view::planning::steps::PlanStep> {
         self.shared
             .lock()
             .expect("shared lock")
             .undone
-            .remove(seat)
+            .get(seat)
+            .cloned()
             .unwrap_or_default()
+    }
+
+    /// What `seat` has staged (see `staged`).
+    #[must_use]
+    pub fn seat_staged(&self, seat: &PlayerId) -> staged::SeatStaged {
+        self.initial_config
+            .staged
+            .lock()
+            .get(seat)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Write one slot of what `seat` has staged, by compare-and-set on its revision
+    /// ([`staged::SeatStaged::put`]), save it, and send it to every connection of the seat with
+    /// `writer` as the writer. A stale or unchanged put writes and sends nothing.
+    ///
+    /// # Errors
+    /// A message for the client when the write could not be saved (it is then not applied).
+    pub fn put_staged(
+        &self,
+        seat: &PlayerId,
+        slot: staged::StagedSlot,
+        base_revision: u64,
+        value: Option<serde_json::Value>,
+        writer: u64,
+    ) -> Result<staged::Put, String> {
+        let mut book = self.initial_config.staged.lock();
+        let before = book.get(seat).cloned();
+        let entry = book.entry(seat.clone()).or_default();
+        let put = entry.put(slot, base_revision, value);
+        let current = entry.clone();
+        if put != staged::Put::Written {
+            if before.is_none() {
+                book.remove(seat);
+            }
+            return Ok(put);
+        }
+        if let Some(store) = &self.initial_config.store {
+            let record = crate::storage::StagedRecord {
+                seats: book.clone(),
+            };
+            if let Err(error) = store.save_staged(&self.game_id, &record) {
+                match before {
+                    Some(before) => book.insert(seat.clone(), before),
+                    None => book.remove(seat),
+                };
+                return Err(format!("could not save the staged work: {error}"));
+            }
+        }
+        let mut message = crate::protocol::server::SeatStagedMsg::new(&self.game_id, current);
+        message.writer = Some(writer);
+        let message = ServerMessage::SeatStaged(message);
+        // Sent under the lock of the book, so the connections get the writes in their order.
+        let viewer = ViewerRole::Player(seat.clone());
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .subscribers
+            .retain(|_, subscriber| {
+                subscriber.viewer != viewer || subscriber.tx.try_send(message.clone()).is_ok()
+            });
+        Ok(put)
     }
 
     /// Set one seat's handling of one action card, by printed name.
