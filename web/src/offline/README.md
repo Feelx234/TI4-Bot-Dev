@@ -31,7 +31,7 @@ page sets `window.__TI4_OFFLINE_MOCK__` or the URL has `?offline-mock`) stands i
 4. Hide degraded features with `useCapability("turnRedo" | "splicePreview" | "advisor" | "multiplayer")`
    or `<IfCapable name=...>`. The shell does not touch GameShell, the redo hook, the advisor or the map
    picker; T5 wires those flags in.
-5. Server side: the feedback endpoint must accept `context.local` (triage replays from it).
+5. Server side (built): `/api/feedback` accepts `context.local` (shape `OfflineFeedbackLocal` in types.ts) and an optional `report_id`; a retry with the same id is stored once (`duplicate: true`). Treat 200 as sent.
 
 Not done here: import of an exported file, switching an offline game to online, the setup's map and
 strategy-card-set choices (the setup form has only players, seat, faction, nickname, dev seed).

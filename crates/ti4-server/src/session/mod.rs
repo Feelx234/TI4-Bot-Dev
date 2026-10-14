@@ -3,8 +3,8 @@ pub mod bluff_hold;
 pub mod decider;
 mod planning;
 pub mod preview;
-pub mod reach;
 pub mod random_bot;
+pub mod reach;
 pub mod reaction_modes;
 pub mod registry;
 pub(crate) mod script;
@@ -80,9 +80,9 @@ pub use decider::RemoteHumanDecider;
 pub use planning::PlanningError;
 pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use ti4_host::{batch, replay, rng_force, step_snapshot};
 pub use ti4_host::replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
 pub use ti4_host::rng_force::{RngForce, RngMarks};
+pub use ti4_host::{batch, replay, rng_force, step_snapshot};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.

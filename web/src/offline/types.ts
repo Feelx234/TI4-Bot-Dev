@@ -80,15 +80,40 @@ export interface QueuedFeedbackReport {
   text: string;
   /** The ordinary context of the feedback sheet. */
   context: Record<string, unknown>;
-  /** Present for offline games: lets triage replay the game. */
-  local?: {
-    gameId: string;
+  /** Present for offline games: lets triage replay the game. Sent as `context.local`. */
+  local?: OfflineFeedbackLocal;
+  /**
+   * Client-generated id of this report (8 to 64 characters of A-Za-z0-9_-). The queue keeps it
+   * across retries and sends it as `report_id`, so the server stores the report once.
+   */
+  reportId?: string;
+}
+
+/**
+ * What `POST /api/feedback` accepts as `context.local` (crates/ti4-server/src/feedback.rs,
+ * `validate_local`). `save` is the host's `save_state` object; `seed` and `answers` repeat its
+ * values and must equal them. Caps: `context.local` 2 MiB, `answers` 50 000 entries.
+ */
+export interface OfflineFeedbackLocal {
+  seed: number;
+  setup: Record<string, unknown>;
+  /** The human's option ids so far. */
+  answers: string[];
+  engine: { build: string; content_digest: string };
+  wasm_sha256: string;
+  save: {
     seed: number;
-    /** The human's option ids so far. */
+    setup: Record<string, unknown>;
     answers: string[];
-    engineHash: string;
-    playerCount: number;
-    humanSeat: number;
+    redo: string[];
+    never: string[];
+    event_times: string[];
+    event_versions: Array<number | null>;
+    generation: number;
+    version: number;
+    decisions: number;
+    decisions_hash: string;
+    [other: string]: unknown;
   };
 }
 

@@ -8,7 +8,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::feedback::{FeedbackRequest, store, validate};
+use crate::feedback::{FeedbackRequest, store_once, validate};
 use crate::session::GameRegistry;
 
 pub async fn post_feedback(
@@ -34,8 +34,11 @@ pub async fn post_feedback(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    match tokio::task::spawn_blocking(move || store(&dir, request, now, &commit)).await {
-        Ok(Ok(id)) => Json(serde_json::json!({ "id": id })).into_response(),
+    match tokio::task::spawn_blocking(move || store_once(&dir, request, now, &commit)).await {
+        // `duplicate`: a retry of a report that was stored before; nothing new was written.
+        Ok(Ok((id, duplicate))) => {
+            Json(serde_json::json!({ "id": id, "duplicate": duplicate })).into_response()
+        }
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": "storage_failed", "message": "could not save the report" })),

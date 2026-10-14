@@ -549,7 +549,7 @@ async fn feedback_is_validated_stored_as_a_file_and_has_its_own_size_limit() {
     assert_eq!(ti4_server::feedback::list_recent(&dir, 10).len(), 2);
     let _ = std::fs::remove_dir_all(dir);
 
-    // Body limit: far above 8 KiB passes, above 256 KiB is refused; separate dir and bucket.
+    // Body limit: far above 8 KiB passes, above 3 MiB is refused; separate dir and bucket.
     let dir = temp_dir("fb2");
     let mut cfg = public_config(&dir);
     cfg.rate_limits = None;
@@ -563,8 +563,7 @@ async fn feedback_is_validated_stored_as_a_file_and_has_its_own_size_limit() {
         .await
         .unwrap();
     assert_eq!(r.status(), StatusCode::OK);
-    let huge =
-        json!({ "category": "other", "text": "big", "context": { "events": "e".repeat(300_000) } });
+    let huge = json!({ "category": "other", "text": "big", "context": { "events": "e".repeat(4_000_000) } });
     let r = c.post(&url).json(&huge).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
     let _ = std::fs::remove_dir_all(dir);
@@ -601,6 +600,65 @@ async fn feedback_rate_limit_triggers_with_429() {
         ]
     );
     assert_eq!(ti4_server::feedback::list_recent(&dir, 10).len(), 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn offline_feedback_is_stored_once_per_report_id_and_extractable() {
+    let c = reqwest::Client::new();
+    let dir = temp_dir("fboffline");
+    let mut cfg = public_config(&dir);
+    cfg.rate_limits = None;
+    let base = spawn(cfg).await;
+    let url = format!("http://{base}/api/feedback");
+    let ids: Vec<String> = (0..2000).map(|i| format!("option_{i}")).collect();
+    let times: Vec<String> = (0..20_000).map(|_| "10:00:00.000Z".to_owned()).collect();
+    let local = json!({
+        "seed": 9, "setup": { "seed": 9, "players": 3 }, "answers": ids,
+        "engine": { "build": "b1", "content_digest": "cd" }, "wasm_sha256": "aa",
+        "save": { "seed": 9, "setup": { "seed": 9, "players": 3 }, "answers": ids, "redo": [],
+            "never": [], "event_times": times, "event_versions": [], "generation": 0,
+            "version": 3, "decisions": 55, "decisions_hash": "0123456789abcdef" }
+    });
+    let body = json!({ "category": "bug", "text": "offline problem", "report_id": "client-rep-0001",
+        "context": { "sender": { "nickname": "Ada" }, "local": local } });
+    let first: Value = c
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first["duplicate"], false);
+    // The client did not see the answer and sends again.
+    let second: Value = c
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(second["duplicate"], true);
+    assert_eq!(second["id"], first["id"]);
+    let reports = ti4_server::feedback::list_recent(&dir, 10);
+    assert_eq!(reports.len(), 1);
+    let blob = ti4_server::feedback::save_blob(&reports[0].1).unwrap();
+    assert_eq!(blob["decisions"], 55);
+    assert_eq!(blob["answers"].as_array().unwrap().len(), 2000);
+    assert!(
+        ti4_server::feedback::render(&reports[0].1, false).contains("source: offline | seed 9")
+    );
+    // A malformed local is refused.
+    let mut bad = body.clone();
+    bad["report_id"] = json!("client-rep-0002");
+    bad["context"]["local"]["save"]["seed"] = json!(10);
+    let r = c.post(&url).json(&bad).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(ti4_server::feedback::list_recent(&dir, 10).len(), 1);
     let _ = std::fs::remove_dir_all(dir);
 }
 
