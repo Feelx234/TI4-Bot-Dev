@@ -16,7 +16,7 @@ for (const [size, viewport] of Object.entries(SIZES)) {
     await page.waitForFunction(() => (window as unknown as Record<string, unknown>).__TI4_OFFLINE_DEV__);
     await page.evaluate(() => {
       const dev = (window as unknown as { __TI4_OFFLINE_DEV__: { setActiveOfflineGame: (g: unknown) => void } }).__TI4_OFFLINE_DEV__;
-      dev.setActiveOfflineGame({ gameId: "off_b", local: () => ({ gameId: "off_b", seed: 7, answers: ["a", "b"], engineHash: "h", playerCount: 4, humanSeat: 1 }) });
+      dev.setActiveOfflineGame({ gameId: "off_b", local: () => ({ seed: 7, setup: {}, answers: ["a", "b"], engine: { build: "0.1.0", content_digest: "d" }, wasm_sha256: "ab".repeat(32), save: { seed: 7, setup: {}, answers: ["a", "b"] } }) });
     });
     await page.getByTestId("feedback-button").click();
     await page.getByTestId("feedback-text").fill("The bot took the wrong planet.");

@@ -20,10 +20,15 @@ export const OfflineBanner: React.FC<{
   viewOnly?: boolean;
 }> = ({ capabilities, feedback, onRetryFeedback, storage, viewOnly }) => {
   const missing = unavailableFeatures(capabilities).filter((x) => x !== "Instant feedback delivery");
-  const chip = feedbackChipText(useFeedbackQueue(feedback));
+  const items = useFeedbackQueue(feedback);
+  const chip = feedbackChipText(items);
+  // "Retry" sends every report that gave up (the sheet of an offline game has no other way to).
+  const retry =
+    onRetryFeedback ??
+    (() => items.filter((item) => item.state === "failed").forEach((item) => feedback?.retry(item.localId)));
   const engine = engineLabel(useLoadedEngine());
   return (
-    <>
+    <div className="offline-banner-stack">
     <div className="offline-banner" role="status" data-testid="offline-banner">
       <strong className="offline-banner__tag">Offline game</strong>
       <span className="offline-banner__text">Runs on this device against rule bots.</span>
@@ -45,8 +50,8 @@ export const OfflineBanner: React.FC<{
       {chip && (
         <span className="offline-banner__queue" data-testid="offline-feedback-chip">
           {chip}
-          {onRetryFeedback && chip.includes("could not") && (
-            <button type="button" className="offline-link" onClick={onRetryFeedback}>
+          {chip.includes("could not") && (
+            <button type="button" className="offline-link" data-testid="offline-feedback-retry" onClick={retry}>
               Retry
             </button>
           )}
@@ -54,6 +59,6 @@ export const OfflineBanner: React.FC<{
       )}
     </div>
     <StorageNotice storage={storage} />
-    </>
+    </div>
   );
 };

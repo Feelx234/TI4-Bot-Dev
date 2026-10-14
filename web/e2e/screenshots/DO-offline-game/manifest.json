@@ -11,7 +11,7 @@
     { "file": "out/3-action-phase-390x844.png", "heading": "Action phase on a phone", "caption": "The same at 390x844." },
     { "file": "out/4-event-log-no-turn-redo-desktop.png", "heading": "Event log: undo yes, turn redo no", "caption": "History controls that the engine supports (Undo from a decision, copy replay) stay; turn redo is hidden because the offline transport reports turnRedo: false." },
     { "file": "out/4-event-log-no-turn-redo-390x844.png", "heading": "Event log on a phone", "caption": "The same at 390x844." },
-    { "file": "out/5-resumed-after-refresh-desktop.png", "heading": "After a refresh", "caption": "Reloading the tab in the middle of a game plays the stored answers again in a new engine and shows the same question. (The store is a sessionStorage placeholder until the IndexedDB store of T6.)" },
+    { "file": "out/5-resumed-after-refresh-desktop.png", "heading": "After a refresh", "caption": "Reloading the tab in the middle of a game plays the stored answers again in a new engine and shows the same question. The game comes back from the IndexedDB save store." },
     { "file": "out/6-feedback-sheet-desktop.png", "heading": "Feedback from an offline game", "caption": "The feedback button exists in an offline game even though there is no server to ask." },
     { "file": "out/7-feedback-queued-desktop.png", "heading": "Queued feedback", "caption": "Send does not wait for the network: the report is queued with the seed, the answers and the engine hash and goes out in the background." }
   ],

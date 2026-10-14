@@ -9,6 +9,8 @@ export function ImportGameButton(props: {
   /** `OfflineSaveStore.importGame`, or the launcher's `storage.importGame`. */
   importGame: (file: Blob) => Promise<{ id: string; engineDiffers: boolean }>;
   onImported: (outcome: { id: string; engineDiffers: boolean }) => void;
+  /** Where a refused file's reason goes; without it the reason is shown under the button. */
+  onProblem?: (message: string | null) => void;
   disabled?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
@@ -35,10 +37,13 @@ export function ImportGameButton(props: {
           e.currentTarget.value = "";
           if (!file) return;
           setProblem(null);
+          props.onProblem?.(null);
           try {
             props.onImported(await props.importGame(file));
           } catch (err) {
-            setProblem(err instanceof StoreError ? err.message : "The file could not be imported.");
+            const message = err instanceof StoreError ? err.message : "The file could not be imported.";
+            if (props.onProblem) props.onProblem(message);
+            else setProblem(message);
           }
         }}
       />

@@ -122,7 +122,12 @@ export const OfflineHome: React.FC<{
                   <ImportGameButton
                     importGame={(file) => launcher.storage!.importGame(file)}
                     disabled={!support.ok}
+                    onProblem={(message) => {
+                      setError(message);
+                      if (message) setNotice(null);
+                    }}
                     onImported={(outcome) => {
+                      setError(null);
                       setNotice(
                         outcome.engineDiffers
                           ? "Game imported. It was saved with another engine: you will be asked what to do when you open it."
