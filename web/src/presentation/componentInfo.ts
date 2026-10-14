@@ -9,6 +9,7 @@ import {
   TECHNOLOGIES,
   type TechnologyMeta,
 } from "../protocol/contentCatalog.ts";
+import { breakthroughNote } from "./breakthroughs.ts";
 import {
   findFactionRecord,
   type FactionAbilityRecord,
@@ -164,7 +165,10 @@ const fallback = (option: ChoiceOptionDto, kind: string): ComponentDescription =
 });
 
 /** Map an engine component option to its printed description. */
-export function describeComponent(option: ChoiceOptionDto): ComponentDescription {
+export function describeComponent(
+  option: ChoiceOptionDto,
+  viewerFaction?: string | null,
+): ComponentDescription {
   const id = option.id;
   const label = option.label;
 
@@ -233,7 +237,8 @@ export function describeComponent(option: ChoiceOptionDto): ComponentDescription
       timing: "ACTION",
       cost: componentCost(label),
       text: option.description ?? `Pay for and resolve this expedition slice: ${what}.`,
-      note: null,
+      // The slice that grants the breakthrough names the card so the choice is an informed one.
+      note: breakthroughNote(viewerFaction),
     };
   }
 

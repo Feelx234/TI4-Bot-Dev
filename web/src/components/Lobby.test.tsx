@@ -14,7 +14,6 @@ const lobby: LobbyDto = {
       position: 1,
       occupant: "player_a",
       nickname: "Same name",
-      ready: true,
       connected: true,
       can_take_over: false,
     },
@@ -23,7 +22,6 @@ const lobby: LobbyDto = {
       position: 2,
       occupant: "player_b",
       nickname: "Same name",
-      ready: false,
       connected: false,
       can_take_over: true,
     },
@@ -32,20 +30,17 @@ const lobby: LobbyDto = {
       position: 3,
       occupant: null,
       nickname: null,
-      ready: false,
       connected: false,
       can_take_over: false,
     },
   ],
 };
 const props = {
-  onReady: vi.fn(),
   onStart: vi.fn(),
   onLeave: vi.fn(),
   onJoin: vi.fn(),
   onWatch: vi.fn(),
   onTakeover: vi.fn(),
-  onReorder: vi.fn(),
 };
 afterEach(() => {
   localStorage.clear();
@@ -165,61 +160,43 @@ describe("lobby UI", () => {
     expect(screen.getByTestId("lobby-container").textContent).not.toContain("Game: game");
   });
 
-  it("permits only the stable host identity to reorder every slot, including open slots", () => {
+  it("gives no seat a Ready button and no host a control to move a seat", () => {
     const { rerender } = render(<LobbyStatus lobby={lobby} playerId="player_a" {...props} />);
-    fireEvent.click(screen.getByLabelText("Move position 2 down"));
-    expect(props.onReorder).toHaveBeenCalledWith(["slot_1", "slot_3", "slot_2"]);
+    expect(screen.queryByLabelText(/Move position/)).toBeNull();
+    expect(screen.queryByTestId("ready-button")).toBeNull();
     expect(screen.getByTestId("start-game-button")).toBeDisabled();
     expect(screen.queryByText("Leave lobby")).toBeNull();
     rerender(<LobbyStatus lobby={lobby} playerId="player_b" {...props} />);
-    expect(screen.queryByLabelText("Move position 2 down")).toBeNull();
-    fireEvent.click(screen.getByTestId("ready-button"));
+    expect(screen.queryByTestId("ready-button")).toBeNull();
     fireEvent.click(screen.getByText("Leave lobby"));
-    expect(props.onReady).toHaveBeenCalledWith(true);
     expect(props.onLeave).toHaveBeenCalledOnce();
-    const moved = {
-      ...lobby,
-      slots: [
-        { ...lobby.slots[1], position: 1 },
-        { ...lobby.slots[0], position: 2 },
-        lobby.slots[2],
-      ],
-    };
-    rerender(<LobbyStatus lobby={moved} playerId="player_b" {...props} />);
-    expect(screen.getByText(/Position 1: Same name/)).toBeInTheDocument();
-    expect(screen.getByText(/Position 2: Same name \(Host\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Position 1: Same name/).closest(".lobby-list__item")).toHaveStyle({
-      borderLeftColor: "rgb(230, 159, 0)",
-    });
+    expect(screen.getByText(/Position 1: Same name \(Host\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Position 2: Same name/)).toBeInTheDocument();
   });
 
-  it("keeps unjoined watchers and running spectators away from readiness and host controls", () => {
+  it("keeps unjoined watchers and running spectators away from host controls", () => {
     const { rerender } = render(<LobbyStatus lobby={lobby} playerId={null} watching {...props} />);
-    expect(screen.queryByTestId("ready-button")).not.toBeInTheDocument();
     expect(screen.queryByTestId("start-game-button")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Join game" })).toHaveClass("button");
     expect(screen.getByRole("button", { name: /Rejoin as/ })).toHaveClass("button");
-    expect(screen.getByText("○ Not ready")).toHaveClass("lobby-readiness--waiting");
     expect(screen.getByText("◇ Disconnected")).toHaveClass("lobby-presence--disconnected");
     rerender(
       <LobbyStatus lobby={{ ...lobby, phase: "running" }} playerId={null} watching {...props} />,
     );
     expect(screen.queryByRole("button", { name: "Join game" })).not.toBeInTheDocument();
-    expect(screen.queryByTestId("ready-button")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/Move position/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("start-game-button")).not.toBeInTheDocument();
   });
 
-  it("explains disabled start and distinguishes readiness and presence without color", () => {
+  it("explains disabled start, starts a full table, and marks presence without color", () => {
     const { rerender } = render(<LobbyStatus lobby={lobby} playerId="player_a" {...props} />);
-    expect(screen.getByTestId("ready-button")).toHaveTextContent("Mark not ready");
-    expect(screen.getByTestId("ready-button")).toHaveClass("lobby-unready-button");
+    expect(screen.getByTestId("start-game-button")).toBeDisabled();
     expect(screen.getByTestId("start-game-button")).toHaveAttribute(
       "aria-describedby",
       "start-reason",
     );
     expect(screen.getByText("Waiting for 1 open position to be filled.")).toBeInTheDocument();
-    expect(screen.getByText("✔ Ready")).toBeInTheDocument();
     expect(screen.getByText("● Connected")).toBeInTheDocument();
+    expect(screen.getByText("◇ Disconnected")).toBeInTheDocument();
     const filled = {
       ...lobby,
       slots: [
@@ -228,24 +205,15 @@ describe("lobby UI", () => {
         { ...lobby.slots[2], occupant: "player_c", nickname: "C" },
       ],
     };
+    // Every seat is filled: nobody has to say Ready.
     rerender(<LobbyStatus lobby={filled} playerId="player_a" {...props} />);
-    expect(screen.getByText("Waiting for 2 players to be ready.")).toBeInTheDocument();
-    rerender(
-      <LobbyStatus
-        lobby={{ ...filled, slots: filled.slots.map((slot) => ({ ...slot, ready: true })) }}
-        playerId="player_a"
-        {...props}
-      />,
-    );
     expect(screen.getByTestId("start-game-button")).toBeEnabled();
   });
 
-  it("locks conflicting actions during a request and leaves reorder keyboard labels readable", () => {
-    render(<LobbyStatus lobby={lobby} playerId="player_a" pendingAction="reorder" {...props} />);
-    expect(screen.getByTestId("ready-button")).toBeDisabled();
+  it("locks conflicting actions during a request", () => {
+    render(<LobbyStatus lobby={lobby} playerId="player_a" pendingAction="map" {...props} />);
     expect(screen.getByTestId("start-game-button")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Copy game URL" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Move position 2 down" })).toBeDisabled();
   });
 
   it("reports clipboard failure with a usable fallback", async () => {
@@ -420,7 +388,7 @@ describe("lobby UI", () => {
         ...withFactions,
         slots: withFactions.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "sol", ready: true, connected: true, can_take_over: false }
+            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "sol", connected: true, can_take_over: false }
             : slot,
         ),
       };
@@ -440,7 +408,7 @@ describe("lobby UI", () => {
         ...withFactions,
         slots: withFactions.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "hacan", ready: true, connected: true, can_take_over: false }
+            ? { ...slot, nickname: "Rule bot 1", bot: "smart", faction: "hacan", connected: true, can_take_over: false }
             : slot,
         ),
       };
@@ -473,7 +441,7 @@ describe("lobby UI", () => {
         ...withBots,
         slots: withBots.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Rule bot 1", ready: true, connected: true, can_take_over: false, bot: "smart" }
+            ? { ...slot, nickname: "Rule bot 1", connected: true, can_take_over: false, bot: "smart" }
             : slot,
         ),
       };
@@ -488,7 +456,7 @@ describe("lobby UI", () => {
         ...withBots,
         slots: withBots.slots.map((slot) =>
           slot.position === 2
-            ? { ...slot, nickname: "Random bot 1", ready: true, connected: true, can_take_over: false, bot: "random" }
+            ? { ...slot, nickname: "Random bot 1", connected: true, can_take_over: false, bot: "random" }
             : slot,
         ),
       };

@@ -77,7 +77,6 @@ struct Rebuilding {
 
 /// The window's toggles are four genuinely independent switches - three panels and the setup form -
 /// and each one mirrors a field of the same name in the settings file, so they stay four.
-#[allow(clippy::struct_excessive_bools)]
 pub struct Replayer {
     opened: Option<Opened>,
     status: String,

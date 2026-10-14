@@ -1,5 +1,6 @@
 import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
-import { findTechnologyMeta } from "../protocol/contentCatalog.ts";
+import { findBreakthroughForFaction, findTechnologyMeta } from "../protocol/contentCatalog.ts";
+import { synergyText } from "./breakthroughs.ts";
 
 /**
  * Faction, unit and leader text for the info cards. Every string here is read out of the content
@@ -323,12 +324,20 @@ export interface FactionInfo {
   startingTech: TechLine[];
   factionTech: TechLine[];
   leaders: LeaderLine[];
+  /** The faction's printed Thunder's Edge breakthrough, when the catalog has one. */
+  breakthrough?: { id: string; name: string; synergy: string; text?: string };
 }
 
 const techLine = (id: string): TechLine => {
   const meta = findTechnologyMeta(id);
   return { id, name: meta?.name ?? id, description: meta?.description ?? "" };
 };
+
+function breakthroughLine(factionId: string): FactionInfo["breakthrough"] {
+  const card = findBreakthroughForFaction(factionId);
+  if (!card) return undefined;
+  return { id: card.id, name: card.name, synergy: synergyText(card), text: card.text };
+}
 
 const LEADER_ORDER = ["agent", "commander", "hero"];
 
@@ -375,6 +384,7 @@ export function describeFaction(
     startingTech: faction.startingTech.map(techLine),
     factionTech: faction.factionTech.map(techLine),
     leaders,
+    breakthrough: breakthroughLine(faction.id),
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HistoryStatus, PendingChoiceDto } from "../protocol/types.ts";
 import { loneAction } from "../presentation/loneChoice.ts";
 import { isDryNonce } from "../presentation/dryChoice.ts";
@@ -32,7 +32,7 @@ function claim(nonce: string): boolean {
 }
 
 /**
- * Answers a lone strategic action or lone system activation for the viewer's own seat.
+ * Answers a lone strategic action, lone system activation or movement with nothing to move for the viewer's own seat.
  * The engine still asks and the answer is an ordinary recorded `submit_choice`.
  *
  * "Armed" rule (undo safety): a lone decision is answered only when the game moved FORWARD to it
@@ -52,6 +52,9 @@ export function useLoneAutoSubmit({
   const armed = useRef(false);
   const prev = useRef<HistoryStatus | null>(null);
   const evaluated = useRef<string | null>(null);
+  // The nonce of a lone decision the client is about to answer and whose dialog has nothing to
+  // show (movement with no movable unit): the shell keeps that dialog closed meanwhile.
+  const [answering, setAnswering] = useState<string | null>(null);
   const submitRef = useRef(submit);
   submitRef.current = submit;
   const noticeRef = useRef(onNotice);
@@ -77,6 +80,7 @@ export function useLoneAutoSubmit({
   const lone = viewerSeat && choice?.actor === viewerSeat && !isDryNonce(nonce) ? loneAction(choice) : null;
   const optionId = lone?.optionId ?? null;
   const text = lone?.text ?? null;
+  const hidesDialog = lone?.kind === "movement";
 
   useEffect(() => {
     if (!nonce || evaluated.current === nonce) return;
@@ -84,13 +88,20 @@ export function useLoneAutoSubmit({
     const wasArmed = armed.current;
     armed.current = false;
     if (!wasArmed || !optionId || text === null) return;
+    if (hidesDialog && readAutoSubmitLone()) setAnswering(nonce);
     const timer = window.setTimeout(() => {
-      if (busyRef.current || !readAutoSubmitLone() || !claim(nonce)) return;
+      if (busyRef.current || !readAutoSubmitLone() || !claim(nonce)) {
+        setAnswering(null);
+        return;
+      }
       noticeRef.current?.({ id: `lone-${nonce}`, text });
       submitRef.current(optionId).catch(() => {
         // The session client already records the error; the decision stays open for a click.
+        setAnswering(null);
       });
     }, LONE_SUBMIT_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [nonce, optionId, text]);
+  }, [nonce, optionId, text, hidesDialog]);
+
+  return { answeringNonce: answering };
 }

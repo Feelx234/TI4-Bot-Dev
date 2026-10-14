@@ -138,14 +138,6 @@ export function homeIdSet(seats: readonly MapSeatPreview[]): Set<string> {
   return new Set(seats.map((seat) => seat.home_system_id));
 }
 
-/** The seat the viewer sits in: their lobby position, if they have one. */
-export function viewerSeat(
-  seats: readonly MapSeatPreview[],
-  viewerPosition: number | null | undefined,
-): MapSeatPreview | undefined {
-  return viewerPosition == null ? undefined : seats.find((seat) => seat.seat === viewerPosition);
-}
-
 /** Notice for players when the host changes the map while they look at the lobby. */
 export function mapChangeNotice(
   before: {

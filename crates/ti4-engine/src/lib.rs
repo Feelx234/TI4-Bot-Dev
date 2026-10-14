@@ -48,6 +48,7 @@ pub mod fingerprint;
 /// so carrying the module is the cheaper of the two costs.
 pub mod fixtures;
 pub mod fleet;
+pub mod fleet_strength;
 pub mod fracture;
 pub mod game;
 pub mod invasion;
@@ -60,6 +61,7 @@ pub mod neutral_units;
 pub mod objectives;
 #[cfg(test)]
 mod objectives_monument_tests;
+pub mod observation;
 pub mod opening;
 pub mod payment;
 pub mod phase;
@@ -72,6 +74,7 @@ pub mod registry;
 pub mod relics;
 pub mod rng;
 pub mod seating;
+pub mod reach_query;
 pub mod secondary_preview;
 pub mod secrets;
 pub mod setup;
@@ -89,6 +92,7 @@ pub mod tokens;
 pub mod transactions;
 pub mod transit;
 pub mod trigger;
+pub mod valuation;
 pub mod vote;
 #[cfg(test)]
 mod wiring;

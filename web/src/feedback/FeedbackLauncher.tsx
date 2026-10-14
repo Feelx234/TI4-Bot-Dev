@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useBuildInfo } from "../buildInfo.ts";
 import { FeedbackSheet } from "./FeedbackSheet.tsx";
+import { useOfflineGameActive } from "../offline/useOfflineLauncher.ts";
 import "./feedback.css";
 
 const OPEN_EVENT = "ti4:open-feedback";
@@ -17,12 +18,14 @@ export function openFeedback(): void {
 export const FeedbackLauncher: React.FC = () => {
   const info = useBuildInfo();
   const [open, setOpen] = useState(false);
+  const offlineGame = useOfflineGameActive();
   const show = useCallback(() => setOpen(true), []);
   useEffect(() => {
     window.addEventListener(OPEN_EVENT, show);
     return () => window.removeEventListener(OPEN_EVENT, show);
   }, [show]);
-  if (!info.isPublic) return null;
+  // An offline game has no server to ask: reports are queued and sent later, so the button is there.
+  if (!info.isPublic && !offlineGame) return null;
   return (
     <>
       <button

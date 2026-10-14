@@ -23,11 +23,39 @@ import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
+import { MyGamesDialog, OpenGameRow } from "./MyGamesDialog.tsx";
+import { forgetMyGame, listMyGames, rememberMyGame } from "../protocol/myGames.ts";
 
 export const CreateLobby: React.FC<{
   onCreated: (created: CreateGameResponse) => void;
   onError: (message: string) => void;
-}> = ({ onCreated, onError }) => {
+  /** Go to a game from the "my games" list (with the seat token this browser holds, if any). */
+  onOpenGame?: (gameId: string, token?: string) => void;
+  /** Present when this build can play offline: shows the "Play offline" entry. */
+  onPlayOffline?: () => void;
+}> = ({ onCreated, onError, onOpenGame, onPlayOffline }) => {
+  const [overflow, setOverflow] = useState<OpenGameRow[] | null>(null);
+  const [browse, setBrowse] = useState<OpenGameRow[] | null>(null);
+  const [hasMine, setHasMine] = useState(() => listMyGames().length > 0);
+  const openBrowse = async () => {
+    let live: Set<string> | null = null;
+    try {
+      const response = await fetch("/api/games");
+      if (response.ok)
+        live = new Set(((await response.json()) as { game_id: string }[]).map((g) => g.game_id));
+    } catch {
+      // Offline: show what this browser remembers.
+    }
+    const rows = listMyGames().filter((game) => {
+      if (live && !live.has(game.gameId)) {
+        forgetMyGame(game.gameId);
+        return false;
+      }
+      return true;
+    });
+    setHasMine(rows.length > 0);
+    setBrowse(rows.map((game) => ({ game_id: game.gameId, created_at: game.storedAt })));
+  };
   const [count, setCount] = useState(4);
   const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
@@ -37,9 +65,10 @@ export const CreateLobby: React.FC<{
   const [nickname, setNickname] = useState(preferredNickname);
   const [creating, setCreating] = useState(false);
   const inFlight = useRef(false);
-  const create = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const create = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (inFlight.current) return;
+    setOverflow(null);
     const parsedSeed = !showSeed || seed === "" ? undefined : Number(seed);
     if (parsedSeed !== undefined && (!Number.isSafeInteger(parsedSeed) || parsedSeed < 0))
       return onError("Seed must be a non-negative whole number.");
@@ -60,10 +89,29 @@ export const CreateLobby: React.FC<{
           strategy_card_set: cardSet,
         }),
       });
-      if (!response.ok)
-        throw new Error(`Create game failed (${response.status}): ${await response.text()}`);
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 429) {
+          try {
+            const body = JSON.parse(text) as { error?: string; games?: OpenGameRow[] };
+            if (body.error === "too_many_games") {
+              setOverflow(Array.isArray(body.games) ? body.games : []);
+              return;
+            }
+          } catch {
+            // Not JSON: fall through to the plain error.
+          }
+        }
+        throw new Error(`Create game failed (${response.status}): ${text}`);
+      }
       const created = decodeCreateGameResponse(await response.json());
       rememberNickname(nickname);
+      rememberMyGame({
+        gameId: created.game_id,
+        token: created.player_session,
+        playerId: created.player.id,
+        nickname,
+      });
       onCreated(created);
     } catch (cause) {
       onError(`${String(cause)} Check your details and try again.`);
@@ -149,7 +197,47 @@ export const CreateLobby: React.FC<{
           >
             {creating ? "Creating lobby…" : "Create lobby"}
           </button>
+          {hasMine && (
+            <button
+              type="button"
+              data-testid="my-games-button"
+              className="button button--outline"
+              onClick={() => void openBrowse()}
+            >
+              My games
+            </button>
+          )}
+          {onPlayOffline && (
+            <button
+              type="button"
+              data-testid="play-offline-button"
+              className="button button--outline"
+              onClick={onPlayOffline}
+            >
+              Play offline (one player against bots)
+            </button>
+          )}
         </form>
+        {overflow && (
+          <MyGamesDialog
+            mode="limit"
+            games={overflow}
+            onOpen={(id, token) => onOpenGame?.(id, token)}
+            onRetryCreate={() => void create()}
+            onClose={() => setOverflow(null)}
+          />
+        )}
+        {browse && (
+          <MyGamesDialog
+            mode="browse"
+            games={browse}
+            onOpen={(id, token) => onOpenGame?.(id, token)}
+            onClose={() => {
+              setBrowse(null);
+              setHasMine(listMyGames().length > 0);
+            }}
+          />
+        )}
         <BuildFooter />
       </section>
     </main>
@@ -159,12 +247,10 @@ export const CreateLobby: React.FC<{
 interface LobbyStatusProps {
   lobby: LobbyDto;
   playerId: string | null;
-  onReady: (ready: boolean) => void;
   onStart: () => void;
   onLeave: () => void;
   onJoin: (nickname: string) => void;
   onTakeover: (playerId: string, nickname: string) => void;
-  onReorder: (slotIds: string[]) => void;
   onWatch: () => void;
   onAddBot?: (password: string, nickname?: string) => Promise<boolean | void>;
   onRemoveBot?: (playerId: string) => Promise<boolean | void>;
@@ -210,12 +296,10 @@ function playerLabel(slot: LobbySlot): string {
 export const LobbyStatus: React.FC<LobbyStatusProps> = ({
   lobby,
   playerId,
-  onReady,
   onStart,
   onLeave,
   onJoin,
   onTakeover,
-  onReorder,
   onWatch,
   onAddBot,
   onRemoveBot,
@@ -273,8 +357,8 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
       ? newBotFaction
       : null;
   const canAddSmartBots = canAddInProcessBots && !!lobby.bot_kinds?.includes("smart");
-  const canStart =
-    lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant && slot.ready);
+  // There is no "Ready": the host starts the game when every seat is filled.
+  const canStart = lobby.phase === "lobby" && lobby.slots.every((slot) => slot.occupant);
   const handleAddBot = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!botPassword.trim()) {
@@ -317,17 +401,9 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
     }
   };
   const openCount = lobby.slots.filter((slot) => !slot.occupant).length;
-  const unreadyCount = lobby.slots.filter((slot) => slot.occupant && !slot.ready).length;
   const startReason = openCount
     ? `Waiting for ${openCount} open position${openCount === 1 ? "" : "s"} to be filled.`
-    : unreadyCount
-      ? `Waiting for ${unreadyCount} player${unreadyCount === 1 ? "" : "s"} to be ready.`
-      : null;
-  const move = (index: number, delta: number) => {
-    const slots = lobby.slots.map((slot) => slot.slot_id);
-    [slots[index], slots[index + delta]] = [slots[index + delta], slots[index]];
-    onReorder(slots);
-  };
+    : null;
   return (
     <main data-testid="lobby-container" className="lobby-page">
       <section className="panel lobby-panel">
@@ -384,7 +460,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
           <MapPicker
             lobby={lobby}
             editable={canEditMap}
-            viewerPosition={viewer?.position ?? null}
             saving={pendingAction === "map"}
             onChoose={(choice, startPreset) => void onChooseMap?.(choice, startPreset)}
             onClose={closePicker}
@@ -444,7 +519,7 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
           </div>
         )}
         <div className="lobby-list">
-          {lobby.slots.map((slot, index) => (
+          {lobby.slots.map((slot) => (
             <div
               className="lobby-list__item"
               key={slot.slot_id}
@@ -466,11 +541,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
               <span className="lobby-list__status">
                 {slot.occupant ? (
                   <>
-                    <span
-                      className={`lobby-readiness ${slot.ready ? "lobby-readiness--ready" : "lobby-readiness--waiting"}`}
-                    >
-                      {slot.ready ? "✔ Ready" : "○ Not ready"}
-                    </span>
                     {slot.bot ? (
                       <span className="lobby-presence lobby-presence--connected">● Plays itself</span>
                     ) : (
@@ -526,24 +596,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
                       ✕
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="button button--outline button--icon"
-                    aria-label={`Move position ${slot.position} up`}
-                    disabled={!!pendingAction || index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    ↑
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--outline button--icon"
-                    aria-label={`Move position ${slot.position} down`}
-                    disabled={!!pendingAction || index === lobby.slots.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    ↓
-                  </button>
                 </span>
               )}
               {slot.occupant && canChooseFactions && (
@@ -652,21 +704,6 @@ export const LobbyStatus: React.FC<LobbyStatusProps> = ({
               </form>
             </div>
           </div>
-        )}
-        {viewer && lobby.phase === "lobby" && (
-          <button
-            type="button"
-            data-testid="ready-button"
-            className={`button ${viewer.ready ? "button--outline lobby-unready-button" : "button--success"}`}
-            disabled={!!pendingAction}
-            onClick={() => onReady(!viewer.ready)}
-          >
-            {pendingAction === "ready"
-              ? "Updating readiness…"
-              : viewer.ready
-                ? "Mark not ready"
-                : "Mark ready"}
-          </button>
         )}
         {isHost && lobby.phase === "lobby" && (
           <div>

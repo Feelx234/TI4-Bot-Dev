@@ -83,7 +83,7 @@ impl PublicConfig {
                 .and_then(|v| v.parse().ok())
                 .or(public.then_some(2 * 1024 * 1024 * 1024)),
             data_dir: Some(data_dir.to_path_buf()),
-            rate_limits: public.then(RateLimits::default),
+            rate_limits: public.then(RateLimits::from_env),
             ws_idle_timeout: parse_usize("TI4_WS_IDLE_SECS", public.then_some(300))
                 .map(|s| Duration::from_secs(s as u64)),
             build_commit: env_nonempty("TI4_BUILD_COMMIT"),
@@ -96,7 +96,7 @@ pub struct PublicState {
     pub config: PublicConfig,
     gate: Option<AccessGate>,
     limiter: Option<RateLimiter>,
-    created: Mutex<HashMap<IpAddr, Vec<String>>>,
+    created: Mutex<HashMap<IpAddr, Vec<(String, u64)>>>,
 }
 
 impl Default for PublicState {
@@ -314,7 +314,11 @@ pub async fn guard(
 }
 
 impl PublicState {
-    async fn check_create_caps(&self, registry: &Arc<GameRegistry>, ip: IpAddr) -> Option<Response> {
+    async fn check_create_caps(
+        &self,
+        registry: &Arc<GameRegistry>,
+        ip: IpAddr,
+    ) -> Option<Response> {
         let games = registry.list_games();
         if let Some(max) = self.config.max_games
             && games.len() >= max
@@ -333,13 +337,34 @@ impl PublicState {
                 .collect();
             let mut created = self.created.lock().expect("created lock");
             let mine = created.entry(ip).or_default();
-            mine.retain(|id| open.contains(id.as_str()));
+            mine.retain(|(id, _)| open.contains(id.as_str()));
             if mine.len() >= max {
-                return Some(json_error(
-                    StatusCode::TOO_MANY_REQUESTS,
-                    "too_many_games",
-                    "you already have several unfinished games on this server",
-                ));
+                let ids: Vec<String> = mine.iter().map(|(id, _)| id.clone()).collect();
+                let created_at: HashMap<&str, u64> =
+                    mine.iter().map(|(id, t)| (id.as_str(), *t)).collect();
+                let listed: Vec<serde_json::Value> = registry
+                    .open_game_infos(&ids)
+                    .into_iter()
+                    .map(|g| {
+                        serde_json::json!({
+                            "game_id": g.game_id,
+                            "created_at": created_at.get(g.game_id.as_str()),
+                            "phase": g.phase,
+                            "players": g.players,
+                        })
+                    })
+                    .collect();
+                return Some(
+                    (
+                        StatusCode::TOO_MANY_REQUESTS,
+                        Json(serde_json::json!({
+                            "error": "too_many_games",
+                            "message": "you already have several unfinished games on this server",
+                            "games": listed,
+                        })),
+                    )
+                        .into_response(),
+                );
             }
         }
         if let (Some(max), Some(dir)) = (self.config.max_data_bytes, self.config.data_dir.clone()) {
@@ -363,7 +388,11 @@ impl PublicState {
         }
         let (parts, body) = response.into_parts();
         let Ok(bytes) = axum::body::to_bytes(body, 256 * 1024).await else {
-            return json_error(StatusCode::INTERNAL_SERVER_ERROR, "internal", "response lost");
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "response lost",
+            );
         };
         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes)
             && let Some(id) = v.get("game_id").and_then(|g| g.as_str())
@@ -373,7 +402,7 @@ impl PublicState {
                 .expect("created lock")
                 .entry(ip)
                 .or_default()
-                .push(id.to_owned());
+                .push((id.to_owned(), now_unix()));
         }
         Response::from_parts(parts, Body::from(bytes))
     }

@@ -11,9 +11,9 @@ const lobby: LobbyDto = {
   lobby_version: 1,
   host_player_id: "p1",
   slots: [
-    { slot_id: "s1", position: 1, occupant: "p1", nickname: "Ana", ready: true, connected: true, can_take_over: false },
-    { slot_id: "s2", position: 2, occupant: "p2", nickname: "Bo", ready: true, connected: true, can_take_over: false },
-    { slot_id: "s3", position: 3, occupant: "p3", nickname: "Cy", ready: true, connected: true, can_take_over: false },
+    { slot_id: "s1", position: 1, occupant: "p1", nickname: "Ana", connected: true, can_take_over: false },
+    { slot_id: "s2", position: 2, occupant: "p2", nickname: "Bo", connected: true, can_take_over: false },
+    { slot_id: "s3", position: 3, occupant: "p3", nickname: "Cy", connected: true, can_take_over: false },
   ],
 };
 
@@ -221,5 +221,24 @@ describe("TurnRedoBar", () => {
   it("shows the server's refusal", () => {
     renderBar(null, null, "Turn redo failed (403): only the host may redo another seat's turn");
     expect(screen.getByTestId("turn-redo-error").textContent).toMatch(/only the host/);
+  });
+
+  it("lets a watching player hide the bar, and shows it again when the redo moves on", () => {
+    const watching: TurnRedoStatus = { ...base, can_control: false };
+    const view = (status: TurnRedoStatus) => (
+      <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2", "p3"]}>
+        <TurnRedoBar status={status} busy={null} error={null} {...handlers} />
+      </PlayerIdentityProvider>
+    );
+    const { rerender } = render(view(watching));
+    fireEvent.click(screen.getByTestId("turn-redo-hide"));
+    expect(screen.queryByTestId("turn-redo-bar")).toBeNull();
+    rerender(view({ ...watching, turn_complete: true }));
+    expect(screen.getByTestId("turn-redo-bar")).toHaveAttribute("data-state", "replaying");
+  });
+
+  it("does not offer Hide where Restore or Keep is the answer", () => {
+    renderBar(base);
+    expect(screen.queryByTestId("turn-redo-hide")).toBeNull();
   });
 });

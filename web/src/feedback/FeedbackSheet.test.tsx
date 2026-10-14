@@ -108,6 +108,55 @@ describe("FeedbackSheet", () => {
   });
 });
 
+describe("FeedbackSheet names", () => {
+  const lobby = {
+    slots: [{ slot_id: "s1", position: 1, occupant: "p1", nickname: "Alex", ready: true, connected: true, can_take_over: false }],
+  } as unknown as import("../protocol/types.ts").LobbyDto;
+  const Named: React.FC<{ children: React.ReactNode; withLobby: boolean }> = ({ children, withLobby }) => {
+    useRegisterFeedbackSource("game", () => ({
+      gameId: "g",
+      viewer: { role: "player", seat: "p1", playerSession: "TOKEN" },
+      lobby: withLobby ? lobby : null,
+    }));
+    return <>{children}</>;
+  };
+  const sendOnce = async (withLobby: boolean, typed?: string) => {
+    const send = vi.fn(async (): Promise<FeedbackResult> => ({ ok: true, id: "x" }));
+    const tree = (open: boolean) => (
+      <Named withLobby={withLobby}>
+        <FeedbackSheet open={open} onClose={() => undefined} send={send} />
+      </Named>
+    );
+    // The source registers in an effect, so open the sheet after the first render like the app does.
+    const view = render(tree(false));
+    view.rerender(tree(true));
+    if (withLobby) {
+      expect(screen.getByTestId("feedback-who")).toHaveTextContent("Alex");
+      expect(screen.queryByTestId("feedback-name")).toBeNull();
+    }
+    if (typed) fireEvent.change(screen.getByTestId("feedback-name"), { target: { value: typed } });
+    fireEvent.change(screen.getByTestId("feedback-text"), { target: { value: "hi" } });
+    fireEvent.click(screen.getByTestId("feedback-submit"));
+    await waitFor(() => expect(send).toHaveBeenCalled());
+    return (send.mock.calls[0] as unknown as [{ context: Record<string, unknown> }])[0].context;
+  };
+
+  it("shows the nickname instead of a name field and sends it", async () => {
+    const context = await sendOnce(true);
+    expect(context.sender).toMatchObject({ nickname: "Alex" });
+  });
+
+  it("offers an optional name field when there is no nickname and sends what was typed", async () => {
+    const context = await sendOnce(false, "Sam");
+    expect(context.sender).toEqual({ typed_name: "Sam" });
+  });
+
+  it("sends no sender when no nickname is known and nothing was typed", async () => {
+    const context = await sendOnce(false);
+    expect(context).not.toHaveProperty("sender");
+  });
+});
+
 describe("FeedbackLauncher", () => {
   it("shows the floating button on the public server and opens the sheet", async () => {
     render(<FeedbackLauncher />);

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   describeFaction,
   describeUnit,
@@ -9,6 +9,7 @@ import {
   type UnitDescription,
 } from "../presentation/factionInfo.ts";
 import { useSeatInfo } from "../presentation/SeatInfoContext.tsx";
+import { Popover } from "../primitives/index.ts";
 import { InfoPopover } from "./InfoPopover.tsx";
 import { CostValue } from "./PlanetValueIcons.tsx";
 import { UnitIcon } from "./UnitIcon.tsx";
@@ -84,6 +85,59 @@ export const UnitInfoButton: React.FC<{
   );
 };
 
+/**
+ * Hover (and keyboard focus) card with the unit's numbers and abilities, for a unit of any seat:
+ * the owner's faction and unit upgrades decide which card applies. Wraps the unit's icon and name.
+ * A unit the content does not know shows nothing.
+ */
+export const UnitStatsTip: React.FC<{
+  unit: string;
+  seat?: string | null;
+  children: React.ReactNode;
+  testId?: string;
+}> = ({ unit, seat, children, testId }) => {
+  const { faction, technologies } = useSeatInfo(seat);
+  const [open, setOpen] = useState(false);
+  const resolved = resolveUnit(unit, faction, technologies);
+  const description = resolved ? describeUnit(resolved) : undefined;
+  if (!description) return <>{children}</>;
+  // Portalled, so a scrolling panel or dialog body cannot clip the card.
+  return (
+    <Popover
+      portal
+      isOpen={open}
+      onOpenChange={setOpen}
+      position="top"
+      ariaLabel={`${description.name}: unit details`}
+      className="info-card info-card--unit"
+      data-testid={testId ?? `unit-stats-tip-${unit}`}
+      content={<UnitInfoCard unit={description} />}
+    >
+      <span
+        tabIndex={0}
+        data-unit-stats={unit}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+        onPointerEnter={(e) => e.pointerType !== "touch" && setOpen(true)}
+        onPointerLeave={(e) => e.pointerType !== "touch" && setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+      >
+        {children}
+      </span>
+    </Popover>
+  );
+};
+
+/** One line of numbers for a unit of any seat: "Cost 3 · Combat 9 · Move 1 · Sustain damage". */
+export const UnitStatLine: React.FC<{ unit: string; seat?: string | null }> = ({ unit, seat }) => {
+  const { faction, technologies } = useSeatInfo(seat);
+  const resolved = resolveUnit(unit, faction, technologies);
+  if (!resolved) return null;
+  const card = describeUnit(resolved);
+  const parts = [...card.facts.map((fact) => `${fact.label} ${fact.value}`), ...card.keywords];
+  return parts.length ? <span data-testid="unit-stat-line">{parts.join(" · ")}</span> : null;
+};
+
 /** Icon, name and info button of the seat's mech; nothing when the faction has no mech card. */
 export const MechInfoRow: React.FC<{ seat?: string | null }> = ({ seat }) => {
   const { faction, technologies } = useSeatInfo(seat);
@@ -134,7 +188,9 @@ export const FactionInfoCard: React.FC<{
   faction: FactionInfo;
   /** Leader state as the server reports it for this seat; omitted states are simply not shown. */
   leaders?: Record<string, string>;
-}> = ({ faction, leaders }) => (
+  /** Whether the seat holds its breakthrough; omitted when unknown (a faction picker, not a seat). */
+  breakthroughHeld?: boolean;
+}> = ({ faction, leaders, breakthroughHeld }) => (
   <div className="info-card__body" data-testid="faction-info-card">
     <div className="info-card__title">{faction.name}</div>
     {faction.abilities.length > 0 && (
@@ -157,6 +213,22 @@ export const FactionInfoCard: React.FC<{
             {note.text && <p className="info-card__text">{note.text}</p>}
           </div>
         ))}
+      </Section>
+    )}
+    {faction.breakthrough && (
+      <Section title="Breakthrough">
+        <div className="info-card__entry" data-testid="faction-breakthrough">
+          <strong>{faction.breakthrough.name}</strong>
+          {breakthroughHeld !== undefined && (
+            <span className="info-card__window"> {breakthroughHeld ? "unlocked" : "locked"}</span>
+          )}
+          <p className="info-card__text info-card__window">Synergy: {faction.breakthrough.synergy}</p>
+          {faction.breakthrough.text && (
+            <p className="info-card__text" style={{ whiteSpace: "pre-line" }}>
+              {faction.breakthrough.text}
+            </p>
+          )}
+        </div>
       </Section>
     )}
     {faction.flagship && (
@@ -204,7 +276,9 @@ export const FactionInfoButton: React.FC<{
   faction: string;
   technologies?: readonly string[];
   leaders?: Record<string, string>;
-}> = ({ faction, technologies, leaders }) => {
+  /** The seat's earned breakthrough alias, or null while it is locked; omit outside a seat. */
+  breakthroughHeld?: string | null;
+}> = ({ faction, technologies, leaders, breakthroughHeld }) => {
   const info = describeFaction(faction, technologies);
   return (
     <InfoPopover
@@ -214,7 +288,11 @@ export const FactionInfoButton: React.FC<{
       data-testid="faction-info-button"
     >
       {info ? (
-        <FactionInfoCard faction={info} leaders={leaders} />
+        <FactionInfoCard
+          faction={info}
+          leaders={leaders}
+          breakthroughHeld={breakthroughHeld === undefined ? undefined : breakthroughHeld !== null}
+        />
       ) : (
         <div className="info-card__body" data-testid="faction-info-empty">
           <div className="info-card__title">{faction}</div>

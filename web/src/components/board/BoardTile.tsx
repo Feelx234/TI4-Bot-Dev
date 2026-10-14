@@ -3,12 +3,14 @@ import { MapTargetMode, TilePresentation } from "../../presentation/boardPresent
 import { MapOverlayMode, computeTileSpaceCombat } from "../../presentation/mapOverlays.ts";
 import { SvgButton } from "../../primitives/index.ts";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
+import { seatInk } from "../../presentation/playerDisplay.ts";
 import { EconomyOverlay } from "./EconomyOverlay.tsx";
 import { SpaceCombatOverlay, getSpaceCombatHexStyle } from "./SpaceCombatOverlay.tsx";
 import { GroundCombatOverlay } from "./GroundCombatOverlay.tsx";
 import { TechBenefitsOverlay } from "./TechBenefitsOverlay.tsx";
 import { StandardOverlay } from "./StandardOverlay.tsx";
-import { COMMAND_TOKEN_RADIUS, COMMAND_TOKEN_STEP } from "./boardLayout.ts";
+import { ExplorationMarkers } from "./ExplorationMarkers.tsx";
+import { COMMAND_TOKEN_RADIUS, COMMAND_TOKEN_STEP, COMMAND_TOKEN_Y } from "./boardLayout.ts";
 
 import { PlayerView } from "../../protocol/types.ts";
 import type { PaymentMark } from "../../presentation/paymentDraft.ts";
@@ -262,8 +264,9 @@ export const BoardTile: React.FC<BoardTileProps> = ({
 
       {/* Printed Wormholes */}
       {tile.wormholes.map((wh, wIdx) => {
-        const wX = tile.center.x - 38 + wIdx * 20;
-        const wY = tile.center.y - 18;
+        // Down the left edge of the hex, clear of the planet discs.
+        const wX = tile.center.x - 47;
+        const wY = tile.center.y - 30 + wIdx * 20;
         return (
           <g key={`wh-${wh.kind}-${wIdx}`}>
             <circle cx={wX} cy={wY} r="8" fill="#08111d" stroke={wh.color} strokeWidth="2" />
@@ -314,6 +317,8 @@ export const BoardTile: React.FC<BoardTileProps> = ({
         />
       )}
 
+      <ExplorationMarkers tile={tile} />
+
       {/* Command Tokens */}
       {tile.commandTokens.map((ct, cIdx) => {
         const cx = tile.center.x + (cIdx - (tile.commandTokens.length - 1) / 2) * COMMAND_TOKEN_STEP;
@@ -322,7 +327,7 @@ export const BoardTile: React.FC<BoardTileProps> = ({
             <title>{display(ct.owner).label} command token</title>
             <circle
               cx={cx}
-              cy={tile.center.y + 56}
+              cy={tile.center.y + COMMAND_TOKEN_Y}
               r={COMMAND_TOKEN_RADIUS}
               fill={ct.color}
               stroke="#f8fafc"
@@ -330,9 +335,9 @@ export const BoardTile: React.FC<BoardTileProps> = ({
             />
             <text
               x={cx}
-              y={tile.center.y + 56 + COMMAND_TOKEN_RADIUS * 0.45}
+              y={tile.center.y + COMMAND_TOKEN_Y + COMMAND_TOKEN_RADIUS * 0.45}
               textAnchor="middle"
-              fill={display(ct.owner).position === 8 ? "#fff" : "#0b1220"}
+              fill={seatInk(ct.color)}
               fontSize={COMMAND_TOKEN_RADIUS * 1.3}
               pointerEvents="none"
             >

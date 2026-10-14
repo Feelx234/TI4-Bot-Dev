@@ -53,7 +53,10 @@ use Relation::{After, When};
 pub const TRIGGER_GROUPS: &[TriggerGroup] = &[
     TriggerGroup {
         id: "action_card_played",
-        windows: &[("ACTION_CARD_PLAYED", When), ("ACTION_CARD_DISCARDED", After)],
+        windows: &[
+            ("ACTION_CARD_PLAYED", When),
+            ("ACTION_CARD_DISCARDED", After),
+        ],
     },
     TriggerGroup {
         id: "system_activated",
@@ -87,7 +90,10 @@ pub const TRIGGER_GROUPS: &[TriggerGroup] = &[
     },
     TriggerGroup {
         id: "planet_control",
-        windows: &[("PLANET_CONTROL_GAINED", When), ("PLANET_CONTROL_GAINED", After)],
+        windows: &[
+            ("PLANET_CONTROL_GAINED", When),
+            ("PLANET_CONTROL_GAINED", After),
+        ],
     },
     TriggerGroup {
         id: "production",
@@ -123,7 +129,10 @@ pub const TRIGGER_GROUPS: &[TriggerGroup] = &[
     },
     TriggerGroup {
         id: "transaction",
-        windows: &[("TRANSACTION_OPENED", When), ("TRANSACTION_RESOLVED", After)],
+        windows: &[
+            ("TRANSACTION_OPENED", When),
+            ("TRANSACTION_RESOLVED", After),
+        ],
     },
 ];
 
@@ -201,7 +210,10 @@ impl BluffBook {
     /// The seat's declared trigger ids (for tests and projection).
     #[must_use]
     pub fn declared(&self, seat: &PlayerId) -> BTreeSet<String> {
-        self.seats.get(seat).map(|s| s.declared.clone()).unwrap_or_default()
+        self.seats
+            .get(seat)
+            .map(|s| s.declared.clone())
+            .unwrap_or_default()
     }
 
     /// Whether a hold is running right now.
@@ -221,8 +233,16 @@ impl BluffBook {
         let policy = &self.policy;
         let default = SeatBluff::default();
         let state = self.seats.get(seat).unwrap_or(&default);
-        let round_spent = if state.round == round { state.round_spent } else { Duration::ZERO };
-        let round_holds = if state.round == round { state.round_holds } else { 0 };
+        let round_spent = if state.round == round {
+            state.round_spent
+        } else {
+            Duration::ZERO
+        };
+        let round_holds = if state.round == round {
+            state.round_holds
+        } else {
+            0
+        };
         if round_holds >= policy.seat_round_holds {
             return Duration::ZERO;
         }

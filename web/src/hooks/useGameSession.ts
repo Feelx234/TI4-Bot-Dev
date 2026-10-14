@@ -8,6 +8,7 @@ import {
   serverEventLog,
   SnapshotState,
 } from "../protocol/client.ts";
+import type { GameTransport, TransportCapabilities } from "../protocol/transport.ts";
 
 export { serverEventLog };
 export type { ConnectionStatus, GameLogEntry, SnapshotState };
@@ -16,9 +17,16 @@ export interface UseGameSessionOptions {
   gameId: string;
   viewer: ViewerRole;
   serverUrl?: string;
+  /**
+   * Builds the transport for this session (default: the server WebSocket/HTTP client). The
+   * offline mode passes its local transport here.
+   */
+  createTransport?: () => GameTransport;
 }
 
 export interface UseGameSessionReturn {
+  /** Which optional features this session's transport offers; hide the rest. */
+  capabilities: TransportCapabilities;
   status: ConnectionStatus;
   gameVersion: number;
   snapshot: SnapshotState | null;
@@ -60,6 +68,8 @@ export interface UseGameSessionReturn {
     primary: string,
     answers: readonly string[],
   ) => Promise<import("../protocol/client.ts").SecondaryPreviewReply>;
+  /** Read-only "who can go here": the ships that could move into a system if it were activated now. */
+  queryReach: (systemId: string) => Promise<import("../protocol/client.ts").ReachReply>;
   resumeBatch: () => Promise<void>;
   dismissBatchResume: () => void;
 }
@@ -68,8 +78,11 @@ export function useGameSession({
   gameId,
   viewer,
   serverUrl,
+  createTransport,
 }: UseGameSessionOptions): UseGameSessionReturn {
-  const [client] = useState(() => new GameSessionClient({ gameId, viewer, serverUrl }));
+  const [client] = useState<GameTransport>(() =>
+    createTransport ? createTransport() : new GameSessionClient({ gameId, viewer, serverUrl }),
+  );
   const [state, setState] = useState<GameSessionState>(() => client.getState());
 
   useEffect(() => {
@@ -87,6 +100,9 @@ export function useGameSession({
     [client],
   );
 
+  // Stable identity: the who-can-go-here hook re-asks whenever it changes.
+  const queryReach = useCallback((systemId: string) => client.queryReach(systemId), [client]);
+
   // Stable identities: the turn redo hook re-reads its status whenever these change, so a new
   // function per render made every status response trigger the next request (and a re-render).
   const fetchTurnRedoStatus = useCallback(() => client.fetchTurnRedoStatus(), [client]);
@@ -97,6 +113,7 @@ export function useGameSession({
 
   return {
     ...state,
+    capabilities: client.capabilities,
     submitChoice,
     fatal: state.fatal ?? null,
     retryConnection: () => client.retryNow(),
@@ -111,6 +128,7 @@ export function useGameSession({
     submitMovementBatch: (destination, steps) => client.submitMovementBatch(destination, steps),
     submitBatch: (plan) => client.submitBatch(plan),
     previewSecondary: (card, primary, answers) => client.previewSecondary(card, primary, answers),
+    queryReach,
     resumeBatch: () => client.resumeBatch(),
     dismissBatchResume: () => client.dismissBatchResume(),
   };

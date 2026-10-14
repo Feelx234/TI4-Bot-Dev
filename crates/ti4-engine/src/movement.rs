@@ -98,10 +98,6 @@ impl Board {
 /// what the rules *are*, and a caller that gains Nav Suite later should find the rule already
 /// written rather than have to reopen this search.
 #[derive(Debug, Clone)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "one field per printed ability, as the oracle has"
-)]
 pub struct MovementRules<'a> {
     /// Borrowed, unless a faction module put wormholes on the map (Creuss flagship), in which case
     /// an owned copy carrying them.
@@ -567,6 +563,15 @@ impl<'a> MovementRules<'a> {
             || ship_type.is_some_and(|kind| self.token_free_types.contains(kind))
     }
 
+    /// 59.2: a ship that starts in the nebula `origin` moves with a value of 1 — unless anomalies
+    /// are being ignored, in which case the nebula is not there to cap it.
+    #[must_use]
+    pub fn nebula_caps(&self, origin: &str) -> bool {
+        self.system(origin).is_some_and(System::is_nebula)
+            && !self.anomalies_ignored
+            && !self.nebulae_ignored
+    }
+
     #[must_use]
     pub fn can_reach(&self, origin: &str, move_value: i32) -> bool {
         self.path_from(origin, move_value).is_some()
@@ -619,12 +624,11 @@ impl<'a> MovementRules<'a> {
             return None;
         }
 
-        // 59.2: starting inside a nebula caps the move value at 1 — unless anomalies are being
-        // ignored, in which case the nebula is not there to cap it.
-        let in_nebula = self.system(origin).is_some_and(System::is_nebula)
-            && !self.anomalies_ignored
-            && !self.nebulae_ignored;
-        let budget = if in_nebula { 1 } else { move_value };
+        let budget = if self.nebula_caps(origin) {
+            1
+        } else {
+            move_value
+        };
         if budget <= 0 {
             return None;
         }
@@ -1608,7 +1612,10 @@ mod tests {
                 Some(state),
             )
         };
-        assert!(!rules(&state).can_enter(&asteroid), "without the technology");
+        assert!(
+            !rules(&state).can_enter(&asteroid),
+            "without the technology"
+        );
         state
             .player_mut(&mover)
             .expect("seat")

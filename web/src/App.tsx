@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
 import { useLobbySession } from "./hooks/useLobbySession.ts";
-import { useTurnSound } from "./hooks/useTurnSound.ts";
+import { shouldPlayTurnSound, useTurnSound } from "./hooks/useTurnSound.ts";
 import { useTurnRedo } from "./hooks/useTurnRedo.ts";
 import { playerDisplay } from "./presentation/playerDisplay.ts";
 import { Board } from "./components/Board.tsx";
@@ -16,7 +16,13 @@ import { MobileTopMenu, menuAttention } from "./components/MobileTopMenu.tsx";
 import { MobileMenuSlotContext } from "./presentation/MobileMenuSlot.tsx";
 import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
+import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
+import { OfflineRoutes, isOfflinePath } from "./offline/OfflineRoutes.tsx";
+import { useOfflineLauncher } from "./offline/useOfflineLauncher.ts";
+import { registerLocalLauncher } from "./offline/local/register.ts";
+import { useCapability } from "./offline/capabilities.ts";
+import type { GameTransport } from "./protocol/transport.ts";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
@@ -31,6 +37,7 @@ import {
   type AgendaMemory,
 } from "./presentation/agendaStrip.ts";
 import { SeatInfoProvider } from "./presentation/SeatInfoContext.tsx";
+import { PublicStateProvider } from "./presentation/PublicStateContext.tsx";
 import { DecisionTableProvider } from "./components/PoliticsDecisionParts.tsx";
 import { participantText } from "./presentation/participantText.ts";
 import { CardDetails, CardSubject } from "./components/CardDetails.tsx";
@@ -52,6 +59,7 @@ import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
 import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components/ConnectionNotice.tsx";
+import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { readAgendaLog } from "./presentation/agendaToasts.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
@@ -93,6 +101,15 @@ const DevToastGallery = import.meta.env.DEV
     )
   : null;
 
+const OfflineGameScreen = React.lazy(() =>
+  import("./offline/local/OfflineGameScreen.tsx").then((m) => ({ default: m.OfflineGameScreen })),
+);
+
+// The real offline launcher, when this build has the engine file (otherwise "Play offline" is absent).
+registerLocalLauncher();
+// Dev builds can register the in-memory offline launcher (screenshots, local work).
+if (import.meta.env.DEV) void import("./offline/devMock.ts");
+
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () =>
   /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1]
@@ -116,6 +133,8 @@ export const App: React.FC = () => {
 
 const AppRoutes: React.FC = () => {
   const [gameId, setGameId] = useState(pathGameId);
+  const [offline, setOffline] = useState(() => isOfflinePath(window.location.pathname));
+  const offlineLauncher = useOfflineLauncher();
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState(() =>
     gameId ? (sessionStorage.getItem(storageKey(gameId)) ?? undefined) : undefined,
@@ -131,6 +150,7 @@ const AppRoutes: React.FC = () => {
   useLayoutEffect(() => {
     const receive = () => {
       const id = pathGameId();
+      setOffline(isOfflinePath(window.location.pathname));
       setGameId(id);
       setToken(id ? (sessionStorage.getItem(storageKey(id)) ?? undefined) : undefined);
     };
@@ -161,12 +181,39 @@ const AppRoutes: React.FC = () => {
         <DevScenarioLauncher />
       </React.Suspense>
     );
+  if (offline)
+    return (
+      <OfflineRoutes
+        onExit={() => {
+          history.pushState({}, "", "/");
+          setOffline(false);
+        }}
+        renderGame={(handle, banner) => (
+          <React.Suspense fallback={<main className="lobby-page">Loading the game…</main>}>
+            <OfflineGameScreen
+              handle={handle}
+              banner={banner}
+              renderGame={(props) => <GameViewContainer {...props} />}
+            />
+          </React.Suspense>
+        )}
+      />
+    );
   if (!gameId)
     return (
       <>
         <CreateLobby
+          onPlayOffline={
+            offlineLauncher
+              ? () => {
+                  history.pushState({}, "", "/offline");
+                  setOffline(true);
+                }
+              : undefined
+          }
           onError={setError}
           onCreated={(created) => navigate(created.game_id, created.player_session)}
+          onOpenGame={(id, openToken) => navigate(id, openToken)}
         />
         {error && (
           <div className="session-error" role="alert">
@@ -182,6 +229,7 @@ const AppRoutes: React.FC = () => {
       token={token}
       onCredential={(credential) => {
         sessionStorage.setItem(storageKey(gameId), credential);
+        rememberMyGame({ gameId, token: credential });
         setToken(credential);
       }}
       onCredentialInvalid={() => {
@@ -214,9 +262,7 @@ const GameRoute: React.FC<{
     loading,
     invalidCredential,
     pendingAction,
-    setReady,
     start,
-    reorder,
     chooseMap,
     join,
     leave,
@@ -231,6 +277,7 @@ const GameRoute: React.FC<{
   useRegisterFeedbackSource("lobby", () => ({
     gameId,
     viewer: token && playerId ? { role: "player", seat: playerId, playerSession: token } : { role: "spectator" },
+    lobby,
   }));
   useEffect(() => {
     if (invalidCredential) onCredentialInvalid();
@@ -295,12 +342,10 @@ const GameRoute: React.FC<{
           playerId={playerId}
           watching={watching}
           pendingAction={pendingAction}
-          onReady={(ready) => void setReady(ready)}
           onStart={() => void start()}
           onLeave={() => void leaveLobby()}
           onJoin={(name) => void enter(name)}
           onTakeover={(id, name) => void enter(name, id)}
-          onReorder={(ids) => void reorder(ids)}
           onChooseMap={chooseMap}
           onWatch={() => setWatching(true)}
           onAddBot={(password, name) => addBot(password, name)}
@@ -336,8 +381,11 @@ const GameViewContainer: React.FC<{
   lobby: import("./protocol/types.ts").LobbyDto;
   viewer: ViewerRole;
   onLeave?: () => void;
-}> = ({ gameId, lobby, viewer, lobbyConnectionLost }) => {
+  /** An offline game passes its local transport; online games use the server client. */
+  createTransport?: () => GameTransport;
+}> = ({ gameId, lobby, viewer, lobbyConnectionLost, createTransport }) => {
   const {
+    capabilities,
     status,
     gameVersion,
     snapshot,
@@ -361,16 +409,24 @@ const GameViewContainer: React.FC<{
     submitMovementBatch,
     submitBatch,
     previewSecondary,
+    queryReach,
     batchResume,
     resumeBatch,
     dismissBatchResume,
-  } = useGameSession({ gameId, viewer });
+  } = useGameSession({ gameId, viewer, createTransport });
   const buildInfo = useBuildInfo();
+  // What this session can do: the transport says what it offers, the offline shell's context what
+  // the product offers. Features that are off are hidden, not disabled.
+  const shellTurnRedo = useCapability("turnRedo");
+  const shellMultiplayer = useCapability("multiplayer");
+  const turnRedoOn = capabilities.turnRedo && shellTurnRedo;
+  const multiplayerOn = capabilities.multiplayer && shellMultiplayer;
   useRegisterFeedbackSource("game", () => ({
     gameId,
     viewer,
     snapshot,
     pendingChoice: realPendingChoice,
+    lobby,
     events,
   }));
   const reconnecting = useAfterDelay(
@@ -423,7 +479,7 @@ const GameViewContainer: React.FC<{
   };
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
   const turnRedo = useTurnRedo({
-    enabled: viewer.role === "player",
+    enabled: viewer.role === "player" && turnRedoOn,
     fetchStatus: fetchTurnRedoStatus,
     command: turnRedoCommand,
     gameVersion,
@@ -466,6 +522,7 @@ const GameViewContainer: React.FC<{
   const pendingChoice = prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
+  const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
@@ -513,17 +570,15 @@ const GameViewContainer: React.FC<{
     : null;
   const agendaPill = agendaStrip ? agendaPillLabel(agendaStrip, realPendingChoice) : null;
 
-  // Play sound notification when it becomes the player's turn
-  const previousPendingChoiceRef = useRef<string | null>(null);
+  // One sound when the decision passes to the viewer, not one per decision: a turn is a run of
+  // questions for the same seat (menu, system, moves, production, ...) and only the first beeps.
+  const wasViewerDecisionRef = useRef(false);
   useEffect(() => {
-    const isPendingChoiceForViewer =
-      realPendingChoice && userSeat && realPendingChoice.actor === userSeat;
-
-    if (isPendingChoiceForViewer && previousPendingChoiceRef.current !== realPendingChoice.nonce) {
-      playTurnNotification();
-    }
-
-    previousPendingChoiceRef.current = realPendingChoice?.nonce ?? null;
+    const isViewerDecision = Boolean(
+      realPendingChoice && userSeat && realPendingChoice.actor === userSeat,
+    );
+    if (shouldPlayTurnSound(wasViewerDecisionRef.current, isViewerDecision)) playTurnNotification();
+    wasViewerDecisionRef.current = isViewerDecision;
   }, [realPendingChoice?.nonce, userSeat, realPendingChoice?.actor, playTurnNotification]);
 
   useEffect(() => {
@@ -594,10 +649,11 @@ const GameViewContainer: React.FC<{
   return (
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
+    <PublicStateProvider state={snapshot?.state}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
     <BluffScope
       gameId={gameId}
-      seat={userSeat}
+      seat={multiplayerOn ? userSeat : undefined}
       intent={reactionIntent}
       round={snapshot?.view.round ?? 0}
       onChange={setReactionIntent}
@@ -658,6 +714,7 @@ const GameViewContainer: React.FC<{
         ready={Boolean(snapshot)}
         localNotes={localNotes}
         explorations={explorationLog}
+        breakthroughs={breakthroughs}
         agendas={agendaLog}
         table={snapshot?.view.table}
       />
@@ -675,7 +732,7 @@ const GameViewContainer: React.FC<{
               trailing={
                 compactLayout ? (
                   <MobileTopMenu
-                    onOpenFeedback={buildInfo.isPublic ? openFeedback : undefined}
+                    onOpenFeedback={buildInfo.isPublic || createTransport ? openFeedback : undefined}
                     attention={menuAttention({
                       connected: status === "connected",
                       yourDecision: Boolean(
@@ -735,6 +792,7 @@ const GameViewContainer: React.FC<{
               pendingChoice={pendingChoice}
               viewerSeat={userSeat}
               selectedSystemId={selectedSystemId}
+              queryReach={queryReach}
               onSelectSystem={(id) => {
                 setSelectedSystemId(id);
                 setCardSubject(null);
@@ -802,7 +860,7 @@ const GameViewContainer: React.FC<{
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
         onFetchReplay={userSeat ? fetchReplay : undefined}
         turnRedo={
-          userSeat
+          userSeat && turnRedoOn
             ? {
                 status: turnRedo.status,
                 busy: turnRedo.busy,
@@ -894,6 +952,7 @@ const GameViewContainer: React.FC<{
     </PreparedHintProvider>
     </BluffScope>
     </DecisionTableProvider>
+    </PublicStateProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>
   );

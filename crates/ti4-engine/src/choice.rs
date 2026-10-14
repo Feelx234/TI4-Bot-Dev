@@ -177,6 +177,11 @@ pub struct Choice {
     /// and skipped when empty, so records, replays and fingerprints are unaffected.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub details: serde_json::Map<String, Value>,
+    /// An id prefix that names answers built by the asker rather than listed in `options`
+    /// (a transaction's free-form deal). Unlisted ids starting with it are accepted as answers;
+    /// whoever resolves the answer parses the rest and rejects what it cannot read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_form: Option<String>,
 }
 
 /// Display only: the header of an offer card: what it is, its kind, when it applies and the
@@ -244,7 +249,29 @@ impl Choice {
             options,
             context: None,
             details: serde_json::Map::new(),
+            free_form: None,
         }
+    }
+
+    /// Accept answers whose id starts with `prefix` although they are not listed; see
+    /// [`Choice::free_form`]. Also tells clients through `details.free_form`.
+    #[must_use]
+    pub fn accepting_free_form(mut self, prefix: &str) -> Self {
+        self.details
+            .insert("free_form".to_owned(), Value::String(prefix.to_owned()));
+        self.free_form = Some(prefix.to_owned());
+        self
+    }
+
+    /// The option an answer id stands for: the listed one, or a free-form one the asker built.
+    #[must_use]
+    pub fn answer_for(&self, option_id: &str) -> Option<ChoiceOption> {
+        if let Some(listed) = self.option(option_id) {
+            return Some(listed.clone());
+        }
+        let prefix = self.free_form.as_deref()?;
+        (option_id.starts_with(prefix) && option_id.len() > prefix.len())
+            .then(|| ChoiceOption::labelled(option_id, "offer", option_id))
     }
 
     /// Attach one display-only fact for clients; see [`Choice::details`].
@@ -367,6 +394,9 @@ fn choice_fingerprint(choice: &Choice) -> u64 {
 pub fn validate(choice: &Choice, option: ChoiceOption) -> Result<ChoiceOption, IllegalChoice> {
     if choice.option(&option.id).is_some() {
         return Ok(option);
+    }
+    if let Some(built) = choice.answer_for(&option.id) {
+        return Ok(built);
     }
     Err(IllegalChoice::NotOffered {
         player: choice.player.clone(),
@@ -2010,8 +2040,7 @@ impl Decider for Scripted {
             return self.fallback.choose(choice);
         };
         choice
-            .option(&wanted)
-            .cloned()
+            .answer_for(&wanted)
             .ok_or_else(|| IllegalChoice::ScriptDiverged {
                 player: choice.player.clone(),
                 wanted,
@@ -2063,6 +2092,12 @@ impl Decider for Capturing {
 /// Rust versions in a way Python's is not. The same seed therefore plays a *different* legal
 /// game. Reproducing an oracle game needs its decision log replayed through [`Scripted`],
 /// or the legacy entropy translator planned in M03-007.
+///
+/// A clone continues the same stream from the same position: with [`Game::fork`] it is what a
+/// checkpoint of a game with random seats keeps.
+///
+/// [`Game::fork`]: crate::game::Game::fork
+#[derive(Clone)]
 pub struct SeededRandom {
     rng: ChaCha8Rng,
 }
@@ -2170,12 +2205,17 @@ impl DecisionLog {
 /// let mut table = Table::with_default(Box::new(Scripted::new(vec![String::new()])));
 /// table.seat(PlayerId::new("a"), Box::new(Scripted::new(vec!["first".to_owned()])));
 /// ```
+type ObservedOffer = Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>;
+
+/// Told about each decision the engine settles without asking.
+type AutoResolvedObserver = Box<dyn FnMut(&AutoResolved) + Send>;
+
 pub struct Table {
     deciders: BTreeMap<PlayerId, Box<dyn Decider>>,
     default: Box<dyn Decider>,
     pub log: DecisionLog,
-    observed_offer: Option<Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>>,
-    auto_resolved_observer: Option<Box<dyn FnMut(&AutoResolved) + Send>>,
+    observed_offer: Option<ObservedOffer>,
+    auto_resolved_observer: Option<AutoResolvedObserver>,
     window_observer: Option<WindowObserver>,
     /// Decisions settled without asking, since the last drain. Never part of the decision log.
     auto_resolved: Vec<AutoResolved>,

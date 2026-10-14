@@ -150,9 +150,13 @@ pub struct PlayerLobbySlot {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "StoredLobbyMember")]
 pub struct PlayerLobbyMember {
-    pub ready: bool,
+    /// The "Ready" flag of a record written before 2026-10-13. Nothing reads it. It is kept only so
+    /// that such a record serializes back to the bytes its checksum was made over; it is never set
+    /// for a new member and is not written when absent.
+    #[serde(default, rename = "ready", skip_serializing_if = "Option::is_none")]
+    pub legacy_ready: Option<bool>,
     pub session: PlayerSession,
     pub nickname: String,
     /// `Some("random")` for an in-process random bot: its seat has no usable credential
@@ -165,10 +169,36 @@ pub struct PlayerLobbyMember {
     pub faction: Option<String>,
 }
 
+/// A member as a record on disk has it. A record written before 2026-10-13 has `ready`: a table
+/// had a "Ready" then. It is read and dropped.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredLobbyMember {
+    #[serde(default, rename = "ready")]
+    _ready: Option<bool>,
+    session: PlayerSession,
+    nickname: String,
+    #[serde(default)]
+    bot: Option<String>,
+    #[serde(default)]
+    faction: Option<String>,
+}
+
+impl From<StoredLobbyMember> for PlayerLobbyMember {
+    fn from(stored: StoredLobbyMember) -> Self {
+        Self {
+            legacy_ready: stored._ready,
+            session: stored.session,
+            nickname: stored.nickname,
+            bot: stored.bot,
+            faction: stored.faction,
+        }
+    }
+}
+
 impl std::fmt::Debug for PlayerLobbyMember {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PlayerLobbyMember")
-            .field("ready", &self.ready)
             .field("nickname", &self.nickname)
             .field("session", &self.session)
             .finish()
@@ -203,6 +233,17 @@ pub struct PlayerLobbyRecord {
     /// order) so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub map_revision: u64,
+    /// How the seats are given at Start: `"random"` (drawn from the seed) or `"join"` (the order
+    /// in which the players came). Absent means random. See [`crate::session::table`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat_order: Option<String>,
+    /// The wait before each answer of a seat that the server plays, in milliseconds. Absent: the
+    /// value of the process (`TI4_RANDOM_BOT_DELAY_MS`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_delay_ms: Option<u64>,
+    /// The scenario of `ti4_view::scenario` that the game starts from. Absent: round 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_from: Option<String>,
     pub lobby_version: u64,
 }
 
@@ -283,6 +324,13 @@ pub struct PlayerGameInitRecord {
     /// existed (PoK). The cards themselves are part of `initial_state`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy_card_set: Option<String>,
+    /// The wait of the seats that the server plays, as the table had it at Start. Absent: the
+    /// value of the process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_delay_ms: Option<u64>,
+    /// The scenario that the game started from: the map of the game is the map of the scenario.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_from: Option<String>,
 }
 
 /// Authoritative running-session credential mapping, atomically replaced on rotation.
@@ -372,8 +420,42 @@ pub struct BatchRecord {
 /// for. A game without it simply has no preferences, which is how every older save loads.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReactionModesRecord {
-    #[serde(default)]
+    /// The card names that a seat set to never offer, as a save of before the modes of
+    /// abilities has them. Read, and not written.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+    /// The mode of each reaction that a seat set, by its key.
+    #[serde(default)]
+    pub modes: BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>>,
+}
+
+/// What each seat has staged and not sent (`session::staged`), saved in `staged.json`.
+///
+/// Not a game input: replay never reads it. A game without the file has nothing staged, which
+/// is how every older save loads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagedRecord {
+    #[serde(default)]
+    pub seats: BTreeMap<PlayerId, crate::session::staged::SeatStaged>,
+}
+
+impl ReactionModesRecord {
+    /// The modes of every seat, with the Never cards of an older save among them.
+    #[must_use]
+    pub fn into_modes(
+        self,
+    ) -> BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>> {
+        let mut modes = self.modes;
+        for (seat, cards) in self.never {
+            let of_seat = modes.entry(seat).or_default();
+            for card in cards {
+                of_seat
+                    .entry(card)
+                    .or_insert(ti4_model::state::ReactionMode::Never);
+            }
+        }
+        modes
+    }
 }
 
 /// Initial configuration record saved atomically to `init.json`.
@@ -452,7 +534,6 @@ impl FileGameStore {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
         atomic_write_json_bounded(&dir.join("history.json"), history, MAX_LOG_BYTES)
-
     }
 
     pub fn load_history(&self, game_id: &str) -> Result<Option<GameHistory>, StorageError> {
@@ -737,6 +818,28 @@ impl FileGameStore {
         read_json_file(&path, MAX_SNAPSHOT_BYTES)
     }
 
+    /// Atomically stores what every seat has staged.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the record is too large or cannot be written.
+    pub fn save_staged(&self, game_id: &str, record: &StagedRecord) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json_bounded(&dir.join("staged.json"), record, MAX_SNAPSHOT_BYTES)
+    }
+
+    /// Loads what the seats have staged; a game that never staged anything has none.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_staged(&self, game_id: &str) -> Result<StagedRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("staged.json");
+        if !path.exists() {
+            return Ok(StagedRecord::default());
+        }
+        read_json_file(&path, MAX_SNAPSHOT_BYTES)
+    }
+
     /// Saves the alternate timeline kept by a turn redo (`turn_redo.json`).
     ///
     /// # Errors
@@ -749,7 +852,6 @@ impl FileGameStore {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
         atomic_write_json_bounded(&dir.join("turn_redo.json"), record, MAX_LOG_BYTES)
-
     }
 
     /// Loads the saved alternate timeline, if the game has one.
@@ -776,6 +878,25 @@ impl FileGameStore {
         if path.exists() {
             fs::remove_file(path)?;
         }
+        Ok(())
+    }
+
+    /// Moves a game's directory into `terminated/` (nothing is deleted) so it is no longer
+    /// recovered at the next start. Idempotent: a game without a directory is already gone.
+    pub fn terminate_game(&self, game_id: &str) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        if !dir.exists() {
+            return Ok(());
+        }
+        let archive = self.base_dir.join("terminated");
+        fs::create_dir_all(&archive)?;
+        let mut target = archive.join(game_id);
+        let mut n = 1;
+        while target.exists() {
+            target = archive.join(format!("{game_id}.{n}"));
+            n += 1;
+        }
+        fs::rename(&dir, &target)?;
         Ok(())
     }
 
@@ -894,7 +1015,7 @@ impl FileGameStore {
     /// Returns [`StorageError`] if recovery fails.
     pub fn recover_session(self: &Arc<Self>, game_id: &str) -> Result<GameSession, StorageError> {
         let init_record = self.load_init(game_id)?;
-        self.recover_from_init(game_id, init_record)
+        self.recover_from_init(game_id, init_record, None, None)
     }
 
     /// Recover using the current-session record as credential authority.
@@ -934,7 +1055,12 @@ impl FileGameStore {
             map_tiles: init.map_tiles,
             map_template: init.map_template,
         };
-        self.recover_from_init(game_id, record)
+        self.recover_from_init(
+            game_id,
+            record,
+            init.start_from.as_deref(),
+            init.bot_delay_ms,
+        )
     }
 
     #[expect(
@@ -945,6 +1071,8 @@ impl FileGameStore {
         self: &Arc<Self>,
         game_id: &str,
         init_record: GameInitRecord,
+        start_from: Option<&str>,
+        bot_delay_ms: Option<u64>,
     ) -> Result<GameSession, StorageError> {
         let history = self.load_history(game_id)?;
         let decisions = if let Some(h) = &history {
@@ -959,7 +1087,12 @@ impl FileGameStore {
         };
 
         let content = ContentStore::embedded();
-        let galaxy = if let Some(seed) = init_record.seed {
+        let galaxy = if let Some(scenario) = start_from {
+            // A game that started from a scenario is played on the map of the scenario.
+            let (_, g) = ti4_view::scenario::start(content, scenario, &init_record.player_ids)
+                .map_err(StorageError::Map)?;
+            Some(g)
+        } else if let Some(seed) = init_record.seed {
             let g = crate::map::rebuild_galaxy(
                 content,
                 &init_record.player_ids,
@@ -998,9 +1131,9 @@ impl FileGameStore {
             history.as_ref().map_or(0, |h| h.generation),
         )
         .map_err(|source| StorageError::Replay {
-                game_id: game_id.to_owned(),
-                source,
-            })?;
+            game_id: game_id.to_owned(),
+            source,
+        })?;
 
         if !replay_report.hashes_match {
             return Err(StorageError::HashMismatch(game_id.to_owned()));
@@ -1076,9 +1209,11 @@ impl FileGameStore {
         let mut config =
             SessionConfig::new(&init_record.game_id, init_record.initial_state.clone())
                 .with_store(self.clone())
-                .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
+                .with_reaction_modes(self.load_reaction_modes(game_id)?.into_modes())
                 .with_prior_history(decisions.clone(), events.clone());
+        config.staged = crate::session::staged::StagedBook::new(self.load_staged(game_id)?.seats);
         config.resume = replay_copy.map(Arc::new);
+        config.random_bot_delay_ms = bot_delay_ms;
         if let Some(history) = history {
             config.initial_version = history.revision;
             config.redo_decisions = history.redo;
@@ -1396,8 +1531,17 @@ fn envelope_checksum<T: Serialize>(
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
+/// Fingerprint of a state for comparing a stored snapshot with its replay. Fields that are only
+/// displayed and that a newer release records in more detail (the `gains` and `placed` of an
+/// exploration record, added 2026-10-13) are left out, so a snapshot written by an older release
+/// still matches the replay of the same decisions. Nothing a rule reads is left out.
 fn state_checksum(state: &GameState) -> Result<String, StorageError> {
-    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(state)?)))
+    let mut state = state.clone();
+    for record in &mut state.exploration_log {
+        record.gains.clear();
+        record.placed.clear();
+    }
+    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(&state)?)))
 }
 
 fn content_identity() -> String {
@@ -1435,13 +1579,27 @@ mod player_record_tests {
         let written = std::fs::read(&path).unwrap();
         let mut expected = serde_json::to_vec_pretty(&persist(&history).unwrap()).unwrap();
         expected.push(b'\n');
-        assert_eq!(written, expected, "the file is the pretty envelope plus a newline");
+        assert_eq!(
+            written, expected,
+            "the file is the pretty envelope plus a newline"
+        );
         assert!(!path.with_extension("tmp").exists());
-        assert_eq!(store.load_history("bounded_history").unwrap().unwrap().revision, 1);
+        assert_eq!(
+            store
+                .load_history("bounded_history")
+                .unwrap()
+                .unwrap()
+                .revision,
+            1
+        );
 
         let err = atomic_write_json_bounded(&path, &history, written.len() - 1).unwrap_err();
         assert!(matches!(err, StorageError::Oversized { .. }), "{err}");
-        assert_eq!(std::fs::read(&path).unwrap(), written, "an oversized save leaves the file alone");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            written,
+            "an oversized save leaves the file alone"
+        );
         atomic_write_json_bounded(&path, &history, written.len()).unwrap();
     }
 
@@ -1471,6 +1629,27 @@ mod player_record_tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A lobby written by the release before the "Ready" flag was dropped (members carry
+    /// `ready`). Its checksum was made over that shape, so it must still load, and must write
+    /// back to the same bytes. The fixture is a real alpha record with ids and sessions replaced.
+    #[test]
+    fn lobby_written_with_ready_flags_still_loads() {
+        let (store, dir) = store();
+        let id = "game_00000000000000000000000000000001";
+        let game = store.game_dir(id).unwrap();
+        fs::create_dir_all(&game).unwrap();
+        let fixture = include_str!("../tests/fixtures/lobby_v1_with_ready.json");
+        assert!(fixture.contains("\"ready\""));
+        fs::write(game.join("lobby.json"), fixture).unwrap();
+        let lobby = store.load_player_lobby(id).unwrap().expect("lobby loads");
+        assert_eq!(lobby.players.len(), 8);
+        assert!(lobby.players.values().all(|m| m.legacy_ready.is_some()));
+        // Saving it again keeps the checksum valid.
+        store.save_player_lobby(&lobby).unwrap();
+        assert!(store.load_player_lobby(id).unwrap().is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn repeated_generated_ids_are_unique_and_collision_is_skipped() {
         let mut players = BTreeMap::new();
@@ -1482,9 +1661,9 @@ mod player_record_tests {
                     .insert(
                         id,
                         PlayerLobbyMember {
+                            legacy_ready: None,
                             bot: None,
                             faction: None,
-                            ready: false,
                             session: PlayerSession::generate(),
                             nickname: "Test".into(),
                         }
@@ -1569,9 +1748,9 @@ mod player_record_tests {
         lobby.players.insert(
             PlayerId::new(hex_random_256("player_")),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
-                ready: false,
                 session: lobby.players[&id].session.clone(),
                 nickname: "Test".into(),
             },
@@ -1613,6 +1792,8 @@ mod player_record_tests {
             seats: None,
             map_template: None,
             strategy_card_set: None,
+            bot_delay_ms: None,
+            start_from: None,
         };
         store.save_player_init(&init).unwrap();
         let mut sessions = PlayerSessionsRecord {

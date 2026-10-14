@@ -578,6 +578,8 @@ pub fn apply_reroll_dice(
             hits_on: entry.hits_on,
             rerolled: std::collections::BTreeSet::new(),
             by: None,
+            system: None,
+            outcome: None,
         };
         let again = dice.reroll(rng, &original, [*die], Some(reason));
         entry.faces = again.faces;
@@ -1983,16 +1985,25 @@ fn cannon_barred(
     })
 }
 
-pub fn space_cannon_offense(
-    state: &mut GameState,
+/// The guns that roll in the space cannon offense of `system`, when `active` activates it.
+pub struct CannonGuns {
+    /// The units, in the order in which they roll.
+    pub units: Vec<Unit>,
+    /// SPACE CANNON of an attachment: the owner, the planet, the value and the number of dice.
+    pub attachments: Vec<(PlayerId, ti4_model::id::PlanetId, u32, usize)>,
+}
+
+/// Who may fire in the space cannon offense of `system`. It rolls nothing and changes nothing:
+/// [`space_cannon_offense`] rolls for these guns, and a client asks it before the activation.
+#[must_use]
+pub fn space_cannon_guns(
+    state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
-    dice: &mut Dice,
-    rng: &mut GameRng,
     system: &SystemId,
     active: &PlayerId,
     galaxy: Option<&ti4_content::galaxy::Galaxy>,
-) -> Vec<(PlayerId, usize, Vec<RerollEntry>)> {
+) -> CannonGuns {
     // Solar Flare: during the named tactical action, other players cannot use SPACE CANNON
     // against the active player's ships. Every other player's gun fires at the active player, so
     // the card silences all of them; the active player's own guns are untouched. The marker is
@@ -2085,6 +2096,29 @@ pub fn space_cannon_offense(
         })
         .filter(|(owner, ..)| may_fire(owner))
         .collect();
+    CannonGuns {
+        units: guns,
+        attachments: attachment_guns,
+    }
+}
+
+pub fn space_cannon_offense(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    dice: &mut Dice,
+    rng: &mut GameRng,
+    system: &SystemId,
+    active: &PlayerId,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> Vec<(PlayerId, usize, Vec<RerollEntry>)> {
+    let CannonGuns {
+        units: guns,
+        attachments: attachment_guns,
+    } = space_cannon_guns(state, content, sources, system, active, galaxy);
+    let types = catalogue(content, sources);
+    // The player the active player's guns fire at (Assail reads it below).
+    let opponent = opponent_with_ships(state, content, sources, active, system);
 
     let mut by_player: std::collections::BTreeMap<PlayerId, (usize, Vec<RerollEntry>)> =
         std::collections::BTreeMap::new();
@@ -3412,6 +3446,7 @@ pub fn announce_staged_destructions(state: &mut GameState, ctx: &mut Resolving<'
 }
 
 /// 78.6: the owning player chooses which of their own units dies.
+#[cfg(test)]
 pub(crate) fn choose_casualty(
     state: &GameState,
     content: &ContentStore,
@@ -7477,6 +7512,8 @@ mod tests {
             hits_on: Some(7),
             rerolled: std::collections::BTreeSet::new(),
             by: None,
+            system: None,
+            outcome: None,
         };
         let rerolled = reroll_munitions_misses(&state, &mut dice, &mut rng, &attacker(), &original);
 

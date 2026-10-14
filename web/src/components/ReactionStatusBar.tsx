@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { readableEventTypes } from "../presentation/participantText.ts";
 import type {
   BoardView,
   GameEvent,
@@ -132,6 +133,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       activeSystemId: activeSystemId ?? boardView?.active_system ?? null,
       viewerSeat,
       board: boardView,
+      commodities: (seat) => players?.[seat]?.commodities ?? null,
       playerLabel: (id) => display(id).label,
       systemLabel: (id) => {
         const planets = Object.keys(boardView?.systems?.[id]?.planets ?? {});
@@ -140,7 +142,18 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
           : `System ${id}`;
       },
     });
-  }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display]);
+  }, [choice, events, activePlayerId, activeSystemId, boardView, viewerSeat, display, players]);
+
+  // What another player's action card was aimed at, beyond the system the sentence names.
+  const cardTargets = useMemo(() => {
+    const facts = reaction?.facts;
+    if (!facts || (facts.eventType !== "ACTION_CARD_PLAYED" && facts.eventType !== "ACTION_CARD_DISCARDED"))
+      return [];
+    return [
+      facts.planetId && `planet ${humanizeId(facts.planetId)}`,
+      facts.subjectId && `player ${facts.subjectId === viewerSeat ? "you" : display(facts.subjectId).label}`,
+    ].filter((t): t is string => Boolean(t));
+  }, [reaction, viewerSeat, display]);
 
   // Reset state on nonce change
   useEffect(() => {
@@ -238,7 +251,7 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
       aria-label="Reaction Window"
       data-testid="reaction-status-bar"
       className="reaction-status-bar"
-      title={choice.prompt}
+      title={readableEventTypes(choice.prompt)}
     >
       <DecisionHeader
         actor={choice.actor}
@@ -293,6 +306,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
             )}
           </div>
         )}
+        {cardTargets.length > 0 && (
+          <p className="reaction-status-bar__targets" data-testid="reaction-trigger-targets">
+            Target: {cardTargets.join(", ")}
+          </p>
+        )}
         {reaction.note && <p className="reaction-status-bar__note">{reaction.note}</p>}
         <CardBlock card={reaction.facts.card} prefs={prefs} testId="reaction-trigger-card" />
       </section>
@@ -318,6 +336,11 @@ export const ReactionStatusBar: React.FC<ReactionStatusBarProps> = ({
                 <li key={row.optionId} className="reaction-status-bar__row">
                   {!row.card && <div className="reaction-card__name">{row.name}</div>}
                   <CardBlock card={row.card} note={row.note} prefs={prefs} showWindow />
+                  {row.effect && (
+                    <p className="reaction-status-bar__effect" data-testid="reaction-row-effect">
+                      {row.effect}
+                    </p>
+                  )}
                   {row.card && onSetReactionMode && (
                     <label className="reaction-status-bar__never">
                       <input

@@ -11,6 +11,8 @@ import {
 } from "../protocol/contentCatalog.ts";
 import { CardSubject } from "./CardDetails.tsx";
 import { FactionInfoButton } from "./UnitInfo.tsx";
+import { describeBreakthrough } from "../presentation/breakthroughs.ts";
+import { usePublicState } from "../presentation/PublicStateContext.tsx";
 import { SecondaryPrepModeToggle } from "./SecondaryPrepModeToggle.tsx";
 import { SeatBadge, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { computePlayerStats } from "../presentation/playerStats.ts";
@@ -22,6 +24,58 @@ import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
 import { secretProgressOf } from "../presentation/secretProgress.ts";
 
+
+/**
+ * "Holds: [owner] [owner]": one chip per foreign command token in the fleet pool, in the owner's
+ * seat colour. They count toward the fleet supply but are not part of the sheet's fleet count.
+ */
+export const HeldForeignTokens: React.FC<{ owners: readonly string[] }> = ({ owners }) => {
+  const display = usePlayerIdentity();
+  const names = owners.map((owner) => display(owner).label).join(", ");
+  const summary = `Holds ${owners.length} other ${owners.length === 1 ? "player's" : "players'"} command ${
+    owners.length === 1 ? "token" : "tokens"
+  } in the fleet pool (${names}). They raise the fleet supply and cannot be redistributed.`;
+  return (
+    <div
+      data-testid="player-held-tokens"
+      aria-label={summary}
+      title={summary}
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: "3px 6px",
+        fontSize: 12,
+        color: "#cbd5e1",
+      }}
+    >
+      <span>Holds:</span>
+      {owners.map((owner, index) => {
+        const identity = display(owner);
+        return (
+          <span
+            key={`${owner}-${index}`}
+            data-testid="player-held-token"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "1px 6px",
+              borderRadius: 10,
+              border: `1px solid ${identity.color}`,
+              background: "rgba(15, 23, 42, 0.6)",
+            }}
+          >
+            <span aria-hidden="true" style={{ color: identity.color }}>
+              ◆
+            </span>
+            {identity.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+};
 
 export interface VPBreakdown {
   publicObjectives: number;
@@ -166,6 +220,43 @@ export interface PlayerSheetProps {
   onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
 }
 
+/**
+ * A seat's Thunder's Edge breakthrough: unlocked (printed text in full) or still locked (name only,
+ * the text on hover; the card is public). Nothing shows for a faction with no printed breakthrough.
+ */
+const BreakthroughRow: React.FC<{ faction: string; held: string | null }> = ({ faction, held }) => {
+  const line = describeBreakthrough(faction, held);
+  if (!line) return null;
+  const detail = `${line.name} (synergy ${line.synergy})${line.text ? `\n\n${line.text}` : ""}`;
+  return (
+    <div
+      data-testid="player-breakthrough"
+      data-unlocked={line.unlocked ? "true" : "false"}
+      title={detail}
+      style={{
+        fontSize: 11,
+        padding: "3px 6px",
+        borderRadius: 4,
+        border: `1px solid ${line.unlocked ? "#f59e0b" : "rgba(255, 255, 255, 0.12)"}`,
+        background: line.unlocked ? "rgba(245, 158, 11, 0.1)" : "transparent",
+        color: line.unlocked ? "#fde68a" : "#94a3b8",
+      }}
+    >
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "baseline" }}>
+        <span style={{ fontWeight: 600 }}>Breakthrough:</span>
+        <strong data-testid="player-breakthrough-name">{line.name}</strong>
+        <span data-testid="player-breakthrough-state">{line.unlocked ? "unlocked" : "locked"}</span>
+        <span>Synergy: {line.synergy}</span>
+      </div>
+      {line.unlocked && line.text && (
+        <div data-testid="player-breakthrough-text" style={{ marginTop: 3, whiteSpace: "pre-line", color: "#e2e8f0" }}>
+          {line.text}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   players,
   userSeat,
@@ -178,6 +269,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onSetReactionMode,
 }) => {
   const display = usePlayerIdentity();
+  const publicState = usePublicState();
   const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
   const [isMutedState, setIsMutedState] = useState(isMuted);
@@ -244,7 +336,9 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
         {/* Sound Settings Toggle */}
         <button
           type="button"
-          title={isMutedState ? "Turn sound on" : "Mute turn sound"}
+          data-testid="turn-sound-btn"
+          aria-pressed={isMutedState}
+          title={isMutedState ? "Turn the beep for your decisions back on" : "Turn off the beep for your decisions"}
           onClick={() => {
             const newMutedState = toggleMute();
             setIsMutedState(newMutedState);
@@ -270,7 +364,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
               : "transparent";
           }}
         >
-          {isMutedState ? "🔇 Muted" : "🔊 Sound"}
+          {isMutedState ? "🔇 Sound off" : "🔊 Sound on"}
         </button>
         <button
           type="button"
@@ -378,6 +472,7 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                   {player.faction}
                   <FactionInfoButton
                     faction={player.faction}
+                    breakthroughHeld={publicState.breakthroughs[player.id] ?? null}
                     technologies={player.technologies}
                     leaders={player.leaders}
                   />
@@ -455,6 +550,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 </Tooltip>
               </div>
             </div>
+
+            {/* Other players' command tokens in this seat's fleet pool (Mahact's Edict). */}
+            {(player.held_foreign_tokens ?? []).length > 0 && (
+              <HeldForeignTokens owners={player.held_foreign_tokens ?? []} />
+            )}
 
             {/* Additional Player Stats (Resources, Influence, Systems, Planets, Production) */}
             <div
@@ -641,6 +741,8 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
                 Secret Obj: <strong>{player.secret_objectives_count}</strong>
               </span>
             </div>
+
+            <BreakthroughRow faction={player.faction} held={publicState.breakthroughs[player.id] ?? null} />
 
             {player.scored_secret_objectives && player.scored_secret_objectives.length > 0 && (
               <div style={{ display: "grid", gap: 4 }}>

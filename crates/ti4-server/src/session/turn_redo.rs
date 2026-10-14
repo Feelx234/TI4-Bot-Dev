@@ -294,10 +294,7 @@ impl Decider for RedoDecider {
                 shared.accepted += 1;
                 self.force.before_answer(index);
                 self.force.capture(index);
-                Ok(choice
-                    .option(&record.chosen)
-                    .expect("checked on offer")
-                    .clone())
+                Ok(choice.answer_for(&record.chosen).expect("checked on offer"))
             }
             Err(conflict) => {
                 shared.asking = Some(choice.player.clone());
@@ -489,7 +486,8 @@ impl TailBaseline {
         let tail_len = tail_end - end;
         // Only the draws of decisions the auto-play can replay are reserved: those before the
         // seat's next turn. Whatever the original drew later is left to the live game.
-        let stop = next_turn_start(&self.decisions[end..tail_end], &window.seat).unwrap_or(tail_len);
+        let stop =
+            next_turn_start(&self.decisions[end..tail_end], &window.seat).unwrap_or(tail_len);
         let reserved = base
             .draws
             .iter()
@@ -655,77 +653,74 @@ pub fn autoplay(
     }
 
     let tail_total = stop_rel.unwrap_or(source.decisions.len());
-    let (final_len, stop, asking_seat) = if let Some(failure) = run
-        .reserve_failure
-        .as_ref()
-        .filter(|f| f.tag >= prefix_len)
-    {
-        // A card the original timeline handed out is not in the deck any more: the decision it
-        // belongs to is not replayed; the seat it asks decides live.
-        let cut = failure.tag;
-        let record = &script[cut];
-        let who = failure
-            .recipient
-            .clone()
-            .unwrap_or_else(|| record.player.to_string());
-        (
-            cut,
-            TurnRedoStop::Conflict {
-                conflict: TurnRedoConflict {
-                    original_cursor: source.start_cursor + (cut - prefix_len),
-                    kind: ConflictKind::ReservedCard,
-                    seat: record.player.to_string(),
-                    prompt: record.prompt.clone(),
-                    detail: reserved_card_detail(&failure.deck, Some(&failure.card), &who),
-                    deck: Some(failure.deck.clone()),
-                    card: Some(failure.card.clone()),
-                    recipient: Some(who),
+    let (final_len, stop, asking_seat) =
+        if let Some(failure) = run.reserve_failure.as_ref().filter(|f| f.tag >= prefix_len) {
+            // A card the original timeline handed out is not in the deck any more: the decision it
+            // belongs to is not replayed; the seat it asks decides live.
+            let cut = failure.tag;
+            let record = &script[cut];
+            let who = failure
+                .recipient
+                .clone()
+                .unwrap_or_else(|| record.player.to_string());
+            (
+                cut,
+                TurnRedoStop::Conflict {
+                    conflict: TurnRedoConflict {
+                        original_cursor: source.start_cursor + (cut - prefix_len),
+                        kind: ConflictKind::ReservedCard,
+                        seat: record.player.to_string(),
+                        prompt: record.prompt.clone(),
+                        detail: reserved_card_detail(&failure.deck, Some(&failure.card), &who),
+                        deck: Some(failure.deck.clone()),
+                        card: Some(failure.card.clone()),
+                        recipient: Some(who),
+                    },
                 },
-            },
-            Some(record.player.to_string()),
-        )
-    } else if run.handoff {
-        (
-            run.accepted,
-            TurnRedoStop::Handoff {
-                seat: seat.to_string(),
-            },
-            Some(seat.to_string()),
-        )
-    } else if let Some(conflict) = &run.conflict {
-        let rel = conflict.index.saturating_sub(prefix_len);
-        let recorded = script.get(conflict.index);
-        let seat_asked = conflict
-            .found_seat
-            .clone()
-            .or_else(|| recorded.map(|r| r.player.to_string()));
-        (
-            run.accepted,
-            TurnRedoStop::Conflict {
-                conflict: TurnRedoConflict {
-                    original_cursor: source.start_cursor + rel,
-                    kind: conflict.kind,
-                    seat: seat_asked.clone().unwrap_or_default(),
-                    prompt: conflict
-                        .found_prompt
-                        .clone()
-                        .or_else(|| recorded.map(|r| r.prompt.clone()))
-                        .unwrap_or_default(),
-                    detail: describe(conflict.kind),
-                    deck: None,
-                    card: None,
-                    recipient: None,
+                Some(record.player.to_string()),
+            )
+        } else if run.handoff {
+            (
+                run.accepted,
+                TurnRedoStop::Handoff {
+                    seat: seat.to_string(),
                 },
-            },
-            seat_asked,
-        )
-    } else {
-        (
-            run.accepted,
-            TurnRedoStop::TailExhausted,
-            run.asking.map(|p| p.to_string()),
-        )
-    };
+                Some(seat.to_string()),
+            )
+        } else if let Some(conflict) = &run.conflict {
+            let rel = conflict.index.saturating_sub(prefix_len);
+            let recorded = script.get(conflict.index);
+            let seat_asked = conflict
+                .found_seat
+                .clone()
+                .or_else(|| recorded.map(|r| r.player.to_string()));
+            (
+                run.accepted,
+                TurnRedoStop::Conflict {
+                    conflict: TurnRedoConflict {
+                        original_cursor: source.start_cursor + rel,
+                        kind: conflict.kind,
+                        seat: seat_asked.clone().unwrap_or_default(),
+                        prompt: conflict
+                            .found_prompt
+                            .clone()
+                            .or_else(|| recorded.map(|r| r.prompt.clone()))
+                            .unwrap_or_default(),
+                        detail: describe(conflict.kind),
+                        deck: None,
+                        card: None,
+                        recipient: None,
+                    },
+                },
+                seat_asked,
+            )
+        } else {
+            (
+                run.accepted,
+                TurnRedoStop::TailExhausted,
+                run.asking.map(|p| p.to_string()),
+            )
+        };
 
     let kept = final_len - prefix_len;
     let mut marks = force;
@@ -790,9 +785,10 @@ fn deck_label(deck: &str) -> String {
         "objective" => "public objective".to_owned(),
         "relic" => "relic".to_owned(),
         "agenda" => "agenda".to_owned(),
-        other => other
-            .strip_prefix("exploration:")
-            .map_or_else(|| other.to_owned(), |kind| format!("{kind} exploration card")),
+        other => other.strip_prefix("exploration:").map_or_else(
+            || other.to_owned(),
+            |kind| format!("{kind} exploration card"),
+        ),
     }
 }
 

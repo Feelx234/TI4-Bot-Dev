@@ -58,6 +58,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             "/api/games",
             get(games::list_games).post(games::create_game),
         )
+        .route("/api/setup-options", get(games::setup_options))
         .route("/api/maps", get(games::list_maps))
         .route("/api/maps/{alias}/preview", get(games::preview_map))
         .route(
@@ -82,12 +83,12 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::heartbeat),
         )
         .route(
-            "/api/games/{game_id}/lobby/ready",
-            axum::routing::post(games::set_ready),
+            "/api/games/{game_id}/lobby/settings",
+            axum::routing::post(games::change_lobby_settings),
         )
         .route(
-            "/api/games/{game_id}/lobby/reorder",
-            axum::routing::post(games::reorder_lobby),
+            "/api/games/{game_id}/lobby/nickname",
+            axum::routing::post(games::rename_in_lobby),
         )
         .route(
             "/api/games/{game_id}/lobby/start",
@@ -108,6 +109,14 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         .route(
             "/api/games/{game_id}/lobby/remove-bot",
             axum::routing::post(games::remove_bot_from_lobby),
+        )
+        .route(
+            "/api/games/{game_id}/settings",
+            axum::routing::post(games::change_running_settings),
+        )
+        .route(
+            "/api/games/{game_id}/terminate",
+            axum::routing::post(games::terminate_game),
         )
         .route("/api/games/{game_id}/snapshot", get(games::get_snapshot))
         .route(
@@ -138,7 +147,11 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             post(feedback::post_feedback)
                 .layer(DefaultBodyLimit::max(crate::feedback::MAX_BODY_BYTES)),
         )
-        .route("/ws/games/{game_id}", get(ws_handler));
+        .route("/ws/games/{game_id}", get(ws_handler))
+        .route(
+            "/ws/tables/{game_id}",
+            get(crate::ws::table::table_ws_handler),
+        );
     if !is_public {
         router = router
             .route("/api/dev/scenarios", get(crate::dev::list_scenarios))
@@ -196,7 +209,12 @@ async fn spa_fallback(State(registry): State<Arc<GameRegistry>>, req: Request) -
     let Some(dir) = registry.public().config.web_dir.clone() else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     };
-    let service = ServeDir::new(&dir).fallback(ServeFile::new(dir.join("index.html")));
+    // `foo.wasm.br` / `foo.wasm.gz` next to `foo.wasm` (written by deploy.sh) are served to clients
+    // that accept them, with the Content-Type of the original file (`application/wasm`).
+    let service = ServeDir::new(&dir)
+        .precompressed_br()
+        .precompressed_gzip()
+        .fallback(ServeFile::new(dir.join("index.html")));
     let Ok(response) = service.oneshot(req).await;
     let mut response = response.map(axum::body::Body::new);
     let cache = if path.starts_with("/assets/") {
@@ -205,9 +223,10 @@ async fn spa_fallback(State(registry): State<Arc<GameRegistry>>, req: Request) -
         "no-cache"
     };
     if response.status().is_success() {
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+        let headers = response.headers_mut();
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+        // The same URL answers .br, .gz or plain depending on the request.
+        headers.append(header::VARY, HeaderValue::from_static("Accept-Encoding"));
     }
     response
 }

@@ -332,10 +332,16 @@ fn pay_with_mech_or_infantry(
     };
     // Display only: the card as printed, what is lost and exactly what is gained.
     let record = content.get(ContentType::Explores, card);
-    let name = record.and_then(|r| r.text("name")).unwrap_or(card).to_owned();
+    let name = record
+        .and_then(|r| r.text("name"))
+        .unwrap_or(card)
+        .to_owned();
     let tag = format!(
         "{} exploration card",
-        record.and_then(|r| r.text("type")).unwrap_or("").to_ascii_lowercase()
+        record
+            .and_then(|r| r.text("type"))
+            .unwrap_or("")
+            .to_ascii_lowercase()
     );
     let printed = record.and_then(|r| r.text("text")).map(ToOwned::to_owned);
     let system_name = system.to_string();
@@ -351,7 +357,12 @@ fn pay_with_mech_or_infantry(
         ],
         |choice| {
             choice.offered(
-                crate::choice::offer_card(&name, &tag, Some("on exploring this planet"), printed.as_deref()),
+                crate::choice::offer_card(
+                    &name,
+                    &tag,
+                    Some("on exploring this planet"),
+                    printed.as_deref(),
+                ),
                 vec![
                     crate::choice::offer_fact_planet("Planet", planet.as_str(), &system_name),
                     crate::choice::offer_fact("You lose", "1 infantry on this planet"),
@@ -429,11 +440,10 @@ fn enigmatic_device_technologies(
 /// action: withheld when its six resources cannot be paid, because an action that cannot fully
 /// resolve is never offered.
 ///
-/// One option per (card, technology) pair, not one option per card. Before this, the option was
-/// just "spend 6 resources to research a technology" -- a decision to pay, blind to which
-/// technology would follow, with a second and entirely separate decision only after the resources
-/// were already gone. A policy could not weigh the technology against its price because the price
-/// was the only thing either decision ever showed it.
+/// One option per card. The technology is chosen in a second, named decision
+/// ([`perform_action`]) *before* the resources are spent, so the price is still not paid blind.
+/// An earlier version listed one option per (card, technology) pair, which put every unheld
+/// technology -- 36 of them in a long game -- into the component action menu.
 #[must_use]
 pub fn available_actions(
     state: &GameState,
@@ -451,27 +461,84 @@ pub fn available_actions(
         player,
         crate::production::Spend::Resources,
     ) < ENIGMATIC_DEVICE_COST
+        || enigmatic_device_technologies(state, content, sources, player).is_empty()
     {
         return Vec::new();
     }
-    let technologies = enigmatic_device_technologies(state, content, sources, player);
+    if state.legacy_device_ids {
+        let technologies = enigmatic_device_technologies(state, content, sources, player);
+        return seat
+            .exploration_cards
+            .iter()
+            .filter(|card| matches!(card.as_str(), "ed1" | "ed2"))
+            .flat_map(|card| {
+                technologies.iter().map(move |tech| {
+                    crate::choice::ChoiceOption::labelled(
+                        format!("{PLAY_AREA_PREFIX}{card}:{tech}"),
+                        crate::relics::ACTION_KIND,
+                        format!(
+                            "spend 6 resources to research {}",
+                            crate::technology::name(content, tech)
+                        ),
+                    )
+                    .with("technology", tech.to_string())
+                })
+            })
+            .collect();
+    }
     seat.exploration_cards
         .iter()
         .filter(|card| matches!(card.as_str(), "ed1" | "ed2"))
-        .flat_map(|card| {
-            technologies.iter().map(move |tech| {
-                crate::choice::ChoiceOption::labelled(
-                    format!("{PLAY_AREA_PREFIX}{card}:{tech}"),
-                    crate::relics::ACTION_KIND,
-                    format!(
-                        "spend 6 resources to research {}",
-                        crate::technology::name(content, tech)
-                    ),
-                )
-                .with("technology", tech.to_string())
-            })
+        .map(|card| {
+            crate::choice::ChoiceOption::labelled(
+                format!("{PLAY_AREA_PREFIX}{card}"),
+                crate::relics::ACTION_KIND,
+                "Enigmatic Device: spend 6 resources to research a technology",
+            )
         })
         .collect()
+}
+
+/// Ask which technology an Enigmatic Device researches, by name, before anything is paid.
+#[allow(clippy::too_many_arguments, reason = "the arguments of a decision site")]
+fn ask_device_technology(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    table: &mut crate::choice::Table,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    player: &PlayerId,
+    card: &str,
+    technologies: &[TechnologyId],
+) -> Option<TechnologyId> {
+    let choice = crate::choice::Choice::new(
+        player.clone(),
+        "research which technology with the Enigmatic Device",
+        technologies
+            .iter()
+            .map(|tech| {
+                crate::choice::ChoiceOption::labelled(
+                    tech.to_string(),
+                    "technology",
+                    format!("research {}", crate::technology::name(content, tech)),
+                )
+            })
+            .collect(),
+    )
+    .contextualized(DecisionContext::new(
+        player.clone(),
+        DecisionSource::Content(card.to_owned()),
+        "enigmatic_device_choose_technology",
+        state.phase,
+        state.round,
+    ));
+    let Ok(answer) = table.ask_seeing(
+        &choice,
+        &crate::choice::Observed::new(state, content, sources, galaxy),
+    ) else {
+        return None;
+    };
+    Some(TechnologyId::new(answer.id))
 }
 
 /// Resolve a component action offered by [`available_actions`].
@@ -480,15 +547,18 @@ pub fn perform_action(
     content: &ContentStore,
     sources: SourceSet,
     table: &mut crate::choice::Table,
-    _galaxy: Option<&ti4_content::galaxy::Galaxy>,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
     player: &PlayerId,
     option: &crate::choice::ChoiceOption,
 ) -> bool {
     let Some(rest) = option.id.strip_prefix(PLAY_AREA_PREFIX) else {
         return false;
     };
-    let Some((card, technology)) = rest.split_once(':') else {
-        return false;
+    // The old per-technology id names its technology already: no follow-up question, so the
+    // decisions recorded under it replay one for one.
+    let (card, legacy_technology) = match rest.split_once(':') {
+        Some((card, tech)) => (card, Some(tech)),
+        None => (rest, None),
     };
     if !state
         .player(player)
@@ -496,9 +566,24 @@ pub fn perform_action(
     {
         return false;
     }
-    // Paid after the technology is already chosen, since the option now names both: 22.3 does
-    // not offer an action that cannot fully resolve, and this pays for exactly what was picked
-    // rather than for an unspecified one.
+    // Which technology is asked before the price is paid: the cost is already known to be
+    // payable (`available_actions`), and a decider is never made to choose after the resources
+    // are gone.
+    let technologies = enigmatic_device_technologies(state, content, sources, player);
+    if technologies.is_empty() {
+        return false;
+    }
+    let technology = match legacy_technology {
+        Some(tech) => TechnologyId::new(tech),
+        None => {
+            let Some(chosen) =
+                ask_device_technology(state, content, sources, table, galaxy, player, card, &technologies)
+            else {
+                return false;
+            };
+            chosen
+        }
+    };
     if !crate::production::pay(
         state,
         content,
@@ -517,8 +602,24 @@ pub fn perform_action(
     {
         seat.exploration_cards.remove(at); // purged
     }
-    crate::technology::gain(state, content, sources, player, &TechnologyId::new(technology));
+    crate::technology::gain(state, content, sources, player, &technology);
     true
+}
+
+/// Whether recorded decisions use the old per-technology Enigmatic Device ids (`play_area:ed2:ws`),
+/// in an answer or among the offered options. If so, marks the state so the replay offers them
+/// again and the recorded offers and hashes reproduce. A new game never contains one.
+pub fn mark_legacy_device_ids(state: &mut GameState, records: &[crate::choice::DecisionRecord]) {
+    let legacy = |id: &String| {
+        id.strip_prefix(PLAY_AREA_PREFIX)
+            .is_some_and(|rest| rest.contains(':'))
+    };
+    if records
+        .iter()
+        .any(|r| legacy(&r.chosen) || r.offered.iter().any(legacy))
+    {
+        state.legacy_device_ids = true;
+    }
 }
 
 /// The Enigmatic Device's price, on the relic and on both exploration cards.
@@ -842,7 +943,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "gain 1 trade good",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "gain 1 trade good",
             ) {
                 crate::supply::gain_trade_goods_announced(state, ctx, player, 1, "exploration");
             }
@@ -853,7 +961,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "ready this planet",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "ready this planet",
             ) {
                 state.exhausted_planets.remove(planet);
             }
@@ -864,7 +979,14 @@ fn resolve_instant(
                 return true;
             };
             if pay_with_mech_or_infantry(
-                ctx, state, content, sources, player, planet, card, "gain 1 command token",
+                ctx,
+                state,
+                content,
+                sources,
+                player,
+                planet,
+                card,
+                "gain 1 command token",
             ) {
                 state.gain_token(player, ti4_model::state::TokenPool::Strategic, 1);
             }
@@ -1007,6 +1129,8 @@ pub fn explore_with(
 ) -> Option<Explored> {
     let logged = state.exploration_log.len();
     let before = Holdings::of(state, player, planet);
+    let wormholes_before = state.wormhole_tokens.clone();
+    let ion_before = state.ion_storm.clone();
     let outcome = explore_drawn(state, ctx, player, deck, planet)?;
     // UI-01: the record `explore_drawn` opened gets its outcome now that it is known.
     let text = match &outcome {
@@ -1022,10 +1146,38 @@ pub fn explore_with(
         Explored::Resolved { .. } => "resolved".to_owned(),
         Explored::Discarded { .. } => "discarded".to_owned(),
     };
-    let result = before.describe_change(&Holdings::of(state, player, planet), planet, &outcome);
+    let after = Holdings::of(state, player, planet);
+    let result = before.describe_change(&after, planet, &outcome);
+    let gains = before.gains(&after);
+    let mut placed = Vec::new();
+    for (kind, system) in &state.wormhole_tokens {
+        if wormholes_before.get(kind) != Some(system) {
+            placed.push(format!("wormhole:{kind}:{system}"));
+        }
+    }
+    if state.ion_storm != ion_before
+        && let Some((system, face)) = &state.ion_storm
+    {
+        placed.push(format!("ion_storm:{system}:{face}"));
+    }
+    if let Explored::Fragment { trait_name } = &outcome {
+        placed.push(format!("fragment:{}", trait_name.to_ascii_lowercase()));
+    }
+    if after.play_area > before.play_area
+        && let Some(card) = state.player(player).and_then(|seat| seat.exploration_cards.last())
+    {
+        placed.push(format!("play_area:{card}"));
+    }
+    if let (Explored::Attached { .. }, Some(planet)) = (&outcome, planet)
+        && let Some(id) = text.strip_prefix("attached:")
+    {
+        placed.push(format!("attachment:{id}:{planet}"));
+    }
     if let Some(record) = state.exploration_log.get_mut(logged) {
         record.outcome = text;
         record.result = result;
+        record.gains = gains;
+        record.placed = placed;
     }
     if let Some(explored) = planet {
         // Pre-Fab Arcologies et al. run first (they change the state), then the typed event.
@@ -1058,6 +1210,7 @@ struct Holdings {
     secrets: usize,
     relics: usize,
     technologies: usize,
+    play_area: usize,
     own_infantry: usize,
     own_mechs: usize,
     exhausted: bool,
@@ -1083,20 +1236,45 @@ impl Holdings {
         Self {
             trade_goods: seat.map_or(0, |seat| seat.trade_goods),
             commodities: seat.map_or(0, |seat| seat.commodities),
-            command_tokens: seat
-                .map_or(0, |seat| seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens),
+            command_tokens: seat.map_or(0, |seat| {
+                seat.tactic_tokens + seat.fleet_tokens + seat.strategic_tokens
+            }),
             action_cards: seat.map_or(0, |seat| seat.action_cards.len()),
             secrets: seat.map_or(0, |seat| seat.secret_objectives.len()),
             relics: seat.map_or(0, |seat| seat.relics.len()),
             technologies: seat.map_or(0, |seat| seat.technologies.len()),
+            play_area: seat.map_or(0, |seat| seat.exploration_cards.len()),
             own_infantry,
             own_mechs,
             exhausted: planet.is_some_and(|planet| state.exhausted_planets.contains(planet)),
         }
     }
 
+    /// The signed change of each holding, for the exploration record's `gains`.
+    fn gains(&self, after: &Self) -> std::collections::BTreeMap<String, i32> {
+        let to_i32 = |n: usize| i32::try_from(n).unwrap_or(i32::MAX);
+        [
+            ("trade_goods", after.trade_goods - self.trade_goods),
+            ("commodities", after.commodities - self.commodities),
+            ("command_tokens", after.command_tokens - self.command_tokens),
+            ("action_cards", to_i32(after.action_cards) - to_i32(self.action_cards)),
+            ("secret_objectives", to_i32(after.secrets) - to_i32(self.secrets)),
+            ("relics", to_i32(after.relics) - to_i32(self.relics)),
+            ("technologies", to_i32(after.technologies) - to_i32(self.technologies)),
+        ]
+        .into_iter()
+        .filter(|(_, change)| *change != 0)
+        .map(|(key, change)| (key.to_owned(), change))
+        .collect()
+    }
+
     /// "gained 1 trade good, removed 1 infantry" -- empty when nothing the seat holds changed.
-    fn describe_change(&self, after: &Self, planet: Option<&PlanetId>, outcome: &Explored) -> String {
+    fn describe_change(
+        &self,
+        after: &Self,
+        planet: Option<&PlanetId>,
+        outcome: &Explored,
+    ) -> String {
         fn plural(n: i64, one: &str, many: &str) -> String {
             format!("{n} {}", if n == 1 { one } else { many })
         }
@@ -1104,24 +1282,45 @@ impl Holdings {
         let delta = |a: i64, b: i64| b - a;
         let goods = delta(i64::from(self.trade_goods), i64::from(after.trade_goods));
         if goods > 0 {
-            parts.push(format!("gained {}", plural(goods, "trade good", "trade goods")));
+            parts.push(format!(
+                "gained {}",
+                plural(goods, "trade good", "trade goods")
+            ));
         } else if goods < 0 {
-            parts.push(format!("spent {}", plural(-goods, "trade good", "trade goods")));
+            parts.push(format!(
+                "spent {}",
+                plural(-goods, "trade good", "trade goods")
+            ));
         }
         let commodities = delta(i64::from(self.commodities), i64::from(after.commodities));
         if commodities > 0 {
-            parts.push(format!("gained {}", plural(commodities, "commodity", "commodities")));
+            parts.push(format!(
+                "gained {}",
+                plural(commodities, "commodity", "commodities")
+            ));
         } else if commodities < 0 && goods <= 0 {
             // Converting commodities into trade goods is reported by the goods gained.
-            parts.push(format!("spent {}", plural(-commodities, "commodity", "commodities")));
+            parts.push(format!(
+                "spent {}",
+                plural(-commodities, "commodity", "commodities")
+            ));
         }
-        let tokens = delta(i64::from(self.command_tokens), i64::from(after.command_tokens));
+        let tokens = delta(
+            i64::from(self.command_tokens),
+            i64::from(after.command_tokens),
+        );
         if tokens > 0 {
-            parts.push(format!("gained {}", plural(tokens, "command token", "command tokens")));
+            parts.push(format!(
+                "gained {}",
+                plural(tokens, "command token", "command tokens")
+            ));
         }
         let cards = delta(self.action_cards as i64, after.action_cards as i64);
         if cards > 0 {
-            parts.push(format!("drew {}", plural(cards, "action card", "action cards")));
+            parts.push(format!(
+                "drew {}",
+                plural(cards, "action card", "action cards")
+            ));
         }
         if after.secrets > self.secrets {
             parts.push("drew a secret objective".to_owned());
@@ -1132,11 +1331,21 @@ impl Holdings {
         if after.technologies > self.technologies {
             parts.push("gained a technology".to_owned());
         }
+        if after.play_area > self.play_area {
+            // Enigmatic Device: kept faceup, and its ACTION is offered from there.
+            parts.push("placed it faceup in the play area (ACTION: spend 6 resources to research a technology)".to_owned());
+        }
         let infantry = delta(self.own_infantry as i64, after.own_infantry as i64);
         if infantry < 0 {
-            parts.push(format!("removed {} from the planet", plural(-infantry, "infantry", "infantry")));
+            parts.push(format!(
+                "removed {} from the planet",
+                plural(-infantry, "infantry", "infantry")
+            ));
         } else if infantry > 0 {
-            parts.push(format!("placed {} on the planet", plural(infantry, "infantry", "infantry")));
+            parts.push(format!(
+                "placed {} on the planet",
+                plural(infantry, "infantry", "infantry")
+            ));
         }
         if after.own_mechs > self.own_mechs {
             parts.push("placed a mech on the planet".to_owned());
@@ -1167,6 +1376,9 @@ fn explore_drawn(
     planet: Option<&PlanetId>,
 ) -> Option<Explored> {
     let content = ctx.content;
+    // The deck is already ordered. A draw need not touch the RNG, but its
+    // identity and every reward it causes are still unknown to a preview.
+    ctx.rng.observe_hidden_information();
     let mut card = draw(state, deck)?;
     // Naaz Distant Suns: draw 1 additional card, resolve 1 of the two, discard the other (a
     // discarded fragment is not gained). The engine keeps no discard pile; the card leaves the deck.
@@ -1208,6 +1420,8 @@ fn explore_drawn(
             outcome: String::new(),
             system: None,
             result: String::new(),
+            gains: Default::default(),
+            placed: Vec::new(),
         });
     let kind = resolution(content, &card).unwrap_or_default();
 
@@ -1845,9 +2059,8 @@ mod tests {
         );
     }
 
-    /// An Enigmatic Device explored goes to the play area and is offered as an action there --
-    /// one option per technology it could grant, each already carrying its price, not a single
-    /// "pay 6, then find out what you got" option.
+    /// An Enigmatic Device explored goes to the play area and is offered as one component action,
+    /// not one per technology; the technology is a follow-up decision.
     #[test]
     fn an_enigmatic_device_becomes_a_component_action() {
         let (mut state, planet) = holder(0, 0);
@@ -1867,20 +2080,22 @@ mod tests {
             seat.trade_goods = 6;
         }
         let offered = available_actions(&state, ContentStore::embedded(), POK, &player());
-        assert!(
-            offered.len() > 1,
-            "one option per unheld technology, not one option for an unspecified one: {}",
+        assert_eq!(
+            offered.len(),
+            1,
+            "one component action for the card, not one per unheld technology: {}",
             offered.len()
         );
         let chosen = &offered[0];
-        let wanted = chosen
-            .payload
-            .get("technology")
-            .and_then(serde_json::Value::as_str)
-            .expect("each option names the technology it pays for")
-            .to_owned();
+        assert_eq!(chosen.id, "play_area:ed1");
+        let wanted = enigmatic_device_technologies(&state, ContentStore::embedded(), POK, &player())
+            .into_iter()
+            .next_back()
+            .expect("a technology to research")
+            .to_string();
 
-        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::FirstOption));
+        // The technology is asked once, by name, before anything is paid.
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new([wanted.clone()])));
         let before = state.player(&player()).unwrap().technologies.len();
         // Measured as spending power, not as trade goods: the seat also controls a planet, so a
         // correct payment draws on both and a trade-good count alone would read as underpaying.
@@ -2156,17 +2371,30 @@ mod tests {
     #[test]
     fn the_infantry_sacrifice_shows_its_reward_and_the_log_says_what_happened() {
         for (card, reward, result) in [
-            ("cm1", "gain 1 trade good", "gained 1 trade good, removed 1 infantry from the planet"),
-            ("vfs1", "gain 1 command token", "gained 1 command token, removed 1 infantry from the planet"),
-            ("exp1", "ready this planet", "removed 1 infantry from the planet, readied the planet"),
+            (
+                "cm1",
+                "gain 1 trade good",
+                "gained 1 trade good, removed 1 infantry from the planet",
+            ),
+            (
+                "vfs1",
+                "gain 1 command token",
+                "gained 1 command token, removed 1 infantry from the planet",
+            ),
+            (
+                "exp1",
+                "ready this planet",
+                "removed 1 infantry from the planet, readied the planet",
+            ),
         ] {
             let (mut state, planet) = holder(0, 0);
             let system = crate::fixtures::a_placed_planet().0;
             crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player(), 1);
             state.exhausted_planets.insert(planet.clone());
-            let (decider, seen) = crate::choice::Capturing::new(Box::new(
-                crate::choice::Scripted::new(["remove_infantry".to_owned()]),
-            ));
+            let (decider, seen) =
+                crate::choice::Capturing::new(Box::new(crate::choice::Scripted::new([
+                    "remove_infantry".to_owned(),
+                ])));
             let mut table = crate::choice::Table::with_default(Box::new(decider));
             let mut dice = crate::dice::Dice::new();
             let mut rng = crate::rng::GameRng::new(0);
@@ -2178,7 +2406,9 @@ mod tests {
                 table: &mut table,
                 timing: None,
             };
-            state.exploration_decks.insert("HAZARDOUS".to_owned(), vec![card.to_owned()]);
+            state
+                .exploration_decks
+                .insert("HAZARDOUS".to_owned(), vec![card.to_owned()]);
             explore_with(&mut state, &mut ctx, &player(), "HAZARDOUS", Some(&planet));
 
             let asked = seen.borrow();
@@ -2187,7 +2417,11 @@ mod tests {
             let facts = details["facts"].to_string();
             assert!(facts.contains(reward), "{card}: {facts}");
             assert!(facts.contains("1 infantry"), "{card}: {facts}");
-            assert!(details["card"]["text"].as_str().is_some_and(|t| t.contains("remove 1 infantry")));
+            assert!(
+                details["card"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.contains("remove 1 infantry"))
+            );
             assert_eq!(state.exploration_log[0].result, result, "{card}");
         }
     }
@@ -2199,6 +2433,78 @@ mod tests {
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &player(), 1);
         resolve_card(&mut state, &player(), Some(&planet), "cm1", &["decline"]);
         assert_eq!(state.exploration_log[0].result, "");
+    }
+
+    /// A game recorded with `play_area:<card>:<tech>` keeps those ids on replay, and the old id
+    /// resolves in one step (no follow-up question), so recorded decisions line up one for one.
+    #[test]
+    fn legacy_per_technology_device_ids_still_replay() {
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
+        if let Some(seat) = state.player_mut(&player()) {
+            seat.trade_goods = 6;
+        }
+        let record = |chosen: &str, offered: &[&str]| crate::choice::DecisionRecord {
+            player: player(),
+            prompt: "action phase".to_owned(),
+            chosen: chosen.to_owned(),
+            offered: offered.iter().map(|id| (*id).to_owned()).collect(),
+            context: None,
+        };
+        mark_legacy_device_ids(&mut state, &[record("tactical", &["tactical", "play_area:ed2"])]);
+        assert!(!state.legacy_device_ids, "new-style ids never mark a game");
+        mark_legacy_device_ids(
+            &mut state,
+            &[record("tactical", &["tactical", "play_area:ed2:gd"])],
+        );
+        assert!(state.legacy_device_ids);
+
+        let offered = available_actions(&state, ContentStore::embedded(), POK, &player());
+        assert!(offered.len() > 1 && offered.iter().all(|o| o.id.starts_with("play_area:ed2:")));
+        let chosen = offered.iter().find(|o| o.id == "play_area:ed2:gd").unwrap();
+        let mut table = crate::choice::Table::with_default(Box::new(crate::choice::AlwaysDecline));
+        assert!(perform_action(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            &mut table,
+            None,
+            &player(),
+            chosen,
+        ));
+        assert!(state.player(&player()).unwrap().technologies.contains(&TechnologyId::new("gd")));
+        assert!(
+            table.log.records.iter().all(|r| !r.prompt.contains("which technology")),
+            "no follow-up technology question was asked"
+        );
+    }
+
+    /// The record carries structured data a viewer can draw: signed holdings changes, and what was
+    /// put on the map.
+    #[test]
+    fn an_exploration_record_publishes_gains_and_map_placements() {
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "aw1", &[]);
+        assert_eq!(state.exploration_log[0].gains.get("commodities"), Some(&2));
+        assert!(state.exploration_log[0].placed.is_empty());
+
+        let system = crate::fixtures::a_placed_planet().0;
+        state.active_system = Some(system.clone());
+        resolve_card(&mut state, &player(), Some(&planet), "gw", &[]);
+        assert_eq!(
+            state.exploration_log[1].placed,
+            vec![format!("wormhole:GAMMA:{system}")]
+        );
+    }
+
+    #[test]
+    fn an_explored_enigmatic_device_says_where_it_went() {
+        // The log line the toast shows: "nothing happened" would hide that a card was kept.
+        let (mut state, planet) = holder(0, 0);
+        resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
+        let result = &state.exploration_log[0].result;
+        assert!(result.contains("play area"), "{result}");
+        assert_eq!(state.exploration_log[0].placed, vec!["play_area:ed2".to_owned()]);
     }
 
     #[test]
@@ -2340,14 +2646,48 @@ mod tests {
         );
     }
 
+    /// A unit the player cannot get here is named with its reason beside the question, never as an
+    /// option: `details.not_offered` is display-only and leaves the option ids alone.
+    #[test]
+    fn freelancers_says_why_a_unit_is_not_offered() {
+        let (_, seen) = freelancers(&["decline"]);
+        let ask = seen
+            .iter()
+            .find(|choice| choice.options.iter().any(|o| o.kind == "produce"))
+            .expect("Freelancers asked which unit to produce");
+        let missing = ask
+            .details
+            .get("not_offered")
+            .and_then(|value| value.as_array())
+            .expect("some unit is out of reach, so the reasons are listed");
+        for entry in missing {
+            let unit = entry["unit"].as_str().expect("unit id");
+            assert!(entry["reason"].as_str().is_some_and(|r| !r.is_empty()));
+            assert!(
+                !ask.options.iter().any(|o| o.id == format!("build|{unit}|1")),
+                "{unit} is both offered and listed as not offered"
+            );
+        }
+    }
+
     #[test]
     fn freelancers_may_be_declined() {
         let before = holder(5, 0).0;
         let (state, seen) = freelancers(&["decline"]);
-        assert_eq!(units_of_player(&state), units_of_player(&before), "nothing built");
-        assert_eq!(state.player(&player()).unwrap().trade_goods, 5, "nothing paid");
+        assert_eq!(
+            units_of_player(&state),
+            units_of_player(&before),
+            "nothing built"
+        );
+        assert_eq!(
+            state.player(&player()).unwrap().trade_goods,
+            5,
+            "nothing paid"
+        );
         assert!(
-            !seen.iter().any(|c| c.options.iter().any(|o| o.kind == "pay")),
+            !seen
+                .iter()
+                .any(|c| c.options.iter().any(|o| o.kind == "pay")),
             "declining asks for no payment"
         );
         assert!(

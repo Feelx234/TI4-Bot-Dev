@@ -14,7 +14,6 @@ const slots: LobbyDto["slots"] = [
     position: 1,
     occupant: "player_b",
     nickname: "Sam",
-    ready: true,
     connected: true,
     can_take_over: false,
   },
@@ -23,7 +22,6 @@ const slots: LobbyDto["slots"] = [
     position: 2,
     occupant: "player_a",
     nickname: "Sam",
-    ready: true,
     connected: true,
     can_take_over: false,
   },
@@ -156,10 +154,10 @@ it("renders player and spectator surfaces with current names, seat shapes and no
   expect(screen.getByText(/Waiting for Robin \(Choice\)/)).toBeInTheDocument();
   expect(spectator.container.querySelector("[data-private-card]")).toBeNull();
   expect(spectator.container.outerHTML).not.toContain("player_a");
-  // The black eighth position has a bright outline and white glyph even on a dark canvas.
+  // The eighth position (purple) takes dark ink like every other seat.
   const { container: badge } = render(<SeatBadge position={8} />);
-  expect(badge.querySelector("circle")).toHaveAttribute("fill", "#000000");
-  expect(badge.querySelector("text")).toHaveAttribute("fill", "#fff");
+  expect(badge.querySelector("circle")).toHaveAttribute("fill", "#A855F7");
+  expect(badge.querySelector("text")).toHaveAttribute("fill", "#0b1220");
   fireEvent.click(screen.getByTestId("event-log-toggle"));
 });
 

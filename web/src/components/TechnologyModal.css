@@ -766,3 +766,56 @@
     align-items: stretch;
   }
 }
+
+/* ---- Filter: colour chips and "can research now" ------------------------------------------- */
+.technology-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 24px 0;
+}
+.technology-filter__chip {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 1px solid var(--chip-accent, #475569);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.technology-filter__chip[aria-pressed="true"] {
+  background: var(--chip-accent, var(--color-accent));
+  color: #0f172a;
+}
+.technology-filter__chip--available {
+  margin-left: auto;
+  --chip-accent: #4ade80;
+}
+.technology-filter__empty {
+  color: #94a3b8;
+  text-align: center;
+  padding: 24px 0;
+}
+/* A filtered grid is a plain list: the four-column alignment under the headers no longer holds. */
+.technology-grid-row[data-filtered] {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.technology-grid-row[data-filtered] .technology-card[data-track]::before {
+  content: attr(data-track);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+@media (max-width: 720px) and (min-height: 501px), (max-height: 500px) {
+  .technology-filter {
+    padding: 8px 12px 0;
+    gap: 6px;
+  }
+  .technology-filter__chip--available {
+    margin-left: 0;
+  }
+}

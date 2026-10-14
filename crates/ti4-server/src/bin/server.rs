@@ -20,6 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if args.get(1).map(String::as_str) == Some("feedback-list") {
         return feedback_list(&args[2..]);
     }
+    if args.get(1).map(String::as_str) == Some("feedback-save") {
+        return feedback_save(&args[2..]);
+    }
     let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
     for i in 0..args.len() {
         if args[i] == "--data-dir" && i + 1 < args.len() {
@@ -114,12 +117,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-        .with_graceful_shutdown(async {
-            tokio::signal::ctrl_c().await.ok();
-            info!("Received shutdown signal, terminating server");
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        })
-        .await?;
+    .with_graceful_shutdown(async {
+        tokio::signal::ctrl_c().await.ok();
+        info!("Received shutdown signal, terminating server");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    })
+    .await?;
 
     Ok(())
 }
@@ -152,6 +155,46 @@ fn feedback_list(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     for (path, record) in reports {
         print!("{}", ti4_server::feedback::render(&record, verbose));
         println!("    file: {}\n", path.display());
+    }
+    Ok(())
+}
+
+/// `server feedback-save [--data-dir DIR] [--out FILE] ID`: writes the save blob of an offline
+/// report (ID is the `fb_...` id or the client's report id) as JSON to FILE or stdout; replay it
+/// with `cargo run -p ti4-wasm --example replay_save -- FILE`.
+fn feedback_save(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut data_dir = std::env::var("TI4_DATA_DIR").unwrap_or_else(|_| "./data/games".to_owned());
+    let mut out: Option<String> = None;
+    let mut id: Option<String> = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--data-dir" if i + 1 < args.len() => {
+                data_dir = args[i + 1].clone();
+                i += 1;
+            }
+            "--out" if i + 1 < args.len() => {
+                out = Some(args[i + 1].clone());
+                i += 1;
+            }
+            other if !other.starts_with("--") && id.is_none() => id = Some(other.to_owned()),
+            other => return Err(format!("unknown argument {other:?}").into()),
+        }
+        i += 1;
+    }
+    let id = id.ok_or("usage: feedback-save [--data-dir DIR] [--out FILE] ID")?;
+    let (_, record) = ti4_server::feedback::find(std::path::Path::new(&data_dir), &id)
+        .ok_or_else(|| format!("no report {id} under {data_dir}/feedback"))?;
+    let save = ti4_server::feedback::save_blob(&record).ok_or_else(|| {
+        format!("report {id} is not from an offline game (no context.local.save)")
+    })?;
+    let text = serde_json::to_string_pretty(save)?;
+    match out {
+        Some(path) => {
+            std::fs::write(&path, text + "\n")?;
+            eprintln!("wrote {path}");
+        }
+        None => println!("{text}"),
     }
     Ok(())
 }

@@ -547,12 +547,12 @@ fn can_resolve_action(
             let tokens = state.systems_with_token(player);
             state.board.is_empty()
                 || state.board.keys().any(|system| {
-                !tokens.contains(system)
-                    && !state
-                        .players
-                        .iter()
-                        .any(|seat| seat.home_system.as_ref() == Some(system))
-            })
+                    !tokens.contains(system)
+                        && !state
+                            .players
+                            .iter()
+                            .any(|seat| seat.home_system.as_ref() == Some(system))
+                })
         }
         // "Gain 2 commodities or replenish another player's commodities" — with every hand at its
         // cap neither branch can change anything, and offering a use that burns the agent for
@@ -2955,8 +2955,7 @@ mod tests {
         // until Z'eu was delivered (2026-10-12); across every faction one is still left (the
         // Keleres' Orlando hero, 2026-10-12), so the whole roster stands in now.
         assert!(
-            !unimplemented(ContentStore::embedded(), &["naalu"])
-                .contains(&LeaderId::new(ZEU)),
+            !unimplemented(ContentStore::embedded(), &["naalu"]).contains(&LeaderId::new(ZEU)),
             "Z'eu is delivered by the game"
         );
         let all: Vec<&str> =

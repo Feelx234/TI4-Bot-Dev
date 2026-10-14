@@ -604,6 +604,10 @@ export const ObjectivesModal: React.FC<ObjectivesModalProps> = ({
       <Dialog.Content
         data-testid="objectives-modal"
         className="choice-workflow-dialog objectives-dialog"
+        // A tap on the dimmed area outside the panel closes it, like the other panels.
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
       >
         <div className="panel choice-workflow-modal objectives-modal-panel">
           <header className="objectives-modal__header">

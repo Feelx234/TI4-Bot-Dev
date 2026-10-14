@@ -1,5 +1,5 @@
 import { visibilityKind } from "../protocol/eventVisibility.ts";
-import type { GameEvent, PendingChoiceDto, ViewerRole } from "../protocol/types.ts";
+import type { GameEvent, LobbyDto, PendingChoiceDto, ViewerRole } from "../protocol/types.ts";
 import type { SnapshotState } from "../protocol/client.ts";
 
 /**
@@ -16,6 +16,8 @@ export interface FeedbackSourceData {
   viewer?: ViewerRole;
   snapshot?: SnapshotState | null;
   pendingChoice?: PendingChoiceDto | null;
+  /** The roster, for nicknames. Only nicknames, seats and positions are read from it. */
+  lobby?: LobbyDto | null;
   events?: GameEvent[];
 }
 
@@ -27,6 +29,10 @@ export interface FeedbackEnvironment {
   userAgent: string;
   now: Date;
   path: string;
+  /** The nickname this browser remembers from the lobby (localStorage), if any. */
+  storedNickname?: string;
+  /** What the sender typed into the optional name field. */
+  typedName?: string;
 }
 
 export const MAX_RECENT_EVENTS = 20;
@@ -51,6 +57,25 @@ export function recentPublicEvents(events: GameEvent[] | undefined, limit = MAX_
     }));
 }
 
+/**
+ * Who is reporting: the nicknames from the roster, the seat and faction. Never the seat token
+ * (`playerSession`) or any other credential; only the seat id, which every player sees anyway.
+ */
+export function buildSender(source: FeedbackSourceData, env: FeedbackEnvironment): Record<string, unknown> | null {
+  const sender: Record<string, unknown> = {};
+  const viewer = source.viewer;
+  const slots = source.lobby?.slots ?? [];
+  const mine = viewer?.role === "player" ? slots.find((slot) => slot.occupant === viewer.seat) : undefined;
+  const nickname = clip(mine?.nickname);
+  if (nickname) sender.nickname = nickname;
+  if (mine) sender.position = mine.position;
+  const stored = clip(env.storedNickname?.trim());
+  if (stored && stored !== nickname) sender.lobby_nickname = stored;
+  const typed = clip(env.typedName?.trim());
+  if (typed) sender.typed_name = typed;
+  return Object.keys(sender).length > 0 ? sender : null;
+}
+
 export function buildFeedbackContext(
   source: FeedbackSourceData,
   env: FeedbackEnvironment,
@@ -65,6 +90,8 @@ export function buildFeedbackContext(
     timestamp: env.now.toISOString(),
     path: env.path.replace(/^\/games\/[^/]*/, "/games/:id"),
   };
+  const sender = buildSender(source, env);
+  if (sender) context.sender = sender;
   if (!includeGameInfo) return context;
   if (source.gameId) context.game_id = source.gameId;
   const viewer = source.viewer;
@@ -89,6 +116,21 @@ export function buildFeedbackContext(
       prompt: clip(pending.prompt) ?? null,
       option_ids: pending.options.slice(0, MAX_OPTION_IDS).map((option) => option.id),
     };
+  }
+  const slots = source.lobby?.slots ?? [];
+  if (view && slots.length > 0) {
+    // Seat -> nickname/faction for every seat, so "np gave me a note" can be mapped to a person.
+    context.players = view.players.map((player) => {
+      const slot = slots.find((entry) => entry.occupant === player.id);
+      return {
+        seat: player.id,
+        position: slot?.position ?? null,
+        nickname: clip(slot?.nickname) ?? null,
+        bot: slot?.bot ?? null,
+        faction: player.faction,
+        is_sender: viewer?.role === "player" && viewer.seat === player.id,
+      };
+    });
   }
   context.recent_public_events = recentPublicEvents(source.events);
   return context;

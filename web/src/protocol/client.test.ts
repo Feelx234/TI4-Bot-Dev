@@ -6,6 +6,7 @@ import {
   isHistoryVersionConflict,
   PREVIEW_TIMEOUT_MS,
   PreviewUnsupportedError,
+  ReachUnsupportedError,
   reduceServerMessage,
   serverEventLog,
 } from "./client.ts";
@@ -1425,6 +1426,60 @@ describe("GameSessionClient ingress lifecycle", () => {
     client.stop();
   });
 
+  it("asks who can go to a system read-only and resolves with the engine's answer", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.queryReach("18");
+    const sent = JSON.parse(socket.sent.at(-1)!);
+    expect(sent).toEqual({
+      type: "query_reach",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      system_id: "18",
+    });
+    const origins = [
+      {
+        owner: "player_b",
+        origin: "27",
+        ships: [{ type_id: "cruiser", count: 2, damaged: 0, gravity_drive: 1, ionian: 0 }],
+      },
+    ];
+    send({
+      type: "reach_into",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: "game_12345",
+      request_id: sent.request_id,
+      system_id: "18",
+      as_of_version: 5,
+      origins,
+    });
+    await expect(asked).resolves.toEqual({
+      kind: "reach",
+      systemId: "18",
+      asOfVersion: 5,
+      origins,
+    });
+    expect(client.getState().lastError).toBeNull();
+    client.stop();
+  });
+
+  it("treats an older server's unknown-message error as 'reach unsupported' and never shows it", async () => {
+    const { client, socket, send } = await connectedPlayer();
+    const asked = client.queryReach("18");
+    send({
+      type: "error",
+      protocol_version: PROTOCOL_VERSION,
+      kind: "malformed_message",
+      message: "unknown variant `query_reach`, expected one of `subscribe`, `submit_choice`",
+    });
+    await expect(asked).rejects.toBeInstanceOf(ReachUnsupportedError);
+    expect(client.getState().lastError).toBeNull();
+    const sentBefore = socket.sent.length;
+    await expect(client.queryReach("18")).rejects.toBeInstanceOf(ReachUnsupportedError);
+    expect(socket.sent.length).toBe(sentBefore);
+    client.stop();
+  });
+
   it("gives up on a preview the server never answers", async () => {
     vi.useFakeTimers();
     try {
@@ -1509,6 +1564,24 @@ describe("GameSessionClient ingress lifecycle", () => {
       } as MessageEvent);
     return { client, socket, send };
   }
+
+  it("ignores the planning protocol the server pushes to every player", async () => {
+    const { client, send } = await connectedPlayer();
+    send({
+      type: "planning_status",
+      checkpoint_id: 6,
+      available: false,
+      can_start: false,
+      has_draft: false,
+      identity: null,
+      can_apply: false,
+      application: null,
+    });
+    send({ type: "planning_update" });
+    send({ type: "draft_applied" });
+    expect(client.getState().lastError).toBeNull();
+    expect(client.getState().pendingChoice?.nonce).toBe("nonce-4");
+  });
 
   it.each([
     { reason: "stale_nonce" },

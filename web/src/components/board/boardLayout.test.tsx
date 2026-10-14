@@ -8,6 +8,12 @@ import {
   COMMAND_TOKEN_RADIUS,
   COMMAND_TOKEN_STEP,
   CONTROL_SYMBOL_FONT_SIZE,
+  COMMAND_TOKEN_Y,
+  PLANET_VALUE_FONT_SIZE,
+  PLANET_VALUE_PILL_HEIGHT,
+  TILE_HALF_WIDTH,
+  UNITS_BADGE,
+  planetSlots,
 } from "./boardLayout.ts";
 import { Board } from "../Board.tsx";
 import { SEAT_BADGE_SIZE, SeatBadge } from "../../presentation/PlayerIdentity.tsx";
@@ -74,6 +80,29 @@ describe("seat marker sizes", () => {
   it("draws command tokens and control glyphs on the board at 18px or more", () => {
     expect(COMMAND_TOKEN_RADIUS * 2).toBeGreaterThanOrEqual(18);
     expect(COMMAND_TOKEN_STEP).toBeGreaterThanOrEqual(COMMAND_TOKEN_RADIUS * 2);
-    expect(CONTROL_SYMBOL_FONT_SIZE).toBeGreaterThanOrEqual(17);
+    expect(CONTROL_SYMBOL_FONT_SIZE).toBeGreaterThanOrEqual(20);
+  });
+});
+
+describe("planet slots", () => {
+  const pillHeight = PLANET_VALUE_PILL_HEIGHT;
+  it.each([1, 2, 3])("%i planet(s): discs inside the hex, apart, pills above the units badge", (n) => {
+    const slots = planetSlots(n);
+    expect(slots).toHaveLength(n);
+    for (const s of slots) {
+      expect(s.r).toBeGreaterThanOrEqual(n === 1 ? 24 : n === 2 ? 21 : 17);
+      expect(Math.abs(s.dx) + s.r).toBeLessThanOrEqual(TILE_HALF_WIDTH);
+      expect(s.dy + s.r + pillHeight / 2).toBeLessThan(UNITS_BADGE.top);
+    }
+    for (let i = 0; i < n; i++)
+      for (let j = i + 1; j < n; j++) {
+        const d = Math.hypot(slots[i].dx - slots[j].dx, slots[i].dy - slots[j].dy);
+        expect(d).toBeGreaterThan(slots[i].r + slots[j].r);
+      }
+  });
+  it("keeps value text at 12 units and the badge and tokens clear of each other", () => {
+    expect(PLANET_VALUE_FONT_SIZE).toBeGreaterThanOrEqual(12);
+    expect(UNITS_BADGE.fontSize).toBeGreaterThanOrEqual(11);
+    expect(UNITS_BADGE.top + UNITS_BADGE.height).toBeLessThanOrEqual(COMMAND_TOKEN_Y - COMMAND_TOKEN_RADIUS + 3);
   });
 });

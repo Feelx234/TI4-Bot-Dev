@@ -262,6 +262,10 @@ mod committed_worker_tests {
     /// Runs 06 and 23 of the 2026-10-06 sweep timed out on `/snapshot` while a batch replayed a
     /// thousand decisions with the global lock held: every read of every game waited for it.
     #[test]
+    #[allow(
+        clippy::result_large_err,
+        reason = "the closure returns the registry's own batch result"
+    )]
     fn a_slow_batch_replay_does_not_block_registry_reads() {
         use std::sync::atomic::{AtomicBool, Ordering};
         const SLOW_REPLAY: Duration = Duration::from_millis(1500);
@@ -281,7 +285,10 @@ mod committed_worker_tests {
             });
             let deadline = Instant::now() + Duration::from_secs(10);
             while !replaying.load(Ordering::SeqCst) {
-                assert!(Instant::now() < deadline, "the batch never reached its replay");
+                assert!(
+                    Instant::now() < deadline,
+                    "the batch never reached its replay"
+                );
                 std::thread::sleep(Duration::from_millis(2));
             }
             let started = Instant::now();
@@ -324,6 +331,10 @@ mod committed_worker_tests {
     /// `remove_game` is not serialised by the game gate; a batch must not resurrect a game
     /// removed while its replacement replayed.
     #[test]
+    #[allow(
+        clippy::result_large_err,
+        reason = "the closure returns the registry's own batch result"
+    )]
     fn a_game_removed_during_the_batch_replay_stays_removed() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -333,18 +344,13 @@ mod committed_worker_tests {
         let release = AtomicBool::new(false);
         std::thread::scope(|scope| {
             let batch = scope.spawn(|| {
-                registry.submit_batch_with_worker(
-                    "removed_mid_batch",
-                    &token,
-                    request,
-                    |config| {
-                        replaying.store(true, Ordering::SeqCst);
-                        while !release.load(Ordering::SeqCst) {
-                            std::thread::sleep(Duration::from_millis(2));
-                        }
-                        GameSession::start(config)
-                    },
-                )
+                registry.submit_batch_with_worker("removed_mid_batch", &token, request, |config| {
+                    replaying.store(true, Ordering::SeqCst);
+                    while !release.load(Ordering::SeqCst) {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    GameSession::start(config)
+                })
             });
             while !replaying.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(2));
@@ -383,6 +389,15 @@ mod committed_worker_tests {
         drop(registry);
         std::fs::remove_dir_all(path).unwrap();
     }
+}
+
+/// The decisions and the events of a session, with what the host can redo.
+struct Timeline {
+    current: Vec<ti4_engine::choice::DecisionRecord>,
+    redo: Vec<ti4_engine::choice::DecisionRecord>,
+    events: Vec<crate::protocol::server::GameEvent>,
+    redo_events: Vec<crate::protocol::server::GameEvent>,
+    event_counter: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -529,6 +544,16 @@ pub struct PlayerLobbyView {
     /// The factions a seat can be given (`ti4_engine::seating::LOBBY_FACTIONS`, base game first): what
     /// every seat's faction picker offers. A seat that chose none is dealt one of the rest by the seed.
     pub factions: Vec<String>,
+    /// How the seats are given at Start: `random` (drawn from the seed) or `join` (the order of
+    /// the slots). A table with a start preset or a scenario is always `join`.
+    pub seat_order: String,
+    /// The wait before each answer of a seat that the server plays, in milliseconds: the value
+    /// of the table, or the value of the process when the host set none.
+    pub bot_delay_ms: u64,
+    /// The scenario that the game starts from (`ti4_view::scenario`); absent for round 1. With a
+    /// scenario the player count, the map, the strategy cards and the factions are its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_from: Option<String>,
 }
 
 /// Configuration for running bot agents on this server.
@@ -552,7 +577,6 @@ pub struct PlayerSlotView {
     pub position: usize,
     pub occupant: Option<PlayerId>,
     pub nickname: Option<String>,
-    pub ready: bool,
     pub connected: bool,
     pub can_take_over: bool,
     /// The kind of bot occupying the seat (`random` or `smart`), absent for a person or an MLP bot (which
@@ -583,9 +607,9 @@ impl PlayerLobbyRecord {
         players.insert(
             host_player_id.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
-                ready: false,
                 session: session.clone(),
                 nickname: nickname.to_owned(),
             },
@@ -609,6 +633,9 @@ impl PlayerLobbyRecord {
             strategy_card_set: Some(crate::card_set::DEFAULT.to_owned()),
             speaker_order: None,
             map_revision: 0,
+            seat_order: None,
+            bot_delay_ms: None,
+            start_from: None,
             lobby_version: 1,
         };
         lobby.validate()?;
@@ -649,8 +676,11 @@ impl PlayerLobbyRecord {
             .iter()
             .find(|(id, member)| Some(*id) != except && member.faction.as_deref() == Some(faction))
         {
+            // The message is shown to a player as it is: it names the faction as a table does.
+            let name = ti4_content::factions::get(ContentStore::embedded(), faction)
+                .map_or(faction, |printed| printed.short_name());
             return Err(LobbyError::FactionTaken(format!(
-                "Faction '{faction}' is already taken by {}",
+                "{name} is already taken by {}",
                 holder.nickname
             )));
         }
@@ -660,6 +690,9 @@ impl PlayerLobbyRecord {
     /// Only this explicit projection is suitable for public HTTP/WS output.
     #[must_use]
     pub fn public_view(&self) -> PlayerLobbyView {
+        // A scenario is a game of its own: its seats have its factions, in the order of the join,
+        // and it plays the cards of a game that names no set.
+        let scenario = self.start_from.is_some();
         PlayerLobbyView {
             game_id: self.game_id.clone(),
             phase: match self.phase {
@@ -679,20 +712,21 @@ impl PlayerLobbyRecord {
                         .occupant
                         .as_ref()
                         .map(|id| self.players[id].nickname.clone()),
-                    ready: slot
-                        .occupant
-                        .as_ref()
-                        .is_some_and(|id| self.players[id].ready),
                     connected: false,
                     can_take_over: false,
                     bot: slot
                         .occupant
                         .as_ref()
                         .and_then(|id| self.players[id].bot.clone()),
-                    faction: slot
-                        .occupant
-                        .as_ref()
-                        .and_then(|id| self.players[id].faction.clone()),
+                    faction: if scenario {
+                        slot.occupant
+                            .as_ref()
+                            .map(|_| ti4_engine::seating::seat_faction(index).to_owned())
+                    } else {
+                        slot.occupant
+                            .as_ref()
+                            .and_then(|id| self.players[id].faction.clone())
+                    },
                 })
                 .collect(),
             lobby_version: self.lobby_version,
@@ -706,8 +740,11 @@ impl PlayerLobbyRecord {
                 self.slots.len(),
             ),
             map_revision: self.map_revision,
-            strategy_card_set: crate::card_set::resolve(self.strategy_card_set.as_deref())
-                .to_owned(),
+            strategy_card_set: if scenario {
+                crate::card_set::LEGACY.to_owned()
+            } else {
+                crate::card_set::resolve(self.strategy_card_set.as_deref()).to_owned()
+            },
             speaker_order: crate::map::SpeakerOrder::from_stored(self.speaker_order.as_deref())
                 .as_str()
                 .to_owned(),
@@ -715,8 +752,22 @@ impl PlayerLobbyRecord {
                 .iter()
                 .map(|faction| (*faction).to_owned())
                 .collect(),
+            seat_order: super::table::seat_order_of(self).as_str().to_owned(),
+            bot_delay_ms: self
+                .bot_delay_ms
+                .unwrap_or_else(super::random_bot::random_bot_delay_ms),
+            start_from: self.start_from.clone(),
         }
     }
+}
+
+/// The name of every player of a table, for the session of its game.
+fn nicknames_of(record: &PlayerLobbyRecord) -> BTreeMap<PlayerId, String> {
+    record
+        .players
+        .iter()
+        .map(|(id, member)| (id.clone(), member.nickname.clone()))
+        .collect()
 }
 
 /// Summary of an active, completed, or unstarted game.
@@ -725,6 +776,15 @@ pub struct GameSummary {
     pub game_id: String,
     pub is_finished: bool,
     pub pending_seat: Option<PlayerId>,
+}
+
+/// One open game of a caller, as listed in the "too many games" refusal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenGameInfo {
+    pub game_id: String,
+    /// `lobby` or `started`.
+    pub phase: &'static str,
+    pub players: usize,
 }
 
 /// Lifecycle phase exposed by the lobby API.
@@ -809,14 +869,24 @@ pub enum LobbyError {
     NotFound,
     NotInLobby,
     AlreadyRunning,
+    /// The call is for a running game, and the table is still a lobby.
+    NotRunning,
     InvalidCapability,
     HumanSeatRequired,
     HostRequired,
+    /// Only the seat lobby of before the player lobbies has a "Ready".
     HumansNotReady,
+    /// A table starts when every seat is filled.
+    SeatsOpen,
+    /// A smaller table has no seat for a person who is at it; the text names who.
+    SeatsTaken(String),
+    /// A setting that the table cannot take (a value outside its range, an unknown name).
+    InvalidSetting(String),
+    /// The table starts from a scenario, which has its own seats, map, cards and factions.
+    ScenarioTable(String),
     SeatUnavailable,
     TakeoverUnavailable,
     InvalidPlayerId,
-    InvalidSlotOrder,
     InvalidNickname,
     /// A faction the lobby cannot seat (unknown, outside the pool, or asked for a person's seat).
     InvalidFaction(String),
@@ -835,14 +905,17 @@ impl LobbyError {
             Self::NotFound => "Game not found".to_owned(),
             Self::NotInLobby => "Game has no lobby".to_owned(),
             Self::AlreadyRunning => "Game has already started".to_owned(),
+            Self::NotRunning => "Game has not started".to_owned(),
             Self::InvalidCapability => "Invalid seat capability".to_owned(),
             Self::HumanSeatRequired => "Only human seats may update readiness".to_owned(),
             Self::HostRequired => "Only the lobby host may perform this action".to_owned(),
             Self::HumansNotReady => "Every human seat must be ready before starting".to_owned(),
+            Self::SeatsOpen => "Every seat must be filled before starting".to_owned(),
+            Self::SeatsTaken(error) | Self::InvalidSetting(error) => error.clone(),
+            Self::ScenarioTable(error) => format!("The table starts from a scenario: {error}"),
             Self::SeatUnavailable => "Seat is unavailable".to_owned(),
             Self::TakeoverUnavailable => "Takeover is not available yet".to_owned(),
             Self::InvalidPlayerId => "Invalid player ID".to_owned(),
-            Self::InvalidSlotOrder => "Slot order must be a complete permutation".to_owned(),
             Self::InvalidNickname => "Nickname must be trimmed, nonempty Unicode text of at most 64 UTF-8 bytes without control or formatting characters".to_owned(),
             Self::InvalidFaction(error) | Self::FactionTaken(error) => error.clone(),
             Self::InvalidMap(error) => format!("Invalid map choice: {error}"),
@@ -912,8 +985,13 @@ pub struct GameRegistry {
     /// Redos in flight, by game: the saved original timeline and where the redo stands.
     /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
     turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
+    /// Games ended by their host since this process started; open sockets use it to say why they close.
+    terminated: Mutex<BTreeSet<String>>,
     /// Public-playtest hardening; inert by default.
     public: Arc<crate::public::PublicState>,
+    /// One channel for each table that a socket watches (`ws/table.rs`): a counter that goes up
+    /// when the lobby record or the presence of a player changes.
+    tables: Mutex<BTreeMap<String, tokio::sync::watch::Sender<u64>>>,
 }
 
 impl Default for GameRegistry {
@@ -928,7 +1006,9 @@ impl Default for GameRegistry {
             bot_config: None,
             active_bots: Mutex::new(BTreeMap::new()),
             turn_redos: Mutex::new(BTreeMap::new()),
+            terminated: Mutex::new(BTreeSet::new()),
             public: Arc::new(crate::public::PublicState::default()),
+            tables: Mutex::new(BTreeMap::new()),
         }
     }
 }
@@ -1108,7 +1188,7 @@ impl GameRegistry {
                 ),
             ));
         }
-        let config = session.restart_config();
+        let mut config = session.restart_config();
         let (prior, step_snapshot) = session.batch_basis();
         drop(state);
         let simulation = simulate(
@@ -1125,10 +1205,11 @@ impl GameRegistry {
         let batch_id = format!("batch_{:032x}", rand::random::<u128>());
         let all_decisions: Vec<_> = prior.iter().chain(decisions.iter()).cloned().collect();
         let mut events = session.event_log();
+        let shown_rolls = session.rolls_seen();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
-        let timestamp = crate::session::worker::current_utc_time_string();
+        let timestamp = ti4_host::clock::Clock::utc_time_string(&ti4_host::clock::SystemClock);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -1181,6 +1262,7 @@ impl GameRegistry {
                 detail,
                 seat_detail,
                 private_detail: None,
+                roll: None,
             });
             for (_, phase, round) in simulation
                 .transitions
@@ -1213,6 +1295,46 @@ impl GameRegistry {
                     movement: None,
                     seat_detail: None,
                     private_detail: None,
+                    roll: None,
+                });
+            }
+            // Dice the batch rolled that the table has not been shown, after the decision that
+            // was current when their step returned.
+            for (index, roll, cursor) in &simulation.rolls {
+                if *index < shown_rolls
+                    || (*cursor).clamp(start_cursor + 1, end_cursor) != start_cursor + i + 1
+                {
+                    continue;
+                }
+                let active = boundary_state.active_system.as_ref().map(|id| id.as_str());
+                let Some(public) = crate::protocol::server::public_roll(*index, roll, active)
+                else {
+                    continue;
+                };
+                counter += 1;
+                events.push(crate::protocol::server::GameEvent {
+                    id: format!("{game_id}-{counter}"),
+                    timestamp: timestamp.clone(),
+                    version: Some(request.expected_version),
+                    visibility: crate::protocol::server::EventVisibility::Public,
+                    event: crate::protocol::server::GameEventKind::DiceRolled,
+                    decision_count: Some(start_cursor + i + 1),
+                    batch_id: None,
+                    batch_start_cursor: None,
+                    batch_end_cursor: None,
+                    action_id: None,
+                    action_start_cursor: None,
+                    actor: public.roller.clone(),
+                    round: Some(boundary_state.round),
+                    phase: Some(boundary_state.phase),
+                    action_type: None,
+                    action_actor: None,
+                    stage: None,
+                    detail: Some(public.describe()),
+                    movement: None,
+                    seat_detail: None,
+                    private_detail: None,
+                    roll: Some(public),
                 });
             }
         }
@@ -1240,6 +1362,7 @@ impl GameRegistry {
                 movement: None,
                 seat_detail: None,
                 private_detail: None,
+                roll: None,
             });
         }
         let mut batches = session.batches();
@@ -1285,6 +1408,7 @@ impl GameRegistry {
             .with_versions(request.expected_version, session.game_version()));
         }
         session.stop();
+        config.plans = session.plans();
         if session.decision_log().len() != start_cursor {
             let replacement = Arc::new(GameSession::start_recovered(
                 config.clone(),
@@ -1374,6 +1498,138 @@ impl GameRegistry {
             snapshot: replacement.get_snapshot(&ViewerRole::Player(actor)),
         })
     }
+    /// Replaces the session by one whose game has the first `target` decisions of `timeline`:
+    /// the rest waits as redo of the host. The caller holds the gate of the game and has
+    /// checked that `session` is at `expected_version` and may be rewound. `undone` is what
+    /// the replacement tells a seat with its next snapshot; `viewer` is the seat that is shown
+    /// the replacement.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one history change: the session, its version, the target, the timeline, what was undone and who looks"
+    )]
+    fn rewind(
+        &self,
+        game_id: &str,
+        session: &Arc<GameSession>,
+        expected_version: u64,
+        target: usize,
+        timeline: Timeline,
+        undone: Option<(PlayerId, Vec<ti4_view::planning::steps::PlanStep>)>,
+        viewer: PlayerId,
+    ) -> Result<InitialSnapshotMsg, HistoryError> {
+        let Timeline {
+            current,
+            redo,
+            events,
+            redo_events,
+            event_counter,
+        } = timeline;
+        let original_count = current.len();
+        let all: Vec<_> = current.into_iter().chain(redo).collect();
+        let mut config = session.restart_config();
+        config.undone = undone.into_iter().collect();
+        let (report, copy) = crate::session::replay::replay_session_with_copy(
+            &config.state,
+            config.galaxy.as_ref(),
+            &all[..target],
+            &config.rng_marks,
+            session.history_status().generation.saturating_add(1),
+        )
+        .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
+        if !report.hashes_match || report.decision_count != target {
+            return Err(HistoryError::Conflict("Replay diverged".to_owned()));
+        }
+        // This stable boundary excludes all events after the selected decision. Legacy
+        // events have no cursor, so their decision_resolved ordering supplies one.
+        let all_events: Vec<_> = events.into_iter().chain(redo_events).collect();
+        let mut count = 0;
+        let mut split = 0;
+        for event in &all_events {
+            if matches!(
+                event.event,
+                crate::protocol::server::GameEventKind::DecisionResolved
+            ) {
+                count += 1;
+            }
+            if event.decision_count.unwrap_or(count) > target {
+                break;
+            }
+            split += 1;
+        }
+        let revision = expected_version.checked_add(1).ok_or_else(|| {
+            HistoryError::Conflict("the game version counter is exhausted".to_owned())
+        })?;
+        let history = GameHistory {
+            decisions: all[..target].to_vec(),
+            redo: all[target..].to_vec(),
+            events: all_events[..split].to_vec(),
+            redo_events: all_events[split..].to_vec(),
+            event_counter: event_counter.max(all_events.len() as u64),
+            revision,
+            generation: session.history_status().generation.saturating_add(1),
+            batches: session.batches(),
+            rng_marks: config.rng_marks.clone(),
+        };
+        self.publish_history(
+            game_id,
+            session,
+            config,
+            history,
+            expected_version,
+            original_count,
+            viewer,
+            copy,
+        )
+    }
+
+    /// Takes back the last decision of `player` ([`crate::session::undo`]): the seat's own
+    /// undo, bounded by what it learned since. The session is replaced as a change of the
+    /// host's history replaces it, and the decisions that are taken back wait as its redo.
+    ///
+    /// # Errors
+    ///
+    /// [`RejectionReason::UndoBarrier`] when the decision lies behind a barrier; as
+    /// [`Self::submit_player_choice`] for a credential, a version or a game that does not fit.
+    pub fn undo_player(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &Arc<GameSession>,
+        expected_version: u64,
+    ) -> Result<(), RejectionReason> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        // Random bots hold their answers for the whole change, as for a host's rewind.
+        let _bot_pause = session.pause_bots();
+        self.current_player_session(game_id, credential, player, session)
+            .ok_or_else(|| RejectionReason::UnauthorizedSeat {
+                seat: Some(player.clone()),
+            })?;
+        let (target, undone) = session.undo_plan(player, expected_version)?;
+        let (redo_events, event_counter) = session.history_events();
+        let timeline = Timeline {
+            current: session.decision_log(),
+            redo: session.redo_decisions(),
+            events: session.event_log(),
+            redo_events,
+            event_counter,
+        };
+        self.rewind(
+            game_id,
+            session,
+            expected_version,
+            target,
+            timeline,
+            Some((player.clone(), undone)),
+            player.clone(),
+        )
+        .map(|_| ())
+        .map_err(|error| RejectionReason::ValidationFailed {
+            message: error.message(),
+        })
+    }
+
     /// The host's seat for `game_id`, or why `credential` may not change history.
     fn require_host(
         state: &RegistryState,
@@ -1477,8 +1733,7 @@ impl GameRegistry {
         let redo = session.redo_decisions();
         let events = session.event_log();
         let (redo_events, event_counter) = session.history_events();
-        let original_count = current.len();
-        let total = original_count + redo.len();
+        let total = current.len() + redo.len();
         let target = match action {
             HistoryAction::Undo => current.len().checked_sub(1).ok_or_else(|| {
                 HistoryError::InvalidTarget("there is nothing to undo".to_owned())
@@ -1648,9 +1903,12 @@ impl GameRegistry {
                     .is_some_and(SeatController::is_in_process_bot)
             };
             if is_bot(target) {
-                (0..=target).rev().find(|&index| !is_bot(index)).ok_or_else(|| {
-                    HistoryError::InvalidTarget("there is nothing to undo".to_owned())
-                })?
+                (0..=target)
+                    .rev()
+                    .find(|&index| !is_bot(index))
+                    .ok_or_else(|| {
+                        HistoryError::InvalidTarget("there is nothing to undo".to_owned())
+                    })?
             } else {
                 target
             }
@@ -1662,60 +1920,22 @@ impl GameRegistry {
                 "decision {target} is beyond the recorded history of {total} decisions"
             )));
         }
-        let all: Vec<_> = current.into_iter().chain(redo).collect();
-        let config = session.restart_config();
         drop(state);
-        let (report, copy) = crate::session::replay::replay_session_with_copy(
-            &config.state,
-            config.galaxy.as_ref(),
-            &all[..target],
-            &config.rng_marks,
-            session.history_status().generation.saturating_add(1),
-        )
-        .map_err(|e| HistoryError::Conflict(format!("Replay failed: {e}")))?;
-        if !report.hashes_match || report.decision_count != target {
-            return Err(HistoryError::Conflict("Replay diverged".to_owned()));
-        }
-        // This stable boundary excludes all events after the selected decision. Legacy
-        // events have no cursor, so their decision_resolved ordering supplies one.
-        let all_events: Vec<_> = events.into_iter().chain(redo_events).collect();
-        let mut count = 0;
-        let mut split = 0;
-        for event in &all_events {
-            if matches!(
-                event.event,
-                crate::protocol::server::GameEventKind::DecisionResolved
-            ) {
-                count += 1;
-            }
-            if event.decision_count.unwrap_or(count) > target {
-                break;
-            }
-            split += 1;
-        }
-        let revision = expected_version.checked_add(1).ok_or_else(|| {
-            HistoryError::Conflict("the game version counter is exhausted".to_owned())
-        })?;
-        let history = GameHistory {
-            decisions: all[..target].to_vec(),
-            redo: all[target..].to_vec(),
-            events: all_events[..split].to_vec(),
-            redo_events: all_events[split..].to_vec(),
-            event_counter: event_counter.max(all_events.len() as u64),
-            revision,
-            generation: session.history_status().generation.saturating_add(1),
-            batches: session.batches(),
-            rng_marks: config.rng_marks.clone(),
+        let timeline = Timeline {
+            current,
+            redo,
+            events,
+            redo_events,
+            event_counter,
         };
-        self.publish_history(
+        self.rewind(
             game_id,
             &session,
-            config,
-            history,
             expected_version,
-            original_count,
+            target,
+            timeline,
+            None,
             host,
-            copy,
         )
     }
 
@@ -1734,7 +1954,7 @@ impl GameRegistry {
         &self,
         game_id: &str,
         session: &Arc<GameSession>,
-        config: SessionConfig,
+        mut config: SessionConfig,
         history: GameHistory,
         expected_version: u64,
         original_count: usize,
@@ -1769,6 +1989,9 @@ impl GameRegistry {
             ));
         }
         session.stop();
+        // The drafts of the seats go on in the replacement as they stood when the worker stopped.
+        config.plans = session.plans();
+        next.plans.clone_from(&config.plans);
         if session.decision_log().len() != original_count {
             // This branch is only reachable for an autonomous bot decision; keep the
             // original timeline alive instead of committing an outdated cursor.
@@ -1918,7 +2141,21 @@ impl GameRegistry {
         if self.bot_config.is_some() {
             view.bot_kinds.push("mlp".to_owned());
         }
+        // The seats of a running game have the factions that the start gave them, also the
+        // seats that chose none.
+        let seated = state
+            .sessions
+            .get(&record.game_id)
+            .filter(|_| matches!(record.phase, PersistedLobbyPhase::Running))
+            .map(|session| session.factions());
         for slot in &mut view.slots {
+            if let Some(faction) = seated
+                .as_ref()
+                .zip(slot.occupant.as_ref())
+                .and_then(|(seated, player)| seated.get(player))
+            {
+                slot.faction = Some(faction.clone());
+            }
             if slot.bot.is_some() {
                 // An in-process bot has no connection to lose: always present, never taken over.
                 slot.connected = true;
@@ -2038,6 +2275,8 @@ impl GameRegistry {
             .or_default()
             .connections
             .insert(connection, Instant::now());
+        drop(state);
+        self.table_changed(game_id);
         Ok((player, connection))
     }
 
@@ -2075,6 +2314,8 @@ impl GameRegistry {
                 presence.last_heartbeat = Some(Instant::now());
             }
         }
+        drop(state);
+        self.table_changed(game_id);
     }
 
     /// Returns the optional underlying game store.
@@ -2204,6 +2445,12 @@ impl GameRegistry {
                             .map_err(|e| ("session replay", e))?,
                     );
                     record.phase = PersistedLobbyPhase::Running;
+                    // The names and the wait are of the table: its record has them as they
+                    // were last, also after a seat was taken over or the host changed the wait.
+                    session.set_nicknames(nicknames_of(&record));
+                    if let Some(delay) = record.bot_delay_ms {
+                        session.set_bot_delay_ms(delay);
+                    }
                     Some(session)
                 } else {
                     record.phase = PersistedLobbyPhase::Lobby;
@@ -2302,7 +2549,10 @@ impl GameRegistry {
 
     /// As [`Self::create_player_lobby_with_options`], also naming the strategy card set
     /// (one of [`crate::card_set::OFFERED`]).
-    #[allow(clippy::too_many_arguments, reason = "one argument per creation option")]
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per creation option"
+    )]
     pub fn create_player_lobby_with_card_set(
         &self,
         game_id: String,
@@ -2342,6 +2592,37 @@ impl GameRegistry {
         strategy_card_set: &str,
         speaker_order: crate::map::SpeakerOrder,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        self.create_player_lobby_with_seating(
+            game_id,
+            count,
+            seed,
+            nickname,
+            map_template,
+            start_preset,
+            strategy_card_set,
+            speaker_order,
+            super::table::SeatOrder::default(),
+        )
+    }
+
+    /// As [`Self::create_player_lobby_with_speaker`], also choosing how the seats are given at
+    /// Start: drawn from the seed (the default) or in the order of the join.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "one argument per creation option"
+    )]
+    pub fn create_player_lobby_with_seating(
+        &self,
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+        strategy_card_set: &str,
+        speaker_order: crate::map::SpeakerOrder,
+        seat_order: super::table::SeatOrder,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         crate::card_set::validate(strategy_card_set)
             .map_err(|error| LobbyError::Storage(error.to_string()))?;
         check_nickname(nickname)?;
@@ -2363,6 +2644,7 @@ impl GameRegistry {
         record.start_preset = start_preset;
         record.strategy_card_set = Some(strategy_card_set.to_owned());
         record.speaker_order = Some(speaker_order.as_str().to_owned());
+        record.seat_order = Some(seat_order.as_str().to_owned());
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -2378,7 +2660,40 @@ impl GameRegistry {
                 .save_player_lobby(record)
                 .map_err(|e| LobbyError::Storage(e.to_string()))?;
         }
+        // Every change of a lobby is written here, while the registry lock is held: a socket of
+        // the table reads the new record once the lock is free.
+        self.table_changed(&record.game_id);
         Ok(())
+    }
+
+    /// The channel of a table, for a socket that shows it (`ws/table.rs`). The value only says
+    /// that something changed: the socket reads the view again.
+    #[must_use]
+    pub fn watch_table(&self, game_id: &str) -> tokio::sync::watch::Receiver<u64> {
+        self.tables
+            .lock()
+            .expect("tables lock")
+            .entry(game_id.to_owned())
+            .or_insert_with(|| tokio::sync::watch::channel(0).0)
+            .subscribe()
+    }
+
+    /// Drops the channel of a table that no socket watches any more.
+    pub fn unwatch_table(&self, game_id: &str) {
+        let mut tables = self.tables.lock().expect("tables lock");
+        if tables
+            .get(game_id)
+            .is_some_and(|table| table.receiver_count() == 0)
+        {
+            tables.remove(game_id);
+        }
+    }
+
+    /// Tells the sockets of a table that its lobby record or the presence of a player changed.
+    fn table_changed(&self, game_id: &str) {
+        if let Some(table) = self.tables.lock().expect("tables lock").get(game_id) {
+            table.send_modify(|version| *version += 1);
+        }
     }
 
     /// Read-only spectator projection; an invalid supplied credential fails closed.
@@ -2452,9 +2767,9 @@ impl GameRegistry {
         updated.players.insert(
             player.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
-                ready: false,
                 session: session.clone(),
                 nickname: nickname.expect("new admission has nickname").to_owned(),
             },
@@ -2496,6 +2811,16 @@ impl GameRegistry {
             return Err(LobbyError::TakeoverUnavailable);
         }
         if !self.disconnected_since(&state, game_id, player) {
+            return Err(LobbyError::TakeoverUnavailable);
+        }
+        // A seat that the server plays has nobody to take over from.
+        if state.sessions.get(game_id).is_some_and(|session| {
+            session
+                .lobby_details()
+                .1
+                .get(player)
+                .is_some_and(|controller| *controller != SeatController::Human)
+        }) {
             return Err(LobbyError::TakeoverUnavailable);
         }
         if state
@@ -2547,6 +2872,8 @@ impl GameRegistry {
         }
         if let Some(session) = state.sessions.get(game_id) {
             session.replace_player_session(player, replacement.as_str());
+            // The seat has the name of who took it: the next update of the game says so.
+            session.set_nicknames([(player.clone(), nickname.to_owned())]);
         }
         state.player_lobbies.insert(game_id.to_owned(), updated);
         // Discard all old connection IDs and heartbeat timestamps. The new holder
@@ -2602,6 +2929,256 @@ impl GameRegistry {
         reply
             .recv()
             .unwrap_or(Err(RejectionReason::NoPendingChoice))
+    }
+
+    /// A script that is sent shares the takeover/history gate with live answers
+    /// ([`GameSession::apply_draft`]). The gate is held while the script is checked on a copy.
+    pub fn apply_player_draft(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        nonce: &str,
+        version: u64,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        self.current_player_session(game_id, credential, player, session)
+            .ok_or_else(|| RejectionReason::UnauthorizedSeat {
+                seat: Some(player.clone()),
+            })?;
+        session.apply_draft(player, nonce, version, script)
+    }
+
+    /// A run of a draft for the seat of this credential ([`GameSession::run_draft`]). `None`
+    /// when the credential is not of `player`, or `session` is no longer the game.
+    pub fn run_player_draft(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        scope: &ti4_view::planning::audit::PlanScope,
+        script: &[ti4_view::planning::draft::DraftStep],
+    ) -> Option<(u64, ti4_view::planning::draft::DraftOutcome)> {
+        self.current_player_session(game_id, credential, player, session)?;
+        Some(session.run_draft(player, scope, script))
+    }
+
+    /// Sends the ready draft of the secondary of the seat of this credential, when the game asks
+    /// the seat now ([`GameSession::send_ready_secondary`]). It shares the takeover/history gate
+    /// with live answers, as a script that a page sends does.
+    pub fn send_ready_secondary(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+    ) {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        if self
+            .current_player_session(game_id, credential, player, session)
+            .is_some()
+        {
+            session.send_ready_secondary(player);
+        }
+    }
+
+    /// `Some` when `credential` is of `player` and `session` is the running game.
+    fn current_player_session(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+    ) -> Option<()> {
+        let state = self.state.lock().expect("registry lock");
+        let authenticated = if let Some(lobby) = state.player_lobbies.get(game_id) {
+            authenticate_player(lobby, credential).ok()
+        } else {
+            state
+                .lobbies
+                .get(game_id)
+                .and_then(|lobby| authenticated_seat(lobby, credential).ok())
+        };
+        (authenticated.as_ref() == Some(player)
+            && state.sessions.get(game_id).is_some_and(|current| {
+                std::ptr::eq(Arc::as_ptr(current), std::ptr::from_ref(session))
+            }))
+        .then_some(())
+    }
+
+    /// Planning authorization shares the takeover/history gate with live answers.
+    pub fn submit_player_planning(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        answer: Option<(crate::planning::runner::AttemptIdentity, &str)>,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        self.submit_player_planning_with_request_id(
+            game_id, credential, player, session, answer, None,
+        )
+    }
+
+    pub fn submit_player_planning_with_request_id(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        answer: Option<(crate::planning::runner::AttemptIdentity, &str)>,
+        request_id: Option<&str>,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        self.player_planning_request(
+            game_id,
+            credential,
+            player,
+            session,
+            answer.map(|(identity, option)| (identity, option, request_id)),
+            None,
+            None,
+            None,
+        )
+    }
+
+    pub fn reset_player_planning(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        identity: crate::planning::runner::AttemptIdentity,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        self.player_planning_request(
+            game_id,
+            credential,
+            player,
+            session,
+            None,
+            Some(identity),
+            None,
+            None,
+        )
+    }
+
+    pub fn edit_player_planning_movement(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        identity: crate::planning::runner::AttemptIdentity,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        self.player_planning_request(
+            game_id,
+            credential,
+            player,
+            session,
+            None,
+            None,
+            None,
+            Some(identity),
+        )
+    }
+
+    pub fn apply_player_planning(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        identity: crate::planning::runner::AttemptIdentity,
+        nonce: &str,
+        expected_version: u64,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        self.player_planning_request(
+            game_id,
+            credential,
+            player,
+            session,
+            None,
+            None,
+            Some((identity, nonce, expected_version)),
+            None,
+        )
+    }
+
+    /// A follower's secondary draft shares the takeover/history gate too.
+    pub fn player_secondary_planning(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        request: &crate::protocol::client::SecondaryPlanningRequest,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        use crate::protocol::server::PlanningRejection as Rejection;
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        if self
+            .authenticate_player_session(game_id, credential)
+            .ok()
+            .as_ref()
+            != Some(player)
+        {
+            return Err(Rejection::Unauthorized);
+        }
+        if self
+            .get_game(game_id)
+            .is_none_or(|current| !std::ptr::eq(Arc::as_ptr(&current), session))
+        {
+            return Err(Rejection::Unavailable);
+        }
+        session
+            .secondary_planning(player, request)
+            .map_err(planning_rejection)
+    }
+
+    fn player_planning_request(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+        answer: Option<(crate::planning::runner::AttemptIdentity, &str, Option<&str>)>,
+        reset: Option<crate::planning::runner::AttemptIdentity>,
+        apply: Option<(crate::planning::runner::AttemptIdentity, &str, u64)>,
+        edit: Option<crate::planning::runner::AttemptIdentity>,
+    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        use crate::protocol::server::PlanningRejection as Rejection;
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        if self
+            .authenticate_player_session(game_id, credential)
+            .ok()
+            .as_ref()
+            != Some(player)
+        {
+            return Err(Rejection::Unauthorized);
+        }
+        if self
+            .get_game(game_id)
+            .is_none_or(|current| !std::ptr::eq(Arc::as_ptr(&current), session))
+        {
+            return Err(Rejection::Unavailable);
+        }
+        let result = match (answer, reset, apply, edit) {
+            (_, _, _, Some(identity)) => session.edit_planning_movement(player, identity),
+            (_, _, Some((identity, nonce, version)), _) => {
+                session.apply_planning(player, identity, nonce, version)
+            }
+            (_, Some(identity), _, _) => session.reset_planning(player, identity),
+            (Some((identity, option, request_id)), _, _, _) => {
+                session.submit_planning_choice_with_request_id(player, identity, option, request_id)
+            }
+            _ => session.start_planning(player),
+        };
+        result.map_err(planning_rejection)
     }
 
     /// Bind a private HTTP snapshot to the current credential under the same
@@ -2667,53 +3244,6 @@ impl GameRegistry {
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
-    /// Reorder entire slots, including open ones, without changing participants.
-    /// Admission and start use the same registry lock, so the next open slot is
-    /// always selected from one complete, persisted order.
-    pub fn reorder_player_lobby(
-        &self,
-        game_id: &str,
-        credential: &str,
-        slot_ids: &[LobbySlotId],
-    ) -> Result<PlayerLobbyView, LobbyError> {
-        let mut state = self.state.lock().expect("registry lock");
-        let lobby = state
-            .player_lobbies
-            .get_mut(game_id)
-            .ok_or(LobbyError::NotFound)?;
-        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
-            return Err(LobbyError::AlreadyRunning);
-        }
-        if authenticate_player(lobby, credential)? != lobby.host_player_id {
-            return Err(LobbyError::HostRequired);
-        }
-        let by_id: BTreeMap<_, _> = lobby
-            .slots
-            .iter()
-            .map(|slot| (slot.slot_id.clone(), slot.clone()))
-            .collect();
-        if slot_ids.len() != lobby.slots.len()
-            || slot_ids.iter().collect::<BTreeSet<_>>().len() != lobby.slots.len()
-            || slot_ids.iter().any(|id| !by_id.contains_key(id))
-        {
-            return Err(LobbyError::InvalidSlotOrder);
-        }
-        let mut updated = lobby.clone();
-        updated.slots = slot_ids.iter().map(|id| by_id[id].clone()).collect();
-        if updated
-            .slots
-            .iter()
-            .map(|s| &s.slot_id)
-            .ne(lobby.slots.iter().map(|s| &s.slot_id))
-        {
-            updated.lobby_version += 1;
-            updated.map_revision += 1;
-            self.save_player_lobby(&updated)?;
-            *lobby = updated;
-        }
-        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
-    }
-
     /// Host-only, lobby phase only: choose the map the table will play. Every call draws a new
     /// private seed, so choosing again re-rolls the open slots (or the whole random board).
     /// The seed is never part of any response.
@@ -2748,6 +3278,11 @@ impl GameRegistry {
         if authenticate_player(lobby, credential)? != lobby.host_player_id {
             return Err(LobbyError::HostRequired);
         }
+        if lobby.start_from.is_some() {
+            return Err(LobbyError::ScenarioTable(
+                "its map is the map of the scenario".to_owned(),
+            ));
+        }
         let seed = rand::random::<u64>();
         crate::maps::catalog::preview(choice, lobby.slots.len(), seed)
             .map_err(LobbyError::InvalidMap)?;
@@ -2767,7 +3302,8 @@ impl GameRegistry {
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
-    /// The board the lobby's current choice and seed give, laid out for its slot order.
+    /// The board the lobby's current choice and seed give, with a place for each seat. It names
+    /// no faction: who sits where, and with which faction, is drawn at Start.
     ///
     /// # Errors
     /// [`LobbyError::NotFound`], or [`LobbyError::Map`] if the stored choice no longer builds.
@@ -2775,64 +3311,64 @@ impl GameRegistry {
         &self,
         game_id: &str,
     ) -> Result<crate::maps::MapPreview, LobbyError> {
-        let (choice, factions, count, seed) = {
+        let setup = {
             let state = self.state.lock().expect("registry lock");
             let lobby = state
                 .player_lobbies
                 .get(game_id)
                 .ok_or(LobbyError::NotFound)?;
-            (
-                crate::maps::MapChoice::from_stored(lobby.map_template.as_deref()),
-                // With a start preset the preset seats the factions: show the fixed order.
-                match lobby.start_preset {
-                    Some(_) => None,
-                    None => Some(lobby.seat_factions()),
-                },
-                lobby.slots.len(),
-                lobby.seed,
-            )
+            super::table::setup_of(lobby)
         };
-        match factions {
-            Some(chosen) => {
-                let seated =
-                    crate::map::lobby_seat_factions(&chosen, seed).map_err(LobbyError::Map)?;
-                crate::maps::catalog::preview_seated(&choice, seed, &seated)
-                    .map_err(LobbyError::Map)
-            }
-            None => crate::maps::catalog::preview(&choice, count, seed).map_err(LobbyError::Map),
-        }
+        ti4_host::setup::preview(&setup).map_err(LobbyError::Map)
     }
 
-    pub fn set_player_ready(
+    /// As [`Self::create_player_lobby_with_speaker`], with every other seat played by a random
+    /// bot ([`SeatController::BotRandom`], as [`Self::add_random_bots`] seats them), and started
+    /// at once: the creator is the only person of the game. The seats of the game are kept with
+    /// it (`init.json`), so a recovered game has the same random seats.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the arguments of a lobby, as `create_player_lobby_with_speaker` takes them"
+    )]
+    pub fn create_player_game_with_random_seats(
         &self,
-        game_id: &str,
-        credential: &str,
-        ready: bool,
-    ) -> Result<(PlayerLobbyView, PlayerId), LobbyError> {
-        let mut state = self.state.lock().expect("registry lock");
-        let lobby = state
-            .player_lobbies
-            .get_mut(game_id)
-            .ok_or(LobbyError::NotFound)?;
-        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
-            return Err(LobbyError::AlreadyRunning);
+        game_id: String,
+        count: usize,
+        seed: u64,
+        nickname: &str,
+        map_template: Option<String>,
+        start_preset: Option<String>,
+        strategy_card_set: &'static str,
+        speaker_order: crate::map::SpeakerOrder,
+        seat_order: super::table::SeatOrder,
+        bot_delay_ms: Option<u64>,
+    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
+        let (_, player, credential) = self.create_player_lobby_with_seating(
+            game_id.clone(),
+            count,
+            seed,
+            nickname,
+            map_template,
+            start_preset,
+            strategy_card_set,
+            speaker_order,
+            seat_order,
+        )?;
+        if let Some(delay) = bot_delay_ms {
+            self.change_player_lobby_settings(
+                &game_id,
+                credential.as_str(),
+                &super::table::TableSettings {
+                    bot_delay_ms: Some(delay),
+                    ..super::table::TableSettings::default()
+                },
+            )?;
         }
-        let player = authenticate_player(lobby, credential)?;
-        if lobby.players[&player].ready != ready {
-            let mut updated = lobby.clone();
-            updated
-                .players
-                .get_mut(&player)
-                .expect("authenticated player")
-                .ready = ready;
-            updated.lobby_version += 1;
-            self.save_player_lobby(&updated)?;
-            *lobby = updated;
+        if count > 1 {
+            self.add_random_bots(&game_id, credential.as_str(), None, None)?;
         }
-        Ok((
-            self.player_view(&state, &state.player_lobbies[game_id]),
-            player,
-        ))
+        let view = self.start_player_lobby(&game_id, credential.as_str())?;
+        Ok((view, player, credential))
     }
 
     pub fn start_player_lobby(
@@ -2851,35 +3387,58 @@ impl GameRegistry {
         if authenticate_player(lobby, credential)? != lobby.host_player_id {
             return Err(LobbyError::HostRequired);
         }
-        if lobby.slots.iter().any(|slot| slot.occupant.is_none())
-            || lobby.players.values().any(|member| !member.ready)
-        {
-            return Err(LobbyError::HumansNotReady);
+        if lobby.slots.iter().any(|slot| slot.occupant.is_none()) {
+            return Err(LobbyError::SeatsOpen);
         }
-        let players: Vec<_> = lobby
-            .slots
-            .iter()
-            .map(|slot| slot.occupant.clone().expect("full lobby"))
-            .collect();
         let content = ContentStore::embedded();
+        // The setup of `ti4-view` starts the table, as it does for the table of a page.
+        let setup = super::table::setup_of(lobby);
+        // A scenario is the game of its own seed; every other table plays the seed of the lobby.
+        let seed = setup.game_seed();
+        // The seats are drawn here (decision 7 of the lobby plan): the players of the slots are
+        // shuffled with a stream of the seed, and the factions are then drawn for that order, so
+        // a chosen faction stays with its player.
+        let joined = super::table::joined_players(lobby);
+        let chosen: Vec<Option<String>> = joined
+            .iter()
+            .map(|player| lobby.players[player].faction.clone())
+            .collect();
         // The drawn speaker is part of `initial_state`, which the init record stores, so replay
         // and recovery start from the same speaker without re-deriving it.
-        let (initial_state, galaxy) = crate::map::create_game_with_factions(
-            content,
-            &players,
-            lobby.seed,
-            lobby.map_template.as_deref(),
-            lobby.start_preset.as_deref(),
-            Some(crate::card_set::resolve(lobby.strategy_card_set.as_deref())),
-            crate::map::SpeakerOrder::from_stored(lobby.speaker_order.as_deref()),
-            Some(&lobby.seat_factions()),
-        )
-        .map_err(LobbyError::Map)?;
+        let (players, (initial_state, galaxy)) = if let Some(preset) = lobby
+            .start_preset
+            .as_deref()
+            .filter(|_| setup.start_from.is_none())
+        {
+            // A start preset is a tool of this server: it seats its own factions, in the order
+            // of the join, and sets its cases on the opening state.
+            let players = super::table::seated_players(lobby, seed);
+            let game = crate::map::create_game_with_factions(
+                content,
+                &players,
+                seed,
+                lobby.map_template.as_deref(),
+                Some(preset),
+                Some(&setup.strategy_cards),
+                setup.speaker_order,
+                None,
+            )
+            .map_err(LobbyError::Map)?;
+            (players, game)
+        } else {
+            let drawn = ti4_host::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
+            let players = drawn.seated(&joined);
+            let game = ti4_host::setup::create(content, &setup, &players, &drawn)
+                .map_err(LobbyError::Map)?;
+            (players, game)
+        };
         let map_tiles = crate::map::build_board_tiles(content, &galaxy);
         let mut config = SessionConfig::new(game_id, initial_state.clone())
-            .with_seed(lobby.seed)
+            .with_seed(seed)
             .with_player_ids(players.clone())
             .with_galaxy(galaxy, map_tiles.clone());
+        // A table with no value waits as the process says, as before.
+        config.random_bot_delay_ms = lobby.bot_delay_ms;
         config.seats = players
             .iter()
             .map(|p| {
@@ -2897,10 +3456,16 @@ impl GameRegistry {
             .filter(|(_, m)| m.bot.is_none())
             .map(|(p, m)| (p.clone(), m.session.as_str().to_owned()))
             .collect();
+        config.nicknames = nicknames_of(lobby);
         config.store.clone_from(&self.store);
         let mut running = lobby.clone();
         running.phase = PersistedLobbyPhase::Running;
         running.lobby_version += 1;
+        running.seed = seed;
+        // From here the slots are the seats of the game, in their order.
+        for (slot, player) in running.slots.iter_mut().zip(&players) {
+            slot.occupant = Some(player.clone());
+        }
         if let Some(store) = &self.store {
             store
                 .save_player_sessions(&PlayerSessionsRecord {
@@ -2922,7 +3487,7 @@ impl GameRegistry {
             if let Err(e) = store.save_player_init(&PlayerGameInitRecord {
                 schema_version: PLAYER_RECORD_VERSION,
                 game_id: game_id.to_owned(),
-                seed: lobby.seed,
+                seed,
                 player_ids: players,
                 initial_state,
                 map_tiles,
@@ -2931,6 +3496,8 @@ impl GameRegistry {
                 strategy_card_set: Some(
                     crate::card_set::resolve(lobby.strategy_card_set.as_deref()).to_owned(),
                 ),
+                bot_delay_ms: lobby.bot_delay_ms,
+                start_from: lobby.start_from.clone(),
             }) {
                 // No valid init: recovery treats the lobby as unstarted.
                 let _ = self.save_player_lobby(lobby);
@@ -2942,7 +3509,126 @@ impl GameRegistry {
         state
             .sessions
             .insert(game_id.to_owned(), Arc::new(GameSession::start(config)));
+        // Without a store nothing was saved, so the sockets of the table are told here.
+        self.table_changed(game_id);
         Ok(view)
+    }
+
+    /// Host-only, lobby phase only: change the settings of the table (see
+    /// [`super::table::TableSettings`]). Every field is checked before anything changes.
+    ///
+    /// # Errors
+    /// The usual lobby errors, and what [`super::table::apply_settings`] refuses.
+    pub fn change_player_lobby_settings(
+        &self,
+        game_id: &str,
+        credential: &str,
+        settings: &super::table::TableSettings,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let mut updated = super::table::apply_settings(lobby, settings, self.public.is_public())?;
+        updated
+            .validate()
+            .map_err(|error| LobbyError::Storage(error.to_string()))?;
+        let removed: Vec<PlayerId> = lobby
+            .players
+            .keys()
+            .filter(|id| !updated.players.contains_key(*id))
+            .cloned()
+            .collect();
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        for player in removed {
+            state.presence.remove(&(game_id.to_owned(), player));
+        }
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Host only, for a running game: the wait of the seats that the server plays. A seat that
+    /// waits now has the new wait at once; the record of the table keeps it, so a recovered
+    /// game has it.
+    ///
+    /// # Errors
+    /// The usual lobby errors, [`LobbyError::NotRunning`] before the start, and
+    /// [`LobbyError::InvalidSetting`] for a wait outside its range.
+    pub fn change_running_bot_delay(
+        &self,
+        game_id: &str,
+        credential: &str,
+        delay_ms: u64,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        if delay_ms > super::table::MAX_BOT_DELAY_MS {
+            return Err(LobbyError::InvalidSetting(format!(
+                "bot_delay_ms must be 0-{}",
+                super::table::MAX_BOT_DELAY_MS
+            )));
+        }
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Running) {
+            return Err(LobbyError::NotRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let session = state.sessions.get(game_id).ok_or(LobbyError::NotFound)?;
+        if lobby.bot_delay_ms != Some(delay_ms) {
+            let mut updated = lobby.clone();
+            updated.bot_delay_ms = Some(delay_ms);
+            updated.lobby_version += 1;
+            self.save_player_lobby(&updated)?;
+            session.set_bot_delay_ms(delay_ms);
+            state.player_lobbies.insert(game_id.to_owned(), updated);
+        }
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Lobby phase only: the player of the credential takes another nickname.
+    ///
+    /// # Errors
+    /// The usual lobby errors and [`LobbyError::InvalidNickname`].
+    pub fn rename_player(
+        &self,
+        game_id: &str,
+        credential: &str,
+        nickname: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        check_nickname(nickname)?;
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        let player = authenticate_player(lobby, credential)?;
+        if lobby.players[&player].nickname != nickname {
+            let mut updated = lobby.clone();
+            updated
+                .players
+                .get_mut(&player)
+                .expect("authenticated player")
+                .nickname = nickname.to_owned();
+            updated.lobby_version += 1;
+            self.save_player_lobby(&updated)?;
+            *lobby = updated;
+        }
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
 
     pub async fn spawn_bot_for_lobby(
@@ -3159,9 +3845,9 @@ impl GameRegistry {
             updated.players.insert(
                 player,
                 PlayerLobbyMember {
+                    legacy_ready: None,
                     bot: Some(kind.to_owned()),
                     faction: faction.map(str::to_owned),
-                    ready: true,
                     session,
                     nickname: name,
                 },
@@ -3204,6 +3890,11 @@ impl GameRegistry {
         if caller != lobby.host_player_id && &caller != player_id {
             return Err(LobbyError::HostRequired);
         }
+        if lobby.start_from.is_some() {
+            return Err(LobbyError::ScenarioTable(
+                "its seats have the factions of the scenario".to_owned(),
+            ));
+        }
         if let Some(faction) = faction {
             lobby.check_faction_free(faction, Some(player_id))?;
         }
@@ -3215,7 +3906,6 @@ impl GameRegistry {
                 .expect("checked above")
                 .faction = faction.map(str::to_owned);
             updated.lobby_version += 1;
-            updated.map_revision += 1;
             self.save_player_lobby(&updated)?;
             *lobby = updated;
         }
@@ -3346,8 +4036,8 @@ impl GameRegistry {
                 .iter()
                 .find_map(|(seat, lobby_seat)| {
                     (!lobby_seat.controller.is_in_process_bot()
-                && lobby_seat.seat_token.as_deref() == Some(token))
-            .then(|| seat.clone())
+                        && lobby_seat.seat_token.as_deref() == Some(token))
+                    .then(|| seat.clone())
                 })
                 .ok_or(LobbyError::InvalidCapability)?,
             None => {
@@ -3683,6 +4373,8 @@ impl GameRegistry {
                 seats: Some(config.seats.clone()),
                 map_template: None,
                 strategy_card_set: None,
+                bot_delay_ms: None,
+                start_from: None,
             };
 
             let mut running_lobby = lobby_record.clone();
@@ -3807,6 +4499,94 @@ impl GameRegistry {
         games
     }
 
+    /// True when the host ended `game_id` while this process was running.
+    pub fn is_terminated(&self, game_id: &str) -> bool {
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .contains(game_id)
+    }
+
+    /// Phase and seated players of each given game that is still open (unfinished), for the
+    /// "too many games" answer. Unknown or finished ids are left out.
+    pub fn open_game_infos(&self, ids: &[String]) -> Vec<OpenGameInfo> {
+        let state = self.state.lock().expect("registry lock");
+        ids.iter()
+            .filter_map(|id| {
+                if let Some(session) = state.sessions.get(id) {
+                    if session.is_finished() {
+                        return None;
+                    }
+                    let players = state.player_lobbies.get(id).map_or_else(
+                        || state.lobbies.get(id).map_or(0, |l| l.player_ids.len()),
+                        |l| l.slots.iter().filter(|s| s.occupant.is_some()).count(),
+                    );
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "started",
+                        players,
+                    });
+                }
+                if let Some(l) = state.player_lobbies.get(id) {
+                    let players = l.slots.iter().filter(|s| s.occupant.is_some()).count();
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "lobby",
+                        players,
+                    });
+                }
+                state.lobbies.get(id).map(|l| OpenGameInfo {
+                    game_id: id.clone(),
+                    phase: "lobby",
+                    players: l.player_ids.len(),
+                })
+            })
+            .collect()
+    }
+
+    /// Ends a game for good at the request of its host: stops the worker and bots, forgets the
+    /// game and moves its files into `terminated/`. Works for lobbies and started games.
+    pub fn terminate_game(&self, game_id: &str, credential: &str) -> Result<(), LobbyError> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        {
+            let state = self.state.lock().expect("registry lock");
+            if let Some(lobby) = state.player_lobbies.get(game_id) {
+                let actor = authenticate_player(lobby, credential)?;
+                if actor != lobby.host_player_id {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else if let Some(lobby) = state.lobbies.get(game_id) {
+                let actor = authenticated_seat(lobby, credential)?;
+                if actor != lobby.host_seat {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else {
+                return Err(LobbyError::NotFound);
+            }
+        }
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .insert(game_id.to_owned());
+        self.remove_game(game_id);
+        self.turn_redos
+            .lock()
+            .expect("turn redos lock")
+            .remove(game_id);
+        self.state
+            .lock()
+            .expect("registry lock")
+            .presence
+            .retain(|(id, _), _| id != game_id);
+        if let Some(store) = &self.store {
+            store
+                .terminate_game(game_id)
+                .map_err(|e| LobbyError::Storage(e.to_string()))?;
+        }
+        Ok(())
+    }
+
     pub fn remove_game(&self, game_id: &str) -> Option<Arc<GameSession>> {
         let mut state = self.state.lock().expect("registry lock");
         state.lobbies.remove(game_id);
@@ -3886,9 +4666,11 @@ fn running_lobby_from_session_config(config: &SessionConfig) -> LobbyState {
 fn running_lobby_from_session(session: &GameSession) -> LobbyState {
     let (player_ids, seats, seat_tokens, seed) = session.lobby_details();
     running_lobby_from_session_config(&SessionConfig {
+        plans: BTreeMap::new(),
         game_id: session.id().to_owned(),
         state: session.current_state(),
         seats,
+        nicknames: BTreeMap::new(),
         seat_tokens,
         galaxy: None,
         map_tiles: Vec::new(),
@@ -3914,6 +4696,8 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        staged: crate::session::staged::StagedBook::default(),
+        undone: BTreeMap::new(),
         step_snapshots: true,
         random_bot_delay_ms: None,
         resume: None,
@@ -4006,6 +4790,7 @@ fn now_ms() -> u64 {
 
 fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
     running_lobby_from_session_config(&SessionConfig {
+        plans: BTreeMap::new(),
         game_id: init.game_id.clone(),
         state: init.initial_state.clone(),
         seed: init.seed,
@@ -4018,6 +4803,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
             off_map_system_ids: Vec::new(),
         },
         seats: init.seats.clone(),
+        nicknames: BTreeMap::new(),
         seat_tokens: init.seat_tokens.clone(),
         store: None,
         player_ids: init.player_ids.clone(),
@@ -4034,8 +4820,27 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         rng_marks: crate::session::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
+        staged: crate::session::staged::StagedBook::default(),
+        undone: BTreeMap::new(),
         step_snapshots: true,
         random_bot_delay_ms: None,
         resume: None,
     })
+}
+
+fn planning_rejection(error: super::PlanningError) -> crate::protocol::server::PlanningRejection {
+    use super::PlanningError;
+    use crate::planning::runner::SubmissionError;
+    use crate::protocol::server::PlanningRejection as Rejection;
+    match error {
+        PlanningError::Unavailable => Rejection::Unavailable,
+        PlanningError::UnknownSeat => Rejection::UnknownSeat,
+        PlanningError::ActivePlayer => Rejection::ActivePlayer,
+        PlanningError::NotStarted => Rejection::NotStarted,
+        PlanningError::NoActionOpportunity => Rejection::NoActionOpportunity,
+        PlanningError::ReplayMismatch => Rejection::ReplayMismatch,
+        PlanningError::Submission(SubmissionError::Retired) => Rejection::Retired,
+        PlanningError::Submission(SubmissionError::NotWaiting) => Rejection::NotWaiting,
+        PlanningError::Submission(SubmissionError::UnknownOption) => Rejection::UnknownOption,
+    }
 }
