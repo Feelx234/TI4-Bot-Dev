@@ -109,6 +109,8 @@ export type MovementStep =
       unit: string;
       source: string | null;
       damaged: boolean;
+      /** The system the unit stands in (origin, passed or active system, 95.1). */
+      pickup_system?: string;
     }
   | { kind: "done_loading" }
   | { kind: "done_moving" };

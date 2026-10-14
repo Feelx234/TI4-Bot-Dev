@@ -29,18 +29,20 @@ export const CornerToastLayer: React.FC<CornerToastsInput> = (props) => {
   const { notifications, dismiss, history } = useCornerToasts(props);
   const [offset, setOffset] = useState(GAP);
   const count = notifications.length;
+  // The history toggle stays after the toasts have gone, so it counts as something on screen.
+  const shown = count > 0 || history.length > 0;
 
   useLayoutEffect(() => {
     const update = () => setOffset(measureBottomOffset());
     update();
     window.addEventListener("resize", update);
     // Bars appear and disappear with decisions; keep tracking while something is on screen.
-    const timer = count > 0 ? window.setInterval(update, 500) : undefined;
+    const timer = shown ? window.setInterval(update, 500) : undefined;
     return () => {
       window.removeEventListener("resize", update);
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [count]);
+  }, [count, shown]);
 
   return (
     <AutoResolveToastContainer
