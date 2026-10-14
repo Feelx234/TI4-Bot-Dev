@@ -1194,7 +1194,7 @@ impl GameRegistry {
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
-        let timestamp = crate::session::worker::current_utc_time_string();
+        let timestamp = ti4_host::clock::Clock::utc_time_string(&ti4_host::clock::SystemClock);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision

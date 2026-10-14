@@ -1,7 +1,10 @@
 //! Private, bounded engine replay for a staged workflow confirmation.
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::clock::{Clock, Deadline};
+use crate::rng_force::{RngForce, RngMarks};
 
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
@@ -11,8 +14,22 @@ use ti4_engine::game::Game;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
-use super::SessionConfig;
-use super::step_snapshot::StepSnapshot;
+use crate::step_snapshot::StepSnapshot;
+
+/// What a simulation or a replay starts from. The server's `SessionConfig` is one; the browser
+/// host builds its own.
+pub trait ReplayBasis {
+    /// The opening state of the game.
+    fn state(&self) -> &GameState;
+    /// The map of the game, when it has one.
+    fn galaxy(&self) -> Option<&ti4_content::galaxy::Galaxy>;
+    /// The forced random positions of the timeline.
+    fn rng_marks(&self) -> &RngMarks;
+    /// The history generation that a [`StepSnapshot`] must have been taken in.
+    fn history_generation(&self) -> u64;
+    /// Where the replay deadline reads the time.
+    fn clock(&self) -> &dyn Clock;
+}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -564,7 +581,7 @@ fn is_reaction_window(choice: &Choice) -> bool {
 struct Script {
     prefix: VecDeque<DecisionRecord>,
     /// Forced random positions for the prefix (a timeline made by a turn redo), and its length.
-    force: Option<crate::session::RngForce>,
+    force: Option<RngForce>,
     prefix_len: usize,
     steps: Vec<MovementStep>,
     next: usize,
@@ -999,9 +1016,9 @@ pub enum SimulationMode {
 /// Replays the prefix and proves every staged choice against a fresh engine offer.
 ///
 /// With a valid step-boundary `snapshot` only the decisions recorded after it are replayed
-/// (see [`crate::session::step_snapshot`]); otherwise the whole prefix is.
+/// (see [`crate::step_snapshot`]); otherwise the whole prefix is.
 pub fn simulate(
-    config: &SessionConfig,
+    config: &dyn ReplayBasis,
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
@@ -1012,7 +1029,7 @@ pub fn simulate(
 
 /// [`simulate`] with an explicit [`SimulationMode`].
 pub fn simulate_with(
-    config: &SessionConfig,
+    config: &dyn ReplayBasis,
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
@@ -1033,7 +1050,7 @@ pub fn simulate_with(
     } else {
         mode
     };
-    let usable = snapshot.filter(|copy| copy.is_valid_for(config.history_generation, prefix));
+    let usable = snapshot.filter(|copy| copy.is_valid_for(config.history_generation(), prefix));
     let planned = plan.steps.len();
     let finish = |result: Result<Simulation, BatchFailure>| {
         result.map_err(|failure| {
@@ -1238,7 +1255,7 @@ fn plan_problem(plan: &MovementPlan) -> Option<String> {
 /// Reconstruct the view at the first unrecorded choice when a session is recovered
 /// without the in-memory boundary state from a batch simulation.
 pub fn replay_boundary_state(
-    config: &SessionConfig,
+    config: &dyn ReplayBasis,
     prefix: &[DecisionRecord],
 ) -> Result<GameState, BatchFailure> {
     let plan = MovementPlan {
@@ -1263,12 +1280,12 @@ pub(crate) const TAIL_COPY_WINDOW: usize = 64;
 /// [`replay_boundary_state`], replaying only what `from` (a copy of the game at an earlier step
 /// boundary of this same prefix) does not cover, and also returning a copy of the game at the last
 /// step boundary of the replay when `generation` is given: a new session worker forks it
-/// (`SessionConfig::resume`) instead of replaying the whole prefix a second time.
+/// (`SessionConfig::resume` in the server) instead of replaying the whole prefix a second time.
 ///
 /// # Errors
 /// As [`replay_boundary_state`].
 pub fn replay_boundary(
-    config: &SessionConfig,
+    config: &dyn ReplayBasis,
     prefix: &[DecisionRecord],
     from: Option<&StepSnapshot>,
     generation: Option<u64>,
@@ -1297,14 +1314,14 @@ pub fn replay_budget(decisions: usize) -> Duration {
 }
 
 fn simulate_script(
-    config: &SessionConfig,
+    config: &dyn ReplayBasis,
     prefix: &[DecisionRecord],
     actor: &PlayerId,
     plan: &MovementPlan,
     from: Option<&StepSnapshot>,
     copy_generation: Option<u64>,
 ) -> Result<Simulation, BatchFailure> {
-    let force = crate::session::RngForce::new(&config.rng_marks);
+    let force = RngForce::new(config.rng_marks());
     // Decisions the copy already covers are not replayed; the rest of the prefix is.
     let covered = from.map_or(0, |copy| copy.log_len);
     let script = Arc::new(Mutex::new(Script {
@@ -1332,8 +1349,8 @@ fn simulate_script(
         game
     } else {
         let table = Table::with_default(Box::new(PrivateDecider(script.clone())));
-        let mut game = Game::with_table(config.state.clone(), ContentStore::embedded(), table);
-        if let Some(galaxy) = &config.galaxy {
+        let mut game = Game::with_table(config.state().clone(), ContentStore::embedded(), table);
+        if let Some(galaxy) = config.galaxy() {
             game = game.with_galaxy(galaxy.clone());
         }
         game
@@ -1342,7 +1359,8 @@ fn simulate_script(
         force.attach(&mut game);
     }
     let replayed = prefix.len() - covered;
-    let deadline = Instant::now() + replay_budget(replayed);
+    let clock = config.clock();
+    let deadline = Deadline::after(clock, u64::try_from(replay_budget(replayed).as_millis()).unwrap_or(u64::MAX));
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
@@ -1353,7 +1371,7 @@ fn simulate_script(
         .saturating_mul(8)
         .saturating_add(128))
     {
-        if Instant::now() >= deadline {
+        if deadline.passed(clock) {
             return Err(BatchFailure::new(
                 script.lock().expect("script").next,
                 "simulation timed out",
@@ -1482,13 +1500,38 @@ mod tests {
     use super::*;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
 
+    struct TestBasis {
+        state: GameState,
+        galaxy: ti4_content::galaxy::Galaxy,
+        marks: RngMarks,
+        clock: crate::clock::ManualClock,
+    }
+
+    impl ReplayBasis for TestBasis {
+        fn state(&self) -> &GameState {
+            &self.state
+        }
+        fn galaxy(&self) -> Option<&ti4_content::galaxy::Galaxy> {
+            Some(&self.galaxy)
+        }
+        fn rng_marks(&self) -> &RngMarks {
+            &self.marks
+        }
+        fn history_generation(&self) -> u64 {
+            0
+        }
+        fn clock(&self) -> &dyn Clock {
+            &self.clock
+        }
+    }
+
     /// The batch simulator's game end (`Simulation::winner`, which `submit_batch` turns into
     /// `GameFinished`) breaks a three-way VP tie by initiative, not by seat or player order.
     #[test]
     fn a_three_way_tie_ending_inside_a_batch_goes_to_the_first_in_initiative() {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+            ti4_view::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
         let mut by_initiative: Vec<_> = state
             .card_initiative
             .iter()
@@ -1531,7 +1574,12 @@ mod tests {
         }
         assert!(game.state.finished, "the status phase should end the game");
         let prefix = game.table.log.records.clone();
-        let config = SessionConfig::new("tie_batch", state).with_galaxy(galaxy, Vec::new());
+        let config = TestBasis {
+            state,
+            galaxy,
+            marks: RngMarks::new(),
+            clock: crate::clock::ManualClock::new(0, 0),
+        };
         let plan = MovementPlan {
             kind: BatchKind::TacticalMovement,
             destination: String::new(),

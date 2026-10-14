@@ -4312,6 +4312,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ti4-host"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "ti4-content",
+ "ti4-engine",
+ "ti4-model",
+ "ti4-view",
+]
+
+[[package]]
 name = "ti4-legacy"
 version = "0.1.0"
 dependencies = [
@@ -4463,6 +4476,7 @@ dependencies = [
  "thiserror 2.0.20",
  "ti4-content",
  "ti4-engine",
+ "ti4-host",
  "ti4-model",
  "ti4-policy",
  "ti4-rule-bot",

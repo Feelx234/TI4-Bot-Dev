@@ -8,7 +8,7 @@ use ti4_view::secondary::SecondaryWatch;
 
 pub use ti4_view::projection::*;
 
-use crate::map::GalaxyLayout;
+use ti4_view::map::GalaxyLayout;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::ViewerRole;
