@@ -9,7 +9,7 @@ use ti4_content::ContentStore;
 use ti4_model::id::ActionCardId;
 use ti4_model::state::GameState;
 
-use crate::view::status::ViewerRole;
+use crate::protocol::status::ViewerRole;
 
 /// The action cards as every player at the table sees them, and the hand limit of the viewer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,10 +67,10 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
         let template =
-            crate::view::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
+        crate::map::create_game_with_template(content, &ids, 42, Some(&template))
             .expect("a game")
             .0
     }

@@ -1,17 +1,11 @@
-//! The data of a player's plan and of what the planner publishes about it.
-//!
-//! The adapters and the checks of the publication boundary are defined in `ti4-view`. The
-//! thread that runs a plan against a disposable engine fork (`PlanningRunner`) is the server's;
-//! these are the plain types it publishes and that the wire carries.
+//! The data of a player's plan and of what the planner publishes about it: the plain types the
+//! server's planning thread (`PlanningRunner`, which runs a plan against a disposable engine fork)
+//! publishes and that the wire carries.
 
 use serde::{Deserialize, Serialize};
-use crate::view::planning::audit::{SafePublication, StopReason};
 
-pub use crate::view::planning::audit::{ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION};
-pub use crate::view::planning::{
-    DecisionRecording, RecordedDecision, RecordingDecider, ReplayDecider, ReplayProgress,
-    ReplayStatus, ReplayStopReason,
-};
+use super::RecordedDecision;
+use super::audit::{SafePublication, StopReason};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlayerPlan {
@@ -125,4 +119,3 @@ pub enum SubmissionError {
     NotWaiting,
     UnknownOption,
 }
-

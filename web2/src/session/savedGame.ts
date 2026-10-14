@@ -12,7 +12,7 @@ export interface LocalGame {
   /** Bit 0 is the first seat. A seat whose bit is set is played here; the others decide at random. */
   humans: number;
   /**
-   * The prepared board that the game starts from (`ti4_view::scenario`). The seed and the number
+   * The prepared board that the game starts from (`ti4_host::view::scenario`). The seed and the number
    * of seats are then those of the scenario.
    */
   scenario?: string;

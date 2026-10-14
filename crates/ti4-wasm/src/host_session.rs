@@ -38,6 +38,10 @@ use ti4_host::PROTOCOL_VERSION;
 use ti4_host::batch::{LiveBatch, LiveStep, MovementPlan};
 use ti4_host::clock::Clock;
 use ti4_host::journal::{self, EventDraft};
+use ti4_host::map::GalaxyLayout;
+use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
+use ti4_host::planning::fork::TACTICAL_COMPLETE;
+use ti4_host::planning::steps::{INTERRUPTED, PlanStep};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
@@ -49,15 +53,11 @@ use ti4_host::protocol::server::{
     public_roll, verified_decision_facts,
 };
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::protocol::view::BoardTileView;
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
-use ti4_host::view::map::GalaxyLayout;
-use ti4_host::view::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_host::view::planning::fork::TACTICAL_COMPLETE;
-use ti4_host::view::planning::steps::{INTERRUPTED, PlanStep};
 use ti4_host::view::reaction_modes::NeverSet;
-use ti4_host::view::view::BoardTileView;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase, ReactionMode};
 

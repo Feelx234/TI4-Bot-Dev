@@ -1051,11 +1051,11 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::view::maps::default_template_for(content, &loader, 6, POK)
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 6, POK)
             .expect("a template for six");
         let (mut state, galaxy) =
-            crate::view::map::create_game_with_template(content, &ids, 3, Some(&template))
+            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
                 .expect("a game");
         state.phase = Phase::Action;
         (state, galaxy)

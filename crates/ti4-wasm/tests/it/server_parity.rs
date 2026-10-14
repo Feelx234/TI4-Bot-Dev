@@ -81,8 +81,7 @@ fn server(
         .map(|seat| PlayerId::new(["a", "b", "c", "d", "e", "f"][seat]))
         .collect();
     let galaxy = built.galaxy.clone().unwrap();
-    let tiles =
-        ti4_host::view::map::build_board_tiles(ti4_content::ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ti4_content::ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(setup.game_id.clone(), built.game.state.clone())
         .with_seed(built.seed)
         .with_player_ids(ids.clone())

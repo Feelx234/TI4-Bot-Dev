@@ -1618,7 +1618,7 @@ mod tests {
     fn a_three_way_tie_ending_inside_a_batch_goes_to_the_first_in_initiative() {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            crate::view::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
         let mut by_initiative: Vec<_> = state
             .card_initiative
             .iter()

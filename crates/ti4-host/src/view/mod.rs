@@ -1,17 +1,11 @@
-//! Engine state turned into the redacted views a client is shown, and the facts of an update
-//! that the UI reads.
-//!
-//! It depends on the model, the content, the calculator and the engine only, so the server and
-//! the wasm build both use it.
+//! The facts of an update that the UI reads, beside the redacted view
+//! ([`crate::projection`]): the tactical action, the decks, the score, the seats, the reaction
+//! windows, and the catalogue of the components and the scenarios.
 
 pub mod action_cards;
 pub mod agendas;
 pub mod components;
 pub mod exploration;
-pub mod map;
-pub mod maps;
-pub mod planning;
-pub mod projection;
 pub mod reaction;
 pub mod reaction_modes;
 pub mod scenario;
@@ -19,6 +13,4 @@ pub mod score;
 pub mod seats;
 pub mod secondary;
 pub mod secret_objectives;
-pub mod status;
 pub mod tactical;
-pub mod view;

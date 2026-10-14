@@ -10,12 +10,12 @@ plays a game through it (see "Local play in web2").
 
 - The engine compiles to `wasm32-unknown-unknown` with one change: `rand` without default
   features in `ti4-engine` (`getrandom` has no backend for this target).
-- The file is **4.30 MB, 0.80 MB with brotli**, with the projections of `ti4-view` included.
+- The file is **4.30 MB, 0.80 MB with brotli**, with the projections (`ti4_host::projection`) included.
 - A seeded game of three to eight players gives the same state in wasm and natively.
 - A decision of a player can suspend the engine and wait for a promise (JSPI). The engine needs
   no change for it.
 - The host gets what a client of the server gets: the redacted view, the pending choice and the
-  turn status (`SessionUpdate` from `ti4-view`, the shared part of the server's `StateUpdateMsg`).
+  turn status (`SessionUpdate` from `ti4_host::projection`, the shared part of the server's `StateUpdateMsg`).
 
 ## Size
 
@@ -26,7 +26,7 @@ The size of `ti4_wasm.wasm`; brotli at quality 11.
 | `--release` (the workspace profile) | 6.19 MB | 1.89 MB | 1.23 MB |
 | `--profile wasm-release` | 4.20 MB | 1.08 MB | 0.78 MB |
 | `--profile wasm-release`, then `wasm-opt -Oz` | 3.49 MB | 1.14 MB | 0.83 MB |
-| `--profile wasm-release`, with `ti4-view` | **4.30 MB** | 1.11 MB | **0.80 MB** |
+| `--profile wasm-release`, with the projections | **4.30 MB** | 1.11 MB | **0.80 MB** |
 
 - `wasm-release` is `opt-level = "z"`, `lto = "fat"`, `panic = "abort"` (workspace `Cargo.toml`).
 - `wasm-opt` makes the file smaller but the download larger. Do not use it.
@@ -36,7 +36,7 @@ The size of `ti4_wasm.wasm`; brotli at quality 11.
   breakdown below are without them.
 - With the map templates and their builder the file is 4.52 MB raw and 1.13 MB with gzip
   (brotli not measured). The table and the numbers above are from before that.
-- With the draft (the planning checks of `ti4-view`, the request and draft buffers) the file is
+- With the draft (the planning checks of `ti4_host::planning`, the request and draft buffers) the file is
   4.65 MB raw and 1.17 MB with gzip (2026-10-10; brotli not measured).
 - Speed: 2000 steps take about 7–12 s with `wasm-release` and about 6 s with `--release`, in
   Node. That is 3–6 ms for a step.
@@ -131,7 +131,7 @@ have to be migrated when the engine changes.
   step, so the global allocator stays for now.
 - The views allocate too. A decider is given no game state, so the run keeps a copy of the state
   and refreshes it after each step and at each choice that the engine offers with its position,
-  and `ti4-view` builds a `GameView` of maps and vectors from it. Both are shaped by the engine's types and change with them. The view is then serialized
+  and `ti4_host::projection` builds a `GameView` of maps and vectors from it. Both are shaped by the engine's types and change with them. The view is then serialized
   directly into its buffer.
 - The checkpoints for undo are a fixed number (`CHECKPOINTS`, 32), not a fixed size: each is a
   copy of the game made by the engine's `Game::fork`, on the heap. The oldest is dropped when
@@ -260,7 +260,7 @@ together (`crates/ti4-server/tests/it/both_hosts.rs`: the wasm host plays the lo
 
 ### A table
 
-The setup of a game is in `ti4-view` (`setup.rs`), and both hosts call it: the server for the
+The setup of a game is in `ti4-host` (`setup.rs`), and both hosts call it: the server for the
 table of a lobby, this host for the table of the page (single player of web2). A table of a seed
 is the same game on both.
 
@@ -355,7 +355,7 @@ whole movement first. Two things connect them.
 
 **Facts.** For the choice of a system to activate, for the choice of a ship to move and for the
 choice of a ground force to land, the update has one more field, `tactical`
-(`ti4-view/src/tactical.rs`). It says what the choice itself does not: for the activation, how
+(`ti4-host/src/view/tactical.rs`). It says what the choice itself does not: for the activation, how
 many ships are in range of each system; for the movement, each ship of the seat with its path,
 the gravity rifts on it, why it cannot move (a command token, or the range), and the units that
 it can load, also on its way; for the landings (`kind: "invasion"`), the ground forces by kind
@@ -444,7 +444,7 @@ Limits:
 
 ### The exploration
 
-Every update has the field `exploration` (`ti4-view/src/exploration.rs`):
+Every update has the field `exploration` (`ti4-host/src/view/exploration.rs`):
 
 - `decks`: the card ids that each of the four decks still holds, sorted. The order of a deck is
   hidden; what left a deck was shown to the table, so its content is public.
@@ -460,7 +460,7 @@ that each deck begins with, and for each attachment its name, what it adds to th
 the text of the card that attaches it. `ti4-content` is compiled into the engine, so this costs
 no bytes.
 
-Its second part, `components` (`ti4_view::components`), is what is printed on the cards of a
+Its second part, `components` (`ti4_host::view::components`), is what is printed on the cards of a
 play area: the abilities of each faction, the leaders with how each is unlocked, the
 technologies, the relics and the ability cards of the legendary planets. A technology, a relic
 or a legendary card has `used`: its text has an `ACTION` or it exhausts. The player view says
@@ -482,7 +482,7 @@ workspace.
   seat, for the strategic action that is resolved (`secondary` of the update names it and says
   whether the seat may draft); its entries are answers by id. A
   step of the script is `{"kind":"choose","option_id":…}` or a step of a plan (`PlanStep` in
-  `ti4-view/src/planning/steps.rs`: `move`, `load`, `done_loading`, `done_moving`, `land`,
+  `ti4-host/src/planning/steps.rs`: `move`, `load`, `done_loading`, `done_moving`, `land`,
   `done_committing`, `produce`, `place`, `pay`, `done_producing`). The script of a tactical
   action is `choose tactical`, `choose <system>`, then the movement, the landings and the
   production. A `choose` between them answers what the game asks the seat there (AI Development
@@ -505,11 +505,11 @@ workspace.
 - The run ends where something random lies ahead: dice (a gravity rift, space cannon, a
   combat), a card that is drawn (a landing on a planet that nobody explored), ships of another
   seat in the active system, a question of another seat. It is `stopped` there, with the reason.
-- What a draft may show is checked as on the server (`ti4-view/src/planning/audit.rs`): only
+- What a draft may show is checked as on the server (`ti4-host/src/planning/audit.rs`): only
   audited offers, no dice, nothing that the seat did not know. The other seats take no optional
   reactions. These checks and the recorded-decision adapters were moved from `ti4-server`,
   which re-exports them; its `PlanningRunner` is a worker thread around the same checks, and
-  guards its copy with the same code (`ti4-view/src/planning/fork.rs`).
+  guards its copy with the same code (`ti4-host/src/planning/fork.rs`).
 - The game at its last finished step is not kept: the checkpoints are made only after a step
   that asked the host. The base of a draft is the last checkpoint with the steps of the random
   seats since then played again on a copy of their stream, as an undo does. It is made for the
@@ -538,7 +538,7 @@ Limits:
 The page sends a movement, the landings, a production or a whole draft to the live game as one
 request (`Transport.submitPlan`, `Transport.applyDraft`). How a step answers a question of the
 game is decided in Rust, in the function that answers a run of a draft
-(`ti4_view::planning::draft::script_answer`): one copy of the rules, for the draft and for the
+(`ti4_host::planning::draft::script_answer`): one copy of the rules, for the draft and for the
 live game, and for the server later.
 
 - While the game waits in a choice, the host writes `{"script": [...], "next": n, "actor": seat}`
@@ -557,7 +557,7 @@ live game, and for the server later.
 ### Never cards
 
 A player can set an action card to "never offer". The engine applies the setting, with the
-wrapper that the server uses (`ti4_view::reaction_modes::NeverOffer`); the page has no copy
+wrapper that the server uses (`ti4_host::view::reaction_modes::NeverOffer`); the page has no copy
 of the rule.
 
 - `ti4_set_reaction_mode` sets a card by its printed name. The setting is of the instance, so
@@ -581,7 +581,7 @@ of the rule.
 ### Scenarios
 
 A scenario is a board that a game only has after hours of play, for testing the screens
-(`ti4-view/src/scenario.rs`). It is not a stored state: it is a function over the state of a new
+(`ti4-host/src/view/scenario.rs`). It is not a stored state: it is a function over the state of a new
 game of a fixed seed, so a game that starts from one is saved, played again and taken back like
 any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet lists them.
 
@@ -715,14 +715,14 @@ Limits:
 
 ## Eight players
 
-A game is set up on the recommended map template for its player count (`ti4-view`, source set
+A game is set up on the recommended map template for its player count (`ti4_host::maps`, source set
 Prophecy of Kings). Seven and eight players work through three marked hacks (search for `HACK`):
 
 - `ti4-engine/src/seating.rs`, `EXTRA_SEAT_FACTIONS`: seats seven and eight play Sardakk N'orr
   and Yin, which are not fully ported. They are not in `IN_SCOPE_FACTIONS`.
-- `ti4-view/src/maps/build.rs`: a hyperlane tile that a template places a second time is
+- `ti4-host/src/maps/build.rs`: a hyperlane tile that a template places a second time is
   replaced by another hyperlane tile. Hyperlane paths are not modelled, so nothing is lost today.
-- `ti4-view/src/maps/build.rs`: when the filler pool (planet systems) is empty, the open slots
+- `ti4-host/src/maps/build.rs`: when the filler pool (planet systems) is empty, the open slots
   get the other numbered tiles (anomalies, empty space, wormholes) in tile order.
 
 The templates `7pStaticEq` and `8pStaticEq` still do not build: they name a tile `0g` that the
@@ -730,16 +730,16 @@ content does not have.
 
 ## Not done
 
-- `ti4-server` does not compile to wasm (tokio, axum, threads, files). The views and the code
-  that makes them from a state are in `ti4-view`, which both sides use. Still in the server: the
-  messages (`protocol/`, which needs the planning runner), the decision facts and event history,
-  `preset.rs` and `maps/`.
+- `ti4-server` does not compile to wasm (tokio, axum, threads, files). The views, the code
+  that makes them from a state, the messages, the decision facts and event history, the presets
+  and the maps are in `ti4-host`, which both sides use. Still in the server: the planning runner
+  (a thread), storage, sockets and the lobby.
 - The view of a seat is as old as the last finished step, apart from the combat and invasion
   boundary, which is current. The server has the same limit.
 - The JSPI check reads the update at each choice, but nobody holds an action card that early, so
   it does not show the redaction. The tests of `ti4-server` do (`tests/projection_redaction.rs`).
 - The other workspace crates were not rebuilt after the `rand` change or the move to
-  `ti4-view`. `ti4-engine`, `ti4-view`, `ti4-server`, `ti4-bot-agent` and `ti4-wasm` pass their
+  `ti4-host`. `ti4-engine`, `ti4-host`, `ti4-server`, `ti4-bot-agent` and `ti4-wasm` pass their
   tests. `ti4-advisor` uses the moved paths through the re-exports of `ti4-server` and was not
   built (it needs libtorch).
 - The UI queries are the `tactical` field of the update and the draft. No bots other than random. Undo and resume are replays from the seed; a stored

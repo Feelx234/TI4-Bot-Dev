@@ -12,7 +12,7 @@ export interface CardSettings {
   /**
    * The mode of each reaction that the viewer set: an action card by its printed name, the card
    * of an ability by its key. Where the game runs has them (`Transport.setReactionMode`), and
-   * applies them (`ti4_view::reaction_modes`).
+   * applies them (`ti4_host::view::reaction_modes`).
    */
   modes: ReactionModes;
   /** The printed names of the cards that the viewer acts as if holding. Not wired to anything yet. */

@@ -163,7 +163,7 @@ pub struct SessionConfig {
     pub staged: staged::StagedBook,
     /// The steps that the undo of a seat took back, when this session is what that undo left.
     /// Every first snapshot of a connection of the seat has them, until the seat decides again.
-    pub undone: BTreeMap<PlayerId, Vec<ti4_host::view::planning::steps::PlanStep>>,
+    pub undone: BTreeMap<PlayerId, Vec<ti4_host::planning::steps::PlanStep>>,
     /// Whether the worker keeps a step-boundary copy of the game for batch checks (see
     /// `step_snapshot`). Off only in tests that compare against the full-replay path.
     pub step_snapshots: bool,
@@ -679,7 +679,7 @@ impl GameSession {
         &self,
         seat: &PlayerId,
         expected_version: u64,
-    ) -> Result<(usize, Vec<ti4_host::view::planning::steps::PlanStep>), RejectionReason> {
+    ) -> Result<(usize, Vec<ti4_host::planning::steps::PlanStep>), RejectionReason> {
         self.shared
             .lock()
             .expect("shared lock")
@@ -690,7 +690,7 @@ impl GameSession {
     /// the seat is told them with its first snapshot of this session, as a local game tells them
     /// with one update; they are forgotten when the seat decides again.
     #[must_use]
-    pub fn undone_for(&self, seat: &PlayerId) -> Vec<ti4_host::view::planning::steps::PlanStep> {
+    pub fn undone_for(&self, seat: &PlayerId) -> Vec<ti4_host::planning::steps::PlanStep> {
         self.shared
             .lock()
             .expect("shared lock")
@@ -1019,7 +1019,7 @@ impl GameSession {
     }
 
     /// Plays `script` as the next turn of `player`, or as its secondary (`scope`), on a copy of
-    /// the game at its last completed step, as a local game does (`ti4_host::view::planning::draft::run_draft`). The game is not
+    /// the game at its last completed step, as a local game does (`ti4_host::planning::draft::run_draft`). The game is not
     /// changed and nothing of the script is kept. Returns the version of the game that the
     /// script was played on.
     ///
@@ -1028,10 +1028,10 @@ impl GameSession {
     pub fn run_draft(
         &self,
         player: &PlayerId,
-        scope: &ti4_host::view::planning::audit::PlanScope,
-        script: &[ti4_host::view::planning::draft::DraftStep],
-    ) -> (u64, ti4_host::view::planning::draft::DraftOutcome) {
-        use ti4_host::view::planning::draft::{DraftOutcome, DraftStop};
+        scope: &ti4_host::planning::audit::PlanScope,
+        script: &[ti4_host::planning::draft::DraftStep],
+    ) -> (u64, ti4_host::planning::draft::DraftOutcome) {
+        use ti4_host::planning::draft::{DraftOutcome, DraftStop};
         let (version, outcome) = run_draft_on(&self.shared, player, scope, script);
         if let Some(outcome) = outcome {
             return (version, outcome);
@@ -1065,7 +1065,7 @@ impl GameSession {
     }
 
     /// Sends `script` to the live game: the pending choice of `player` and the choices after
-    /// it are answered from it, as a local game answers them (`script_answer` of `ti4-view`).
+    /// it are answered from it, as a local game answers them (`script_answer` of `ti4-host`).
     ///
     /// The script is first played on a copy of the game. When the game would refuse an entry,
     /// nothing is sent and the refusal is returned: the game is as before. Otherwise the first
@@ -1083,9 +1083,9 @@ impl GameSession {
         player: &PlayerId,
         nonce: &str,
         expected_version: u64,
-        script: &[ti4_host::view::planning::draft::DraftStep],
+        script: &[ti4_host::planning::draft::DraftStep],
     ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
-        use ti4_host::view::planning::draft::{ScriptAnswer, script_answer};
+        use ti4_host::planning::draft::{ScriptAnswer, script_answer};
         // The choice is reserved while the copy plays, so no other answer can take it.
         let (choice, copy, tail, never) = {
             let mut lock = self.shared.lock().expect("shared lock");
@@ -1617,10 +1617,10 @@ impl Drop for GameSession {
 pub(crate) fn run_draft_on(
     shared: &Mutex<SessionShared>,
     player: &PlayerId,
-    scope: &ti4_host::view::planning::audit::PlanScope,
-    script: &[ti4_host::view::planning::draft::DraftStep],
-) -> (u64, Option<ti4_host::view::planning::draft::DraftOutcome>) {
-    use ti4_host::view::planning::draft::{DraftBase, run_draft};
+    scope: &ti4_host::planning::audit::PlanScope,
+    script: &[ti4_host::planning::draft::DraftStep],
+) -> (u64, Option<ti4_host::planning::draft::DraftOutcome>) {
+    use ti4_host::planning::draft::{DraftBase, run_draft};
     let (copy, version, tiles, galaxy, watch) = {
         let mut lock = shared.lock().expect("shared lock");
         let playable = !lock.stopped

@@ -1514,7 +1514,7 @@ impl GameRegistry {
         expected_version: u64,
         target: usize,
         timeline: Timeline,
-        undone: Option<(PlayerId, Vec<ti4_host::view::planning::steps::PlanStep>)>,
+        undone: Option<(PlayerId, Vec<ti4_host::planning::steps::PlanStep>)>,
         viewer: PlayerId,
     ) -> Result<InitialSnapshotMsg, HistoryError> {
         let Timeline {
@@ -2941,7 +2941,7 @@ impl GameRegistry {
         session: &GameSession,
         nonce: &str,
         version: u64,
-        script: &[ti4_host::view::planning::draft::DraftStep],
+        script: &[ti4_host::planning::draft::DraftStep],
     ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
@@ -2960,9 +2960,9 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        scope: &ti4_host::view::planning::audit::PlanScope,
-        script: &[ti4_host::view::planning::draft::DraftStep],
-    ) -> Option<(u64, ti4_host::view::planning::draft::DraftOutcome)> {
+        scope: &ti4_host::planning::audit::PlanScope,
+        script: &[ti4_host::planning::draft::DraftStep],
+    ) -> Option<(u64, ti4_host::planning::draft::DraftOutcome)> {
         self.current_player_session(game_id, credential, player, session)?;
         Some(session.run_draft(player, scope, script))
     }
@@ -3391,7 +3391,7 @@ impl GameRegistry {
             return Err(LobbyError::SeatsOpen);
         }
         let content = ContentStore::embedded();
-        // The setup of `ti4-view` starts the table, as it does for the table of a page.
+        // The setup of `ti4-host` starts the table, as it does for the table of a page.
         let setup = super::table::setup_of(lobby);
         // A scenario is the game of its own seed; every other table plays the seed of the lobby.
         let seed = setup.game_seed();

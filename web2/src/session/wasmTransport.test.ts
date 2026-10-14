@@ -601,7 +601,7 @@ it.skipIf(!built)(
     expect(facts.kind).toBe("production");
     const unit = (id: string) => facts.units.findIndex((item) => item.unit === id);
     // The printed side of a unit, in the shape that the card reads. A failure here with an
-    // engine that is older than `ti4-view`: run scripts/build-wasm.sh.
+    // engine that is older than `ti4-host/src/view`: run scripts/build-wasm.sh.
     expect(facts.units[unit("warsun")]).toMatchObject({
       abilities: ["SUSTAIN DAMAGE", "BOMBARDMENT 3+ (x3)"],
       rules: "Other player's units in this system lose PLANETARY SHIELD.",

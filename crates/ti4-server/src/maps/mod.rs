@@ -1,5 +1,5 @@
-//! Map generation and template management. The templates are in `ti4-view`, the catalogue of
-//! choices and previews in `ti4-host`.
+//! Map generation and template management. The templates, the catalogue of choices and the
+//! previews are in `ti4_host::maps`.
 
 pub mod catalog;
 

@@ -284,10 +284,10 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
         let template =
-            crate::view::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
+        crate::map::create_game_with_template(content, &ids, 42, Some(&template))
             .expect("a game")
             .0
     }

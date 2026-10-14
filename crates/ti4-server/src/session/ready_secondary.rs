@@ -16,8 +16,8 @@
 use std::sync::Mutex;
 
 use ti4_engine::choice::{Choice, ChoiceOption};
-use ti4_host::view::planning::audit::PlanScope;
-use ti4_host::view::planning::draft::{DraftStep, DraftStop, ScriptAnswer, script_answer};
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::draft::{DraftStep, DraftStop, ScriptAnswer, script_answer};
 use ti4_model::id::PlayerId;
 
 use super::staged::{SecondaryDraft, StagedBook, StagedSlot, put_and_tell};

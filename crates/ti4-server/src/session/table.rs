@@ -28,7 +28,7 @@ pub fn seat_order_of(record: &PlayerLobbyRecord) -> SeatOrder {
     }
 }
 
-/// What the host of `record` chose, as the setup of `ti4-view` has it: the server starts the
+/// What the host of `record` chose, as the setup of `ti4-host` has it: the server starts the
 /// table and pictures it with the functions that the wasm host uses for the table of a page.
 /// A start preset is not a part of it (it is a tool of this server, `crate::preset`).
 #[must_use]

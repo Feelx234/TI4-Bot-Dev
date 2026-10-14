@@ -8,8 +8,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
-use ti4_host::view::planning::draft::DraftStep;
-use ti4_host::view::planning::steps::PlanStep;
+use ti4_host::planning::draft::DraftStep;
+use ti4_host::planning::steps::PlanStep;
 use ti4_model::id::PlayerId;
 use ti4_server::protocol::PROTOCOL_VERSION;
 use ti4_server::protocol::client::ClientMessage;

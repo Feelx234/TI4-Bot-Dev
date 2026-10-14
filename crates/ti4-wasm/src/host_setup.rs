@@ -12,8 +12,8 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::game::Game;
 use ti4_engine::seating;
 use ti4_host::card_set;
+use ti4_host::map::SpeakerOrder;
 use ti4_host::maps::catalog::{self, MapChoice};
-use ti4_host::view::map::SpeakerOrder;
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 

@@ -1,5 +1,5 @@
 //! What a client is shown of the agenda deck beside the laws in play: how many cards it still
-//! holds. The laws are in the table of the view ([`crate::view::view::TableView::laws`]), and the
+//! holds. The laws are in the table of the view ([`crate::protocol::view::TableView::laws`]), and the
 //! printed agendas and the deck that a game begins with are in the catalogue
 //! ([`crate::view::components`]).
 //!

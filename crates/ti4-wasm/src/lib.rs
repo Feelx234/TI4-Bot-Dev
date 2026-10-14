@@ -9,7 +9,7 @@
 //!
 //! This crate does not allocate for its own data: results and the update for the host (the view
 //! of the asked seat and its choice) are written straight into the fixed buffers of [`buffer`]. What still allocates
-//! here is what the interfaces of the engine and of `ti4-view` ask for (owned ids, the decider
+//! here is what the interfaces of the engine and of `ti4-host` ask for (owned ids, the decider
 //! box, the copy of the state, a projected view) and the text of an error.
 
 pub mod buffer;
@@ -30,19 +30,17 @@ use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation, SeededRandom, Table,
 };
 use ti4_engine::game::{Game, RunError};
+use ti4_host::map::{build_board_tiles, create_game_with_template};
+use ti4_host::maps::{TemplateLoader, default_template_for};
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
+use ti4_host::projection::{FactsContext, project_game_view_full, project_session_update};
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::protocol::view::{BoardTileView, GameView};
 use ti4_host::setup::{self, TableSetup, bot_kind};
 use ti4_host::view::components::catalog;
-use ti4_host::view::map::{build_board_tiles, create_game_with_template};
-use ti4_host::view::maps::{TemplateLoader, default_template_for};
-use ti4_host::view::planning::audit::PlanScope;
-use ti4_host::view::planning::draft::{
-    DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer,
-};
-use ti4_host::view::projection::{FactsContext, project_game_view_full, project_session_update};
 use ti4_host::view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_host::view::secondary::SecondaryWatch;
-use ti4_host::view::status::ViewerRole;
-use ti4_host::view::view::{BoardTileView, GameView};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
@@ -285,7 +283,7 @@ fn host_update(
     pending_choice: Option<(&Choice, &str)>,
     tiles: &[BoardTileView],
     galaxy: Option<&Galaxy>,
-) -> ti4_host::view::projection::SessionUpdate {
+) -> ti4_host::projection::SessionUpdate {
     let mut update =
         project_session_update(state, viewer, pending_choice, tiles, &facts_context(galaxy));
     update
@@ -857,7 +855,7 @@ fn draw(
         // What the seat picks is known before the host is asked, as on the server: the wait of a
         // table is not taken for a window that is only declined.
         let declines = stepping == PACE
-            && ti4_host::view::projection::is_reaction_window(choice)
+            && ti4_host::projection::is_reaction_window(choice)
             && pick(choice, rule, true)?.is_decline();
         if !declines && !wait_for_go(choice)? {
             return Ok(None);
@@ -1534,7 +1532,7 @@ fn draft() -> Result<usize, Failure> {
 pub(crate) fn draft_outcome(
     script: &[DraftStep],
     scope: &PlanScope,
-) -> Result<ti4_host::view::planning::draft::DraftOutcome, Failure> {
+) -> Result<ti4_host::planning::draft::DraftOutcome, Failure> {
     let player = host()
         .shown_seat()
         .ok_or_else(|| failed("no seat is played here: a draft is of one seat"))?;
@@ -1719,7 +1717,7 @@ struct TableOptions {
     options: setup::SetupOptions,
     /// The maps that build for the number of seats, the one that such a table starts with
     /// flagged. With no number: every map.
-    maps: Vec<ti4_host::view::maps::MapTemplateSummary>,
+    maps: Vec<ti4_host::maps::MapTemplateSummary>,
 }
 
 /// What a table looks like before it starts.
@@ -1944,7 +1942,7 @@ pub extern "C" fn ti4_request_ptr() -> *mut u8 {
 }
 
 /// Run a draft: the request buffer holds `{"script": [...]}` in `request_len` bytes, the steps
-/// of `ti4_host::view::planning::draft::DraftStep`. The script is played as the next turn of the
+/// of `ti4_host::planning::draft::DraftStep`. The script is played as the next turn of the
 /// host's seat on a copy of the game at its last finished step, and the outcome
 /// (`DraftOutcome`) is left at [`ti4_draft_ptr`] with the returned length. A status below 0 is
 /// the negated length of an error text in the response buffer.
@@ -1957,11 +1955,11 @@ pub extern "C" fn ti4_draft(request_len: u32) -> i32 {
 
 /// What a script answers to the choice that the game is parked in: the request buffer holds
 /// `{"script": [...], "next": n, "actor": seat}` in `request_len` bytes, the entries of
-/// `ti4_host::view::planning::draft::DraftStep`, the first entry that is still to play, and the seat
+/// `ti4_host::planning::draft::DraftStep`, the first entry that is still to play, and the seat
 /// whose script it is. The response is one of `{"kind":"answer","index","next","script"?}`
 /// (answer the choice with the option at `index`; with `script` the script goes on in that
 /// order), `{"kind":"done"}`, `{"kind":"interrupted","reason"}` and
-/// `{"kind":"mismatch","step","reason"}` (`ti4_host::view::planning::draft::script_answer`).
+/// `{"kind":"mismatch","step","reason"}` (`ti4_host::planning::draft::script_answer`).
 ///
 /// This is how a host sends a plan or a draft to the game: it asks here at each choice and
 /// answers with the index, until the script is done or stops. Nothing is changed by the call.

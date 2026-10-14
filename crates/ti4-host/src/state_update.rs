@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::view::map::GalaxyLayout;
+use crate::map::GalaxyLayout;
 use crate::view::secondary::SecondaryWatch;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;

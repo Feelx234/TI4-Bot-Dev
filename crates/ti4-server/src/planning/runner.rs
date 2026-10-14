@@ -26,15 +26,15 @@ use crate::projection::{project_game_view, project_game_view_full, project_pendi
 use crate::protocol::status::ViewerRole;
 use crate::protocol::view::GameView;
 
-pub use ti4_host::planning::{
+pub use ti4_host::planning::audit::{
+    ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION, SafePublication, StopReason,
+};
+use ti4_host::planning::audit::{audit_offer, audit_secondary_offer, validate_knowledge};
+use ti4_host::planning::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
+pub use ti4_host::planning::wire::{
     AttemptIdentity, FailureCategory, PlanningEnvelope, PlanningUpdate, PlayerPlan, Progress,
     SubmissionError,
 };
-pub use ti4_host::view::planning::audit::{
-    ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION, SafePublication, StopReason,
-};
-use ti4_host::view::planning::audit::{audit_offer, audit_secondary_offer, validate_knowledge};
-use ti4_host::view::planning::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 
 enum Input {
     Answer(String),

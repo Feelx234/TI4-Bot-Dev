@@ -51,7 +51,7 @@ interface Exports {
 
 /**
  * What a script answers to the choice that the engine is parked in (`ti4_plan`,
- * `ti4_view::planning::draft::script_answer`).
+ * `ti4_host::planning::draft::script_answer`).
  */
 type PlanAnswer =
   /**
@@ -111,7 +111,7 @@ const SWITCH = -4;
 /** A replay gives the page a turn this often, so it can show how far the replay is. */
 const REPLAY_SLICE_MS = 50;
 
-/** A prepared board that the engine can start a game from (`ti4_view::scenario`). */
+/** A prepared board that the engine can start a game from (`ti4_host::view::scenario`). */
 export interface ScenarioInfo {
   id: string;
   title: string;

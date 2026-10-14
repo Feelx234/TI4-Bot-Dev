@@ -1,14 +1,13 @@
-//! Projections that wrap a redacted view in a protocol message. The views are made in `ti4-view`.
+//! Projections that wrap a redacted view in a protocol message.
 
+use crate::view::secondary::SecondaryWatch;
 use std::collections::BTreeMap;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
 use ti4_model::state::GameState;
-use crate::view::secondary::SecondaryWatch;
 
-pub use crate::view::projection::*;
-
-use crate::view::map::GalaxyLayout;
+use super::{FactsContext, SessionUpdate, project_session_update, redacted_state};
+use crate::map::GalaxyLayout;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::ViewerRole;

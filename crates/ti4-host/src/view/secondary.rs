@@ -5,7 +5,7 @@
 //! The state of a game does not say this: the engine announces the card inside the step that
 //! resolves its primary ([`Game::on_strategic_action_chosen`]), and the window of the followers
 //! is of the driver ([`Game::open_secondary`]). A host keeps one [`SecondaryWatch`] for its
-//! game, and the facts of an update are made from it ([`crate::view::projection::fill_facts`]).
+//! game, and the facts of an update are made from it ([`crate::projection::fill_facts`]).
 //!
 //! Nothing here decides a rule. Who plays a strategy card and who follows it is public, so the
 //! facts differ by viewer only in `draft`.
@@ -19,8 +19,8 @@ use ti4_engine::strategy::SecondaryResolution;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::GameState;
 
-use crate::view::planning::audit::PlanScope;
-use crate::view::status::ViewerRole;
+use crate::planning::audit::PlanScope;
+use crate::protocol::status::ViewerRole;
 
 /// What a follower did of the secondary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

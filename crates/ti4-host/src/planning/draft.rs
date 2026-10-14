@@ -31,11 +31,9 @@ use super::audit::{
 };
 use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 use super::steps::{INTERRUPTED, PlanAnswer, PlanStep, plan_answer};
-use crate::view::projection::{
-    FactsContext, SessionUpdate, project_game_view, project_session_update,
-};
-use crate::view::status::ViewerRole;
-use crate::view::view::{BoardTileView, GameView};
+use crate::projection::{FactsContext, SessionUpdate, project_game_view, project_session_update};
+use crate::protocol::status::ViewerRole;
+use crate::protocol::view::{BoardTileView, GameView};
 
 /// The nonce of the question a draft is open at. A draft is never answered by its nonce.
 pub const DRAFT_NONCE: &str = "draft";
@@ -631,13 +629,13 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::view::maps::default_template_for(content, &loader, 6, POK)
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 6, POK)
             .expect("a template for six");
         let (state, galaxy) =
-            crate::view::map::create_game_with_template(content, &ids, 3, Some(&template))
+            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
                 .expect("a game");
-        let tiles = crate::view::map::build_board_tiles(content, &galaxy);
+        let tiles = crate::map::build_board_tiles(content, &galaxy);
         let mut game = Game::with_seeded_random(state, content, 3)
             .with_sources(POK)
             .with_galaxy(galaxy);
@@ -951,11 +949,11 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::view::maps::default_template_for(content, &loader, 6, POK)
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 6, POK)
             .expect("a template for six");
         let (state, galaxy) =
-            crate::view::map::create_game_with_template(content, &ids, 3, Some(&template))
+            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
                 .expect("a game");
         let mut game = Game::with_seeded_random(state, content, 3)
             .with_sources(POK)
@@ -1253,11 +1251,11 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::view::maps::default_template_for(content, &loader, 8, POK)
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, 8, POK)
             .expect("a template for eight");
         let (mut state, mut galaxy) =
-            crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::map::create_game_with_template(content, &ids, 42, Some(&template))
                 .expect("a game");
         crate::view::scenario::apply(
             crate::view::scenario::LATE_GAME,
@@ -1267,7 +1265,7 @@ mod tests {
             POK,
         )
         .expect("the scenario applies");
-        let tiles = crate::view::map::build_board_tiles(content, &galaxy);
+        let tiles = crate::map::build_board_tiles(content, &galaxy);
         let mut game = Game::with_seeded_random(state, content, 42)
             .with_sources(POK)
             .with_galaxy(galaxy);
@@ -1337,7 +1335,7 @@ mod tests {
         assert_eq!(produced.production, open.production);
         assert_eq!(produced.update.pending_choice, None);
         let there = &produced.update.view.board.systems[&ti4_model::id::SystemId::new(DOCK)].units;
-        let cruisers = |units: &[crate::view::view::PlacedUnitView]| {
+        let cruisers = |units: &[crate::protocol::view::PlacedUnitView]| {
             units
                 .iter()
                 .filter(|unit| unit.unit_type.as_str() == cruiser.unit)

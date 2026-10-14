@@ -7,13 +7,13 @@ use ti4_model::id::PlayerId;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
-use crate::view::map::GalaxyLayout;
+use crate::map::GalaxyLayout;
 pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
 use ti4_model::state::ReactionMode;
 
-pub use crate::view::projection::PendingChoiceEnvelope;
+pub use crate::projection::PendingChoiceEnvelope;
 
 /// Initial per-viewer snapshot sent upon subscription or reconnection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -79,7 +79,7 @@ pub struct InitialSnapshotMsg {
     /// viewer took back, in order, for the page to stage them again. Told once, with the
     /// first snapshot of the seat after its undo.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub undone: Vec<crate::view::planning::steps::PlanStep>,
+    pub undone: Vec<crate::planning::steps::PlanStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1983,7 +1983,7 @@ pub struct PlanningStatusMsg {
     pub available: bool,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     pub can_apply: bool,
     pub application: Option<DraftApplication>,
     /// The strategic action whose secondary this seat may draft, if any.
@@ -2018,7 +2018,7 @@ pub struct SecondaryDraftStatus {
     pub seats_before: Option<usize>,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     /// The draft is submitted for the seat when the live window reaches it.
     pub ready: bool,
     pub application: Option<DraftApplication>,
@@ -2050,7 +2050,7 @@ pub struct PlanningUpdateMsg {
     pub game_id: String,
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
-    pub envelope: crate::planning::PlanningEnvelope,
+    pub envelope: crate::planning::wire::PlanningEnvelope,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2077,7 +2077,7 @@ pub struct PlanningResultMsg {
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
     /// None identifies a start request; Some identifies an answer, reset, or apply request.
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     /// None means accepted by the controller. Application progress is seat-private status.
     pub rejection: Option<PlanningRejection>,
 }
@@ -2094,7 +2094,7 @@ pub struct DraftOutcomeMsg {
     /// the same script may end elsewhere.
     pub base_version: u64,
     /// Boxed: an outcome has up to four updates, and a message is moved through queues.
-    pub outcome: Box<crate::view::planning::draft::DraftOutcome>,
+    pub outcome: Box<crate::planning::draft::DraftOutcome>,
 }
 
 /// Where a script that was sent to the live game stopped before its end.
@@ -2105,7 +2105,7 @@ pub struct ScriptStopped {
     /// is as before.
     pub applied: usize,
     /// The entries that are not in the game.
-    pub remaining: Vec<crate::view::planning::draft::DraftStep>,
+    pub remaining: Vec<crate::planning::draft::DraftStep>,
     /// True when the game asked something else first, or went on without the rest; false when
     /// it refused an entry and nothing was sent.
     pub interrupted: bool,

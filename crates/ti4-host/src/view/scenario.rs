@@ -92,16 +92,12 @@ pub fn start(
         ));
     }
     let sources = ti4_model::content_types::POK;
-    let loader = crate::view::maps::TemplateLoader::load()?;
+    let loader = crate::maps::TemplateLoader::load()?;
     let template =
-        crate::view::maps::default_template_for(content, &loader, scenario.players, sources)
+        crate::maps::default_template_for(content, &loader, scenario.players, sources)
             .ok_or_else(|| format!("no map template builds for {} players", scenario.players))?;
-    let (mut state, mut galaxy) = crate::view::map::create_game_with_template(
-        content,
-        player_ids,
-        scenario.seed,
-        Some(&template),
-    )?;
+    let (mut state, mut galaxy) =
+        crate::map::create_game_with_template(content, player_ids, scenario.seed, Some(&template))?;
     apply(id, &mut state, &mut galaxy, content, sources)?;
     Ok((state, galaxy))
 }
@@ -757,17 +753,12 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
-        let template =
-            crate::view::maps::default_template_for(content, &loader, scenario.players, POK)
-                .expect("a template");
-        let (mut state, mut galaxy) = crate::view::map::create_game_with_template(
-            content,
-            &ids,
-            scenario.seed,
-            Some(&template),
-        )
-        .expect("a game");
+        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::maps::default_template_for(content, &loader, scenario.players, POK)
+            .expect("a template");
+        let (mut state, mut galaxy) =
+            crate::map::create_game_with_template(content, &ids, scenario.seed, Some(&template))
+                .expect("a game");
         apply(id, &mut state, &mut galaxy, content, POK).expect("the scenario applies");
         (state, galaxy)
     }
@@ -1590,12 +1581,11 @@ mod tests {
         assert_eq!(attached("lisis"), ["biotic"]);
         assert_eq!(attached("loki"), ["paradiseworld"]);
 
-        let view = crate::view::projection::project_player_view(state.player(&seat()).unwrap());
+        let view = crate::projection::project_player_view(state.player(&seat()).unwrap());
         assert_eq!(view.relic_fragments["CULTURAL"], 3);
         assert_eq!(view.relic_fragments["HAZARDOUS"], 1);
-        let other = crate::view::projection::project_player_view(
-            state.player(&PlayerId::new("b")).unwrap(),
-        );
+        let other =
+            crate::projection::project_player_view(state.player(&PlayerId::new("b")).unwrap());
         assert_eq!(other.relic_fragments["FRONTIER"], 1);
 
         // What seat A used, for the cards of its sheet.

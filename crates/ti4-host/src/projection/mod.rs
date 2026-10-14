@@ -1,4 +1,9 @@
-//! Pure projections transforming engine state and choices into redacted client views.
+//! Pure projections transforming engine state and choices into redacted client views, and the
+//! protocol messages that carry them.
+
+mod messages;
+
+pub use messages::*;
 
 use std::collections::{BTreeMap, BTreeSet};
 use ti4_content::ContentStore;
@@ -11,8 +16,8 @@ use ti4_model::view::{HIDDEN, redact_player, view_for};
 
 use serde::{Deserialize, Serialize};
 
-use crate::view::status::{PublicTurnStatus, ViewerRole};
-use crate::view::view::{
+use crate::protocol::status::{PublicTurnStatus, ViewerRole};
+use crate::protocol::view::{
     BoardTileView, BoardView, GameView, ObjectiveProgressView, PlacedUnitView, PlanetView,
     PlayerView, SystemView, TableView,
 };
@@ -70,8 +75,8 @@ pub fn project_player_view(player: &Player) -> PlayerView {
 pub fn project_combat_view(
     state: &GameState,
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::view::CombatDieRoll],
-) -> Option<crate::view::view::CombatView> {
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
+) -> Option<crate::protocol::view::CombatView> {
     project_combat_view_for(state, pending_choice, dice_rolls, None)
 }
 
@@ -81,9 +86,9 @@ pub fn project_combat_view(
 pub fn project_combat_view_for(
     state: &GameState,
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::view::CombatDieRoll],
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
     viewer: Option<&ViewerRole>,
-) -> Option<crate::view::view::CombatView> {
+) -> Option<crate::protocol::view::CombatView> {
     let pending_choice = pending_choice.filter(|choice| {
         !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player))
     });
@@ -96,13 +101,13 @@ pub fn project_combat_view_for(
     let attacker_hits = state.combat_round_hits.get(&attacker).copied();
     let defender_hits = state.combat_round_hits.get(&defender).copied();
 
-    let dice_rolls: Vec<crate::view::view::CombatDieRoll> = if !dice_rolls.is_empty() {
+    let dice_rolls: Vec<crate::protocol::view::CombatDieRoll> = if !dice_rolls.is_empty() {
         dice_rolls.to_vec()
     } else {
         state
             .combat_round_dice
             .iter()
-            .map(|r| crate::view::view::CombatDieRoll {
+            .map(|r| crate::protocol::view::CombatDieRoll {
                 player: Some(r.player.clone()),
                 unit: r.unit.clone(),
                 roll: r.roll,
@@ -137,7 +142,7 @@ pub fn project_combat_view_for(
             })
         });
 
-    Some(crate::view::view::CombatView {
+    Some(crate::protocol::view::CombatView {
         system_id: sys_id,
         round: state.combat_presentation.round.max(1),
         battle_seq: state.combat_presentation.battle_seq,
@@ -171,7 +176,7 @@ pub fn project_combat_view_for(
             .combat_presentation
             .barrage_dice
             .iter()
-            .map(|r| crate::view::view::CombatDieRoll {
+            .map(|r| crate::protocol::view::CombatDieRoll {
                 player: Some(r.player.clone()),
                 unit: r.unit.clone(),
                 roll: r.roll,
@@ -222,7 +227,7 @@ pub fn project_board_view_full(
     state: &GameState,
     map_tiles: &[BoardTileView],
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::view::CombatDieRoll],
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
     viewer: Option<&ViewerRole>,
 ) -> BoardView {
     let mut systems = BTreeMap::new();
@@ -383,7 +388,7 @@ pub fn project_board_view_full(
                 }
                 odds_context.insert(
                     planet.clone(),
-                    crate::view::view::InvasionOddsContext {
+                    crate::protocol::view::InvasionOddsContext {
                         opponent,
                         available,
                         ground_force_types,
@@ -402,16 +407,17 @@ pub fn project_board_view_full(
             return None;
         }
 
-        Some(crate::view::view::InvasionView {
+        Some(crate::protocol::view::InvasionView {
             system_id: active.system.clone(),
             invasion_seq: active.seq,
             invader: active.invader.clone(),
             phase: active.phase.clone(),
-            planets: systems
-                .get(&active.system)
-                .map_or_else(Vec::new, |system: &crate::view::view::SystemView| {
+            planets: systems.get(&active.system).map_or_else(
+                Vec::new,
+                |system: &crate::protocol::view::SystemView| {
                     system.planets.keys().cloned().collect()
-                }),
+                },
+            ),
             current_planet: active.planet.clone(),
             defender: active.defender.clone(),
             ground_round: active.ground_round,
@@ -424,7 +430,7 @@ pub fn project_board_view_full(
                     damaged: unit.sustained_damage,
                     galvanized: unit.galvanized,
                 };
-                crate::view::view::InvasionStepView {
+                crate::protocol::view::InvasionStepView {
                     planet: step.planet.clone(),
                     kind: step.kind.clone(),
                     round: step.round,
@@ -547,11 +553,11 @@ pub fn project_secret_progress(
 /// Push Boundaries' per-neighbour planet comparison for `position.player`, in seating order.
 fn neighbour_progress_views(
     position: &ti4_engine::objectives::Position<'_>,
-) -> Vec<crate::view::view::NeighbourProgressView> {
+) -> Vec<crate::protocol::view::NeighbourProgressView> {
     ti4_engine::objectives::neighbour_planet_counts(position)
         .unwrap_or_default()
         .into_iter()
-        .map(|row| crate::view::view::NeighbourProgressView {
+        .map(|row| crate::protocol::view::NeighbourProgressView {
             ahead: row.ahead(),
             mine: u32::try_from(row.mine).unwrap_or(0),
             theirs: u32::try_from(row.theirs).unwrap_or(0),
@@ -660,7 +666,7 @@ pub fn project_game_view_full(
     viewer: &ViewerRole,
     map_tiles: &[BoardTileView],
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::view::CombatDieRoll],
+    dice_rolls: &[crate::protocol::view::CombatDieRoll],
 ) -> GameView {
     let redacted = redacted_state(state, viewer);
     let players = redacted
@@ -939,7 +945,13 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
         secondary,
     } = *context;
     update.tactical = update.pending_choice.as_ref().and_then(|pending| {
-        crate::view::tactical::project_tactical_facts(state, content, sources, galaxy?, &pending.choice)
+        crate::view::tactical::project_tactical_facts(
+            state,
+            content,
+            sources,
+            galaxy?,
+            &pending.choice,
+        )
     });
     update.exploration = galaxy.map(|galaxy| {
         crate::view::exploration::project_exploration_facts(state, content, sources, galaxy)
@@ -949,16 +961,14 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
         content,
         &update.viewer,
     ));
-    update.secret_objectives = Some(crate::view::secret_objectives::project_secret_objective_facts(
-        state, content,
-    ));
+    update.secret_objectives =
+        Some(crate::view::secret_objectives::project_secret_objective_facts(state, content));
     update.score = Some(crate::view::score::project_score_facts(state, content));
     update.agendas = Some(crate::view::agendas::project_agenda_facts(state));
     update.secondary = secondary.and_then(|watch| watch.facts(state, content, &update.viewer));
-    update.reaction = update
-        .pending_choice
-        .as_ref()
-        .and_then(|pending| crate::view::reaction::project_reaction_facts(content, &pending.choice));
+    update.reaction = update.pending_choice.as_ref().and_then(|pending| {
+        crate::view::reaction::project_reaction_facts(content, &pending.choice)
+    });
 }
 
 #[cfg(test)]
@@ -974,7 +984,9 @@ mod tests {
             ti4_model::content_types::DEFAULT,
         );
         let (mahact, other) = (PlayerId::new("a"), PlayerId::new("b"));
-        assert!(ti4_engine::factions::mahact::add_token(&mut state, &mahact, &other));
+        assert!(ti4_engine::factions::mahact::add_token(
+            &mut state, &mahact, &other
+        ));
         for viewer in [ViewerRole::Spectator, ViewerRole::Player(other.clone())] {
             let view = project_game_view(&state, &viewer);
             let held = |id: &PlayerId| {
@@ -990,8 +1002,16 @@ mod tests {
         // The field is additive: absent when empty, so an old client never sees it.
         let json = serde_json::to_value(project_game_view(&state, &ViewerRole::Spectator)).unwrap();
         let sheets = json["players"].as_array().unwrap();
-        assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_some()));
-        assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_none()));
+        assert!(
+            sheets
+                .iter()
+                .any(|p| p.get("held_foreign_tokens").is_some())
+        );
+        assert!(
+            sheets
+                .iter()
+                .any(|p| p.get("held_foreign_tokens").is_none())
+        );
     }
 
     fn reaction_offer() -> (Choice, String) {

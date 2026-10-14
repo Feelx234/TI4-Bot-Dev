@@ -1,7 +1,7 @@
 //! A script of a seat: run as a draft on a copy of the game, or sent to the live game.
 //!
 //! A script is what the page of a player keeps of a draft or of a staged step
-//! ([`ti4_host::view::planning::draft::DraftStep`]). The server keeps none: a run plays the whole
+//! ([`ti4_host::planning::draft::DraftStep`]). The server keeps none: a run plays the whole
 //! script on a copy and forgets it ([`run_draft`]), and a script that is sent lives only while
 //! the game answers its questions from it ([`ScriptApplication`]). One function answers a
 //! question from a script, here and in a local game: [`script_answer`].
@@ -14,9 +14,9 @@ use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, SeatObservation, Table,
 };
 use ti4_engine::game::Game;
-use ti4_host::view::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_host::view::planning::fork::TACTICAL_COMPLETE;
-use ti4_host::view::planning::steps::INTERRUPTED;
+use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
+use ti4_host::planning::fork::TACTICAL_COMPLETE;
+use ti4_host::planning::steps::INTERRUPTED;
 use ti4_model::id::PlayerId;
 
 use crate::protocol::PROTOCOL_VERSION;
@@ -361,7 +361,7 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::mpsc;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
-    use ti4_host::view::planning::steps::PlanStep;
+    use ti4_host::planning::steps::PlanStep;
     use ti4_model::state::{GameState, Phase};
 
     use crate::session::worker::Subscriber;

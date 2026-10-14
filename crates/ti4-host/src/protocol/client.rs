@@ -51,17 +51,17 @@ pub enum ClientMessage {
     ResetPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     EditPlanningMovement {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     ApplyPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         nonce: String,
         expected_version: u64,
     },
@@ -69,7 +69,7 @@ pub enum ClientMessage {
     SubmitPlanningChoice {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         option_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
@@ -103,10 +103,10 @@ pub enum ClientMessage {
         protocol_version: u16,
         game_id: String,
         request_id: String,
-        script: Vec<crate::view::planning::draft::DraftStep>,
+        script: Vec<crate::planning::draft::DraftStep>,
         /// Left out: the next tactical action.
         #[serde(default)]
-        scope: crate::view::planning::audit::PlanScope,
+        scope: crate::planning::audit::PlanScope,
     },
     /// Answer the pending choice of this connection's seat, and the choices after it, with
     /// `script`: a draft or a plan that is sent to the live game. A script that the game would
@@ -117,7 +117,7 @@ pub enum ClientMessage {
         game_id: String,
         nonce: String,
         expected_version: u64,
-        script: Vec<crate::view::planning::draft::DraftStep>,
+        script: Vec<crate::planning::draft::DraftStep>,
     },
     /// Take back the last decision of this connection's seat, when the last update said that
     /// it may (`HistoryStatus::can_undo`): a movement, the landings and a purchase go back
@@ -206,22 +206,22 @@ pub enum ClientMessage {
 pub enum SecondaryPlanningRequest {
     Start {},
     Reset {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     Answer {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         option_id: String,
     },
     /// Ready: submit the draft for this seat when the live window reaches it.
     SetReady {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         ready: bool,
     },
 }
 
 impl SecondaryPlanningRequest {
     #[must_use]
-    pub const fn identity(&self) -> Option<crate::planning::AttemptIdentity> {
+    pub const fn identity(&self) -> Option<crate::planning::wire::AttemptIdentity> {
         match self {
             Self::Start {} => None,
             Self::Reset { identity }
@@ -621,7 +621,7 @@ impl ClientMessage {
 
 /// A script may be empty: a draft with nothing chosen opens the turn menu. Its texts are
 /// bounded by the size of a message.
-fn bounded_script(script: &[crate::view::planning::draft::DraftStep]) -> Result<(), &'static str> {
+fn bounded_script(script: &[crate::planning::draft::DraftStep]) -> Result<(), &'static str> {
     if script.len() > MAX_SCRIPT_ENTRIES {
         Err("script")
     } else {
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::AttemptIdentity {
+        let identity = crate::planning::wire::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,
@@ -720,7 +720,7 @@ mod tests {
 
     #[test]
     fn secondary_planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::AttemptIdentity {
+        let identity = crate::planning::wire::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,
