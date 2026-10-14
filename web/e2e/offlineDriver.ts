@@ -22,16 +22,80 @@ export async function startOfflineGame(page: Page, players = 4): Promise<string>
   return decodeURIComponent(match[1]);
 }
 
-/** Number of the human's answers in the saved game (the placeholder store is sessionStorage). */
+/** What the browser's IndexedDB holds for a game (the save store, `ti4-offline`); null if nothing yet. */
+export interface StoredRecord {
+  answers: number;
+  decisionsHash: string;
+  round: number | null;
+  phase: string | null;
+  wasmSha256: string;
+}
+
+export async function storedRecord(page: Page, gameId: string): Promise<StoredRecord | null> {
+  return page.evaluate(
+    (id) =>
+      new Promise<StoredRecord | null>((resolve) => {
+        const open = indexedDB.open("ti4-offline");
+        open.onerror = () => resolve(null);
+        open.onsuccess = () => {
+          const db = open.result;
+          try {
+            const get = db.transaction("games").objectStore("games").get(id);
+            get.onsuccess = () => {
+              db.close();
+              const r = get.result;
+              resolve(
+                r
+                  ? {
+                      answers: r.save.answers.length,
+                      decisionsHash: r.save.decisions_hash,
+                      round: r.save.round ?? null,
+                      phase: r.save.phase ?? null,
+                      wasmSha256: r.engine.wasmSha256,
+                    }
+                  : null,
+              );
+            };
+            get.onerror = () => {
+              db.close();
+              resolve(null);
+            };
+          } catch {
+            db.close();
+            resolve(null);
+          }
+        };
+      }),
+    gameId,
+  );
+}
+
+/** Number of the human's answers in the saved game. */
 export async function storedAnswers(page: Page, gameId: string): Promise<number> {
-  return page.evaluate((id) => {
-    try {
-      const raw = window.sessionStorage.getItem(`ti4.offline.game:${id}`);
-      return raw ? (JSON.parse(raw).save.answers as unknown[]).length : 0;
-    } catch {
-      return 0;
-    }
-  }, gameId);
+  return (await storedRecord(page, gameId))?.answers ?? 0;
+}
+
+/** The feedback queue as stored in IndexedDB: `[state, reportId]` of each item. */
+export async function storedFeedback(page: Page): Promise<Array<{ state: string; reportId: string; attempts: number }>> {
+  return page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const open = indexedDB.open("ti4-offline");
+        open.onerror = () => resolve([]);
+        open.onsuccess = () => {
+          const db = open.result;
+          const all = db.transaction("feedback").objectStore("feedback").getAll();
+          all.onsuccess = () => {
+            db.close();
+            resolve(all.result.map((i: { state: string; reportId: string; attempts: number }) => ({ state: i.state, reportId: i.reportId, attempts: i.attempts })));
+          };
+          all.onerror = () => {
+            db.close();
+            resolve([]);
+          };
+        };
+      }),
+  );
 }
 
 const CLICKS = [

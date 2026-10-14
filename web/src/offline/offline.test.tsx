@@ -11,7 +11,9 @@ import { createMockLauncher, MOCK_FACTIONS } from "./mockLauncher.ts";
 import { feedbackRequestBody, routeFeedback } from "./feedbackRoute.ts";
 import { feedbackChipText } from "./useFeedbackQueue.ts";
 import { registerOfflineLauncher, setActiveOfflineGame } from "./registry.ts";
-import type { OfflineFeedbackLocal, OfflineGameSummary } from "./types.ts";
+import type { OfflineFeedbackLocal, OfflineGameSummary, OfflineMismatchPrompt } from "./types.ts";
+import { setLoadedEngine } from "./engineInfo.ts";
+import { sha256Hex } from "./local/sha256.ts";
 
 afterEach(() => {
   cleanup();
@@ -159,7 +161,8 @@ describe("banner and queued feedback", () => {
   });
   it("chip text", () => {
     const item = (state: "queued" | "sent" | "failed") => ({ localId: "a", state, attempts: 0, queuedAt: 0, report: { category: "bug" as const, text: "", context: {} } });
-    expect(feedbackChipText([item("sent")])).toBeNull();
+    expect(feedbackChipText([item("sent")])).toBeNull(); // delivered long ago
+    expect(feedbackChipText([{ ...item("sent"), queuedAt: Date.now() - 1000 }])).toBe("1 feedback report sent");
     expect(feedbackChipText([item("queued")])).toBe("1 feedback report will be sent");
     expect(feedbackChipText([item("failed"), item("queued")])).toMatch(/could not be sent/);
   });
@@ -228,5 +231,86 @@ describe("home screen", () => {
     fireEvent.click(await screen.findByTestId("offline-delete"));
     fireEvent.click(screen.getByTestId("offline-delete-confirm"));
     await screen.findByTestId("offline-games-empty");
+  });
+});
+
+const PROMPT: OfflineMismatchPrompt = {
+  reason: "engine-changed",
+  differs: ["wasmSha256"],
+  saved: { build: "0.1.0", contentDigest: "d", wasmSha256: "aaaaaaaa".repeat(8) },
+  current: { build: "0.1.0", contentDigest: "d", wasmSha256: "bbbbbbbb".repeat(8) },
+  title: "This game was saved with another version of the engine",
+  message: "The rules engine has changed.",
+  choices: [
+    { id: "view-only", label: "View only", destructive: false },
+    { id: "try-anyway", label: "Try anyway", destructive: false },
+    { id: "delete", label: "Delete this game", destructive: true },
+  ],
+};
+
+describe("saves, import and the engine", () => {
+  it("asks what to do with a game of another engine and enters on view only", async () => {
+    const launcher = createMockLauncher({ games: [game()], replayMs: 50, mismatch: PROMPT });
+    const onEnter = vi.fn();
+    render(<OfflineHome launcher={launcher} onEnter={onEnter} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("offline-resume"));
+    const dialog = await screen.findByTestId("offline-mismatch");
+    expect(dialog.textContent).toContain("engine aaaaaaaa");
+    expect(dialog.textContent).toContain("engine bbbbbbbb");
+    expect(onEnter).not.toHaveBeenCalled(); // nothing opens before the choice
+    fireEvent.click(screen.getByTestId("offline-mismatch-try-anyway"));
+    await waitFor(() => expect(onEnter).toHaveBeenCalled(), { timeout: 3000 });
+  });
+  it("delete needs a second click and removes the game", async () => {
+    const launcher = createMockLauncher({ games: [game()], replayMs: 50, mismatch: PROMPT });
+    render(<OfflineHome launcher={launcher} onEnter={vi.fn()} onBack={vi.fn()} />);
+    fireEvent.click(await screen.findByTestId("offline-resume"));
+    fireEvent.click(await screen.findByTestId("offline-mismatch-delete"));
+    expect(await launcher.list()).toHaveLength(1);
+    fireEvent.click(screen.getByTestId("offline-mismatch-delete-confirm"));
+    await screen.findByTestId("offline-games-empty");
+    expect((await screen.findByTestId("offline-notice")).textContent).toMatch(/deleted/);
+  });
+  it("shows the storage warning as a visible banner, and none when all is well", async () => {
+    const warned = createMockLauncher({ storageWarning: "This browser keeps nothing between visits (private window?)." });
+    const { unmount } = render(<OfflineHome launcher={warned} onEnter={vi.fn()} onBack={vi.fn()} />);
+    expect((await screen.findByTestId("offline-storage-warning")).textContent).toMatch(/private window/);
+    unmount();
+    render(<OfflineHome launcher={createMockLauncher()} onEnter={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByTestId("offline-setup-form");
+    expect(screen.queryByTestId("offline-storage-warning")).toBeNull();
+  });
+  it("imports a game file into the list", async () => {
+    const launcher = createMockLauncher();
+    render(<OfflineHome launcher={launcher} onEnter={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByTestId("offline-games-empty");
+    const file = new File(["{}"], "game.json", { type: "application/json" });
+    fireEvent.change(screen.getByTestId("import-game-file"), { target: { files: [file] } });
+    await waitFor(() => expect(screen.getAllByTestId("offline-game-row")).toHaveLength(1));
+    expect(screen.getByTestId("offline-notice").textContent).toMatch(/imported/);
+  });
+  it("names the loaded engine in the banner and the build footer", async () => {
+    const { BuildFooter } = await import("../components/AlphaNotice.tsx");
+    setLoadedEngine("0123456789abcdef".repeat(4));
+    const launcher = createMockLauncher();
+    render(
+      <>
+        <OfflineBanner capabilities={launcher.capabilities} feedback={launcher.feedback} />
+        <BuildFooter />
+      </>,
+    );
+    expect(screen.getByTestId("offline-engine").textContent).toBe("engine 01234567");
+    expect(screen.getByTestId("build-footer-engine").textContent).toContain("engine 01234567");
+    setLoadedEngine(null);
+  });
+  it("hashes like sha-256, with and without crypto.subtle", async () => {
+    const bytes = new TextEncoder().encode("abc");
+    const expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    expect(await sha256Hex(bytes)).toBe(expected);
+    const { sha256 } = await import("./local/sha256.ts");
+    expect(Array.from(sha256(bytes), (b) => b.toString(16).padStart(2, "0")).join("")).toBe(expected);
+    const long = new Uint8Array(1000).fill(97);
+    const viaSubtle = await sha256Hex(long);
+    expect(Array.from(sha256(long), (b) => b.toString(16).padStart(2, "0")).join("")).toBe(viaSubtle);
   });
 });
