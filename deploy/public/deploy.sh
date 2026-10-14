@@ -191,6 +191,22 @@ if (( PREFLIGHT_ONLY )); then
   exit 0
 fi
 
+# ---- 4b. Is the live Caddy config the one this release expects? ---------------------------------
+# This script installs the app, never the proxy config. A release can need new proxy headers (the
+# offline game needs `wasm-unsafe-eval` in the CSP): compare the live Content-Security-Policy with
+# the one in this ref's Caddyfile and warn loudly. Only a warning: the live file is edited by hand.
+csp_line() { grep -h 'Content-Security-Policy' "$1" 2>/dev/null | sed 's/^[[:space:]]*//' | head -1; }
+LIVE_CADDYFILE="${TI4_LIVE_CADDYFILE:-/etc/caddy/Caddyfile}"
+if [[ -r "$LIVE_CADDYFILE" && -f "$WT/deploy/public/Caddyfile" ]]; then
+  if [[ "$(csp_line "$LIVE_CADDYFILE")" != "$(csp_line "$WT/deploy/public/Caddyfile")" ]]; then
+    say "WARNING: the live Caddy CSP differs from deploy/public/Caddyfile in this ref"
+    echo "  live:  $(csp_line "$LIVE_CADDYFILE")"
+    echo "  ref:   $(csp_line "$WT/deploy/public/Caddyfile")"
+    echo "  Offline play needs 'wasm-unsafe-eval' in script-src and worker-src 'self'. Update"
+    echo "  $LIVE_CADDYFILE by hand (keep your domain), run 'caddy validate', then 'systemctl reload caddy'."
+  fi
+fi
+
 # ---- 5. Install, switch, verify, roll back on failure -----------------------------------------
 say "Installing $RELEASE"
 sudo install -d -m 755 "$RELEASE"
