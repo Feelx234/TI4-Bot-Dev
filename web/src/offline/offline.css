@@ -23,3 +23,5 @@
 .offline-games__row .button { min-height: 44px; }
 .offline-start-button { margin-top: 4px; }
 .feedback__queued { color: var(--color-text-muted); }
+.offline-form .field-label { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.offline-form select.input { width: 100%; }

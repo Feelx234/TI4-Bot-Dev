@@ -14,3 +14,11 @@ declare global {
 const options = window.__TI4_OFFLINE_MOCK__;
 if (options || new URLSearchParams(window.location.search).has("offline-mock"))
   registerOfflineLauncher(createMockLauncher(options ?? {}));
+
+// Lets the screenshot captures play the part of the game screen (T5), which marks the offline
+// game as active so feedback is queued.
+if (options || new URLSearchParams(window.location.search).has("offline-mock")) {
+  void import("./registry.ts").then(({ setActiveOfflineGame }) => {
+    (window as unknown as Record<string, unknown>).__TI4_OFFLINE_DEV__ = { setActiveOfflineGame };
+  });
+}
