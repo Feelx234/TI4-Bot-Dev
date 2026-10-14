@@ -554,7 +554,7 @@ fn a_bot_seat_has_no_usable_credential() {
 
 #[test]
 fn a_movement_batch_commits_beside_bot_seats_and_undoes() {
-    use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
+    use ti4_host::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
     let t = host_table("rb_batch", 17);
     // Play the host's first options, preferring a tactical action, until it must move ships.
     let mut request = None;

@@ -50,9 +50,9 @@ use ti4_host::protocol::server::{GameEvent, GameEventKind};
 use ti4_host::protocol::splice::ConflictKind;
 use ti4_host::protocol::turn_redo::{TurnRedoConflict, TurnRedoStage, TurnRedoStop};
 
-use crate::session::rng_force::{RngForce, RngMarks};
 use crate::session::splice::{RawConflict, StrictDecider};
 use crate::storage::BatchRecord;
+use ti4_host::rng_force::{RngForce, RngMarks};
 
 /// How many of a seat's turns one request may rewind.
 pub const MAX_TURNS_BACK: u8 = 2;

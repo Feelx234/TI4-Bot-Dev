@@ -560,7 +560,7 @@ fn the_redo_and_its_saved_original_survive_a_restart_with_their_forced_dice() {
             .rng_marks
             .deck_plan
             .iter()
-            .all(|segment| segment.until != ti4_server::session::rng_force::OPEN),
+            .all(|segment| segment.until != ti4_host::rng_force::OPEN),
         "the finished redo's card reservations are closed"
     );
     assert_eq!(saved.rng_marks.deck_plan.len(), 1);
@@ -786,7 +786,7 @@ fn a_redo_in_its_new_turn_recovers_from_disk_with_its_open_card_reservations() {
         .rng_marks
         .deck_plan
         .iter()
-        .filter(|s| s.until == ti4_server::session::rng_force::OPEN)
+        .filter(|s| s.until == ti4_host::rng_force::OPEN)
         .collect();
     assert_eq!(
         open.len(),

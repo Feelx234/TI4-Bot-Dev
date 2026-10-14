@@ -18,8 +18,8 @@ use ti4_model::state::GameState;
 use ti4_host::protocol::server::GameEvent;
 use ti4_host::protocol::view::BoardTileView;
 
-use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
+use ti4_host::replay::{replay_session, replay_session_forced};
 
 /// Errors encountered during game persistence or recovery.
 #[derive(Debug, Error)]
@@ -31,7 +31,7 @@ pub enum StorageError {
     #[error("Replay error during recovery of game '{game_id}': {source}")]
     Replay {
         game_id: String,
-        source: crate::session::replay::ReplayError,
+        source: ti4_host::replay::ReplayError,
     },
     #[error("Game '{0}' not found in storage")]
     NotFound(String),
@@ -409,9 +409,12 @@ pub struct GameHistory {
     #[serde(default)]
     pub batches: Vec<BatchRecord>,
     /// Forced random stream positions by decision index; present only on a timeline made by a
-    /// turn redo (see `session::rng_force`). Absent in every older save.
-    #[serde(default, skip_serializing_if = "crate::session::RngMarks::is_empty")]
-    pub rng_marks: crate::session::RngMarks,
+    /// turn redo (see `ti4_host::rng_force`). Absent in every older save.
+    #[serde(
+        default,
+        skip_serializing_if = "ti4_host::rng_force::RngMarks::is_empty"
+    )]
+    pub rng_marks: ti4_host::rng_force::RngMarks,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -424,7 +427,7 @@ pub struct BatchRecord {
     pub end_cursor: usize,
     /// Set when the batch stopped at a reaction window; answers a repeated request the same way.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupted: Option<crate::session::batch::BatchInterruption>,
+    pub interrupted: Option<ti4_host::batch::BatchInterruption>,
 }
 
 /// Per-seat "never offer" choices, saved beside the decision log in `reaction_modes.json`.
@@ -1138,7 +1141,7 @@ impl FileGameStore {
             .unwrap_or_default();
         // The copy near the end lets the session worker fork the game instead of replaying the
         // whole history a second time.
-        let (replay_report, replay_copy) = crate::session::replay::replay_session_with_copy(
+        let (replay_report, replay_copy) = ti4_host::replay::replay_session_with_copy(
             &init_record.initial_state,
             galaxy.as_ref(),
             &decisions,

@@ -31,11 +31,11 @@ use super::{
     Arc, GameHistory, GameRegistry, GameSession, HistoryError, InitialSnapshotMsg, RegistryState,
     SessionConfig,
 };
-use crate::session::replay::replay_session_with_copy;
 use crate::session::turn_redo::{
     AlternateTimeline, TurnRedoError, TurnRedoRecord, autoplay, events_through, find_turns,
     open_segment, prepare_tail, redact_for_viewer, redo_window,
 };
+use ti4_host::replay::replay_session_with_copy;
 
 fn invalid(error: &TurnRedoError) -> HistoryError {
     match error {
@@ -56,7 +56,7 @@ struct Snapshot {
     redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     event_counter: u64,
     batches: Vec<crate::storage::BatchRecord>,
-    marks: crate::session::RngMarks,
+    marks: ti4_host::rng_force::RngMarks,
     generation: u64,
 }
 

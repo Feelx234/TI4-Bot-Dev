@@ -90,7 +90,7 @@ impl Decider for CountingDecider {
 }
 
 /// The decider of a `BotRandom` seat, and (with [`RandomBotDecider::smart`]) of a `BotSmart`
-/// seat, which consults [`crate::session::smart_bot::pick`] before falling back to the random
+/// seat, which consults [`ti4_rule_bot::pick`] before falling back to the random
 /// pick.
 pub struct RandomBotDecider {
     seat: PlayerId,

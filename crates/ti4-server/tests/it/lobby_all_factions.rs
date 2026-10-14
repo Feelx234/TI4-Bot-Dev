@@ -246,7 +246,7 @@ fn the_pool_is_the_survey_roster() {
     // Plans exist for every faction in the pool.
     for faction in LOBBY_FACTIONS {
         assert!(
-            ti4_server::session::smart_bot_faction_plans::plan_for(faction).is_some(),
+            ti4_rule_bot::faction_plans::plan_for(faction).is_some(),
             "{faction}"
         );
     }

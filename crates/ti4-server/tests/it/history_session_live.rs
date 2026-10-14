@@ -264,7 +264,7 @@ fn wait_pending(session: &GameSession) -> (PlayerId, String, u64) {
 
 #[test]
 fn a_session_made_by_a_batch_commit_is_not_replaying_once_live() {
-    use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
+    use ti4_host::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
     let (dir, store) = temp_store();
     let registry = GameRegistry::new().with_store(store);
     let host = PlayerId::new("p1");

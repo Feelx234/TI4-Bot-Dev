@@ -125,7 +125,7 @@ pub struct SessionShared {
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
     /// Forced random positions of a timeline made by a turn redo, by decision index.
-    pub rng_marks: crate::session::RngMarks,
+    pub rng_marks: ti4_host::rng_force::RngMarks,
     /// Decisions auto-resolved since the last state update, with the seat they belong to.
     /// Transient by design: not persisted, so a restart's replay never re-announces them.
     pub pending_auto_resolved: Vec<(PlayerId, ti4_host::protocol::server::AutoResolvedNote)>,
@@ -146,9 +146,9 @@ pub struct SessionShared {
     /// answer to one of them is told apart from a stale one ([`Self::was_answered`]).
     pub(crate) answered: BTreeMap<PlayerId, VecDeque<String>>,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
-    /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
+    /// `ti4_host::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.
-    pub step_snapshot: Option<Arc<crate::session::step_snapshot::StepSnapshot>>,
+    pub step_snapshot: Option<Arc<ti4_host::step_snapshot::StepSnapshot>>,
     /// Set when the worker started from a copy of the game at this many decisions instead of
     /// replaying them (diagnostic; see `SessionConfig::resume`).
     pub resumed_from: Option<usize>,
@@ -396,7 +396,7 @@ impl SessionShared {
             replay_complete: false,
             history_generation: 0,
             batches: Vec::new(),
-            rng_marks: crate::session::RngMarks::new(),
+            rng_marks: ti4_host::rng_force::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
             undo: super::undo::UndoTrack::new(),
@@ -818,7 +818,7 @@ struct ReplayingDecider {
     shared: Arc<Mutex<SessionShared>>,
     has_boundary_state: bool,
     /// Forced random positions for the replayed decisions (a timeline made by a turn redo).
-    force: Option<crate::session::RngForce>,
+    force: Option<ti4_host::rng_force::RngForce>,
     total: usize,
     announce_tail: bool,
 }
@@ -982,7 +982,7 @@ pub fn spawn_session_worker(
         // instead of replaying the whole prefix a second time.
         let generation =
             (config.step_snapshots && resume.is_none()).then_some(config.history_generation);
-        crate::session::batch::replay_boundary(
+        ti4_host::batch::replay_boundary(
             &config,
             &config.prior_decisions,
             resume.as_deref(),
@@ -1040,7 +1040,7 @@ pub fn spawn_session_worker(
     initial_shared.undone_from = config.prior_decisions.len();
     initial_shared.staged = config.staged.clone();
     initial_shared.rng_marks.clone_from(&config.rng_marks);
-    let rng_force = crate::session::RngForce::new(&config.rng_marks);
+    let rng_force = ti4_host::rng_force::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
         let never = config.reaction_modes.get(seat).cloned().unwrap_or_default();
         initial_shared
@@ -1472,10 +1472,8 @@ pub fn spawn_session_worker(
             // the control flow of a step lives on this thread's stack and cannot. A batch
             // check forks the copy instead of replaying the whole game.
             if snapshot_wanted
-                && let Some(copy) = crate::session::step_snapshot::StepSnapshot::capture(
-                    &mut game,
-                    snapshot_generation,
-                )
+                && let Some(copy) =
+                    ti4_host::step_snapshot::StepSnapshot::capture(&mut game, snapshot_generation)
             {
                 let mut lock = worker_shared.lock().expect("shared lock");
                 if !lock.stopped {

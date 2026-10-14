@@ -13,9 +13,9 @@ use ti4_host::protocol::server::ServerMessage;
 use ti4_model::id::PlayerId;
 
 use crate::session::GameRegistry;
-use crate::session::batch::BatchRequest;
 use crate::session::registry::{GameSummary, LobbyError, PlayerLobbyView};
 use crate::session::registry::{HistoryAction, HistoryError};
+use ti4_host::batch::BatchRequest;
 
 #[allow(
     clippy::result_large_err,

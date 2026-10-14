@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: item 1 done (2026-10-14), items 2–11 open.
 
 ## Context
 
@@ -187,8 +187,9 @@ One commit per item, in this order (planning deletion early, so `worker.rs`/`ses
 smaller before the moves; scripts before undo, both touch `HostSession::selected`; scenarios last).
 Starts after Step 5 is committed.
 
-1. **Shims.** Rewrite the users of `session/mod.rs:20-21,86-88` to `ti4_host::…` /
-   `ti4_rule_bot::…`, delete the shims, `cargo clippy --fix`.
+1. **Shims.** (Done.) The users of the `session/mod.rs` re-exports (`smart_bot`,
+   `smart_bot_faction_plans`, `batch`, `replay`, `rng_force`, `step_snapshot`, `replay_session*`,
+   `RngForce`, `RngMarks`) import them from `ti4_host::…` / `ti4_rule_bot::…`; the shims are gone.
 2. **Delete the planning runner (I).**
    - Delete `ti4-server/src/planning/`, the six planning `ClientMessage`s and their handlers
      (`ws/mod.rs`, `session/mod.rs` `submit_planning_choice*` …, `registry.rs`), the

@@ -16,10 +16,6 @@ pub mod turn_redo;
 pub(crate) mod undo;
 pub mod worker;
 
-/// The rule bot, under the paths it had before it moved to its own crate (`ti4-rule-bot`).
-pub use ti4_rule_bot as smart_bot;
-pub use ti4_rule_bot::faction_plans as smart_bot_faction_plans;
-
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
@@ -31,7 +27,9 @@ use ti4_model::state::GameState;
 
 use ti4_host::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::rng_force::RngMarks;
 use ti4_host::view::reaction_modes;
+use ti4_host::{batch, step_snapshot};
 
 use crate::session::decider::ChoiceSubmission;
 use crate::session::worker::{
@@ -83,9 +81,6 @@ pub use decider::RemoteHumanDecider;
 pub use planning::PlanningError;
 pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use ti4_host::replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
-pub use ti4_host::rng_force::{RngForce, RngMarks};
-pub use ti4_host::{batch, replay, rng_force, step_snapshot};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
@@ -106,7 +101,7 @@ pub enum SeatController {
     /// In-process bot like [`SeatController::BotRandom`] that answers the board questions it has
     /// an opinion on with simple heuristics (claim nearby planets, fight battles it expects to
     /// win, build when short of units, take favourable trades) and the rest at random. See
-    /// [`smart_bot`].
+    /// [`ti4_rule_bot`].
     BotSmart,
 }
 

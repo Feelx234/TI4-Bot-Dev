@@ -11,12 +11,12 @@ use ti4_model::id::PlayerId;
 use ti4_host::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 
-use crate::session::batch::{BatchFailure, BatchRequest, simulate};
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
     BatchRecord, GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat,
     StorageError,
 };
+use ti4_host::batch::{BatchFailure, BatchRequest, simulate};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -34,8 +34,8 @@ pub enum HistoryAction {
 #[cfg(test)]
 mod committed_worker_tests {
     use super::*;
-    use crate::session::batch::{BatchKind, MovementPlan, MovementStep};
     use crate::storage::FileGameStore;
+    use ti4_host::batch::{BatchKind, MovementPlan, MovementStep};
 
     fn pending(session: &GameSession) -> (PlayerId, String, u64, String) {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -436,7 +436,7 @@ pub struct BatchResult {
     /// Present when the batch stopped early at a reaction window; the rest of the plan was not
     /// applied and the window is pending for its seat.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub interrupted: Option<crate::session::batch::BatchInterruption>,
+    pub interrupted: Option<ti4_host::batch::BatchInterruption>,
     pub snapshot: InitialSnapshotMsg,
 }
 
@@ -452,7 +452,7 @@ pub struct BatchError {
     #[serde(skip_serializing_if = "is_zero")]
     pub planned_steps: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub offered: Option<Box<crate::session::batch::OfferedDecision>>,
+    pub offered: Option<Box<ti4_host::batch::OfferedDecision>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected_version: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1138,7 +1138,7 @@ impl GameRegistry {
             )
             .with_versions(request.expected_version, current_version));
         }
-        if request.plan.kind == crate::session::batch::BatchKind::TacticalMovement
+        if request.plan.kind == ti4_host::batch::BatchKind::TacticalMovement
             && session
                 .current_state()
                 .active_system
@@ -1201,7 +1201,7 @@ impl GameRegistry {
                 ti4_host::protocol::server::verified_decision_facts(
                     decision,
                     Some(offered),
-                    (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
+                    (request.plan.kind == ti4_host::batch::BatchKind::TacticalMovement)
                         .then_some(request.plan.destination.as_str()),
                     &boundary_state,
                 );
@@ -1500,7 +1500,7 @@ impl GameRegistry {
         let all: Vec<_> = current.into_iter().chain(redo).collect();
         let mut config = session.restart_config();
         config.undone = undone.into_iter().collect();
-        let (report, copy) = crate::session::replay::replay_session_with_copy(
+        let (report, copy) = ti4_host::replay::replay_session_with_copy(
             &config.state,
             config.galaxy.as_ref(),
             &all[..target],
@@ -1931,7 +1931,7 @@ impl GameRegistry {
         expected_version: u64,
         original_count: usize,
         host: PlayerId,
-        copy: Option<super::step_snapshot::StepSnapshot>,
+        copy: Option<ti4_host::step_snapshot::StepSnapshot>,
     ) -> Result<InitialSnapshotMsg, HistoryError> {
         let revision = history.revision;
         let mut next = config.clone();
@@ -2009,7 +2009,7 @@ impl GameRegistry {
     /// is prepared and the worker's own replay reports the failure, as before.
     fn prepare_replacement(
         next: &mut SessionConfig,
-        copy: Option<super::step_snapshot::StepSnapshot>,
+        copy: Option<ti4_host::step_snapshot::StepSnapshot>,
     ) {
         next.replay_boundary_state = None;
         next.resume = None;
@@ -2019,7 +2019,7 @@ impl GameRegistry {
         let copy =
             copy.filter(|copy| next.step_snapshots && copy.is_prefix_of(&next.prior_decisions));
         let generation = (next.step_snapshots && copy.is_none()).then_some(next.history_generation);
-        match crate::session::batch::replay_boundary(
+        match ti4_host::batch::replay_boundary(
             next,
             &next.prior_decisions,
             copy.as_ref(),
@@ -4445,7 +4445,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         announce_tail: false,
         history_generation: 0,
         batches: Vec::new(),
-        rng_marks: crate::session::RngMarks::new(),
+        rng_marks: ti4_host::rng_force::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
         staged: crate::session::staged::StagedBook::default(),
@@ -4565,7 +4565,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         announce_tail: false,
         history_generation: 0,
         batches: Vec::new(),
-        rng_marks: crate::session::RngMarks::new(),
+        rng_marks: ti4_host::rng_force::RngMarks::new(),
         replay_boundary_state: None,
         reaction_modes: BTreeMap::new(),
         staged: crate::session::staged::StagedBook::default(),

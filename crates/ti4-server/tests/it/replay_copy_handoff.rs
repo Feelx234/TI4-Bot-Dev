@@ -11,9 +11,10 @@ use ti4_content::ContentStore;
 use ti4_engine::choice::DecisionRecord;
 use ti4_host::protocol::server::GameEvent;
 use ti4_host::protocol::status::ViewerRole;
+use ti4_host::replay::{replay_session_forced, replay_session_with_copy};
+use ti4_host::rng_force::RngMarks;
 use ti4_model::id::PlayerId;
-use ti4_server::session::replay::{replay_session_forced, replay_session_with_copy};
-use ti4_server::session::{GameSession, RngMarks, SeatController, SessionConfig};
+use ti4_server::session::{GameSession, SeatController, SessionConfig};
 
 fn base_config() -> SessionConfig {
     let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();

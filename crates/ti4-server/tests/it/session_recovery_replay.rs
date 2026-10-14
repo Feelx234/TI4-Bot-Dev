@@ -4,8 +4,8 @@ use std::sync::Arc;
 use ti4_content::ContentStore;
 use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::ViewerRole;
+use ti4_host::replay::replay_session;
 use ti4_model::id::PlayerId;
-use ti4_server::session::replay::replay_session;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
 #[test]

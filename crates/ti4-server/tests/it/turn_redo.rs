@@ -11,6 +11,8 @@ use ti4_engine::dice::Roll;
 use ti4_engine::game::Game;
 use ti4_host::protocol::splice::ConflictKind;
 use ti4_host::protocol::turn_redo::TurnRedoStop;
+use ti4_host::replay::replay_session_forced;
+use ti4_host::rng_force::{RngForce, RngMarks};
 use ti4_model::deck_reserve::ReservedDraw;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
@@ -18,9 +20,7 @@ use ti4_server::session::turn_redo::{
     AutoplayResult, RedoWindow, TailBaseline, TailSource, TurnRedoError, autoplay, find_turns,
     next_turn_start, open_segment, redo_window,
 };
-use ti4_server::session::{
-    GameSession, RngForce, RngMarks, SeatController, SessionConfig, replay_session_forced,
-};
+use ti4_server::session::{GameSession, SeatController, SessionConfig};
 
 /// A tiny LCG picks options, so histories are varied but reproducible. The aggressive flavour
 /// marches fleets at each other, which is what makes dice.
