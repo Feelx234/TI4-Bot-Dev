@@ -104,7 +104,7 @@ describe("LocalTransport and GameSessionClient feed the reducer equivalently", (
     expect(compared).toBeGreaterThanOrEqual(3);
     expect(local.history.generation).toBe(1);
     expect(local.turnStatus).toEqual(server.turnStatus);
-    expect(local.events.map((e) => e.id)).toEqual(["e1"].filter(() => local.events.length > 0));
+    expect(local.events.length).toBe(server.events.length);
   });
 
   const path = process.env.TI4_HOSTED_STREAM;

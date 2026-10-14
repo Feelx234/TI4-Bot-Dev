@@ -109,3 +109,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Offline shell (DN-offline-shell)
 
 `DN-offline-shell` shows the offline UI shell (start-screen entry, setup form, My offline games, resume progress, unsupported browser, banner, queued feedback) against the in-memory launcher in `web/src/offline/mockLauncher.ts`. `npm run screenshots -- DN` asserts the texts, the progress values, no horizontal scroll on the phone and that feedback is queued instead of sent.
+
+## Offline game screen (DO-offline-game)
+
+`DO-offline-game` shows a real offline game (the real launcher and engine, not the DN mock): the first decision, the board under the offline banner, the action phase, the event log without turn redo, a refresh in mid-game and queued feedback, desktop and 390x844. It needs the engine file: run `npm run build:wasm` first (or `TI4_WASM_FILE=<built ti4_wasm.wasm>`), then `npm run screenshots -- DO`. The table is seeded (dev seed field), so the bots and the dealt cards repeat; the human's clicks come from `e2e/offlineDriver.ts`.
