@@ -331,9 +331,9 @@ pub async fn create_game(
     };
 
     let speaker_order = match payload.speaker_order.as_deref() {
-        Some(name) => crate::map::SpeakerOrder::parse(name)
+        Some(name) => ti4_host::setup::SpeakerOrder::parse(name)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?,
-        None => crate::map::SpeakerOrder::default(),
+        None => ti4_host::setup::SpeakerOrder::default(),
     };
 
     let seat_order = match payload.seat_order.as_deref() {

@@ -29,17 +29,18 @@ pub fn seat_order_of(record: &PlayerLobbyRecord) -> SeatOrder {
 }
 
 /// What the host of `record` chose, as the setup of `ti4-host` has it: the server starts the
-/// table and pictures it with the functions that the wasm host uses for the table of a page.
-/// A start preset is not a part of it (it is a tool of this server, `crate::preset`).
+/// table and pictures it with the functions that the wasm hosts use for the table of a page.
 #[must_use]
 pub fn setup_of(record: &PlayerLobbyRecord) -> TableSetup {
     TableSetup {
         player_count: record.slots.len(),
         map: MapChoice::from_stored(record.map_template.as_deref()),
-        strategy_cards: crate::card_set::resolve(record.strategy_card_set.as_deref()).to_owned(),
+        strategy_cards: crate::storage::stored_card_set(record.strategy_card_set.as_deref())
+            .to_owned(),
         seat_order: seat_order_of(record),
-        speaker_order: crate::map::SpeakerOrder::from_stored(record.speaker_order.as_deref()),
+        speaker_order: ti4_host::setup::SpeakerOrder::from_stored(record.speaker_order.as_deref()),
         start_from: record.start_from.clone(),
+        preset: record.start_preset.clone(),
         seed: record.seed,
     }
 }

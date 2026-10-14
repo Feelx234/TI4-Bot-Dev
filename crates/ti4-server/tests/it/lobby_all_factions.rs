@@ -8,9 +8,10 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::seating::LOBBY_FACTIONS;
+use ti4_host::maps::catalog::MapChoice;
+use ti4_host::setup::{self, SeatOrder, SpeakerOrder, TableSetup};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::map::{SpeakerOrder, create_game_with_factions};
 use ti4_server::session::{GameSession, SeatController, SessionConfig};
 
 fn ids(n: usize) -> Vec<PlayerId> {
@@ -23,16 +24,16 @@ fn build(
     template: Option<&str>,
     chosen: &[Option<String>],
 ) -> Result<(GameState, ti4_content::galaxy::Galaxy), String> {
-    create_game_with_factions(
-        ContentStore::embedded(),
-        players,
-        seed,
-        template,
-        None,
-        None,
-        SpeakerOrder::Random,
-        Some(chosen),
-    )
+    // The players sit in the order given: `chosen[i]` is the faction of seat `i`.
+    let table = TableSetup {
+        map: MapChoice::from_stored(template),
+        strategy_cards: setup::card_set::POK.to_owned(),
+        seat_order: SeatOrder::Join,
+        speaker_order: SpeakerOrder::Random,
+        ..TableSetup::new(players.len(), seed)
+    };
+    let drawn = setup::draw(&table, chosen)?;
+    setup::create(ContentStore::embedded(), &table, players, &drawn)
 }
 
 fn check_seated(state: &GameState, players: &[PlayerId], chosen: &[Option<String>], what: &str) {

@@ -180,3 +180,47 @@ fn slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server() {
     }
     ti4_wasm::set_round_limit_native(None);
 }
+
+/// The table of `web/` (`host_setup::Setup`) is a [`TableSetup`]: the wasm host builds the
+/// opening state that `ti4_host::setup` (what a lobby start of the server calls) builds for it,
+/// with a chosen faction, another set of cards, a start preset and a scenario.
+#[test]
+fn the_table_of_web_is_the_table_of_the_server() {
+    let content = ContentStore::embedded();
+    for request in [
+        serde_json::json!({ "seed": 7, "players": 4 }),
+        serde_json::json!({ "seed": 23, "players": 5, "human_seat": 3, "human_faction": "hacan",
+                            "card_set": "pok", "speaker": "seat" }),
+        serde_json::json!({ "seed": 5, "players": 4, "preset": "combat", "map": "random" }),
+        serde_json::json!({ "seed": 9, "players": 3, "preset": "world+fac:naalu", "bots": "rule" }),
+        serde_json::json!({ "seed": 1, "players": 6, "scenario": ti4_host::view::scenario::LATE_GAME }),
+    ] {
+        let request: ti4_wasm::host_setup::Setup =
+            serde_json::from_value(request.clone()).expect("a setup");
+        let built = request.build().expect("the wasm host builds the table");
+        let table = built.setup.table();
+        assert_eq!(table.player_count, built.players);
+        let chosen: Vec<Option<String>> = (0..built.players)
+            .map(|seat| {
+                (seat == built.human)
+                    .then(|| built.setup.human_faction.clone())
+                    .flatten()
+            })
+            .collect();
+        let joined: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f", "g", "h"][..built.players]
+            .iter()
+            .map(|name| PlayerId::new(*name))
+            .collect();
+        let drawn = setup::draw(&table, &chosen).expect("the table is drawn");
+        let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)
+            .expect("the server builds the table");
+        // The game of a session places what the galaxy gives (frontier tokens, faction marks).
+        let game = ti4_engine::game::Game::with_seeded_random(state, content, table.game_seed())
+            .with_sources(ti4_model::content_types::POK)
+            .with_galaxy(galaxy);
+        let page = serde_json::to_value(&built.game.state).unwrap();
+        let server = serde_json::to_value(&game.state).unwrap();
+        // Every field, also those that the equality of a state leaves out.
+        assert_eq!(page, server, "{table:?}");
+    }
+}

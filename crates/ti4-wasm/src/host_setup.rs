@@ -1,30 +1,36 @@
 //! How a hosted game is set up: the table the person asks for, the game it makes, and what the
 //! setup form of `web/` may offer (card sets, factions, maps, presets).
 //!
-//! The game is made by the same functions as a lobby game of the server
-//! (`ti4_host::map::create_game_with_factions`), so a seed gives the same board and the same
-//! opening state in both.
+//! A [`Setup`] is a request: it becomes a [`TableSetup`] and the faction the person chose, and
+//! the game is made by `ti4_host::setup` (`draw`, `create`), as for a lobby game of the server
+//! and the table of web2, so a seed gives the same board and the same opening state in all.
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::game::Game;
 use ti4_engine::seating;
-use ti4_host::card_set;
-use ti4_host::map::SpeakerOrder;
 use ti4_host::maps::catalog::{self, MapChoice};
+use ti4_host::setup::{self, SeatOrder, SpeakerOrder, TableSetup, card_set};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 
 use crate::SEATS;
 
-/// The tables the offline game offers.
-pub const MIN_PLAYERS: usize = 3;
-pub const MAX_PLAYERS: usize = 6;
-
 fn local_game_id() -> String {
     "local".to_owned()
+}
+
+/// Who plays the seats of the others.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum Bots {
+    /// The rule bot ([`setup::bot_kind::RULE`]). `"rule"` is its name in the form of `web/`.
+    #[default]
+    #[serde(rename = "smart", alias = "rule")]
+    Rule,
+    /// [`setup::bot_kind::RANDOM`].
+    #[serde(rename = "random")]
+    Random,
 }
 
 /// The table of a game. Everything the game's opening state is made from; a save carries it.
@@ -48,18 +54,18 @@ pub struct Setup {
     /// recommended for the number of players.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map: Option<String>,
-    /// A start preset of the server (a test table). Not offered by the form.
+    /// A start preset of `ti4_host::preset` (a test table). Not offered by the form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
-    /// `"seat"` (the first seat opens) or `"random"`. Left out: the lobby's default.
+    /// `"seat"` (the first seat opens) or `"random"`. Left out: random.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub speaker: Option<String>,
+    pub speaker: Option<SpeakerOrder>,
     /// A prepared board of `ti4_host::view::scenario` (its seed and players win).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<String>,
-    /// `"rule"` (the default) or `"random"`: who plays the seats of the others.
+    /// Who plays the seats of the others. Left out: the rule bot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bots: Option<String>,
+    pub bots: Option<Bots>,
 }
 
 /// What a save brings to a new run of the same game.
@@ -122,6 +128,30 @@ pub struct Built {
 }
 
 impl Setup {
+    /// The table of `ti4_host::setup` that this request asks for. The seats keep the order of the
+    /// join: the person sits at the place that they asked for.
+    #[must_use]
+    pub fn table(&self) -> TableSetup {
+        let map = match self.map.as_deref() {
+            None => MapChoice::from_stored(catalog::recommended_for(self.players).as_deref()),
+            Some("random") => MapChoice::Random,
+            Some(alias) => MapChoice::from_stored(Some(alias)),
+        };
+        TableSetup {
+            player_count: self.players,
+            map,
+            strategy_cards: self
+                .card_set
+                .clone()
+                .unwrap_or_else(|| card_set::DEFAULT.to_owned()),
+            seat_order: SeatOrder::Join,
+            speaker_order: self.speaker.unwrap_or_default(),
+            start_from: self.scenario.clone(),
+            preset: self.preset.clone(),
+            seed: self.seed,
+        }
+    }
+
     /// Checks the table and fills in what was left open.
     ///
     /// # Errors
@@ -133,12 +163,8 @@ impl Setup {
                 ti4_host::view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
             setup.seed = scenario.seed;
             setup.players = scenario.players;
-        } else if !(MIN_PLAYERS..=MAX_PLAYERS).contains(&setup.players) {
-            return Err(format!(
-                "{} players: an offline game has {MIN_PLAYERS} to {MAX_PLAYERS} seats",
-                setup.players
-            ));
         }
+        setup.table().check()?;
         let human = match setup.human_seat {
             Some(seat) if seat < setup.players => seat,
             Some(seat) => {
@@ -151,26 +177,10 @@ impl Setup {
                 .expect("a seat fits a usize"),
         };
         setup.human_seat = Some(human);
-        if let Some(name) = &setup.card_set {
-            card_set::validate(name).map_err(|error| error.to_string())?;
-        }
         if let Some(faction) = &setup.human_faction
             && !seating::LOBBY_FACTIONS.contains(&faction.as_str())
         {
             return Err(format!("faction '{faction}' is not played here"));
-        }
-        if let Some(preset) = &setup.preset
-            && !ti4_host::preset::is_known(preset)
-        {
-            return Err(format!("no preset '{preset}'"));
-        }
-        match setup.speaker.as_deref() {
-            None | Some("seat" | "random") => {}
-            Some(other) => return Err(format!("speaker '{other}': use 'seat' or 'random'")),
-        }
-        match setup.bots.as_deref() {
-            None | Some("rule" | "random") => {}
-            Some(other) => return Err(format!("bots '{other}': use 'rule' or 'random'")),
         }
         Ok(setup)
     }
@@ -184,39 +194,23 @@ impl Setup {
         let content = ContentStore::embedded();
         let players = setup.players;
         let human = setup.human_seat.expect("resolved sets the seat");
-        let ids: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
-        let (state, galaxy) = if let Some(scenario) = &setup.scenario {
-            ti4_host::view::scenario::start(content, scenario, &ids)?
-        } else {
-            let template = match setup.map.as_deref() {
-                None => catalog::recommended_for(players),
-                Some("random") => None,
-                Some(alias) => Some(alias.to_owned()),
-            };
-            let chosen: Vec<Option<String>> = (0..players)
-                .map(|seat| {
-                    (seat == human)
-                        .then(|| setup.human_faction.clone())
-                        .flatten()
-                })
-                .collect();
-            ti4_host::map::create_game_with_factions(
-                content,
-                &ids,
-                setup.seed,
-                template.as_deref(),
-                setup.preset.as_deref(),
-                Some(setup.card_set.as_deref().unwrap_or(card_set::DEFAULT)),
-                SpeakerOrder::from_stored(setup.speaker.as_deref()),
-                Some(&chosen),
-            )?
-        };
-        let rule_seats = if setup.bots.as_deref() == Some("random") {
+        let table = setup.table();
+        let chosen: Vec<Option<String>> = (0..players)
+            .map(|seat| {
+                (seat == human)
+                    .then(|| setup.human_faction.clone())
+                    .flatten()
+            })
+            .collect();
+        let joined: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
+        let drawn = setup::draw(&table, &chosen)?;
+        let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)?;
+        let rule_seats = if setup.bots == Some(Bots::Random) {
             0
         } else {
             ((1_u32 << players) - 1) & !(1 << human)
         };
-        let game = Game::with_seeded_random(state, content, setup.seed)
+        let game = Game::with_seeded_random(state, content, table.game_seed())
             .with_sources(POK)
             .with_galaxy(galaxy.clone());
         Ok(Built {
@@ -231,52 +225,12 @@ impl Setup {
     }
 }
 
-/// What the setup form may offer, for tables of 3 to 6.
+/// What the setup form may offer: the options of `ti4_host::setup`, with the maps of every
+/// count, the presets and what identifies the engine.
 #[must_use]
 pub fn describe() -> serde_json::Value {
-    let content = ContentStore::embedded();
-    let card_sets: Vec<_> = card_set::OFFERED
-        .iter()
-        .map(|set| {
-            let (ids, initiative) =
-                ti4_engine::setup::strategy_card_setup_for_set(content, set).unwrap_or_default();
-            let mut cards: Vec<_> = ids
-                .iter()
-                .map(|id| {
-                    json!({
-                        "id": id.as_str(),
-                        "name": content
-                            .get(ti4_model::content_types::ContentType::StrategyCards, id.as_str())
-                            .and_then(|card| card.text("name"))
-                            .unwrap_or(id.as_str()),
-                        "initiative": initiative.get(id).copied().unwrap_or(99),
-                    })
-                })
-                .collect();
-            cards.sort_by_key(|card| card["initiative"].as_i64());
-            json!({
-                "id": set,
-                "name": match *set {
-                    card_set::TE => "Thunder's Edge",
-                    card_set::POK => "Prophecy of Kings",
-                    card_set::BASE_GAME_CODEX1 => "Base game with Codex I",
-                    _ => "Strategy cards",
-                },
-                "default": *set == card_set::DEFAULT,
-                "cards": cards,
-            })
-        })
-        .collect();
-    let faction = |id: &&str| {
-        json!({
-            "id": id,
-            "name": ti4_content::factions::get(content, id)
-                .and_then(|record| record.name().map(str::to_owned))
-                .unwrap_or_else(|| (*id).to_owned()),
-        })
-    };
-    let (base, pok) = seating::LOBBY_FACTIONS.split_at(seating::LOBBY_BASE_FACTIONS);
-    let maps: serde_json::Map<String, serde_json::Value> = (MIN_PLAYERS..=MAX_PLAYERS)
+    let mut options = serde_json::to_value(setup::setup_options("The page", 0)).unwrap_or_default();
+    let maps: serde_json::Map<String, serde_json::Value> = setup::PLAYER_COUNTS
         .map(|count| {
             (
                 count.to_string(),
@@ -285,26 +239,16 @@ pub fn describe() -> serde_json::Value {
             )
         })
         .collect();
-    json!({
-        "min_players": MIN_PLAYERS,
-        "max_players": MAX_PLAYERS,
-        "strategy_card_sets": card_sets,
-        "faction_groups": [
-            { "name": "Base game", "factions": base.iter().map(faction).collect::<Vec<_>>() },
-            { "name": "Prophecy of Kings", "factions": pok.iter().map(faction).collect::<Vec<_>>() },
-        ],
-        "bot_kinds": [
-            { "id": "rule", "name": "Rule bot",
-              "description": "Plays the other seats by rules: it builds, moves and scores." },
-            { "id": "random", "name": "Random",
-              "description": "Plays the other seats at random, among what the game allows." },
-        ],
-        "maps": maps,
-        "presets": ti4_host::preset::KNOWN,
-        "scenarios": ti4_host::view::scenario::SCENARIOS,
-        "content_digest": ti4_content::provenance::embedded_digest().corpus,
-        "engine_build": env!("CARGO_PKG_VERSION"),
-    })
+    if let Some(object) = options.as_object_mut() {
+        object.insert("maps".to_owned(), maps.into());
+        object.insert("presets".to_owned(), ti4_host::preset::KNOWN.into());
+        object.insert(
+            "content_digest".to_owned(),
+            ti4_content::provenance::embedded_digest().corpus.into(),
+        );
+        object.insert("engine_build".to_owned(), env!("CARGO_PKG_VERSION").into());
+    }
+    options
 }
 
 /// A pictured map for the setup form: the tiles of the board a table of `player_count` gets for

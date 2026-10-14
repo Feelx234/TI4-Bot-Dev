@@ -1996,7 +1996,11 @@ impl<'a> Game<'a> {
     )]
     pub fn step(&mut self) -> StepResult {
         // Rolls are stamped with the system in play, for the public roll feed only.
-        let scene = self.state.active_system.as_ref().map(|id| id.as_str().to_owned());
+        let scene = self
+            .state
+            .active_system
+            .as_ref()
+            .map(|id| id.as_str().to_owned());
         self.dice.set_scene(scene.as_deref());
         if let Err(error) = self.announce_staged_ground_events() {
             return self.result(false, Some(error));

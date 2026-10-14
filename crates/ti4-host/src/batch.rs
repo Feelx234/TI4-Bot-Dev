@@ -1447,7 +1447,10 @@ fn simulate_script(
     }
     let replayed = prefix.len() - covered;
     let clock = config.clock();
-    let deadline = Deadline::after(clock, u64::try_from(replay_budget(replayed).as_millis()).unwrap_or(u64::MAX));
+    let deadline = Deadline::after(
+        clock,
+        u64::try_from(replay_budget(replayed).as_millis()).unwrap_or(u64::MAX),
+    );
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();

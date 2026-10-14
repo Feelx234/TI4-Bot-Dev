@@ -33,7 +33,7 @@ fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
             None,
             None,
             ti4_server::card_set::DEFAULT,
-            ti4_server::map::SpeakerOrder::Seat,
+            ti4_host::setup::SpeakerOrder::Seat,
             ti4_server::session::table::SeatOrder::Join,
             None,
         )

@@ -1,8 +1,8 @@
 //! The setup of a game, for both hosts: what a host can choose for a table, what the table looks
 //! like before it starts, and the game that it starts.
 //!
-//! The server calls this for the tables of its lobbies and the wasm host for the table of the
-//! page, so a table of a seed is the same game on both. Nothing here knows a lobby record, a
+//! The server calls this for the tables of its lobbies and the wasm hosts for the table of the
+//! page, so a table of a seed is the same game on all of them. Nothing here knows a lobby record, a
 //! credential or a socket: a host keeps its table as it likes and hands over a [`TableSetup`].
 
 use std::collections::BTreeMap;
@@ -14,7 +14,8 @@ use ti4_engine::seating;
 use ti4_model::id::{FactionId, PlayerId};
 use ti4_model::state::GameState;
 
-use crate::map::{SpeakerOrder, create_game_with_template_seated};
+use crate::map::create_game_with_template_seated;
+use crate::preset;
 use crate::view::scenario::{self, Scenario};
 
 use crate::maps::catalog::{self, MapChoice, MapPreview};
@@ -126,6 +127,50 @@ impl SeatOrder {
     }
 }
 
+/// Who opens a new game as speaker (and so picks the first strategy card).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpeakerOrder {
+    /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
+    /// opens with the same speaker. What a table gets unless it asks otherwise.
+    #[default]
+    Random,
+    /// The first seat. Fixtures and tests pin their games to this.
+    Seat,
+}
+
+impl SpeakerOrder {
+    /// The stored/requested name: `"random"` or `"seat"`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Random => "random",
+            Self::Seat => "seat",
+        }
+    }
+
+    /// Parse a requested name.
+    ///
+    /// # Errors
+    /// A message naming the accepted values.
+    pub fn parse(name: &str) -> Result<Self, String> {
+        match name {
+            "random" => Ok(Self::Random),
+            "seat" => Ok(Self::Seat),
+            other => Err(format!(
+                "unknown speaker_order {other:?} (expected \"random\" or \"seat\")"
+            )),
+        }
+    }
+
+    /// A stored value; `None` (a record written before the option) and anything unknown are
+    /// [`SpeakerOrder::Random`].
+    #[must_use]
+    pub fn from_stored(name: Option<&str>) -> Self {
+        name.and_then(|n| Self::parse(n).ok()).unwrap_or_default()
+    }
+}
+
 fn default_card_set() -> String {
     card_set::DEFAULT.to_owned()
 }
@@ -150,6 +195,10 @@ pub struct TableSetup {
     /// its seats, its map, its cards and its factions. `None` is round 1.
     #[serde(default)]
     pub start_from: Option<String>,
+    /// A start preset of [`crate::preset`] (a test table): it seats its own factions in the order
+    /// of the join and sets its cases on the opening state. A scenario wins over it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     /// The seed of the table. It tells the seats and the factions that nobody chose, so a host
     /// with several people keeps it to itself.
     pub seed: u64,
@@ -171,8 +220,15 @@ impl TableSetup {
             seat_order: SeatOrder::default(),
             speaker_order: SpeakerOrder::default(),
             start_from: None,
+            preset: None,
             seed,
         }
+    }
+
+    /// The start preset that the table plays: none for a table that starts from a scenario.
+    #[must_use]
+    pub fn start_preset(&self) -> Option<&str> {
+        self.preset.as_deref().filter(|_| self.start_from.is_none())
     }
 
     /// The scenario that the table starts from.
@@ -212,6 +268,11 @@ impl TableSetup {
             ));
         }
         card_set::validate(&self.strategy_cards).map_err(|error| error.to_string())?;
+        if let Some(name) = self.start_preset()
+            && !preset::is_known(name)
+        {
+            return Err(format!("unknown start_preset {name:?}"));
+        }
         match self.scenario()? {
             Some(scenario) if scenario.players != self.player_count => Err(format!(
                 "\"{}\" is a game of {} players",
@@ -411,7 +472,8 @@ impl Drawn {
 /// The seat order comes from the seed first (a stream of its own); the factions are then drawn
 /// for that order ([`seating::lobby_faction_draw`]), so a chosen faction stays with its player.
 /// A table that starts from a scenario keeps the order of the join: a case of a scenario is at a
-/// certain seat.
+/// certain seat. A table with a start preset keeps it too, and seats the factions of the preset
+/// (the choices of the players do not apply to it).
 ///
 /// # Errors
 /// A message when `chosen` is not one entry for each seat, for an unknown scenario, or for an
@@ -427,6 +489,12 @@ pub fn draw(setup: &TableSetup, chosen: &[Option<String>]) -> Result<Drawn, Stri
         });
     }
     let seed = setup.game_seed();
+    if let Some(name) = setup.start_preset() {
+        return Ok(Drawn {
+            order: seat_places(SeatOrder::Join, setup.player_count, seed),
+            factions: preset_factions(name, setup.player_count, seed),
+        });
+    }
     let order = seat_places(setup.seat_order, setup.player_count, seed);
     let by_seat: Vec<Option<&str>> = order
         .iter()
@@ -436,15 +504,29 @@ pub fn draw(setup: &TableSetup, chosen: &[Option<String>]) -> Result<Drawn, Stri
     Ok(Drawn { order, factions })
 }
 
+/// The factions of the seats of a table with the start preset `name`: those it names (`+fac`,
+/// `world`), else the in-scope order, rotated as the preset says (`+rot`, `leaders`), and then the
+/// faction that the preset needs on a seat of its own ([`preset::seat_roster`]).
+fn preset_factions(name: &str, count: usize, seed: u64) -> Vec<FactionId> {
+    // The preset seats by the place of a seat, not by its id.
+    let seats: Vec<PlayerId> = (0..count)
+        .map(|seat| PlayerId::new(format!("seat_{seat:02}")))
+        .collect();
+    let mut assignments = preset::roster(name, seed, &seats)
+        .unwrap_or_else(|| seating::seat_in_scope_rotated(&seats, preset::rotation(name, seed)));
+    preset::seat_roster(name, seed, &seats, &mut assignments);
+    seats.iter().map(|seat| assignments[seat].clone()).collect()
+}
+
 /// The game that the table starts, with what [`draw`] drew. `players` are the ids of the seats
 /// in their order ([`Drawn::seated`]).
 ///
-/// The speaker is a part of the returned state, so a game that is played again from its stored
-/// first state keeps it.
+/// The speaker and the cases of a start preset are a part of the returned state, so a game that is
+/// played again from its stored first state keeps them.
 ///
 /// # Errors
-/// A message when the ids are not one for each seat, for an unknown scenario, template or set of
-/// cards, or when the map does not build.
+/// A message when the ids are not one for each seat, for an unknown scenario, template, preset or
+/// set of cards, or when the map does not build or the preset cannot be placed.
 pub fn create(
     content: &ContentStore,
     setup: &TableSetup,
@@ -479,7 +561,32 @@ pub fn create(
     {
         state.speaker = speaker;
     }
+    if let Some(name) = setup.start_preset() {
+        preset::apply(content, &mut state, &galaxy, players, seed, name)?;
+    }
     Ok((state, galaxy))
+}
+
+/// The game of a test table: `players` in their order, the first seat opens, the Prophecy of Kings
+/// cards, with the start preset `preset`.
+#[cfg(test)]
+pub(crate) fn preset_game(
+    content: &ContentStore,
+    players: &[PlayerId],
+    seed: u64,
+    template: Option<&str>,
+    preset: &str,
+) -> Result<(GameState, Galaxy), String> {
+    let setup = TableSetup {
+        map: MapChoice::from_stored(template),
+        strategy_cards: card_set::POK.to_owned(),
+        seat_order: SeatOrder::Join,
+        speaker_order: SpeakerOrder::Seat,
+        preset: Some(preset.to_owned()),
+        ..TableSetup::new(players.len(), seed)
+    };
+    let drawn = draw(&setup, &vec![None; players.len()])?;
+    create(content, &setup, players, &drawn)
 }
 
 #[cfg(test)]
@@ -511,6 +618,73 @@ mod tests {
         }
         assert!(SeatOrder::parse("host").is_err());
         assert_eq!(SeatOrder::from_stored(None), SeatOrder::Random);
+    }
+
+    #[test]
+    fn speaker_order_names_round_trip() {
+        for order in [SpeakerOrder::Random, SpeakerOrder::Seat] {
+            assert_eq!(SpeakerOrder::parse(order.as_str()), Ok(order));
+        }
+        assert!(SpeakerOrder::parse("first").is_err());
+        assert_eq!(SpeakerOrder::from_stored(None), SpeakerOrder::Random);
+    }
+
+    #[test]
+    fn a_random_speaker_follows_the_seed_and_changes_nothing_else() {
+        for n in [3, 4, 5, 6] {
+            let nobody = vec![None; n];
+            let mut speakers = std::collections::BTreeSet::new();
+            for seed in 0..24_u64 {
+                let mut setup = TableSetup::new(n, seed);
+                setup.speaker_order = SpeakerOrder::Seat;
+                let (drawn, seat) = started(&setup, &nobody);
+                let players = drawn.seated(&ids(n));
+                assert_eq!(
+                    seat.speaker, players[0],
+                    "seat order opens with the first seat"
+                );
+                setup.speaker_order = SpeakerOrder::Random;
+                let (_, random) = started(&setup, &nobody);
+                assert_eq!(
+                    Some(random.speaker.clone()),
+                    ti4_engine::seeded_speaker(&players, seed)
+                );
+                // Seats, factions, board and decks are untouched.
+                let mut reseated = random.clone();
+                reseated.speaker = seat.speaker.clone();
+                assert_eq!(reseated, seat, "{n}p seed {seed}");
+                speakers.insert(random.speaker);
+            }
+            assert!(speakers.len() > 1, "{n}p: the speaker varies across seeds");
+        }
+        // A preset game draws the same speaker.
+        let mut setup = TableSetup::new(4, 5);
+        setup.preset = Some(preset::COMBAT.to_owned());
+        let (_, state) = started(&setup, &[None, None, None, None]);
+        assert_eq!(Some(state.speaker), ti4_engine::seeded_speaker(&ids(4), 5));
+    }
+
+    #[test]
+    fn a_preset_table_keeps_the_join_and_seats_the_factions_of_the_preset() {
+        let mut setup = TableSetup::new(4, 9);
+        setup.preset = Some("combat+fac:naalu:mentak".to_owned());
+        setup.check().unwrap();
+        let chosen = vec![Some("sol".to_owned()), None, None, None];
+        let (drawn, state) = started(&setup, &chosen);
+        assert_eq!(drawn.order, vec![0, 1, 2, 3]);
+        assert_eq!(drawn.factions[0].as_str(), "naalu");
+        assert_eq!(drawn.factions[1].as_str(), "mentak");
+        assert_eq!(state.player(&ids(4)[0]).unwrap().faction.as_str(), "naalu");
+
+        setup.preset = Some("nope".to_owned());
+        assert!(setup.check().is_err());
+        // A scenario wins over a preset.
+        let late = scenario::find(scenario::LATE_GAME).unwrap();
+        let mut setup = TableSetup::new(late.players, 77);
+        setup.start_from = Some(late.id.to_owned());
+        setup.preset = Some("nope".to_owned());
+        setup.check().unwrap();
+        assert_eq!(setup.start_preset(), None);
     }
 
     #[test]
@@ -598,7 +772,8 @@ mod tests {
 
         let players = drawn.seated(&ids(4));
         let by_seat: Vec<Option<String>> = drawn.seated(&chosen);
-        let factions = crate::map::lobby_seat_factions(&by_seat, 9).unwrap();
+        let by_seat: Vec<Option<&str>> = by_seat.iter().map(Option::as_deref).collect();
+        let factions = seating::lobby_faction_draw(&by_seat, 9).unwrap();
         let assignments: BTreeMap<PlayerId, FactionId> =
             players.iter().cloned().zip(factions).collect();
         let (mut expected, _) = create_game_with_template_seated(

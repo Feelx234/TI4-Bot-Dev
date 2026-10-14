@@ -1,5 +1,6 @@
-//! Map generation and static board tile extraction, and game creation with a start preset or a
-//! lobby's choices.
+//! Map generation and static board tile extraction, and the game of a map with the faction of
+//! every seat given ([`create_game_with_template_seated`]). A table starts with
+//! [`crate::setup`].
 
 use serde::{Deserialize, Serialize};
 use ti4_content::ContentStore;
@@ -448,182 +449,6 @@ pub fn create_game_with_template_seated(
     Ok((state, galaxy))
 }
 
-/// Who opens a new game as speaker (and so picks the first strategy card).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SpeakerOrder {
-    /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
-    /// opens with the same speaker. What a lobby game gets unless it asks otherwise.
-    #[default]
-    Random,
-    /// The first seat. Fixtures and tests pin their games to this.
-    Seat,
-}
-
-impl SpeakerOrder {
-    /// The stored/requested name: `"random"` or `"seat"`.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Random => "random",
-            Self::Seat => "seat",
-        }
-    }
-
-    /// Parse a requested name.
-    ///
-    /// # Errors
-    /// A message naming the accepted values.
-    pub fn parse(name: &str) -> Result<Self, String> {
-        match name {
-            "random" => Ok(Self::Random),
-            "seat" => Ok(Self::Seat),
-            other => Err(format!(
-                "unknown speaker_order {other:?} (expected \"random\" or \"seat\")"
-            )),
-        }
-    }
-
-    /// A stored value; `None` (a record written before the option) and anything unknown are
-    /// [`SpeakerOrder::Random`].
-    #[must_use]
-    pub fn from_stored(name: Option<&str>) -> Self {
-        name.and_then(|n| Self::parse(n).ok()).unwrap_or_default()
-    }
-}
-
-/// The factions a lobby table plays: `chosen[i]` is what seat `i` asked for, and the undecided seats
-/// get distinct factions from the rest of the pool, dealt by `seed`
-/// ([`seating::lobby_faction_draw`]). Indexed by seat, so a map preview made before anyone has an
-/// id seats the same factions the game will.
-///
-/// # Errors
-/// A message for an unknown or repeated choice.
-pub fn lobby_seat_factions(
-    chosen: &[Option<String>],
-    seed: u64,
-) -> Result<Vec<ti4_model::id::FactionId>, String> {
-    let chosen: Vec<Option<&str>> = chosen.iter().map(Option::as_deref).collect();
-    seating::lobby_faction_draw(&chosen, seed).map_err(|e| e.to_string())
-}
-
-/// As [`create_game_with_template`], then applies the named start preset (if any) to the opening
-/// state. Without a preset the result is exactly [`create_game_with_template`]'s.
-///
-/// # Errors
-/// Anything [`create_game_with_template`] reports, or an unknown or unplaceable preset.
-pub fn create_game_with_preset(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    preset: Option<&str>,
-) -> Result<(GameState, Galaxy), String> {
-    create_game_with_options(content, player_ids, seed, template, preset, None)
-}
-
-/// As [`create_game_with_preset`], with the strategy-card set named (`None`: the PoK-scope set).
-///
-/// # Errors
-/// Anything [`create_game_with_preset`] reports, or an unknown card set.
-pub fn create_game_with_options(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    preset: Option<&str>,
-    card_set: Option<&str>,
-) -> Result<(GameState, Galaxy), String> {
-    create_game_with_speaker(
-        content,
-        player_ids,
-        seed,
-        template,
-        preset,
-        card_set,
-        SpeakerOrder::Seat,
-    )
-}
-
-/// As [`create_game_with_options`], with the opening speaker chosen by `speaker`. The speaker is
-/// part of the returned opening state, so a game replayed from its stored opening state keeps it.
-///
-/// # Errors
-/// As [`create_game_with_options`].
-pub fn create_game_with_speaker(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    preset: Option<&str>,
-    card_set: Option<&str>,
-    speaker: SpeakerOrder,
-) -> Result<(GameState, Galaxy), String> {
-    create_game_with_factions(
-        content, player_ids, seed, template, preset, card_set, speaker, None,
-    )
-}
-
-/// As [`create_game_with_speaker`], seating a lobby's table: with `lobby_factions` (one entry per
-/// seat, `None` for "any") and no start preset the factions come from [`lobby_seat_factions`].
-/// A start preset seats its own factions, so the lobby's choices do not apply to it. Without
-/// `lobby_factions` the fixed in-scope order seats (what fixtures and tests pin their games to).
-///
-/// # Errors
-/// As [`create_game_with_speaker`], or an unknown or repeated faction choice.
-#[allow(clippy::too_many_arguments)]
-pub fn create_game_with_factions(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    preset: Option<&str>,
-    card_set: Option<&str>,
-    speaker: SpeakerOrder,
-    lobby_factions: Option<&[Option<String>]>,
-) -> Result<(GameState, Galaxy), String> {
-    let rotation = preset.map_or(0, |name| crate::preset::rotation(name, seed));
-    let lobby_roster = match (preset, lobby_factions) {
-        (None, Some(chosen)) => {
-            if chosen.len() != player_ids.len() {
-                return Err("one faction entry per seat is required".to_owned());
-            }
-            Some(
-                player_ids
-                    .iter()
-                    .cloned()
-                    .zip(lobby_seat_factions(chosen, seed)?)
-                    .collect::<std::collections::BTreeMap<_, _>>(),
-            )
-        }
-        _ => None,
-    };
-    // A preset that seats factions outside the in-scope six names them itself (`+fac`, `world`).
-    let mut assignments = lobby_roster
-        .or_else(|| preset.and_then(|name| crate::preset::roster(name, seed, player_ids)))
-        .unwrap_or_else(|| seating::seat_in_scope_rotated(player_ids, rotation));
-    if let Some(name) = preset {
-        crate::preset::seat_roster(name, seed, player_ids, &mut assignments);
-    }
-    let (mut state, galaxy) = create_game_with_template_seated(
-        content,
-        player_ids,
-        seed,
-        template,
-        &assignments,
-        card_set,
-    )?;
-    if speaker == SpeakerOrder::Random
-        && let Some(drawn) = ti4_engine::seeded_speaker(player_ids, seed)
-    {
-        state.speaker = drawn;
-    }
-    if let Some(preset) = preset {
-        crate::preset::apply(content, &mut state, &galaxy, player_ids, seed, preset)?;
-    }
-    Ok((state, galaxy))
-}
-
 /// The galaxy a game was built with, rebuilt for recovery from the factions its saved opening state
 /// seats. Rebuilding with the in-scope order instead (as recovery did) lays the board out for the
 /// wrong home systems whenever a start preset rotated the factions or seated others (`+rot`,
@@ -668,15 +493,6 @@ mod template_tests {
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
-    }
-
-    #[test]
-    fn speaker_order_names_round_trip() {
-        for order in [SpeakerOrder::Random, SpeakerOrder::Seat] {
-            assert_eq!(SpeakerOrder::parse(order.as_str()), Ok(order));
-        }
-        assert!(SpeakerOrder::parse("first").is_err());
-        assert_eq!(SpeakerOrder::from_stored(None), SpeakerOrder::Random);
     }
 
     #[test]
@@ -791,6 +607,7 @@ mod template_tests {
 #[cfg(test)]
 mod preset_tests {
     use super::*;
+    use crate::setup::preset_game;
 
     fn players(n: usize) -> Vec<PlayerId> {
         (1..=n).map(|i| PlayerId::new(format!("p{i}"))).collect()
@@ -808,8 +625,7 @@ mod preset_tests {
             "combat",
         ] {
             let (state, galaxy) =
-                create_game_with_preset(content, &list, 7, Some("4pHyperlanes"), Some(preset))
-                    .unwrap();
+                preset_game(content, &list, 7, Some("4pHyperlanes"), preset).unwrap();
             let rebuilt = rebuild_galaxy(content, &list, 7, Some("4pHyperlanes"), &state).unwrap();
             assert_eq!(
                 build_board_tiles(content, &galaxy),
@@ -817,74 +633,6 @@ mod preset_tests {
                 "{preset}"
             );
         }
-    }
-
-    #[test]
-    fn a_random_speaker_follows_the_seed_and_changes_nothing_else() {
-        let content = ContentStore::embedded();
-        for n in [3, 4, 5, 6] {
-            let list = players(n);
-            let mut speakers = std::collections::BTreeSet::new();
-            for seed in 0..24_u64 {
-                let (seat, seat_galaxy) =
-                    create_game_with_options(content, &list, seed, None, None, None).unwrap();
-                assert_eq!(
-                    seat.speaker, list[0],
-                    "seat order opens with the first seat"
-                );
-                let (random, galaxy) = create_game_with_speaker(
-                    content,
-                    &list,
-                    seed,
-                    None,
-                    None,
-                    None,
-                    SpeakerOrder::Random,
-                )
-                .unwrap();
-                let (again, _) = create_game_with_speaker(
-                    content,
-                    &list,
-                    seed,
-                    None,
-                    None,
-                    None,
-                    SpeakerOrder::Random,
-                )
-                .unwrap();
-                assert_eq!(
-                    random.speaker, again.speaker,
-                    "{n}p seed {seed}: same seed, same speaker"
-                );
-                assert_eq!(
-                    Some(random.speaker.clone()),
-                    ti4_engine::seeded_speaker(&list, seed)
-                );
-                // Seats, factions, board and decks are untouched.
-                let mut reseated = random.clone();
-                reseated.speaker = seat.speaker.clone();
-                assert_eq!(reseated, seat, "{n}p seed {seed}");
-                assert_eq!(
-                    build_board_tiles(content, &galaxy),
-                    build_board_tiles(content, &seat_galaxy)
-                );
-                speakers.insert(random.speaker);
-            }
-            assert!(speakers.len() > 1, "{n}p: the speaker varies across seeds");
-        }
-        // A preset game draws the same speaker.
-        let list = players(4);
-        let (state, _) = create_game_with_speaker(
-            content,
-            &list,
-            5,
-            None,
-            Some("combat"),
-            None,
-            SpeakerOrder::Random,
-        )
-        .unwrap();
-        assert_eq!(Some(state.speaker), ti4_engine::seeded_speaker(&list, 5));
     }
 
     #[test]
@@ -906,9 +654,7 @@ mod preset_tests {
                     "generic notes left in a {n}p default game"
                 );
                 let _ = &name;
-                let Ok((state, _)) =
-                    create_game_with_preset(content, &list, seed, None, Some(&name))
-                else {
+                let Ok((state, _)) = preset_game(content, &list, seed, None, &name) else {
                     failures.push(format!("{alias} {n}p"));
                     continue;
                 };

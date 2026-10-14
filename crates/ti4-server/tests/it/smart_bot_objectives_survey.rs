@@ -145,9 +145,14 @@ fn play(seats: usize, seed: u64, max_round: u32) -> GameRecord {
     let ids: Vec<PlayerId> = (1..=seats)
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
-    let (state, galaxy) =
-        ti4_server::map::create_game_with_options(content, &ids, seed, None, None, Some("te"))
-            .expect("create game");
+    let (state, galaxy) = ti4_server::map::create_game_with_template_and_card_set(
+        content,
+        &ids,
+        seed,
+        None,
+        Some("te"),
+    )
+    .expect("create game");
     let counter = Arc::new(AtomicUsize::new(0));
     let mut table = Table::new();
     for id in &ids {

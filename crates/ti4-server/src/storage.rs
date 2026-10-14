@@ -205,6 +205,18 @@ impl std::fmt::Debug for PlayerLobbyMember {
     }
 }
 
+/// The strategy card set of a record written before the option existed: those games keep the
+/// Prophecy of Kings cards they were recorded with; only newly created games default to
+/// [`crate::card_set::DEFAULT`]. The cards themselves are baked into the saved initial state, so
+/// a restart or a history replacement replays the same cards.
+pub const LEGACY_CARD_SET: &str = crate::card_set::POK;
+
+/// The strategy card set a stored value stands for: a missing value is a legacy record.
+#[must_use]
+pub fn stored_card_set(stored: Option<&str>) -> &str {
+    stored.unwrap_or(LEGACY_CARD_SET)
+}
+
 /// Private versioned lobby record. Never return this type from a public API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -222,7 +234,8 @@ pub struct PlayerLobbyRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
     /// Strategy card set chosen at creation (see [`crate::card_set`]). Absent in records written
-    /// before the option existed: those games play the PoK cards they were recorded with.
+    /// before the option existed: those games play the PoK cards they were recorded with
+    /// ([`LEGACY_CARD_SET`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy_card_set: Option<String>,
     /// Who opens as speaker: `"random"` (a seat drawn from the seed) or `"seat"` (the first
@@ -1555,6 +1568,19 @@ fn content_identity() -> String {
 #[cfg(test)]
 mod player_record_tests {
     use super::*;
+
+    #[test]
+    fn only_offered_sets_validate_and_missing_means_pok() {
+        use crate::card_set::{DEFAULT, OFFERED, validate};
+        for set in OFFERED {
+            assert_eq!(validate(set), Ok(set));
+        }
+        assert!(validate("base_game").is_err());
+        assert!(validate("TE").is_err());
+        assert_eq!(stored_card_set(None), "pok");
+        assert_eq!(stored_card_set(Some("te")), "te");
+        assert_eq!(DEFAULT, "te");
+    }
 
     fn store() -> (FileGameStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("ti4_pil01_{:032x}", rand::random::<u128>()));

@@ -747,10 +747,10 @@ content does not have.
 
 ## The hosted game (`web/`, offline play)
 
-One person at a table of 3 to 6 against rule bots, in a Web Worker, speaking the protocol of the
+One person at a table against rule bots, in a Web Worker, speaking the protocol of the
 server. The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
 (`HostSession`: what the server's `SessionShared` does around the engine), `src/host_setup.rs`
-(table setup, the form's data). `js/host.mjs` is a working reference host and a smoke test.
+(the request of a table → `ti4_host::setup::TableSetup`, the form's data). `js/host.mjs` is a working reference host and a smoke test.
 Chrome and Edge 137 and later only (JSPI); Node 24 has it too.
 
 ### Exports
@@ -775,13 +775,16 @@ the run (`leave`) and wait for the `ti4_host_start` promise before starting anot
 
 ### `Setup` (`host_setup::Setup`)
 
-`seed` (number, up to 2^53), `players` (3 to 6), `human_seat?` (0-based; left out: drawn from the
-seed), `human_faction?` (id of `describe().faction_groups`; left out: drawn), `card_set?`
-(`te` default, `pok`, `base_game_codex1`), `map?` (template alias, `"random"`, left out: the
-recommended template), `speaker?` (`seat`, `random`), `bots?` (`rule` default, `random`),
-`game_id?` (default `"local"`), `preset?` and `scenario?` (test tables). Seats are the ids `a` to
-`f`; the person is `ViewerRole::Player(<their seat>)`. The result of `resolved()` is stored in the
-save, so a save is self-contained.
+`seed` (number, up to 2^53), `players` (`ti4_host::setup::PLAYER_COUNTS`, 2 to 8; the form of
+`web/` offers 3 to 6), `human_seat?` (0-based; left out: drawn from the seed), `human_faction?`
+(id of `describe().faction_groups`; left out: drawn), `card_set?` (`te` default, `pok`,
+`base_game_codex1`), `map?` (template alias, `"random"`, left out: the recommended template),
+`speaker?` (`seat`, `random`), `bots?` (`smart` default, also `rule`; `random`), `game_id?`
+(default `"local"`), `preset?` and `scenario?` (test tables). It becomes a `TableSetup` (seats in
+the order of the join) and the game is `ti4_host::setup::{draw, create}`, as on the server.
+`describe()` is `setup_options` with the maps, presets and engine identity added. Seats are the
+ids `a` to `h`; the person is `ViewerRole::Player(<their seat>)`. The result of `resolved()` is
+stored in the save, so a save is self-contained.
 
 ### Output: the envelope
 

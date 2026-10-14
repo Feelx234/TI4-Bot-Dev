@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
+use ti4_host::setup::SpeakerOrder;
 use ti4_model::id::PlayerId;
-use ti4_server::map::SpeakerOrder;
 use ti4_server::session::GameRegistry;
 use ti4_server::storage::FileGameStore;
 

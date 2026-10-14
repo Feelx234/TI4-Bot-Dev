@@ -23,4 +23,5 @@ pub use storage::{FileGameStore, GameInitRecord, StorageError};
 pub use ti4_host::projection;
 pub use ti4_host::protocol;
 pub use ti4_host::protocol::*;
-pub use ti4_host::{card_set, map, preset};
+pub use ti4_host::setup::card_set;
+pub use ti4_host::{map, preset};
