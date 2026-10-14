@@ -2023,6 +2023,12 @@ impl Decider for Capturing {
 /// Rust versions in a way Python's is not. The same seed therefore plays a *different* legal
 /// game. Reproducing an oracle game needs its decision log replayed through [`Scripted`],
 /// or the legacy entropy translator planned in M03-007.
+///
+/// A clone continues the same stream from the same position: with [`Game::fork`] it is what a
+/// checkpoint of a game with random seats keeps.
+///
+/// [`Game::fork`]: crate::game::Game::fork
+#[derive(Clone)]
 pub struct SeededRandom {
     rng: ChaCha8Rng,
 }
@@ -2130,12 +2136,17 @@ impl DecisionLog {
 /// let mut table = Table::with_default(Box::new(Scripted::new(vec![String::new()])));
 /// table.seat(PlayerId::new("a"), Box::new(Scripted::new(vec!["first".to_owned()])));
 /// ```
+type ObservedOffer = Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>;
+
+/// Told about each decision the engine settles without asking.
+type AutoResolvedObserver = Box<dyn FnMut(&AutoResolved) + Send>;
+
 pub struct Table {
     deciders: BTreeMap<PlayerId, Box<dyn Decider>>,
     default: Box<dyn Decider>,
     pub log: DecisionLog,
-    observed_offer: Option<Box<dyn FnMut(&[DecisionRecord], &ti4_model::state::GameState) + Send>>,
-    auto_resolved_observer: Option<Box<dyn FnMut(&AutoResolved) + Send>>,
+    observed_offer: Option<ObservedOffer>,
+    auto_resolved_observer: Option<AutoResolvedObserver>,
     window_observer: Option<WindowObserver>,
     /// Decisions settled without asking, since the last drain. Never part of the decision log.
     auto_resolved: Vec<AutoResolved>,

@@ -200,12 +200,13 @@ fn agenda_phase_probe() {
         diplomacy: true,
     };
     let mut review = LiveReview::start(&config).expect("the table starts");
-    let mut last: Option<(
+    type StateSignature = (
         ti4_model::state::Phase,
         u32,
         Vec<(String, i32, i32, i32)>,
         usize,
-    )> = None;
+    );
+    let mut last: Option<StateSignature> = None;
     let mut seen_agenda = false;
     for _ in 0..60_000 {
         let frame = review.step_once().clone();

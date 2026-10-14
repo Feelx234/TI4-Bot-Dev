@@ -1,5 +1,7 @@
 //! WebSocket connection lifecycle and routing for live multiplayer sessions.
 
+pub mod table;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -16,7 +18,8 @@ use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::client::ClientMessage;
 use crate::protocol::error::ErrorKind;
 use crate::protocol::server::{
-    ActionRejectedMsg, PongMsg, PreviewRefusal, PreviewResult, ProtocolErrorMsg,
+    ActionRejectedMsg, DraftAppliedMsg, DraftKind, DraftOutcomeMsg, PlanningRejection,
+    PlanningResultMsg, PlanningUpdateMsg, PongMsg, PreviewRefusal, PreviewResult, ProtocolErrorMsg,
     SecondaryPreviewMsg, ServerMessage,
 };
 use crate::protocol::status::{RejectionReason, ViewerRole};
@@ -41,8 +44,16 @@ pub async fn ws_handler(
 
 /// Outbound queue bounded capacity to prevent slow consumers from buffering indefinitely.
 const OUTBOUND_QUEUE_CAPACITY: usize = 128;
-/// Maximum complete client WebSocket message, including JSON framing.
-pub const MAX_CLIENT_MESSAGE_BYTES: usize = 4 * 1024;
+/// Maximum complete client WebSocket message, including JSON framing. A script of a draft is
+/// the largest (`RunDraft`, `ApplyDraft`); the local game gives its requests the same room.
+pub const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
+
+/// The newest draft request of a connection: its `request_id` and its script.
+type DraftRequest = Option<(
+    String,
+    ti4_view::planning::audit::PlanScope,
+    Vec<ti4_view::planning::draft::DraftStep>,
+)>;
 /// Least time between two reaction declarations on one connection.
 const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);
 /// Least time between two secondary previews on one connection (and only one runs at a time).
@@ -69,6 +80,7 @@ async fn handle_socket(
     let pump_game = game_id.clone();
     let outbound_credential = Arc::new(std::sync::Mutex::new(None::<String>));
     let credential_for_pump = outbound_credential.clone();
+    let session_for_pump = session.clone();
 
     // Outbound pump task: forwards ServerMessage as JSON text to WebSocket sink
     let outbound_task = tokio::spawn(async move {
@@ -98,6 +110,24 @@ async fn handle_socket(
             }) {
                 break;
             }
+            if let ServerMessage::PlanningUpdate(update) = &msg {
+                let Some(player) = credential.as_deref().and_then(|token| {
+                    outbound_registry
+                        .authenticate_player_session(&outbound_game, token)
+                        .ok()
+                }) else {
+                    continue;
+                };
+                let current = match update.draft {
+                    DraftKind::Tactical => session_for_pump
+                        .planning_attempt_is_current(&player, update.envelope.identity),
+                    DraftKind::Secondary => session_for_pump
+                        .secondary_attempt_is_current(&player, update.envelope.identity),
+                };
+                if !current {
+                    continue;
+                }
+            }
             match serde_json::to_string(&msg) {
                 Ok(text) => {
                     if ws_sender.send(Message::Text(text.into())).await.is_err() {
@@ -119,6 +149,9 @@ async fn handle_socket(
     let mut last_reach: Option<std::time::Instant> = None;
     let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
+    // The draft requests of this connection. One is run at a time and only the newest waits,
+    // so a page that sends a script for each change cannot queue work.
+    let mut drafts: Option<tokio::sync::watch::Sender<DraftRequest>> = None;
     let idle_timeout = registry.public().config.ws_idle_timeout;
     let mut last_inbound = std::time::Instant::now();
 
@@ -215,6 +248,297 @@ async fn handle_socket(
         }
 
         match client_msg {
+            message @ (ClientMessage::StartPlanning { .. }
+            | ClientMessage::ResetPlanning { .. }
+            | ClientMessage::EditPlanningMovement { .. }
+            | ClientMessage::ApplyPlanning { .. }
+            | ClientMessage::SubmitPlanningChoice { .. }) => {
+                let request_id = match &message {
+                    ClientMessage::SubmitPlanningChoice { request_id, .. } => request_id.as_deref(),
+                    _ => None,
+                };
+                let (message_game_id, answer) = match &message {
+                    ClientMessage::StartPlanning { game_id, .. } => (game_id, None),
+                    ClientMessage::ResetPlanning {
+                        game_id, identity, ..
+                    }
+                    | ClientMessage::EditPlanningMovement {
+                        game_id, identity, ..
+                    } => (game_id, Some((*identity, ""))),
+                    ClientMessage::ApplyPlanning {
+                        game_id, identity, ..
+                    } => (game_id, Some((*identity, ""))),
+                    ClientMessage::SubmitPlanningChoice {
+                        game_id,
+                        identity,
+                        option_id,
+                        ..
+                    } => (game_id, Some((*identity, option_id.as_str()))),
+                    _ => unreachable!(),
+                };
+                let rejection = if message_game_id != &game_id {
+                    Some(PlanningRejection::WrongGame)
+                } else if let (Some(ViewerRole::Player(player)), Some(token)) =
+                    (&current_role, &current_token)
+                {
+                    if let ClientMessage::ApplyPlanning {
+                        identity,
+                        nonce,
+                        expected_version,
+                        ..
+                    } = &message
+                    {
+                        registry
+                            .apply_player_planning(
+                                &game_id,
+                                token,
+                                player,
+                                &session,
+                                *identity,
+                                nonce,
+                                *expected_version,
+                            )
+                            .err()
+                    } else if let ClientMessage::EditPlanningMovement { identity, .. } = &message {
+                        registry
+                            .edit_player_planning_movement(
+                                &game_id, token, player, &session, *identity,
+                            )
+                            .err()
+                    } else if matches!(message, ClientMessage::ResetPlanning { .. }) {
+                        registry
+                            .reset_player_planning(
+                                &game_id,
+                                token,
+                                player,
+                                &session,
+                                answer.expect("reset identity").0,
+                            )
+                            .err()
+                    } else {
+                        registry
+                            .submit_player_planning_with_request_id(
+                                &game_id, token, player, &session, answer, request_id,
+                            )
+                            .err()
+                    }
+                } else {
+                    Some(PlanningRejection::Unauthorized)
+                };
+                let _ = outbound_tx
+                    .send(ServerMessage::PlanningResult(PlanningResultMsg {
+                        protocol_version: PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        draft: DraftKind::Tactical,
+                        identity: answer.map(|(identity, _)| identity),
+                        rejection,
+                    }))
+                    .await;
+            }
+            ClientMessage::SecondaryPlanning {
+                game_id: message_game_id,
+                request,
+                ..
+            } => {
+                let rejection = if message_game_id != game_id {
+                    Some(PlanningRejection::WrongGame)
+                } else if let (Some(ViewerRole::Player(player)), Some(token)) =
+                    (&current_role, &current_token)
+                {
+                    registry
+                        .player_secondary_planning(&game_id, token, player, &session, &request)
+                        .err()
+                } else {
+                    Some(PlanningRejection::Unauthorized)
+                };
+                let _ = outbound_tx
+                    .send(ServerMessage::PlanningResult(PlanningResultMsg {
+                        protocol_version: PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        draft: DraftKind::Secondary,
+                        identity: request.identity(),
+                        rejection,
+                    }))
+                    .await;
+            }
+            ClientMessage::RunDraft {
+                game_id: message_game_id,
+                request_id,
+                script,
+                scope,
+                ..
+            } => {
+                let (Some(ViewerRole::Player(player)), Some(token), true) =
+                    (&current_role, &current_token, message_game_id == game_id)
+                else {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind: ErrorKind::Unauthorized,
+                            message: "only a seated player of this game can run a draft".to_owned(),
+                        }))
+                        .await;
+                    continue;
+                };
+                let requests = drafts.get_or_insert_with(|| {
+                    let (requests, mut newest) = tokio::sync::watch::channel::<DraftRequest>(None);
+                    let registry = registry.clone();
+                    let session = session.clone();
+                    let game_id = game_id.clone();
+                    let token = token.clone();
+                    let player = player.clone();
+                    let outbound_tx = outbound_tx.clone();
+                    tokio::spawn(async move {
+                        while newest.changed().await.is_ok() {
+                            let Some((request_id, scope, script)) =
+                                newest.borrow_and_update().clone()
+                            else {
+                                continue;
+                            };
+                            let run = {
+                                let registry = registry.clone();
+                                let session = session.clone();
+                                let game_id = game_id.clone();
+                                let token = token.clone();
+                                let player = player.clone();
+                                tokio::task::spawn_blocking(move || {
+                                    registry.run_player_draft(
+                                        &game_id, &token, &player, &session, &scope, &script,
+                                    )
+                                })
+                            };
+                            let Ok(Some((base_version, outcome))) = run.await else {
+                                return;
+                            };
+                            let message = ServerMessage::DraftOutcome(DraftOutcomeMsg {
+                                protocol_version: PROTOCOL_VERSION,
+                                game_id: game_id.clone(),
+                                request_id,
+                                base_version,
+                                outcome: Box::new(outcome),
+                            });
+                            if outbound_tx.send(message).await.is_err() {
+                                return;
+                            }
+                        }
+                    });
+                    requests
+                });
+                let _ = requests.send(Some((request_id, scope, script)));
+            }
+            ClientMessage::ApplyDraft {
+                game_id: message_game_id,
+                nonce,
+                expected_version,
+                script,
+                ..
+            } => {
+                let (Some(ViewerRole::Player(player)), Some(token), true) =
+                    (&current_role, &current_token, message_game_id == game_id)
+                else {
+                    let _ = outbound_tx
+                        .send(ServerMessage::ActionRejected(ActionRejectedMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            game_id: game_id.clone(),
+                            game_version: expected_version,
+                            reason: RejectionReason::UnauthorizedSeat { seat: None },
+                        }))
+                        .await;
+                    continue;
+                };
+                let registry = registry.clone();
+                let session = session.clone();
+                let game_id = game_id.clone();
+                let token = token.clone();
+                let player = player.clone();
+                let outbound_tx = outbound_tx.clone();
+                tokio::spawn(async move {
+                    let applied = {
+                        let game_id = game_id.clone();
+                        let nonce = nonce.clone();
+                        tokio::task::spawn_blocking(move || {
+                            registry.apply_player_draft(
+                                &game_id,
+                                &token,
+                                &player,
+                                &session,
+                                &nonce,
+                                expected_version,
+                                &script,
+                            )
+                        })
+                    };
+                    let message = match applied.await {
+                        // The script is in the game: the seat is told where it ends.
+                        Ok(Ok(None)) => return,
+                        Ok(Ok(Some(stopped))) => ServerMessage::DraftApplied(DraftAppliedMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            game_id,
+                            nonce,
+                            stopped: Some(stopped),
+                        }),
+                        Ok(Err(reason)) => ServerMessage::ActionRejected(ActionRejectedMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            game_id,
+                            game_version: expected_version,
+                            reason,
+                        }),
+                        Err(error) => {
+                            warn!(%game_id, %nonce, %error, "apply_draft task failed");
+                            return;
+                        }
+                    };
+                    let _ = outbound_tx.send(message).await;
+                });
+            }
+            ClientMessage::Undo {
+                game_id: message_game_id,
+                expected_version,
+                ..
+            } => {
+                let rejected = |reason| {
+                    ServerMessage::ActionRejected(ActionRejectedMsg {
+                        protocol_version: PROTOCOL_VERSION,
+                        game_id: game_id.clone(),
+                        game_version: expected_version,
+                        reason,
+                    })
+                };
+                let (Some(ViewerRole::Player(player)), Some(token), true) =
+                    (&current_role, &current_token, message_game_id == game_id)
+                else {
+                    let _ = outbound_tx
+                        .send(rejected(RejectionReason::UnauthorizedSeat { seat: None }))
+                        .await;
+                    continue;
+                };
+                // The game is played again without the decision: this connection waits for it.
+                let undone = {
+                    let registry = registry.clone();
+                    let session = session.clone();
+                    let game_id = game_id.clone();
+                    let token = token.clone();
+                    let player = player.clone();
+                    tokio::task::spawn_blocking(move || {
+                        registry.undo_player(&game_id, &token, &player, &session, expected_version)
+                    })
+                    .await
+                };
+                match undone {
+                    Ok(Ok(())) => {
+                        // The game is another session now. The page subscribes to it again,
+                        // and its snapshot has what was taken back.
+                        if let Some(tx) = replacement_tx.take() {
+                            let _ = tx.send(());
+                        }
+                        break;
+                    }
+                    Ok(Err(reason)) => {
+                        let _ = outbound_tx.send(rejected(reason)).await;
+                    }
+                    Err(error) => warn!(%game_id, %error, "undo task failed"),
+                }
+            }
             ClientMessage::Ping { sequence, .. } => {
                 if let (Some(token), Some(connection)) = (&current_token, connection_id) {
                     if registry.ping_player(&game_id, token, connection).is_err() {
@@ -282,7 +606,10 @@ async fn handle_socket(
                 let subscription = session.subscribe(role.clone());
 
                 // Send immediate snapshot upon subscription
-                let snapshot = session.get_snapshot(&role);
+                let mut snapshot = session.get_snapshot(&role);
+                if let ViewerRole::Player(seat) = &role {
+                    snapshot.undone = session.take_undone(seat);
+                }
                 let _ = outbound_tx
                     .send(ServerMessage::InitialSnapshot(snapshot))
                     .await;
@@ -292,12 +619,86 @@ async fn handle_socket(
                 let registry_for_updates = registry.clone();
                 let game_for_updates = game_id.clone();
                 let token_for_updates = current_token.clone();
+                let session_for_updates = session.clone();
                 tokio::spawn(async move {
                     let mut check = tokio::time::interval(Duration::from_millis(50));
+                    let mut planning = None;
+                    let mut secondary_planning = None;
+                    let mut last_planning_status = None;
                     loop {
                         tokio::select! {
                             _ = check.tick() => {},
                             _ = tx_clone.closed() => return,
+                        }
+                        if let ViewerRole::Player(player) = &role {
+                            // Publish retirement/availability before draining replacement offers.
+                            // This also covers phases where no replacement worker exists.
+                            let status = session_for_updates.planning_status(player);
+                            if last_planning_status.as_ref() != Some(&status) {
+                                if tx_clone
+                                    .send(ServerMessage::PlanningStatus(status.clone()))
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                                last_planning_status = Some(status);
+                            }
+                            if planning.is_none() {
+                                planning = session_for_updates.subscribe_planning(player);
+                            }
+                            if secondary_planning.is_none() {
+                                secondary_planning =
+                                    session_for_updates.subscribe_secondary_planning(player);
+                            }
+                            for (draft, subscription) in [
+                                (DraftKind::Tactical, &mut planning),
+                                (DraftKind::Secondary, &mut secondary_planning),
+                            ] {
+                                let Some(receiver) = subscription else {
+                                    continue;
+                                };
+                                loop {
+                                    match receiver.try_recv() {
+                                        Ok(envelope) => {
+                                            let current = match draft {
+                                                DraftKind::Tactical => session_for_updates
+                                                    .planning_attempt_is_current(
+                                                        player,
+                                                        envelope.identity,
+                                                    ),
+                                                DraftKind::Secondary => session_for_updates
+                                                    .secondary_attempt_is_current(
+                                                        player,
+                                                        envelope.identity,
+                                                    ),
+                                            };
+                                            if !current {
+                                                continue;
+                                            }
+                                            if tx_clone
+                                                .send(ServerMessage::PlanningUpdate(
+                                                    PlanningUpdateMsg {
+                                                        protocol_version: PROTOCOL_VERSION,
+                                                        game_id: game_for_updates.clone(),
+                                                        draft,
+                                                        envelope,
+                                                    },
+                                                ))
+                                                .await
+                                                .is_err()
+                                            {
+                                                return;
+                                            }
+                                        }
+                                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                            *subscription = None;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         loop {
                             match subscription.try_recv() {
@@ -362,7 +763,9 @@ async fn handle_socket(
                         ErrorKind::MalformedMessage,
                         "set_reaction_intent game_id does not match the WebSocket path".to_owned(),
                     ))
-                } else if last_intent.is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL) {
+                } else if last_intent
+                    .is_some_and(|at: std::time::Instant| at.elapsed() < MIN_INTENT_INTERVAL)
+                {
                     Some((
                         ErrorKind::MalformedMessage,
                         "too many reaction declarations; wait a moment".to_owned(),
@@ -473,7 +876,9 @@ async fn handle_socket(
                     .await;
                     running.store(false, Ordering::Release);
                     if let Ok(message) = result {
-                        let _ = outbound_tx.send(ServerMessage::SecondaryPreview(message)).await;
+                        let _ = outbound_tx
+                            .send(ServerMessage::SecondaryPreview(message))
+                            .await;
                     }
                 });
             }

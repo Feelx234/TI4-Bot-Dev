@@ -97,8 +97,8 @@ pub const SHORT: &str = "+short";
 /// Every preset name the server accepts. Keep in step with `KNOWN_PRESETS` in
 /// `web/e2e/smokePreset.ts` (a test below compares the two).
 pub const KNOWN: &[&str] = &[
-    COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE, EXPLORE,
-    NOTES, WORLD,
+    COMBAT, CARDS, AGENDA, RELICS, INVASION, TECHS, LEADERS, ENDGAME, SIEGE, BOMBARD, CAPTURE,
+    EXPLORE, NOTES, WORLD,
 ];
 
 /// Factions a preset may seat, in the order the seeded walk visits them: the original six, then
@@ -123,10 +123,31 @@ pub const HELD_OUT: &[&str] = &[];
 /// (reward choices, "remove an infantry" payments, a production offer), with a fragment and an
 /// attachment between them. Cards the corpus lacks are skipped.
 const EXPLORE_TOPS: &[(&str, &[&str])] = &[
-    ("CULTURAL", &["mo1", "toe", "crf1", "frln1", "pw", "mo2", "crf2", "frln2"]),
-    ("HAZARDOUS", &["cm1", "rw", "hrf1", "exp1", "mw", "vfs1", "hrf2", "cm2"]),
-    ("INDUSTRIAL", &["aw1", "biotic", "irf1", "fb1", "cybernetic", "lf1", "irf2", "aw2"]),
-    ("FRONTIER", &["ms1", "ed1", "urf1", "dv1", "lc1", "ion", "urf2", "ms2"]),
+    (
+        "CULTURAL",
+        &["mo1", "toe", "crf1", "frln1", "pw", "mo2", "crf2", "frln2"],
+    ),
+    (
+        "HAZARDOUS",
+        &["cm1", "rw", "hrf1", "exp1", "mw", "vfs1", "hrf2", "cm2"],
+    ),
+    (
+        "INDUSTRIAL",
+        &[
+            "aw1",
+            "biotic",
+            "irf1",
+            "fb1",
+            "cybernetic",
+            "lf1",
+            "irf2",
+            "aw2",
+        ],
+    ),
+    (
+        "FRONTIER",
+        &["ms1", "ed1", "urf1", "dv1", "lc1", "ion", "urf2", "ms2"],
+    ),
 ];
 
 /// Fragments dealt to seats at the start of `explore`: three of one kind crosses into a relic.
@@ -144,18 +165,40 @@ const FRONTIER_FLEET: &[(&str, usize)] = &[("cruiser", 1), ("destroyer", 1)];
 
 /// The fleet `world` puts in a defended colony's space area: the faction's flagship and mech ride
 /// with the landing force.
-const WORLD_FLEET: &[(&str, usize)] =
-    &[("carrier", 1), ("flagship", 1), ("cruiser", 1), ("infantry", 3)];
+const WORLD_FLEET: &[(&str, usize)] = &[
+    ("carrier", 1),
+    ("flagship", 1),
+    ("cruiser", 1),
+    ("infantry", 3),
+];
 
 /// Action cards no nightly game ever played, found by diffing 72 final states' discard piles
 /// against the corpus. The first ten are in the standard deck; the rest are Thunder's Edge cards,
 /// which a standard game never deals, so a hand is the only way their windows and prompts get
 /// exercised at all. Cards the corpus lacks are skipped.
 const CARD_POOL: &[&str] = &[
-    "confusing", "dh2", "mjets1", "parley", "upgrade", "ghost_squad", "rally", "war_machine2",
-    "decoy", "reparations", "crashlanding", "exchangeprogram", "lieinwait", "puppetsonastring",
-    "extremeduress", "rescue", "strategize1", "piratecontract1", "blackmarketdealing", "overrule",
-    "mercenarycontract", "crisis",
+    "confusing",
+    "dh2",
+    "mjets1",
+    "parley",
+    "upgrade",
+    "ghost_squad",
+    "rally",
+    "war_machine2",
+    "decoy",
+    "reparations",
+    "crashlanding",
+    "exchangeprogram",
+    "lieinwait",
+    "puppetsonastring",
+    "extremeduress",
+    "rescue",
+    "strategize1",
+    "piratecontract1",
+    "blackmarketdealing",
+    "overrule",
+    "mercenarycontract",
+    "crisis",
 ];
 
 /// The top of the agenda deck, two per round: round 1 an elect-player law and a for/against law
@@ -163,8 +206,19 @@ const CARD_POOL: &[&str] = &[
 /// hence the laws first), an elect-planet-style directive, then more elections and laws. Aliases
 /// the corpus lacks are skipped.
 const AGENDA_ORDER: &[&str] = &[
-    "committee", "defense_act", "abolishment", "redistribution", "miscount", "classified",
-    "rep_govt", "crisis", "disarmament", "arbiter", "covert", "execution", "checks",
+    "committee",
+    "defense_act",
+    "abolishment",
+    "redistribution",
+    "miscount",
+    "classified",
+    "rep_govt",
+    "crisis",
+    "disarmament",
+    "arbiter",
+    "covert",
+    "execution",
+    "checks",
 ];
 
 /// Action cards with agenda windows (two riders, a veto, hacking, bribery, confusing text), dealt
@@ -173,8 +227,20 @@ const AGENDA_ORDER: &[&str] = &[
 /// reveal, leaves nobody to vote and the agenda phase never asks `cast_vote` (seen in the first
 /// smoke run of this preset).
 const AGENDA_CARD_POOL: &[&str] = &[
-    "lead_rider", "imp_rider", "bribery", "hack", "sanction", "insider", "veto", "assassin",
-    "distinguished", "confounding", "deadly_plot", "confusing", "abs", "dp1",
+    "lead_rider",
+    "imp_rider",
+    "bribery",
+    "hack",
+    "sanction",
+    "insider",
+    "veto",
+    "assassin",
+    "distinguished",
+    "confounding",
+    "deadly_plot",
+    "confusing",
+    "abs",
+    "dp1",
 ];
 
 /// Trade goods each seat gets, enough to matter for votes and riders without a purchase spree.
@@ -185,9 +251,22 @@ const AGENDA_TRADE_GOODS: i32 = 3;
 /// Edge's Heart of Ixth is included for its die-adjust window; the rest are the standard deck's.
 /// Relics the corpus lacks are skipped.
 const RELIC_POOL: &[&str] = &[
-    "neuraloop", "stellarconverter", "dominusorb", "emphidia", "titanprototype", "heartofixth",
-    "thalnos", "codex", "bookoflatvinia", "prophetstears", "mawofworlds", "enigmaticdevice",
-    "dynamiscore", "emelpar", "nanoforge", "circletofthevoid",
+    "neuraloop",
+    "stellarconverter",
+    "dominusorb",
+    "emphidia",
+    "titanprototype",
+    "heartofixth",
+    "thalnos",
+    "codex",
+    "bookoflatvinia",
+    "prophetstears",
+    "mawofworlds",
+    "enigmaticdevice",
+    "dynamiscore",
+    "emelpar",
+    "nanoforge",
+    "circletofthevoid",
 ];
 
 /// Relics per seat at most.
@@ -199,8 +278,8 @@ const RELICS_PER_SEAT: usize = 3;
 /// Magen Defense Grid, Scanlink Drone Network, Supercharge, Vortex), plus the production and
 /// bombardment ones that change what an invasion costs and does. Prerequisites are not checked.
 const TECH_POOL: &[&str] = &[
-    "qdn", "scc", "nf", "cm", "bs", "td", "aida", "pa", "sr", "md", "sdn", "sc", "vtx", "st",
-    "mc", "l4", "x89c4",
+    "qdn", "scc", "nf", "cm", "bs", "td", "aida", "pa", "sr", "md", "sdn", "sc", "vtx", "st", "mc",
+    "l4", "x89c4",
 ];
 
 /// Cards per seat: well under the hand limit of 7, so nothing is discarded at the status phase.
@@ -273,14 +352,34 @@ const BOMBARD_DEFENDERS: &[(&str, usize)] = &[("infantry", 2)];
 /// Experimental Battlestation (cannon), Bunker and Blitz (bombardment), Fire Team (ground rolls),
 /// Parley and Ghost Squad (landing) and Tactical Bombardment (an action).
 const SIEGE_CARD_POOL: &[&str] = &[
-    "waylay", "mjets1", "courageous", "scramble", "sh1", "dh1", "disable", "experimental",
-    "parley", "fire_team", "ghost_squad", "bunker", "blitz", "tactical",
+    "waylay",
+    "mjets1",
+    "courageous",
+    "scramble",
+    "sh1",
+    "dh1",
+    "disable",
+    "experimental",
+    "parley",
+    "fire_team",
+    "ghost_squad",
+    "bunker",
+    "blitz",
+    "tactical",
 ];
 
 /// The bombardment-side cards of the pool above, for the `bombard` preset.
 const BOMBARD_CARD_POOL: &[&str] = &[
-    "bunker", "blitz", "tactical", "fire_team", "parley", "ghost_squad", "scramble", "sh1",
-    "courageous", "dh1",
+    "bunker",
+    "blitz",
+    "tactical",
+    "fire_team",
+    "parley",
+    "ghost_squad",
+    "scramble",
+    "sh1",
+    "courageous",
+    "dh1",
 ];
 
 /// Technologies of the `siege` preset: Assault Cannon (the opening loss), Plasma Scoring, PDS II
@@ -301,11 +400,7 @@ const CAPTURED_TYPES: &[&str] = &["infantry", "fighter", "destroyer", "cruiser",
 
 /// The Cabal's second front: every other seat's fleet waits beside the Cabal's home, within
 /// Vortex's reach and in the Cabal's way.
-const CAPTURE_RAIDERS: &[(&str, usize)] = &[
-    ("cruiser", 1),
-    ("destroyer", 1),
-    ("dreadnought", 1),
-];
+const CAPTURE_RAIDERS: &[(&str, usize)] = &[("cruiser", 1), ("destroyer", 1), ("dreadnought", 1)];
 
 /// Reinforcement pool sizes (LRR 76.1): a preset never puts more of a type on the board.
 const POOL: &[(&str, usize)] = &[
@@ -396,7 +491,11 @@ pub fn roster(
 ) -> Option<BTreeMap<PlayerId, FactionId>> {
     let listed = parse(name)?.factions?;
     let mut taken: Vec<&str> = listed.iter().copied().take(players.len()).collect();
-    let walk: Vec<&str> = ROSTER.iter().copied().filter(|a| !HELD_OUT.contains(a)).collect();
+    let walk: Vec<&str> = ROSTER
+        .iter()
+        .copied()
+        .filter(|a| !HELD_OUT.contains(a))
+        .collect();
     let len = walk.len();
     let step = (3..).step_by(2).find(|s| gcd(*s, len) == 1).unwrap_or(1);
     let mut at = (mix(seed, 950) % len as u64) as usize;
@@ -530,7 +629,9 @@ pub fn seat_roster(
     players: &[PlayerId],
     assignments: &mut BTreeMap<PlayerId, FactionId>,
 ) {
-    let already = assignments.values().any(|faction| faction.as_str() == "cabal");
+    let already = assignments
+        .values()
+        .any(|faction| faction.as_str() == "cabal");
     if parse(name).is_some_and(|parts| parts.base == CAPTURE) && !players.is_empty() && !already {
         let seat = (mix(seed, 950) % players.len() as u64) as usize;
         assignments.insert(players[seat].clone(), FactionId::new("cabal"));
@@ -773,14 +874,24 @@ fn capture(
         }
     }
 
-    grant_techs(content, state, std::slice::from_ref(&cabal), CAPTURE_CABAL_TECHS);
-    let others: Vec<PlayerId> = players.iter().filter(|player| **player != cabal).cloned().collect();
+    grant_techs(
+        content,
+        state,
+        std::slice::from_ref(&cabal),
+        CAPTURE_CABAL_TECHS,
+    );
+    let others: Vec<PlayerId> = players
+        .iter()
+        .filter(|player| **player != cabal)
+        .cloned()
+        .collect();
     if let Some(seat) = state.player_mut(&cabal) {
         for (index, owner) in others.iter().enumerate() {
             // Three or four models each, rotating which types so the sheet is varied.
             for offset in 0..3 {
                 let kind = CAPTURED_TYPES[(index + offset) % CAPTURED_TYPES.len()];
-                seat.captured_units.push((owner.clone(), UnitTypeId::new(kind)));
+                seat.captured_units
+                    .push((owner.clone(), UnitTypeId::new(kind)));
             }
         }
         for (leader, status) in [
@@ -788,19 +899,15 @@ fn capture(
             ("cabalcommander", LeaderStatus::Unlocked),
             ("cabalhero", LeaderStatus::Unlocked),
         ] {
-            seat.leaders.insert(ti4_model::id::LeaderId::new(leader), status);
+            seat.leaders
+                .insert(ti4_model::id::LeaderId::new(leader), status);
         }
     }
     Ok(())
 }
 
 /// Every seat owns every technology of `pool` the corpus has.
-fn grant_techs(
-    content: &ContentStore,
-    state: &mut GameState,
-    players: &[PlayerId],
-    pool: &[&str],
-) {
+fn grant_techs(content: &ContentStore, state: &mut GameState, players: &[PlayerId], pool: &[&str]) {
     for player in players {
         if let Some(seat) = state.player_mut(player) {
             for id in pool {
@@ -910,7 +1017,13 @@ fn deal_cards(
         .copied()
         .filter(|id| content.get(ContentType::ActionCards, id).is_some())
         .collect();
-    pool.sort_by_key(|id| mix(seed, id.bytes().fold(7_u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)))));
+    pool.sort_by_key(|id| {
+        mix(
+            seed,
+            id.bytes()
+                .fold(7_u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b))),
+        )
+    });
     let per_seat = hand.min(pool.len() / players.len().max(1));
     for (player, hand) in players.iter().zip(pool.chunks(per_seat.max(1))) {
         for id in hand {
@@ -1033,8 +1146,15 @@ fn explore_preset(
     let mut used: BTreeSet<String> = BTreeSet::new();
     for (i, player) in players.iter().enumerate() {
         let landing = pick_site_of(
-            content, state, galaxy, homes[i].as_str(), &home_set, &used,
-            mix(seed, 1000 + i as u64), 2, Site::Traited,
+            content,
+            state,
+            galaxy,
+            homes[i].as_str(),
+            &home_set,
+            &used,
+            mix(seed, 1000 + i as u64),
+            2,
+            Site::Traited,
         );
         if let Some(site) = landing {
             let fleet = fleet_for(content, &assignments[player], EXPLORE_FLEET);
@@ -1042,8 +1162,15 @@ fn explore_preset(
             used.insert(site.as_str().to_owned());
         }
         let second = pick_site_of(
-            content, state, galaxy, homes[i].as_str(), &home_set, &used,
-            mix(seed, 1300 + i as u64), 3, Site::Traited,
+            content,
+            state,
+            galaxy,
+            homes[i].as_str(),
+            &home_set,
+            &used,
+            mix(seed, 1300 + i as u64),
+            3,
+            Site::Traited,
         );
         if let Some(site) = second {
             let fleet = fleet_for(content, &assignments[player], EXPLORE_FLEET_LIGHT);
@@ -1051,8 +1178,15 @@ fn explore_preset(
             used.insert(site.as_str().to_owned());
         }
         let frontier = pick_site_of(
-            content, state, galaxy, homes[i].as_str(), &home_set, &used,
-            mix(seed, 1100 + i as u64), 8, Site::Frontier,
+            content,
+            state,
+            galaxy,
+            homes[i].as_str(),
+            &home_set,
+            &used,
+            mix(seed, 1100 + i as u64),
+            8,
+            Site::Frontier,
         );
         if let Some(site) = frontier {
             let fleet: Vec<(UnitTypeId, usize)> = FRONTIER_FLEET
@@ -1066,7 +1200,10 @@ fn explore_preset(
             seat.technologies.insert(TechnologyId::new("det"));
             // Different seats start with different fragments, so crossing is offered to some.
             let (trait_name, count) = EXPLORE_FRAGMENTS[i % EXPLORE_FRAGMENTS.len()];
-            *seat.relic_fragments.entry(trait_name.to_owned()).or_insert(0) += count;
+            *seat
+                .relic_fragments
+                .entry(trait_name.to_owned())
+                .or_insert(0) += count;
         }
     }
     for (deck, tops) in EXPLORE_TOPS {
@@ -1087,12 +1224,7 @@ fn explore_preset(
 /// Deals every seat its own notes (again, see below) and hands each note to one of the `others`
 /// seats before its owner, Support for the Throne to one seat, so each note kind sits in a foreign
 /// hand from the start.
-fn deal_notes(
-    content: &ContentStore,
-    state: &mut GameState,
-    players: &[PlayerId],
-    others: usize,
-) {
+fn deal_notes(content: &ContentStore, state: &mut GameState, players: &[PlayerId], others: usize) {
     // Game creation already deals after seating, so this only restates the hands before the
     // spread below (a no-op on a fresh game; kept so a preset applied to any opening state works).
     ti4_engine::promissory::deal(state, content, POK);
@@ -1179,7 +1311,17 @@ fn pick_site(
     choice: u64,
     max_jumps: usize,
 ) -> Option<SystemId> {
-    pick_site_of(content, state, galaxy, from, home_set, used, choice, max_jumps, Site::Empty)
+    pick_site_of(
+        content,
+        state,
+        galaxy,
+        from,
+        home_set,
+        used,
+        choice,
+        max_jumps,
+        Site::Empty,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1213,9 +1355,8 @@ fn pick_site_of(
                 Site::Empty => true,
                 Site::Colony => colony_planet(content, id).is_some(),
                 Site::Traited => traited_planet(content, id).is_some(),
-                Site::Frontier => {
-                    ti4_engine::exploration::frontier_systems(content, POK, galaxy).contains(&SystemId::new(*id))
-                }
+                Site::Frontier => ti4_engine::exploration::frontier_systems(content, POK, galaxy)
+                    .contains(&SystemId::new(*id)),
             })
             .collect();
         if !eligible.is_empty() {
@@ -1277,8 +1418,8 @@ fn eligible(
     };
     // A frontier site may be an asteroid field or a nebula (planetless anomalies are most of the
     // frontier); a supernova, a gravity rift or a scar is never somewhere to start.
-    let anomaly_ok = frontier_site
-        && !(system.is_supernova() || system.is_gravity_rift() || system.is_scar());
+    let anomaly_ok =
+        frontier_site && !(system.is_supernova() || system.is_gravity_rift() || system.is_scar());
     // A hyperlane tile is not a system (nothing may be placed in it, even though the 3-, 4- and
     // 5-player maps put frontier tokens on some); `frontier_systems` already leaves them out.
     if (system.is_anomaly() && !anomaly_ok) || system.is_hyperlane() {
@@ -1311,9 +1452,8 @@ fn ships_for(
     faction: &FactionId,
     spec: &[(&str, usize)],
 ) -> Vec<(UnitTypeId, usize)> {
-    let resolve = |kind: &str| {
-        factions::resolve_unit(content, faction.as_str(), &UnitTypeId::new(kind), POK)
-    };
+    let resolve =
+        |kind: &str| factions::resolve_unit(content, faction.as_str(), &UnitTypeId::new(kind), POK);
     spec.iter()
         .map(|(kind, count)| {
             let id = if matches!(*kind, "dreadnought" | "flagship") {
@@ -1460,7 +1600,7 @@ mod tests {
     }
 
     #[test]
-    fn no_preset_leaves_a_seat_with_a_unit_in_a_form_it_does_not_own() {
+    fn slow_no_preset_leaves_a_seat_with_a_unit_in_a_form_it_does_not_own() {
         let presets = [
             COMBAT, INVASION, TECHS, SIEGE, BOMBARD, CAPTURE, WORLD, EXPLORE, NOTES, LEADERS,
             CARDS, RELICS, AGENDA, ENDGAME,
@@ -1536,7 +1676,9 @@ mod tests {
                         "{n}p seed {seed}: the fleet in {system} has no sustaining ship"
                     );
                     assert!(
-                        kinds.iter().any(|k| k.is_ground_force() && k.sustain_damage()),
+                        kinds
+                            .iter()
+                            .any(|k| k.is_ground_force() && k.sustain_damage()),
                         "{n}p seed {seed}: the fleet in {system} has no sustaining mech"
                     );
                 }
@@ -1552,7 +1694,11 @@ mod tests {
             .iter()
             .find(|(id, _)| id.as_str().contains("dread"))
             .unwrap_or_else(|| panic!("no dreadnought in {fleet:?}"));
-        assert_ne!(dreadnought.0.as_str(), "dreadnought", "L1Z1X has a super-dreadnought");
+        assert_ne!(
+            dreadnought.0.as_str(),
+            "dreadnought",
+            "L1Z1X has a super-dreadnought"
+        );
         assert!(fleet.iter().any(|(id, _)| id.as_str().ends_with("mech")));
     }
 
@@ -1693,7 +1839,10 @@ mod tests {
                 let hand = &state.player(player).unwrap().action_cards;
                 let before = plain.player(player).unwrap().action_cards.len();
                 assert!(hand.len() > before, "{n}p: {player} got no cards");
-                assert!(hand.len() <= before + HAND_SIZE, "{n}p: hand over {HAND_SIZE} dealt");
+                assert!(
+                    hand.len() <= before + HAND_SIZE,
+                    "{n}p: hand over {HAND_SIZE} dealt"
+                );
                 assert!(hand.len() < 7, "{n}p: the hand limit would trigger at once");
                 dealt.extend(hand.iter().skip(before));
             }
@@ -1701,7 +1850,10 @@ mod tests {
             assert_eq!(unique.len(), dealt.len(), "{n}p: a card was dealt twice");
             for card in &dealt {
                 assert!(CARD_POOL.contains(&card.as_str()));
-                assert!(!state.action_card_deck.contains(card), "{card} is still in the deck");
+                assert!(
+                    !state.action_card_deck.contains(card),
+                    "{card} is still in the deck"
+                );
             }
         }
     }
@@ -1715,13 +1867,20 @@ mod tests {
             let (state, _) =
                 create_game_with_preset(content(), &list, 5, None, Some(AGENDA)).unwrap();
             assert!(state.custodians_removed);
-            assert_eq!(state.agenda_deck.len(), plain.agenda_deck.len(), "{n}p: deck size changed");
+            assert_eq!(
+                state.agenda_deck.len(),
+                plain.agenda_deck.len(),
+                "{n}p: deck size changed"
+            );
             let mut a = state.agenda_deck.clone();
             let mut b = plain.agenda_deck.clone();
             a.sort();
             b.sort();
             assert_eq!(a, b, "{n}p: the deck must hold the same cards");
-            assert_eq!(&state.agenda_deck[..4], ["committee", "defense_act", "abolishment", "redistribution"]);
+            assert_eq!(
+                &state.agenda_deck[..4],
+                ["committee", "defense_act", "abolishment", "redistribution"]
+            );
             for player in &list {
                 let seat = state.player(player).unwrap();
                 assert!(seat.trade_goods >= AGENDA_TRADE_GOODS);
@@ -1737,10 +1896,16 @@ mod tests {
             .0
             .agenda_deck;
         for alias in AGENDA_ORDER {
-            assert!(aliases.iter().any(|a| a == alias), "{alias} is not in the agenda deck");
+            assert!(
+                aliases.iter().any(|a| a == alias),
+                "{alias} is not in the agenda deck"
+            );
         }
         for id in AGENDA_CARD_POOL {
-            assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
+            assert!(
+                content().get(ContentType::ActionCards, id).is_some(),
+                "{id}"
+            );
         }
     }
 
@@ -1756,7 +1921,11 @@ mod tests {
                     .flat_map(|p| state.player(p).unwrap().relics.iter())
                     .collect();
                 let unique: BTreeSet<_> = held.iter().collect();
-                assert_eq!(unique.len(), held.len(), "{n}p seed {seed}: a relic dealt twice");
+                assert_eq!(
+                    unique.len(),
+                    held.len(),
+                    "{n}p seed {seed}: a relic dealt twice"
+                );
                 assert!(held.iter().all(|r| !state.relic_deck.contains(r)));
                 let owner = list
                     .iter()
@@ -1769,10 +1938,15 @@ mod tests {
                             .any(|r| r.as_str() == "neuraloop")
                     })
                     .expect("neuraloop is dealt");
-                assert!(state.player(owner).unwrap().relics.len() >= 2, "{n}p: nothing to purge");
-                assert!(list.iter().any(
-                    |p| state.player(p).unwrap().relic_fragments.get("CULTURAL") == Some(&3)
-                ));
+                assert!(
+                    state.player(owner).unwrap().relics.len() >= 2,
+                    "{n}p: nothing to purge"
+                );
+                assert!(
+                    list.iter()
+                        .any(|p| state.player(p).unwrap().relic_fragments.get("CULTURAL")
+                            == Some(&3))
+                );
             }
         }
     }
@@ -1823,7 +1997,12 @@ mod tests {
                         board.units.iter().all(|u| &u.owner == player),
                         "{n}p seed {seed}: the colony's space is shared"
                     );
-                    assert!(board.units.iter().any(|u| u.type_id.as_str().contains("dread")));
+                    assert!(
+                        board
+                            .units
+                            .iter()
+                            .any(|u| u.type_id.as_str().contains("dread"))
+                    );
                     let infantry = board
                         .units
                         .iter()
@@ -1845,7 +2024,10 @@ mod tests {
         for player in &list {
             let owned = &techs.player(player).unwrap().technologies;
             for id in TECH_POOL {
-                assert!(owned.contains(&TechnologyId::new(*id)), "{player} lacks {id}");
+                assert!(
+                    owned.contains(&TechnologyId::new(*id)),
+                    "{player} lacks {id}"
+                );
             }
             assert!(owned.len() > plain.player(player).unwrap().technologies.len());
         }
@@ -1908,8 +2090,8 @@ mod tests {
         let faction = |s: &GameState, i: usize| s.player(&list[i]).unwrap().faction.clone();
         assert_ne!(faction(&plain, 0), faction(&rotated, 0));
         // The combat fleets were built for the factions that actually sit there.
-        let (_, _) = create_game_with_preset(content(), &players(5), 3, None, Some("combat+rot"))
-            .unwrap();
+        let (_, _) =
+            create_game_with_preset(content(), &players(5), 3, None, Some("combat+rot")).unwrap();
     }
 
     #[test]
@@ -1933,7 +2115,10 @@ mod tests {
     #[test]
     fn every_tech_pool_entry_exists() {
         for id in TECH_POOL {
-            assert!(content().get(ContentType::Technologies, id).is_some(), "{id}");
+            assert!(
+                content().get(ContentType::Technologies, id).is_some(),
+                "{id}"
+            );
         }
     }
 
@@ -1947,7 +2132,10 @@ mod tests {
     #[test]
     fn every_pool_card_exists_in_the_corpus() {
         for id in CARD_POOL {
-            assert!(content().get(ContentType::ActionCards, id).is_some(), "{id}");
+            assert!(
+                content().get(ContentType::ActionCards, id).is_some(),
+                "{id}"
+            );
         }
     }
 
@@ -1960,8 +2148,15 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{n}p seed {seed}: {e}"));
                 let mut garrisoned = 0;
                 for board in state.board.values() {
-                    let owners: BTreeSet<&PlayerId> = board.units.iter().map(|u| &u.owner).collect();
-                    if owners.len() != 2 || board.planet_units.values().flatten().all(|u| base_of(u.type_id.as_str()) != "pds") {
+                    let owners: BTreeSet<&PlayerId> =
+                        board.units.iter().map(|u| &u.owner).collect();
+                    if owners.len() != 2
+                        || board
+                            .planet_units
+                            .values()
+                            .flatten()
+                            .all(|u| base_of(u.type_id.as_str()) != "pds")
+                    {
                         continue;
                     }
                     garrisoned += 1;
@@ -1971,13 +2166,24 @@ mod tests {
                             .iter()
                             .filter(|u| &u.owner == owner)
                             .map(|u| base_of(u.type_id.as_str()))
-                            .filter(|t| ["carrier", "cruiser", "destroyer", "dreadnought"].contains(t))
+                            .filter(|t| {
+                                ["carrier", "cruiser", "destroyer", "dreadnought"].contains(t)
+                            })
                             .collect();
                         assert!(kinds.len() >= 3, "{n}p seed {seed}: {owner} has {kinds:?}");
-                        assert!(board.units.iter().any(|u| &u.owner == owner && base_of(u.type_id.as_str()) == "fighter"));
+                        assert!(
+                            board
+                                .units
+                                .iter()
+                                .any(|u| &u.owner == owner
+                                    && base_of(u.type_id.as_str()) == "fighter")
+                        );
                     }
                 }
-                assert_eq!(garrisoned, n, "{n}p seed {seed}: one contested colony per seat");
+                assert_eq!(
+                    garrisoned, n,
+                    "{n}p seed {seed}: one contested colony per seat"
+                );
                 for player in &list {
                     let seat = state.player(player).unwrap();
                     assert!(seat.technologies.contains(&TechnologyId::new("asc")));
@@ -1995,14 +2201,28 @@ mod tests {
                 create_game_with_preset(content(), &list, 3, None, Some(BOMBARD)).unwrap();
             let mut contested = 0;
             for board in state.board.values() {
-                let dreads = board.units.iter().filter(|u| u.type_id.as_str().contains("dread")).count();
+                let dreads = board
+                    .units
+                    .iter()
+                    .filter(|u| u.type_id.as_str().contains("dread"))
+                    .count();
                 if dreads != 2 {
                     continue;
                 }
                 contested += 1;
-                assert!(board.planet_units.values().flatten().all(|u| base_of(u.type_id.as_str()) != "pds"));
-                let owners: BTreeSet<&PlayerId> =
-                    board.planet_units.values().flatten().map(|u| &u.owner).collect();
+                assert!(
+                    board
+                        .planet_units
+                        .values()
+                        .flatten()
+                        .all(|u| base_of(u.type_id.as_str()) != "pds")
+                );
+                let owners: BTreeSet<&PlayerId> = board
+                    .planet_units
+                    .values()
+                    .flatten()
+                    .map(|u| &u.owner)
+                    .collect();
                 assert_eq!(owners.len(), 2, "{n}p: the planet is shared by two seats");
             }
             assert_eq!(contested, n);
@@ -2027,7 +2247,9 @@ mod tests {
                 assert!(seat.captured_units.len() >= n - 1);
                 // Somebody else's fleet is next to the Cabal's home dock.
                 let assignments = BTreeMap::from([(cabal[0].clone(), seat.faction.clone())]);
-                let home = seating::home_systems(content(), &assignments).unwrap().remove(0);
+                let home = seating::home_systems(content(), &assignments)
+                    .unwrap()
+                    .remove(0);
                 let adjacent: Vec<&str> = galaxy.adjacent(home.as_str()).into_iter().collect();
                 assert!(
                     adjacent.iter().any(|id| state
@@ -2041,14 +2263,30 @@ mod tests {
     }
 
     #[test]
-        fn suffixes_parse_in_any_order_and_unknown_ones_do_not() {
+    fn suffixes_parse_in_any_order_and_unknown_ones_do_not() {
         for good in [
-            "world", "explore+short", "notes+rot", "combat+fac", "techs+short+fac:naalu:mentak",
-            "agenda+fac:keleresm+rot", "leaders+short", "combat+agenda", "world+agenda+short", "techs+rot+agenda+fac",
+            "world",
+            "explore+short",
+            "notes+rot",
+            "combat+fac",
+            "techs+short+fac:naalu:mentak",
+            "agenda+fac:keleresm+rot",
+            "leaders+short",
+            "combat+agenda",
+            "world+agenda+short",
+            "techs+rot+agenda+fac",
         ] {
             assert!(is_known(good), "{good}");
         }
-        for bad in ["nope", "world+nope", "combat+fac:nope", "combat+short+", "combat+agenda:x", "+rot", "explore++short"] {
+        for bad in [
+            "nope",
+            "world+nope",
+            "combat+fac:nope",
+            "combat+short+",
+            "combat+agenda:x",
+            "+rot",
+            "explore++short",
+        ] {
             assert!(!is_known(bad), "{bad}");
         }
     }
@@ -2075,7 +2313,10 @@ mod tests {
     #[test]
     fn every_roster_faction_is_in_the_corpus_and_the_walk_reaches_all_of_them() {
         for alias in ROSTER {
-            assert!(ti4_content::factions::get(content(), alias).is_some(), "{alias}");
+            assert!(
+                ti4_content::factions::get(content(), alias).is_some(),
+                "{alias}"
+            );
         }
         let mut reached: BTreeSet<String> = BTreeSet::new();
         for seed in 0..40 {
@@ -2142,7 +2383,10 @@ mod tests {
         for banned in ["nekroc4r", "nekroc4y"] {
             assert!(!owned.contains(&banned), "{owned:?}");
         }
-        assert!(owned.contains(&"vax") && owned.contains(&"vay"), "{owned:?}");
+        assert!(
+            owned.contains(&"vax") && owned.contains(&"vay"),
+            "{owned:?}"
+        );
     }
 
     #[test]
@@ -2152,8 +2396,17 @@ mod tests {
         let (notes, _) = create_game_with_preset(content(), &list, 5, None, Some(NOTES)).unwrap();
         assert_ne!(plain.promissory_notes, notes.promissory_notes);
         // A plain server game deals every seat its own notes after seating: no "generic" ones.
-        assert!(plain.promissory_notes.len() >= 4 * 4, "{:?}", plain.promissory_notes);
-        assert!(plain.promissory_notes.keys().all(|n| !n.ends_with(":generic")));
+        assert!(
+            plain.promissory_notes.len() >= 4 * 4,
+            "{:?}",
+            plain.promissory_notes
+        );
+        assert!(
+            plain
+                .promissory_notes
+                .keys()
+                .all(|n| !n.ends_with(":generic"))
+        );
         assert!(notes.promissory_notes.len() >= 4 * 5);
         assert_eq!(
             serde_json::to_string(&plain.board).unwrap(),
@@ -2221,11 +2474,15 @@ mod tests {
         for n in 3..=6 {
             let list = players(n);
             for name in ["combat", "cards", "world", "leaders", "explore", "techs"] {
-                let plain = create_game_with_preset(content(), &list, 9, None, Some(name)).unwrap().0;
+                let plain = create_game_with_preset(content(), &list, 9, None, Some(name))
+                    .unwrap()
+                    .0;
                 assert!(!plain.custodians_removed, "{name} {n}p");
                 let with = format!("{name}+agenda");
-                let (a, _) = create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
-                let (b, _) = create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
+                let (a, _) =
+                    create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
+                let (b, _) =
+                    create_game_with_preset(content(), &list, 9, None, Some(&with)).unwrap();
                 assert!(a.custodians_removed, "{with} {n}p");
                 assert_eq!(a.agenda_deck, b.agenda_deck, "{with} {n}p: deterministic");
                 for player in &list {
@@ -2233,7 +2490,9 @@ mod tests {
                     assert_eq!(x.trade_goods, y.trade_goods + AGENDA_TRADE_GOODS, "{with}");
                 }
             }
-            let (s, _) = create_game_with_preset(content(), &list, 9, None, Some("agenda+short+agenda")).unwrap();
+            let (s, _) =
+                create_game_with_preset(content(), &list, 9, None, Some("agenda+short+agenda"))
+                    .unwrap();
             assert!(s.custodians_removed && s.objective_deck.len() == 3);
         }
     }
@@ -2262,7 +2521,7 @@ mod tests {
     }
 
     #[test]
-    fn every_preset_builds_with_roster_factions_and_short_at_every_table_size() {
+    fn slow_every_preset_builds_with_roster_factions_and_short_at_every_table_size() {
         let loader = crate::maps::TemplateLoader::load().unwrap();
         let mut failures = Vec::new();
         for base in KNOWN {
@@ -2270,16 +2529,28 @@ mod tests {
                 for n in 3..=6 {
                     for seed in [1_u64, 2, 3, 4] {
                         let list = players(n);
-                        let template = crate::maps::default_template_for(content(), &loader, n, POK);
+                        let template =
+                            crate::maps::default_template_for(content(), &loader, n, POK);
                         let name = format!("{base}{suffix}");
-                        if let Err(e) = create_game_with_preset(content(), &list, seed, template.as_deref(), Some(&name)) {
+                        if let Err(e) = create_game_with_preset(
+                            content(),
+                            &list,
+                            seed,
+                            template.as_deref(),
+                            Some(&name),
+                        ) {
                             failures.push(format!("{name} {n}p seed {seed}: {e}"));
                         }
                     }
                 }
             }
         }
-        assert!(failures.is_empty(), "{} failures: {:#?}", failures.len(), &failures[..failures.len().min(25)]);
+        assert!(
+            failures.is_empty(),
+            "{} failures: {:#?}",
+            failures.len(),
+            &failures[..failures.len().min(25)]
+        );
     }
 
     #[test]
@@ -2290,9 +2561,16 @@ mod tests {
         assert_eq!(rotation("combat+short", 3), 0);
         assert_eq!(rotation("techs+fac", 3), 0);
         let list = players(3);
-        let (state, _) = create_game_with_preset(content(), &list, 3, None, Some("leaders+short")).unwrap();
-        let factions: Vec<&str> = list.iter().map(|p| state.player(p).unwrap().faction.as_str()).collect();
-        assert!(factions.contains(&"jolnar") || factions.contains(&"l1z1x"), "{factions:?}");
+        let (state, _) =
+            create_game_with_preset(content(), &list, 3, None, Some("leaders+short")).unwrap();
+        let factions: Vec<&str> = list
+            .iter()
+            .map(|p| state.player(p).unwrap().faction.as_str())
+            .collect();
+        assert!(
+            factions.contains(&"jolnar") || factions.contains(&"l1z1x"),
+            "{factions:?}"
+        );
     }
 
     #[test]

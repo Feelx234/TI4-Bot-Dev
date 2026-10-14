@@ -64,6 +64,10 @@ pub type StatefulAbilityEffect = Arc<
 /// A rule-specific eligibility predicate.
 pub type AbilityCondition = Arc<dyn Fn(&Event, &Resolver) -> bool + Send + Sync>;
 
+/// Decide participation before either eligibility predicate reads private state.
+/// Returning false skips the ability; callers may latch a stop outside the rules.
+pub type Participation = Arc<dyn Fn(&Ability) -> bool + Send + Sync>;
+
 /// A state-aware eligibility predicate for a timing ability.
 pub type StatefulAbilityCondition =
     Arc<dyn for<'a> Fn(&Event, &Resolver, &TimingContext<'a>) -> bool + Send + Sync>;
@@ -348,6 +352,7 @@ pub struct Resolver {
     used: BTreeSet<(String, FrequencyScope)>,
     round_number: u64,
     turn_number: u64,
+    participation: Option<Participation>,
 }
 
 /// Everything a [`Resolver`] needs to continue identically, minus its decider input, so it can
@@ -410,6 +415,8 @@ impl ResolverSnapshot {
             used: used.clone(),
             round_number: *round_number,
             turn_number: *turn_number,
+            // A fork starts without the participation binding.
+            participation: None,
         }
     }
 
@@ -447,6 +454,7 @@ impl ResolverSnapshot {
             used,
             round_number,
             turn_number,
+            participation: None,
         }
     }
 }
@@ -473,6 +481,7 @@ impl Resolver {
             used,
             round_number,
             turn_number,
+            participation: _,
         } = self;
         ResolverSnapshot {
             registry: registry.clone(),
@@ -558,12 +567,82 @@ impl Resolver {
             used: BTreeSet::new(),
             round_number: 1,
             turn_number: 1,
+            participation: None,
+        }
+    }
+
+    /// Copy resolver state and shared rule functions, with fresh decision routing.
+    #[cfg(test)]
+    pub(crate) fn fork(&self) -> Self {
+        Self {
+            registry: self.registry.clone(),
+            initiative_order: self.initiative_order.clone(),
+            seating_order: self.seating_order.clone(),
+            active_player: self.active_player.clone(),
+            speaker: self.speaker.clone(),
+            phase: self.phase,
+            table: Table::new(),
+            log: self.log.clone(),
+            applied_events: self.applied_events.clone(),
+            relation_being_resolved: self.relation_being_resolved,
+            emission_stack: self.emission_stack.clone(),
+            maximum_depth: self.maximum_depth,
+            used: self.used.clone(),
+            round_number: self.round_number,
+            turn_number: self.turn_number,
+            participation: None,
+        }
+    }
+
+    /// Carry rules state to a worker without carrying its thread-local deciders.
+    pub(crate) fn into_worker(self) -> impl FnOnce() -> Self + Send {
+        let Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table: _,
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+            participation: _,
+        } = self;
+        move || Self {
+            registry,
+            initiative_order,
+            seating_order,
+            active_player,
+            speaker,
+            phase,
+            table: Table::new(),
+            log,
+            applied_events,
+            relation_being_resolved,
+            emission_stack,
+            maximum_depth,
+            used,
+            round_number,
+            turn_number,
+            participation: None,
         }
     }
 
     /// Configure the game phase used to select window priority order.
     pub fn set_phase(&mut self, phase: Phase) {
         self.phase = phase;
+    }
+
+    /// Filter both eligibility paths before either kind of condition runs.
+    /// Ordinary live resolution has no filter; a fork starts without this binding.
+    pub fn set_participation(&mut self, participation: Participation) {
+        self.participation = Some(participation);
     }
 
     /// Configure clockwise seating order for strategy and agenda timing windows.
@@ -938,6 +1017,10 @@ impl Resolver {
         self.for_event(&event.event_type, relation)
             .filter(|ability| {
                 ability.owner == *player
+                    && self
+                        .participation
+                        .as_ref()
+                        .is_none_or(|policy| policy(ability))
                     && (ability.repeatable_in_window || !resolved_here.contains(&ability.id))
                     && !self.is_used(ability, event)
                     && ability
@@ -960,6 +1043,10 @@ impl Resolver {
         self.for_event(&event.event_type, relation)
             .filter(|ability| {
                 ability.owner == *player
+                    && self
+                        .participation
+                        .as_ref()
+                        .is_none_or(|policy| policy(ability))
                     && (ability.repeatable_in_window || !resolved_here.contains(&ability.id))
                     && !self.is_used(ability, event)
                     && ability
@@ -1284,11 +1371,20 @@ mod tests {
     #[test]
     fn reaction_options_get_the_printed_name_instead_of_the_raw_id() {
         let content = ContentStore::embedded();
-        let passage = ability_label(Some(content), "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after");
+        let passage = ability_label(
+            Some(content),
+            "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after",
+        );
         assert_eq!(passage, "Aetherpassage (after system activated)");
-        let pillage = ability_label(Some(content), "ability:mentak:pillage:TRADE_GOODS_GAINED:after");
+        let pillage = ability_label(
+            Some(content),
+            "ability:mentak:pillage:TRADE_GOODS_GAINED:after",
+        );
         assert_eq!(pillage, "Pillage (after trade goods gained)");
-        let agent = ability_label(Some(content), "leader:mentak:mentakagent:PILLAGE_USED:after");
+        let agent = ability_label(
+            Some(content),
+            "leader:mentak:mentakagent:PILLAGE_USED:after",
+        );
         assert_eq!(agent, "Agent Suffi An (after pillage used)");
         // A copied leader names the copy's owner first; the label is still the leader.
         let copy = ability_label(
@@ -1298,12 +1394,18 @@ mod tests {
         assert_eq!(copy, "Agent I48S (after system activated)");
         // Without content the key is capitalised; a rule id stays as it is.
         assert_eq!(
-            ability_label(None, "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after"),
+            ability_label(
+                None,
+                "ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after"
+            ),
             "Aetherpassage (after system activated)"
         );
         assert_eq!(ability_label(Some(content), "reaction:x"), "reaction:x");
         for label in [&passage, &pillage, &agent, &copy] {
-            assert!(!label.contains("SYSTEM_ACTIVATED") && !label.contains(':'), "{label}");
+            assert!(
+                !label.contains("SYSTEM_ACTIVATED") && !label.contains(':'),
+                "{label}"
+            );
         }
     }
 
@@ -1354,6 +1456,126 @@ mod tests {
     }
 
     type GeneratedAbility = (u8, bool, bool, bool, u8, bool);
+
+    #[test]
+    fn participation_runs_before_both_kinds_of_condition_and_forks_reset_it() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut timing = resolver(&["sol", "letnev"], "sol");
+        let condition_calls = calls.clone();
+        let stateful_calls = calls.clone();
+        timing.register([Ability::new(
+            "optional",
+            player("letnev"),
+            "E",
+            Relation::When,
+            Arc::new(|_, _| Ok(())),
+        )
+        .with_optional(true)
+        .with_condition(Arc::new(move |_, _| {
+            condition_calls.fetch_add(1, Ordering::SeqCst);
+            true
+        }))
+        .with_stateful_condition(Arc::new(move |_, _, _| {
+            stateful_calls.fetch_add(1, Ordering::SeqCst);
+            true
+        }))]);
+        timing.set_participation(Arc::new(|_| false));
+        let mut live = timing.fork();
+        timing
+            .emit(Event::new(1, "E", BTreeMap::new()), |_| {})
+            .unwrap();
+
+        let mut state = crate::fixtures::game(&["sol", "letnev"]);
+        let mut table = Table::with_default(Box::new(AlwaysDecline));
+        let mut dice = Dice::new();
+        let mut rng = GameRng::new(7);
+        let mut sequence = EventSequence::new();
+        let mut context =
+            stateful_context(&mut state, &mut table, &mut dice, &mut rng, &mut sequence);
+        timing
+            .emit_with_context(&mut context, Event::new(2, "E", BTreeMap::new()), |_, _| {})
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        live.emit_with_context(&mut context, Event::new(2, "E", BTreeMap::new()), |_, _| {})
+            .unwrap();
+        assert!(calls.load(Ordering::SeqCst) >= 2);
+    }
+
+    #[test]
+    fn fork_preserves_frequency_usage_and_resets_its_decision_table() {
+        let mut timing = resolver(&["sol"], "sol");
+        timing.sync_lifecycle(3, 7);
+        timing.table = Table::with_default(Box::new(AlwaysDecline));
+        timing.register([
+            Ability::new(
+                "turn",
+                player("sol"),
+                "E",
+                Relation::When,
+                Arc::new(|event, _| {
+                    event.payload.insert("turn".to_owned(), true.into());
+                    Ok(())
+                }),
+            )
+            .with_frequency(Frequency::OncePerTurn),
+            Ability::new(
+                "round",
+                player("sol"),
+                "E",
+                Relation::When,
+                Arc::new(|event, _| {
+                    event.payload.insert("round".to_owned(), true.into());
+                    Ok(())
+                }),
+            )
+            .with_frequency(Frequency::OncePerRound),
+            Ability::new(
+                "optional",
+                player("sol"),
+                "OPTIONAL",
+                Relation::When,
+                Arc::new(|event, _| {
+                    event.cancel();
+                    Ok(())
+                }),
+            )
+            .with_optional(true),
+        ]);
+        let event = |id, kind| Event::new(id, kind, BTreeMap::new());
+        assert_eq!(timing.emit(event(1, "E"), |_| {}).unwrap().payload.len(), 2);
+        assert!(!timing.emit(event(2, "OPTIONAL"), |_| {}).unwrap().cancelled);
+
+        let mut fork = timing.fork();
+        assert_eq!(fork.log(), timing.log());
+        assert_eq!(fork.applied_events(), timing.applied_events());
+        assert!(fork.table.log.is_empty());
+        assert!(fork.emit(event(3, "E"), |_| {}).unwrap().payload.is_empty());
+        assert!(
+            timing
+                .emit(event(3, "E"), |_| {})
+                .unwrap()
+                .payload
+                .is_empty()
+        );
+
+        // Fresh first-option input takes the optional ability; the original still declines it.
+        assert!(fork.emit(event(4, "OPTIONAL"), |_| {}).unwrap().cancelled);
+        assert!(!timing.emit(event(4, "OPTIONAL"), |_| {}).unwrap().cancelled);
+
+        fork.begin_turn(player("sol")).unwrap();
+        let next_turn = fork.emit(event(5, "E"), |_| {}).unwrap();
+        assert_eq!(next_turn.payload.len(), 1);
+        assert_eq!(next_turn.payload["turn"], true);
+        fork.begin_round().unwrap();
+        assert_eq!(fork.emit(event(6, "E"), |_| {}).unwrap().payload.len(), 2);
+        assert!(
+            timing
+                .emit(event(6, "E"), |_| {})
+                .unwrap()
+                .payload
+                .is_empty()
+        );
+    }
 
     fn generated_registry() -> impl Strategy<Value = Vec<GeneratedAbility>> {
         prop::collection::vec(

@@ -94,6 +94,8 @@ enum MovementOnlyStep {
         unit: String,
         source: Option<String>,
         damaged: bool,
+        #[serde(default)]
+        galvanized: Option<bool>,
     },
     DoneLoading,
     DoneMoving,
@@ -213,11 +215,13 @@ impl From<MovementOnlyStep> for MovementStep {
                 unit,
                 source,
                 damaged,
+                galvanized,
             } => Self::Load {
                 origin,
                 unit,
                 source,
                 damaged,
+                galvanized,
             },
             MovementOnlyStep::DoneLoading => Self::DoneLoading,
             MovementOnlyStep::DoneMoving => Self::DoneMoving,
@@ -314,6 +318,8 @@ pub enum MovementStep {
         unit: String,
         source: Option<String>,
         damaged: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        galvanized: Option<bool>,
     },
     DoneLoading,
     DoneMoving,
@@ -410,11 +416,20 @@ impl MovementStep {
                 unit,
                 source,
                 damaged,
+                galvanized,
             } => {
                 option.kind == "load"
                     && value("system") == Some(origin.as_str())
                     && value("unit") == Some(unit.as_str())
                     && value("source") == source.as_deref()
+                    && galvanized.is_none_or(|expected| {
+                        option
+                            .payload
+                            .get("galvanized")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false)
+                            == expected
+                    })
                     && option
                         .payload
                         .get("damaged")
@@ -1492,7 +1507,9 @@ mod tests {
         state.round = 4;
         state.objective_deck.clear();
         state.seating_order.clone_from(&players);
-        state.unclaimed_strategy_cards.retain(|card| !cards.contains(card));
+        state
+            .unclaimed_strategy_cards
+            .retain(|card| !cards.contains(card));
         for (seat, card) in players.iter().zip(cards.iter()) {
             let player = state.player_mut(seat).unwrap();
             player.victory_points = 7;
@@ -1520,8 +1537,7 @@ mod tests {
             destination: String::new(),
             steps: Vec::new(),
         };
-        let simulation =
-            simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
+        let simulation = simulate_script(&config, &prefix, &players[0], &plan, None, None).unwrap();
         assert!(simulation.boundary_state.finished);
         assert!(
             simulation
@@ -1572,6 +1588,80 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(payment.steps[0], MovementStep::TradeGood));
+    }
+
+    #[test]
+    fn movement_load_matches_the_explicit_cargo_variant_from_the_wire() {
+        for galvanized in [false, true] {
+            let plan: MovementPlan = serde_json::from_value(serde_json::json!({
+                "kind": "tactical_movement",
+                "destination": "42",
+                "steps": [{
+                    "kind": "load", "origin": "24", "unit": "infantry", "source": "home",
+                    "damaged": false, "galvanized": galvanized
+                }, {"kind": "done_moving"}]
+            }))
+            .expect("browser cargo variant must deserialize");
+            let options = [true, false].map(|variant| {
+                let mut option = ChoiceOption::labelled(
+                    if variant {
+                        "load-galvanized"
+                    } else {
+                        "load-normal"
+                    },
+                    "load",
+                    "Load infantry",
+                );
+                option.payload = serde_json::from_value(serde_json::json!({
+                    "system": "24", "unit": "infantry", "source": "home",
+                    "damaged": false, "galvanized": variant
+                }))
+                .unwrap();
+                option
+            });
+            let mut choice = offered("load_cargo", options.to_vec());
+            choice.context.as_mut().unwrap().target =
+                Some(DecisionTarget::System(ti4_model::id::SystemId::new("24")));
+            let mut script = decider(plan.kind, plan.steps);
+            let selected = script
+                .choose(&choice)
+                .expect("explicit cargo is unambiguous");
+            assert_eq!(selected.payload["galvanized"], galvanized);
+        }
+    }
+
+    #[test]
+    fn legacy_load_without_a_cargo_variant_still_rejects_ambiguity() {
+        let plan: MovementPlan = serde_json::from_str(
+            r#"{"destination":"42","steps":[{"kind":"load","origin":"24","unit":"infantry","source":"home","damaged":false},{"kind":"done_moving"}]}"#,
+        )
+        .unwrap();
+        let options = [false, true].map(|galvanized| {
+            let mut option = ChoiceOption::labelled(
+                if galvanized {
+                    "load-galvanized"
+                } else {
+                    "load-normal"
+                },
+                "load",
+                "Load infantry",
+            );
+            option.payload = serde_json::from_value(serde_json::json!({
+                "system": "24", "unit": "infantry", "source": "home",
+                "damaged": false, "galvanized": galvanized
+            }))
+            .unwrap();
+            option
+        });
+        let mut choice = offered("load_cargo", options.to_vec());
+        choice.context.as_mut().unwrap().target =
+            Some(DecisionTarget::System(ti4_model::id::SystemId::new("24")));
+        let mut script = decider(plan.kind, plan.steps);
+        assert!(script.choose(&choice).is_err());
+        assert_eq!(
+            script.0.lock().unwrap().failure.as_ref().unwrap().reason,
+            "ambiguous option"
+        );
     }
 
     fn offered(subtype: &str, options: Vec<ChoiceOption>) -> Choice {
@@ -1655,6 +1745,7 @@ mod tests {
                 unit: "infantry".into(),
                 source: None,
                 damaged: false,
+                galvanized: None,
             }],
         );
         let hold = offered(
@@ -2397,7 +2488,11 @@ mod tests {
         offered(
             "pay_influence",
             vec![
-                ChoiceOption::labelled("exhaust|arcturus", "pay", "exhaust arcturus for 4 influence"),
+                ChoiceOption::labelled(
+                    "exhaust|arcturus",
+                    "pay",
+                    "exhaust arcturus for 4 influence",
+                ),
                 ChoiceOption::labelled("trade_good", "pay", "spend a trade good"),
             ],
         )
@@ -2482,7 +2577,12 @@ mod tests {
     fn a_purchase_plan_stops_at_a_reaction_window_keeping_the_rest() {
         let mut decider = decider(
             BatchKind::Tokens,
-            vec![buy(true), exhaust("arcturus"), pool("tactic_tokens"), buy(false)],
+            vec![
+                buy(true),
+                exhaust("arcturus"),
+                pool("tactic_tokens"),
+                buy(false),
+            ],
         );
         assert_eq!(decider.choose(&buy_ask()).unwrap().id, "yes");
         assert_eq!(decider.choose(&pay_ask()).unwrap().id, "exhaust|arcturus");
@@ -2539,9 +2639,21 @@ mod tests {
 
     #[test]
     fn ready_plan_answers_both_questions_in_the_chosen_order() {
-        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
-        assert_eq!(decider.choose(&ready_ask(&["arcturus"])).unwrap().id, "arcturus");
+        let mut decider = decider(
+            BatchKind::ReadyPlanets,
+            vec![ready("jord"), ready("arcturus")],
+        );
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
+        assert_eq!(
+            decider.choose(&ready_ask(&["arcturus"])).unwrap().id,
+            "arcturus"
+        );
         assert!(decider.choose(&ready_ask(&[])).is_err());
         let script = decider.0.lock().unwrap();
         assert!(script.failure.is_none());
@@ -2552,7 +2664,13 @@ mod tests {
     #[test]
     fn ready_plan_with_one_planet_ends_at_the_boundary() {
         let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
         assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
         assert!(decider.0.lock().unwrap().failure.is_none());
     }
@@ -2562,13 +2680,25 @@ mod tests {
         let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord")]);
         assert!(decider.choose(&ready_ask(&["arcturus"])).is_err());
         let script = decider.0.lock().unwrap();
-        assert_eq!(script.failure.as_ref().unwrap().reason, "option unavailable");
+        assert_eq!(
+            script.failure.as_ref().unwrap().reason,
+            "option unavailable"
+        );
     }
 
     #[test]
     fn ready_plan_is_interrupted_when_the_engine_asks_something_else() {
-        let mut decider = decider(BatchKind::ReadyPlanets, vec![ready("jord"), ready("arcturus")]);
-        assert_eq!(decider.choose(&ready_ask(&["arcturus", "jord"])).unwrap().id, "jord");
+        let mut decider = decider(
+            BatchKind::ReadyPlanets,
+            vec![ready("jord"), ready("arcturus")],
+        );
+        assert_eq!(
+            decider
+                .choose(&ready_ask(&["arcturus", "jord"]))
+                .unwrap()
+                .id,
+            "jord"
+        );
         let other = offered(
             "gain_command_token",
             vec![ChoiceOption::labelled("tactic_tokens", "pool", "tactic")],
@@ -2611,11 +2741,14 @@ mod tests {
         let build = ChoiceOption::labelled("build|carrier|1", "produce", "produce 1x carrier")
             .with("unit", "carrier")
             .with("count", 1i64);
-        let exchange =
-            ChoiceOption::labelled("exchange|carrier", "produce", "produce 1x carrier by returning")
-                .with("unit", "carrier")
-                .with("count", 1i64)
-                .with("exchange", true);
+        let exchange = ChoiceOption::labelled(
+            "exchange|carrier",
+            "produce",
+            "produce 1x carrier by returning",
+        )
+        .with("unit", "carrier")
+        .with("count", 1i64)
+        .with("exchange", true);
         let plain = |exchange| MovementStep::Produce {
             unit: "carrier".into(),
             count: 1,
@@ -2636,7 +2769,16 @@ mod tests {
         )
         .unwrap();
         assert!(plan_problem(&parsed).is_none());
-        assert!(matches!(parsed.steps[0], MovementStep::Produce { exchange: true, .. }));
-        assert!(matches!(parsed.steps[1], MovementStep::Produce { exchange: false, .. }));
+        assert!(matches!(
+            parsed.steps[0],
+            MovementStep::Produce { exchange: true, .. }
+        ));
+        assert!(matches!(
+            parsed.steps[1],
+            MovementStep::Produce {
+                exchange: false,
+                ..
+            }
+        ));
     }
 }

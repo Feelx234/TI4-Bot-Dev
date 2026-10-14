@@ -158,7 +158,8 @@ pub enum CargoError {
 ///
 /// Units are taken from the system the ship starts in — its space area or a planet there — and
 /// from each system on its path, including the active system (95.1; see
-/// [`CargoWindow::for_ship`]), up to the ship's capacity.
+/// [`CargoWindow::for_ship`]), up to the ship's capacity, preserving each candidate's pickup
+/// system.
 ///
 /// Candidates are tracked **by index, never by value**: units are plain data, so two infantry
 /// compare equal, and filtering an "already taken" list by equality would silently make the
@@ -355,7 +356,7 @@ impl CargoWindow {
 
     /// The next pickup choice, or `None` once the hold is closed or full.
     ///
-    /// Interchangeable units — same type, same damage, same source — are offered once. Beyond
+    /// Interchangeable units — same type, condition, source, and pickup system — are offered once. Beyond
     /// tidiness this matters because a sampling decider draws per option, so a pickup written
     /// three times would carry three times the weight of an equally good one written once.
     #[must_use]
@@ -381,6 +382,7 @@ impl CargoWindow {
                 cargo.unit.sustained_damage,
                 cargo.unit.galvanized,
                 cargo.source.clone(),
+                cargo.system.clone(),
             );
             if !seen.insert(key) {
                 continue;
@@ -407,6 +409,7 @@ impl CargoWindow {
             )
             .with("unit", cargo.unit.type_id.to_string())
             .with("source", source)
+            .with("pickup_system", cargo.system.to_string())
             .with("damaged", cargo.unit.sustained_damage)
             .with("galvanized", cargo.unit.galvanized)
             .with("capacity_remaining", capacity_remaining)

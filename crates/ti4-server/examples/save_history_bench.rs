@@ -29,6 +29,10 @@ fn main() {
         let clone_time = cloned.elapsed();
         let started = Instant::now();
         store.save_history(&game_id, &copy).unwrap();
-        println!("clone {:?}  save_history {:?}", clone_time, started.elapsed());
+        println!(
+            "clone {:?}  save_history {:?}",
+            clone_time,
+            started.elapsed()
+        );
     }
 }

@@ -564,7 +564,7 @@ fn payment_options(
 /// The ready planets that pay `kind` in their own currency, each with the worth of that face,
 /// exactly as the payment loop would list them for an unbounded bill. Cross-source faces
 /// (Archon's Gift) are left out.
-pub(crate) fn native_payment_planets(
+pub fn native_payment_planets(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,

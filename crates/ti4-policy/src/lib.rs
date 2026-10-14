@@ -13,7 +13,6 @@ pub mod bot;
 pub mod critic;
 pub mod deal_value;
 pub mod features;
-pub mod fleet_strength;
 pub mod inference;
 pub mod intern;
 pub mod learned;
@@ -21,9 +20,11 @@ pub mod progress;
 pub mod projection;
 pub mod scoring;
 pub mod tactical_plan;
-pub mod valuation;
 pub mod view;
 pub mod vocabulary;
+
+// Shared with the rule bot (`ti4-rule-bot`), which the wasm build links without this crate.
+pub use ti4_engine::{fleet_strength, valuation};
 
 pub use bot::*;
 pub use features::*;

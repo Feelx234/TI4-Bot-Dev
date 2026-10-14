@@ -4642,7 +4642,10 @@ mod tests {
 
         let (lost, asked, gained) = imperial(&letnev);
         assert_eq!(lost, vec![PlanetId::new("archonren")]);
-        assert!(!asked, "61.16: no public objective while Archon Ren is Letnev's");
+        assert!(
+            !asked,
+            "61.16: no public objective while Archon Ren is Letnev's"
+        );
         assert_eq!(gained, 1, "the Mecatol Rex point still follows");
 
         let (lost, asked, gained) = imperial(&xxcha);
@@ -5196,12 +5199,13 @@ mod tests {
         assert_eq!(seat.trade_goods, before.player(&actor).unwrap().trade_goods);
     }
 
+    /// The (prompt, details) of every question asked.
+    type SeenDetails = Vec<(String, serde_json::Map<String, serde_json::Value>)>;
+
     /// Answers from a queue and keeps each question's `details` for inspection.
     struct DetailRecording {
         wanted: std::collections::VecDeque<String>,
-        seen: std::rc::Rc<
-            std::cell::RefCell<Vec<(String, serde_json::Map<String, serde_json::Value>)>>,
-        >,
+        seen: std::rc::Rc<std::cell::RefCell<SeenDetails>>,
     }
 
     impl crate::choice::Decider for DetailRecording {

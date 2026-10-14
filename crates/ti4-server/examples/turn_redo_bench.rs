@@ -37,7 +37,10 @@ fn main() {
         report.failed.len()
     );
     for failure in &report.failed {
-        eprintln!("BENCH failed {} {}: {}", failure.game_id, failure.stage, failure.error);
+        eprintln!(
+            "BENCH failed {} {}: {}",
+            failure.game_id, failure.stage, failure.error
+        );
     }
     if seat == "-" {
         return;
@@ -45,7 +48,10 @@ fn main() {
     let session = registry.get_game(game_id).expect("session");
     let started = Instant::now();
     session.wait_replayed().expect("replayed");
-    eprintln!("BENCH wait_replayed after recovery: {:?}", started.elapsed());
+    eprintln!(
+        "BENCH wait_replayed after recovery: {:?}",
+        started.elapsed()
+    );
     if let Some(target) = args
         .get(4)
         .and_then(|v| v.strip_prefix("grow"))
@@ -108,7 +114,10 @@ fn grow(session: &GameSession, seat: &PlayerId, target: usize) {
             eprintln!("BENCH grow stalled at {len}");
             break;
         }
-        if session.pending_prompt().is_some_and(|(who, _)| &who == seat) {
+        if session
+            .pending_prompt()
+            .is_some_and(|(who, _)| &who == seat)
+        {
             let snap = session.get_snapshot(&ViewerRole::Player(seat.clone()));
             if let Some(pending) = snap.pending_choice {
                 let mut rng = random_bot::decision_rng(7, seat, len);

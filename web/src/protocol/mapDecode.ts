@@ -91,15 +91,11 @@ function decodeSeat(entry: unknown): MapSeatPreview {
   if (
     !isRecord(entry) ||
     !count(entry.seat) ||
-    !text(entry.faction) ||
-    !text(entry.faction_name) ||
     !text(entry.home_system_id)
   )
     fail("map seat");
   return {
     seat: entry.seat,
-    faction: entry.faction,
-    faction_name: entry.faction_name,
     home_system_id: entry.home_system_id,
   };
 }

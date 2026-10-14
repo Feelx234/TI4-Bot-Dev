@@ -824,7 +824,9 @@ fn main() {
             .collect();
         #[expect(clippy::cast_precision_loss, reason = "counts are small")]
         let n = reps as f64;
-        let mut worst: Vec<(f64, &(String, [f64; 3], [f64; 3]))> = rows
+        type ScenarioRow = (String, [f64; 3], [f64; 3]);
+        type WorstRow<'a> = (f64, &'a ScenarioRow);
+        let mut worst: Vec<WorstRow<'_>> = rows
             .iter()
             .map(|row| {
                 let p = (row.1[0] + row.2[0]) / 2.0;

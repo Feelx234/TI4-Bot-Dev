@@ -499,11 +499,7 @@ pub(crate) fn extra_production_planet(
 }
 
 /// Combined-cost reduction for production in `system` (see [`EconomyHooks::production_cost_reduction`]).
-pub(crate) fn production_cost_reduction(
-    state: &GameState,
-    player: &PlayerId,
-    system: &SystemId,
-) -> i64 {
+pub fn production_cost_reduction(state: &GameState, player: &PlayerId, system: &SystemId) -> i64 {
     hooks()
         .filter_map(|h| h.production_cost_reduction)
         .map(|f| f(state, player, system))

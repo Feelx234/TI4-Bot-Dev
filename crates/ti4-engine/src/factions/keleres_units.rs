@@ -1133,7 +1133,7 @@ mod tests {
             &system,
         )
         .expect("commits");
-        assert_eq!(planets, [planet.clone()]);
+        assert_eq!(planets, std::slice::from_ref(&planet));
         assert_eq!(landed(&state, &system, &planet), 2, "both landed");
         assert_eq!(
             exhausted_count(&state),

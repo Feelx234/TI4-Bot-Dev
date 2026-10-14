@@ -193,10 +193,6 @@ impl GameRegistry {
     /// # Errors
     /// [`HistoryError`]: `Forbidden` for a guest naming another seat, `InvalidTarget` when the seat
     /// has no such turn, `Conflict` when the game moved on or the saved history no longer replays.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one serialized authorization, preparation and publication boundary"
-    )]
     pub fn turn_redo_request(
         &self,
         game_id: &str,
@@ -316,10 +312,6 @@ impl GameRegistry {
     /// [`HistoryError`]: `Forbidden` unless the host or the redoing seat, `InvalidTarget` when no
     /// redo is in progress or the new turn is not finished. A redo that was already auto-played is
     /// not an error: the current snapshot comes back and nothing is applied twice.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one serialized authorization, replay and publication boundary"
-    )]
     pub fn turn_redo_autoplay(
         &self,
         game_id: &str,

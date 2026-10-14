@@ -1983,14 +1983,6 @@ html,
   flex-wrap: wrap;
   gap: 4px 10px;
 }
-.lobby-list__status .lobby-readiness--ready {
-  color: #6ee7b7;
-  font-weight: 700;
-}
-.lobby-list__status .lobby-readiness--waiting {
-  color: #fcd34d;
-  border-bottom: 1px dashed currentColor;
-}
 .lobby-list__status .lobby-presence--connected {
   color: #7dd3fc;
   font-weight: 700;
@@ -2010,10 +2002,6 @@ html,
 }
 .lobby-actions .field-label {
   margin: 0;
-}
-.lobby-unready-button {
-  border-style: dashed;
-  font-weight: 600;
 }
 .seat-badge {
   display: inline-flex;

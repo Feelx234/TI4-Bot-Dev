@@ -136,6 +136,17 @@ pub fn draw_announced(
     Ok(drawn)
 }
 
+/// 2.4: how many action cards `player` may hold now. `usize::MAX` when there is no limit.
+#[must_use]
+pub fn hand_limit(state: &GameState, content: &ContentStore, player: &PlayerId) -> usize {
+    crate::factions::hooks_economy::action_card_limit(
+        state,
+        content,
+        player,
+        crate::laws::action_card_limit(state, HAND_LIMIT),
+    )
+}
+
 /// 2.4: over the limit, the player chooses which to discard.
 ///
 /// # Errors
@@ -156,12 +167,7 @@ pub fn enforce_hand_limit(
         // Faction modules adjust the limit last, after the law cap: Yssaril Crafty ("any number of
         // action cards ... Game effects cannot prevent you from using this ability") must beat
         // Sanctions, which a module run before the law could not.
-        let limit = crate::factions::hooks_economy::action_card_limit(
-            state,
-            content,
-            player,
-            crate::laws::action_card_limit(state, HAND_LIMIT),
-        );
+        let limit = hand_limit(state, content, player);
         if hand.len() <= limit {
             return Ok(());
         }
@@ -325,6 +331,8 @@ pub fn show_action_card(
     else {
         return Ok(None);
     };
+    // A seat is shown a card of another seat: what follows is not known before.
+    context.rng.observe_hidden_information();
     Ok(crate::factions::hooks_cards::reveal(
         context.state,
         viewer,
@@ -420,6 +428,8 @@ pub fn look_at_hand_and_take(
     if reveal_hand(context.state, taker, owner, RevealScope::Choice, source) == 0 {
         return Ok(None);
     }
+    // The taker sees the hand of another seat: what follows is not known before.
+    context.rng.observe_hidden_information();
     let taken = take_from_revealed_hand(context, taker, owner, source, optional);
     clear_reveal_between(context.state, source, taker, owner);
     let taken = taken?;
