@@ -180,7 +180,7 @@ describe("breakthrough toast", () => {
     type Props = Parameters<typeof useCornerToasts>[0];
     const base: Props = { events: [], viewerSeat: "p1", ready: true };
     const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
-      initialProps: { ...base, breakthroughs: { p1: null, p2: "letnevbt" } },
+      initialProps: { ...base, breakthroughs: { p1: null, p2: "letnevbt" } as Record<string, string | null> } as Props,
     });
     expect(result.current.notifications).toHaveLength(0);
     rerender({ ...base, breakthroughs: { p1: "solbt", p2: "letnevbt" } });

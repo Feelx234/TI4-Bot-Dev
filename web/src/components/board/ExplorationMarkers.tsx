@@ -5,7 +5,17 @@ import { usePublicState } from "../../presentation/PublicStateContext.tsx";
 import { usePlayerIdentity } from "../../presentation/PlayerIdentity.tsx";
 
 const RADIUS = 7;
-const STEP = 17;
+/**
+ * Where the markers go, as offsets from the tile centre: the upper-right of the hex, which the
+ * planet discs (out to x 52 on a two-planet tile, down to y -45 on the top disc of a three-planet
+ * tile), the "#id" label, the ACTIVATED badge, value pills, units badge and command tokens leave
+ * free. At most three markers exist (frontier, attachments, explored).
+ */
+const SLOTS = [
+  { dx: 22, dy: -42 },
+  { dx: 38, dy: -42 },
+  { dx: 46, dy: -28 },
+];
 
 /**
  * What exploring left on a system, drawn on its tile: a frontier token still waiting, the
@@ -57,12 +67,12 @@ export const ExplorationMarkers: React.FC<{ tile: TilePresentation }> = ({ tile 
     });
   }
   if (marks.length === 0) return null;
-  const top = tile.center.y - ((marks.length - 1) * STEP) / 2;
   return (
     <g data-testid={`exploration-markers-${tile.systemId}`}>
       {marks.map((mark, index) => {
-        const cx = tile.center.x + 52;
-        const cy = top + index * STEP;
+        const slot = SLOTS[index];
+        const cx = tile.center.x + slot.dx;
+        const cy = tile.center.y + slot.dy;
         return (
           <g key={mark.key} data-testid={`exploration-mark-${mark.key}-${tile.systemId}`}>
             <title>{mark.title}</title>
