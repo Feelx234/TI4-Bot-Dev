@@ -19,7 +19,7 @@ async function open() {
       ports.push(port);
       return port;
     },
-    onSave: (s) => saves.push(s),
+    onSave: (s) => void saves.push(s),
     onProgress: (p) => progress.push(p),
   });
   await transport.begin();

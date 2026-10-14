@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { OfflineBanner } from "./OfflineBanner.tsx";
 import { ResumeProgress } from "./ResumeProgress.tsx";
+import { useMismatchDecider } from "./EngineMismatchDialog.tsx";
 import { CapabilityProvider } from "./capabilities.ts";
-import type { OfflineGameHandle, OfflineLauncher, OfflineProgress } from "./types.ts";
+import { OfflineGameDeletedError, type OfflineGameHandle, type OfflineLauncher, type OfflineProgress } from "./types.ts";
 import "./offline.css";
 
 /**
@@ -22,14 +23,18 @@ export const OfflineGameRoute: React.FC<{
   const [progress, setProgress] = useState<OfflineProgress>({ phase: "loading-engine", done: 0, total: null });
   const [error, setError] = useState<string | null>(null);
   const started = useRef(false);
+  const mismatch = useMismatchDecider();
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
   useEffect(() => {
     if (handle || started.current) return;
     started.current = true;
     const controller = new AbortController();
     launcher
-      .resume(gameId, setProgress, controller.signal)
+      .resume(gameId, setProgress, controller.signal, { decide: mismatch.decide })
       .then((h) => !controller.signal.aborted && setHandle(h))
       .catch((cause: unknown) => {
+        if (cause instanceof OfflineGameDeletedError) return leave.current();
         if (!controller.signal.aborted)
           setError(cause instanceof Error ? cause.message : "The offline game could not be opened.");
       });
@@ -38,9 +43,16 @@ export const OfflineGameRoute: React.FC<{
       // React's dev double-mount runs the effect again: let it start over.
       started.current = false;
     };
-  }, [handle, launcher, gameId]);
+  }, [handle, launcher, gameId, mismatch.decide]);
 
-  const banner = <OfflineBanner capabilities={launcher.capabilities} feedback={launcher.feedback} />;
+  const banner = (
+    <OfflineBanner
+      capabilities={launcher.capabilities}
+      feedback={launcher.feedback}
+      storage={launcher.storage}
+      viewOnly={handle?.viewOnly}
+    />
+  );
   return (
     <CapabilityProvider value={launcher.capabilities}>
       {handle ? (
@@ -70,6 +82,8 @@ export const OfflineGameRoute: React.FC<{
                   Back
                 </button>
               </section>
+            ) : mismatch.pending ? (
+              mismatch.dialog
             ) : (
               <ResumeProgress progress={progress} onCancel={onLeave} />
             )}

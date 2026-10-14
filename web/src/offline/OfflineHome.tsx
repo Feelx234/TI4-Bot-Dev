@@ -3,13 +3,16 @@ import { OfflineSetupForm } from "./OfflineSetupForm.tsx";
 import { OfflineGamesList } from "./OfflineGamesList.tsx";
 import { ResumeProgress } from "./ResumeProgress.tsx";
 import { OfflineBanner } from "./OfflineBanner.tsx";
+import { useMismatchDecider } from "./EngineMismatchDialog.tsx";
+import { ImportGameButton } from "./storage/ImportGameButton.tsx";
 import { CapabilityProvider } from "./capabilities.ts";
-import type {
-  OfflineGameHandle,
-  OfflineGameSummary,
-  OfflineLauncher,
-  OfflineProgress,
-  OfflineSetup,
+import {
+  OfflineGameDeletedError,
+  type OfflineGameHandle,
+  type OfflineGameSummary,
+  type OfflineLauncher,
+  type OfflineProgress,
+  type OfflineSetup,
 } from "./types.ts";
 import "./offline.css";
 
@@ -28,6 +31,8 @@ export const OfflineHome: React.FC<{
   const [busy, setBusy] = useState<Busy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  const mismatch = useMismatchDecider();
+  const [notice, setNotice] = useState<string | null>(null);
   const support = launcher.supported();
 
   const refresh = useCallback(async () => {
@@ -50,12 +55,14 @@ export const OfflineHome: React.FC<{
     const controller = new AbortController();
     abort.current = controller;
     setError(null);
+    setNotice(null);
     setBusy({ kind, estimateMs, progress: { phase: "loading-engine", done: 0, total: null } });
     try {
       const handle = await start((progress) => setBusy({ kind, estimateMs, progress }), controller.signal);
       if (!controller.signal.aborted) onEnter(handle);
     } catch (cause) {
-      if (!controller.signal.aborted)
+      if (cause instanceof OfflineGameDeletedError) setNotice("The game was deleted.");
+      else if (!controller.signal.aborted)
         setError(cause instanceof Error ? cause.message : "The offline game could not be opened.");
     } finally {
       abort.current = null;
@@ -68,7 +75,7 @@ export const OfflineHome: React.FC<{
     void run("create", null, (cb, signal) => launcher.create(setup, cb, signal));
   const resume = (gameId: string) =>
     void run("resume", games?.find((g) => g.gameId === gameId)?.resumeEstimateMs ?? null, (cb, signal) =>
-      launcher.resume(gameId, cb, signal),
+      launcher.resume(gameId, cb, signal, { decide: mismatch.decide }),
     );
   const exportGame = async (gameId: string) => {
     try {
@@ -88,7 +95,7 @@ export const OfflineHome: React.FC<{
     <CapabilityProvider value={launcher.capabilities}>
       <main data-testid="offline-home" className="lobby-page">
         <section className="panel lobby-panel offline-panel">
-          <OfflineBanner capabilities={launcher.capabilities} feedback={launcher.feedback} />
+          <OfflineBanner capabilities={launcher.capabilities} feedback={launcher.feedback} storage={launcher.storage} />
           <h1>Play offline</h1>
           <p className="text-muted">
             One human against rule bots, on this device. No account or connection needed.
@@ -98,7 +105,9 @@ export const OfflineHome: React.FC<{
               {support.reason}
             </div>
           )}
-          {busy ? (
+          {busy && mismatch.pending ? (
+            mismatch.dialog
+          ) : busy ? (
             <ResumeProgress
               progress={busy.progress}
               estimateMs={busy.estimateMs}
@@ -107,7 +116,23 @@ export const OfflineHome: React.FC<{
           ) : (
             <>
               {support.ok && <OfflineSetupForm factions={launcher.factions} onStart={create} />}
-              <h2 className="offline-heading">My offline games</h2>
+              <div className="offline-games-head">
+                <h2 className="offline-heading">My offline games</h2>
+                {launcher.storage && (
+                  <ImportGameButton
+                    importGame={(file) => launcher.storage!.importGame(file)}
+                    disabled={!support.ok}
+                    onImported={(outcome) => {
+                      setNotice(
+                        outcome.engineDiffers
+                          ? "Game imported. It was saved with another engine: you will be asked what to do when you open it."
+                          : "Game imported.",
+                      );
+                      void refresh();
+                    }}
+                  />
+                )}
+              </div>
               {games === null ? (
                 <p className="text-muted">Loading…</p>
               ) : (
@@ -123,6 +148,11 @@ export const OfflineHome: React.FC<{
                 />
               )}
             </>
+          )}
+          {notice && (
+            <p className="text-muted" role="status" data-testid="offline-notice">
+              {notice}
+            </p>
           )}
           {error && (
             <div className="session-error offline-error" role="alert" data-testid="offline-error">

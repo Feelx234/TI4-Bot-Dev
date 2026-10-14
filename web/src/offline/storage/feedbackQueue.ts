@@ -5,13 +5,15 @@
  *
  * - Durable: every state change is written before the next step; a crash while "sending" reverts
  *   to "queued" on the next start.
- * - Idempotent: each report has a `reportId` created at enqueue and sent with every attempt, so a
- *   re-send after a lost response can be recognised by the receiver. `enqueue` with a known
- *   `reportId` returns the existing item.
+ * - Idempotent: each report has a `reportId` (the one the caller gave, else made at enqueue) sent
+ *   as `report_id` with every attempt, so the server stores a re-sent report once (it answers
+ *   `duplicate: true`, which counts as sent). `enqueue` with a known `reportId` returns the
+ *   existing item.
  * - Retry with exponential backoff and jitter; a non-retryable answer (4xx other than 408/429)
  *   or too many attempts ends in "failed" until `retry()`.
  * - Never blocks the game: `enqueue` only touches local storage; sending is in the background.
  */
+import { feedbackRequestBody, newReportId } from "../feedbackRoute.ts";
 import type { QueuedFeedbackItem, QueuedFeedbackReport } from "../types.ts";
 import {
   type DurableFeedbackQueue,
@@ -30,6 +32,8 @@ export interface FeedbackQueueOptions {
   now?: () => number;
   random?: () => number;
   newId?: () => string;
+  /** The id a report gets when the caller gave none (the server's `report_id`: 8 to 64 of A-Za-z0-9_-). */
+  newReportId?: () => string;
   /** First retry delay; doubles each attempt. Default 30 s. */
   baseDelayMs?: number;
   maxDelayMs?: number;
@@ -50,6 +54,7 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
   const now = opts.now ?? Date.now;
   const random = opts.random ?? Math.random;
   const newId = opts.newId ?? (() => crypto.randomUUID());
+  const newReport = opts.newReportId ?? newReportId;
   const base = opts.baseDelayMs ?? 30_000;
   const max = opts.maxDelayMs ?? 3_600_000;
   const maxAttempts = opts.maxAttempts ?? 12;
@@ -158,9 +163,9 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
       void flush();
     },
 
-    async enqueue(report: QueuedFeedbackReport, options?: { reportId?: string }) {
-      if (options?.reportId) {
-        const existing = items.find((i) => i.reportId === options.reportId);
+    async enqueue(report: QueuedFeedbackReport) {
+      if (report.reportId) {
+        const existing = items.find((i) => i.reportId === report.reportId);
         if (existing) return toPublic(existing);
       }
       checkReport(report);
@@ -169,7 +174,7 @@ export function createDurableFeedbackQueue(opts: FeedbackQueueOptions): DurableF
       }
       const item: StoredFeedbackItem = {
         localId: newId(),
-        reportId: options?.reportId ?? newId(),
+        reportId: report.reportId ?? newReport(),
         report,
         state: "queued",
         attempts: 0,
@@ -236,22 +241,20 @@ function isStoredItem(v: unknown): v is StoredFeedbackItem {
 }
 
 /**
- * Default sender: `POST /api/feedback` as the online sheet does. The server rejects unknown
- * top-level fields, so `reportId` and `local` travel inside `context.offline`. (Server-side
- * de-duplication by `context.offline.report_id` is not built; until then a lost response can
- * produce a duplicate file, which triage can recognise by that id.)
+ * Default sender: `POST /api/feedback` with the body `feedbackRequestBody` builds (the server
+ * contract of crates/ti4-server/src/feedback.rs): `report_id` at the top level makes a retry
+ * store the report once, `context.local` carries what replays the game. Any 200 counts as sent,
+ * a `duplicate: true` answer included (the first attempt arrived, only its answer was lost).
  */
 export function httpFeedbackSender(fetchImpl: typeof fetch = (...a) => fetch(...a), url = "/api/feedback"): FeedbackSender {
   return async (p) => {
     try {
       const res = await fetchImpl(url, {
         method: "POST",
-        headers: { "content-type": "application/json", "idempotency-key": p.reportId },
-        body: JSON.stringify({
-          category: p.category,
-          text: p.text,
-          context: { ...p.context, offline: { report_id: p.reportId, local: p.local } },
-        }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(
+          feedbackRequestBody({ category: p.category, text: p.text, context: p.context, local: p.local, reportId: p.reportId }),
+        ),
       });
       if (res.ok) {
         const data = (await res.json().catch(() => ({}))) as { id?: string };

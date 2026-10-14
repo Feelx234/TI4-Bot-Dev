@@ -70,6 +70,57 @@ export interface OfflineGameHandle {
   gameId: string;
   /** Opaque to the shell. */
   transport: unknown;
+  /** The game was opened to look at only (saved with another engine): moves are refused. */
+  viewOnly?: boolean;
+}
+
+/** Which engine runs (or ran) a game. `wasmSha256` is the sha-256 of the engine file itself. */
+export interface OfflineEngineIdentity {
+  build: string;
+  contentDigest: string;
+  wasmSha256: string;
+}
+
+/** A saved game that does not fit the engine of this page, and the three things a person may do. */
+export interface OfflineMismatchPrompt {
+  reason: "engine-changed" | "replay-diverged";
+  differs: Array<"build" | "contentDigest" | "wasmSha256">;
+  saved: OfflineEngineIdentity;
+  current: OfflineEngineIdentity;
+  title: string;
+  message: string;
+  choices: ReadonlyArray<{ id: OfflineMismatchChoice; label: string; destructive: boolean }>;
+}
+export type OfflineMismatchChoice = "view-only" | "try-anyway" | "delete";
+
+/** Extra arguments of `resume`. */
+export interface OfflineResumeOptions {
+  /**
+   * Asked when the saved game was made with another engine, before the replay, or when the replay
+   * gave other decisions than the saved game had. Without it a mismatch refuses to open.
+   */
+  decide?: (prompt: OfflineMismatchPrompt) => Promise<OfflineMismatchChoice>;
+}
+
+/** The resume was answered with "delete this game". */
+export class OfflineGameDeletedError extends Error {
+  constructor() {
+    super("The game was deleted.");
+    this.name = "OfflineGameDeletedError";
+  }
+}
+
+/** State of the browser storage under the saves (T6), for the warning banner and the import button. */
+export interface OfflineStorage {
+  status(): {
+    persistence: "indexeddb" | "memory";
+    /** Text of a visible notice; null when all is well. */
+    warning: string | null;
+    persisted: boolean | null;
+  };
+  subscribe(listener: () => void): () => void;
+  /** Reads a game file exported earlier into the list. Throws with a message fit to show. */
+  importGame(file: Blob): Promise<{ id: string; engineDiffers: boolean }>;
 }
 
 export type FeedbackCategory = "bug" | "confusing" | "idea" | "other";
@@ -148,9 +199,16 @@ export interface OfflineLauncher {
   supported(): { ok: true } | { ok: false; reason: string };
   list(): Promise<OfflineGameSummary[]>;
   create(setup: OfflineSetup, onProgress: OfflineProgressListener, signal: AbortSignal): Promise<OfflineGameHandle>;
-  resume(gameId: string, onProgress: OfflineProgressListener, signal: AbortSignal): Promise<OfflineGameHandle>;
+  resume(
+    gameId: string,
+    onProgress: OfflineProgressListener,
+    signal: AbortSignal,
+    options?: OfflineResumeOptions,
+  ): Promise<OfflineGameHandle>;
   remove(gameId: string): Promise<void>;
   /** A JSON file with seed, answers and engine hash; the user keeps it as a backup. */
   exportGame(gameId: string): Promise<{ filename: string; blob: Blob }>;
   feedback: OfflineFeedbackQueue;
+  /** Where the saves live; absent in builds that cannot import. */
+  storage?: OfflineStorage;
 }
