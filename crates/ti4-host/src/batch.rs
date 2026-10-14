@@ -653,6 +653,12 @@ impl PrivateDecider {
                 .iter()
                 .filter(|o| o.id == record.chosen)
                 .collect();
+            // A composed offer (a transaction's "x;..." answer) is not a listed id.
+            let answer = match matching.as_slice() {
+                [only] => Some((*only).clone()),
+                [] => choice.answer_for(&record.chosen),
+                _ => None,
+            };
             return if choice.player == record.player
                 && choice.prompt == record.prompt
                 && choice.ids()
@@ -669,9 +675,9 @@ impl PrivateDecider {
                         .context
                         .as_ref()
                         .map(ti4_engine::decision_context::DecisionContext::without_display_fields)
-                && matching.len() == 1
+                && let Some(answer) = answer
             {
-                Ok(matching[0].clone())
+                Ok(answer)
             } else {
                 Err(IllegalChoice::DeciderFailed {
                     player: choice.player.clone(),
@@ -1829,6 +1835,31 @@ mod tests {
             casualty_owed: None,
             answered: Vec::new(),
         })))
+    }
+
+    #[test]
+    fn a_recorded_free_form_offer_replays_from_the_prefix() {
+        // A transaction answered with a composed offer ("x;...") is not one of the listed ids;
+        // the prefix replay must accept it the way the live game did (run s2-02-2037: every
+        // later batch failed with "batch prefix diverged" at "transaction with hacan").
+        let choice = offered(
+            "propose_transaction",
+            vec![
+                ChoiceOption::labelled("ss", "offer", "support"),
+                ChoiceOption::labelled("decline", "decline", "decline"),
+            ],
+        )
+        .accepting_free_form("x;");
+        let mut log = ti4_engine::choice::DecisionLog::default();
+        log.record(&choice, &choice.answer_for("x;rn=cf:hacan;").unwrap());
+        let mut decider = decider(BatchKind::Tokens, vec![pool("fleet_tokens")]);
+        {
+            let mut script = decider.0.lock().unwrap();
+            script.prefix_len = log.records.len();
+            script.prefix = log.records.into();
+        }
+        assert_eq!(decider.choose(&choice).unwrap().id, "x;rn=cf:hacan;");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
     }
 
     #[test]
