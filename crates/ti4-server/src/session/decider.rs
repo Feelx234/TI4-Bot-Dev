@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex, mpsc};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+use ti4_host::clock::NonceSource as _;
 use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ActionAcceptedMsg;
@@ -45,9 +46,20 @@ impl RemoteHumanDecider {
     }
 }
 
+/// The nonces of a server: random, so no other player can guess the token of a pending choice.
+/// (`ti4-host` leaves the source of nonces to its host.)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RandomNonce;
+
+impl ti4_host::clock::NonceSource for RandomNonce {
+    fn next_nonce(&self) -> String {
+        format!("{:016x}", rand::random::<u64>())
+    }
+}
+
 impl Decider for RemoteHumanDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        let nonce = format!("{:016x}", rand::random::<u64>());
+        let nonce = RandomNonce.next_nonce();
 
         {
             let mut shared = self.shared.lock().expect("session shared lock");

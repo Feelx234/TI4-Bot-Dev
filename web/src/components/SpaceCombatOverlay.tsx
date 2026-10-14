@@ -5,6 +5,7 @@ import {
   illegalTargetReason,
 } from "../presentation/hitKind.ts";
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import { useCapability } from "../offline/capabilities.ts";
 import {
   PendingChoiceDto,
   PlayerView,
@@ -187,6 +188,8 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
   advisorUrl,
   onSubmitBatch,
 }) => {
+  // The advisor is a server service: offline there is nothing to ask, so only the rough estimate shows.
+  const advisorOn = useCapability("advisor");
   const display = usePlayerIdentity();
 
   // Normalize players map
@@ -452,13 +455,13 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       attSub: "",
       defSub: "",
       avgRounds: "",
-      tag: "Rough fleet estimate · simulation pending",
+      tag: advisorOn ? "Rough fleet estimate · simulation pending" : "Rough fleet estimate",
       tagClass: "combat-odds-card__tag--offline",
     };
-  }, [attackerStats, defenderStats]);
+  }, [attackerStats, defenderStats, advisorOn]);
 
   useEffect(() => {
-    if (!battleKey || (!isOpen && !choice)) return;
+    if (!advisorOn || !battleKey || (!isOpen && !choice)) return;
 
     const hasAttackerUnits = Object.keys(battleParams.attackerUnits).length > 0;
     const hasDefenderUnits = Object.keys(battleParams.defenderUnits).length > 0;
@@ -489,7 +492,7 @@ export const SpaceCombatOverlay: React.FC<SpaceCombatOverlayProps> = ({
       active = false;
       controller.abort();
     };
-  }, [isOpen, Boolean(choice), battleKey, advisorUrl]);
+  }, [advisorOn, isOpen, Boolean(choice), battleKey, advisorUrl]);
 
   // Merged odds for rendering
   const displayedOdds = useMemo(() => {

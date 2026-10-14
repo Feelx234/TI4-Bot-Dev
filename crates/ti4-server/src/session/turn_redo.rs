@@ -294,9 +294,7 @@ impl Decider for RedoDecider {
                 shared.accepted += 1;
                 self.force.before_answer(index);
                 self.force.capture(index);
-                Ok(choice
-                    .answer_for(&record.chosen)
-                    .expect("checked on offer"))
+                Ok(choice.answer_for(&record.chosen).expect("checked on offer"))
             }
             Err(conflict) => {
                 shared.asking = Some(choice.player.clone());

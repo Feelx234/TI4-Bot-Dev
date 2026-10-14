@@ -1194,7 +1194,7 @@ impl GameRegistry {
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
-        let timestamp = crate::session::worker::current_utc_time_string();
+        let timestamp = ti4_host::clock::Clock::utc_time_string(&ti4_host::clock::SystemClock);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -1286,11 +1286,14 @@ impl GameRegistry {
             // Dice the batch rolled that the table has not been shown, after the decision that
             // was current when their step returned.
             for (index, roll, cursor) in &simulation.rolls {
-                if *index < shown_rolls || (*cursor).clamp(start_cursor + 1, end_cursor) != start_cursor + i + 1 {
+                if *index < shown_rolls
+                    || (*cursor).clamp(start_cursor + 1, end_cursor) != start_cursor + i + 1
+                {
                     continue;
                 }
                 let active = boundary_state.active_system.as_ref().map(|id| id.as_str());
-                let Some(public) = crate::protocol::server::public_roll(*index, roll, active) else {
+                let Some(public) = crate::protocol::server::public_roll(*index, roll, active)
+                else {
                     continue;
                 };
                 counter += 1;
@@ -4397,7 +4400,10 @@ impl GameRegistry {
 
     /// True when the host ended `game_id` while this process was running.
     pub fn is_terminated(&self, game_id: &str) -> bool {
-        self.terminated.lock().expect("terminated lock").contains(game_id)
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .contains(game_id)
     }
 
     /// Phase and seated players of each given game that is still open (unfinished), for the
@@ -4414,11 +4420,19 @@ impl GameRegistry {
                         || state.lobbies.get(id).map_or(0, |l| l.player_ids.len()),
                         |l| l.slots.iter().filter(|s| s.occupant.is_some()).count(),
                     );
-                    return Some(OpenGameInfo { game_id: id.clone(), phase: "started", players });
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "started",
+                        players,
+                    });
                 }
                 if let Some(l) = state.player_lobbies.get(id) {
                     let players = l.slots.iter().filter(|s| s.occupant.is_some()).count();
-                    return Some(OpenGameInfo { game_id: id.clone(), phase: "lobby", players });
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "lobby",
+                        players,
+                    });
                 }
                 state.lobbies.get(id).map(|l| OpenGameInfo {
                     game_id: id.clone(),
@@ -4455,7 +4469,10 @@ impl GameRegistry {
             .expect("terminated lock")
             .insert(game_id.to_owned());
         self.remove_game(game_id);
-        self.turn_redos.lock().expect("turn redos lock").remove(game_id);
+        self.turn_redos
+            .lock()
+            .expect("turn redos lock")
+            .remove(game_id);
         self.state
             .lock()
             .expect("registry lock")

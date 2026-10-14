@@ -13,6 +13,9 @@
 //! box, the copy of the state, a projected view) and the text of an error.
 
 pub mod buffer;
+pub mod host_api;
+pub mod host_session;
+pub mod host_setup;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, VecDeque};
@@ -43,7 +46,7 @@ use ti4_view::view::{BoardTileView, GameView};
 
 use crate::buffer::{DRAFT, REQUEST, RESPONSE, TooLarge, UPDATE, store};
 
-const SEATS: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
+pub(crate) const SEATS: [&str; 8] = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const ROUNDS: u32 = 50;
 
 #[derive(Debug)]
@@ -139,7 +142,7 @@ fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
 
 /// The strategic action of the game that is played, from the card that is played to its last
 /// follower: a fact of the update, and what says which secondary a draft may be of.
-static SECONDARY: LazyLock<SecondaryWatch> = LazyLock::new(SecondaryWatch::default);
+pub(crate) static SECONDARY: LazyLock<SecondaryWatch> = LazyLock::new(SecondaryWatch::default);
 
 /// Follow the strategic actions of `game`, from where it is. A copy of a game is not followed:
 /// the game after an undo is bound again.
@@ -242,6 +245,15 @@ struct Host {
     /// How many choices the host answers from a saved game ([`ti4_replay`]). They are asked
     /// whole: a window that was passed then is a saved answer.
     saved: u64,
+    /// Hosted game: how many of the answers in `script` are those of a saved game that is played
+    /// again (the rest are answers after an undo). They are kept for a later undo, and their
+    /// progress is told to the host.
+    preload_left: u64,
+    /// The choice an undo goes back to, in place of the last one: a batch that failed goes back
+    /// to the question it began at.
+    undo_to: Option<u64>,
+    /// The undo in progress is the rollback of a failed batch.
+    rollback: bool,
 }
 
 /// From the decision with this number on, the host answers the seats of `mask`.
@@ -347,11 +359,15 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     switches: Vec::new(),
     switched: false,
     saved: 0,
+    preload_left: 0,
+    undo_to: None,
+    rollback: false,
 });
 
 /// The printed names of the action cards that the host is never offered
 /// ([`ti4_set_reaction_mode`]). A setting of the host, not of the game.
-static NEVER: LazyLock<NeverSet> = LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
+pub(crate) static NEVER: LazyLock<NeverSet> =
+    LazyLock::new(|| Arc::new(Mutex::new(BTreeSet::new())));
 
 /// A window that was passed for the host: the option that declined it, and the cards.
 #[derive(Serialize)]
@@ -413,6 +429,9 @@ impl Seat {
                 option: option.clone(),
                 cards: cards.to_vec(),
             });
+            if host_api::hosted() {
+                host_api::passed_window(&choice.player, cards);
+            }
         });
         Self { host }
     }
@@ -430,6 +449,10 @@ impl Seat {
             let answer = if !ours {
                 draw(choice, seen.filter(|_| rule_seat(&choice.player)))?
             } else if let Some(option) = given(choice)? {
+                Some(option)
+            } else if host_api::hosted()
+                && let Some(option) = scripted(choice)?
+            {
                 Some(option)
             } else {
                 // An answer of a saved game is given below the Never cards, as a replay on the
@@ -452,6 +475,9 @@ impl Seat {
             // Without an answer the host changed its seats here: the decision is asked again.
             if let Some(option) = answer {
                 host().decided += 1;
+                if host_api::hosted() {
+                    host_api::selected(choice, &option);
+                }
                 return Ok(option);
             }
         }
@@ -515,15 +541,66 @@ fn given(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
         return Ok(None);
     };
     host.asked += 1;
-    choice
+    // The answers of a saved game that is played again can be taken back later, like any other.
+    let preloaded = host.preload_left > 0;
+    if preloaded {
+        host.preload_left -= 1;
+        let number = host.asked;
+        host.recent.push_back((number, wanted.clone(), false));
+    }
+    let left = host.preload_left;
+    drop(host);
+    let option = choice
         .option(&wanted)
         .cloned()
-        .map(Some)
         .ok_or_else(|| IllegalChoice::ScriptDiverged {
             player: choice.player.clone(),
             wanted,
             offered: choice.ids().into_iter().map(str::to_owned).collect(),
-        })
+        })?;
+    if preloaded {
+        if left == 0 {
+            host_api::replay_finished();
+        } else if left.is_multiple_of(PROGRESS_EVERY)
+            && let Some((done, total)) = host_api::replay_progress(left)
+        {
+            host_api::write_progress(done, total);
+            if host_ask() == LEAVE {
+                self::host().left = true;
+                return Err(failed(LEFT));
+            }
+        }
+    }
+    Ok(Some(option))
+}
+
+/// How many replayed answers pass between two progress reports to the host.
+const PROGRESS_EVERY: u64 = 20;
+
+/// What a running batch or script answers to a choice of the host's seat. A batch that fails
+/// takes the game back to the question it began at.
+fn scripted(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
+    match host_api::scripted(choice) {
+        host_session::Scripted::Answer(option) => {
+            let mut host = host();
+            host.asked += 1;
+            let number = host.asked;
+            host.recent.push_back((number, option.id.clone(), false));
+            Ok(Some(option))
+        }
+        host_session::Scripted::Ask => Ok(None),
+        host_session::Scripted::Rollback(start) => {
+            let mut host = host();
+            host.undo = true;
+            host.undo_to = Some(start);
+            host.rollback = true;
+            Err(IllegalChoice::DeciderFailed {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+                reason: TAKEN_BACK.to_owned(),
+            })
+        }
+    }
 }
 
 /// A decision of a seat that the host does not play: of the rule bot with `rule`, else from the
@@ -605,7 +682,7 @@ fn wait_for_go(choice: &Choice) -> Result<bool, IllegalChoice> {
 }
 
 /// The answer that leaves the game.
-const LEAVE: i32 = -1;
+pub(crate) const LEAVE: i32 = -1;
 
 thread_local! {
     /// The game after each step that asked the host, oldest first; at first, the game at its
@@ -640,9 +717,17 @@ fn host_table() -> Table {
     let mut table = Table::with_default(Box::new(Seat::new()));
     // A choice inside a step is offered on the position it is asked in, not on the one the step
     // began with.
-    table.on_observed_offer(|_, state| {
+    table.on_observed_offer(|records, state| {
         if let Some(latest) = LATEST.lock().expect("latest lock").as_mut() {
             latest.state.clone_from(state);
+        }
+        if host_api::hosted() {
+            host_api::offer(records, state);
+        }
+    });
+    table.on_auto_resolved(|note| {
+        if host_api::hosted() {
+            host_api::auto_resolved(&note.player, &note.prompt, &note.label, &note.reason);
         }
     });
     table
@@ -672,7 +757,19 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
         host.viewer = Some(choice.player.clone());
         host.asked
     };
-    if let Err(error) = offer(choice, nonce) {
+    if host_api::hosted() {
+        let can_undo = host().can_undo();
+        let mut number = NonceText::default();
+        let _ = write!(number, "{nonce}");
+        let state = LATEST
+            .lock()
+            .expect("latest lock")
+            .as_ref()
+            .map(|latest| latest.state.clone());
+        if let Some(state) = state {
+            host_api::ask(choice, number.as_str(), &state, can_undo);
+        }
+    } else if let Err(error) = offer(choice, nonce) {
         let mut host = host();
         host.too_large = Some(error);
         host.left = true;
@@ -683,6 +780,9 @@ fn ask_host(choice: &Choice) -> Result<Option<ChoiceOption>, IllegalChoice> {
     let index = host_ask();
     PENDING.take();
     UPDATE.lock().expect("update lock").clear();
+    if host_api::hosted() {
+        host_api::answered();
+    }
     let mut host = host();
     if index == SWITCH {
         // The choice was not answered: the next one of the host gets its number.
@@ -798,7 +898,11 @@ pub fn set_native_host(host: impl FnMut(&str) -> i32 + Send + 'static) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn host_ask() -> i32 {
-    let shown = update();
+    let shown = if host_api::hosted() {
+        host_api::out_text()
+    } else {
+        update()
+    };
     NATIVE_HOST
         .lock()
         .expect("native host lock")
@@ -815,7 +919,36 @@ fn play(
     scenario: Option<&str>,
 ) -> Result<usize, Failure> {
     let content = ContentStore::embedded();
-    let mut game = new_game(content, seed, players, scenario)?;
+    let game = new_game(content, seed, players, scenario)?;
+    drive(game, seed, players, human_mask, None)
+}
+
+/// Play a hosted game ([`host_api`]) to its end, or until the host leaves.
+fn play_hosted(request_len: usize) -> Result<usize, Failure> {
+    let prepared = host_api::prepare(request_len).map_err(Failure::Setup)?;
+    RULE_SEATS.store(prepared.rule_seats, Ordering::Relaxed);
+    drive(
+        prepared.game,
+        prepared.seed,
+        prepared.players,
+        prepared.human_mask,
+        Some(prepared.answers),
+    )
+}
+
+/// The play loop. `game` is a new game; a seat of `human_mask` is answered by the host. With
+/// `saved` the game is a hosted one: those answers of the person are played again without
+/// asking, and the session of [`host_api`] follows the game.
+#[allow(clippy::too_many_lines)]
+fn drive(
+    mut game: Game<'static>,
+    seed: u64,
+    players: usize,
+    human_mask: u32,
+    saved: Option<VecDeque<String>>,
+) -> Result<usize, Failure> {
+    let content = ContentStore::embedded();
+    let hosted = saved.is_some();
     game.table = host_table();
     watch_secondary(&mut game);
     *RANDOM.lock().expect("random lock") = Some(SeededRandom::new(seed));
@@ -824,15 +957,22 @@ fn play(
         // The switches and the answers of a game that is played again were set before this
         // call.
         let switches = std::mem::take(&mut host.switches);
-        let saved = host.saved;
+        let saved_answers = host.saved;
+        let replayed = saved.as_ref().map_or(0, VecDeque::len) as u64;
         *host = Host {
             players,
             humans: human_mask,
             seed,
             switches,
-            saved,
+            saved: saved_answers,
+            script: saved.unwrap_or_default(),
+            preload_left: replayed,
             ..Host::default()
         };
+        if replayed == 0 && hosted {
+            drop(host);
+            host_api::replay_finished();
+        }
     }
     PASSED.lock().expect("passed lock").clear();
     CHECKPOINTS.with_borrow_mut(VecDeque::clear);
@@ -861,6 +1001,9 @@ fn play(
             });
             SINCE.set(0);
             marked = Some(asked);
+            if hosted {
+                host_api::mark(asked, game.table.log.records.len());
+            }
             let mut host = host();
             // An answer from before the oldest checkpoint cannot be taken back from one.
             host.oldest = Some(oldest);
@@ -875,6 +1018,7 @@ fn play(
         DRAFT_BASE.take();
         // No borrow of the checkpoints is held here: the step may park in a choice, and a
         // draft reads them then.
+        let events_before = game.events.len();
         let error = game.step().error;
         DRAFT_BASE.take();
         if std::mem::take(&mut host().undo) {
@@ -886,6 +1030,9 @@ fn play(
             SINCE.set(SINCE.get() + 1);
             SECONDARY.completed_step(&game);
             stopped = error.map(RunError::from);
+            if hosted {
+                host_api::after_step(&game, events_before);
+            }
         }
         if let Some(latest) = LATEST.lock().expect("latest lock").as_mut() {
             latest.state.clone_from(&game.state);
@@ -902,6 +1049,12 @@ fn play(
     // A buffer that was too small fails the call. It must not sit in a field of a result.
     if let Some(error) = too_large {
         return Err(error.into());
+    }
+    if hosted {
+        let left = host().left;
+        // The engine stops with an error when the host leaves; that is no failure of the game.
+        let error = stopped.as_ref().filter(|_| !left).map(ToString::to_string);
+        return Ok(host_api::finish_run(error.as_deref(), left));
     }
     // The last update: where the game stopped, with nothing left to answer.
     let viewer = viewer.map_or(ViewerRole::Spectator, ViewerRole::Player);
@@ -937,7 +1090,8 @@ fn take_back(checkpoints: &mut VecDeque<Checkpoint>, mut left: Game<'static>) ->
     let mut host = host();
     // The pending choice has the number `asked`; the one to open again is the last one before
     // it that the host answered itself.
-    let again = host.again();
+    let rollback = std::mem::take(&mut host.rollback);
+    let again = host.undo_to.take().unwrap_or_else(|| host.again());
     while checkpoints.len() > 1
         && checkpoints
             .back()
@@ -969,7 +1123,41 @@ fn take_back(checkpoints: &mut VecDeque<Checkpoint>, mut left: Game<'static>) ->
     host.saved = host.saved.min(again.saturating_sub(1));
     host.asked = checkpoint.asked;
     host.decided = checkpoint.decided;
+    if host_api::hosted() {
+        host_api::took_back(checkpoint.asked, rollback, host.script.len());
+    }
     game
+}
+
+/// The seats that play on, on a copy of the game that is made again from a checkpoint: the rule
+/// bot where the live game has it ([`RULE_SEATS`]), else the stream of the random seats. It
+/// counts decisions as the live seats do, so a rule seat decides as it did in the live game.
+struct Replayed {
+    random: SeededRandom,
+    decided: u64,
+    seed: u64,
+}
+
+impl Decider for Replayed {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.decided += 1;
+        self.random.choose(choice)
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        let index = usize::try_from(self.decided).expect("a game has fewer decisions than 2^32");
+        self.decided += 1;
+        if rule_seat(&choice.player) && !choice.options.is_empty() {
+            let (picked, _) =
+                ti4_rule_bot::choose(choice, Some(seen), self.seed, &choice.player, index);
+            return Ok(choice.options[picked].clone());
+        }
+        self.random.choose(choice)
+    }
 }
 
 /// The game at its last finished step: the last checkpoint, and the steps of the random seats
@@ -986,7 +1174,11 @@ fn draft_base() -> Result<Game<'static>, Failure> {
             .random
             .clone()
             .ok_or_else(|| setup("the game has no random stream"))?;
-        game.table = Table::with_default(Box::new(random));
+        game.table = Table::with_default(Box::new(Replayed {
+            random,
+            decided: checkpoint.decided,
+            seed: host().seed,
+        }));
         for _ in 0..SINCE.get() {
             if let Some(error) = game.step().error {
                 return Err(Failure::Run(error.into()));
@@ -1008,6 +1200,22 @@ fn draft() -> Result<usize, Failure> {
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
         .map_err(|error| setup(format_args!("the draft request is not read: {error}")))?;
+    let outcome = draft_outcome(&request.script, &request.scope)?;
+    let mut buffer = DRAFT.lock().expect("draft lock");
+    Ok(store(
+        &mut buffer,
+        "the outcome of a draft",
+        "DRAFT_CAPACITY",
+        &outcome,
+    )?)
+}
+
+/// Run `script` as the next turn of the host's seat on a copy of the game at its last finished
+/// step.
+pub(crate) fn draft_outcome(
+    script: &[DraftStep],
+    scope: &PlanScope,
+) -> Result<ti4_view::planning::draft::DraftOutcome, Failure> {
     let player = host()
         .shown_seat()
         .ok_or_else(|| setup("no seat is played here: a draft is of one seat"))?;
@@ -1028,15 +1236,9 @@ fn draft() -> Result<usize, Failure> {
             galaxy: latest.galaxy.as_ref(),
             secondary: Some(&SECONDARY),
         };
-        run_draft(&base, &player, &request.scope, &request.script)
+        run_draft(&base, &player, scope, script)
     });
-    let mut buffer = DRAFT.lock().expect("draft lock");
-    Ok(store(
-        &mut buffer,
-        "the outcome of a draft",
-        "DRAFT_CAPACITY",
-        &outcome,
-    )?)
+    Ok(outcome)
 }
 
 /// What the script of the request buffer answers to the choice that the game is parked in.
@@ -1349,6 +1551,60 @@ pub extern "C" fn ti4_update_ptr() -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_update_len() -> u32 {
     u32::try_from(UPDATE.lock().expect("update lock").len()).expect("a buffer is small")
+}
+
+// --- the hosted game (`host_api`) ---------------------------------------------------------------
+
+/// Reserve `len` bytes of input for [`ti4_host_start`], [`ti4_host_command`] or
+/// [`ti4_host_query`] and return where to write them. Valid until the next call of this export.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_in(len: u32) -> *mut u8 {
+    host_api::reserve_input(len as usize)
+}
+
+/// Where the last output is. Read it again after every call: it can move.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_out_ptr() -> *const u8 {
+    host_api::out_ptr()
+}
+
+/// The length of the last output.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_out_len() -> u32 {
+    host_api::out_len()
+}
+
+/// Tell the engine the time (`Date.now()` and `performance.now()`): events carry the time of day
+/// of the last call. Call it before [`ti4_host_start`] and each time the parked game resumes.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_set_time(unix_ms: f64, monotonic_ms: f64) {
+    host_api::set_time(unix_ms as u64, monotonic_ms as u64);
+}
+
+/// A question of the setup form that needs no game: see `host_api::query`.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_query(len: u32) -> i32 {
+    host_api::query(len as usize)
+}
+
+/// Play a game for one person: the input holds `{"setup": {...}, "resume": {...}?}`
+/// (`host_setup::Start`). Does not return until the game ends or the host leaves; with JSPI the
+/// export is wrapped in `WebAssembly.promising`. A status of 0 or more is the length of the
+/// final `end` output, below 0 the negated length of an error text in the output.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_start(len: u32) -> i32 {
+    match play_hosted(len as usize) {
+        Ok(bytes) => i32::try_from(bytes).expect("an output is smaller than 2 GiB"),
+        Err(failure) => host_api::fail(failure),
+    }
+}
+
+/// A command while the game waits for the person (`ClientMessage` or a local command), or after
+/// it ended. The output is a `command` envelope; with `resume` the host answers the parked `ask`
+/// with that code. A status below 0 is the negated length of an error text in the output.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_host_command(len: u32) -> i32 {
+    host_api::command(len as usize)
 }
 
 /// The update for the host, for callers on the native side.
