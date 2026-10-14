@@ -276,6 +276,36 @@ describe("Board Component", () => {
     expect(onSelectTarget).toHaveBeenCalledTimes(2);
   });
 
+  it("closes the inspector of a system tapped to answer a pick once that decision is answered", () => {
+    // Offline runs o2-04-2037, o2-11-2050, o2-21-2111 (phone): the system activated rounds
+    // earlier was still selected, and its inspector covered the map at the next activation.
+    const activation = {
+      nonce: "nonce_act",
+      actor: "p1",
+      prompt: "activate a system",
+      context: { subtype: "activate_system" },
+      options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
+    };
+    const next = {
+      nonce: "nonce_move",
+      actor: "p1",
+      prompt: "movement",
+      options: [{ id: "done_moving", kind: "decline", label: "finish movement" }],
+    };
+    const { rerender } = render(
+      <Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={activation} viewerSeat="p1" />,
+    );
+    fireEvent.click(screen.getByTestId("system-hex-18"));
+    expect(screen.getByTestId("inspector-system-title")).toHaveTextContent("#18");
+    rerender(<Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={next} viewerSeat="p1" />);
+    expect(screen.queryByTestId("system-inspector")).not.toBeInTheDocument();
+
+    // A system the player opened to look at stays open.
+    fireEvent.click(screen.getByTestId("system-hex-34"));
+    rerender(<Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={activation} viewerSeat="p1" />);
+    expect(screen.getByTestId("inspector-system-title")).toHaveTextContent("#34");
+  });
+
   it("renders activation target reticles during system activation mode", () => {
     const activationChoice = {
       nonce: "nonce_act",
