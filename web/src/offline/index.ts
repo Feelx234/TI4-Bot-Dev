@@ -4,4 +4,4 @@ export * from "./registry.ts";
 export { OfflineHome } from "./OfflineHome.tsx";
 export { OfflineGameRoute } from "./OfflineGameRoute.tsx";
 export { OfflineBanner } from "./OfflineBanner.tsx";
-export { routeFeedback } from "./feedbackRoute.ts";
+export { routeFeedback, feedbackRequestBody, newReportId } from "./feedbackRoute.ts";

@@ -29,6 +29,42 @@ What exists:
   `from Alex | table: Alex* (sol), np (letnev)`, when names are present (`*` marks the sender).
   The jq fallback of the script needs jq, which is not installed on every box.
 
+Offline games (added 2026-10-14, branch `offline-t10-feedback-local`): the single-player game that
+runs in the browser has no server game, so its reports carry what replays it. The web queue
+(`web/src/offline/feedbackRoute.ts`, `feedbackRequestBody`) stores a report on the device and posts
+it in the background; the contract with `POST /api/feedback` is:
+
+- `report_id` (optional, 8 to 64 characters of `A-Za-z0-9_-`): generated once per report by the
+  client and kept across retries. The server stores a report with a given id once; a second send
+  (the answer was lost, the client retried) gets the first report's `id` back with
+  `"duplicate": true`, even after midnight or a server restart (the memory is the file
+  `feedback/.ids/<report_id>`, written after the report; a marker without its report is ignored).
+  Without an id every send is a new report. A retry still counts against the per-IP rate limit.
+  The stored file has `report_id` next to `id`.
+- `context.local` (optional object, any report): `seed`, `setup`, `answers` (the human's option
+  ids), `engine {build, content_digest}`, `wasm_sha256`, and `save`, the host's `save_state`
+  object (`seed`, `setup`, `answers`, `redo`, `never`, `event_times`, `event_versions`,
+  `generation`, `version`, `decisions`, `decisions_hash`; further keys are kept). `seed`, `setup`
+  and `answers` must equal the save's. Malformed `local` is a 400 with a message.
+- Size caps: text 4000 characters and the rest of `context` 200 KiB as before; `context.local` has
+  its own 2 MiB cap (a long game's save is well under 1 MiB: a few thousand answers, one time and
+  version per event), at most 50 000 answers. The route's body cap rose from 256 KiB to 3 MiB to
+  fit both; the check on the ordinary context is unchanged, so the larger body only buys room for
+  `local`. The other routes keep 8 KiB.
+- Listing: `tools/public/list_feedback.sh` and `server feedback-list` print
+  `source: offline | seed 7 | build abc | decisions 118 | answers 40 | replay: feedback-save <id>`
+  under the header of an offline report; `-v` leaves the save, answers and setup out of the context
+  dump. Reports without `local` print as before.
+- Extracting the save: `tools/public/list_feedback.sh -s <fb_id or report_id> -o save.json [DATA_DIR]`
+  (jq, or with `TI4_SERVER_BIN` set the server's `feedback-save --data-dir DIR --out FILE ID`).
+  The deployed alpha binary predates this; use a binary built from this branch or jq.
+- Reproducing the position: `cargo run -p ti4-wasm --example replay_save -- save.json
+  [--snapshot snapshot.json]` plays the save with the host crate the browser runs (the file may also
+  be the stored report). It prints whether decisions and their hash came back the same
+  (`resume_check`), the round/phase and the pending question, and exits 1 when this build decides
+  otherwise (then check `engine.build` and `content_digest` in the report against the build you
+  replay with).
+
 Not built from the options below: no Discord/Telegram/GitHub forwarding (the file on the server
 is the only copy, so the team needs server access or someone to relay it), no confirmation
 reference id for the player. The first alpha batch (39 usable reports, 12-13 Oct, build

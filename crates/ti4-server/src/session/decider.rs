@@ -1,8 +1,8 @@
 //! Remote human decider implementation connecting engine decision sites to client channels.
 
-use ti4_host::clock::NonceSource as _;
 use std::sync::{Arc, Mutex, mpsc};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+use ti4_host::clock::NonceSource as _;
 use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ActionAcceptedMsg;
