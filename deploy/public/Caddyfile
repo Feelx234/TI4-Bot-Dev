@@ -8,7 +8,7 @@
 #   sudo systemctl reload caddy
 
 play.example.org {
-	# Caddy has no built-in brotli. The server itself serves ti4_host-*.wasm.br / .wasm.gz when the
+	# Caddy has no built-in brotli. The server itself serves ti4_wasm-*.wasm.br / .wasm.gz when the
 	# release has them (deploy.sh writes both) and the client accepts them; Caddy leaves responses
 	# that already carry a Content-Encoding alone. Everything else is compressed here (zstd, gzip).
 	# Caddy 2.6 does not compress application/wasm by default, so .wasm gets its own rule (a wasm

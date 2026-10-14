@@ -41,6 +41,10 @@ export function loadEngine(): Promise<LoadedEngine> {
 async function compile(url: string): Promise<{ module: WebAssembly.Module; wasmSha256: string }> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`The engine could not be loaded (${response.status})`);
+  // A server that has no such file answers with its start page (single-page fallback): this page
+  // is from an older release than the server, and the engine file it names is gone.
+  if (response.headers.get("content-type")?.startsWith("text/html"))
+    throw new Error("This page is out of date: the engine file it needs is no longer on the server. Reload the page.");
   // The file is hashed while it compiles: the copy of the body is read for the hash.
   const hashing = response.clone().arrayBuffer().then(sha256Hex);
   // compileStreaming needs the wasm content type; a static host may not send it.
