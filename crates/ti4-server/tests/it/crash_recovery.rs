@@ -23,8 +23,8 @@ fn test_crash_recovery_persists_and_resumes_cleanly() {
 
     let content = ContentStore::embedded();
     let seed = 424_242;
-    let (state, galaxy) =
-        ti4_server::map::create_game_with_map(content, &players, seed).expect("create map");
+    let (state, galaxy) = ti4_server::map::create_game_with_template(content, &players, seed, None)
+        .expect("create map");
     let map_tiles = ti4_server::map::build_board_tiles(content, &galaxy);
 
     let game_id = "test_recovery_game";

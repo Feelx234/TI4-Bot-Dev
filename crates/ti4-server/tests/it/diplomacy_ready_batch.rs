@@ -51,7 +51,8 @@ fn at_ready(game_id: &str) -> Table {
     let registry = GameRegistry::new().with_store(store);
     let players = vec![PlayerId::new("p1"), PlayerId::new("p2")];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     // Jord is p1's only home planet; two more make a real choice of which two to ready.
     for (system, planet) in
         ti4_content::galaxy::all_planets(ContentStore::embedded(), ti4_model::content_types::POK)

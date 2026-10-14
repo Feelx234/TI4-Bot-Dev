@@ -42,7 +42,8 @@ fn table(id: &str, third: SeatController, store: Option<Arc<FileGameStore>>) -> 
     let players = vec![host.clone(), guest.clone(), third_seat.clone()];
     let seed = 42;
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(id, state)
         .with_seed(seed)

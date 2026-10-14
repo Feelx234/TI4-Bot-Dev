@@ -1,9 +1,9 @@
 //! What the host can choose, and what each choice looks like: the buildable template list, a
 //! pictured preview of any choice, and the public description of a lobby's current choice.
 //!
-//! Previews are built with the very functions a started game uses
-//! ([`crate::map::create_game_with_template`] and `create_game_with_map`), so a lobby's preview
-//! is the board its game gets. No seed ever leaves this module.
+//! Previews are built with the very function a started game uses
+//! ([`crate::map::create_game_with_template_seated`]), so a lobby's preview is the board its game
+//! gets. No seed ever leaves this module.
 //!
 //! Both hosts use it: the server for the tables of its lobbies, the wasm host for the table of
 //! the page ([`crate::setup`]).

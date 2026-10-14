@@ -760,11 +760,8 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         LobbyError::NotFound => StatusCode::NOT_FOUND,
         LobbyError::FactionTaken(_) => StatusCode::CONFLICT,
         LobbyError::InvalidFaction(_) => StatusCode::BAD_REQUEST,
-        LobbyError::InvalidCapability
-        | LobbyError::HumanSeatRequired
-        | LobbyError::HostRequired => StatusCode::FORBIDDEN,
-        LobbyError::HumansNotReady
-        | LobbyError::SeatsOpen
+        LobbyError::InvalidCapability | LobbyError::HostRequired => StatusCode::FORBIDDEN,
+        LobbyError::SeatsOpen
         | LobbyError::SeatsTaken(_)
         | LobbyError::ScenarioTable(_)
         | LobbyError::AlreadyRunning

@@ -1926,7 +1926,8 @@ mod tie_break_tests {
     fn tied_last_turn(game_id: &str, history_active: bool) -> SessionConfig {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+            crate::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+                .unwrap();
         let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
         let mut by_initiative: Vec<(StrategyCardId, i32)> = state
             .card_initiative

@@ -89,7 +89,8 @@ fn scenario(step_snapshots: bool) -> Outcome {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new("resume_probe", state)
         .with_seed(42)

@@ -64,7 +64,8 @@ fn setup(seed: u64) -> (GameState, Galaxy) {
         PlayerId::new("p3"),
     ];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, seed).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
+            .unwrap();
     // These fixtures name decisions by index in games tuned against the notes a server game held
     // before notes were dealt after seating: four factionless notes in the last seat's hand.
     // Keep that opening so the indices still mean what they were chosen for.
@@ -431,7 +432,8 @@ fn the_dry_run_leaves_the_game_its_history_and_storage_untouched() {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new("splice_probe", state)
         .with_seed(42)

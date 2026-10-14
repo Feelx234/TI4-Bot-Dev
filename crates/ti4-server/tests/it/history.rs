@@ -18,7 +18,8 @@ fn movement_batch_is_atomic_idempotent_and_undoable() {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new("batch_probe", state)
         .with_seed(42)
@@ -295,10 +296,11 @@ fn excess_fleet_batch_replays_at_the_next_choice_and_recovers_its_state() {
     let registry = GameRegistry::new().with_store(store.clone());
     let host = PlayerId::new("p1");
     let guest = PlayerId::new("p2");
-    let (mut state, galaxy) = ti4_server::map::create_game_with_map(
+    let (mut state, galaxy) = ti4_server::map::create_game_with_template(
         ContentStore::embedded(),
         &[host.clone(), guest.clone()],
         42,
+        None,
     )
     .unwrap();
     let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
@@ -425,7 +427,8 @@ fn fiftieth_movement_step_failure_preserves_the_durable_redo_branch() {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
     state
         .system_mut(&origin)
@@ -706,10 +709,11 @@ fn movement_batch_survives_a_declined_cargo_hold_for_ground_forces_in_the_active
     let registry = GameRegistry::new();
     let host = PlayerId::new("p1");
     let guest = PlayerId::new("p2");
-    let (mut state, galaxy) = ti4_server::map::create_game_with_map(
+    let (mut state, galaxy) = ti4_server::map::create_game_with_template(
         ContentStore::embedded(),
         &[host.clone(), guest.clone()],
         42,
+        None,
     )
     .unwrap();
     let origin = SystemId::new(galaxy.adjacent("22").into_iter().next().unwrap());
@@ -800,7 +804,8 @@ fn game_with_a_reaction_holder(
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let neighbours: Vec<String> = galaxy
         .adjacent("22")
         .into_iter()
@@ -1057,7 +1062,8 @@ fn undo_action_rewinds_the_whole_movement_pipeline_and_preserves_redo() {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new("probe", state)
         .with_player_ids(players)
@@ -1149,7 +1155,8 @@ fn host_rewinds_replays_and_branches_durably() {
     let guest = PlayerId::new("p2");
     let players = vec![host.clone(), guest.clone()];
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            .unwrap();
     let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new("history_game", state.clone())
         .with_seed(42)
@@ -1286,10 +1293,11 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     let registry = Arc::new(GameRegistry::new());
     let host = PlayerId::new("host");
     let guest = PlayerId::new("guest");
-    let (state, galaxy) = ti4_server::map::create_game_with_map(
+    let (state, galaxy) = ti4_server::map::create_game_with_template(
         ContentStore::embedded(),
         &[host.clone(), guest.clone()],
         84,
+        None,
     )
     .unwrap();
     let config = SessionConfig::new("history_http", state)

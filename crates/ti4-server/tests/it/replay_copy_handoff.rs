@@ -19,7 +19,8 @@ fn base_config() -> SessionConfig {
     let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
     let content = ContentStore::embedded();
     let (state, galaxy) =
-        ti4_server::map::create_game_with_map(content, &players, 515_151).expect("create map");
+        ti4_server::map::create_game_with_template(content, &players, 515_151, None)
+            .expect("create map");
     let tiles = ti4_server::map::build_board_tiles(content, &galaxy);
     SessionConfig::new("game_replay_copy", state)
         .with_galaxy(galaxy, tiles)

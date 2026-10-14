@@ -228,64 +228,6 @@ fn system_tile_metadata(
     })
 }
 
-/// Initializes a fresh game with seated factions, deployed starting fleets, and a constructed galaxy.
-///
-/// # Errors
-///
-/// Returns [`SeatingError`] if seating, deployment, or galaxy board construction fails.
-pub fn create_game_with_map(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-) -> Result<(GameState, Galaxy), SeatingError> {
-    create_game_with_map_rotated(content, player_ids, seed, 0)
-}
-
-/// [`create_game_with_map`] with the factions rotated (see `seating::seat_in_scope_rotated`).
-///
-/// # Errors
-///
-/// As [`create_game_with_map`].
-pub fn create_game_with_map_rotated(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    rotation: usize,
-) -> Result<(GameState, Galaxy), SeatingError> {
-    create_game_with_map_rotated_and_card_set(content, player_ids, seed, rotation, None)
-}
-
-/// As [`create_game_with_map`], with the strategy-card set named (`None`: the PoK-scope set).
-///
-/// # Errors
-///
-/// Returns [`SeatingError`] if setup (including an unknown card set), seating, deployment, or
-/// galaxy board construction fails.
-pub fn create_game_with_map_and_card_set(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    card_set: Option<&str>,
-) -> Result<(GameState, Galaxy), SeatingError> {
-    create_game_with_map_rotated_and_card_set(content, player_ids, seed, 0, card_set)
-}
-
-/// [`create_game_with_map`] with the factions rotated and the strategy-card set named.
-///
-/// # Errors
-///
-/// As [`create_game_with_map_and_card_set`].
-pub fn create_game_with_map_rotated_and_card_set(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    rotation: usize,
-    card_set: Option<&str>,
-) -> Result<(GameState, Galaxy), SeatingError> {
-    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
-    create_game_with_map_seated(content, player_ids, seed, &assignments, card_set)
-}
-
 /// Deals every seat its faction's promissory notes (69.1).
 ///
 /// Setup deals while the seats still hold the placeholder faction `generic`, which leaves four
@@ -296,13 +238,8 @@ fn deal_notes_after_seating(state: &mut GameState, content: &ContentStore) {
     ti4_engine::promissory::deal(state, content, POK);
 }
 
-/// As [`create_game_with_map_rotated_and_card_set`], with the faction of every seat given (a
-/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
-///
-/// # Errors
-///
-/// As [`create_game_with_map`].
-pub fn create_game_with_map_seated(
+/// The seeded random-filler board of [`create_game_with_template_seated`] (no template).
+fn create_game_with_random_board(
     content: &ContentStore,
     player_ids: &[PlayerId],
     seed: u64,
@@ -339,8 +276,9 @@ pub fn create_game_with_map_seated(
     Ok((state, galaxy))
 }
 
-/// Like [`create_game_with_map`], but lays the board out from the predefined map template
-/// `template` when one is named; `None` keeps the seeded random-filler board.
+/// The game of `player_ids` with the in-scope factions seated in join order and the PoK-scope
+/// strategy cards, on the predefined map template `template` when one is named (`None`: the seeded
+/// random-filler board). For tests and fixtures; a table starts with [`crate::setup`].
 ///
 /// # Errors
 ///
@@ -351,65 +289,18 @@ pub fn create_game_with_template(
     seed: u64,
     template: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
-    create_game_with_template_rotated(content, player_ids, seed, template, 0)
+    let assignments = seating::seat_in_scope(player_ids);
+    create_game_with_template_seated(content, player_ids, seed, template, &assignments, None)
 }
 
-/// [`create_game_with_template`] with the factions rotated (see `seating::seat_in_scope_rotated`).
-///
-/// # Errors
-///
-/// As [`create_game_with_template`].
-pub fn create_game_with_template_rotated(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    rotation: usize,
-) -> Result<(GameState, Galaxy), String> {
-    create_game_with_template_rotated_and_card_set(
-        content, player_ids, seed, template, rotation, None,
-    )
-}
-
-/// As [`create_game_with_template`], with the strategy-card set named (`None`: the PoK-scope set).
+/// The game of `player_ids` with the faction of every seat given (a start preset may seat a
+/// faction outside `IN_SCOPE_FACTIONS`), on the map template `template` (`None`: the seeded
+/// random-filler board), with the strategy-card set named (`None`: the PoK-scope set).
 ///
 /// # Errors
 ///
 /// A message for an unknown template or card set, a seat-count mismatch, or any seating/galaxy
 /// failure.
-pub fn create_game_with_template_and_card_set(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    card_set: Option<&str>,
-) -> Result<(GameState, Galaxy), String> {
-    create_game_with_template_rotated_and_card_set(content, player_ids, seed, template, 0, card_set)
-}
-
-/// [`create_game_with_template`] with the factions rotated and the strategy-card set named.
-///
-/// # Errors
-///
-/// As [`create_game_with_template_and_card_set`].
-pub fn create_game_with_template_rotated_and_card_set(
-    content: &ContentStore,
-    player_ids: &[PlayerId],
-    seed: u64,
-    template: Option<&str>,
-    rotation: usize,
-    card_set: Option<&str>,
-) -> Result<(GameState, Galaxy), String> {
-    let assignments = seating::seat_in_scope_rotated(player_ids, rotation);
-    create_game_with_template_seated(content, player_ids, seed, template, &assignments, card_set)
-}
-
-/// As [`create_game_with_template_rotated_and_card_set`], with the faction of every seat given (a
-/// start preset may seat a faction outside `IN_SCOPE_FACTIONS`).
-///
-/// # Errors
-///
-/// As [`create_game_with_template`].
 pub fn create_game_with_template_seated(
     content: &ContentStore,
     player_ids: &[PlayerId],
@@ -419,7 +310,7 @@ pub fn create_game_with_template_seated(
     card_set: Option<&str>,
 ) -> Result<(GameState, Galaxy), String> {
     let Some(alias) = template else {
-        return create_game_with_map_seated(content, player_ids, seed, assignments, card_set)
+        return create_game_with_random_board(content, player_ids, seed, assignments, card_set)
             .map_err(|e| e.to_string());
     };
     let loader = crate::maps::TemplateLoader::load()?;
@@ -506,7 +397,8 @@ mod template_tests {
     fn no_template_keeps_the_random_board() {
         let content = ContentStore::embedded();
         let (_, a) = create_game_with_template(content, &players(6), 9, None).unwrap();
-        let (_, b) = create_game_with_map(content, &players(6), 9).unwrap();
+        let seated = seating::seat_in_scope(&players(6));
+        let (_, b) = create_game_with_random_board(content, &players(6), 9, &seated, None).unwrap();
         assert_eq!(
             build_board_tiles(content, &a),
             build_board_tiles(content, &b)
@@ -520,7 +412,7 @@ mod template_tests {
             create_game_with_template(content, &players(6), 4, Some("6pStandard")).unwrap();
         assert_eq!(state.players.len(), 6);
         assert!(galaxy.coord_of("18").is_some());
-        let (_, random) = create_game_with_map(content, &players(6), 4).unwrap();
+        let (_, random) = create_game_with_template(content, &players(6), 4, None).unwrap();
         assert_eq!(
             build_board_tiles(content, &galaxy).len(),
             build_board_tiles(content, &random).len()
@@ -645,7 +537,7 @@ mod preset_tests {
                 let list = players(n);
                 let name = format!("world+fac:{alias}");
                 // Both the plain map path and a preset (which seats named factions).
-                let (state, _) = create_game_with_map(content, &list, seed).unwrap();
+                let (state, _) = create_game_with_template(content, &list, seed, None).unwrap();
                 assert!(
                     state
                         .promissory_notes

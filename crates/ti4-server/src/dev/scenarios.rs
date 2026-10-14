@@ -1096,7 +1096,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
 
     let player_ids = vec![p1.clone(), p2.clone(), p3.clone()];
     let (mut state, galaxy) =
-        crate::map::create_game_with_map(content, &player_ids, seed).map_err(|e| e.to_string())?;
+        crate::map::create_game_with_template(content, &player_ids, seed, None)?;
 
     // Sol: Leadership (initiative 1), Hacan: Trade (5), Letnev: Warfare (6)
     let strat_sol = StrategyCardId::new("leadership");

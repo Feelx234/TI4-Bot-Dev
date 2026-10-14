@@ -881,7 +881,7 @@ fn objective_progress_details_follow_the_redaction_split() {
         .map(PlayerId::new)
         .collect();
     let (mut game, galaxy) =
-        ti4_server::map::create_game_with_map(content, &seats, 7).expect("map game");
+        ti4_server::map::create_game_with_template(content, &seats, 7, None).expect("map game");
     // The generated map has no anomaly; swap one blue tile for a gravity rift so Learn the
     // Secrets has something to count. The projection rebuilds adjacency from these tiles.
     let mut tiles = ti4_server::map::build_board_tiles(content, &galaxy);

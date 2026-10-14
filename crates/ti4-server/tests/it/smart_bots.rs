@@ -18,11 +18,12 @@ fn config_with(
     let ids: Vec<PlayerId> = (1..=controllers.len())
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
-    let (state, galaxy) = ti4_server::map::create_game_with_template_and_card_set(
+    let (state, galaxy) = ti4_server::map::create_game_with_template_seated(
         ContentStore::embedded(),
         &ids,
         seed,
         None,
+        &ti4_engine::seating::seat_in_scope(&ids),
         Some(card_set),
     )
     .expect("create game");
