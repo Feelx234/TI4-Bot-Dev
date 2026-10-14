@@ -6,7 +6,7 @@
 //! deciders together: the wasm host counts the decisions in its own way.
 //!
 //! A saved game is the same on both too: the option id of every decision, of every seat, in
-//! order. The wasm host plays the log of the server again.
+//! order. The wasm host plays the log of the server again (`resume.log` of `ti4_host_start`).
 //!
 //! One test: the wasm host keeps its game in statics.
 
@@ -22,8 +22,8 @@ use ti4_server::session::{GameSession, SeatController, SessionConfig};
 /// faction that was chosen for it.
 type Seats = [(&'static str, Option<&'static str>)];
 
-/// The request of the setup exports of the wasm host.
-fn request(setup: &TableSetup, seats: &Seats) -> String {
+/// The table as the setup exports of the wasm host read it.
+fn request(setup: &TableSetup, seats: &Seats) -> serde_json::Value {
     serde_json::json!({
         "setup": setup,
         "seats": seats
@@ -31,42 +31,31 @@ fn request(setup: &TableSetup, seats: &Seats) -> String {
             .map(|(kind, faction)| serde_json::json!({ "kind": kind, "faction": faction }))
             .collect::<Vec<_>>(),
     })
-    .to_string()
 }
 
-/// The first round of the table in the wasm host.
-fn in_the_page(setup: &TableSetup, seats: &Seats) -> Vec<DecisionRecord> {
-    let status = ti4_wasm::with_table_native(ti4_wasm::ti4_play_setup, &request(setup, seats));
-    let report = ti4_wasm::response(status).expect("the table plays in the wasm host");
-    assert!(report.contains("\"stopped\":null"), "{report}");
-    ti4_wasm::decisions_native()
-}
-
-/// The table in the wasm host as a saved game: the first decisions have the answers of `saved`
-/// (`ti4_replay`), and the seats decide the rest. Returns how many answers the host gave.
-fn played_again(
-    setup: &TableSetup,
-    seats: &Seats,
-    saved: &[DecisionRecord],
-) -> (usize, Vec<DecisionRecord>) {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let given = Arc::new(AtomicUsize::new(0));
-    let count = given.clone();
-    let script: Vec<String> = saved.iter().map(|record| record.chosen.clone()).collect();
-    ti4_wasm::set_native_host(move |update| {
-        assert!(update.is_empty(), "no person is at the table: {update}");
-        let wanted = &script[count.fetch_add(1, Ordering::Relaxed)];
-        let found: serde_json::Value = serde_json::from_str(
-            &ti4_wasm::saved_option_native(wanted).expect("the saved option is offered"),
-        )
-        .expect("the saved option");
-        assert_eq!(found["own"], false);
-        i32::try_from(found["index"].as_u64().expect("an index")).expect("an index")
+/// The first round of the table in the wasm host, with the decisions of `saved` given again
+/// (a saved game: `resume.log`) and the seats deciding the rest.
+fn in_the_page(setup: &TableSetup, seats: &Seats, saved: &[DecisionRecord]) -> Vec<DecisionRecord> {
+    ti4_wasm::set_native_host(|output| {
+        let envelope: serde_json::Value = serde_json::from_str(output).expect("an envelope");
+        assert_eq!(
+            envelope["kind"], "progress",
+            "no person is at the table: {output}"
+        );
+        ti4_wasm::host_api::CONTINUE
     });
-    ti4_wasm::ti4_replay(u32::try_from(saved.len()).expect("a count"));
-    let decisions = in_the_page(setup, seats);
-    (given.load(Ordering::Relaxed), decisions)
+    let log: Vec<&str> = saved.iter().map(|record| record.chosen.as_str()).collect();
+    let start = serde_json::json!({
+        "table": request(setup, seats),
+        "resume": { "log": log },
+    });
+    let len = ti4_wasm::host_api::put_input(&start.to_string());
+    let status = ti4_wasm::ti4_host_start(u32::try_from(len).expect("a short request"));
+    let end = ti4_wasm::host_api::out_text();
+    assert!(status >= 0, "the table plays in the wasm host: {end}");
+    let end: serde_json::Value = serde_json::from_str(&end).expect("the end envelope");
+    assert!(end["end"]["error"].is_null(), "{end}");
+    ti4_wasm::decisions_native()
 }
 
 /// The table on the server, until `decisions` decisions are made or the game is over. The ids
@@ -148,7 +137,7 @@ fn slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server() {
         ),
     ];
     for (setup, seats) in tables {
-        let page = in_the_page(&setup, seats);
+        let page = in_the_page(&setup, seats, &[]);
         assert!(
             page.len() > 100,
             "a round of {} seats has more than {} decisions",
@@ -169,8 +158,7 @@ fn slow_a_table_of_a_seed_is_the_same_game_in_the_page_and_on_the_server() {
         // The log of the server is a saved game of the page: the host gives the first half of
         // it, the seats decide the rest, and it is the same game.
         let half = page.len() / 2;
-        let (given, again) = played_again(&setup, seats, &server[..half]);
-        assert_eq!(given, half);
+        let again = in_the_page(&setup, seats, &server[..half]);
         assert_eq!(
             again,
             page,
@@ -198,12 +186,14 @@ fn the_table_of_web_is_the_table_of_the_server() {
         let request: ti4_wasm::host_setup::Setup =
             serde_json::from_value(request.clone()).expect("a setup");
         let built = request.build().expect("the wasm host builds the table");
-        let table = built.setup.table();
+        let resolved = request.resolved().expect("the table is offered");
+        let table = resolved.table();
         assert_eq!(table.player_count, built.players);
+        assert_eq!(built.humans, 1 << resolved.human_seat.expect("a seat"));
         let chosen: Vec<Option<String>> = (0..built.players)
             .map(|seat| {
-                (seat == built.human)
-                    .then(|| built.setup.human_faction.clone())
+                (Some(seat) == resolved.human_seat)
+                    .then(|| resolved.human_faction.clone())
                     .flatten()
             })
             .collect();

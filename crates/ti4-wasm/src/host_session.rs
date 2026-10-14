@@ -1,6 +1,6 @@
 //! `HostSession`: what the server's `SessionShared` (and the thread of `worker.rs`) does around the
-//! engine for one game with one person at the table, as plain data with no threads and no
-//! sockets. It sits on `ti4-host` (the event journal, the state update, the reach answer) and
+//! engine for one game in one page, as plain data with no threads and no sockets. The page plays
+//! one seat or several (a mask that can change during the game: [`LocalCommand::SwitchSeat`]). It sits on `ti4-host` (the event journal, the state update, the reach answer) and
 //! turns what the engine does into the `ServerMessage`s a `web/` client reads.
 //!
 //! The session owns no `Game`. The crate's play loop (`play` in `lib.rs`) owns the game and calls
@@ -25,12 +25,16 @@
 //! - Undo is the engine checkpoint of this crate (no `UndoTrack` barriers: one person, and a
 //!   checkpoint restores the dice, so an undo cannot be used to re-roll).
 //! - Redo and rewind are by replay: the session says what to replay ([`Restart`]); the host starts
-//!   the game again with those answers.
+//!   the game again with those answers. So is an undo that goes back further than the
+//!   checkpoints. A local game has no undo barrier: an undo may go back over what other seats
+//!   decided, as far as the last change of the page's seats.
+//! - A seat that the page does not play may wait for the page before it decides (stepping, or
+//!   the wait of a table): the session then sends an update with no pending choice, and the
+//!   page lets the seat go on ([`LocalCommand::Step`]).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
-use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, DecisionRecord};
 use ti4_engine::game::Game;
@@ -42,6 +46,7 @@ use ti4_host::map::GalaxyLayout;
 use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
 use ti4_host::planning::fork::TACTICAL_COMPLETE;
 use ti4_host::planning::steps::{INTERRUPTED, PlanStep};
+use ti4_host::planning::undo::{self, Answered};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
@@ -54,6 +59,7 @@ use ti4_host::protocol::server::{
 };
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::protocol::view::BoardTileView;
+use ti4_host::setup::TableSeats;
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
@@ -73,6 +79,27 @@ pub enum Resume {
     Undo,
     /// End the run (the engine's `LEAVE`).
     Leave,
+    /// Let the seat that the game waits for decide (the engine's `GO`).
+    Go,
+    /// The seats of the page changed: the decision is asked again (the engine's `SWITCH`).
+    Switch,
+}
+
+/// From the decision with the number `decision` on, the page plays the seats of `humans` (bit 0
+/// is seat `a`). An undo does not go back before it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SeatSwitch {
+    pub decision: u64,
+    pub humans: u32,
+}
+
+/// What the session asks of the play loop that drives the game.
+pub trait PlayLoop: Send {
+    /// How many decisions the seats made. While the game waits, the number of the decision it
+    /// waits for.
+    fn decided(&self) -> u64;
+    /// Whether an undo through the checkpoints reaches the answer that had the number `asked`.
+    fn reaches(&self, asked: u64) -> bool;
 }
 
 /// A history change that needs the game to be played again: the host ends the parked run and
@@ -88,6 +115,17 @@ pub struct Restart {
     /// The game version so far: the new run goes on from it, so that a client that keeps what it
     /// has does not take the new snapshot for an old message.
     pub version: u64,
+    /// Every decision of the game to give again, of every seat, for an undo: no seat decides
+    /// these again. Empty for a change of the history, which gives `answers`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub log: Vec<String>,
+    /// The changes of the seats of the page.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub switches: Vec<SeatSwitch>,
+    /// The steps of a movement, the landings or a production that the undo took back: told
+    /// with the first snapshot of the new run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undone: Vec<PlanStep>,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -97,6 +135,8 @@ pub struct Handled {
     pub restart: Option<Restart>,
     /// Set by `save_state`.
     pub save: Option<serde_json::Value>,
+    /// Set by `switch_seat`: the play loop is told before it is resumed.
+    pub switch: Option<SeatSwitch>,
 }
 
 /// Commands that are not `ClientMessage`s: the server has them as HTTP calls, or not at all.
@@ -115,6 +155,17 @@ pub enum LocalCommand {
         expected_version: u64,
         plan: serde_json::Value,
     },
+    /// Let the seat that the game waits for decide.
+    Step {},
+    /// Play `seat` from now on in place of the seat that the game is shown as: that seat
+    /// decides as a seat that the page does not play, from its open decision on. Nothing
+    /// happens when the page plays `seat` already.
+    SwitchSeat { seat: String },
+    /// Whether the game waits before a decision of a seat that the page does not play: 0 (no),
+    /// 1 (before each) or 2 (before each that takes the wait of a table, not a reaction window
+    /// that the seat only declines). The seats decide the same in every mode. Only a flag is
+    /// set: it can be sent at any time.
+    Stepping { mode: u32 },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -134,6 +185,11 @@ pub enum HistoryAction {
 #[derive(Debug, Clone)]
 pub struct ScriptRun {
     nonce: String,
+    /// The script as it was sent: what a refusal says is not in the game.
+    sent: Vec<DraftStep>,
+    /// The number of the choice the script began at: a script that the game refuses goes back
+    /// to it, all or nothing.
+    start: u64,
     script: Vec<DraftStep>,
     next: usize,
     /// Whose turn it was. The script does not outlive that turn.
@@ -159,6 +215,50 @@ pub enum Scripted {
     Rollback(u64),
 }
 
+/// A choice that a seat answered, with what the session keeps of it.
+#[derive(Debug, Clone)]
+struct Selected {
+    choice: Choice,
+    option: ChoiceOption,
+    /// The number of the answer when the seat is played by the page.
+    own: Option<u64>,
+    /// The game declined the window for the Never cards of the page.
+    passed: bool,
+}
+
+/// An answer of the page, as an undo reads it.
+#[derive(Debug, Clone)]
+struct Own {
+    /// Its place in the decision log.
+    decision: usize,
+    /// The number the play loop gave it.
+    asked: u64,
+    subtype: String,
+    kind: String,
+    /// A window that the game declined for the Never cards: no answer of the player.
+    passed: bool,
+    step: Option<PlanStep>,
+}
+
+impl Answered for Own {
+    fn subtype(&self) -> &str {
+        &self.subtype
+    }
+
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+}
+
+/// An undo that goes back over several answers, through the checkpoints one at a time.
+#[derive(Debug, Clone)]
+struct Undoing {
+    /// How many answers of the page stay.
+    keep: usize,
+    /// The steps that it takes back, told with the snapshot when it is done.
+    steps: Vec<PlanStep>,
+}
+
 /// The session as it was at a checkpoint of the play loop.
 #[derive(Debug, Clone)]
 struct Mark {
@@ -179,17 +279,26 @@ pub struct Identity {
     pub game_id: String,
     pub seed: u64,
     pub players: usize,
-    /// 0-based place of the person.
+    /// 0-based place of the person: the first seat that the page plays.
     pub human_seat: usize,
+    /// The seats that the page plays at the start (bit 0 is seat `a`).
+    #[serde(default)]
+    pub humans: u32,
     /// The setup as the host was given it (card set, map, factions...): a save replays with it.
     pub setup: serde_json::Value,
+    /// Who sits in each seat, told with every update: the game of a table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<TableSeats>,
 }
 
 /// The session of one game.
 pub struct HostSession {
     identity: Identity,
     clock: Box<dyn Clock>,
+    play_loop: Box<dyn PlayLoop>,
+    /// The seat the game is shown as: the seat asked last.
     viewer: PlayerId,
+    switches: Vec<SeatSwitch>,
     never: NeverSet,
     // The timeline.
     version: u64,
@@ -200,10 +309,12 @@ pub struct HostSession {
     rolls_seen: usize,
     prev_phase: Phase,
     prev_round: u32,
-    selected: VecDeque<(Choice, ChoiceOption)>,
-    /// The person's answers (ids), in order, and the plan step each one is, for `undone`.
+    selected: VecDeque<Selected>,
+    /// The page's answers (ids), in order, and what an undo reads of each.
     answers: Vec<String>,
-    answer_steps: Vec<Option<PlanStep>>,
+    own: Vec<Own>,
+    /// The next decision of the page is a window that was declined for its Never cards.
+    declined: bool,
     redo: Vec<String>,
     marks: VecDeque<Mark>,
     // The map: it does not change during a game.
@@ -213,7 +324,13 @@ pub struct HostSession {
     // The position the person sees.
     state: GameState,
     pending: Option<(Choice, String)>,
+    /// The game waits before this decision of a seat that the page does not play.
+    waiting: Option<Choice>,
     can_undo: bool,
+    undoing: Option<Undoing>,
+    /// The play loop went back to a checkpoint and goes on to the choice that it opens again:
+    /// no seat waits on the way.
+    resuming: bool,
     /// The option the person submitted, until its decision is recorded.
     awaiting: Option<String>,
     /// The next question starts with a full `initial_snapshot` (a new run, an undo).
@@ -228,6 +345,8 @@ pub struct HostSession {
     // Replay of a save.
     /// The person's answers that are replayed from a save: no redo bookkeeping, no notes.
     quiet: usize,
+    /// How many decisions of the game a save gives again (`Resume::log`).
+    saved_log: usize,
     saved_events: Vec<(String, Option<u64>)>,
     // The end.
     finished: bool,
@@ -236,29 +355,17 @@ pub struct HostSession {
     out: Vec<ServerMessage>,
 }
 
-fn is_action_card_name(name: &str) -> bool {
-    ContentStore::embedded()
-        .records(ti4_model::content_types::ContentType::ActionCards)
-        .iter()
-        .any(|record| record.text("name") == Some(name))
-}
-
 impl HostSession {
-    /// A session for the game that begins at `state`.
+    /// A session for the game that begins at `state`, played again from `resume`.
     #[must_use]
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         identity: Identity,
         clock: Box<dyn Clock>,
+        play_loop: Box<dyn PlayLoop>,
         never: NeverSet,
         state: &GameState,
-        tiles: Vec<BoardTileView>,
-        galaxy: Option<Galaxy>,
-        answers_to_replay: usize,
-        redo: Vec<String>,
-        generation: u64,
-        version: u64,
-        saved_events: Vec<(String, Option<u64>)>,
+        (tiles, galaxy): (Vec<BoardTileView>, Option<Galaxy>),
+        resume: &crate::host_setup::Resume,
     ) -> Self {
         let layout = galaxy.as_ref().map_or_else(
             || GalaxyLayout {
@@ -273,10 +380,12 @@ impl HostSession {
         let mut session = Self {
             identity,
             clock,
+            play_loop,
             viewer,
+            switches: resume.switches.clone(),
             never,
-            version: version.max(1),
-            generation,
+            version: resume.version.max(1),
+            generation: resume.generation,
             decision_log: Vec::new(),
             events: Vec::new(),
             event_counter: 0,
@@ -285,24 +394,43 @@ impl HostSession {
             prev_round: state.round,
             selected: VecDeque::new(),
             answers: Vec::new(),
-            answer_steps: Vec::new(),
-            redo,
+            own: Vec::new(),
+            declined: false,
+            redo: resume.redo.clone(),
             marks: VecDeque::new(),
             tiles,
             layout,
             galaxy,
             state: state.clone(),
             pending: None,
+            waiting: None,
             can_undo: false,
+            undoing: None,
+            resuming: false,
             awaiting: None,
             fresh: true,
             auto_resolved: Vec::new(),
-            undone: Vec::new(),
+            undone: resume.undone.clone(),
             script: None,
             batch: None,
             batch_result: None,
-            quiet: answers_to_replay,
-            saved_events,
+            quiet: if resume.log.is_empty() {
+                resume.answers.len()
+            } else {
+                0
+            },
+            saved_log: resume.log.len(),
+            saved_events: resume
+                .event_times
+                .iter()
+                .enumerate()
+                .map(|(index, time)| {
+                    (
+                        time.clone(),
+                        resume.event_versions.get(index).copied().flatten(),
+                    )
+                })
+                .collect(),
             finished: false,
             error: None,
             out: Vec::new(),
@@ -376,7 +504,20 @@ impl HostSession {
     /// The person's answers that a save replays and that have not been replayed yet.
     #[must_use]
     pub fn replaying(&self) -> bool {
-        self.quiet > 0
+        self.quiet > 0 || self.decision_log.len() < self.saved_log
+    }
+
+    /// The seats that the page plays now (bit 0 is seat `a`).
+    #[must_use]
+    pub fn humans(&self) -> u32 {
+        self.switches
+            .last()
+            .map_or(self.identity.humans, |switch| switch.humans)
+    }
+
+    #[must_use]
+    pub fn switches(&self) -> &[SeatSwitch] {
+        &self.switches
     }
 
     /// The play loop is going to re-answer `count` answers of the person without asking (after
@@ -455,21 +596,32 @@ impl HostSession {
     // --- hooks of the play loop ---------------------------------------------------------
 
     /// What a seat chose (any seat): kept until its record is published, for the facts of the
-    /// event.
-    pub fn selected(&mut self, choice: &Choice, option: &ChoiceOption) {
-        self.selected.push_back((choice.clone(), option.clone()));
+    /// event. `own` is the number of the answer when the page plays the seat.
+    pub fn selected(&mut self, choice: &Choice, option: &ChoiceOption, own: Option<u64>) {
+        let passed = own.is_some() && std::mem::take(&mut self.declined);
+        self.selected.push_back(Selected {
+            choice: choice.clone(),
+            option: option.clone(),
+            own,
+            passed,
+        });
     }
 
-    fn selected_for(&mut self, record: &DecisionRecord, remove: bool) -> Option<ChoiceOption> {
-        let index = self.selected.iter().position(|(choice, option)| {
-            choice.player == record.player
-                && choice.prompt == record.prompt
-                && option.id == record.chosen
+    /// The game declined a window for the Never cards of the page: its decision comes next.
+    pub fn declined_for_never(&mut self) {
+        self.declined = true;
+    }
+
+    fn selected_for(&mut self, record: &DecisionRecord, remove: bool) -> Option<Selected> {
+        let index = self.selected.iter().position(|selected| {
+            selected.choice.player == record.player
+                && selected.choice.prompt == record.prompt
+                && selected.option.id == record.chosen
         })?;
         if remove {
-            self.selected.remove(index).map(|(_, option)| option)
+            self.selected.remove(index)
         } else {
-            self.selected.get(index).map(|(_, option)| option.clone())
+            self.selected.get(index).cloned()
         }
     }
 
@@ -487,7 +639,9 @@ impl HostSession {
                 // Another card may be played inside this card's timing window: its outer choice
                 // has settled but the announcement has not happened yet. Leave it for the next
                 // boundary (the server does the same).
-                let selected = self.selected_for(record, false);
+                let selected = self
+                    .selected_for(record, false)
+                    .map(|selected| selected.option);
                 if record.context.as_ref().zip(selected.as_ref()).is_some_and(
                     |(context, option)| {
                         ti4_host::protocol::server::played_card_detail(
@@ -512,9 +666,10 @@ impl HostSession {
             }
             let selected = self.selected_for(record, true);
             self.decision_log.push(record.clone());
+            let option = selected.as_ref().map(|selected| &selected.option);
             let (detail, movement, seat_detail) = verified_decision_facts(
                 record,
-                selected.as_ref(),
+                option,
                 state.active_system.as_ref().map(|id| id.as_str()),
                 state,
             );
@@ -526,21 +681,40 @@ impl HostSession {
                 movement,
                 seat_detail,
             );
-            if record.player == self.viewer {
-                self.note_answer(record, selected.as_ref());
+            let own = selected
+                .as_ref()
+                .map_or(record.player == self.viewer, |selected| {
+                    selected.own.is_some()
+                });
+            if own {
+                self.note_answer(record, index, selected.as_ref());
             }
         }
     }
 
-    /// A decision of the person is in the log.
-    fn note_answer(&mut self, record: &DecisionRecord, selected: Option<&ChoiceOption>) {
+    /// A decision of the page is in the log, at `index`.
+    fn note_answer(&mut self, record: &DecisionRecord, index: usize, selected: Option<&Selected>) {
         self.answers.push(record.chosen.clone());
-        self.answer_steps
-            .push(selected.and_then(PlanStep::of_option));
+        self.own.push(Own {
+            decision: index,
+            asked: selected.and_then(|selected| selected.own).unwrap_or(0),
+            subtype: record
+                .context
+                .as_ref()
+                .map(|context| context.subtype.clone())
+                .unwrap_or_default(),
+            kind: selected
+                .map(|selected| selected.option.kind.clone())
+                .unwrap_or_default(),
+            passed: selected.is_some_and(|selected| selected.passed),
+            step: selected.and_then(|selected| PlanStep::of_option(&selected.option)),
+        });
         // A redo list survives only while the person plays it again (as the server's does). An
         // answer that is played again from a save or after an undo is no new decision.
         if self.quiet > 0 {
             self.quiet -= 1;
+        } else if index < self.saved_log {
+            // Given again from the log of a save.
         } else {
             if self.redo.first() == Some(&record.chosen) {
                 self.redo.remove(0);
@@ -574,7 +748,7 @@ impl HostSession {
         reason: &str,
         cards: &[String],
     ) {
-        if self.quiet > 0 || seat != &self.viewer {
+        if self.replaying() || seat != &self.viewer {
             return;
         }
         queue_auto_resolved(
@@ -657,7 +831,9 @@ impl HostSession {
         }
         self.finished = true;
         self.pending = None;
-        self.can_undo = false;
+        self.waiting = None;
+        // The game is played again without the last answer.
+        self.can_undo = self.undo_start().is_some();
         let winner = ti4_engine::objectives::leader(state);
         self.push_event(
             EventVisibility::Public,
@@ -703,11 +879,8 @@ impl HostSession {
     }
 
     fn state_update(&mut self) -> ServerMessage {
-        let pending = self
-            .pending
-            .as_ref()
-            .map(|(choice, nonce)| (choice, nonce.as_str()));
         let auto_resolved = std::mem::take(&mut self.auto_resolved);
+        let pending = self.shown_choice();
         let modes: BTreeMap<PlayerId, BTreeMap<String, ReactionMode>> =
             BTreeMap::from([(self.viewer.clone(), self.reaction_modes())]);
         let viewer = self.viewer();
@@ -727,20 +900,25 @@ impl HostSession {
             auto_resolved: &auto_resolved,
             reaction_modes: &modes,
             may_undo: self.can_undo.then_some(&viewer),
-            // The offline game of `web/` has no table to tell.
-            seats: None,
+            seats: self.identity.seats.as_ref(),
         };
         let path = inputs.path();
         state_update_for(&inputs, &path, &viewer)
     }
 
+    /// The choice that the update is made with: the pending one of the page, or the one of the
+    /// seat that the game waits for (with no nonce: it is not the viewer's).
+    fn shown_choice(&self) -> Option<(&Choice, &str)> {
+        self.pending
+            .as_ref()
+            .map(|(choice, nonce)| (choice, nonce.as_str()))
+            .or_else(|| self.waiting.as_ref().map(|choice| (choice, "")))
+    }
+
     /// The full state of the game for the person, as a new connection gets it.
     fn snapshot(&mut self) -> ServerMessage {
         let viewer = self.viewer();
-        let pending = self
-            .pending
-            .as_ref()
-            .map(|(choice, nonce)| (choice, nonce.as_str()));
+        let pending = self.shown_choice();
         let mut snapshot = project_initial_snapshot_with_map(
             &self.identity.game_id,
             self.version,
@@ -756,6 +934,7 @@ impl HostSession {
         .with_history(self.decision_log.len(), self.redo.len(), self.generation);
         snapshot.history.can_undo = self.can_undo;
         snapshot.reaction_modes = self.reaction_modes();
+        snapshot.seats.clone_from(&self.identity.seats);
         snapshot.current_path = current_log_path(
             &self.state,
             pending.map(|(choice, _)| choice),
@@ -765,26 +944,83 @@ impl HostSession {
         ServerMessage::InitialSnapshot(snapshot)
     }
 
-    /// The game waits for the person in `choice`, numbered `nonce`, at `state`. `can_undo` is
-    /// whether the play loop can take back the last answer.
-    pub fn ask(&mut self, choice: &Choice, nonce: &str, state: &GameState, can_undo: bool) {
+    /// The game waits for the page in `choice`, numbered `nonce`, at `state`. Returns the answer
+    /// to give the play loop without asking the page: one more step of an undo.
+    pub fn ask(&mut self, choice: &Choice, nonce: &str, state: &GameState) -> Option<Resume> {
+        self.resuming = false;
+        if let Some(undoing) = &self.undoing {
+            let last = self.own.iter().rev().find(|own| !own.passed);
+            if self.own.len() > undoing.keep
+                && last.is_some_and(|own| self.play_loop.reaches(own.asked))
+            {
+                return Some(Resume::Undo);
+            }
+            self.undone = self
+                .undoing
+                .take()
+                .map(|undoing| undoing.steps)
+                .unwrap_or_default();
+        }
         self.state.clone_from(state);
         self.version += 1;
+        self.viewer.clone_from(&choice.player);
         self.pending = Some((choice.clone(), nonce.to_owned()));
-        self.can_undo = can_undo;
+        self.waiting = None;
+        self.can_undo = self.undo_start().is_some();
         self.awaiting = None;
-        let message = if self.fresh {
-            self.fresh = false;
-            self.snapshot()
-        } else {
-            self.state_update()
-        };
-        self.out.push(message);
+        self.show();
+        None
     }
 
-    /// The person answered: no question is pending until the next `ask`.
+    /// The game waits before `choice` of a seat that the page does not play, shown as `viewer`.
+    /// Returns the answer to give the play loop without asking the page: an undo or a rollback
+    /// goes on to the choice that it opens again.
+    pub fn pause(
+        &mut self,
+        choice: &Choice,
+        viewer: Option<&PlayerId>,
+        state: &GameState,
+    ) -> Option<Resume> {
+        if self.resuming || self.undoing.is_some() {
+            return Some(Resume::Go);
+        }
+        self.state.clone_from(state);
+        self.version += 1;
+        if let Some(viewer) = viewer {
+            self.viewer.clone_from(viewer);
+        }
+        self.pending = None;
+        self.waiting = Some(choice.clone());
+        self.can_undo = self.undo_start().is_some();
+        self.show();
+        None
+    }
+
+    /// The seat that the game waits for, while it waits before a decision of another seat.
+    #[must_use]
+    pub fn waiting_for(&self) -> Option<&PlayerId> {
+        self.waiting.as_ref().map(|choice| &choice.player)
+    }
+
+    fn show(&mut self) {
+        if self.fresh {
+            self.fresh = false;
+            let snapshot = self.snapshot();
+            self.out.push(snapshot);
+            // A snapshot has no notes: the windows that were passed before it come with an
+            // update of the same version.
+            if self.auto_resolved.is_empty() {
+                return;
+            }
+        }
+        let update = self.state_update();
+        self.out.push(update);
+    }
+
+    /// The page answered: nothing is pending until the next `ask`.
     pub fn answered(&mut self) {
         self.pending = None;
+        self.waiting = None;
     }
 
     // --- checkpoints and undo -------------------------------------------------------------
@@ -819,9 +1055,14 @@ impl HostSession {
             return;
         };
         let undone_answers: Vec<String> = self.answers.split_off(mark.answers);
-        let undone_steps = self.answer_steps.split_off(mark.answers);
+        let undone_steps = self.own.split_off(mark.answers);
         if !rollback {
-            self.undone = undone_steps.into_iter().flatten().collect();
+            if self.undoing.is_none() {
+                self.undone = undone_steps
+                    .into_iter()
+                    .filter_map(|own| own.step)
+                    .collect();
+            }
             let mut redo = undone_answers;
             redo.append(&mut self.redo);
             self.redo = redo;
@@ -835,7 +1076,11 @@ impl HostSession {
         self.prev_round = mark.round;
         self.selected.clear();
         self.saved_events.clear();
+        self.saved_log = self.saved_log.min(mark.decisions);
+        self.declined = false;
         self.pending = None;
+        self.waiting = None;
+        self.resuming = true;
         self.awaiting = None;
         self.script = None;
         self.auto_resolved.clear();
@@ -845,8 +1090,9 @@ impl HostSession {
 
     // --- scripts --------------------------------------------------------------------------
 
-    /// The answer of a running script to `choice` of the person, when it has one.
-    pub fn script_option(&mut self, choice: &Choice) -> Option<ChoiceOption> {
+    /// The answer of a running script to `choice` of the page, when it has one. A step that the
+    /// game does not offer takes the whole script back: nothing of it stays in the game.
+    fn script_answer(&mut self, choice: &Choice) -> Option<Scripted> {
         let application = self.script.as_mut()?;
         match script_answer(&application.script, application.next, choice, &self.viewer) {
             ScriptAnswer::Answer {
@@ -861,16 +1107,26 @@ impl HostSession {
                 if application.next >= application.script.len() {
                     self.end_script(|_| None);
                 }
-                Some(option)
+                Some(Scripted::Answer(option))
             }
             ScriptAnswer::Done => {
                 self.end_script(|_| None);
                 None
             }
-            ScriptAnswer::Interrupted { reason } | ScriptAnswer::Mismatch { reason, .. } => {
+            ScriptAnswer::Interrupted { reason } => {
                 // The entries before this one are in the game and stay there.
                 self.end_script(|application| Some(stopped(application, &reason)));
                 None
+            }
+            ScriptAnswer::Mismatch { reason, .. } => {
+                let application = self.script.take()?;
+                self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    game_id: self.identity.game_id.clone(),
+                    nonce: application.nonce,
+                    stopped: Some(refused(&application.sent, reason)),
+                }));
+                Some(Scripted::Rollback(application.start))
             }
         }
     }
@@ -903,14 +1159,7 @@ impl HostSession {
     // --- commands -------------------------------------------------------------------------
 
     /// A command of the host. Messages are queued for [`HostSession::drain`].
-    ///
-    /// `precheck` plays a script on a copy of the game and says why it would be refused
-    /// (`None`: it plays). `can_undo` is [`HostSession::ask`]'s.
-    pub fn client_message(
-        &mut self,
-        message: ClientMessage,
-        precheck: &mut dyn FnMut(&[DraftStep]) -> Option<String>,
-    ) -> Handled {
+    pub fn client_message(&mut self, message: ClientMessage) -> Handled {
         let mut handled = Handled::default();
         match message {
             ClientMessage::Subscribe { .. } => {
@@ -941,7 +1190,7 @@ impl HostSession {
                 script,
                 ..
             } => {
-                handled.resume = self.apply_script(&nonce, expected_version, script, precheck);
+                handled.resume = self.apply_script(&nonce, expected_version, script);
             }
             ClientMessage::Undo {
                 expected_version, ..
@@ -952,14 +1201,14 @@ impl HostSession {
                         current: self.version,
                     });
                 } else {
-                    handled.resume = self.undo();
+                    self.undo(&mut handled);
                 }
             }
             ClientMessage::SetReactionMode { card, mode, .. } => {
-                if !is_action_card_name(&card) {
+                if !ti4_host::view::reaction_modes::is_reaction_key(&card) {
                     self.protocol_error(
                         ErrorKind::MalformedMessage,
-                        format!("unknown action card '{card}'"),
+                        format!("unknown reaction '{card}'"),
                     );
                 } else {
                     {
@@ -1069,12 +1318,14 @@ impl HostSession {
         }
     }
 
+    /// Sends `script` to the game: the pending choice and the choices after it are answered
+    /// from it. A step that the game does not offer takes the script back whole
+    /// ([`Scripted::Rollback`]), so a refused script leaves the game as it was.
     fn apply_script(
         &mut self,
         nonce: &str,
         expected_version: u64,
         script: Vec<DraftStep>,
-        precheck: &mut dyn FnMut(&[DraftStep]) -> Option<String>,
     ) -> Option<Resume> {
         self.check_pending(nonce, expected_version, None)?;
         let (choice, _) = self.pending.clone()?;
@@ -1102,15 +1353,13 @@ impl HostSession {
                 return None;
             }
         };
-        if let Some(reason) = precheck(&script) {
-            refuse(self, reason);
-            return None;
-        }
         let index = choice.options.iter().position(|o| o.id == option.id)?;
         let script_vec = reordered.unwrap_or_else(|| script.clone());
         let whole = next >= script_vec.len();
         self.script = Some(ScriptRun {
             nonce: nonce.to_owned(),
+            sent: script.clone(),
+            start: nonce.parse().unwrap_or(0),
             script: script_vec,
             next,
             active: self.state.active.clone(),
@@ -1122,17 +1371,80 @@ impl HostSession {
         Some(Resume::Answer(index))
     }
 
-    /// A live undo through the checkpoints.
-    fn undo(&mut self) -> Option<Resume> {
-        if self.pending.is_none() || self.finished {
+    /// The place in [`Self::own`] of the first answer that one undo takes back: the last
+    /// answer of the page, or a movement, the landings or a purchase whole. An answer from before
+    /// the last change of the seats stays.
+    fn undo_start(&self) -> Option<usize> {
+        let since = self.switches.last().map_or(0, |switch| {
+            usize::try_from(switch.decision).unwrap_or(usize::MAX)
+        });
+        let fence = self.own.partition_point(|own| own.decision < since);
+        undo::start(&self.own, fence, |own| own.passed)
+    }
+
+    /// One undo of the page: through the checkpoints when they reach back far enough, else by
+    /// playing the game again from its log without the answers it takes back.
+    fn undo(&mut self, handled: &mut Handled) {
+        let parked = self.pending.is_some() || self.waiting.is_some();
+        let Some(keep) = self.undo_start().filter(|_| parked || self.finished) else {
             self.reject(RejectionReason::NoPendingChoice);
-            return None;
+            return;
+        };
+        let first = &self.own[keep];
+        let steps: Vec<PlanStep> = self.own[keep..]
+            .iter()
+            .filter_map(|own| own.step.clone())
+            .collect();
+        if parked && !self.finished && self.play_loop.reaches(first.asked) {
+            self.undoing = Some(Undoing { keep, steps });
+            handled.resume = Some(Resume::Undo);
+            return;
         }
-        if !self.can_undo {
+        let log = self.decision_log[..first.decision]
+            .iter()
+            .map(|record| record.chosen.clone())
+            .collect();
+        let mut redo = self.answers[keep..].to_vec();
+        redo.extend(self.redo.iter().cloned());
+        handled.restart = Some(Restart {
+            answers: self.answers[..keep].to_vec(),
+            redo,
+            generation: self.generation + 1,
+            version: self.version,
+            log,
+            switches: self.switches.clone(),
+            undone: steps,
+        });
+        handled.resume = Some(Resume::Leave);
+    }
+
+    /// Plays `seat` from now on in place of the seat that the game is shown as.
+    fn switch_seat(&mut self, seat: &str, handled: &mut Handled) {
+        let bit = |player: &str| {
+            crate::SEATS
+                .iter()
+                .take(self.identity.players)
+                .position(|id| *id == player)
+                .map(|index| 1_u32 << index)
+        };
+        let parked = self.pending.is_some() || self.waiting.is_some();
+        let Some(wanted) = bit(seat).filter(|_| parked && !self.finished) else {
             self.reject(RejectionReason::NoPendingChoice);
-            return None;
+            return;
+        };
+        let humans = self.humans();
+        if humans & wanted != 0 {
+            return;
         }
-        Some(Resume::Undo)
+        let humans = (humans & !bit(self.viewer.as_str()).unwrap_or(0)) | wanted;
+        let switch = SeatSwitch {
+            decision: self.play_loop.decided(),
+            humans,
+        };
+        self.switches.push(switch);
+        self.undoing = None;
+        handled.switch = Some(switch);
+        handled.resume = Some(Resume::Switch);
     }
 
     /// A command that is not a `ClientMessage`.
@@ -1141,6 +1453,14 @@ impl HostSession {
         match command {
             LocalCommand::SaveState {} => handled.save = Some(self.save_state(engine)),
             LocalCommand::Leave {} => handled.resume = Some(Resume::Leave),
+            LocalCommand::Step {} => {
+                if self.waiting.is_some() {
+                    handled.resume = Some(Resume::Go);
+                }
+            }
+            LocalCommand::SwitchSeat { seat } => self.switch_seat(&seat, &mut handled),
+            // Set by the caller: it is a flag of the play loop.
+            LocalCommand::Stepping { .. } => {}
             LocalCommand::SubmitBatch {
                 nonce,
                 expected_version,
@@ -1148,7 +1468,7 @@ impl HostSession {
             } => handled.resume = self.submit_batch(&nonce, expected_version, &plan),
             LocalCommand::History { action } => match action {
                 HistoryAction::Undo | HistoryAction::UndoBatch | HistoryAction::UndoPipeline => {
-                    handled.resume = self.undo();
+                    self.undo(&mut handled);
                 }
                 HistoryAction::Redo | HistoryAction::RedoBatch | HistoryAction::RedoPipeline => {
                     if self.redo.is_empty() {
@@ -1161,6 +1481,9 @@ impl HostSession {
                             redo: self.redo[1..].to_vec(),
                             generation: self.generation + 1,
                             version: self.version,
+                            log: Vec::new(),
+                            switches: self.switches.clone(),
+                            undone: Vec::new(),
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1195,10 +1518,7 @@ impl HostSession {
             });
             return;
         }
-        let keep = self.decision_log[..cursor]
-            .iter()
-            .filter(|record| record.player == self.viewer)
-            .count();
+        let keep = self.own.partition_point(|own| own.decision < cursor);
         let mut redo = self.answers[keep..].to_vec();
         redo.extend(self.redo.iter().cloned());
         handled.restart = Some(Restart {
@@ -1206,6 +1526,9 @@ impl HostSession {
             redo,
             generation: self.generation + 1,
             version: self.version,
+            log: Vec::new(),
+            switches: self.switches.clone(),
+            undone: Vec::new(),
         });
         handled.resume = Some(Resume::Leave);
     }
@@ -1274,8 +1597,8 @@ impl HostSession {
 
     /// What a running script or batch answers to `choice` of the person.
     pub fn scripted(&mut self, choice: &Choice) -> Scripted {
-        if let Some(option) = self.script_option(choice) {
-            return Scripted::Answer(option);
+        if let Some(answer) = self.script_answer(choice) {
+            return answer;
         }
         let Some(run) = self.batch.as_ref() else {
             return Scripted::Ask;
@@ -1332,8 +1655,11 @@ impl HostSession {
             "seed": self.identity.seed,
             "players": self.identity.players,
             "human_seat": self.identity.human_seat,
+            "humans": self.identity.humans,
             "setup": self.identity.setup,
             "answers": self.answers,
+            "log": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
+            "switches": self.switches,
             "redo": self.redo,
             // A save names the cards that are never offered; an own-turn card is not kept.
             "never": self.never.lock().expect("never set lock").iter()

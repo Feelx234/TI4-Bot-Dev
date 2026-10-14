@@ -23,6 +23,7 @@ pub mod audit;
 pub mod draft;
 pub mod fork;
 pub mod steps;
+pub mod undo;
 pub mod wire;
 
 use std::collections::{BTreeMap, VecDeque};

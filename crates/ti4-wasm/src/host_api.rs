@@ -1,4 +1,5 @@
-//! The hosted game: a whole game for one person in a browser, behind the C ABI.
+//! The hosted game: a whole game in a browser page, behind the C ABI. Both pages play through it:
+//! the offline game of `web/` and the local play of `web2/`.
 //!
 //! The host (a Web Worker) talks to the engine in JSON, in the shapes the server speaks:
 //! `ClientMessage` in, `ServerMessage` out, wrapped in an [`Envelope`] that also carries what the
@@ -13,9 +14,10 @@
 //! | `ti4_host_start(len)` | Play a game (JSPI `promising`): returns when it ends or is left. |
 //! | `ti4_host_command(len)` | A command while the game waits for the person. |
 //!
-//! The one import is `host.ask() -> i32`, as for `ti4_play`. At each call the output buffer holds
-//! an [`Envelope`] of kind `ask` (the person's turn: send its messages to the page, then wait for
-//! a command whose envelope has `resume`) or `progress` (a saved game is being played again:
+//! The one import is `host.ask() -> i32`. At each call the output buffer holds an [`Envelope`] of
+//! kind `ask` (the page's turn: send its messages to the page, then wait for a command whose
+//! envelope has `resume`; with `waiting` the game waits before a decision of a seat that the page
+//! does not play, and `step` lets it go on) or `progress` (a saved game is being played again:
 //! answer [`CONTINUE`] at once). See `README.md` for the whole flow.
 
 use std::collections::VecDeque;
@@ -30,14 +32,15 @@ use ti4_host::PROTOCOL_VERSION;
 use ti4_host::clock::Clock;
 use ti4_host::maps::catalog::MapChoice;
 use ti4_host::parse_client_message;
-use ti4_host::planning::draft::DraftStop;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
 use ti4_host::protocol::server::{DraftOutcomeMsg, ProtocolErrorMsg, ServerMessage};
+use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
 use crate::host_session::{
-    Handled, HostSession, Identity, LocalCommand, Restart, Resume, Scripted, decisions_hash,
+    Handled, HostSession, Identity, LocalCommand, PlayLoop, Restart, Resume, Scripted, SeatSwitch,
+    decisions_hash,
 };
 use crate::host_setup::{Resume as SavedGame, Start};
 
@@ -54,13 +57,21 @@ static NOW_MONOTONIC_MS: AtomicU64 = AtomicU64::new(0);
 /// What the replay of a save is checked against when it has been played.
 struct Replay {
     total: u64,
+    /// Every decision of the save, of every seat, given again in order (`Resume::log`).
+    log: Vec<String>,
     decisions: Option<usize>,
     hash: Option<String>,
-    never: Vec<String>,
+    /// The modes that apply once the replay is played: a replay of answers asks every window
+    /// whole.
+    modes: Vec<(String, ReactionMode)>,
     checked: bool,
 }
 
 static REPLAY: Mutex<Option<Replay>> = Mutex::new(None);
+/// Why a saved game could not be played again: a decision of its log that the game does not
+/// offer.
+static DIVERGED: Mutex<Option<String>> = Mutex::new(None);
+
 /// What the last call of `ti4_host_start` leaves in the output when it ends.
 static CHECK: LazyLock<Mutex<Option<serde_json::Value>>> = LazyLock::new(|| Mutex::new(None));
 
@@ -95,9 +106,22 @@ pub fn set_time(unix_ms: u64, monotonic_ms: u64) {
     NOW_MONOTONIC_MS.store(monotonic_ms, Ordering::Relaxed);
 }
 
-/// Whether the game that is played is a hosted one (messages, not the update buffer).
+/// Whether a game is played.
 pub fn hosted() -> bool {
     HOSTED.load(Ordering::Relaxed)
+}
+
+/// The play loop of `lib.rs`, as the session asks it.
+struct CrateLoop;
+
+impl PlayLoop for CrateLoop {
+    fn decided(&self) -> u64 {
+        crate::decided()
+    }
+
+    fn reaches(&self, asked: u64) -> bool {
+        crate::undo_reaches(asked)
+    }
 }
 
 fn session() -> std::sync::MutexGuard<'static, Option<HostSession>> {
@@ -120,6 +144,10 @@ pub struct Envelope<'a> {
     /// Set for `progress`.
     #[serde(skip_serializing_if = "Option::is_none")]
     progress: Option<Progress>,
+    /// Set for an `ask` with no choice of the page: the game waits before a decision of this
+    /// seat, which the page does not play (`step` lets it decide).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    waiting: Option<&'a PlayerId>,
     /// What the host does with the parked game: the place of the option to answer with, or
     /// `-2` (undo), `-1` (leave).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -153,6 +181,7 @@ impl<'a> Envelope<'a> {
             kind,
             messages,
             progress: None,
+            waiting: None,
             resume: None,
             restart: None,
             batch: None,
@@ -292,82 +321,107 @@ pub struct Prepared {
     pub players: usize,
     pub human_mask: u32,
     pub rule_seats: u32,
-    /// The person's answers to play again, given to the host's seat without asking.
+    /// See `Host::table` in `lib.rs`.
+    pub table: bool,
+    pub stepping: u32,
+    pub switches: Vec<SeatSwitch>,
+    /// The person's answers to play again, given to the page's seats without asking.
     pub answers: VecDeque<String>,
+    /// How many decisions of the game the save gives again, of every seat ([`saved_decision`]).
+    pub saved: u64,
 }
 
 /// Read the request of `ti4_host_start` and make the session and the game.
 pub fn prepare(len: usize) -> Result<Prepared, String> {
     let text = input(len)?;
     let start: Start = serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
-    let built = start.setup.build()?;
-    let resume: SavedGame = start.resume.unwrap_or_default();
+    let built = start.build()?;
+    let mut resume: SavedGame = start.resume.unwrap_or_default();
+    if !resume.log.is_empty() {
+        // Every decision is given again: the answers are among them.
+        resume.answers.clear();
+    }
     let identity = Identity {
-        game_id: built.setup.game_id.clone(),
+        game_id: built.game_id.clone(),
         seed: built.seed,
         players: built.players,
-        human_seat: built.human,
-        setup: serde_json::to_value(&built.setup).map_err(|error| error.to_string())?,
+        human_seat: built.humans.trailing_zeros().min(built.players as u32 - 1) as usize,
+        humans: built.humans,
+        setup: built.request.clone(),
+        seats: built.seats.clone(),
     };
     let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
         ti4_host::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)
     });
     let never = crate::NEVER.clone();
+    let modes: Vec<(String, ReactionMode)> = start
+        .modes
+        .iter()
+        .map(|(card, mode)| (card.clone(), *mode))
+        .chain(
+            resume
+                .never
+                .iter()
+                .map(|card| (card.clone(), ReactionMode::Never)),
+        )
+        .collect();
+    // The modes apply to the game that is played live. A replay of answers asks every window
+    // whole, so they are applied when it ends; the decisions of a log are given whatever the
+    // modes are.
+    let deferred = !resume.answers.is_empty();
     {
-        // The cards of the person's Never set apply to the game that is played live: a replay
-        // asks every window whole, and the set is applied when the replay ends.
         let mut set = never.lock().expect("never set lock");
         set.clear();
-        if resume.answers.is_empty() {
-            set.extend(
-                resume
-                    .never
-                    .iter()
-                    .map(|card| (card.clone(), ReactionMode::Never)),
-            );
+        if !deferred {
+            set.extend(modes.iter().cloned());
         }
     }
     let session = HostSession::new(
         identity,
         Box::new(HostClock),
+        Box::new(CrateLoop),
         never,
         &built.game.state,
-        tiles,
-        built.galaxy,
-        resume.answers.len(),
-        resume.redo.clone(),
-        resume.generation,
-        resume.version,
-        resume
-            .event_times
-            .iter()
-            .enumerate()
-            .map(|(index, time)| {
-                (
-                    time.clone(),
-                    resume.event_versions.get(index).copied().flatten(),
-                )
-            })
-            .collect(),
+        (tiles, built.galaxy),
+        &resume,
     );
     *session_lock() = Some(session);
+    let replayed = resume.answers.len().max(resume.log.len());
     *REPLAY.lock().expect("replay lock") = Some(Replay {
-        total: resume.answers.len() as u64,
+        total: replayed as u64,
+        log: std::mem::take(&mut resume.log),
         decisions: resume.decisions,
         hash: resume.decisions_hash.clone(),
-        never: resume.never.clone(),
-        checked: resume.answers.is_empty(),
+        modes: if deferred { modes } else { Vec::new() },
+        checked: replayed == 0,
     });
     *CHECK.lock().expect("check lock") = None;
+    *DIVERGED.lock().expect("diverged lock") = None;
     HOSTED.store(true, Ordering::Relaxed);
+    let saved = REPLAY
+        .lock()
+        .expect("replay lock")
+        .as_ref()
+        .map_or(0, |replay| replay.log.len() as u64);
     Ok(Prepared {
         game: built.game,
         seed: built.seed,
         players: built.players,
-        human_mask: 1 << built.human,
+        human_mask: built.humans,
         rule_seats: built.rule_seats,
+        table: built.table,
+        stepping: start.stepping,
+        switches: resume.switches.clone(),
         answers: resume.answers.into(),
+        saved,
     })
+}
+
+/// The decision with the number `index` of the save that is played again (`Resume::log`).
+pub fn saved_decision(index: u64) -> Option<String> {
+    let replay = REPLAY.lock().expect("replay lock");
+    let index = usize::try_from(index).ok()?;
+    replay.as_ref()?.log.get(index).cloned()
 }
 
 fn session_lock() -> std::sync::MutexGuard<'static, Option<HostSession>> {
@@ -376,14 +430,15 @@ fn session_lock() -> std::sync::MutexGuard<'static, Option<HostSession>> {
 
 // --- hooks of the play loop ---------------------------------------------------------------------
 
-/// The person is asked `choice`, numbered `nonce`, on `state`. The messages for the page are
-/// written to the output.
-pub fn ask(choice: &Choice, nonce: &str, state: &GameState, can_undo: bool) {
+/// The page is asked `choice`, numbered `nonce`, on `state`. The messages for the page are
+/// written to the output. Returns the answer of the play loop when the page is not asked: one
+/// more step of an undo.
+pub fn ask(choice: &Choice, nonce: &str, state: &GameState) -> Option<i32> {
     let mut guard = session();
-    let Some(session) = guard.as_mut() else {
-        return;
-    };
-    session.ask(choice, nonce, state, can_undo);
+    let session = guard.as_mut()?;
+    if let Some(resume) = session.ask(choice, nonce, state) {
+        return Some(resume_code(&resume));
+    }
     let check = replay_check(session);
     let messages = session.drain();
     let batch = session.take_batch_result();
@@ -391,6 +446,22 @@ pub fn ask(choice: &Choice, nonce: &str, state: &GameState, can_undo: bool) {
     envelope.batch = batch.as_ref();
     envelope.resume_check = check.as_ref();
     write_out(&envelope);
+    None
+}
+
+/// The game waits before `choice` of a seat that the page does not play, and the page is shown
+/// it as `viewer`. Returns the answer of the play loop when the page is not asked.
+pub fn paused(choice: &Choice, viewer: Option<&PlayerId>, state: &GameState) -> Option<i32> {
+    let mut guard = session();
+    let session = guard.as_mut()?;
+    if let Some(resume) = session.pause(choice, viewer, state) {
+        return Some(resume_code(&resume));
+    }
+    let messages = session.drain();
+    let mut envelope = Envelope::new("ask", &messages);
+    envelope.waiting = Some(&choice.player);
+    write_out(&envelope);
+    None
 }
 
 /// After the first question that follows a replayed save: did the game come back to where it
@@ -426,8 +497,8 @@ pub fn offer(records: &[ti4_engine::choice::DecisionRecord], state: &GameState) 
     with(|session| session.offer(records, state));
 }
 
-pub fn selected(choice: &Choice, option: &ChoiceOption) {
-    with(|session| session.selected(choice, option));
+pub fn selected(choice: &Choice, option: &ChoiceOption, own: Option<u64>) {
+    with(|session| session.selected(choice, option, own));
 }
 
 pub fn after_step(game: &Game<'_>, events_before: usize) {
@@ -456,6 +527,7 @@ pub fn auto_resolved(seat: &ti4_model::id::PlayerId, prompt: &str, selected: &st
 pub fn passed_window(seat: &ti4_model::id::PlayerId, cards: &[String]) {
     let names = cards.join(", ");
     with(|session| {
+        session.declined_for_never();
         session.passed_window(
             seat,
             &format!("Reaction window ({names})"),
@@ -476,18 +548,20 @@ pub fn replay_progress(left: u64) -> Option<(u64, u64)> {
     Some((total - left.min(total), total))
 }
 
-/// The replay of the save has been played: the person's Never set applies from here on.
+/// The replay of the save has been played: the modes of the page apply from here on.
 pub fn replay_finished() {
-    let never = REPLAY
+    let modes = REPLAY
         .lock()
         .expect("replay lock")
-        .as_ref()
-        .map(|replay| replay.never.clone())
+        .as_mut()
+        .map(|replay| std::mem::take(&mut replay.modes))
         .unwrap_or_default();
-    crate::NEVER
-        .lock()
-        .expect("never set lock")
-        .extend(never.into_iter().map(|card| (card, ReactionMode::Never)));
+    crate::NEVER.lock().expect("never set lock").extend(modes);
+}
+
+/// The saved game does not fit this engine: `text` says where. Told with the end of the run.
+pub fn diverged(text: &str) {
+    *DIVERGED.lock().expect("diverged lock") = Some(text.to_owned());
 }
 
 /// Write a `progress` envelope; the caller then asks the host (which answers [`CONTINUE`]).
@@ -515,6 +589,7 @@ pub fn finish_run(error: Option<&str>, left: bool) -> usize {
         "error": error,
         "decisions": session.decision_log().len(),
         "answers": session.answers().len(),
+        "diverged": DIVERGED.lock().expect("diverged lock").take(),
     });
     let mut envelope = Envelope::new("end", &messages);
     envelope.end = Some(&end);
@@ -530,12 +605,15 @@ fn resume_code(resume: &Resume) -> i32 {
         }
         Resume::Undo => crate::UNDO,
         Resume::Leave => crate::LEAVE,
+        Resume::Go => crate::GO,
+        Resume::Switch => crate::SWITCH,
     }
 }
 
-/// A command while the game waits for the person (or after it ended): `ClientMessage` JSON, or
-/// one of the local commands (`history`, `save_state`, `leave`, `submit_batch`). The output is
-/// a `command` envelope; when it has `resume` the host answers the parked `ask` with it.
+/// A command while the game waits for the page (or after it ended): `ClientMessage` JSON, or one
+/// of the local commands (`history`, `save_state`, `leave`, `submit_batch`, `step`,
+/// `switch_seat`, `stepping`). The output is a `command` envelope; when it has `resume` the host
+/// answers the parked `ask` with it.
 pub fn command(len: usize) -> i32 {
     let text = match input(len) {
         Ok(text) => text,
@@ -547,7 +625,15 @@ pub fn command(len: usize) -> i32 {
     };
     let local = matches!(
         value.get("type").and_then(serde_json::Value::as_str),
-        Some("history" | "save_state" | "leave" | "submit_batch")
+        Some(
+            "history"
+                | "save_state"
+                | "leave"
+                | "submit_batch"
+                | "step"
+                | "switch_seat"
+                | "stepping"
+        )
     );
     let mut guard = session();
     let Some(session) = guard.as_mut() else {
@@ -555,7 +641,16 @@ pub fn command(len: usize) -> i32 {
     };
     let handled = if local {
         match serde_json::from_value::<LocalCommand>(value) {
-            Ok(command) => session.local(command, engine_info()),
+            Ok(command) => {
+                if let LocalCommand::Stepping { mode } = command {
+                    crate::set_stepping(mode);
+                }
+                let handled = session.local(command, engine_info());
+                if let Some(switch) = handled.switch {
+                    crate::switch_seats(switch.decision, switch.humans);
+                }
+                handled
+            }
             Err(error) => return write_error(format_args!("command: {error}")),
         }
     } else {
@@ -569,18 +664,7 @@ pub fn command(len: usize) -> i32 {
                 run_draft(session, &request_id, &script, &scope);
                 Handled::default()
             }
-            Ok(message) => {
-                session.client_message(message, &mut |script| match crate::draft_outcome(
-                    script,
-                    &ti4_host::planning::audit::PlanScope::default(),
-                ) {
-                    Ok(outcome) => match outcome.stop {
-                        DraftStop::Refused { reason, .. } => Some(reason),
-                        _ => None,
-                    },
-                    Err(error) => Some(error.to_string()),
-                })
-            }
+            Ok(message) => session.client_message(message),
             Err(error) => {
                 let message = ServerMessage::Error(ProtocolErrorMsg {
                     protocol_version: PROTOCOL_VERSION,

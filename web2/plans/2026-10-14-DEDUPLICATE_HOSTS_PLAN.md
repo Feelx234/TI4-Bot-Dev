@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–4 done (2026-10-14); Steps 5–6 open.
+Status: Steps 1–5 done (2026-10-14); Step 6 open.
 
 ## Context
 
@@ -216,8 +216,10 @@ Starts after Step 5 is committed.
    -> Vec<Ended>`; it stops another human seat's script when that seat is asked). `ACTION_OVER`,
    `refused` and `tactical_complete` move with it. Each host only sends `DraftApplied`.
 5. **Script precheck.** `check_script`/`Probe`/`Check` → `ti4_host::planning::script`.
-   `HostSession` uses it with a copy at the last checkpoint + the tail, in place of the
-   `draft_outcome` refusal in `host_api.rs`.
+   `HostSession` uses it with a copy at the last checkpoint + the tail. (Step 5 removed the
+   `draft_outcome` refusal of `host_api.rs`, which used the scope of a tactical turn and so
+   refused a secondary: a script that the game refuses now rolls back to its first choice, all
+   or nothing. The precheck makes the refusal cheap again.)
 6. **Undo.** `ti4_host::planning::undo::UndoTrack` with `UndoRules`:
    - `Table` (server): another seat, a die, a shuffle, a revealed card cut the tail.
    - `Local` (wasm): only a change of the page's seats cuts, because a checkpoint restores the dice.

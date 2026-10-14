@@ -146,29 +146,26 @@ export function LocalApp({
       return;
     }
     const { engine, saved } = start;
-    setDecisions(saved?.decisions.length ?? 0);
-    setAnswers(0);
-    setSwitches(saved?.switches ?? []);
+    setDecisions(saved?.save?.log.length ?? 0);
+    setAnswers(saved?.save?.answers.length ?? 0);
+    setSwitches(saved?.save?.switches ?? []);
     const made = createWasmTransport(engine, played, {
-      decisions: saved?.decisions,
-      switches: saved?.switches,
+      save: saved?.save,
       stepping: steps.current,
-      table: game.table,
       waitMs: wait.current,
       modes: readModes(game),
       onModes: (modes) => localStorage.setItem(cardsKey(game), JSON.stringify(modes)),
-      onDecisions(list, changes, own) {
+      onSave(save) {
         storeSavedGame(localStorage, {
-          format: 3,
+          format: 4,
           engine: engine.hash,
           ...played,
           waitMs: wait.current || undefined,
-          decisions: [...list],
-          ...(changes.length ? { switches: [...changes] } : {}),
+          save,
         });
-        setDecisions(list.length);
-        setAnswers(own.length);
-        setSwitches([...changes]);
+        setDecisions(save.log.length);
+        setAnswers(save.answers.length);
+        setSwitches(save.switches ?? []);
       },
     });
     setTransport(made);
@@ -450,7 +447,7 @@ export function LocalApp({
   } else if (waits) {
     body = (
       <Notice tone="error">
-        The saved game ({start.kind === "ready" ? start.saved?.decisions.length : 0} decisions) was
+        The saved game ({start.kind === "ready" ? (start.saved?.save?.log.length ?? 0) : 0} decisions) was
         played by another build of the engine. This build may not offer the same options.
         <span className="mt-3 flex gap-2">
           <Button onClick={() => setAnyway(true)}>Replay anyway</Button>

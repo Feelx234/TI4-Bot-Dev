@@ -60,9 +60,11 @@ pub trait ReplayBasis {
 
 ## The host API for T4/T5: commands in, `ServerMessage` JSON out
 
-One game, one human seat (`ViewerRole::Player(seat)`), no sockets. The wasm export (T4) is
-`host_command(json_in) -> json_out_array` (or a push callback); both ends are the existing
-serde types, so the web client's `decode.ts` and `reduceServerMessage` need no changes.
+One game, the seats of one page (`ViewerRole::Player(seat)`, the seat that is asked), no
+sockets. The wasm exports are `ti4_host_start` and `ti4_host_command` (`crates/ti4-wasm/README.md`,
+"The hosted game"); both ends are the existing serde types, so the offline client of `web/`
+(`reduceServerMessage`) and web2 (`serverMessages.ts`, shared with its server transport) read the
+messages of the server as they are. Both pages play through this one host.
 
 Input is `ClientMessage` JSON (`{"type": "...", "protocol_version": 3, ...}`; unknown fields
 are an error, `parse_client_message` validates the version). Output is a list of
@@ -75,8 +77,8 @@ them to that one connection. The mapping, with the server code that produces eac
 | `submit_choice {nonce, expected_version, option_id}` | `action_accepted` or `action_rejected {reason}` (stale version, wrong nonce, unknown option), then after the engine step: `event` (0..n), `state_update` (every step), `pending_choice` / `turn_status` when asked again, `game_over` at the end | `journal::build_event`, `state_update::state_update_for`, `projection::project_turn_status`, `broadcast_game_over` |
 | `undo {expected_version}` | `action_rejected {reason: undo_barrier \| no_pending_choice \| stale_version}` or, on success, a fresh `initial_snapshot` (offline: replay to the earlier position, same game id, `history.generation` + 1) | `StateUpdateInputs.may_undo`, `rng_force`, `replay` |
 | `query_reach {request_id, system_id}` | `reach_into {origins, refused?}` | `state_update::answer_reach(game_id, request_id, system_id, version, Some((&state, &galaxy)))` |
-| `preview_secondary {request_id, card, primary, answers}` | `secondary_preview` | `ti4_engine::secondary_preview` (server glue: `session/preview.rs`, stays out of the host for now; `ti4_draft` with `scope: secondary` is the wasm equivalent) |
-| `run_draft` / `apply_draft` | `draft_outcome` / `draft_applied` (+ `state_update`) | `ti4_host::planning` (`script_answer`, `ti4_plan`) |
+| `preview_secondary {request_id, card, primary, answers}` | `secondary_preview` | `ti4_engine::secondary_preview` (server glue: `session/preview.rs`, stays out of the host for now; `run_draft` with `scope: secondary` is the wasm equivalent) |
+| `run_draft` / `apply_draft` | `draft_outcome` / `draft_applied` (+ `state_update`) | `ti4_host::planning` (`script_answer`) |
 | `start_planning`, `reset_planning`, `edit_planning_movement`, `apply_planning`, `submit_planning_choice`, `secondary_planning` | `planning_status`, `planning_update`, `planning_result` | `planning::PlanningEnvelope` (the runner thread is the server's; offline uses the draft path above) |
 | `set_reaction_mode {card, mode}` | `state_update` with `reaction_modes` | `StateUpdateInputs.reaction_modes` |
 | `set_reaction_intent`, `pass_reaction_hold` | none (bluff holds are for several humans; dropped offline) | n/a |

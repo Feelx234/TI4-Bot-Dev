@@ -745,10 +745,11 @@ export interface StateMsg extends SessionUpdate {
   /** The reactions that the seat of this connection set, by key. Absent when it set none. */
   reaction_modes?: Record<string, ReactionMode>;
   /**
-   * `AutoResolvedNote`, of a `state_update` only. Read for `passed` alone: the cards of a
-   * window that was declined because the seat set each of them to never offer.
+   * `AutoResolvedNote`, of a `state_update` only. Read for `passed`: the cards of a window that
+   * was declined because the seat set each of them to never offer, and `count`, how many such
+   * windows the note is.
    */
-  auto_resolved?: { id: string; passed?: string[] }[];
+  auto_resolved?: { id: string; passed?: string[]; count?: number }[];
   /** Of an `initial_snapshot` only: the digest of the corpus of the server (`Catalog.content`). */
   content?: string;
   /**

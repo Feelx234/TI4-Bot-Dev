@@ -49,6 +49,36 @@ pub enum Filtered {
     },
 }
 
+/// Whether `key` names a reaction that a mode can be set for: the printed name of an action
+/// card, or the key of the card of an ability (one of the kinds of `crate::view::reaction`,
+/// then the id of a record).
+#[must_use]
+pub fn is_reaction_key(key: &str) -> bool {
+    is_action_card_name(key) || is_ability_key(key)
+}
+
+/// Whether `name` is the printed name of some action card in the content corpus.
+#[must_use]
+pub fn is_action_card_name(name: &str) -> bool {
+    ContentStore::embedded()
+        .records(ti4_model::content_types::ContentType::ActionCards)
+        .iter()
+        .any(|record| record.text("name") == Some(name))
+}
+
+fn is_ability_key(key: &str) -> bool {
+    key.split_once(':').is_some_and(|(kind, id)| {
+        matches!(
+            kind,
+            "leader" | "ability" | "technology" | "promissory" | "unit" | "breakthrough"
+        ) && !id.is_empty()
+            && id.len() <= 64
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    })
+}
+
 /// Set `key` to `mode` in `modes`. `Always` is the mode of a key that is not there.
 pub fn set_mode(modes: &mut Modes, key: &str, mode: ReactionMode) {
     if mode == ReactionMode::Always {

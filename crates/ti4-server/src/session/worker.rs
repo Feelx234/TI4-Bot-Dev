@@ -269,7 +269,7 @@ impl SessionShared {
         let Some(set) = self.reaction_modes.get(seat).cloned() else {
             return Err("no such seat".to_owned());
         };
-        if !is_action_card_name(card) && !is_ability_key(card) {
+        if !ti4_host::view::reaction_modes::is_reaction_key(card) {
             return Err(format!("unknown reaction '{card}'"));
         }
         let before = set.lock().expect("never set lock").clone();
@@ -956,29 +956,6 @@ impl Decider for ReplayingDecider {
         }
         self.inner.choose_seeing(choice, seen)
     }
-}
-
-/// Whether `name` is the printed name of some action card in the content corpus.
-fn is_action_card_name(name: &str) -> bool {
-    ContentStore::embedded()
-        .records(ti4_model::content_types::ContentType::ActionCards)
-        .iter()
-        .any(|record| record.text("name") == Some(name))
-}
-
-/// Whether `key` is the key of the card of an ability: one of the kinds of
-/// `ti4_host::view::reaction`, then the id of a record.
-fn is_ability_key(key: &str) -> bool {
-    key.split_once(':').is_some_and(|(kind, id)| {
-        matches!(
-            kind,
-            "leader" | "ability" | "technology" | "promissory" | "unit" | "breakthrough"
-        ) && !id.is_empty()
-            && id.len() <= 64
-            && id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    })
 }
 
 /// Spawns the dedicated session worker thread for an active game session.

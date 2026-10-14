@@ -39,6 +39,7 @@ import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import {
   type Engine,
+  type HostSave,
   catalogOf,
   createWasmTransport,
   scenariosOf,
@@ -69,8 +70,8 @@ async function play(
   stepping = false,
   game: LocalGame = { seed: 3, players: 8, humans: 1 },
   saved: {
-    decisions?: readonly string[];
-    switches?: readonly SeatSwitch[];
+    /** The game of an earlier visit (`save()` of its `play`). */
+    save?: HostSave;
     /** The cards that are never offered, by name: a short form of `modes`. */
     never?: readonly string[];
     modes?: ReactionModes;
@@ -85,21 +86,17 @@ async function play(
     scenarios: [],
     catalog: null,
   };
-  /** Every decision of the game, of every seat: the saved game. */
-  let decisions: readonly string[] = saved.decisions ?? [];
-  /** The answers of this side among them, once the transport told them. */
-  let answers: readonly string[] = [];
-  let switches: readonly SeatSwitch[] = saved.switches ?? [];
-  const transport = createWasmTransport(engine, game, {
-    ...saved,
+  /** What plays the game again, as the transport told it last: every decision of every seat, and the answers of this side among them. */
+  let save: HostSave | undefined = saved.save;
+  const { table, never: _, ...rest } = saved;
+  const transport = createWasmTransport(engine, table ? { ...game, table } : game, {
+    ...rest,
     modes: {
       ...saved.modes,
       ...Object.fromEntries((saved.never ?? []).map((name) => [name, "never"])),
     },
-    onDecisions: (all, changes, own) => {
-      decisions = [...all];
-      answers = own.map((at) => all[at]);
-      switches = [...changes];
+    onSave: (made) => {
+      save = made;
     },
     stepping,
   });
@@ -150,9 +147,10 @@ async function play(
     passed,
     never: () => never,
     modes: () => modes,
-    decisions: () => decisions,
-    answers: () => answers,
-    switches: () => switches,
+    save: () => save!,
+    decisions: (): readonly string[] => save?.log ?? [],
+    answers: (): readonly string[] => save?.answers ?? [],
+    switches: (): readonly SeatSwitch[] => save?.switches ?? [],
   };
 }
 
@@ -362,7 +360,7 @@ it.skipIf(!built)(
     const steps = stepsOf(facts, setShip(facts, setShip(facts, {}, "01|0", true), "01|2", true));
     first.transport.submitPlan(first.nonce(open), { destination: "23", steps });
     await first.next();
-    const saved = [...first.decisions()];
+    const saved = first.save();
     // The hold of the carrier was declined, though the plan loads nothing.
     expect(first.answers().slice(3)).toEqual([
       "move|01|0",
@@ -383,7 +381,7 @@ it.skipIf(!built)(
     const transport = createWasmTransport(
       engine,
       { seed: 3, players: 8, humans: 1 },
-      { decisions: saved, onDecisions: (all, _, own) => (answers = own.map((at) => all[at])) },
+      { save: saved, onSave: (made) => (answers = made.answers) },
     );
     const updates: Update[] = [];
     let wake: (() => void) | null = null;
@@ -1051,7 +1049,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "plays another seat from a decision on, several times, and a replay is the same game",
   async () => {
-    const { transport, next, nonce, answers, decisions, switches } = await play();
+    const { transport, next, nonce, answers, save, switches } = await play();
     const seatOf = (event: Update) => {
       const { viewer, pending_choice } = event.update;
       expect(pending_choice?.choice.player).toBe(viewer.role === "player" ? viewer.seat : null);
@@ -1111,7 +1109,7 @@ it.skipIf(!built)(
     transport.close();
 
     // A new visit: the decisions and the seat changes play the same game.
-    const visit = await play(false, undefined, { decisions: decisions(), switches: switches() });
+    const visit = await play(false, undefined, { save: save() });
     const resumed = await visit.next();
     expect(resumed.update).toEqual(reached.update);
     expect(resumed.canUndo).toBe(true);
@@ -1127,7 +1125,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "takes the seat that the game waits for, while the seats are stepped",
   async () => {
-    const { transport, next, nonce, decisions, switches } = await play(true);
+    const { transport, next, nonce, save } = await play(true);
     const menu = await next();
     transport.submitChoice(nonce(menu), menu.update.pending_choice!.choice.options[0].id);
     const paused = await next();
@@ -1144,7 +1142,7 @@ it.skipIf(!built)(
     transport.close();
 
     // Played again without steps, the change is at the same decision.
-    const visit = await play(false, undefined, { decisions: decisions(), switches: switches() });
+    const visit = await play(false, undefined, { save: save() });
     expect((await visit.next()).update).toEqual(asked.update);
     visit.transport.close();
   },
@@ -1316,17 +1314,17 @@ it.skipIf(!built)(
     first.transport.submitChoice(first.nonce(activation), "41");
     expect(subtype(await first.next())).toBe("movement_step");
     expect(first.passed).toHaveLength(4);
-    const saved = first.decisions();
+    const saved = first.save();
     first.transport.close();
 
     // The card is offered again, and the saved game is the same game: its window was declined.
-    const offered = await play(false, XXCHA, { decisions: saved });
+    const offered = await play(false, XXCHA, { save: saved });
     expect(subtype(await offered.next())).toBe("movement_step");
     expect(offered.passed).toEqual([]);
     offered.transport.close();
 
     // A game where the player declined the window, played again with the card never offered.
-    const again = await play(false, XXCHA, { decisions: saved, never: [NAV_SUITE] });
+    const again = await play(false, XXCHA, { save: saved, never: [NAV_SUITE] });
     const resumed = await again.next();
     expect(subtype(resumed)).toBe("movement_step");
     expect(again.passed).toEqual([]);
@@ -1618,6 +1616,7 @@ it.skipIf(!built)(
     }
     const answers = first.answers();
     const saved = first.decisions();
+    const kept = first.save();
     // The decisions of the other seats are in the game, in their order.
     expect(saved).toHaveLength(before + 3);
     expect(saved[before]).toBe(answers.at(-1));
@@ -1625,7 +1624,7 @@ it.skipIf(!built)(
     first.transport.close();
 
     // A new visit, stepped: it waits for the same seat, on the same game.
-    const visit = await play(true, game, { table, decisions: saved });
+    const visit = await play(true, game, { table, save: kept });
     const resumed = await visit.next();
     expect(resumed.stepping).toEqual(event.stepping);
     expect(resumed.update).toEqual(event.update);
@@ -1640,7 +1639,7 @@ it.skipIf(!built)(
     visit.transport.close();
 
     // A new visit with the wait of the table: the page is shown that seat at once.
-    const paced = await play(false, game, { table, waitMs: 2, decisions: saved });
+    const paced = await play(false, game, { table, waitMs: 2, save: kept });
     const waiting = await paced.next();
     expect(waiting.stepping).toBeUndefined();
     expect(waiting.update).toEqual(event.update);

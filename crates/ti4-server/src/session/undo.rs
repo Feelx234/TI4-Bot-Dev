@@ -171,57 +171,17 @@ impl UndoTrack {
     }
 }
 
-fn subtype(choice: &Choice) -> &str {
-    choice
-        .context
-        .as_ref()
-        .map_or("", |context| context.subtype.as_str())
-}
-
-/// Whether the choice at `at` is in the middle of a movement (a ship has moved, or a hold is
-/// open), of the landings (the answer before it landed a unit) or of a production (a purchase
-/// that is being paid and placed). An undo that opens such a choice again goes on: a movement
-/// is taken back whole, as a local game takes it back (`insideMovement` of the wasm transport).
-fn inside(tail: &[(Choice, ChoiceOption)], at: usize) -> bool {
-    let before = at.checked_sub(1).map(|index| &tail[index]);
-    match subtype(&tail[at].0) {
-        "load_cargo" => true,
-        "movement_step" => before.is_some_and(|(choice, option)| {
-            option.kind == ti4_engine::tactical::MOVE_KIND || subtype(choice) == "load_cargo"
-        }),
-        "commit_ground_forces" => {
-            before.is_some_and(|(_, option)| option.kind == ti4_engine::invasion::COMMIT_KIND)
-        }
-        "produce_unit" | "pay_resources" | "place_unit" => tail[..at]
-            .iter()
-            .rev()
-            .find(|(_, option)| {
-                option.kind != ti4_engine::production::PAY_KIND
-                    && option.kind != ti4_engine::production::PLACE_KIND
-            })
-            .is_some_and(|(_, option)| option.kind == ti4_engine::production::PRODUCE_KIND),
-        _ => false,
-    }
-}
-
-/// The place of the first answer that one undo takes back. A window that the game declines
-/// for the Never cards of the seat is no answer of the player: the game would decline it
-/// again, so the undo goes back over it to the answer before.
+/// The place of the first answer that one undo takes back
+/// (`ti4_host::planning::undo::start`). A window that the game declines for the Never cards of
+/// the seat is no answer of the player: the game would decline it again, so the undo goes back
+/// over it to the answer before.
 fn start(
     tail: &[(Choice, ChoiceOption)],
     never: &ti4_host::view::reaction_modes::Modes,
 ) -> Option<usize> {
-    let mut found = None;
-    for at in (0..tail.len()).rev() {
-        if matches!(filter(&tail[at].0, never), Filtered::Declined { .. }) {
-            continue;
-        }
-        found = Some(at);
-        if !inside(tail, at) {
-            break;
-        }
-    }
-    found
+    ti4_host::planning::undo::start(tail, 0, |(choice, _)| {
+        matches!(filter(choice, never), Filtered::Declined { .. })
+    })
 }
 
 /// Tells the track of the session each answer of a seat, a replayed one too.

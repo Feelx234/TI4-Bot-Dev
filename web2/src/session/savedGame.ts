@@ -2,6 +2,7 @@
 // The engine is deterministic, so the seed and the decisions of the seats give the same game.
 // The server keeps a game the same way: the chosen option of every decision, in order.
 
+import type { HostSave } from "./wasmTransport";
 import type { TableRequest } from "./wire";
 
 /** Which game the engine sets up. */
@@ -28,7 +29,7 @@ export interface LocalGame {
 
 /** The seats that are played here changed during the game (Dev, "Play as"). */
 export interface SeatSwitch {
-  /** The number of the decision of the game from which the mask holds (`ti4_decided`). */
+  /** The number of the decision of the game from which the mask holds: how many decisions the seats made before it. */
   decision: number;
   /**
    * The seats that are played here from then on, as `LocalGame.humans`. An undo does not go back
@@ -40,18 +41,18 @@ export interface SeatSwitch {
 export interface SavedGame extends LocalGame {
   /**
    * Formats 1 and 2 had the answers of the page only, and the other seats decided again when
-   * the game was played again. They are not read.
+   * the game was played again. Format 3 had the decisions in a list of the page. They are not
+   * read.
    */
-  format: 3;
+  format: 4;
   /** SHA-256 of the engine file that played it. Another engine may offer other options. */
   engine: string;
   /**
-   * The option id of every decision of the game, of every seat, in order: `decisions[n]` answers
-   * the decision with the number `n`.
+   * What the engine saved of the game (`HostSession::save_state`): the option id of every
+   * decision of the game, of every seat, in order (`log`), the answers of the page among them,
+   * and the seat changes (`switches`). Left out before the first question.
    */
-  decisions: string[];
-  /** In order. Left out when the seats did not change. */
-  switches?: SeatSwitch[];
+  save?: HostSave;
 }
 
 /** The part of `Storage` that is used, so a test can pass a map. */
@@ -112,9 +113,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value !== "object" || value === null) {
     throw new Error("The saved game is not a JSON object.");
   }
-  if (value.format !== 3) {
+  if (value.format !== 4) {
     throw new Error(
-      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 3.`,
+      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 4.`,
     );
   }
   for (const field of ["seed", "players", "humans"] as const) {
@@ -145,28 +146,35 @@ export function parseSavedGame(text: string): SavedGame {
   if (value.waitMs !== undefined && !isCount(value.waitMs)) {
     throw new Error('The saved game has no whole number in "waitMs".');
   }
-  const { decisions } = value;
-  if (!Array.isArray(decisions) || !decisions.every((decision) => typeof decision === "string")) {
-    throw new Error('The saved game has no list of option ids in "decisions".');
-  }
-  const { switches } = value;
-  if (
-    switches !== undefined &&
-    !(
-      Array.isArray(switches) &&
-      switches.every(
-        (item) =>
-          typeof item === "object" &&
-          item !== null &&
-          isCount(item.decision) &&
-          isCount(item.humans),
+  const save = value.save as Partial<Record<keyof HostSave, unknown>> | undefined;
+  const ids = (list: unknown) =>
+    Array.isArray(list) && list.every((decision) => typeof decision === "string");
+  if (save !== undefined) {
+    if (typeof save !== "object" || save === null) {
+      throw new Error('The saved game has no object in "save".');
+    }
+    if (!ids(save.log) || !ids(save.answers)) {
+      throw new Error('The saved game has no lists of option ids in "save".');
+    }
+    const { switches } = save;
+    if (
+      switches !== undefined &&
+      !(
+        Array.isArray(switches) &&
+        switches.every(
+          (item) =>
+            typeof item === "object" &&
+            item !== null &&
+            isCount(item.decision) &&
+            isCount(item.humans),
+        )
       )
-    )
-  ) {
-    throw new Error('The saved game has no list of seat changes in "switches".');
+    ) {
+      throw new Error('The saved game has no list of seat changes in "save.switches".');
+    }
   }
   return {
-    format: 3,
+    format: 4,
     engine: value.engine,
     seed: value.seed as number,
     players: value.players as number,
@@ -174,10 +182,7 @@ export function parseSavedGame(text: string): SavedGame {
     ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
     ...(table === undefined ? {} : { table: table as TableRequest }),
     ...(value.waitMs === undefined ? {} : { waitMs: value.waitMs as number }),
-    decisions,
-    ...(switches?.length
-      ? { switches: switches.map(({ decision, humans }: SeatSwitch) => ({ decision, humans })) }
-      : {}),
+    ...(save === undefined ? {} : { save: save as HostSave }),
   };
 }
 

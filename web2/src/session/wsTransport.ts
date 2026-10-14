@@ -1,6 +1,7 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
 import type { PlanStep } from "./movementPlan";
 import { type LegacyStaged, seatSync } from "./seatStore";
+import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import { spaceOddsOf } from "./wasmTransport";
@@ -10,11 +11,8 @@ import {
   type DraftScope,
   type DraftStep,
   PROTOCOL_VERSION,
-  type ReactionMode,
   type ReactionModes,
-  type RejectionReason,
   type ServerMessage,
-  type SessionUpdate,
   type SpaceOddsRequest,
   type StateMsg,
 } from "./wire";
@@ -63,47 +61,6 @@ const pageKnows = (gameId: string): Promise<boolean> =>
   );
 
 const short = (digest: string | undefined) => (digest ? digest.slice(0, 12) : "none");
-
-function rejection(reason: RejectionReason): string {
-  switch (reason.reason) {
-    case "stale_version":
-    case "stale_nonce":
-      return "The game went on before your answer arrived. Nothing was sent.";
-    case "no_pending_choice":
-      return "The game does not wait for this answer. Nothing was sent.";
-    case "unauthorized_seat":
-      return "The server does not take this answer from you. Nothing was sent.";
-    case "unknown_option":
-      return `The game does not offer "${reason.option_id}". Nothing was sent.`;
-    case "validation_failed":
-      return reason.message;
-    case "answered_elsewhere":
-      return "Your answer was given in another tab. Nothing was sent.";
-    case "undo_barrier":
-      return {
-        revealed: "Something hidden was shown since your last decision. It cannot be taken back.",
-        random: "Dice were rolled since your last decision. It cannot be taken back.",
-        other_seat: "Another player decided since your last decision. It cannot be taken back.",
-      }[reason.barrier];
-  }
-}
-
-/** The part of a message of the server that is the update. `state` is large and not read. */
-const updateOf = (message: StateMsg): SessionUpdate => ({
-  viewer: message.viewer,
-  view: message.view,
-  pending_choice: message.pending_choice,
-  turn_status: message.turn_status,
-  tactical: message.tactical,
-  exploration: message.exploration,
-  action_cards: message.action_cards,
-  secret_objectives: message.secret_objectives,
-  score: message.score,
-  agendas: message.agendas,
-  secondary: message.secondary,
-  reaction: message.reaction,
-  seats: message.seats,
-});
 
 /**
  * Plays one game of the server. The first update is the snapshot that the server sends after
@@ -211,10 +168,10 @@ export function createWsTransport(
       modes = told;
       say({ kind: "modes", modes: { ...modes } });
     }
-    for (const note of message.auto_resolved ?? []) {
-      if (note.passed?.length && !noted.has(note.id)) {
+    for (const note of passedOf(message)) {
+      if (!noted.has(note.id)) {
         noted.add(note.id);
-        say({ kind: "passed", cards: note.passed });
+        say({ kind: "passed", cards: note.cards });
       }
     }
     const update = updateOf(message);
@@ -322,21 +279,13 @@ export function createWsTransport(
         if (sent?.nonce !== message.nonce) {
           return;
         }
-        const { destination, lead } = sent;
+        const script = sent;
         sent = null;
         if (!message.stopped) {
           return;
         }
-        // The server counts in entries of the script; a plan in the steps after the answers by id.
-        const { applied, remaining, interrupted, reason } = message.stopped;
-        const plan: PlanStopped = {
-          destination,
-          applied: Math.max(0, applied - lead),
-          remaining: remaining.slice(Math.max(0, lead - applied)),
-          interrupted,
-          reason,
-        };
-        if (interrupted) {
+        const plan = planStoppedOf(message.stopped, script);
+        if (plan.interrupted) {
           // The game went on: the update of where it is now comes next.
           stopped = plan;
         } else {
@@ -497,16 +446,4 @@ export function createWsTransport(
       listeners.clear();
     },
   };
-}
-
-/** The modes that are set, in the order of their keys: "always" is the mode of a key that is not there. */
-function modesOf(told: Record<string, ReactionMode>): ReactionModes {
-  const modes: ReactionModes = {};
-  for (const key of Object.keys(told).sort()) {
-    const mode = told[key];
-    if (mode === "never" || mode === "ownturn") {
-      modes[key] = mode;
-    }
-  }
-  return modes;
 }

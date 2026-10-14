@@ -115,6 +115,17 @@ export class HostRunner {
       const envelope: Envelope = host.command(request);
       if (envelope.restart) this.restart = envelope.restart;
       this.post({ t: "reply", id, envelope });
+      // The game was over (an undo of its last answer): no parked run leaves, so the history
+      // change is played at once.
+      const save = this.lastSave();
+      if (this.restart && !host.isParked && save) {
+        const restart = this.restart;
+        this.restart = null;
+        void this.begin({
+          setup: save.setup,
+          resume: { ...restart, never: save.never } as StartConfig["resume"],
+        });
+      }
     } catch (error) {
       this.post({ t: "reply", id, error: text(error) });
     }

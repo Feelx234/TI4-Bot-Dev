@@ -88,7 +88,7 @@ fn server(
         .with_galaxy(galaxy, tiles)
         .with_random_bot_delay_ms(0);
     for (index, id) in ids.iter().enumerate() {
-        let controller = if index == built.human {
+        let controller = if 1 << index == built.humans {
             SeatController::BotScripted(answers.clone())
         } else {
             SeatController::BotSmart
