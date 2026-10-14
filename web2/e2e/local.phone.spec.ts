@@ -59,21 +59,25 @@ test("phone: a game of eight is played through the decision list @slow", async (
       await sheet.getByRole("button", { name: "Done with this system" }).click();
       await expect(send).toHaveText(/Move fleet/);
       await expect(page.locator(".galaxy .t-staged")).toHaveCount(1);
-      // An undo of the movement stages it again, and the map is open again.
+      // An undo of the movement stages it again.
       await send.click();
       await expect(send).not.toHaveText(/Move/);
       await pane("Action").click();
       await page.getByRole("button", { name: "Undo" }).click();
       await expect(send).toHaveText(/Move/);
-      await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+      // The pane stays where the player is; the tab of the map is marked.
+      await expect(pane("Action")).toHaveAttribute("aria-pressed", "true");
+      await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+      await pane("Map").click();
       await expect(send).toHaveText(/Move fleet/);
       await expect(page.locator(".galaxy .t-staged")).toHaveCount(1);
       await page.screenshot({ path: "shots/phone/local/undo.png", animations: "disabled" });
-      // An undo opens the map also when the choice before it was on the map: the activation.
+      // An undo of the activation marks the map too.
       await pane("Action").click();
       await page.getByRole("button", { name: "Undo" }).click();
       await expect(send).toHaveText(/Activate system/);
-      await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+      await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+      await pane("Map").click();
       await system.filter({ hasText: "#23" }).first().click();
       await send.click();
       await expect(send).toHaveText(/Move nothing/);
@@ -118,7 +122,9 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
     .getByRole("button", { name: "Draft" })
     .click();
   // The system is chosen on the map, and the main button records it.
-  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("23").click();
   await expect(send).toHaveText(/Activate system/);
   await expect(send).toBeInViewport({ ratio: 1 });
@@ -242,6 +248,9 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   await page.locator("#step-panel").getByRole("button", { name: "Take a tactical action" }).click();
   await send.click();
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("38").click();
   await send.click();
   await system("63").click();
@@ -314,12 +323,18 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   const row = (name: string | RegExp) => page.locator("#step-panel").getByRole("button", { name });
   await row("Take a tactical action").click();
   await send.click();
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("72").click();
   await send.click();
-  // Nothing moves, and AI Development Algorithm is kept.
+  // Nothing moves, and AI Development Algorithm is kept: a question of the list.
   await send.click();
+  await expect(pane("Action")).toHaveAccessibleName(/choice open/);
+  await pane("Action").click();
   await row(/^Decline/i).click();
   await send.click();
+  await pane("Map").click();
 
   // The map stays open, and the build is a sheet over it, with the room of the footer.
   const sheet = page.getByRole("group", { name: /^Produce in / });
@@ -405,15 +420,18 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
     page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Draft" });
   await expect(row("Take a tactical action")).toBeVisible();
   await draft().click();
+  await pane("Map").click();
 
   // The system of the two space docks. Nothing moves, and AI Development Algorithm is kept.
   await system("72").click();
   await send.click();
   await expect(send).toHaveText(/Move nothing/);
   await send.click();
+  await pane("Action").click();
   await row(/^Decline/i).click();
   await expect(send).toHaveText(/Record/);
   await send.click();
+  await pane("Map").click();
   // The build of the draft is the sheet over the map, as in Live.
   const sheet = page.getByRole("group", { name: /^Produce in / });
   await expect(sheet).toBeVisible();

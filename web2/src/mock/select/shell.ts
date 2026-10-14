@@ -575,5 +575,7 @@ export function selectShell(world: World): ShellView {
     reveal: state.reveal ?? null,
     toast: world.toast,
     announcement: world.announcement,
+    // The demo always has a choice open, except for a past action.
+    asked: world.mode !== "history",
   };
 }

@@ -313,6 +313,8 @@ export interface ShellView {
   reveal: string | null;
   toast: { id: number; text: string } | null;
   announcement: string;
+  /** The viewer has a decision open: a question of the game, or a draft. */
+  asked: boolean;
 }
 
 /**

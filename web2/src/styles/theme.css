@@ -56,6 +56,15 @@
   --radius-full: 999px;
 
   --shadow-pop: 0 12px 30px #0006;
+
+  /* The mark of a phone tab whose pane has the open choice. */
+  --animate-blink: blink 1.4s ease-in-out infinite;
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
+      transform: scale(0.7);
+    }
+  }
 }
 
 /* Follows the workspace: gold in a draft, cyan in live, green when the action is complete.

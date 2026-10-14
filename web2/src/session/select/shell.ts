@@ -144,5 +144,6 @@ export function selectShell(
     reveal: null,
     toast: null,
     announcement: "",
+    asked: !!update.pending_choice || !!local.draft,
   };
 }
