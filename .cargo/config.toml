@@ -18,7 +18,7 @@ c-web = "check -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view
 l-web = "clippy -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
 # The fast tier: a test whose name starts with `slow_` is left out (each takes 3 s or more in a
 # debug build; together they are 90% of the test time). A bare `cargo test` still runs them all.
-t-web = "test -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view -p ti4-rule-bot -p ti4-server -p ti4-wasm --lib --bins --tests -- --skip ::slow_"
+t-web = "test -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view -p ti4-rule-bot -p ti4-server -p ti4-wasm --lib --tests -- --skip ::slow_"
 # The slow tier, and only it: the tests of the server and of the wasm host whose names start with
 # `slow_`. The game crates are optimized a little (opt-level 1): these tests run about 2.5 times
 # faster, and the engine takes several times longer to build, so this is for the gate before a

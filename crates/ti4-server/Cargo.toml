@@ -36,3 +36,9 @@ ti4-wasm = { path = "../ti4-wasm" }
 rstest = { workspace = true }
 tokio-tungstenite = "0.26"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+# The binary has no tests; without this it is linked a second time as an empty test executable.
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+test = false
