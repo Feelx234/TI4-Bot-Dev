@@ -29,7 +29,13 @@ export interface ActiveOfflineGame {
   local(): NonNullable<QueuedFeedbackReport["local"]>;
 }
 let active: ActiveOfflineGame | null = null;
+const activeListeners = new Set<() => void>();
 export const setActiveOfflineGame = (game: ActiveOfflineGame | null): void => {
   active = game;
+  activeListeners.forEach((listener) => listener());
 };
 export const activeOfflineGame = (): ActiveOfflineGame | null => active;
+export const subscribeActiveOfflineGame = (listener: () => void): (() => void) => {
+  activeListeners.add(listener);
+  return () => activeListeners.delete(listener);
+};

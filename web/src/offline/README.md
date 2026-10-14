@@ -35,3 +35,31 @@ page sets `window.__TI4_OFFLINE_MOCK__` or the URL has `?offline-mock`) stands i
 
 Not done here: import of an exported file, switching an offline game to online, the setup's map and
 strategy-card-set choices (the setup form has only players, seat, faction, nickname, dev seed).
+
+
+## T5: what plugs in now (`local/`)
+
+The real launcher is registered at startup by `local/register.ts` when the build has the engine file
+(`src/offline/local/engine/ti4_wasm.wasm`, copied there by `scripts/build-wasm.mjs`; `npm run build`
+runs it as `prebuild`, and a build without cargo or the wasm target just has no "Play offline"). The dev mock
+(`?offline-mock`, the DN screenshots) keeps the slot when asked for.
+
+| File | What |
+|---|---|
+| `hostApi.ts` | TypeScript port of `crates/ti4-wasm/js/host.mjs` (`Host`: JSPI, envelopes, save types) |
+| `hostWorker.ts`, `hostRunner.ts`, `hostProtocol.ts` | the Web Worker: one game at a time, save attached to every question, history restarts in a new instance |
+| `LocalTransport.ts` | `GameTransport` on a `HostPort` (the Worker, or a fake in tests); decodes and reduces like `GameSessionClient` |
+| `session.ts` | lazy chunk: fetch and compile the wasm once, spawn the Worker |
+| `launcher.ts`, `register.ts` | `OfflineLauncher`; `register.ts` is the only part in the main bundle (flags, JSPI check, feedback queue, a lazy proxy) |
+| `store.ts` | `OfflineGameStore` interface, `MemoryGameStore`, `SessionGameStore` (placeholder, `sessionStorage`; T6 brings IndexedDB) |
+| `localFeedbackQueue.ts` | placeholder queue (in memory, sends in the background); T10 replaces it |
+| `OfflineGameScreen.tsx` | synthesises the roster (the human is the host of a table of bots), marks the game active for feedback, renders the app's game view |
+
+Capabilities: `LocalTransport.capabilities` (`splicePreview`, `turnRedo`, `advisor`, `multiplayer` off,
+`feedback` on) and the shell's `useCapability` both gate the UI: turn redo (GameShell prop and hook), the
+bluff selector (multiplayer), the advisor requests in `SpaceCombatOverlay` and `InvasionLandingTray`.
+There is no splice preview or map picker in the game screen of this branch, so nothing else needed hiding.
+
+Tests: `*.test.ts` in `local/` (fake worker), `contract.test.ts` (LocalTransport and GameSessionClient give the
+same state; the recorded stream runs with `TI4_HOSTED_STREAM`, see `hostedStream.test.ts`), and
+`npm run test:e2e:offline` (production build only, network blocked, about 20 decisions, refresh mid-game).
