@@ -8807,6 +8807,60 @@ mod ground_routes {
         (state, system, planet)
     }
 
+    /// Mahact's Edict through a real ground combat (not a hand-emitted event): the Mahact seat `a`
+    /// wins as invader or as defender, and the fleet pool owners afterwards are returned.
+    fn edict_after_real_combat(mahact_invades: bool) -> Vec<PlayerId> {
+        let mut state = crate::fixtures::seated_game(&[("a", "mahact"), ("b", "xxcha")], POK);
+        let (_state, system, planet) = arena();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        on_planet(&mut state, &system, &planet, "infantry", &a());
+        on_planet(&mut state, &system, &planet, "infantry", &a());
+        on_planet(&mut state, &system, &planet, "infantry", &b());
+        let invader = if mahact_invades { a() } else { b() };
+        let mut window = InvasionWindow::at_commit_step(&mut state, &invader, &system);
+        window.stage = Stage::Advancing {
+            planets: vec![planet.clone()],
+            index: 0,
+        };
+        window.report.committed = vec![planet.clone()];
+        let mut resolver = crate::fixtures::armed_resolver(&state);
+        let mut table = Table::with_default(Box::new(crate::choice::Scripted::new(
+            std::iter::repeat_n("fight", 8),
+        )));
+        // Every die hits: the Mahact's two infantry beat the one that opposes them.
+        let mut dice = Dice::from_faces(std::iter::repeat_n(10, 40));
+        let mut rng = GameRng::new(7);
+        let mut sequence = crate::event::EventSequence::new();
+        let mut ctx = Resolving {
+            content: ContentStore::embedded(),
+            sources: POK,
+            dice: &mut dice,
+            rng: &mut rng,
+            table: &mut table,
+            timing: Some(crate::choice::TimingHandle {
+                resolver: &mut resolver,
+                sequence: &mut sequence,
+                galaxy: None,
+            }),
+        };
+        let mut rounds = 0;
+        while !window.is_done() && rounds < 50 {
+            rounds += 1;
+            window
+                .drive(&mut state, &mut ctx)
+                .expect("only offered answers");
+            while window.take_scoring_occurrence().is_some() {}
+            window.settle(&mut state, &mut ctx);
+        }
+        crate::factions::mahact::fleet_pool_owners(&state, &a())
+    }
+
+    #[test]
+    fn edict_takes_a_token_when_the_mahact_wins_a_real_ground_combat() {
+        assert_eq!(edict_after_real_combat(true), vec![b()], "as the invader");
+        assert_eq!(edict_after_real_combat(false), vec![b()], "as the defender");
+    }
+
     #[test]
     fn a_ground_combat_announces_its_start_sustains_destruction_and_end() {
         let (mut state, system, planet) = mech_defends();

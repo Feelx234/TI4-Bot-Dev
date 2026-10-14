@@ -74,6 +74,7 @@ pub mod registry;
 pub mod relics;
 pub mod rng;
 pub mod seating;
+pub mod reach_query;
 pub mod secondary_preview;
 pub mod secrets;
 pub mod setup;

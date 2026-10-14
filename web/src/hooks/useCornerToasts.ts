@@ -5,17 +5,21 @@ import { imperialNoScoreNotice, ownImperialPlay } from "../presentation/publicSc
 import {
   ActionToast,
   actionToastFromEvent,
+  isCardOrScore,
   actionToastText,
   autoResolvedToast,
   mergeActionToast,
   victoryPointToasts,
 } from "../presentation/actionToasts.ts";
+import { mergeRollToasts, rollToasts, type RollToast } from "../presentation/rollToasts.ts";
 import { explorationToasts, type ExplorationRecordDto } from "../presentation/explorationToasts.ts";
+import { breakthroughToasts } from "../presentation/breakthroughs.ts";
 import { agendaToasts, type AgendaRecordDto, type AgendaToast } from "../presentation/agendaToasts.ts";
 import { buildTurnRecap, trackTurns, type OpenTurn, type TurnRecap } from "../presentation/turnRecap.ts";
 import { isTurnMenuChoice } from "../presentation/turnBar.ts";
 import { trackInvasion, type InvasionToast, type InvasionTracker } from "../presentation/invasionToasts.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { recordToasts, type ToastHistoryEntry } from "../presentation/toastHistory.ts";
 import { useTurnRecapSetting } from "./useTurnRecapSetting.ts";
 import { useAutoResolveToasts } from "./useAutoResolveToasts.ts";
 import { useToastMute } from "./useToastMute.ts";
@@ -37,6 +41,8 @@ export interface CornerToastsInput {
   board?: BoardView | null;
   /** The engine's public exploration log: every finished exploration toasts, for every seat. */
   explorations?: readonly ExplorationRecordDto[];
+  /** Each seat's earned breakthrough alias; a new one toasts for every seat. */
+  breakthroughs?: Readonly<Record<string, string | null>>;
   /** The engine's public agenda log: every finished vote toasts, for every seat (voters too). */
   agendas?: readonly AgendaRecordDto[];
   /** The table of the latest snapshot: why the viewer's Imperial scored nothing is read from it. */
@@ -48,6 +54,11 @@ export interface CornerToastsInput {
 const MAX_RECAPS = 2;
 const MAX_INVASION_TOASTS = 3;
 const MAX_AGENDA_TOASTS = 2;
+const MAX_ROLL_TOASTS = 3;
+
+// What a player gains from an exploration or a breakthrough is read, not glanced at: it stays longer.
+const LINGERING_CATEGORIES: ReadonlySet<ActionToast["category"]> = new Set(["explore", "breakthrough"]);
+const LINGER_MS = 10000;
 
 const INVASION_TAGS: Record<InvasionToast["kind"], string> = {
   bombardment: "Bombardment",
@@ -72,6 +83,7 @@ export function useCornerToasts({
   localNotes,
   board,
   explorations,
+  breakthroughs,
   agendas,
   table,
   ready,
@@ -89,6 +101,7 @@ export function useCornerToasts({
   const [actions, setActions] = useState<Shown[]>([]);
   const [invasionToasts, setInvasionToasts] = useState<InvasionToast[]>([]);
   const [agendaToastList, setAgendaToasts] = useState<AgendaToast[]>([]);
+  const [rollToastList, setRollToasts] = useState<RollToast[]>([]);
   const [notices, setNotices] = useState<{ id: string; text: string; tag: string }[]>([]);
   const tableRef = useRef(table);
   tableRef.current = table;
@@ -169,8 +182,16 @@ export function useCornerToasts({
     openTurn.current = turns.open;
     emitRecap(turns.closed);
     if (mutedRef.current) return;
+    // Dice are rolled in the open: everyone is told, the roller included.
+    const rolled = rollToasts(fresh, (seat) => displayRef.current(seat).label, board);
+    if (rolled.length > 0)
+      setRollToasts((prev) => mergeRollToasts(prev, rolled, MAX_ROLL_TOASTS, board));
     // With the recap on, the acting player's own steps are summed up at the end of their turn.
-    const live = recapRef.current ? fresh.filter((e) => !turns.tracked.has(e.id)) : fresh;
+    // Card plays and scoring always toast at once: the recap only names the acting player's own,
+    // so another seat's Sabotage inside the turn would otherwise vanish.
+    const live = recapRef.current
+      ? fresh.filter((e) => !turns.tracked.has(e.id) || isCardOrScore(e))
+      : fresh;
     push(live.flatMap((e) => actionToastFromEvent(e, viewerSeat, board) ?? []));
     // The viewer's own Imperial with nothing scoreable: the engine asks nothing, so say why.
     const imperial = ownImperialPlay(fresh, viewerSeat);
@@ -225,6 +246,19 @@ export function useCornerToasts({
     exploredCursor.current = next;
     if (!mutedRef.current) push(toasts);
   }, [explorations, ready, historyGeneration, push]);
+
+  // A breakthrough is earned from an expedition slice; it is not in the event log. What seats held
+  // at load, or after undo/redo, is history.
+  const lastBreakthroughs = useRef<Readonly<Record<string, string | null>> | null>(null);
+  const breakthroughGeneration = useRef(historyGeneration);
+  useEffect(() => {
+    if (!ready || !breakthroughs) return;
+    const before =
+      breakthroughGeneration.current === historyGeneration ? lastBreakthroughs.current : null;
+    breakthroughGeneration.current = historyGeneration;
+    lastBreakthroughs.current = breakthroughs;
+    if (!mutedRef.current) push(breakthroughToasts(before ? { ...before } : null, { ...breakthroughs }));
+  }, [breakthroughs, ready, historyGeneration, push]);
 
   // Agenda results come from the state's agenda log, like explorations: what is there at load, or
   // reappears after undo/redo, is history. The voter is told too: the result is news to all.
@@ -282,6 +316,7 @@ export function useCornerToasts({
       setActions([]);
       setInvasionToasts([]);
       setAgendaToasts([]);
+      setRollToasts([]);
       setNotices([]);
     }
   }, [muted]);
@@ -299,6 +334,7 @@ export function useCornerToasts({
       setRecaps((prev) => prev.filter((r) => r.id !== id));
       setInvasionToasts((prev) => prev.filter((t) => t.id !== id));
       setAgendaToasts((prev) => prev.filter((t) => t.id !== id));
+      setRollToasts((prev) => prev.filter((t) => t.id !== id));
       setNotices((prev) => prev.filter((t) => t.id !== id));
       dismissAction(id);
       dismissToast(id);
@@ -340,6 +376,16 @@ export function useCornerToasts({
           tag: "Agenda",
         }),
       ),
+      ...rollToastList.map(
+        (t): AutoResolveNotification => ({
+          id: t.id,
+          kind: "notice",
+          decisionType: "",
+          selectedValue: "",
+          text: t.text,
+          tag: "Dice",
+        }),
+      ),
       ...notices.map(
         (t): AutoResolveNotification => ({
           id: t.id,
@@ -359,11 +405,18 @@ export function useCornerToasts({
           actor: t.actor,
           text: actionToastText(t),
           revision: t.revision,
+          durationMs: LINGERING_CATEGORIES.has(t.category) ? LINGER_MS : undefined,
         }),
       ),
     ],
-    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, notices],
+    [auto.toasts, actions, recaps, invasionToasts, agendaToastList, rollToastList, notices],
   );
 
-  return { notifications, dismiss, muted };
+  // Everything that was shown, kept so a toast that faded can be read again.
+  const [history, setHistory] = useState<ToastHistoryEntry[]>([]);
+  useEffect(() => {
+    setHistory((prev) => recordToasts(prev, notifications));
+  }, [notifications]);
+
+  return { notifications, dismiss, muted, history };
 }

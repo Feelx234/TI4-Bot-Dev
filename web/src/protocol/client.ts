@@ -3,6 +3,7 @@ import {
   describeError,
   fetchWithRetry,
   GONE_MESSAGE,
+  TERMINATED_MESSAGE,
   isNetworkError,
   onResume,
   type ResumeEvent,
@@ -23,6 +24,8 @@ import {
   ReactionIntentStateMsg,
   PreviewRefusal,
   SecondaryPreviewBody,
+  ReachOrigin,
+  ReachRefusal,
 } from "./types.ts";
 import { readDeclaredTriggers, writeDeclaredTriggers } from "./bluffTriggers.ts";
 import {
@@ -31,6 +34,8 @@ import {
   decodeServerMessage,
   isStaleServerMessage,
 } from "./decode.ts";
+import { SERVER_CAPABILITIES } from "./capabilities.ts";
+import type { GameTransport } from "./transport.ts";
 import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
 import {
   decodeTurnRedoStatusResponse,
@@ -57,6 +62,19 @@ export type SecondaryPreviewReply =
       asOfDecisions: number;
     }
   | { kind: "refused"; reason: PreviewRefusal; detail: string };
+
+/** What the server answered to a `query_reach` request ("who can go here"). */
+export type ReachReply =
+  | { kind: "reach"; systemId: string; asOfVersion: number; origins: ReachOrigin[] }
+  | { kind: "refused"; reason: ReachRefusal };
+
+/** The server does not know the reach query (an older build): the tab says so. */
+export class ReachUnsupportedError extends Error {
+  constructor(message = "This server cannot answer who can go there") {
+    super(message);
+    this.name = "ReachUnsupportedError";
+  }
+}
 
 /** The server does not know the preview message (an older build): callers fall back to estimates. */
 export class PreviewUnsupportedError extends Error {
@@ -145,7 +163,7 @@ export interface BatchResume {
 }
 
 /** Decision subtypes each plan kind is answered through. */
-const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
+export const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
   tactical_movement: ["movement_step"],
   payment: ["pay_resources", "pay_influence"],
   agenda_vote_planets: ["vote_exhaust_planet"],
@@ -417,13 +435,15 @@ export function reduceServerMessage(
     case "reaction_intent_state":
       return { ...state, reactionIntent: message };
     case "secondary_preview":
+    case "reach_into":
       // Answered to the asking call, never part of the shared projection.
       return state;
   }
 }
 
 /** Owns every network ingress point and the lifecycle of one game-session connection. */
-export class GameSessionClient {
+export class GameSessionClient implements GameTransport {
+  readonly capabilities = SERVER_CAPABILITIES;
   private state = initialState;
   private readonly listeners = new Set<Listener>();
   private socket: WebSocket | null = null;
@@ -473,7 +493,61 @@ export class GameSessionClient {
     }
   >();
 
+  private reachSeq = 0;
+  /** Set once an older server answered the reach query with "unknown message type". */
+  private reachUnsupported = false;
+  private readonly reaches = new Map<
+    number,
+    {
+      resolve: (reply: ReachReply) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+
   constructor(private readonly options: GameSessionClientOptions) {}
+
+  /**
+   * Read-only: which ships could move into `systemId` if it were activated now, from the engine's
+   * own movement search. Open to every viewer. Rejects with {@link ReachUnsupportedError} for an
+   * older server (remembered for the life of this client) and with an Error on a timeout or a lost
+   * connection.
+   */
+  queryReach(systemId: string): Promise<ReachReply> {
+    if (this.reachUnsupported) return Promise.reject(new ReachUnsupportedError());
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN)
+      return Promise.reject(new Error("Not connected to the server"));
+    const requestId = ++this.reachSeq;
+    const message: ClientMessage = {
+      type: "query_reach",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: this.options.gameId,
+      request_id: requestId,
+      system_id: systemId,
+    };
+    return new Promise<ReachReply>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.reaches.delete(requestId);
+        reject(new Error("The server did not answer in time"));
+      }, PREVIEW_TIMEOUT_MS);
+      this.reaches.set(requestId, { resolve, reject, timer });
+      try {
+        this.socket?.send(JSON.stringify(message));
+      } catch (error) {
+        clearTimeout(timer);
+        this.reaches.delete(requestId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  }
+
+  private settleReaches(error: Error): void {
+    for (const pending of this.reaches.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.reaches.clear();
+  }
 
   /**
    * Read-only: what this seat would be asked for the secondary in progress (the strategy card
@@ -588,6 +662,7 @@ export class GameSessionClient {
     this.detachSocket();
     this.rejectSubmission("Submission stopped");
     this.settlePreviews(new Error("Session stopped"));
+    this.settleReaches(new Error("Session stopped"));
   }
 
   async submitChoice(optionId: string): Promise<void> {
@@ -1253,6 +1328,12 @@ export class GameSessionClient {
         this.socket = null;
         this.rejectSubmission("Submission disconnected before confirmation");
         this.settlePreviews(new Error("Disconnected"));
+        this.settleReaches(new Error("Disconnected"));
+        if (event?.code === 4002) {
+          // The host ended the game on purpose; do not reconnect.
+          this.giveUp("gone", TERMINATED_MESSAGE);
+          return;
+        }
         // The last known game stays on screen (and with it every local draft) while reconnecting;
         // the reconnect brings a fresh snapshot, and nothing can be sent without an open socket.
         this.setState({ ...this.state, status: "disconnected", reconnecting: true, reactionIntent: null });
@@ -1306,6 +1387,17 @@ export class GameSessionClient {
         this.settlePreviews(new PreviewUnsupportedError());
         return;
       }
+      if (
+        this.reaches.size > 0 &&
+        typeof raw === "object" &&
+        raw !== null &&
+        (raw as { type?: unknown }).type === "error" &&
+        String((raw as { message?: unknown }).message ?? "").includes("query_reach")
+      ) {
+        this.reachUnsupported = true;
+        this.settleReaches(new ReachUnsupportedError());
+        return;
+      }
       // The server pushes the planning/draft protocol to every player connection. This client
       // has no planning UI, so those messages are not for it and must not surface as errors.
       if (
@@ -1315,6 +1407,24 @@ export class GameSessionClient {
       )
         return;
       const message = decodeServerMessage(raw, this.options.gameId);
+      if (message.type === "reach_into") {
+        const pending = this.reaches.get(message.request_id);
+        if (pending) {
+          clearTimeout(pending.timer);
+          this.reaches.delete(message.request_id);
+          pending.resolve(
+            message.refused
+              ? { kind: "refused", reason: message.refused }
+              : {
+                  kind: "reach",
+                  systemId: message.system_id,
+                  asOfVersion: message.as_of_version,
+                  origins: message.origins,
+                },
+          );
+        }
+        return;
+      }
       if (message.type === "secondary_preview") {
         const pending = this.previews.get(message.request_id);
         if (pending) {

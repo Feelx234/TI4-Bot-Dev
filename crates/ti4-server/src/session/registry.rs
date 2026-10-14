@@ -607,6 +607,7 @@ impl PlayerLobbyRecord {
         players.insert(
             host_player_id.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
                 session: session.clone(),
@@ -775,6 +776,15 @@ pub struct GameSummary {
     pub game_id: String,
     pub is_finished: bool,
     pub pending_seat: Option<PlayerId>,
+}
+
+/// One open game of a caller, as listed in the "too many games" refusal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpenGameInfo {
+    pub game_id: String,
+    /// `lobby` or `started`.
+    pub phase: &'static str,
+    pub players: usize,
 }
 
 /// Lifecycle phase exposed by the lobby API.
@@ -975,6 +985,8 @@ pub struct GameRegistry {
     /// Redos in flight, by game: the saved original timeline and where the redo stands.
     /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
     turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
+    /// Games ended by their host since this process started; open sockets use it to say why they close.
+    terminated: Mutex<BTreeSet<String>>,
     /// Public-playtest hardening; inert by default.
     public: Arc<crate::public::PublicState>,
     /// One channel for each table that a socket watches (`ws/table.rs`): a counter that goes up
@@ -994,6 +1006,7 @@ impl Default for GameRegistry {
             bot_config: None,
             active_bots: Mutex::new(BTreeMap::new()),
             turn_redos: Mutex::new(BTreeMap::new()),
+            terminated: Mutex::new(BTreeSet::new()),
             public: Arc::new(crate::public::PublicState::default()),
             tables: Mutex::new(BTreeMap::new()),
         }
@@ -1192,10 +1205,11 @@ impl GameRegistry {
         let batch_id = format!("batch_{:032x}", rand::random::<u128>());
         let all_decisions: Vec<_> = prior.iter().chain(decisions.iter()).cloned().collect();
         let mut events = session.event_log();
+        let shown_rolls = session.rolls_seen();
         let (_, mut counter) = session.history_events();
         counter = counter.max(events.len() as u64);
         // One wall-clock reading for the whole batch, in the worker's HH:MM:SS format.
-        let timestamp = crate::session::worker::current_utc_time_string();
+        let timestamp = ti4_host::clock::Clock::utc_time_string(&ti4_host::clock::SystemClock);
         for (i, decision) in decisions.iter().enumerate() {
             let offered = &simulation.selected[i];
             let action_id = if decision
@@ -1248,6 +1262,7 @@ impl GameRegistry {
                 detail,
                 seat_detail,
                 private_detail: None,
+                roll: None,
             });
             for (_, phase, round) in simulation
                 .transitions
@@ -1280,6 +1295,46 @@ impl GameRegistry {
                     movement: None,
                     seat_detail: None,
                     private_detail: None,
+                    roll: None,
+                });
+            }
+            // Dice the batch rolled that the table has not been shown, after the decision that
+            // was current when their step returned.
+            for (index, roll, cursor) in &simulation.rolls {
+                if *index < shown_rolls
+                    || (*cursor).clamp(start_cursor + 1, end_cursor) != start_cursor + i + 1
+                {
+                    continue;
+                }
+                let active = boundary_state.active_system.as_ref().map(|id| id.as_str());
+                let Some(public) = crate::protocol::server::public_roll(*index, roll, active)
+                else {
+                    continue;
+                };
+                counter += 1;
+                events.push(crate::protocol::server::GameEvent {
+                    id: format!("{game_id}-{counter}"),
+                    timestamp: timestamp.clone(),
+                    version: Some(request.expected_version),
+                    visibility: crate::protocol::server::EventVisibility::Public,
+                    event: crate::protocol::server::GameEventKind::DiceRolled,
+                    decision_count: Some(start_cursor + i + 1),
+                    batch_id: None,
+                    batch_start_cursor: None,
+                    batch_end_cursor: None,
+                    action_id: None,
+                    action_start_cursor: None,
+                    actor: public.roller.clone(),
+                    round: Some(boundary_state.round),
+                    phase: Some(boundary_state.phase),
+                    action_type: None,
+                    action_actor: None,
+                    stage: None,
+                    detail: Some(public.describe()),
+                    movement: None,
+                    seat_detail: None,
+                    private_detail: None,
+                    roll: Some(public),
                 });
             }
         }
@@ -1307,6 +1362,7 @@ impl GameRegistry {
                 movement: None,
                 seat_detail: None,
                 private_detail: None,
+                roll: None,
             });
         }
         let mut batches = session.batches();
@@ -2711,6 +2767,7 @@ impl GameRegistry {
         updated.players.insert(
             player.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 bot: None,
                 faction: None,
                 session: session.clone(),
@@ -3242,7 +3299,7 @@ impl GameRegistry {
                 .ok_or(LobbyError::NotFound)?;
             super::table::setup_of(lobby)
         };
-        ti4_view::setup::preview(&setup).map_err(LobbyError::Map)
+        ti4_host::setup::preview(&setup).map_err(LobbyError::Map)
     }
 
     /// As [`Self::create_player_lobby_with_speaker`], with every other seat played by a random
@@ -3349,9 +3406,9 @@ impl GameRegistry {
             .map_err(LobbyError::Map)?;
             (players, game)
         } else {
-            let drawn = ti4_view::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
+            let drawn = ti4_host::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
             let players = drawn.seated(&joined);
-            let game = ti4_view::setup::create(content, &setup, &players, &drawn)
+            let game = ti4_host::setup::create(content, &setup, &players, &drawn)
                 .map_err(LobbyError::Map)?;
             (players, game)
         };
@@ -3768,6 +3825,7 @@ impl GameRegistry {
             updated.players.insert(
                 player,
                 PlayerLobbyMember {
+                    legacy_ready: None,
                     bot: Some(kind.to_owned()),
                     faction: faction.map(str::to_owned),
                     session,
@@ -4419,6 +4477,94 @@ impl GameRegistry {
         );
         games.sort_by(|left, right| left.game_id.cmp(&right.game_id));
         games
+    }
+
+    /// True when the host ended `game_id` while this process was running.
+    pub fn is_terminated(&self, game_id: &str) -> bool {
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .contains(game_id)
+    }
+
+    /// Phase and seated players of each given game that is still open (unfinished), for the
+    /// "too many games" answer. Unknown or finished ids are left out.
+    pub fn open_game_infos(&self, ids: &[String]) -> Vec<OpenGameInfo> {
+        let state = self.state.lock().expect("registry lock");
+        ids.iter()
+            .filter_map(|id| {
+                if let Some(session) = state.sessions.get(id) {
+                    if session.is_finished() {
+                        return None;
+                    }
+                    let players = state.player_lobbies.get(id).map_or_else(
+                        || state.lobbies.get(id).map_or(0, |l| l.player_ids.len()),
+                        |l| l.slots.iter().filter(|s| s.occupant.is_some()).count(),
+                    );
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "started",
+                        players,
+                    });
+                }
+                if let Some(l) = state.player_lobbies.get(id) {
+                    let players = l.slots.iter().filter(|s| s.occupant.is_some()).count();
+                    return Some(OpenGameInfo {
+                        game_id: id.clone(),
+                        phase: "lobby",
+                        players,
+                    });
+                }
+                state.lobbies.get(id).map(|l| OpenGameInfo {
+                    game_id: id.clone(),
+                    phase: "lobby",
+                    players: l.player_ids.len(),
+                })
+            })
+            .collect()
+    }
+
+    /// Ends a game for good at the request of its host: stops the worker and bots, forgets the
+    /// game and moves its files into `terminated/`. Works for lobbies and started games.
+    pub fn terminate_game(&self, game_id: &str, credential: &str) -> Result<(), LobbyError> {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        {
+            let state = self.state.lock().expect("registry lock");
+            if let Some(lobby) = state.player_lobbies.get(game_id) {
+                let actor = authenticate_player(lobby, credential)?;
+                if actor != lobby.host_player_id {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else if let Some(lobby) = state.lobbies.get(game_id) {
+                let actor = authenticated_seat(lobby, credential)?;
+                if actor != lobby.host_seat {
+                    return Err(LobbyError::HostRequired);
+                }
+            } else {
+                return Err(LobbyError::NotFound);
+            }
+        }
+        self.terminated
+            .lock()
+            .expect("terminated lock")
+            .insert(game_id.to_owned());
+        self.remove_game(game_id);
+        self.turn_redos
+            .lock()
+            .expect("turn redos lock")
+            .remove(game_id);
+        self.state
+            .lock()
+            .expect("registry lock")
+            .presence
+            .retain(|(id, _), _| id != game_id);
+        if let Some(store) = &self.store {
+            store
+                .terminate_game(game_id)
+                .map_err(|e| LobbyError::Storage(e.to_string()))?;
+        }
+        Ok(())
     }
 
     pub fn remove_game(&self, game_id: &str) -> Option<Arc<GameSession>> {

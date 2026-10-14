@@ -416,6 +416,8 @@ fn late_game(
                 outcome,
                 system: None,
                 result: String::new(),
+                gains: Default::default(),
+                placed: Vec::new(),
             });
     }
 

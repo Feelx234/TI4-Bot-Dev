@@ -58,6 +58,8 @@ type DraftRequest = Option<(
 const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);
 /// Least time between two secondary previews on one connection (and only one runs at a time).
 const MIN_PREVIEW_INTERVAL: Duration = Duration::from_millis(200);
+/// Least time between two "who can go here" queries on one connection.
+const MIN_REACH_INTERVAL: Duration = Duration::from_millis(50);
 
 #[allow(clippy::too_many_lines)]
 async fn handle_socket(
@@ -74,6 +76,8 @@ async fn handle_socket(
     let mut replacement_tx = Some(replacement_tx);
     let outbound_registry = registry.clone();
     let outbound_game = game_id.clone();
+    let pump_registry = registry.clone();
+    let pump_game = game_id.clone();
     let outbound_credential = Arc::new(std::sync::Mutex::new(None::<String>));
     let credential_for_pump = outbound_credential.clone();
     let session_for_pump = session.clone();
@@ -85,9 +89,14 @@ async fn handle_socket(
                 msg = outbound_rx.recv() => match msg { Some(msg) => msg, None => break },
                 result = &mut replacement_rx => {
                     if result.is_ok() {
+                        let (code, reason) = if pump_registry.is_terminated(&pump_game) {
+                            (4002, "game terminated")
+                        } else {
+                            (4001, "session replaced")
+                        };
                         let _ = ws_sender.send(Message::Close(Some(CloseFrame {
-                            code: 4001,
-                            reason: "session replaced".into(),
+                            code,
+                            reason: reason.into(),
                         }))).await;
                     }
                     break;
@@ -137,6 +146,7 @@ async fn handle_socket(
     let mut connection_id: Option<u64> = None;
     let mut last_intent: Option<std::time::Instant> = None;
     let mut last_preview: Option<std::time::Instant> = None;
+    let mut last_reach: Option<std::time::Instant> = None;
     let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
     // The draft requests of this connection. One is run at a time and only the newest waits,
@@ -869,6 +879,55 @@ async fn handle_socket(
                         let _ = outbound_tx
                             .send(ServerMessage::SecondaryPreview(message))
                             .await;
+                    }
+                });
+            }
+            ClientMessage::QueryReach {
+                game_id: message_game_id,
+                request_id,
+                system_id,
+                ..
+            } => {
+                if message_game_id != game_id {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind: ErrorKind::MalformedMessage,
+                            message: "query_reach game_id does not match the WebSocket path"
+                                .to_owned(),
+                        }))
+                        .await;
+                    continue;
+                }
+                // Bounded request rate; the answer is cheap but a client could ask in a loop.
+                if last_reach
+                    .is_some_and(|at: std::time::Instant| at.elapsed() < MIN_REACH_INTERVAL)
+                {
+                    let _ = outbound_tx
+                        .send(ServerMessage::ReachInto(
+                            crate::protocol::reach::ReachIntoMsg {
+                                protocol_version: PROTOCOL_VERSION,
+                                game_id: game_id.clone(),
+                                request_id,
+                                system_id,
+                                as_of_version: session.game_version(),
+                                origins: Vec::new(),
+                                refused: Some(crate::protocol::reach::ReachRefusal::RateLimited),
+                            },
+                        ))
+                        .await;
+                    continue;
+                }
+                last_reach = Some(std::time::Instant::now());
+                let session = session.clone();
+                let outbound_tx = outbound_tx.clone();
+                tokio::spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        session.reach_into(request_id, &system_id)
+                    })
+                    .await;
+                    if let Ok(message) = result {
+                        let _ = outbound_tx.send(ServerMessage::ReachInto(message)).await;
                     }
                 });
             }

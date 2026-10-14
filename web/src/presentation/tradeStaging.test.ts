@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { ChoiceOptionDto } from "../protocol/types.ts";
 import {
   emptyStaged,
+  freeFormId,
+  proposalId,
   nearestDeals,
   parseOfferPrompt,
   stageableDeals,
@@ -175,5 +177,38 @@ describe("parseOfferPrompt", () => {
 
   it("returns null for any other prompt", () => {
     expect(parseOfferPrompt("something else entirely")).toBeNull();
+  });
+});
+
+describe("free-form proposals", () => {
+  const deals = stageableDeals(CATALOG);
+  const staged = (give: Partial<Staged["give"]>, receive: Partial<Staged["receive"]>): Staged => {
+    const s = emptyStaged();
+    return { give: { ...s.give, ...give }, receive: { ...s.receive, ...receive } };
+  };
+
+  it("writes the id the engine's free_form_id reads", () => {
+    expect(freeFormId(staged({ tradeGoods: 7, commodities: 1, note: "ra:jolnar" }, { commodities: 3 }))).toBe(
+      "x;gt=7;gc=1;gn=ra:jolnar;rc=3;",
+    );
+    expect(freeFormId(staged({ fragments: ["cultural", "hazardous"] }, { tradeGoods: 1 }))).toBe(
+      "x;gf=cultural,hazardous;rt=1;",
+    );
+  });
+
+  it("has no free-form id for nothing or for the Support swap", () => {
+    expect(freeFormId(emptyStaged())).toBeNull();
+    expect(freeFormId(staged({ support: true }, { support: true }))).toBeNull();
+  });
+
+  it("prefers the listed id, falls back to free-form only when allowed and affordable", () => {
+    const listed = staged({ tradeGoods: 1 }, { tradeGoods: 1 });
+    expect(proposalId(listed, deals, true)).toBe("1:1");
+    const odd = staged({ tradeGoods: 6 }, { commodities: 2 });
+    expect(proposalId(odd, deals, false)).toBeNull();
+    expect(proposalId(odd, deals, true)).toBe("x;gt=6;rc=2;");
+    expect(proposalId(odd, deals, true, { tradeGoods: 5, commodities: 0 }, null)).toBeNull();
+    expect(proposalId(odd, deals, true, { tradeGoods: 6, commodities: 0 }, { tradeGoods: 0, commodities: 1 })).toBeNull();
+    expect(whyNoDeal(odd, deals, true, { tradeGoods: 5, commodities: 0 }, null)).toEqual(["You hold only 5 trade goods."]);
   });
 });

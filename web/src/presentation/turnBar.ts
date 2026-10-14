@@ -219,7 +219,11 @@ export function planetsSummary(planets: NonNullable<BarInfo["planets"]>): string
   return `Cultural: ${names}; readies ${changing} of ${planets.length}`;
 }
 
-function itemFor(option: ChoiceOptionDto, details?: Record<string, unknown>): BarItem {
+function itemFor(
+  option: ChoiceOptionDto,
+  details?: Record<string, unknown>,
+  faction?: string | null,
+): BarItem {
   const label = option.label;
   if (isActionCard(option)) {
     const name = playedName(label);
@@ -243,7 +247,7 @@ function itemFor(option: ChoiceOptionDto, details?: Record<string, unknown>): Ba
       },
     };
   }
-  const component = describeComponent(option);
+  const component = describeComponent(option, faction);
   const chips: BarInfo["chips"] = [];
   const cost = component.cost ?? costChip(label)?.label ?? null;
   if (cost) chips.push({ label: cost, tone: "neutral" });
@@ -499,11 +503,11 @@ export function deriveTurnBar(
   const rest = options.filter(
     (o) => !isEnd(o) && !isPass(o) && !isTactical(o) && !isStrategic(o) && !isTrade(o),
   );
-  const cardItems = rest.filter(isActionCard).map((o) => itemFor(o, details));
+  const cardItems = rest.filter(isActionCard).map((o) => itemFor(o, details, player?.faction));
   const grouped = new Map<string, BarItem[]>();
   for (const option of rest.filter((o) => !isActionCard(o))) {
     const title = componentGroupTitle(option.id);
-    grouped.set(title, [...(grouped.get(title) ?? []), itemFor(option)]);
+    grouped.set(title, [...(grouped.get(title) ?? []), itemFor(option, undefined, player?.faction)]);
   }
   const groups: BarGroup[] = GROUP_ORDER.filter((t) => grouped.has(t)).map((title) => ({
     title,

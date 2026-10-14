@@ -252,6 +252,7 @@ fn server_event_round_trips() {
             movement: None,
             seat_detail: None,
             private_detail: None,
+            roll: None,
         },
     });
     let json = serde_json::to_string(&msg).expect("serialize");

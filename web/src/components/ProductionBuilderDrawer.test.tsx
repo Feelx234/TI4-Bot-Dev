@@ -614,4 +614,33 @@ describe("ProductionBuilderDrawer", () => {
       expect(onQueueProduction).toHaveBeenCalledWith(["carrier", "exchange|carrier"]);
     });
   });
+
+  it("splits the resource budget into planets and trade goods", () => {
+    render(
+      <ProductionBuilderDrawer
+        choice={{
+          actor: "seat_1",
+          nonce: "split",
+          prompt: "produce",
+          context: { subtype: "produce_unit", outstanding: [{ amount: 4, paid: 0 }] },
+          options: [
+            {
+              id: "build|fighter|2",
+              kind: "produce",
+              label: "Fighter",
+              payload: { unit: "fighter", cost: 1, available_resources: 9 },
+            },
+          ],
+        }}
+        viewerSeat="seat_1"
+        tradeGoods={7}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+        isOpen
+      />,
+    );
+    expect(screen.getByTestId("production-split-planets")).toHaveTextContent("2");
+    expect(screen.getByTestId("production-split-tg")).toHaveTextContent("7");
+    expect(screen.getByTestId("trade-good-sources-empty")).toBeInTheDocument();
+  });
 });

@@ -106,6 +106,9 @@ export interface MovementVector {
   toCenter: { x: number; y: number };
   unitCount: number;
   optionIds: string[];
+  /** "Who can go here" arrows: whose ships (own = the viewer's), and de-emphasised when another entry is picked. */
+  tone?: "own" | "enemy";
+  dimmed?: boolean;
 }
 
 export interface TargetHighlightModel {

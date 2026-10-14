@@ -1,6 +1,7 @@
 import React from "react";
 import type { PendingChoiceDto } from "../protocol/types.ts";
-import { describeDecisionHeader } from "../presentation/decisionSource.ts";
+import { decisionBreakthrough, describeDecisionHeader } from "../presentation/decisionSource.ts";
+import { synergyText } from "../presentation/breakthroughs.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import "./DecisionContext.css";
 
@@ -32,6 +33,7 @@ export const DecisionHeader: React.FC<{
   const display = usePlayerIdentity();
   const participant = display(actor);
   const info = choice ? describeDecisionHeader(choice) : null;
+  const breakthrough = choice ? decisionBreakthrough(choice) : undefined;
   return (
     <header className="decision-frame__header">
       <div>
@@ -44,6 +46,13 @@ export const DecisionHeader: React.FC<{
         <h2 data-testid={titleTestId}>{title}</h2>
         {instruction && instruction !== title && <p className="text-muted">{instruction}</p>}
         {progress && <p className="text-muted">{progress}</p>}
+        {breakthrough && (
+          <div className="decision-context__card" data-testid="decision-breakthrough">
+            <strong>Breakthrough: {breakthrough.name}</strong>{" "}
+            <span className="text-muted">(synergy {synergyText(breakthrough)})</span>
+            {breakthrough.text && <p className="decision-context__card-text">{breakthrough.text}</p>}
+          </div>
+        )}
         {info && info.chips.length > 0 && (
           <ul className="decision-context__chips" data-testid="decision-context-strip">
             {info.chips.map((chip) => (

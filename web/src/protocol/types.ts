@@ -325,6 +325,8 @@ export interface PlayerView {
   /** Progress toward this seat's own countable secrets; only ever sent to that seat. */
   secret_objective_progress?: Record<string, ObjectiveProgressView>;
   leaders: Record<string, string>;
+  /** Other players' command tokens in this seat's fleet pool (Mahact), one entry per token. */
+  held_foreign_tokens?: string[];
 }
 
 export interface ObjectiveProgressView {
@@ -477,8 +479,29 @@ export type EventVisibility =
 export type GameEventKind =
   | { kind: "game_initialized"; round: number; phase: string; speaker: string }
   | { kind: "decision_resolved" }
+  | { kind: "dice_rolled" }
   | { kind: "phase_transition"; phase: string; round: number }
   | { kind: "game_finished"; winner?: string | null };
+
+/** One public die roll (a `dice_rolled` event): who rolled, what for, what showed, what it did. */
+export interface PublicRoll {
+  /** Position in the game's roll history; a replay of the same roll has the same index. */
+  index: number;
+  roller?: string;
+  /** The engine's tag ("gravity rift", "space combat"). */
+  reason: string;
+  /** The tag in words ("Gravity rift"). */
+  label: string;
+  faces: number[];
+  hits_on?: number;
+  hits?: number;
+  /** Positions of the dice that are rerolls. */
+  rerolled?: number[];
+  /** The rift exited, else the system in play. */
+  system?: string;
+  /** "ship destroyed", "2 hits". */
+  outcome?: string;
+}
 
 export type GameEvent = {
   /** Nested object on the wire; decode with `visibilityKind` (protocol/eventVisibility.ts). */
@@ -501,6 +524,8 @@ export type GameEvent = {
   detail?: string;
   private_detail?: string;
   movement?: { actor: string; origin: string; destination: string; unit: string };
+  /** Present on `dice_rolled` events. */
+  roll?: PublicRoll;
   event: GameEventKind;
 };
 
@@ -724,6 +749,41 @@ export interface SecondaryPreviewMsg {
     | { result: "refused"; reason: PreviewRefusal; detail: string };
 }
 
+/** One kind of ship in one origin system that could move into the queried system. */
+export interface ReachShip {
+  type_id: string;
+  count: number;
+  damaged: number;
+  /** Of `count`, how many arrive only by spending Gravity Drive. */
+  gravity_drive: number;
+  /** Of `count`, how many arrive only by exhausting the Ionian Fuel Refinery. */
+  ionian: number;
+}
+
+export interface ReachOrigin {
+  owner: string;
+  origin: string;
+  ships: ReachShip[];
+}
+
+export type ReachRefusal = "busy" | "unknown_system" | "rate_limited";
+
+/**
+ * The answer to a `query_reach` request ("who can go here"): the ships that could move into
+ * `system_id` if it were activated now, from the engine's own movement search. Private to the asking
+ * connection and ephemeral; `as_of_version` says which position it was computed at.
+ */
+export interface ReachIntoMsg {
+  type?: "reach_into";
+  protocol_version: number;
+  game_id: string;
+  request_id: number;
+  system_id: string;
+  as_of_version: number;
+  origins: ReachOrigin[];
+  refused?: ReachRefusal;
+}
+
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & InitialSnapshotMsg)
   | ({ type: "state_update" } & StateUpdateMsg)
@@ -736,7 +796,8 @@ export type ServerMessage =
   | ({ type: "pong" } & PongMsg)
   | ({ type: "event" } & GameEventMsg)
   | ({ type: "reaction_intent_state" } & ReactionIntentStateMsg)
-  | ({ type: "secondary_preview" } & SecondaryPreviewMsg);
+  | ({ type: "secondary_preview" } & SecondaryPreviewMsg)
+  | ({ type: "reach_into" } & ReachIntoMsg);
 
 export type ClientMessage =
   | {
@@ -782,6 +843,14 @@ export type ClientMessage =
       card: string;
       primary: string;
       answers: string[];
+    }
+  | {
+      /** Read-only: which ships could move into this system if it were activated now? */
+      type: "query_reach";
+      protocol_version: number;
+      game_id: string;
+      request_id: number;
+      system_id: string;
     }
   | {
       type: "ping";

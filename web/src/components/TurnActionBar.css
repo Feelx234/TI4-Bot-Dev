@@ -64,9 +64,13 @@
   gap: 6px;
   align-items: stretch;
 }
+/* Pass and End turn sit right after the other buttons, set off by a thin rule (they used to be
+   pushed to the far edge of a wide bar, away from the rest). */
 .turn-bar__spacer {
-  flex: 1 1 0;
+  flex: 0 0 1px;
   min-width: 0;
+  margin: 4px 6px;
+  background: var(--color-border, #334155);
 }
 .turn-bar__wrap {
   position: relative;

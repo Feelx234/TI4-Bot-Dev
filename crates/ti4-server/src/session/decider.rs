@@ -2,6 +2,7 @@
 
 use std::sync::{Arc, Mutex, mpsc};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
+use ti4_host::clock::NonceSource as _;
 use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ActionAcceptedMsg;
@@ -45,9 +46,20 @@ impl RemoteHumanDecider {
     }
 }
 
+/// The nonces of a server: random, so no other player can guess the token of a pending choice.
+/// (`ti4-host` leaves the source of nonces to its host.)
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RandomNonce;
+
+impl ti4_host::clock::NonceSource for RandomNonce {
+    fn next_nonce(&self) -> String {
+        format!("{:016x}", rand::random::<u64>())
+    }
+}
+
 impl Decider for RemoteHumanDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        let nonce = format!("{:016x}", rand::random::<u64>());
+        let nonce = RandomNonce.next_nonce();
 
         {
             let mut shared = self.shared.lock().expect("session shared lock");
@@ -100,7 +112,7 @@ impl Decider for RemoteHumanDecider {
             }
 
             // Submission identity and option validity were atomically reserved by GameSession.
-            if let Some(opt) = choice.options.iter().find(|o| o.id == submission.option_id) {
+            if let Some(opt) = choice.answer_for(&submission.option_id) {
                 let mut shared = self.shared.lock().expect("shared lock");
                 let pending = shared
                     .pending_decision
@@ -108,9 +120,9 @@ impl Decider for RemoteHumanDecider {
                     .expect("reserved pending decision");
                 pending.submitted_option_id = Some(submission.option_id);
                 pending.reply_tx = Some(submission.reply_tx);
-                shared.planning.application_answered(choice, opt);
+                shared.planning.application_answered(choice, &opt);
 
-                return Ok(opt.clone());
+                return Ok(opt);
             }
 
             // Option ID not in the offered set

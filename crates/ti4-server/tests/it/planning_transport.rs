@@ -91,6 +91,7 @@ impl Fixture {
                 (
                     player,
                     PlayerLobbyMember {
+                        legacy_ready: None,
                         bot: None,
                         faction: None,
                         session: credential,

@@ -25,7 +25,8 @@ import { describeUnitAbilityOption } from "../presentation/unitAbilityOptions.ts
 import { describeRemoveUnit } from "../presentation/removeUnit.ts";
 import { PoliticsContextPanel, PoliticsOptionNote } from "./PoliticsDecisionParts.tsx";
 import { LegendaryContextPanel, LegendaryOptionNote } from "./LegendaryParts.tsx";
-import { InvestmentsContextPanel, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
+import { NotOfferedNote } from "./NotOfferedNote.tsx";
+import { InvestmentsContextPanel, StrategyGoodsBadge, StrategyGoodsNote } from "./StrategyGoodsParts.tsx";
 import { describeAbilityOffer } from "../presentation/abilityOffer.ts";
 import { UnitPickOptionNote, UnitPickPanel } from "./UnitPickParts.tsx";
 import { TechnologyPickOptionNote, TechnologyPickPanel } from "./TechnologyPickParts.tsx";
@@ -285,6 +286,10 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
         data-testid="pending-choice-dialog"
         className="choice-dialog"
         onEscape={() => setIsMinimized(true)}
+        // Same as every other panel: a tap on the dimmed area outside the window closes it.
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setIsMinimized(true);
+        }}
         initialFocusRef={dialogRef}
         style={{
           background: "rgba(3, 7, 18, 0.75)",
@@ -424,6 +429,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <PoliticsContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <LegendaryContextPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
+          <NotOfferedNote choice={choice} />
           {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
@@ -503,9 +509,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         style={{ marginTop: 3 }}
                         aria-checked={isChecked}
                       />
-                      <div>
-                        <div style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}>
-                          {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? opt.label)}
+                      <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+                        <div
+                          className={card ? "strategy-draft-card__title" : undefined}
+                          style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}
+                        >
+                          <span>
+                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? opt.label)}
+                          </span>
+                          {card && <StrategyGoodsBadge option={opt} />}
                         </div>
                         {handCard?.badge && (
                           <div className="card-option__badge" data-testid="card-option-badge">

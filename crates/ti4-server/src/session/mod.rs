@@ -1,17 +1,14 @@
-pub mod batch;
 pub mod bluff;
 pub mod bluff_hold;
 pub mod decider;
 mod planning;
 pub mod preview;
 pub mod random_bot;
+pub mod reach;
 pub mod reaction_modes;
 pub mod registry;
-pub mod replay;
-pub mod rng_force;
 pub(crate) mod script;
 pub mod splice;
-pub mod step_snapshot;
 pub mod table;
 pub mod transport;
 pub mod turn_redo;
@@ -83,8 +80,9 @@ pub use decider::RemoteHumanDecider;
 pub use planning::PlanningError;
 pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
-pub use rng_force::{RngForce, RngMarks};
+pub use ti4_host::replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
+pub use ti4_host::rng_force::{RngForce, RngMarks};
+pub use ti4_host::{batch, replay, rng_force, step_snapshot};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
@@ -127,7 +125,7 @@ pub struct SessionConfig {
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
     /// The name of each player at the table. With it every snapshot and update says who sits in
-    /// each seat ([`ti4_view::setup::SeatFact`]); a session with no table has none.
+    /// each seat ([`ti4_host::setup::SeatFact`]); a session with no table has none.
     pub nicknames: BTreeMap<PlayerId, String>,
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
@@ -172,6 +170,28 @@ pub struct SessionConfig {
     /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
     /// and ignored when it does not fit.
     pub resume: Option<Arc<step_snapshot::StepSnapshot>>,
+}
+
+impl batch::ReplayBasis for SessionConfig {
+    fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    fn galaxy(&self) -> Option<&ti4_content::galaxy::Galaxy> {
+        self.galaxy.as_ref()
+    }
+
+    fn rng_marks(&self) -> &RngMarks {
+        &self.rng_marks
+    }
+
+    fn history_generation(&self) -> u64 {
+        self.history_generation
+    }
+
+    fn clock(&self) -> &dyn ti4_host::clock::Clock {
+        &ti4_host::clock::SystemClock
+    }
 }
 
 impl SessionConfig {
@@ -399,12 +419,7 @@ impl GameSession {
                     current: pending.game_version,
                 });
             }
-            if !pending
-                .choice
-                .options
-                .iter()
-                .any(|option| option.id == option_id)
-            {
+            if pending.choice.answer_for(option_id).is_none() {
                 return Err(RejectionReason::UnknownOption {
                     option_id: option_id.to_owned(),
                 });
@@ -597,6 +612,12 @@ impl GameSession {
         (lock.decision_log.clone(), lock.step_snapshot.clone())
     }
 
+    /// How many of the game's dice the worker has published (the next one's history index).
+    #[must_use]
+    pub fn rolls_seen(&self) -> usize {
+        self.shared.lock().expect("shared lock").rolls_seen
+    }
+
     /// Diagnostic: the number of decisions this session did not have to replay because it
     /// started from a copy of the game (`None`: it replayed from the opening state).
     #[must_use]
@@ -706,6 +727,17 @@ impl GameSession {
         request: &preview::PreviewRequest,
     ) -> crate::protocol::server::SecondaryPreviewMsg {
         preview::answer(&self.shared, &self.game_id, seat, request)
+    }
+
+    /// Which ships could move into `system_id` if it were activated now (see `session::reach`).
+    /// Read only: copies the newest published position under the lock and asks the engine.
+    #[must_use]
+    pub fn reach_into(
+        &self,
+        request_id: u64,
+        system_id: &str,
+    ) -> crate::protocol::reach::ReachIntoMsg {
+        reach::answer(&self.shared, &self.game_id, request_id, system_id)
     }
 
     /// Let the seat end its running bluff hold early; the seat's current bluff state is

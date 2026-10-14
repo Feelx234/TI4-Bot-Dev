@@ -4,6 +4,7 @@ import {
   actionToastFromEvent,
   actionToastText,
   autoResolvedToast,
+  isCardOrScore,
   mergeActionToast,
   victoryPointToasts,
 } from "./actionToasts.ts";
@@ -170,5 +171,20 @@ describe("autoResolvedToast", () => {
     expect(autoResolvedToast(choice(true, 1), "p1")).toBeNull();
     expect(autoResolvedToast(choice(false), "p1")).toBeNull();
     expect(autoResolvedToast(null, "p1")).toBeNull();
+  });
+});
+
+describe("scoring and card toasts", () => {
+  it("says a scored objective by its name rather than its id", () => {
+    const toast = actionToastFromEvent(entry({ detail: "p2 scored objective expand_borders" }), "p1");
+    expect(toast?.category).toBe("score");
+    expect(toast?.parts[0]).not.toContain("expand_borders");
+  });
+
+  it("recognises card plays and scoring for the always-immediate path, but not the turn's own selection", () => {
+    expect(isCardOrScore(entry({ detail: "p2 played Sabotage", stage: "reactions" }))).toBe(true);
+    expect(isCardOrScore(entry({ detail: "p2 scored objective te", stage: "status" }))).toBe(true);
+    expect(isCardOrScore(entry({ detail: "p2 played Construction", stage: "action selection" }))).toBe(false);
+    expect(isCardOrScore(entry({ detail: "p2 moved carrier from #1 to #2" }))).toBe(false);
   });
 });

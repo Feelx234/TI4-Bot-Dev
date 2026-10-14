@@ -19,6 +19,7 @@ import { HitAssignmentPanel } from "./HitAssignmentPanel.tsx";
 import { GroundCombatResultSummary } from "./GroundCombatResultSummary.tsx";
 import { summarizeGroundCombat } from "../presentation/groundCombatSummary.ts";
 import { InvasionLandingTray, type Landing } from "./InvasionLandingTray.tsx";
+import { UnitStatsTip } from "./UnitInfo.tsx";
 import { UnitIcon, getUnitDisplayName } from "./UnitIcon.tsx";
 import { InvasionStepCard } from "./InvasionStepCard.tsx";
 import { isDefenseStep } from "../presentation/invasionSteps.ts";
@@ -499,11 +500,13 @@ export const InvasionOverlay: React.FC<{
                                   ownerDisplay.color ?? undefined,
                               }}
                             />
-                            <UnitIcon type={unit.unit_type} />
-                            <span className="invasion-unit-chip__name">
-                              {ownerDisplay.label}{" "}
-                              {getUnitDisplayName(unit.unit_type)}
-                            </span>
+                            <UnitStatsTip unit={unit.unit_type} seat={unit.owner}>
+                              <UnitIcon type={unit.unit_type} />
+                              <span className="invasion-unit-chip__name">
+                                {ownerDisplay.label}{" "}
+                                {getUnitDisplayName(unit.unit_type)}
+                              </span>
+                            </UnitStatsTip>
                             {unit.damaged && (
                               <span className="invasion-unit-chip__damaged">
                                 damaged

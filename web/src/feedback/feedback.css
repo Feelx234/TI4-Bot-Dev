@@ -177,3 +177,18 @@
   text-align: center;
   color: #64748b;
 }
+
+.feedback__who {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.feedback__name {
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}

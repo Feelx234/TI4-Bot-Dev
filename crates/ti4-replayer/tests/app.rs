@@ -182,6 +182,7 @@ fn option(id: &str, kind: &str, label: &str) -> ChoiceOption {
         label: label.to_owned(),
         payload: BTreeMap::new(),
         preview: None,
+        auto_resolved: false,
     }
 }
 

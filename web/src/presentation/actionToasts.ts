@@ -1,6 +1,7 @@
 import { isPublicEvent } from "../protocol/eventVisibility.ts";
 import type { BoardView, GameEvent, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
 import { systemTag } from "./systemFacts.ts";
+import { scoringObjectiveMeta } from "./scoringOptions.ts";
 
 /** What another player did, as a short corner notification. */
 export type ActionToastCategory =
@@ -16,6 +17,7 @@ export type ActionToastCategory =
   | "trade"
   | "politics"
   | "explore"
+  | "breakthrough"
   | "turn";
 
 export interface ActionToast {
@@ -48,7 +50,12 @@ const RULES: Rule[] = [
   { re: /^activated #(\S+)$/, category: "activate", phrase: (m, board) => `activated system ${systemTag(m[1], board)}` },
   { re: /^picked (.+)$/, category: "strategy", phrase: (m) => `picked ${m[1]}` },
   { re: /^researched (.+)$/, category: "tech", phrase: (m) => `researched ${m[1]}` },
-  { re: /^scored (.+)$/, category: "score", phrase: (m) => `scored ${m[1]}` },
+  {
+    re: /^scored (?:objective )?(.+)$/,
+    category: "score",
+    // The log names the objective by id; the toast says it by its printed name.
+    phrase: (m) => `scored ${objectiveName(m[1])}`,
+  },
   { re: /^(voted .+|abstained from voting)$/, category: "vote", phrase: (m) => m[1] },
   { re: /^placed (.+) on (.+)$/, category: "build", phrase: (m) => `placed ${m[1]} on ${m[2]}` },
   {
@@ -69,6 +76,21 @@ const RULES: Rule[] = [
   },
   { re: /^chose (.+) as speaker$/, category: "politics", phrase: (m) => `chose ${m[1]} as speaker` },
 ];
+
+function objectiveName(text: string): string {
+  // "public objective Corner the Market with Imperial" is already worded; a bare id is not.
+  if (/\s/.test(text)) return text;
+  return scoringObjectiveMeta(text).name || text;
+}
+
+/** A card play or an objective score: shown the moment it happens, even inside a recapped turn. */
+export function isCardOrScore(entry: GameEvent): boolean {
+  if (entry.stage === "action selection") return false;
+  const actor = entry.actor;
+  const detail = entry.detail?.trim();
+  if (!actor || !detail?.startsWith(`${actor} `)) return false;
+  return /^(played|scored) /.test(detail.slice(actor.length + 1));
+}
 
 const TURN_PHRASES: Record<string, string> = {
   pass: "passed",

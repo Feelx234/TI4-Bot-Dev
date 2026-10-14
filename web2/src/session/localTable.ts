@@ -1,5 +1,5 @@
 // The table of single player: it is kept in the page, and the engine of the page says what it can
-// be (`ti4_view::setup` through the setup exports), as the server says it for the table of a
+// be (`ti4_host::setup` through the setup exports), as the server says it for the table of a
 // lobby. The page is its host and its one person; the other seats are played by the page.
 import type { LocalGame } from "./savedGame";
 import type { Table, TableEvent, TableSettings } from "./table";

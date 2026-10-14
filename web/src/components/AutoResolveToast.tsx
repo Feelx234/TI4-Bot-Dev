@@ -17,6 +17,8 @@ export interface AutoResolveNotification {
   text?: string;
   /** Invasion toasts: the small heading ("Bombardment", "Invasion"). */
   tag?: string;
+  /** Overrides how long the toast stays (ms). */
+  durationMs?: number;
   /** Bumped when a toast absorbs another action, so its timer starts over. */
   revision?: number;
 }
@@ -48,9 +50,9 @@ export const AutoResolveToast: React.FC<AutoResolveToastProps> = ({
       const animationTimer = setTimeout(() => onDismiss(notification.id), 300);
       return () => clearTimeout(animationTimer);
     }
-    const timer = setTimeout(() => setIsDismissing(true), TOAST_DURATION_MS[kind]);
+    const timer = setTimeout(() => setIsDismissing(true), notification.durationMs ?? TOAST_DURATION_MS[kind]);
     return () => clearTimeout(timer);
-  }, [notification.id, notification.revision, isDismissing, kind, onDismiss]);
+  }, [notification.id, notification.revision, notification.durationMs, isDismissing, kind, onDismiss]);
 
   const actor = notification.actor ? display(notification.actor) : null;
 
@@ -98,6 +100,8 @@ interface AutoResolveToastContainerProps {
   onDismiss: (id: string) => void;
   /** Extra space above the bottom edge, so toasts clear bars and overlays down there. */
   bottomOffset?: number;
+  /** Rendered below the toasts (the notification history button). */
+  footer?: React.ReactNode;
 }
 
 /**
@@ -106,7 +110,7 @@ interface AutoResolveToastContainerProps {
  */
 export const AutoResolveToastContainer: React.FC<
   AutoResolveToastContainerProps
-> = ({ notifications, onDismiss, bottomOffset }) => (
+> = ({ notifications, onDismiss, bottomOffset, footer }) => (
   <div
     className="auto-resolve-toast-container"
     data-testid="corner-toasts"
@@ -123,5 +127,6 @@ export const AutoResolveToastContainer: React.FC<
         onDismiss={onDismiss}
       />
     ))}
+    {footer}
   </div>
 );

@@ -846,6 +846,8 @@ fn exploration_draws_are_listed_for_the_round() {
             outcome: "attached:miningworld".to_owned(),
             system: None,
             result: String::new(),
+            gains: Default::default(),
+            placed: Vec::new(),
         },
         ti4_model::state::ExplorationRecord {
             round: frame.state.round.saturating_sub(1),
@@ -856,6 +858,8 @@ fn exploration_draws_are_listed_for_the_round() {
             outcome: "discarded".to_owned(),
             system: None,
             result: String::new(),
+            gains: Default::default(),
+            placed: Vec::new(),
         },
     ];
     let lines = view::exploration_lines(&session, &frame, content);
@@ -910,6 +914,8 @@ fn a_rift_die_says_whether_the_ship_survived() {
         hits_on: Some(4),
         rerolled: std::collections::BTreeSet::new(),
         by: None,
+        system: None,
+        outcome: None,
     };
     let survived = view::roll_line(frame, &rift(7), content);
     assert!(

@@ -5,14 +5,14 @@
 //! caller and saves the result.
 
 use serde::{Deserialize, Deserializer};
+use ti4_host::setup::TableSetup;
 use ti4_model::id::PlayerId;
-use ti4_view::setup::TableSetup;
 
 use super::registry::LobbyError;
 use crate::maps::MapChoice;
 use crate::storage::{LobbySlotId, PlayerLobbyRecord, PlayerLobbySlot};
 
-pub use ti4_view::setup::{
+pub use ti4_host::setup::{
     BotKindOption, CardOption, CardSetOption, FactionGroup, FactionOption, MAX_BOT_DELAY_MS,
     PLAYER_COUNTS, SeatOrder, SetupOptions,
 };
@@ -65,7 +65,7 @@ pub fn joined_players(record: &PlayerLobbyRecord) -> Vec<PlayerId> {
 #[must_use]
 pub fn seated_players(record: &PlayerLobbyRecord, seed: u64) -> Vec<PlayerId> {
     let joined = joined_players(record);
-    ti4_view::setup::seat_places(seat_order_of(record), joined.len(), seed)
+    ti4_host::setup::seat_places(seat_order_of(record), joined.len(), seed)
         .into_iter()
         .map(|place| joined[place].clone())
         .collect()
@@ -256,7 +256,7 @@ pub fn apply_settings(
 #[must_use]
 pub fn setup_options(public: bool) -> SetupOptions {
     let mut options =
-        ti4_view::setup::setup_options("The server", super::random_bot::random_bot_delay_ms());
+        ti4_host::setup::setup_options("The server", super::random_bot::random_bot_delay_ms());
     if public {
         options.scenarios.clear();
     }
@@ -285,6 +285,7 @@ mod tests {
         record.players.insert(
             id.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 session: PlayerSession::generate(),
                 nickname: name.to_owned(),
                 bot: bot.map(str::to_owned),

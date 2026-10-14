@@ -47,7 +47,7 @@ export interface TurnRedoRequestControls {
 
 export interface LogNode {
   id: string;
-  kind: "round" | "phase" | "event" | "decision" | "marker";
+  kind: "round" | "phase" | "event" | "decision" | "marker" | "roll";
   label: string;
   children: LogNode[];
   entry?: GameLogEntry;
@@ -157,10 +157,9 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
       boundaryRound = event.round;
       boundaryPhase = event.phase;
     }
-    const round =
-      event.kind === "decision_resolved" ? (entry.round ?? boundaryRound) : boundaryRound;
-    const phase =
-      event.kind === "decision_resolved" ? (entry.phase ?? boundaryPhase) : boundaryPhase;
+    const stamped = event.kind === "decision_resolved" || event.kind === "dice_rolled";
+    const round = stamped ? (entry.round ?? boundaryRound) : boundaryRound;
+    const phase = stamped ? (entry.phase ?? boundaryPhase) : boundaryPhase;
     const roundKey = round === undefined ? "unknown" : String(round);
     let roundNode = roundByKey.get(roundKey);
     if (!roundNode) {
@@ -184,6 +183,18 @@ export function buildEventTree(events: readonly GameLogEntry[]): LogNode[] {
     // Get and increment event index for this phase
     const eventIndex = phaseEventIndices.get(phaseKey)!;
     phaseEventIndices.set(phaseKey, eventIndex + 1);
+
+    // A die roll is one line in the stream, where it happened; it does not start or end an
+    // action or a stage, and there is nothing to undo to.
+    if (event.kind === "dice_rolled") {
+      phaseNode.children.push({
+        ...node(`${phaseKey}:event:${eventIndex}`, "roll", ""),
+        entry,
+        actor: entry.actor,
+        eventIndex,
+      });
+      continue;
+    }
 
     if (event.kind !== "decision_resolved") {
       const label =
@@ -399,8 +410,9 @@ export const EventLog: React.FC<EventLogProps> = ({
     });
   };
   const renderNode = (item: LogNode, depth: number): React.ReactNode => {
-    if (item.kind === "decision") {
+    if (item.kind === "decision" || item.kind === "roll") {
       const entry = item.entry!;
+      const roll = item.kind === "roll" ? entry.roll : undefined;
       const actor = entry.actor ? display(entry.actor) : null;
       const actorTitle = actor
         ? actor.position && !/\bposition \d+\b/i.test(actor.label)
@@ -417,8 +429,8 @@ export const EventLog: React.FC<EventLogProps> = ({
       return (
         <div
           key={item.id}
-          className="event-log__entry"
-          data-testid="event-log-entry"
+          className={roll ? "event-log__entry event-log__entry--roll" : "event-log__entry"}
+          data-testid={roll ? "event-log-roll" : "event-log-entry"}
           style={{ paddingLeft: depth * 14 }}
         >
           <span className="event-log__index">
@@ -458,6 +470,20 @@ export const EventLog: React.FC<EventLogProps> = ({
               );
             })}
           </span>
+          {roll && (
+            <span className="event-log__dice" aria-label={`Dice: ${roll.faces.join(", ")}`}>
+              {roll.faces.map((face, at) => (
+                <span
+                  key={at}
+                  className="event-log__die"
+                  data-hit={roll.hits_on === undefined ? undefined : face >= roll.hits_on ? "yes" : "no"}
+                  data-reroll={roll.rerolled?.includes(at) ? "yes" : undefined}
+                >
+                  {face}
+                </span>
+              ))}
+            </span>
+          )}
           {!isPublicEvent(entry) && (
             <span className="event-log__private">
               {visibilityKind(entry.visibility) === "seat" ? "Private" : "Referee"}
@@ -466,6 +492,7 @@ export const EventLog: React.FC<EventLogProps> = ({
           {entry.timestamp && <time className="event-log__meta">{entry.timestamp}</time>}
           {entry.version !== undefined && <span className="event-log__meta">v{entry.version}</span>}
           {onRestore &&
+            !roll &&
             entry.decision_count !== undefined &&
             entry.decision_count <= cursor && (
               <button

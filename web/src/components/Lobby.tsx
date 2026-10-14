@@ -23,11 +23,39 @@ import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
 import { seatStyle } from "../presentation/playerDisplay.ts";
+import { MyGamesDialog, OpenGameRow } from "./MyGamesDialog.tsx";
+import { forgetMyGame, listMyGames, rememberMyGame } from "../protocol/myGames.ts";
 
 export const CreateLobby: React.FC<{
   onCreated: (created: CreateGameResponse) => void;
   onError: (message: string) => void;
-}> = ({ onCreated, onError }) => {
+  /** Go to a game from the "my games" list (with the seat token this browser holds, if any). */
+  onOpenGame?: (gameId: string, token?: string) => void;
+  /** Present when this build can play offline: shows the "Play offline" entry. */
+  onPlayOffline?: () => void;
+}> = ({ onCreated, onError, onOpenGame, onPlayOffline }) => {
+  const [overflow, setOverflow] = useState<OpenGameRow[] | null>(null);
+  const [browse, setBrowse] = useState<OpenGameRow[] | null>(null);
+  const [hasMine, setHasMine] = useState(() => listMyGames().length > 0);
+  const openBrowse = async () => {
+    let live: Set<string> | null = null;
+    try {
+      const response = await fetch("/api/games");
+      if (response.ok)
+        live = new Set(((await response.json()) as { game_id: string }[]).map((g) => g.game_id));
+    } catch {
+      // Offline: show what this browser remembers.
+    }
+    const rows = listMyGames().filter((game) => {
+      if (live && !live.has(game.gameId)) {
+        forgetMyGame(game.gameId);
+        return false;
+      }
+      return true;
+    });
+    setHasMine(rows.length > 0);
+    setBrowse(rows.map((game) => ({ game_id: game.gameId, created_at: game.storedAt })));
+  };
   const [count, setCount] = useState(4);
   const [cardSet, setCardSet] = useState<StrategyCardSetId>(DEFAULT_STRATEGY_CARD_SET);
   // The seed lets whoever knows it predict dice and deck order, so players never see the field;
@@ -37,9 +65,10 @@ export const CreateLobby: React.FC<{
   const [nickname, setNickname] = useState(preferredNickname);
   const [creating, setCreating] = useState(false);
   const inFlight = useRef(false);
-  const create = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const create = async (event?: React.FormEvent) => {
+    event?.preventDefault();
     if (inFlight.current) return;
+    setOverflow(null);
     const parsedSeed = !showSeed || seed === "" ? undefined : Number(seed);
     if (parsedSeed !== undefined && (!Number.isSafeInteger(parsedSeed) || parsedSeed < 0))
       return onError("Seed must be a non-negative whole number.");
@@ -60,10 +89,29 @@ export const CreateLobby: React.FC<{
           strategy_card_set: cardSet,
         }),
       });
-      if (!response.ok)
-        throw new Error(`Create game failed (${response.status}): ${await response.text()}`);
+      if (!response.ok) {
+        const text = await response.text();
+        if (response.status === 429) {
+          try {
+            const body = JSON.parse(text) as { error?: string; games?: OpenGameRow[] };
+            if (body.error === "too_many_games") {
+              setOverflow(Array.isArray(body.games) ? body.games : []);
+              return;
+            }
+          } catch {
+            // Not JSON: fall through to the plain error.
+          }
+        }
+        throw new Error(`Create game failed (${response.status}): ${text}`);
+      }
       const created = decodeCreateGameResponse(await response.json());
       rememberNickname(nickname);
+      rememberMyGame({
+        gameId: created.game_id,
+        token: created.player_session,
+        playerId: created.player.id,
+        nickname,
+      });
       onCreated(created);
     } catch (cause) {
       onError(`${String(cause)} Check your details and try again.`);
@@ -149,7 +197,47 @@ export const CreateLobby: React.FC<{
           >
             {creating ? "Creating lobby…" : "Create lobby"}
           </button>
+          {hasMine && (
+            <button
+              type="button"
+              data-testid="my-games-button"
+              className="button button--outline"
+              onClick={() => void openBrowse()}
+            >
+              My games
+            </button>
+          )}
+          {onPlayOffline && (
+            <button
+              type="button"
+              data-testid="play-offline-button"
+              className="button button--outline"
+              onClick={onPlayOffline}
+            >
+              Play offline (one player against bots)
+            </button>
+          )}
         </form>
+        {overflow && (
+          <MyGamesDialog
+            mode="limit"
+            games={overflow}
+            onOpen={(id, token) => onOpenGame?.(id, token)}
+            onRetryCreate={() => void create()}
+            onClose={() => setOverflow(null)}
+          />
+        )}
+        {browse && (
+          <MyGamesDialog
+            mode="browse"
+            games={browse}
+            onOpen={(id, token) => onOpenGame?.(id, token)}
+            onClose={() => {
+              setBrowse(null);
+              setHasMine(listMyGames().length > 0);
+            }}
+          />
+        )}
         <BuildFooter />
       </section>
     </main>

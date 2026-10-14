@@ -55,8 +55,10 @@
   color: var(--color-text-muted);
 }
 .production-drawer__group {
+  /* One column of unit cards at every width: a second column made the +/- controls hard to
+     match with their unit on a wide dialog. */
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 .production-drawer .production-drawer__unit {
@@ -237,4 +239,70 @@
   .payment-drawer__footer .button {
     flex: 1 1 100%;
   }
+}
+
+/* Production dialog: the resource budget split into planets and trade goods, and where the trade
+   goods came from. */
+.production-drawer__split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.production-drawer__split strong {
+  color: var(--color-text-strong);
+}
+.trade-good-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+p.trade-good-sources {
+  margin: 4px 0 0;
+}
+.trade-good-sources__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.trade-good-sources__delta {
+  min-width: 2.2em;
+  color: var(--color-warning);
+}
+.trade-good-sources__row[data-gain="true"] .trade-good-sources__delta {
+  color: var(--color-success);
+}
+.trade-good-sources__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* One-unit production: why the other units are missing from the list. */
+.not-offered {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+.not-offered__title {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.not-offered__list {
+  margin: 4px 0 0;
+  padding-left: 16px;
+}
+.not-offered__list strong {
+  color: var(--color-text-strong);
+  text-transform: capitalize;
 }

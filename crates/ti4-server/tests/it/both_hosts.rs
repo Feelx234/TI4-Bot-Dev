@@ -1,7 +1,7 @@
 //! One table, two hosts: a table of a seed, with the same seats played by the same kinds, is the
 //! same game in the wasm host (single player of web2) and on the server.
 //!
-//! Both start the table with `ti4_view::setup`, and a seat that no person plays decides from the
+//! Both start the table with `ti4_host::setup`, and a seat that no person plays decides from the
 //! seed, its id and the number of the decision (`ti4_rule_bot::choose`). This test holds the two
 //! deciders together: the wasm host counts the decisions in its own way.
 //!
@@ -14,9 +14,9 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::DecisionRecord;
+use ti4_host::setup::{self, TableSetup};
 use ti4_model::id::PlayerId;
 use ti4_server::session::{GameSession, SeatController, SessionConfig};
-use ti4_view::setup::{self, TableSetup};
 
 /// The players of a table in the order in which they came: the kind of the seat, and the
 /// faction that was chosen for it.

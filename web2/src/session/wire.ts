@@ -608,7 +608,7 @@ export interface DraftOutcome {
 }
 
 /** `ti4_view::projection::SessionUpdate`: the fields of `StateUpdateMsg` that web2 reads. */
-/** `ti4_view::setup::SeatFact`: who sits in a seat of a running game. It is public. */
+/** `ti4_view::seats::SeatFact`: who sits in a seat of a running game. It is public. */
 export interface SeatFact {
   /** The name of the player at the table. */
   nickname: string;
@@ -932,7 +932,7 @@ export interface MapSummary {
 export type MapChoice = { kind: "template"; alias: string } | { kind: "random" };
 
 /**
- * `ti4_view::setup::TableSetup`: what a host chose for a table. Both hosts start a table from
+ * `ti4_host::setup::TableSetup`: what a host chose for a table. Both hosts start a table from
  * it, so a table of a seed is the same game in the page and on the server.
  */
 export interface TableSetup {

@@ -84,3 +84,36 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Public playtest (CX-public-playtest)
 
 `CX-public-playtest` shows the shared-password screen, the Alpha notice with the build footer in the lobby, the floating Feedback button (lobby, game, phone menu entry) and the feedback sheet (empty, filled, sent), desktop 1440x900 and phone 390x844. The mocked `/health` answers `public: true`, which is what turns the notice and button on. `npm run screenshots -- CX` asserts 44 px targets, 16px inputs, no horizontal scroll, the button clear of the turn action bar and that the sent report carries the build commit and seat but no session token.
+
+## Too many games dialog (DA-terminate-games)
+
+`DA-terminate-games` shows the dialog that replaces the red 429 error: the caller's unfinished games with Open / Terminate, the inline confirm, a "Not yours (other browser)" row and the Create game retry. Desktop and 390x844; the capture asserts the dialog stays inside the phone viewport and Yes/No are at least 40 px tall.
+
+## Who can go here and units per owner (DD-who-can-go-here)
+
+`DD-who-can-go-here` shows the system overview's Who can go here tab (own-only, other-players-only, mixed and empty answers, a picked entry, and the folded panel on a phone) and the Details tab's units listed strictly per owner, desktop and 390x844. The engine's answer is mocked (`query_reach` / `reach_into` over the mocked websocket); `npm run screenshots -- DD` asserts the texts, the green/red arrow counts, 44 px tabs and no horizontal scroll on the phone.
+
+
+## Seat colours (DF-seat-colors)
+
+`DF-seat-colors` shows the TI4-traditional seat colours (blue, green, white, red, pink, orange, yellow, purple) for 3, 6 and 8 players: map, player sheets, event log and lobby, desktop and 390x844. The `before-*` PNGs (committed in `before/`) were taken with `TI4_SHOT_PREFIX=before` on the commit with the old Okabe-Ito colours; `npm run screenshots -- DF` regenerates the `after-*` PNGs.
+
+## Other alpha folders
+
+- `CJ-mahact-held-tokens`: Mahact's held command tokens on the player sheet and readable ids in prompts.
+- `DB-free-form-trade`: the trade desk with free-form (unequal) amounts.
+- `DC-breakthroughs-exploration`: breakthroughs and exploration results (map markers, overview, toasts); `capture-6-tile-fit` zooms the markers on the bigger tiles.
+- `DE-bigger-planets`: bigger planet discs and values on map tiles (its `before-*` PNGs are gitignored; copy them from a worktree that has them or re-take them with `TI4_SHOT_PREFIX=before` on the old commit).
+- `DM-public-dice-rolls`: public dice-roll toasts and event-log lines.
+
+## Offline shell (DN-offline-shell)
+
+`DN-offline-shell` shows the offline UI shell (start-screen entry, setup form, My offline games, resume progress, unsupported browser, banner, queued feedback) against the in-memory launcher in `web/src/offline/mockLauncher.ts`. `npm run screenshots -- DN` asserts the texts, the progress values, no horizontal scroll on the phone and that feedback is queued instead of sent.
+
+## Offline game screen (DO-offline-game)
+
+`DO-offline-game` shows a real offline game (the real launcher and engine, not the DN mock): the first decision, the board under the offline banner, the action phase, the event log without turn redo, a refresh in mid-game and queued feedback, desktop and 390x844. It needs the engine file: run `npm run build:wasm` first (or `TI4_WASM_FILE=<built ti4_wasm.wasm>`), then `npm run screenshots -- DO`. The table is seeded (dev seed field), so the bots and the dealt cards repeat; the human's clicks come from `e2e/offlineDriver.ts`.
+
+## Offline saves and engine checks (DP-offline-saves)
+
+`DP-offline-saves` shows the saved-games list with several real games, import (done and refused), the engine-mismatch dialog (view only, delete confirmation), the storage-warning banner, the feedback chip (queued, sent, failed with Retry) and the "engine <hash>" label in the banner and build footer, desktop and 390x844. Like DO it needs the engine: `npm run build:wasm`, then `npm run screenshots -- DP`. The other-engine save, the missing IndexedDB and the feedback answers are simulated.

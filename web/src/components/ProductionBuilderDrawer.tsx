@@ -22,11 +22,14 @@ import { usePreparedHint } from "../presentation/PreparedHint.tsx";
 import { useSinglePaymentSetting } from "../hooks/useSinglePaymentSetting.ts";
 import { ProductionTotal } from "./ProductionTotal.tsx";
 import { isDryNonce } from "../presentation/dryChoice.ts";
+import { TradeGoodSources } from "./TradeGoodSources.tsx";
 
 export interface ProductionBuilderDrawerProps {
   choice: PendingChoiceDto | null;
   model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
+  /** The producing seat's trade goods: the part of the resource budget that is not from planets. */
+  tradeGoods?: number;
   onSubmit: (optionId: string) => Promise<void>;
   isOpen: boolean;
   onClose: () => void;
@@ -155,6 +158,7 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
   choice,
   model,
   viewerSeat,
+  tradeGoods,
   onSubmit,
   isOpen,
   onClose,
@@ -333,6 +337,24 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                           max={Math.max(1, resourceLimit)}
                           value={stagedCost}
                         />
+                      )}
+                      {resourceLimit !== null && typeof tradeGoods === "number" && (
+                        // The budget is planets plus trade goods; the engine sends only the sum.
+                        <>
+                          <p className="production-drawer__split" data-testid="production-resources-split">
+                            <span>
+                              Planets:{" "}
+                              <strong data-testid="production-split-planets">
+                                {Math.max(0, resourceLimit - tradeGoods)}
+                              </strong>{" "}
+                              <ValueUnit kind="resources" />
+                            </span>
+                            <span>
+                              Trade goods: <strong data-testid="production-split-tg">{Math.min(tradeGoods, resourceLimit)}</strong>
+                            </span>
+                          </p>
+                          <TradeGoodSources seat={choice.actor} />
+                        </>
                       )}
                     </div>
 

@@ -177,6 +177,11 @@ pub struct Choice {
     /// and skipped when empty, so records, replays and fingerprints are unaffected.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub details: serde_json::Map<String, Value>,
+    /// An id prefix that names answers built by the asker rather than listed in `options`
+    /// (a transaction's free-form deal). Unlisted ids starting with it are accepted as answers;
+    /// whoever resolves the answer parses the rest and rejects what it cannot read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub free_form: Option<String>,
 }
 
 /// Display only: the header of an offer card: what it is, its kind, when it applies and the
@@ -244,7 +249,29 @@ impl Choice {
             options,
             context: None,
             details: serde_json::Map::new(),
+            free_form: None,
         }
+    }
+
+    /// Accept answers whose id starts with `prefix` although they are not listed; see
+    /// [`Choice::free_form`]. Also tells clients through `details.free_form`.
+    #[must_use]
+    pub fn accepting_free_form(mut self, prefix: &str) -> Self {
+        self.details
+            .insert("free_form".to_owned(), Value::String(prefix.to_owned()));
+        self.free_form = Some(prefix.to_owned());
+        self
+    }
+
+    /// The option an answer id stands for: the listed one, or a free-form one the asker built.
+    #[must_use]
+    pub fn answer_for(&self, option_id: &str) -> Option<ChoiceOption> {
+        if let Some(listed) = self.option(option_id) {
+            return Some(listed.clone());
+        }
+        let prefix = self.free_form.as_deref()?;
+        (option_id.starts_with(prefix) && option_id.len() > prefix.len())
+            .then(|| ChoiceOption::labelled(option_id, "offer", option_id))
     }
 
     /// Attach one display-only fact for clients; see [`Choice::details`].
@@ -331,6 +358,9 @@ pub enum IllegalChoice {
 pub fn validate(choice: &Choice, option: ChoiceOption) -> Result<ChoiceOption, IllegalChoice> {
     if choice.option(&option.id).is_some() {
         return Ok(option);
+    }
+    if let Some(built) = choice.answer_for(&option.id) {
+        return Ok(built);
     }
     Err(IllegalChoice::NotOffered {
         player: choice.player.clone(),
@@ -1941,8 +1971,7 @@ impl Decider for Scripted {
             return self.fallback.choose(choice);
         };
         choice
-            .option(&wanted)
-            .cloned()
+            .answer_for(&wanted)
             .ok_or_else(|| IllegalChoice::ScriptDiverged {
                 player: choice.player.clone(),
                 wanted,

@@ -76,11 +76,14 @@ deploy/public/deploy.sh
 sudo systemctl enable --now ti4-public     # first time only; deploy.sh restarts it afterwards
 ```
 
-`deploy.sh` pulls `main`, runs `npm ci && npm run build`, `cargo build --release -p ti4-server
---bin server` (own target dir under `~/.cache`, never the agents' target dirs), installs
-`server` + `dist/` to `/opt/ti4-public/releases/<timestamp>-<commit>`, swaps the `current`
-symlink atomically, restarts the service and polls `/health`. If the health check fails it points
-`current` back at the previous release by itself. Manual rollback: `deploy/public/deploy.sh rollback`.
+`deploy.sh` builds `origin/main` (or `--ref <ref>`) in a temporary git worktree (it never switches
+the checkout you run it from), runs `npm ci && npm run build` (including the wasm engine for
+offline play), `cargo build --release -p ti4-server --bin server` (own target dir under `~/.cache`,
+never the agents' target dirs), runs the persistence pre-flight (section "How to deploy safely"),
+installs `server` + `dist/` to `/opt/ti4-public/releases/<timestamp>-<commit>`, swaps the `current`
+symlink atomically, restarts the service, polls `/health` and re-checks the saved games the live
+service recovered. If the health check or that check fails it points `current` back at the
+previous release by itself. Manual rollback: `deploy/public/deploy.sh rollback`.
 The last 4 releases are kept. The commit is baked into the binary and shown in `/health` and in
 the page footer.
 
@@ -89,6 +92,35 @@ Open the site on your phone, enter the password, create a game, add a Rule bot.
 
 Updates can break running games (alpha): a protocol bump needs a page reload, an engine change can
 stop an old game from replaying. Tell the testers when you deploy.
+
+### How to deploy safely
+
+```
+deploy/public/deploy.sh --ref my-branch --preflight-only   # build + load every saved game on a COPY, stop
+deploy/public/deploy.sh --ref my-branch                    # the real thing
+deploy/public/deploy.sh --ref my-branch --allow-failed game_a36f40db...   # accept losing this game
+deploy/public/check-headers.sh --bin <server>              # CSP / wasm / cache / compression, on loopback
+```
+
+* The pre-flight (`recovery-check.sh preflight`) copies the live data dir (without `feedback/`),
+  starts the NEW server binary on a free loopback port against the copy and reads
+  `Durable storage: recovered N game(s); F failed`. N plus F must equal the number of `game_*`
+  directories in the live dir and every failed id must be named with `--allow-failed`; otherwise the
+  deploy stops before anything is installed or restarted. Lesson: a checksum change once made all 22
+  saved games unrecoverable and it was noticed only after the restart. (Failed games keep their
+  files on disk; the server never deletes them.)
+* After the restart the script reads the live service's own recovery line from the journal. Any
+  failure the pre-flight did not allow rolls back to the previous release automatically.
+* A deliberate engine or format change that makes a game unloadable (for example the pickup
+  dedupe change and `game_a36f40db...`) needs `--allow-failed <id>` for exactly that game.
+* If the ref contains offline play, `dist/` must contain `ti4_host-*.wasm`; the script writes `.br`
+  and `.gz` next to it and the server serves them (Caddy has no built-in brotli). A build with
+  `web/src/offline` and no wasm prints a warning.
+* After editing the Caddyfile run `check-headers.sh` (uses `caddy` if installed) before
+  `sudo cp ... /etc/caddy/Caddyfile`.
+* Never run it with a dirty idea of "just pull in the shared checkout": the shared checkout is used
+  by the nightly sweep; the script no longer touches it.
+* See `docs/OFFLINE.md` for what offline play needs from the server.
 
 ## 6. Backups
 

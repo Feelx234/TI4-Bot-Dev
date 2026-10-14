@@ -48,6 +48,8 @@ export interface MockGameOptions {
   version?: number;
   /** Watch as a spectator: no seat, no private data, every public action visible. */
   spectator?: boolean;
+  /** Lobby nicknames by seat id; seats without an entry keep "You" / "Player N". */
+  nicknames?: Record<string, string>;
   /** The lobby host (default: the viewing seat, who then sees the host-only controls). */
   host?: string;
   /** Sees every client message the mocked server does not answer itself; `reply` pushes one back. */
@@ -138,7 +140,7 @@ export async function openMockedGame(page: Page, options: MockGameOptions = {}):
       slot_id: `slot-${index + 1}`,
       position: index + 1,
       occupant: p.id,
-      nickname: p.id === seat ? "You" : `Player ${index + 1}`,
+      nickname: options.nicknames?.[p.id] ?? (p.id === seat ? "You" : `Player ${index + 1}`),
       ready: true,
       connected: true,
       can_take_over: false,

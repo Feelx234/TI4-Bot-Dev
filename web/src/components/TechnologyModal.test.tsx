@@ -168,7 +168,7 @@ describe("TechnologyModal", () => {
     // Player 1 researched AMD
     const amdP1Marker = screen.getByTestId("player-tech-marker-player1-amd");
     expect(amdP1Marker).toBeInTheDocument();
-    // Position 1 color in SEAT_COLORS is #E69F00, symbol is ●
+    // Position 1 color in SEAT_COLORS is #3B82F6, symbol is ●
     expect(amdP1Marker.textContent).toBe("●");
     expect(amdP1Marker).toHaveAttribute("title", "Alice (sol)");
 
@@ -618,6 +618,35 @@ describe("TechnologyModal", () => {
       const ps = screen.getByTestId("tech-card-ps");
       expect(ps).toHaveAttribute("data-selectable", "false");
       expect(ps).toHaveAttribute("data-blocked-reason", "Not available to research");
+    });
+  });
+
+  describe("filter", () => {
+    it("narrows the cards to one colour and back", () => {
+      renderWithIdentity(
+        <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} viewerSeat="player1" />,
+      );
+      fireEvent.click(screen.getByTestId("tech-filter-biotic"));
+      expect(screen.getByTestId("tech-card-nm")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-card-amd")).toBeNull();
+      expect(screen.queryByTestId("tech-card-cr2")).toBeNull();
+      fireEvent.click(screen.getByTestId("tech-filter-unit_upgrade"));
+      expect(screen.getByTestId("tech-card-cr2")).toBeInTheDocument();
+      expect(screen.queryByTestId("tech-card-nm")).toBeNull();
+      fireEvent.click(screen.getByTestId("tech-filter-all"));
+      expect(screen.getByTestId("tech-card-amd")).toBeInTheDocument();
+    });
+
+    it("can show only what the viewer can research now", () => {
+      renderWithIdentity(
+        <TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} viewerSeat="player1" />,
+      );
+      fireEvent.click(screen.getByTestId("tech-filter-available"));
+      // Already researched (amd) and out of reach (War Sun, four prerequisites) are hidden.
+      expect(screen.queryByTestId("tech-card-amd")).toBeNull();
+      expect(screen.queryByTestId("tech-card-ws")).toBeNull();
+      // A prerequisite-free technology the viewer lacks stays.
+      expect(screen.getByTestId("tech-card-nm")).toBeInTheDocument();
     });
   });
 });

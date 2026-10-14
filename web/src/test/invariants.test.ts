@@ -260,6 +260,7 @@ describe("Frontend Invariants & Property-based Checks", () => {
       factionAbilities: 73,
       promissoryNotes: 40,
       relics: 24,
+      breakthroughs: 31,
     });
 
     // Strategy-card names are not lookup aliases: a malformed ID must not select a card.

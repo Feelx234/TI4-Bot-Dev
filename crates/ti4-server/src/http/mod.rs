@@ -114,6 +114,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             "/api/games/{game_id}/settings",
             axum::routing::post(games::change_running_settings),
         )
+        .route(
+            "/api/games/{game_id}/terminate",
+            axum::routing::post(games::terminate_game),
+        )
         .route("/api/games/{game_id}/snapshot", get(games::get_snapshot))
         .route(
             "/api/games/{game_id}/batches",
@@ -205,7 +209,12 @@ async fn spa_fallback(State(registry): State<Arc<GameRegistry>>, req: Request) -
     let Some(dir) = registry.public().config.web_dir.clone() else {
         return (StatusCode::NOT_FOUND, "not found").into_response();
     };
-    let service = ServeDir::new(&dir).fallback(ServeFile::new(dir.join("index.html")));
+    // `foo.wasm.br` / `foo.wasm.gz` next to `foo.wasm` (written by deploy.sh) are served to clients
+    // that accept them, with the Content-Type of the original file (`application/wasm`).
+    let service = ServeDir::new(&dir)
+        .precompressed_br()
+        .precompressed_gzip()
+        .fallback(ServeFile::new(dir.join("index.html")));
     let Ok(response) = service.oneshot(req).await;
     let mut response = response.map(axum::body::Body::new);
     let cache = if path.starts_with("/assets/") {
@@ -214,9 +223,10 @@ async fn spa_fallback(State(registry): State<Arc<GameRegistry>>, req: Request) -
         "no-cache"
     };
     if response.status().is_success() {
-        response
-            .headers_mut()
-            .insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+        let headers = response.headers_mut();
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+        // The same URL answers .br, .gz or plain depending on the request.
+        headers.append(header::VARY, HeaderValue::from_static("Accept-Encoding"));
     }
     response
 }
