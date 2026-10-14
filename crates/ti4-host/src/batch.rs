@@ -872,6 +872,93 @@ impl PrivateDecider {
     }
 }
 
+/// A batch that is answered from the live game, one question at a time, by the thread that runs
+/// the engine: what [`simulate`] does on a private copy, done on the game itself. The browser
+/// host has no network between the request and its answers, so it applies the plan as the
+/// engine asks, and goes back to the question the plan began at when a step fails.
+pub struct LiveBatch {
+    script: Arc<Mutex<Script>>,
+}
+
+/// What a live batch says to a question of the engine.
+pub enum LiveStep {
+    /// Answer the question with this option.
+    Answer(ChoiceOption),
+    /// Every step is answered, or the engine asks something the plan does not cover and the
+    /// plan has nothing left to do: the question is not the batch's.
+    Done,
+    /// The engine asked a reaction window between two steps: what was applied stays and the
+    /// rest is for later.
+    Interrupted(BatchInterruption),
+    /// The engine does not offer what the next step asks for.
+    Failed(BatchFailure),
+}
+
+impl LiveBatch {
+    /// # Errors
+    /// A failure when the plan is not one the server would accept (`plan_problem`).
+    pub fn new(plan: &MovementPlan, actor: &PlayerId) -> Result<Self, BatchFailure> {
+        if let Some(problem) = plan_problem(plan) {
+            let mut failure =
+                BatchFailure::new(0, "invalid batch plan", "valid workflow steps required")
+                    .with_planned_steps(plan.steps.len());
+            failure.message = format!("invalid batch plan: {problem}");
+            return Err(failure);
+        }
+        Ok(Self {
+            script: Arc::new(Mutex::new(Script {
+                prefix: VecDeque::new(),
+                force: None,
+                prefix_len: 0,
+                steps: plan.steps.clone(),
+                next: 0,
+                actor: actor.clone(),
+                destination: plan.destination.clone(),
+                kind: plan.kind,
+                payment_subtype: None,
+                workflow_context: None,
+                selected: Vec::new(),
+                failure: None,
+                finished: false,
+                interruption: None,
+                casualty_owed: None,
+                answered: Vec::new(),
+            })),
+        })
+    }
+
+    /// The answer of the plan to `choice`.
+    #[must_use]
+    pub fn step(&self, choice: &Choice) -> LiveStep {
+        let answer = PrivateDecider(self.script.clone()).answer(choice);
+        match answer {
+            Ok(option) => LiveStep::Answer(option),
+            Err(_) => {
+                let mut script = self.script.lock().expect("batch script lock");
+                if let Some(failure) = script.failure.take() {
+                    LiveStep::Failed(failure)
+                } else if let Some(interruption) = script.interruption.take() {
+                    LiveStep::Interrupted(interruption)
+                } else {
+                    LiveStep::Done
+                }
+            }
+        }
+    }
+
+    /// How many steps of the plan are answered.
+    #[must_use]
+    pub fn applied(&self) -> usize {
+        self.script.lock().expect("batch script lock").next
+    }
+
+    /// How many steps the plan has.
+    #[must_use]
+    pub fn planned(&self) -> usize {
+        self.script.lock().expect("batch script lock").steps.len()
+    }
+}
+
 /// Casualty plans: end the batch where the assignment ends, and answer a sustain question with
 /// "take the hit" when the plan's next step destroys a ship. `None` lets the planned step run.
 fn casualty_shortcut(
