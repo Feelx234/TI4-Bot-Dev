@@ -407,6 +407,7 @@ async fn scripted_first_option(
             protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
             game_id: game_id.clone(),
             player_session: Some(token),
+            staged: false,
         },
     )
     .await?;

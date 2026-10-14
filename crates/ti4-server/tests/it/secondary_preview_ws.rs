@@ -30,6 +30,7 @@ async fn connect(addr: &str, game_id: &str, token: Option<&str>) -> Socket {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         player_session: token.map(str::to_owned),
+        staged: false,
     };
     stream
         .send(Message::Text(

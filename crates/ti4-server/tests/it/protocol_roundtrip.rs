@@ -18,12 +18,56 @@ fn client_subscribe_round_trips() {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
         player_session: Some("secret_token_123".to_owned()),
+        staged: false,
     };
     let json = serde_json::to_string_pretty(&msg).expect("serialize");
     assert!(json.contains("\"type\": \"subscribe\""));
     let deserialized: ClientMessage = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(msg, deserialized);
     assert_eq!(parse_client_message(&json).expect("parse"), msg);
+}
+
+#[test]
+fn staged_work_is_asked_for_and_written_in_the_form_that_web2_sends() {
+    // A client that keeps its staged work itself sends no `staged`, and gets none.
+    let old = serde_json::json!({"type":"subscribe", "protocol_version": PROTOCOL_VERSION,
+        "game_id":"game", "player_session":"private"});
+    assert!(matches!(
+        parse_client_message(&old.to_string()),
+        Ok(ClientMessage::Subscribe { staged: false, .. })
+    ));
+    let mut wanted = old.clone();
+    wanted["staged"] = serde_json::json!(true);
+    let parsed = parse_client_message(&wanted.to_string()).expect("parse");
+    assert!(matches!(
+        parsed,
+        ClientMessage::Subscribe { staged: true, .. }
+    ));
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), wanted);
+
+    let put = serde_json::json!({"type":"put_staged", "protocol_version": PROTOCOL_VERSION,
+        "game_id":"game", "slot":"secondary", "base_revision": 4,
+        "value": {"answers": ["follow"], "ready": true}});
+    let parsed = parse_client_message(&put.to_string()).expect("parse");
+    assert!(matches!(
+        &parsed,
+        ClientMessage::PutStaged {
+            slot: ti4_server::session::staged::StagedSlot::Secondary,
+            base_revision: 4,
+            value: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(parsed.validate_bounds(), Ok(()));
+    let mut clear = put.clone();
+    clear.as_object_mut().unwrap().remove("value");
+    assert!(matches!(
+        parse_client_message(&clear.to_string()),
+        Ok(ClientMessage::PutStaged { value: None, .. })
+    ));
+    let mut unknown = put;
+    unknown["slot"] = serde_json::json!("hand");
+    assert!(parse_client_message(&unknown.to_string()).is_err());
 }
 
 #[test]

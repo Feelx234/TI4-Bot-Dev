@@ -986,6 +986,10 @@ impl HostSession {
             }
             // A bluff hold needs a second person; there is none.
             ClientMessage::SetReactionIntent { .. } | ClientMessage::PassReactionHold { .. } => {}
+            // Staged work is kept by the server so that the tabs of one seat share it; an
+            // offline game lives in one page, which keeps its staged work itself. Ignored, as
+            // `Subscribe::staged` is (no `SeatStaged` is ever sent).
+            ClientMessage::PutStaged { .. } => {}
             ClientMessage::RunDraft { .. }
             | ClientMessage::StartPlanning { .. }
             | ClientMessage::ResetPlanning { .. }

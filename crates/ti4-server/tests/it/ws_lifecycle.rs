@@ -306,6 +306,7 @@ async fn websocket_full_lifecycle_and_rejections() {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
         player_session: Some(p1_token.clone()),
+        staged: false,
     };
     ws_stream
         .send(Message::Text(
@@ -372,6 +373,7 @@ async fn websocket_full_lifecycle_and_rejections() {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
         player_session: Some(p2_token),
+        staged: false,
     };
     ws_stream
         .send(Message::Text(
@@ -494,6 +496,7 @@ async fn spectator_role_isolation_and_reconnection() {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
         player_session: None, // Spectator
+        staged: false,
     };
     spec_stream
         .send(Message::Text(
@@ -559,6 +562,7 @@ async fn spectator_role_isolation_and_reconnection() {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.clone(),
         player_session: Some(p1_token.clone()),
+        staged: false,
     };
     reconnected_stream
         .send(Message::Text(
@@ -638,6 +642,7 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
                 protocol_version: PROTOCOL_VERSION,
                 game_id: game.clone(),
                 player_session: None,
+                staged: false,
             })
             .unwrap()
             .into(),
@@ -674,6 +679,7 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
                 protocol_version: PROTOCOL_VERSION,
                 game_id: game.clone(),
                 player_session: Some(token.clone()),
+                staged: false,
             })
             .unwrap()
             .into(),
@@ -726,6 +732,7 @@ async fn application_ping_refreshes_presence_but_control_ping_and_spectators_do_
                 protocol_version: PROTOCOL_VERSION,
                 game_id: game.clone(),
                 player_session: Some("invalid".to_owned()),
+                staged: false,
             })
             .unwrap()
             .into(),
@@ -759,6 +766,7 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
                 protocol_version: PROTOCOL_VERSION,
                 game_id: game.clone(),
                 player_session: Some(old.clone()),
+                staged: false,
             })
             .unwrap()
             .into(),
@@ -829,6 +837,7 @@ async fn running_takeover_closes_old_subscription_and_refuses_old_choices() {
                 protocol_version: PROTOCOL_VERSION,
                 game_id: game.clone(),
                 player_session: Some(replacement.to_owned()),
+                staged: false,
             })
             .unwrap()
             .into(),
@@ -869,6 +878,7 @@ async fn set_reaction_mode_is_owner_only_and_reaches_only_the_owners_clients() {
             protocol_version: PROTOCOL_VERSION,
             game_id: game_id.to_owned(),
             player_session: token.map(str::to_owned),
+            staged: false,
         };
         stream
             .send(Message::Text(
@@ -963,6 +973,7 @@ async fn reaction_intent_is_seated_players_only_validated_and_rate_limited() {
             protocol_version: PROTOCOL_VERSION,
             game_id: game_id.to_owned(),
             player_session: token.map(str::to_owned),
+            staged: false,
         };
         stream
             .send(Message::Text(

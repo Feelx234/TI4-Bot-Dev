@@ -56,6 +56,10 @@ type DraftRequest = Option<(
 )>;
 /// Least time between two reaction declarations on one connection.
 const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);
+/// Most staged writes of one connection in [`STAGED_WINDOW`]. A page debounces its writes;
+/// this only bounds a page that does not.
+const MAX_STAGED_PUTS: usize = 20;
+const STAGED_WINDOW: Duration = Duration::from_secs(1);
 /// Least time between two secondary previews on one connection (and only one runs at a time).
 const MIN_PREVIEW_INTERVAL: Duration = Duration::from_millis(200);
 /// Least time between two "who can go here" queries on one connection.
@@ -147,6 +151,11 @@ async fn handle_socket(
     let mut last_intent: Option<std::time::Instant> = None;
     let mut last_preview: Option<std::time::Instant> = None;
     let mut last_reach: Option<std::time::Instant> = None;
+    // The staged writes of this connection in the last window, and whether it asked for the
+    // staged work of its seat.
+    let mut staged_puts: std::collections::VecDeque<std::time::Instant> =
+        std::collections::VecDeque::new();
+    let mut staged_wanted = false;
     let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
     // The draft requests of this connection. One is run at a time and only the newest waits,
@@ -555,6 +564,7 @@ async fn handle_socket(
             ClientMessage::Subscribe {
                 game_id: message_game_id,
                 player_session,
+                staged,
                 ..
             } => {
                 if message_game_id != game_id {
@@ -608,11 +618,17 @@ async fn handle_socket(
                 // Send immediate snapshot upon subscription
                 let mut snapshot = session.get_snapshot(&role);
                 if let ViewerRole::Player(seat) = &role {
-                    snapshot.undone = session.take_undone(seat);
+                    snapshot.undone = session.undone_for(seat);
                 }
                 let _ = outbound_tx
                     .send(ServerMessage::InitialSnapshot(snapshot))
                     .await;
+                if let (ViewerRole::Player(seat), true) = (&role, staged) {
+                    staged_wanted = true;
+                    let mut message = session.seat_staged(seat).message(&game_id);
+                    message.connection = connection_id;
+                    let _ = outbound_tx.send(ServerMessage::SeatStaged(message)).await;
+                }
 
                 // Bridge session broadcast updates to tokio outbound queue
                 let tx_clone = outbound_tx.clone();
@@ -620,6 +636,7 @@ async fn handle_socket(
                 let game_for_updates = game_id.clone();
                 let token_for_updates = current_token.clone();
                 let session_for_updates = session.clone();
+                let staged_for_updates = staged_wanted;
                 tokio::spawn(async move {
                     let mut check = tokio::time::interval(Duration::from_millis(50));
                     let mut planning = None;
@@ -702,6 +719,7 @@ async fn handle_socket(
                         }
                         loop {
                             match subscription.try_recv() {
+                                Ok(ServerMessage::SeatStaged(_)) if !staged_for_updates => {}
                                 Ok(broadcast_msg) => {
                                     if token_for_updates.as_deref().is_some_and(|token| {
                                         registry_for_updates
@@ -751,6 +769,81 @@ async fn handle_socket(
                             message,
                         }))
                         .await;
+                }
+            }
+            ClientMessage::PutStaged {
+                game_id: message_game_id,
+                slot,
+                base_revision,
+                value,
+                ..
+            } => {
+                let now = std::time::Instant::now();
+                while staged_puts
+                    .front()
+                    .is_some_and(|at| now.duration_since(*at) >= STAGED_WINDOW)
+                {
+                    staged_puts.pop_front();
+                }
+                let refusal = if message_game_id != game_id {
+                    Some((
+                        ErrorKind::MalformedMessage,
+                        "put_staged game_id does not match the WebSocket path".to_owned(),
+                    ))
+                } else {
+                    match (&current_role, connection_id) {
+                        // The seat is the connection's own, never taken from the message.
+                        (Some(ViewerRole::Player(seat)), Some(connection)) => {
+                            if staged_puts.len() >= MAX_STAGED_PUTS {
+                                Some((
+                                    ErrorKind::MalformedMessage,
+                                    "too many staged writes; wait a moment".to_owned(),
+                                ))
+                            } else {
+                                staged_puts.push_back(now);
+                                match session.put_staged(
+                                    seat,
+                                    slot,
+                                    base_revision,
+                                    value,
+                                    connection,
+                                ) {
+                                    Ok(crate::session::staged::Put::Stale) => {
+                                        // Nothing is written: the connection takes what is.
+                                        let _ = outbound_tx
+                                            .send(ServerMessage::SeatStaged(
+                                                session.seat_staged(seat).message(&game_id),
+                                            ))
+                                            .await;
+                                        None
+                                    }
+                                    Ok(_) => None,
+                                    Err(message) => Some((ErrorKind::EngineError, message)),
+                                }
+                            }
+                        }
+                        _ => Some((
+                            ErrorKind::Unauthorized,
+                            "only a seated player can stage work".to_owned(),
+                        )),
+                    }
+                };
+                if let Some((kind, message)) = refusal {
+                    let _ = outbound_tx
+                        .send(ServerMessage::Error(ProtocolErrorMsg {
+                            protocol_version: PROTOCOL_VERSION,
+                            kind,
+                            message,
+                        }))
+                        .await;
+                    // What was not written is not there: the connection takes what is.
+                    if let Some(ViewerRole::Player(seat)) = &current_role {
+                        let _ = outbound_tx
+                            .send(ServerMessage::SeatStaged(
+                                session.seat_staged(seat).message(&game_id),
+                            ))
+                            .await;
+                    }
                 }
             }
             ClientMessage::SetReactionIntent {

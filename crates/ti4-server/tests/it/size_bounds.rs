@@ -80,6 +80,7 @@ fn client_submission_messages_remain_within_bounds() {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_long_identifier_uuid_v4_style".to_owned(),
         player_session: Some("secret_player_token_sample".to_owned()),
+        staged: false,
     };
     let subscribe_json = serde_json::to_string(&subscribe).expect("serialize");
     assert!(

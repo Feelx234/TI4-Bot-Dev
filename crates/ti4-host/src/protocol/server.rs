@@ -7,11 +7,11 @@ use ti4_model::id::PlayerId;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
-use ti4_view::map::GalaxyLayout;
 pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
 use ti4_model::state::ReactionMode;
+use ti4_view::map::GalaxyLayout;
 
 pub use ti4_view::projection::PendingChoiceEnvelope;
 
@@ -310,7 +310,9 @@ pub fn public_roll(
     {
         return None;
     }
-    let hits = roll.hits_on.map(|_| u32::try_from(roll.hits()).unwrap_or(u32::MAX));
+    let hits = roll
+        .hits_on
+        .map(|_| u32::try_from(roll.hits()).unwrap_or(u32::MAX));
     let outcome = roll.outcome.clone().or_else(|| {
         hits.map(|hits| match hits {
             0 => "no hits".to_owned(),
@@ -1020,20 +1022,29 @@ mod roll_tests {
         assert_eq!(public.roller, Some(PlayerId::new("p1")));
         assert_eq!(public.label, "Gravity rift");
         assert_eq!(public.faces, vec![2]);
-        assert_eq!(public.system.as_deref(), Some("67"), "the rift, not the active system");
-        assert_eq!(public.describe(), "p1 rolled Gravity rift in system 67: 2 (ship destroyed)");
+        assert_eq!(
+            public.system.as_deref(),
+            Some("67"),
+            "the rift, not the active system"
+        );
+        assert_eq!(
+            public.describe(),
+            "p1 rolled Gravity rift in system 67: 2 (ship destroyed)"
+        );
     }
 
     #[test]
     fn hit_rolls_count_their_hits_and_default_to_the_active_system() {
-        let public = public_roll(0, &roll("space combat", &[8, 3, 10], Some(7)), Some("18")).unwrap();
+        let public =
+            public_roll(0, &roll("space combat", &[8, 3, 10], Some(7)), Some("18")).unwrap();
         assert_eq!(public.hits, Some(2));
         assert_eq!(public.outcome.as_deref(), Some("2 hits"));
         assert_eq!(public.system.as_deref(), Some("18"));
         let miss = public_roll(1, &roll("space combat", &[1], Some(7)), None).unwrap();
         assert_eq!(miss.outcome.as_deref(), Some("no hits"));
         assert_eq!(miss.system, None);
-        let anti_fighter = public_roll(2, &roll("anti-fighter barrage", &[9], Some(9)), None).unwrap();
+        let anti_fighter =
+            public_roll(2, &roll("anti-fighter barrage", &[9], Some(9)), None).unwrap();
         assert_eq!(anti_fighter.label, "Anti-fighter barrage");
         assert_eq!(anti_fighter.outcome.as_deref(), Some("1 hit"));
     }
@@ -1086,7 +1097,10 @@ mod roll_tests {
         assert_eq!(json["event"]["kind"], "dice_rolled");
         assert_eq!(json["roll"]["faces"], serde_json::json!([10, 4]));
         assert_eq!(serde_json::from_value::<GameEvent>(json).unwrap(), event);
-        for viewer in [ViewerRole::Spectator, ViewerRole::Player(PlayerId::new("p2"))] {
+        for viewer in [
+            ViewerRole::Spectator,
+            ViewerRole::Player(PlayerId::new("p2")),
+        ] {
             assert_eq!(event.for_viewer(&viewer).unwrap().roll, event.roll);
         }
     }
@@ -1554,8 +1568,10 @@ mod fact_tests {
     /// The web client decodes this exact file (web/src/protocol/eventVisibility.test.ts).
     #[test]
     fn event_visibility_wire_shape_matches_the_client_fixture() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../ti4-server/fixtures/event_visibility.json")).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../ti4-server/fixtures/event_visibility.json"
+        ))
+        .unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
         assert_eq!(events[0].visibility, EventVisibility::Public);
         assert_eq!(
@@ -2109,6 +2125,8 @@ pub struct DraftAppliedMsg {
     pub stopped: Option<ScriptStopped>,
 }
 
+pub use super::staged::SeatStagedMsg;
+
 /// Messages emitted from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
@@ -2136,6 +2154,8 @@ pub enum ServerMessage {
     /// Which ships could move into a system, as of now. Sent only to the connection that asked;
     /// ephemeral.
     ReachInto(super::reach::ReachIntoMsg),
+    /// What the seat has staged. Sent only to the connections of that seat that asked for it.
+    SeatStaged(SeatStagedMsg),
 }
 
 impl ServerMessage {
@@ -2161,6 +2181,7 @@ impl ServerMessage {
             Self::ReactionIntentState(m) => m.protocol_version,
             Self::SecondaryPreview(m) => m.protocol_version,
             Self::ReachInto(m) => m.protocol_version,
+            Self::SeatStaged(m) => m.protocol_version,
         }
     }
 
@@ -2184,6 +2205,7 @@ impl ServerMessage {
             Self::ReactionIntentState(m) => Some(&m.game_id),
             Self::SecondaryPreview(m) => Some(&m.game_id),
             Self::ReachInto(m) => Some(&m.game_id),
+            Self::SeatStaged(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -2211,7 +2233,8 @@ impl ServerMessage {
             | Self::DraftApplied(_)
             | Self::ReactionIntentState(_)
             | Self::SecondaryPreview(_)
-            | Self::ReachInto(_) => None,
+            | Self::ReachInto(_)
+            | Self::SeatStaged(_) => None,
         }
     }
 }

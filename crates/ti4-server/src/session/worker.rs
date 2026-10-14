@@ -134,9 +134,11 @@ pub struct SessionShared {
     pub reaction_modes: BTreeMap<PlayerId, crate::session::reaction_modes::NeverSet>,
     /// The decisions that their seat may take back ([`super::undo`]).
     pub(crate) undo: super::undo::UndoTrack,
-    /// The steps that the undo before this session took back, for the next snapshot of the
-    /// seat ([`super::GameSession::take_undone`]).
+    /// The steps that the undo before this session took back, for the first snapshot of each
+    /// connection of the seat ([`super::GameSession::undone_for`]), until the seat decides again.
     pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
+    /// The length of the log that the undo left: a decision after it is new.
+    pub(crate) undone_from: usize,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
     /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.
@@ -366,6 +368,7 @@ impl SessionShared {
             reaction_modes: BTreeMap::new(),
             undo: super::undo::UndoTrack::new(),
             undone: BTreeMap::new(),
+            undone_from: 0,
             step_snapshot: None,
             resumed_from: None,
             bluff: crate::session::bluff::BluffBook::default(),
@@ -387,6 +390,19 @@ impl SessionShared {
                 &pending.seat == seat
                     && pending.submission_state == PendingSubmissionState::AwaitingSubmission
             })
+    }
+
+    /// A seat that decided after the undo has nothing taken back to stage again.
+    fn forget_undone_of_deciders(&mut self) {
+        if self.undone.is_empty() {
+            return;
+        }
+        let from = self.undone_from.min(self.decision_log.len());
+        let decided: std::collections::BTreeSet<PlayerId> = self.decision_log[from..]
+            .iter()
+            .map(|record| record.player.clone())
+            .collect();
+        self.undone.retain(|seat, _| !decided.contains(seat));
     }
 
     fn never_of(&self, seat: &PlayerId) -> crate::session::reaction_modes::Modes {
@@ -1009,6 +1025,7 @@ pub fn spawn_session_worker(
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
     initial_shared.undone.clone_from(&config.undone);
+    initial_shared.undone_from = config.prior_decisions.len();
     initial_shared.rng_marks.clone_from(&config.rng_marks);
     let rng_force = crate::session::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
@@ -1488,6 +1505,7 @@ pub fn spawn_session_worker(
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
+                lock.forget_undone_of_deciders();
 
                 if let Some(err) = result.error {
                     lock.error = Some(err.to_string());
