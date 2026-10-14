@@ -136,6 +136,7 @@ export const DECISION_CONTAINERS = [
   "pending-choice-dialog",
   "system-activation-bar",
   "planet-selection-bar",
+  "transit-panel",
   "ready-planets-bar",
   "tactical-movement-tray",
   "cargo-loading-tray",
