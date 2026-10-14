@@ -205,7 +205,14 @@ fn slow_queries_and_settings_answer_in_the_servers_shapes() {
         .unwrap()
         .to_owned();
     let queried = page(vec![
-        Act::Answer(5),
+        // The third time the person takes an action: bots have played in between.
+        Act::Until(Box::new({
+            let seen = std::sync::atomic::AtomicUsize::new(0);
+            move |choice| {
+                choice.prompt == "action phase"
+                    && seen.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 2
+            }
+        })),
         Act::Cmd(
             json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
                          "request_id": 9, "system_id": "18" }),
@@ -250,6 +257,22 @@ fn slow_queries_and_settings_answer_in_the_servers_shapes() {
     let outcome = find("draft_outcome");
     assert_eq!(outcome.len(), 1);
     assert_eq!(outcome[0]["request_id"], "d1");
+    // The copy of the game that the draft is run on is the live game, though the other seats
+    // are rule bots that decided since the last checkpoint.
+    let at = page
+        .messages
+        .iter()
+        .position(|m| m["type"] == "draft_outcome")
+        .unwrap();
+    let live = last_question(&page.messages[..at]);
+    let (drafted, now) = (&outcome[0]["outcome"]["update"]["view"], &live["view"]);
+    let differing: Vec<&String> = drafted
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|key| drafted[key.as_str()] != now[key.as_str()])
+        .collect();
+    assert!(differing.is_empty(), "the draft starts where the game is: {differing:?}");
     let update = find("state_update");
     assert_eq!(
         update.last().unwrap()["reaction_modes"][&card],
