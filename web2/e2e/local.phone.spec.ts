@@ -248,6 +248,54 @@ test("phone: the Dev sheet leads to a game on the server, and its menu leads bac
   await page.screenshot({ path: "shots/phone/online/menu.png", animations: "disabled" });
 });
 
+test("phone: a movement into a fleet of another seat has the odds of the space combat", async ({
+  page,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  await page.goto("/?scenario=late-game&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.locator("#step-panel").getByRole("button", { name: "Take a tactical action" }).click();
+  await send.click();
+  await pane("Map").click();
+  // Seat C has two cruisers and a destroyer in 32.
+  await system("32").click();
+  await send.click();
+  await system("24").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Dreadnought 1 of 1" }).click();
+  await fleet.getByRole("button", { name: "Done with this system" }).click();
+
+  // The inspector of the active system has the odds under "Arrives".
+  await system("32").click();
+  const arriving = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ has: page.getByRole("button", { name: "Close system details" }) })
+    .getByRole("region", { name: "Space combat" });
+  await expect(arriving).toHaveAttribute("aria-busy", "false");
+  await expect(arriving).toContainText(/Win \d+% · Draw \d+% · Loss \d+%/);
+  await expect(arriving.getByLabel(/^Survivors of Sol/)).toHaveText(/^\s*\d\.\d \/ 1\s*$/);
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/inspector-odds.png", animations: "disabled" });
+  const numbers = (await arriving.textContent()) ?? "";
+
+  // The panel has the same odds in the card of the active system.
+  await pane("Action").click();
+  const odds = page.locator("#step-panel").getByRole("region", { name: "Space combat" });
+  await expect(odds).toContainText(numbers);
+  await expect(odds.getByLabel("Survivors of Letnev")).toHaveText(
+    /^\s*\d\.\d \/ 2\s+\d\.\d \/ 1\s*$/,
+  );
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/movement-odds.png", animations: "disabled" });
+});
+
 test("phone: the landings are staged in a sheet over the map", async ({ page }) => {
   // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
   test.setTimeout(10_000);

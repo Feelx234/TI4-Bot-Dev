@@ -268,6 +268,60 @@ test("an inspected system shows its forces", async ({ page }) => {
   await page.screenshot({ path: "shots/local/inspector.png", animations: "disabled" });
 });
 
+test("a movement into a fleet of another seat has the odds of the space combat", async ({
+  page,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  await panel(page).getByRole("button", { name: "Take a tactical action" }).click();
+  await send(page).click();
+  // Seat C has two cruisers and a destroyer in 32, and a PDS on its planet.
+  await expect(heading(page)).toHaveText("Activation");
+  await system("32").click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  const odds = panel(page).getByRole("region", { name: "Space combat" });
+  await expect(odds).toHaveCount(0);
+  await system("24").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Dreadnought 1 of 1" }).click();
+  await fleet.getByRole("button", { name: "Done with this system" }).click();
+
+  // The panel has Win, Draw and Loss, and the survivors of each side against the ships that fight.
+  await expect(odds).toHaveAttribute("aria-busy", "false");
+  await expect(odds).toContainText(/Space combat ·\s+Letnev/);
+  await expect(odds).toContainText(/Win \d+% · Draw \d+% · Loss \d+%/);
+  await expect(odds.getByLabel(/^Survivors of Sol/)).toHaveText(/^\s*\d\.\d \/ 1\s*$/);
+  await expect(odds.getByLabel("Survivors of Letnev")).toHaveText(
+    /^\s*\d\.\d \/ 2\s+\d\.\d \/ 1\s*$/,
+  );
+  await expect(odds.getByTitle("Cruisers")).toBeVisible();
+  await odds.getByRole("button", { name: "About the odds" }).click();
+  await expect(page.getByRole("note")).toContainText("2000 rollouts");
+  await page.keyboard.press("Escape");
+  // The open step does not scroll at 1920×1080.
+  const overflow = await page
+    .locator("#step-panel > div.overflow-y-auto")
+    .evaluate((element) => element.scrollHeight - element.clientHeight);
+  expect(overflow, "the step content needs vertical scroll").toBeLessThanOrEqual(0);
+  await page.screenshot({ path: "shots/local/movement-odds.png", animations: "disabled" });
+
+  // The inspector of the active system has the same odds under "Arrives".
+  await system("32").click();
+  const inspector = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ has: page.getByRole("button", { name: "Close system details" }) });
+  const arriving = inspector.getByRole("region", { name: "Space combat" });
+  await expect(arriving).toContainText((await odds.textContent()) ?? "");
+  await page.screenshot({ path: "shots/local/inspector-odds.png", animations: "disabled" });
+  expect(errors).toEqual([]);
+});
+
 test("a reload goes on where the game was, and undo takes back one answer @slow", async ({
   page,
 }) => {

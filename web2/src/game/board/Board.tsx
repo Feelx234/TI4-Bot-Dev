@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { BoardView, InspectorView } from "../../model";
 import { Button, CloseButton, Hint, Icon, Segmented, cx, usePhone, type IconName } from "../../ui";
 import { useDispatch } from "../context";
+import { SpaceOdds } from "../combat/SpaceOdds";
 import { GalaxyMap, type MapViewId } from "./GalaxyMap";
 import { LandingSheet } from "../steps/invasion/LandingSheet";
 import { ProductionSheet } from "../steps/production/ProductionSheet";
@@ -61,6 +62,9 @@ function SystemInspector({ view }: { view: InspectorView }) {
             <strong className="text-sm font-mid">Arrives</strong>{" "}
             <span className="text-muted">{view.arriving.summary}</span>
           </div>
+          {view.arriving.odds && (
+            <SpaceOdds view={view.arriving.odds} className="mt-1 px-3 phone:px-2.5" />
+          )}
           {view.arriving.origins.map((origin) => (
             <section key={origin.system} aria-label={`From ${origin.label}`}>
               {/* The controls of these ships are at the system that they leave. */}

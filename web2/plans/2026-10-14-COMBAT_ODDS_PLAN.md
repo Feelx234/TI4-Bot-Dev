@@ -1,7 +1,7 @@
 
 # web2: the odds of a space combat in the movement, and the details of a system on every click
 
-Status: plan, 2026-10-14. Phases 1, 2 and 3 are built.
+Status: built, 2026-10-14. Phases 1 to 4 are built.
 
 ## Goal
 
