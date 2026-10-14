@@ -26,10 +26,21 @@ COOP/COEP, no SharedArrayBuffer).
 
 ## Using it
 
-1. Start page, "Play offline". Choose the player count, your seat and faction (or random) and a
-   nickname. The first start downloads the engine (6.5 MB unpacked, 1.6 MB with gzip, 1.1 MB with
+1. Start page, "Play offline". Choose the player count, your seat and faction (or random), the
+   map and a nickname. The first start downloads the engine (6.5 MB unpacked, 1.6 MB with gzip, 1.1 MB with
    brotli) and compiles it; a progress bar shows this. Later starts use the browser cache (the
    file name contains a hash and is served `immutable`).
+   **Map**: the row says "Recommended layout" until you touch it (the game then gets the layout
+   the engine recommends for the table size, as every offline game did before the picker). "Choose
+   map" opens the same sheet as the online lobby (`OfflineMapPicker`, the lobby's `MapCard` and
+   `MapPreviewBoard`): a strip of the layouts that build for this table size, Random, and a large
+   picture with a badge per seat. The first use loads the engine (so the download can happen there instead of at Start) and asks it (`describe` for the
+   layouts, `map_preview` for the pictures; `web/src/offline/local/mapSource.ts`, one short-lived
+   worker that ends 20 s after the last question). The picture is an example of the choice, not the
+   exact board: seats, factions and the filler tiles are drawn from the game's seed at Start.
+   "Another example" redraws it. A layout made for another table size is dropped when you change
+   the player count. If the engine cannot answer the sheet shows the error with Retry and the form
+   still starts with the recommended layout.
 2. Play as in an online game. The position at every question is written to the browser
    (IndexedDB) before your answer goes to the engine, so closing the tab loses at most the
    answer you were giving. The page also asks the browser to keep its data
@@ -47,6 +58,11 @@ COOP/COEP, no SharedArrayBuffer).
   decisions hash, engine build and content digest), not a board snapshot, plus the sha-256 of the
   wasm file that played it. Size is small (about 60 KiB at 5000 answers). Limits: 8 MiB per game,
   100 games, 128 MiB in all.
+* The chosen map is `setup.map` of the save (a template alias, or `"random"`; absent = the
+  recommended layout). It was already part of the engine's `Setup`, so no engine, wasm or save
+  format change was needed: old saves have no `map` and replay as before, new ones replay the same
+  board because the alias is part of what the seed and the answers are applied to. Export, import
+  and feedback carry it with the save.
 * **Export** writes a JSON file (`kind: "ti4-offline-game"`, `version: 1`) with that save. Keep it
   as a backup or move a game to another browser.
 * **Import** ("Import a game" next to "My offline games") checks the file (shape, version, size)
@@ -82,7 +98,7 @@ delivery, "... sent". Operators read these like any other report (`tools/public/
 ## What is disabled offline
 
 Everything that needs a server or other people: lobby, invitations, other seats, spectators,
-presence, takeovers, the access password. Also hidden in v1: the map splice preview, turn redo
+presence, takeovers, the access password. The map picker is available (see "Using it"). Also hidden in v1: the map splice preview, turn redo
 (undo, rewind to an earlier decision and redo of undone decisions stay), the advisor (win odds,
 combat odds). The replay download of an offline game is its save file, not the server's replay
 format. The UI hides these through the transport capabilities rather than showing broken buttons.

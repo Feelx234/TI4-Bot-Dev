@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { playUntil, startOfflineGame, storedAnswers, storedFeedback, storedRecord } from "./offlineDriver";
+import { NICKNAME, playUntil, startOfflineGame, storedAnswers, storedFeedback, storedRecord, storedSetup } from "./offlineDriver";
 import { startTestServer, type TestServer } from "./offlineServer";
 
 // The offline game, end to end, with the production build only (see offline.config.ts): the
@@ -55,6 +55,62 @@ test("plays an offline game with the network blocked and resumes after a refresh
   expect(requests.some((r) => /\.wasm$/.test(r))).toBe(true);
   expect(errors).toEqual([]);
   expect(baseOrigin(page)).toBe(origin);
+});
+
+test("the map picker: untouched keeps the recommended layout, a pick is stored in the save and survives a resume", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  // Untouched: the save has no map (old and new games alike take the engine's recommended layout).
+  const plain = await startOfflineGame(page, 4);
+  expect(await storedSetup(page, plain)).not.toHaveProperty("map");
+
+  const open = async (players: number) => {
+    await page.goto("/offline");
+    await page.getByLabel("Nickname").fill(NICKNAME);
+    await page.getByLabel("Players").selectOption(String(players));
+    await page.getByTestId("offline-map-button").click();
+    // The engine answers: real layouts for this size and a real picture.
+    await expect(page.locator('[data-testid^="map-card-"]:not([data-testid="map-card-random"])').first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("map-preview-board")).toBeVisible({ timeout: 30_000 });
+  };
+  const start = async () => {
+    await page.getByTestId("map-picker-done").click();
+    await page.getByTestId("offline-start").click();
+    await page.waitForSelector('[data-testid="offline-game"]', { timeout: 60_000 });
+    return decodeURIComponent(/\/offline\/games\/([^/?#]+)/.exec(page.url())![1]);
+  };
+
+  // A listed layout that is not the recommended one.
+  await open(4);
+  const cards = page.locator('[data-testid^="map-card-"]:not([data-testid="map-card-random"])');
+  const ids = await cards.evaluateAll((els) =>
+    els.map((el) => ({ id: el.getAttribute("data-testid")!.replace("map-card-", ""), on: el.getAttribute("aria-pressed") === "true" })),
+  );
+  const other = ids.find((c) => !c.on);
+  test.skip(!other, "the engine lists only one layout for four players");
+  await page.getByTestId(`map-card-${other!.id}`).click();
+  await expect(page.getByTestId(`map-card-${other!.id}`)).toHaveAttribute("aria-pressed", "true");
+  const picked = await start();
+  expect((await storedSetup(page, picked))?.map).toBe(other!.id);
+  await playUntil(page, picked, 4);
+  await page.waitForTimeout(400);
+  const stored = (await storedRecord(page, picked))!;
+  // Resume replays the answers on the same board.
+  await page.reload();
+  await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 });
+  expect(await storedRecord(page, picked)).toMatchObject({ answers: stored.answers, decisionsHash: stored.decisionsHash });
+  expect((await storedSetup(page, picked))?.map).toBe(other!.id);
+
+  // Random.
+  await open(3);
+  await page.getByTestId("map-card-random").click();
+  await expect(page.getByTestId("map-card-random")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("map-preview-board")).toBeVisible();
+  const random = await start();
+  expect((await storedSetup(page, random))?.map).toBe("random");
 });
 
 test("closing the tab and opening the game later (same IndexedDB) resumes the same position", async ({

@@ -7,7 +7,7 @@ import {
   openOfflineSaveStore,
   type OfflineSaveStore,
 } from "../storage/index.ts";
-import type { OfflineFeedbackQueue, OfflineLauncher } from "../types.ts";
+import type { OfflineFeedbackQueue, OfflineLauncher, OfflineMapSource } from "../types.ts";
 import { hasEngineAsset } from "./engineAsset.ts";
 import { JSPI_MISSING, jspiSupported } from "./jspi.ts";
 
@@ -21,9 +21,15 @@ export function createLazyLauncher(store: OfflineSaveStore, feedback: OfflineFee
   let real: Promise<OfflineLauncher> | null = null;
   const launcher = () =>
     (real ??= import("./launcher.ts").then((m) => m.createLocalLauncher({ store, feedback })));
+  let maps: Promise<OfflineMapSource> | null = null;
+  const mapSource = () => (maps ??= import("./mapSource.ts").then((m) => m.createMapSource()));
   return {
     capabilities: OFFLINE_CAPABILITIES,
     factions: OFFLINE_FACTION_IDS,
+    maps: {
+      catalog: async (playerCount) => (await mapSource()).catalog(playerCount),
+      preview: async (choice, playerCount, variant) => (await mapSource()).preview(choice, playerCount, variant),
+    },
     supported: () => (jspiSupported() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
     list: () => store.listSummaries(),
     create: async (setup, onProgress, signal) => (await launcher()).create(setup, onProgress, signal),
