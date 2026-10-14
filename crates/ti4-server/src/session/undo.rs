@@ -17,13 +17,13 @@ use std::sync::{Arc, Mutex};
 use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_engine::observation::ExecutionObservation;
+use ti4_host::view::planning::audit::learned_identity;
+use ti4_host::view::planning::steps::PlanStep;
+use ti4_host::view::projection::project_game_view;
+use ti4_host::view::status::{UndoBarrier, ViewerRole};
+use ti4_host::view::view::GameView;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_view::planning::audit::learned_identity;
-use ti4_view::planning::steps::PlanStep;
-use ti4_view::projection::project_game_view;
-use ti4_view::status::{UndoBarrier, ViewerRole};
-use ti4_view::view::GameView;
 
 use crate::session::worker::SessionShared;
 

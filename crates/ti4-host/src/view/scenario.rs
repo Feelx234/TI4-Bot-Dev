@@ -92,12 +92,16 @@ pub fn start(
         ));
     }
     let sources = ti4_model::content_types::POK;
-    let loader = crate::maps::TemplateLoader::load()?;
+    let loader = crate::view::maps::TemplateLoader::load()?;
     let template =
-        crate::maps::default_template_for(content, &loader, scenario.players, sources)
+        crate::view::maps::default_template_for(content, &loader, scenario.players, sources)
             .ok_or_else(|| format!("no map template builds for {} players", scenario.players))?;
-    let (mut state, mut galaxy) =
-        crate::map::create_game_with_template(content, player_ids, scenario.seed, Some(&template))?;
+    let (mut state, mut galaxy) = crate::view::map::create_game_with_template(
+        content,
+        player_ids,
+        scenario.seed,
+        Some(&template),
+    )?;
     apply(id, &mut state, &mut galaxy, content, sources)?;
     Ok((state, galaxy))
 }
@@ -732,7 +736,7 @@ fn place(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tactical::{
+    use crate::view::tactical::{
         Blocked, CombatFact, INVASION_SUBTYPE, MOVEMENT_SUBTYPE, MovementFacts, ProductionFacts,
         ShipFact, TacticalFacts, Unavailable, project_tactical_facts,
     };
@@ -753,12 +757,17 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::maps::default_template_for(content, &loader, scenario.players, POK)
-            .expect("a template");
-        let (mut state, mut galaxy) =
-            crate::map::create_game_with_template(content, &ids, scenario.seed, Some(&template))
-                .expect("a game");
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let template =
+            crate::view::maps::default_template_for(content, &loader, scenario.players, POK)
+                .expect("a template");
+        let (mut state, mut galaxy) = crate::view::map::create_game_with_template(
+            content,
+            &ids,
+            scenario.seed,
+            Some(&template),
+        )
+        .expect("a game");
         apply(id, &mut state, &mut galaxy, content, POK).expect("the scenario applies");
         (state, galaxy)
     }
@@ -840,7 +849,7 @@ mod tests {
 
         let content = ContentStore::embedded();
         let (state, _) = game(LATE_GAME);
-        let facts = crate::secret_objectives::project_secret_objective_facts(&state, content);
+        let facts = crate::view::secret_objectives::project_secret_objective_facts(&state, content);
         let phase = |id: &ti4_model::id::SecretObjectiveId| {
             content
                 .get(ContentType::SecretObjectives, id.as_str())
@@ -886,7 +895,7 @@ mod tests {
 
     #[test]
     fn the_points_of_a_late_game_come_from_every_source() {
-        use crate::score::{PointSourceKind, project_score_facts};
+        use crate::view::score::{PointSourceKind, project_score_facts};
 
         let content = ContentStore::embedded();
         for id in [LATE_GAME, LATE_GAME_DEFLECTORS] {
@@ -965,9 +974,10 @@ mod tests {
                 ("defense_act".to_owned(), "for".to_owned()),
             ])
         );
-        let printed = crate::components::component_catalog(ContentStore::embedded(), POK).agendas;
+        let printed =
+            crate::view::components::component_catalog(ContentStore::embedded(), POK).agendas;
         assert_eq!(
-            crate::agendas::project_agenda_facts(&state).deck,
+            crate::view::agendas::project_agenda_facts(&state).deck,
             printed.len() - 3,
             "the two laws and Mutiny are not in the deck"
         );
@@ -987,7 +997,7 @@ mod tests {
         assert_eq!(names(&first).len(), 56);
         // The other game has the names that are left, and no seat has more than seven.
         let printed: BTreeSet<String> =
-            crate::components::component_catalog(ContentStore::embedded(), POK)
+            crate::view::components::component_catalog(ContentStore::embedded(), POK)
                 .action_cards
                 .into_iter()
                 .map(|card| card.name)
@@ -1562,8 +1572,9 @@ mod tests {
     fn the_exploration_left_attachments_fragments_and_thinner_decks() {
         let (state, galaxy) = game(LATE_GAME);
         let content = ContentStore::embedded();
-        let facts = crate::exploration::project_exploration_facts(&state, content, POK, &galaxy);
-        let full = crate::exploration::exploration_catalog(content, POK).decks;
+        let facts =
+            crate::view::exploration::project_exploration_facts(&state, content, POK, &galaxy);
+        let full = crate::view::exploration::exploration_catalog(content, POK).decks;
 
         assert_eq!(facts.drawn.len(), 9);
         assert_eq!(facts.decks["CULTURAL"].len() + 5, full["CULTURAL"].len());
@@ -1579,11 +1590,12 @@ mod tests {
         assert_eq!(attached("lisis"), ["biotic"]);
         assert_eq!(attached("loki"), ["paradiseworld"]);
 
-        let view = crate::projection::project_player_view(state.player(&seat()).unwrap());
+        let view = crate::view::projection::project_player_view(state.player(&seat()).unwrap());
         assert_eq!(view.relic_fragments["CULTURAL"], 3);
         assert_eq!(view.relic_fragments["HAZARDOUS"], 1);
-        let other =
-            crate::projection::project_player_view(state.player(&PlayerId::new("b")).unwrap());
+        let other = crate::view::projection::project_player_view(
+            state.player(&PlayerId::new("b")).unwrap(),
+        );
         assert_eq!(other.relic_fragments["FRONTIER"], 1);
 
         // What seat A used, for the cards of its sheet.

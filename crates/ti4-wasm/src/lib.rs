@@ -31,19 +31,21 @@ use ti4_engine::choice::{
 };
 use ti4_engine::game::{Game, RunError};
 use ti4_host::setup::{self, TableSetup, bot_kind};
+use ti4_host::view::components::catalog;
+use ti4_host::view::map::{build_board_tiles, create_game_with_template};
+use ti4_host::view::maps::{TemplateLoader, default_template_for};
+use ti4_host::view::planning::audit::PlanScope;
+use ti4_host::view::planning::draft::{
+    DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer,
+};
+use ti4_host::view::projection::{FactsContext, project_game_view_full, project_session_update};
+use ti4_host::view::reaction_modes::{NeverOffer, NeverSet};
+use ti4_host::view::secondary::SecondaryWatch;
+use ti4_host::view::status::ViewerRole;
+use ti4_host::view::view::{BoardTileView, GameView};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
-use ti4_view::components::catalog;
-use ti4_view::map::{build_board_tiles, create_game_with_template};
-use ti4_view::maps::{TemplateLoader, default_template_for};
-use ti4_view::planning::audit::PlanScope;
-use ti4_view::planning::draft::{DraftBase, DraftStep, ScriptAnswer, run_draft, script_answer};
-use ti4_view::projection::{FactsContext, project_game_view_full, project_session_update};
-use ti4_view::reaction_modes::{NeverOffer, NeverSet};
-use ti4_view::secondary::SecondaryWatch;
-use ti4_view::status::ViewerRole;
-use ti4_view::view::{BoardTileView, GameView};
 
 use crate::buffer::{DRAFT, REQUEST, RESPONSE, TooLarge, UPDATE, store};
 
@@ -78,7 +80,7 @@ fn failed(error: impl fmt::Display) -> Failure {
 }
 
 /// A seeded game for `players` seats on the recommended map template for that count. With a
-/// scenario, the board of that scenario is set up on it (`ti4_view::scenario`).
+/// scenario, the board of that scenario is set up on it (`ti4_host::view::scenario`).
 fn new_game(
     content: &'static ContentStore,
     seed: u64,
@@ -97,7 +99,7 @@ fn new_game(
     let ids: Vec<PlayerId> = seats.iter().map(|name| PlayerId::new(*name)).collect();
     let (state, galaxy) = if let Some(scenario) = scenario {
         // The game of the scenario, as the server starts it for a table ("Start from").
-        ti4_view::scenario::start(content, scenario, &ids).map_err(failed)?
+        ti4_host::view::scenario::start(content, scenario, &ids).map_err(failed)?
     } else {
         let loader = TemplateLoader::load().map_err(failed)?;
         let template = default_template_for(content, &loader, players, POK)
@@ -283,7 +285,7 @@ fn host_update(
     pending_choice: Option<(&Choice, &str)>,
     tiles: &[BoardTileView],
     galaxy: Option<&Galaxy>,
-) -> ti4_view::projection::SessionUpdate {
+) -> ti4_host::view::projection::SessionUpdate {
     let mut update =
         project_session_update(state, viewer, pending_choice, tiles, &facts_context(galaxy));
     update
@@ -595,7 +597,7 @@ static RANDOM: Mutex<Option<SeededRandom>> = Mutex::new(None);
 struct Seat {
     /// The host, behind its Never cards: a window that offers only such cards is declined
     /// without asking, and any other window is asked without them. The same wrapper as on the
-    /// server (`ti4_view::reaction_modes`).
+    /// server (`ti4_host::view::reaction_modes`).
     host: NeverOffer,
 }
 
@@ -855,7 +857,7 @@ fn draw(
         // What the seat picks is known before the host is asked, as on the server: the wait of a
         // table is not taken for a window that is only declined.
         let declines = stepping == PACE
-            && ti4_view::projection::is_reaction_window(choice)
+            && ti4_host::view::projection::is_reaction_window(choice)
             && pick(choice, rule, true)?.is_decline();
         if !declines && !wait_for_go(choice)? {
             return Ok(None);
@@ -1532,7 +1534,7 @@ fn draft() -> Result<usize, Failure> {
 pub(crate) fn draft_outcome(
     script: &[DraftStep],
     scope: &PlanScope,
-) -> Result<ti4_view::planning::draft::DraftOutcome, Failure> {
+) -> Result<ti4_host::view::planning::draft::DraftOutcome, Failure> {
     let player = host()
         .shown_seat()
         .ok_or_else(|| failed("no seat is played here: a draft is of one seat"))?;
@@ -1623,7 +1625,7 @@ fn set_reaction_mode() -> Result<usize, Failure> {
     }
     let request: Request = serde_json::from_slice(REQUEST.lock().expect("request lock").as_bytes())
         .map_err(|error| failed(format_args!("the reaction mode is not read: {error}")))?;
-    ti4_view::reaction_modes::set_mode(
+    ti4_host::view::reaction_modes::set_mode(
         &mut NEVER.lock().expect("never set lock"),
         &request.card,
         request.mode,
@@ -1678,7 +1680,7 @@ pub extern "C" fn ti4_play(seed: u32, players: u32, human_mask: u32) -> i32 {
     status(play(u64::from(seed), players as usize, human_mask, None))
 }
 
-/// Play a scenario of `ti4_view::scenario` as [`ti4_play`] plays a new game: the request buffer
+/// Play a scenario of `ti4_host::view::scenario` as [`ti4_play`] plays a new game: the request buffer
 /// holds its id in `id_len` bytes. The seed and the number of seats are those of the scenario.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_play_scenario(human_mask: u32, id_len: u32) -> i32 {
@@ -1689,9 +1691,9 @@ pub extern "C" fn ti4_play_scenario(human_mask: u32, id_len: u32) -> i32 {
             .filled(id_len as usize)
             .then(|| String::from_utf8_lossy(request.as_bytes()).into_owned())
     };
-    let scenario = id.as_deref().and_then(ti4_view::scenario::find);
+    let scenario = id.as_deref().and_then(ti4_host::view::scenario::find);
     let Some(scenario) = scenario else {
-        let known: Vec<&str> = ti4_view::scenario::SCENARIOS
+        let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
             .iter()
             .map(|scenario| scenario.id)
             .collect();
@@ -1717,7 +1719,7 @@ struct TableOptions {
     options: setup::SetupOptions,
     /// The maps that build for the number of seats, the one that such a table starts with
     /// flagged. With no number: every map.
-    maps: Vec<ti4_view::maps::MapTemplateSummary>,
+    maps: Vec<ti4_host::view::maps::MapTemplateSummary>,
 }
 
 /// What a table looks like before it starts.
@@ -1816,7 +1818,7 @@ pub extern "C" fn ti4_play_setup(request_len: u32) -> i32 {
 pub extern "C" fn ti4_scenarios() -> i32 {
     status(respond(
         "the list of scenarios",
-        &ti4_view::scenario::SCENARIOS,
+        &ti4_host::view::scenario::SCENARIOS,
     ))
 }
 
@@ -1942,7 +1944,7 @@ pub extern "C" fn ti4_request_ptr() -> *mut u8 {
 }
 
 /// Run a draft: the request buffer holds `{"script": [...]}` in `request_len` bytes, the steps
-/// of `ti4_view::planning::draft::DraftStep`. The script is played as the next turn of the
+/// of `ti4_host::view::planning::draft::DraftStep`. The script is played as the next turn of the
 /// host's seat on a copy of the game at its last finished step, and the outcome
 /// (`DraftOutcome`) is left at [`ti4_draft_ptr`] with the returned length. A status below 0 is
 /// the negated length of an error text in the response buffer.
@@ -1955,11 +1957,11 @@ pub extern "C" fn ti4_draft(request_len: u32) -> i32 {
 
 /// What a script answers to the choice that the game is parked in: the request buffer holds
 /// `{"script": [...], "next": n, "actor": seat}` in `request_len` bytes, the entries of
-/// `ti4_view::planning::draft::DraftStep`, the first entry that is still to play, and the seat
+/// `ti4_host::view::planning::draft::DraftStep`, the first entry that is still to play, and the seat
 /// whose script it is. The response is one of `{"kind":"answer","index","next","script"?}`
 /// (answer the choice with the option at `index`; with `script` the script goes on in that
 /// order), `{"kind":"done"}`, `{"kind":"interrupted","reason"}` and
-/// `{"kind":"mismatch","step","reason"}` (`ti4_view::planning::draft::script_answer`).
+/// `{"kind":"mismatch","step","reason"}` (`ti4_host::view::planning::draft::script_answer`).
 ///
 /// This is how a host sends a plan or a draft to the game: it asks here at each choice and
 /// answers with the index, until the script is done or stops. Nothing is changed by the call.
@@ -1971,7 +1973,7 @@ pub extern "C" fn ti4_plan(request_len: u32) -> i32 {
 /// Set the mode of an action card for the host: the request buffer holds
 /// `{"card": <printed name>, "mode": "never" | "always"}` in `request_len` bytes. A window that
 /// offers only Never cards is declined for the host without asking ([`ti4_journal`]), and any
-/// other window is asked without them (`ti4_view::reaction_modes::NeverOffer`).
+/// other window is asked without them (`ti4_host::view::reaction_modes::NeverOffer`).
 ///
 /// The modes are of the instance, not of the game: the host sets them before [`ti4_play`], or
 /// while the game waits.
@@ -2292,7 +2294,7 @@ mod tests {
     #[test]
     fn the_scenarios_run_with_random_deciders() {
         let content = ContentStore::embedded();
-        for scenario in ti4_view::scenario::SCENARIOS {
+        for scenario in ti4_host::view::scenario::SCENARIOS {
             let mut game =
                 new_game(content, scenario.seed, scenario.players, Some(scenario.id)).unwrap();
             match game.run(ROUNDS, 400) {
@@ -2985,7 +2987,7 @@ mod tests {
         // A scenario starts at the turn menu of seat a, and its board is in the facts.
         let scenarios: serde_json::Value =
             serde_json::from_str(&response(ti4_scenarios()).unwrap()).unwrap();
-        assert_eq!(scenarios[0]["id"], ti4_view::scenario::LATE_GAME);
+        assert_eq!(scenarios[0]["id"], ti4_host::view::scenario::LATE_GAME);
         assert_eq!(scenarios[0]["players"], 8);
         let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
         let sink = seen.clone();
@@ -2999,7 +3001,7 @@ mod tests {
             seen.push(value);
             index.map_or(-1, |index| i32::try_from(index).unwrap())
         });
-        let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 1);
+        let status = play_scenario_native(ti4_host::view::scenario::LATE_GAME, 1);
         assert!(response(status).unwrap().contains(LEFT));
         let seen = seen.lock().unwrap();
         assert_eq!(seen.len(), 2);
@@ -3180,7 +3182,7 @@ mod tests {
                 }
             }
         });
-        let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 0b1000);
+        let status = play_scenario_native(ti4_host::view::scenario::LATE_GAME, 0b1000);
         assert!(response(status).unwrap().contains(LEFT));
         let asked: Vec<(String, String)> = std::mem::take(&mut *seen.lock().unwrap());
         let asked: Vec<(&str, &str)> = asked
@@ -3222,7 +3224,7 @@ mod tests {
                 -1
             });
             ti4_replay(u32::try_from(log.len()).unwrap());
-            let status = play_scenario_native(ti4_view::scenario::LATE_GAME, 0b1000);
+            let status = play_scenario_native(ti4_host::view::scenario::LATE_GAME, 0b1000);
             assert!(response(status).unwrap().contains(LEFT));
             let (given, shown) = seen.lock().unwrap().clone();
             assert_eq!(given, log.len());

@@ -153,7 +153,7 @@ impl RandomBotDecider {
     fn think(&self, choice: &Choice, picked: usize, rng: &mut ChaCha8Rng) -> Result<(), ()> {
         {
             let mut shared = self.shared.lock().expect("shared lock");
-            let window = ti4_view::projection::is_reaction_window(choice);
+            let window = ti4_host::view::projection::is_reaction_window(choice);
             if shared.bot_delay_ms == 0 || (window && choice.options[picked].is_decline()) {
                 return Ok(());
             }

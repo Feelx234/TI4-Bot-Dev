@@ -138,17 +138,17 @@ pub fn preview(choice: &MapChoice, player_count: usize, seed: u64) -> Result<Map
     ))
 }
 
-/// The board of the game that the scenario `id` of `ti4_view::scenario` starts, with the homes
+/// The board of the game that the scenario `id` of `crate::view::scenario` starts, with the homes
 /// of its seats as places. `choice` is what the table says of its map.
 ///
 /// # Errors
 /// A message for an unknown scenario, or when its map does not build.
 pub fn scenario_preview(choice: &MapChoice, id: &str) -> Result<MapPreview, String> {
     let content = ContentStore::embedded();
-    let players = ti4_view::scenario::find(id)
+    let players = crate::view::scenario::find(id)
         .ok_or_else(|| format!("no scenario '{id}'"))?
         .players;
-    let (state, galaxy) = ti4_view::scenario::start(content, id, &placeholder_players(players))?;
+    let (state, galaxy) = crate::view::scenario::start(content, id, &placeholder_players(players))?;
     let factions: Vec<ti4_model::id::FactionId> = state
         .players
         .iter()

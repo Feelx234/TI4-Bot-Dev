@@ -5,10 +5,10 @@
 //! these are the plain types it publishes and that the wire carries.
 
 use serde::{Deserialize, Serialize};
-use ti4_view::planning::audit::{SafePublication, StopReason};
+use crate::view::planning::audit::{SafePublication, StopReason};
 
-pub use ti4_view::planning::audit::{ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION};
-pub use ti4_view::planning::{
+pub use crate::view::planning::audit::{ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION};
+pub use crate::view::planning::{
     DecisionRecording, RecordedDecision, RecordingDecider, ReplayDecider, ReplayProgress,
     ReplayStatus, ReplayStopReason,
 };

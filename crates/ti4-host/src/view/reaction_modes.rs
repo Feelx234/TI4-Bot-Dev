@@ -1,7 +1,7 @@
 //! A seat's "do not offer me this" preference, applied where the question is asked.
 //!
 //! A seat sets a mode for a reaction: an action card by its printed name, or the card of an
-//! ability by its key ([`crate::reaction::ReactionOffer::key`]). `Never` mutes it; `OwnTurn`
+//! ability by its key ([`crate::view::reaction::ReactionOffer::key`]). `Never` mutes it; `OwnTurn`
 //! mutes it while another seat is the active player of the action phase. Outside the action
 //! phase nobody has the turn, and `OwnTurn` mutes nothing.
 //!
@@ -82,7 +82,7 @@ pub fn filter(choice: &Choice, modes: &Modes) -> Filtered {
     let mut dropped: Vec<String> = Vec::new();
     let mut kept: Vec<ChoiceOption> = Vec::new();
     for option in &choice.options {
-        let offers = crate::reaction::offers_of(content, option);
+        let offers = crate::view::reaction::offers_of(content, option);
         if !offers.is_empty()
             && offers
                 .iter()

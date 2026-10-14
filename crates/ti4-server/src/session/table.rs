@@ -90,7 +90,7 @@ pub struct TableSettings {
     pub strategy_card_set: Option<String>,
     /// 0 to [`MAX_BOT_DELAY_MS`].
     pub bot_delay_ms: Option<u64>,
-    /// The id of a scenario of `ti4_view::scenario`, or `null` for round 1.
+    /// The id of a scenario of `ti4_host::view::scenario`, or `null` for round 1.
     #[serde(default, deserialize_with = "nullable")]
     pub start_from: Option<Option<String>>,
 }
@@ -202,8 +202,8 @@ pub fn apply_settings(
                         "start_from is not available on the public server".to_owned(),
                     ));
                 }
-                let scenario = ti4_view::scenario::find(id).ok_or_else(|| {
-                    let known: Vec<&str> = ti4_view::scenario::SCENARIOS
+                let scenario = ti4_host::view::scenario::find(id).ok_or_else(|| {
+                    let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
                         .iter()
                         .map(|scenario| scenario.id)
                         .collect();
@@ -225,7 +225,7 @@ pub fn apply_settings(
         if let Some(scenario) = updated
             .start_from
             .as_deref()
-            .and_then(ti4_view::scenario::find)
+            .and_then(ti4_host::view::scenario::find)
             && scenario.players != count
         {
             return Err(LobbyError::ScenarioTable(format!(
@@ -398,7 +398,7 @@ mod tests {
             start_from: Some(id.map(str::to_owned)),
             ..TableSettings::default()
         };
-        let scenario = ti4_view::scenario::find(ti4_view::scenario::LATE_GAME).unwrap();
+        let scenario = ti4_host::view::scenario::find(ti4_host::view::scenario::LATE_GAME).unwrap();
         let started = apply_settings(&record, &late(Some(scenario.id)), false).unwrap();
         assert_eq!(started.slots.len(), scenario.players);
         assert_eq!(seat_order_of(&started), SeatOrder::Join);

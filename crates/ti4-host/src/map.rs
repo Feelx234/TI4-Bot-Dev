@@ -7,7 +7,7 @@ use ti4_engine::seating;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-pub use ti4_view::map::{
+pub use crate::view::map::{
     GalaxyLayout, GalaxyPlacement, SpeakerOrder, build_board_tiles, create_game_with_map,
     create_game_with_map_and_card_set, create_game_with_map_rotated,
     create_game_with_map_rotated_and_card_set, create_game_with_map_seated,

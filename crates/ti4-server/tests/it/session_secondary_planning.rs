@@ -547,9 +547,9 @@ fn a_diplomacy_draft_records_exactly_the_answers_the_live_window_accepts() {
 /// played.
 #[test]
 fn a_script_drafts_a_secondary_while_the_primary_is_resolved_and_answers_the_seat() {
-    use ti4_view::planning::audit::PlanScope;
-    use ti4_view::planning::draft::{DraftStep, DraftStop};
-    use ti4_view::secondary::FollowerState;
+    use ti4_host::view::planning::audit::PlanScope;
+    use ti4_host::view::planning::draft::{DraftStep, DraftStop};
+    use ti4_host::view::secondary::FollowerState;
 
     let session = session("secondary_script");
     let b = pid("b");

@@ -578,8 +578,8 @@ fn late_game() -> (
     let (mut state, mut galaxy) =
         ti4_server::map::create_game_with_template(content, &ids, 42, Some(&template))
             .expect("a game");
-    ti4_view::scenario::apply(
-        ti4_view::scenario::LATE_GAME,
+    ti4_host::view::scenario::apply(
+        ti4_host::view::scenario::LATE_GAME,
         &mut state,
         &mut galaxy,
         content,

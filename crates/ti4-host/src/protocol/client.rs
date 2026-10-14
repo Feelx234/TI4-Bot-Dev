@@ -103,10 +103,10 @@ pub enum ClientMessage {
         protocol_version: u16,
         game_id: String,
         request_id: String,
-        script: Vec<ti4_view::planning::draft::DraftStep>,
+        script: Vec<crate::view::planning::draft::DraftStep>,
         /// Left out: the next tactical action.
         #[serde(default)]
-        scope: ti4_view::planning::audit::PlanScope,
+        scope: crate::view::planning::audit::PlanScope,
     },
     /// Answer the pending choice of this connection's seat, and the choices after it, with
     /// `script`: a draft or a plan that is sent to the live game. A script that the game would
@@ -117,7 +117,7 @@ pub enum ClientMessage {
         game_id: String,
         nonce: String,
         expected_version: u64,
-        script: Vec<ti4_view::planning::draft::DraftStep>,
+        script: Vec<crate::view::planning::draft::DraftStep>,
     },
     /// Take back the last decision of this connection's seat, when the last update said that
     /// it may (`HistoryStatus::can_undo`): a movement, the landings and a purchase go back
@@ -621,7 +621,7 @@ impl ClientMessage {
 
 /// A script may be empty: a draft with nothing chosen opens the turn menu. Its texts are
 /// bounded by the size of a message.
-fn bounded_script(script: &[ti4_view::planning::draft::DraftStep]) -> Result<(), &'static str> {
+fn bounded_script(script: &[crate::view::planning::draft::DraftStep]) -> Result<(), &'static str> {
     if script.len() > MAX_SCRIPT_ENTRIES {
         Err("script")
     } else {

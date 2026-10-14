@@ -386,10 +386,10 @@ fn subscribe_accepts_only_the_v3_player_session_field() {
 
 #[test]
 fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
+    use ti4_host::view::planning::draft::DraftStep;
+    use ti4_host::view::planning::steps::PlanStep;
     use ti4_server::protocol::client::MAX_SCRIPT_ENTRIES;
     use ti4_server::protocol::server::{DraftAppliedMsg, ScriptStopped};
-    use ti4_view::planning::draft::DraftStep;
-    use ti4_view::planning::steps::PlanStep;
 
     // The script of the page: an answer by its id, then the steps as `submitPlan` has them.
     let json = serde_json::json!({
@@ -423,7 +423,7 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
         game_id: "game_abc".to_owned(),
         request_id: "r1".to_owned(),
         script,
-        scope: ti4_view::planning::audit::PlanScope::Tactical,
+        scope: ti4_host::view::planning::audit::PlanScope::Tactical,
     };
     let json = serde_json::to_string(&run(script.clone())).unwrap();
     assert!(json.contains("\"type\":\"run_draft\""));

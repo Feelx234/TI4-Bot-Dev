@@ -1,6 +1,6 @@
 //! What a client is shown of the secret objectives beside its own hand: how many cards the deck
 //! still holds, and which objectives each seat has scored. The printed objectives and the deck
-//! that a game begins with are in the catalogue ([`crate::components`]).
+//! that a game begins with are in the catalogue ([`crate::view::components`]).
 //!
 //! Nothing here decides a rule. A scored secret objective is public (LRR 61.17 hides the unscored
 //! ones only), so the facts are the same for every viewer.
@@ -71,10 +71,11 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
         let template =
-            crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::map::create_game_with_template(content, &ids, 42, Some(&template)).expect("a game")
+            crate::view::maps::default_template_for(content, &loader, 6, POK).expect("a template");
+        crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
+            .expect("a game")
     }
 
     #[test]
@@ -95,7 +96,7 @@ mod tests {
             .iter()
             .map(|player| player.secret_objectives.len())
             .sum();
-        let printed = crate::components::component_catalog(content, POK).secret_objectives;
+        let printed = crate::view::components::component_catalog(content, POK).secret_objectives;
 
         assert_eq!(facts.deck + held + dealt_out, printed.len());
         assert!(facts.scored.is_empty());

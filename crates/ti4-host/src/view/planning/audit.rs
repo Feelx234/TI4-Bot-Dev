@@ -10,7 +10,7 @@ use ti4_engine::decision_context::{CONTEXT_VERSION, DecisionSource};
 use ti4_engine::preview::{Outcome, Quantity};
 use ti4_model::id::{PlayerId, StrategyCardId};
 
-use crate::view::GameView;
+use crate::view::view::GameView;
 
 pub const ASSUMPTION: &str = "Other players take no optional reactions in this hypothetical turn.";
 pub const SECONDARY_ASSUMPTION: &str =

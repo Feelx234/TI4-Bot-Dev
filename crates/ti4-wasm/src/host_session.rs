@@ -52,14 +52,14 @@ use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
+use ti4_host::view::map::GalaxyLayout;
+use ti4_host::view::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
+use ti4_host::view::planning::fork::TACTICAL_COMPLETE;
+use ti4_host::view::planning::steps::{INTERRUPTED, PlanStep};
+use ti4_host::view::reaction_modes::NeverSet;
+use ti4_host::view::view::BoardTileView;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase, ReactionMode};
-use ti4_view::map::GalaxyLayout;
-use ti4_view::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_view::planning::fork::TACTICAL_COMPLETE;
-use ti4_view::planning::steps::{INTERRUPTED, PlanStep};
-use ti4_view::reaction_modes::NeverSet;
-use ti4_view::view::BoardTileView;
 
 /// The most checkpoints (and so session marks) kept; see `CHECKPOINT_LIMIT` in `lib.rs`.
 pub const MARK_LIMIT: usize = 32;
@@ -964,7 +964,7 @@ impl HostSession {
                 } else {
                     {
                         let mut never = self.never.lock().expect("never set lock");
-                        ti4_view::reaction_modes::set_mode(&mut never, &card, mode);
+                        ti4_host::view::reaction_modes::set_mode(&mut never, &card, mode);
                     }
                     let update = self.state_update();
                     self.out.push(update);

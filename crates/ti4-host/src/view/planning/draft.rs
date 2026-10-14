@@ -31,9 +31,11 @@ use super::audit::{
 };
 use super::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 use super::steps::{INTERRUPTED, PlanAnswer, PlanStep, plan_answer};
-use crate::projection::{FactsContext, SessionUpdate, project_game_view, project_session_update};
-use crate::status::ViewerRole;
-use crate::view::{BoardTileView, GameView};
+use crate::view::projection::{
+    FactsContext, SessionUpdate, project_game_view, project_session_update,
+};
+use crate::view::status::ViewerRole;
+use crate::view::view::{BoardTileView, GameView};
 
 /// The nonce of the question a draft is open at. A draft is never answered by its nonce.
 pub const DRAFT_NONCE: &str = "draft";
@@ -260,7 +262,7 @@ pub struct DraftBase<'a, 'c> {
     pub galaxy: Option<&'a Galaxy>,
     /// The strategic action of the game, as its host follows it: which secondary may be
     /// drafted. Without it no secondary is drafted.
-    pub secondary: Option<&'a crate::secondary::SecondaryWatch>,
+    pub secondary: Option<&'a crate::view::secondary::SecondaryWatch>,
 }
 
 /// A question that passed the audit, on the position it was asked in.
@@ -331,9 +333,9 @@ impl Run {
         }
         // The first question of a step is what the whole step is staged against.
         let first = match subtype {
-            crate::tactical::MOVEMENT_SUBTYPE => Some(&mut self.movement),
-            crate::tactical::INVASION_SUBTYPE => Some(&mut self.invasion),
-            crate::tactical::PRODUCTION_SUBTYPE => Some(&mut self.production),
+            crate::view::tactical::MOVEMENT_SUBTYPE => Some(&mut self.movement),
+            crate::view::tactical::INVASION_SUBTYPE => Some(&mut self.invasion),
+            crate::view::tactical::PRODUCTION_SUBTYPE => Some(&mut self.production),
             _ => None,
         };
         if let Some(first) = first {
@@ -469,7 +471,7 @@ impl Decider for ScriptDecider {
 /// or as its secondary of the strategic action that is resolved, by `scope`. The base is not
 /// changed.
 ///
-/// A secondary is drafted from the moment its card is played ([`crate::secondary`]): the copy
+/// A secondary is drafted from the moment its card is played ([`crate::view::secondary`]): the copy
 /// may have nothing of the primary yet, and nothing of the followers before `player`.
 #[must_use]
 pub fn run_draft(
@@ -610,8 +612,8 @@ pub fn run_draft(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::secondary::{FollowerState, SecondaryWatch};
-    use crate::tactical::TacticalFacts;
+    use crate::view::secondary::{FollowerState, SecondaryWatch};
+    use crate::view::tactical::TacticalFacts;
     use ti4_engine::choice::SeededRandom;
     use ti4_model::content_types::POK;
     use ti4_model::id::StrategyCardId;
@@ -629,13 +631,13 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::maps::default_template_for(content, &loader, 6, POK)
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::view::maps::default_template_for(content, &loader, 6, POK)
             .expect("a template for six");
         let (state, galaxy) =
-            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
+            crate::view::map::create_game_with_template(content, &ids, 3, Some(&template))
                 .expect("a game");
-        let tiles = crate::map::build_board_tiles(content, &galaxy);
+        let tiles = crate::view::map::build_board_tiles(content, &galaxy);
         let mut game = Game::with_seeded_random(state, content, 3)
             .with_sources(POK)
             .with_galaxy(galaxy);
@@ -949,11 +951,11 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::maps::default_template_for(content, &loader, 6, POK)
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::view::maps::default_template_for(content, &loader, 6, POK)
             .expect("a template for six");
         let (state, galaxy) =
-            crate::map::create_game_with_template(content, &ids, 3, Some(&template))
+            crate::view::map::create_game_with_template(content, &ids, 3, Some(&template))
                 .expect("a game");
         let mut game = Game::with_seeded_random(state, content, 3)
             .with_sources(POK)
@@ -1060,11 +1062,14 @@ mod tests {
         assert!(menu.update.secret_objectives.is_some());
         assert_eq!(
             menu.update.score,
-            Some(crate::score::project_score_facts(&game.state, content))
+            Some(crate::view::score::project_score_facts(
+                &game.state,
+                content
+            ))
         );
         assert_eq!(
             menu.update.agendas,
-            Some(crate::agendas::project_agenda_facts(&game.state))
+            Some(crate::view::agendas::project_agenda_facts(&game.state))
         );
 
         let mut script = vec![choose("tactical")];
@@ -1248,21 +1253,21 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
-        let template = crate::maps::default_template_for(content, &loader, 8, POK)
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
+        let template = crate::view::maps::default_template_for(content, &loader, 8, POK)
             .expect("a template for eight");
         let (mut state, mut galaxy) =
-            crate::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
                 .expect("a game");
-        crate::scenario::apply(
-            crate::scenario::LATE_GAME,
+        crate::view::scenario::apply(
+            crate::view::scenario::LATE_GAME,
             &mut state,
             &mut galaxy,
             content,
             POK,
         )
         .expect("the scenario applies");
-        let tiles = crate::map::build_board_tiles(content, &galaxy);
+        let tiles = crate::view::map::build_board_tiles(content, &galaxy);
         let mut game = Game::with_seeded_random(state, content, 42)
             .with_sources(POK)
             .with_galaxy(galaxy);
@@ -1332,7 +1337,7 @@ mod tests {
         assert_eq!(produced.production, open.production);
         assert_eq!(produced.update.pending_choice, None);
         let there = &produced.update.view.board.systems[&ti4_model::id::SystemId::new(DOCK)].units;
-        let cruisers = |units: &[crate::view::PlacedUnitView]| {
+        let cruisers = |units: &[crate::view::view::PlacedUnitView]| {
             units
                 .iter()
                 .filter(|unit| unit.unit_type.as_str() == cruiser.unit)

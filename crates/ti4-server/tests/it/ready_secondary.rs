@@ -9,6 +9,8 @@ use futures_util::SinkExt;
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
+use ti4_host::view::planning::audit::PlanScope;
+use ti4_host::view::planning::draft::DraftStep;
 use ti4_model::id::PlayerId;
 use ti4_server::protocol::PROTOCOL_VERSION;
 use ti4_server::protocol::client::ClientMessage;
@@ -16,8 +18,6 @@ use ti4_server::protocol::server::{SeatStagedMsg, ServerMessage};
 use ti4_server::protocol::status::{RejectionReason, ViewerRole};
 use ti4_server::session::staged::{SecondaryDraft, StagedSlot};
 use ti4_server::session::{GameRegistry, GameSession};
-use ti4_view::planning::audit::PlanScope;
-use ti4_view::planning::draft::DraftStep;
 
 use crate::draft_scripts::next_message;
 use crate::session_secondary_planning::{

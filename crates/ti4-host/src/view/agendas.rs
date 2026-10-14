@@ -1,7 +1,7 @@
 //! What a client is shown of the agenda deck beside the laws in play: how many cards it still
-//! holds. The laws are in the table of the view ([`crate::view::TableView::laws`]), and the
+//! holds. The laws are in the table of the view ([`crate::view::view::TableView::laws`]), and the
 //! printed agendas and the deck that a game begins with are in the catalogue
-//! ([`crate::components`]).
+//! ([`crate::view::components`]).
 //!
 //! Nothing here decides a rule. The count of a deck is public, so the facts are the same for every
 //! viewer.

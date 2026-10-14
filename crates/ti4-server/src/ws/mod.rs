@@ -51,8 +51,8 @@ pub const MAX_CLIENT_MESSAGE_BYTES: usize = 64 * 1024;
 /// The newest draft request of a connection: its `request_id` and its script.
 type DraftRequest = Option<(
     String,
-    ti4_view::planning::audit::PlanScope,
-    Vec<ti4_view::planning::draft::DraftStep>,
+    ti4_host::view::planning::audit::PlanScope,
+    Vec<ti4_host::view::planning::draft::DraftStep>,
 )>;
 /// Least time between two reaction declarations on one connection.
 const MIN_INTENT_INTERVAL: Duration = Duration::from_millis(500);

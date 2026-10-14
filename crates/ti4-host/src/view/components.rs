@@ -17,7 +17,7 @@ use ti4_content::{
 use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
 
-use crate::exploration::{ExplorationCatalog, exploration_catalog};
+use crate::view::exploration::{ExplorationCatalog, exploration_catalog};
 
 /// One faction ability as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

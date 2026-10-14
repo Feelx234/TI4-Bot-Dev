@@ -188,7 +188,7 @@ pub fn project_score_facts(state: &GameState, content: &ContentStore) -> ScoreFa
     };
     let mut secrets = fixed(PointSourceKind::Secrets);
     for player in &state.players {
-        // The same test as `crate::secret_objectives`, without an objective that is public now.
+        // The same test as `crate::view::secret_objectives`, without an objective that is public now.
         let scored: BTreeSet<&str> = state
             .scored_objectives
             .get(&player.id)
@@ -284,10 +284,10 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
         let template =
-            crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::view::maps::default_template_for(content, &loader, 6, POK).expect("a template");
+        crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
             .expect("a game")
             .0
     }

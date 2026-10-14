@@ -30,11 +30,11 @@ pub use ti4_host::planning::{
     AttemptIdentity, FailureCategory, PlanningEnvelope, PlanningUpdate, PlayerPlan, Progress,
     SubmissionError,
 };
-pub use ti4_view::planning::audit::{
+pub use ti4_host::view::planning::audit::{
     ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION, SafePublication, StopReason,
 };
-use ti4_view::planning::audit::{audit_offer, audit_secondary_offer, validate_knowledge};
-use ti4_view::planning::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
+use ti4_host::view::planning::audit::{audit_offer, audit_secondary_offer, validate_knowledge};
+use ti4_host::view::planning::fork::{TACTICAL_COMPLETE, activity_stop, guard_fork};
 
 enum Input {
     Answer(String),

@@ -23,5 +23,6 @@ pub mod rng_force;
 pub mod setup;
 pub mod state_update;
 pub mod step_snapshot;
+pub mod view;
 
 pub use protocol::*;

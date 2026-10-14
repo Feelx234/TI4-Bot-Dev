@@ -103,10 +103,10 @@ impl SecondaryDraft {
 
     /// What the game is asked to play: the answers by their ids.
     #[must_use]
-    pub fn script(&self) -> Vec<ti4_view::planning::draft::DraftStep> {
+    pub fn script(&self) -> Vec<ti4_host::view::planning::draft::DraftStep> {
         self.answers
             .iter()
-            .map(|answer| ti4_view::planning::draft::DraftStep::choose(&answer.id))
+            .map(|answer| ti4_host::view::planning::draft::DraftStep::choose(&answer.id))
             .collect()
     }
 }
@@ -240,8 +240,8 @@ mod tests {
         assert_eq!(
             draft.script(),
             vec![
-                ti4_view::planning::draft::DraftStep::choose("follow"),
-                ti4_view::planning::draft::DraftStep::choose("tech:gravity_drive"),
+                ti4_host::view::planning::draft::DraftStep::choose("follow"),
+                ti4_host::view::planning::draft::DraftStep::choose("tech:gravity_drive"),
             ]
         );
         // The movement of a draft is no draft of a secondary.

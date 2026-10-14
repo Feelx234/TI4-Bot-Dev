@@ -4,11 +4,11 @@ use std::collections::BTreeMap;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::Choice;
 use ti4_model::state::GameState;
-use ti4_view::secondary::SecondaryWatch;
+use crate::view::secondary::SecondaryWatch;
 
-pub use ti4_view::projection::*;
+pub use crate::view::projection::*;
 
-use ti4_view::map::GalaxyLayout;
+use crate::view::map::GalaxyLayout;
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{GameEvent, InitialSnapshotMsg, StateUpdateMsg};
 use crate::protocol::status::ViewerRole;

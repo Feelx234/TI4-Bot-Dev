@@ -85,7 +85,7 @@ impl TemplateLoader {
             .get_or_init(|| {
                 // Try to load from the relative path to the content directory
                 // The path is relative to the workspace root when building
-                let json_str = include_str!("../../../ti4-content/content/map_templates.json");
+                let json_str = include_str!("../../../../ti4-content/content/map_templates.json");
                 let mut all: Vec<MapTemplate> = serde_json::from_str(json_str)
                     .map_err(|e| format!("Failed to parse map templates: {}", e))?;
                 let community: Vec<MapTemplate> =

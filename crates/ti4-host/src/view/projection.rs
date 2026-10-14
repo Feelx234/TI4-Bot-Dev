@@ -11,8 +11,8 @@ use ti4_model::view::{HIDDEN, redact_player, view_for};
 
 use serde::{Deserialize, Serialize};
 
-use crate::status::{PublicTurnStatus, ViewerRole};
-use crate::view::{
+use crate::view::status::{PublicTurnStatus, ViewerRole};
+use crate::view::view::{
     BoardTileView, BoardView, GameView, ObjectiveProgressView, PlacedUnitView, PlanetView,
     PlayerView, SystemView, TableView,
 };
@@ -70,8 +70,8 @@ pub fn project_player_view(player: &Player) -> PlayerView {
 pub fn project_combat_view(
     state: &GameState,
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::CombatDieRoll],
-) -> Option<crate::view::CombatView> {
+    dice_rolls: &[crate::view::view::CombatDieRoll],
+) -> Option<crate::view::view::CombatView> {
     project_combat_view_for(state, pending_choice, dice_rolls, None)
 }
 
@@ -81,9 +81,9 @@ pub fn project_combat_view(
 pub fn project_combat_view_for(
     state: &GameState,
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::CombatDieRoll],
+    dice_rolls: &[crate::view::view::CombatDieRoll],
     viewer: Option<&ViewerRole>,
-) -> Option<crate::view::CombatView> {
+) -> Option<crate::view::view::CombatView> {
     let pending_choice = pending_choice.filter(|choice| {
         !is_reaction_window(choice) || viewer.is_some_and(|v| v.is_actor(&choice.player))
     });
@@ -96,13 +96,13 @@ pub fn project_combat_view_for(
     let attacker_hits = state.combat_round_hits.get(&attacker).copied();
     let defender_hits = state.combat_round_hits.get(&defender).copied();
 
-    let dice_rolls: Vec<crate::view::CombatDieRoll> = if !dice_rolls.is_empty() {
+    let dice_rolls: Vec<crate::view::view::CombatDieRoll> = if !dice_rolls.is_empty() {
         dice_rolls.to_vec()
     } else {
         state
             .combat_round_dice
             .iter()
-            .map(|r| crate::view::CombatDieRoll {
+            .map(|r| crate::view::view::CombatDieRoll {
                 player: Some(r.player.clone()),
                 unit: r.unit.clone(),
                 roll: r.roll,
@@ -137,7 +137,7 @@ pub fn project_combat_view_for(
             })
         });
 
-    Some(crate::view::CombatView {
+    Some(crate::view::view::CombatView {
         system_id: sys_id,
         round: state.combat_presentation.round.max(1),
         battle_seq: state.combat_presentation.battle_seq,
@@ -171,7 +171,7 @@ pub fn project_combat_view_for(
             .combat_presentation
             .barrage_dice
             .iter()
-            .map(|r| crate::view::CombatDieRoll {
+            .map(|r| crate::view::view::CombatDieRoll {
                 player: Some(r.player.clone()),
                 unit: r.unit.clone(),
                 roll: r.roll,
@@ -222,7 +222,7 @@ pub fn project_board_view_full(
     state: &GameState,
     map_tiles: &[BoardTileView],
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::CombatDieRoll],
+    dice_rolls: &[crate::view::view::CombatDieRoll],
     viewer: Option<&ViewerRole>,
 ) -> BoardView {
     let mut systems = BTreeMap::new();
@@ -383,7 +383,7 @@ pub fn project_board_view_full(
                 }
                 odds_context.insert(
                     planet.clone(),
-                    crate::view::InvasionOddsContext {
+                    crate::view::view::InvasionOddsContext {
                         opponent,
                         available,
                         ground_force_types,
@@ -402,14 +402,14 @@ pub fn project_board_view_full(
             return None;
         }
 
-        Some(crate::view::InvasionView {
+        Some(crate::view::view::InvasionView {
             system_id: active.system.clone(),
             invasion_seq: active.seq,
             invader: active.invader.clone(),
             phase: active.phase.clone(),
             planets: systems
                 .get(&active.system)
-                .map_or_else(Vec::new, |system: &crate::view::SystemView| {
+                .map_or_else(Vec::new, |system: &crate::view::view::SystemView| {
                     system.planets.keys().cloned().collect()
                 }),
             current_planet: active.planet.clone(),
@@ -424,7 +424,7 @@ pub fn project_board_view_full(
                     damaged: unit.sustained_damage,
                     galvanized: unit.galvanized,
                 };
-                crate::view::InvasionStepView {
+                crate::view::view::InvasionStepView {
                     planet: step.planet.clone(),
                     kind: step.kind.clone(),
                     round: step.round,
@@ -547,11 +547,11 @@ pub fn project_secret_progress(
 /// Push Boundaries' per-neighbour planet comparison for `position.player`, in seating order.
 fn neighbour_progress_views(
     position: &ti4_engine::objectives::Position<'_>,
-) -> Vec<crate::view::NeighbourProgressView> {
+) -> Vec<crate::view::view::NeighbourProgressView> {
     ti4_engine::objectives::neighbour_planet_counts(position)
         .unwrap_or_default()
         .into_iter()
-        .map(|row| crate::view::NeighbourProgressView {
+        .map(|row| crate::view::view::NeighbourProgressView {
             ahead: row.ahead(),
             mine: u32::try_from(row.mine).unwrap_or(0),
             theirs: u32::try_from(row.theirs).unwrap_or(0),
@@ -660,7 +660,7 @@ pub fn project_game_view_full(
     viewer: &ViewerRole,
     map_tiles: &[BoardTileView],
     pending_choice: Option<&Choice>,
-    dice_rolls: &[crate::view::CombatDieRoll],
+    dice_rolls: &[crate::view::view::CombatDieRoll],
 ) -> GameView {
     let redacted = redacted_state(state, viewer);
     let players = redacted
@@ -847,41 +847,41 @@ pub struct SessionUpdate {
     pub pending_choice: Option<PendingChoiceEnvelope>,
     pub turn_status: PublicTurnStatus,
     /// What the viewer needs to stage the pending choice of a tactical action. It is there
-    /// for the seat that is asked, on a game that has its map ([`crate::tactical`]).
+    /// for the seat that is asked, on a game that has its map ([`crate::view::tactical`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tactical: Option<crate::tactical::TacticalFacts>,
+    pub tactical: Option<crate::view::tactical::TacticalFacts>,
     /// The exploration decks and the planets that are still explored, on a game that has its
-    /// map ([`crate::exploration`]).
+    /// map ([`crate::view::exploration`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exploration: Option<crate::exploration::ExplorationFacts>,
+    pub exploration: Option<crate::view::exploration::ExplorationFacts>,
     /// The action card deck, its discard pile and the hand limit of the viewer
-    /// ([`crate::action_cards`]).
+    /// ([`crate::view::action_cards`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action_cards: Option<crate::action_cards::ActionCardFacts>,
+    pub action_cards: Option<crate::view::action_cards::ActionCardFacts>,
     /// The secret objective deck and what each seat has scored of it
-    /// ([`crate::secret_objectives`]).
+    /// ([`crate::view::secret_objectives`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_objectives: Option<crate::secret_objectives::SecretObjectiveFacts>,
-    /// Where the victory points of every seat come from ([`crate::score`]).
+    pub secret_objectives: Option<crate::view::secret_objectives::SecretObjectiveFacts>,
+    /// Where the victory points of every seat come from ([`crate::view::score`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub score: Option<crate::score::ScoreFacts>,
-    /// The agenda deck ([`crate::agendas`]).
+    pub score: Option<crate::view::score::ScoreFacts>,
+    /// The agenda deck ([`crate::view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agendas: Option<crate::agendas::AgendaFacts>,
+    pub agendas: Option<crate::view::agendas::AgendaFacts>,
     /// The strategic action that is resolved now, from the card that is played to the last
-    /// follower ([`crate::secondary`]). It is there when the host follows its game
+    /// follower ([`crate::view::secondary`]). It is there when the host follows its game
     /// ([`FactsContext::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<crate::secondary::SecondaryFacts>,
+    pub secondary: Option<crate::view::secondary::SecondaryFacts>,
     /// The reaction window that the viewer is asked in, with what it offers as printed
-    /// ([`crate::reaction`]).
+    /// ([`crate::view::reaction`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reaction: Option<crate::reaction::ReactionFacts>,
-    /// Who sits in each seat: the name of its player and who plays it ([`crate::seats::SeatFact`]).
+    pub reaction: Option<crate::view::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it ([`crate::view::seats::SeatFact`]).
     /// It is of the table and not of the game, so the host of the game sets it; a game with no
     /// table has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seats: Option<crate::seats::TableSeats>,
+    pub seats: Option<crate::view::seats::TableSeats>,
 }
 
 /// What the facts of an update are made from, beside the state of the game.
@@ -893,7 +893,7 @@ pub struct FactsContext<'a> {
     pub galaxy: Option<&'a Galaxy>,
     /// The strategic action of the game, as its host follows it. Without it an update has no
     /// `secondary`: a copy of the game for a draft has none.
-    pub secondary: Option<&'a crate::secondary::SecondaryWatch>,
+    pub secondary: Option<&'a crate::view::secondary::SecondaryWatch>,
 }
 
 /// Projects what `viewer` is shown of `state` while the game waits in `pending_choice`.
@@ -939,26 +939,26 @@ pub fn fill_facts(update: &mut SessionUpdate, state: &GameState, context: &Facts
         secondary,
     } = *context;
     update.tactical = update.pending_choice.as_ref().and_then(|pending| {
-        crate::tactical::project_tactical_facts(state, content, sources, galaxy?, &pending.choice)
+        crate::view::tactical::project_tactical_facts(state, content, sources, galaxy?, &pending.choice)
     });
     update.exploration = galaxy.map(|galaxy| {
-        crate::exploration::project_exploration_facts(state, content, sources, galaxy)
+        crate::view::exploration::project_exploration_facts(state, content, sources, galaxy)
     });
-    update.action_cards = Some(crate::action_cards::project_action_card_facts(
+    update.action_cards = Some(crate::view::action_cards::project_action_card_facts(
         state,
         content,
         &update.viewer,
     ));
-    update.secret_objectives = Some(crate::secret_objectives::project_secret_objective_facts(
+    update.secret_objectives = Some(crate::view::secret_objectives::project_secret_objective_facts(
         state, content,
     ));
-    update.score = Some(crate::score::project_score_facts(state, content));
-    update.agendas = Some(crate::agendas::project_agenda_facts(state));
+    update.score = Some(crate::view::score::project_score_facts(state, content));
+    update.agendas = Some(crate::view::agendas::project_agenda_facts(state));
     update.secondary = secondary.and_then(|watch| watch.facts(state, content, &update.viewer));
     update.reaction = update
         .pending_choice
         .as_ref()
-        .and_then(|pending| crate::reaction::project_reaction_facts(content, &pending.choice));
+        .and_then(|pending| crate::view::reaction::project_reaction_facts(content, &pending.choice));
 }
 
 #[cfg(test)]

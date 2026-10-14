@@ -8,14 +8,14 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
+use ti4_host::view::planning::draft::DraftStep;
+use ti4_host::view::planning::steps::PlanStep;
 use ti4_model::id::PlayerId;
 use ti4_server::protocol::PROTOCOL_VERSION;
 use ti4_server::protocol::client::ClientMessage;
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::{RejectionReason, UndoBarrier, ViewerRole};
 use ti4_server::session::{GameRegistry, GameSession};
-use ti4_view::planning::draft::DraftStep;
-use ti4_view::planning::steps::PlanStep;
 
 use crate::draft_scripts::{
     asked, config, movement_script, next_message, passive, ships_at, subtype, to_the_turn_menu,

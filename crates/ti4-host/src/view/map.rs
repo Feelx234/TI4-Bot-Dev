@@ -9,7 +9,7 @@ use ti4_model::content_types::{FULL, POK, SourceSet};
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::GameState;
 
-use crate::view::{BoardTileView, PlanetMetaView};
+use crate::view::view::{BoardTileView, PlanetMetaView};
 
 /// Stable, reconstructible galaxy geometry for stateless consumers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -420,10 +420,10 @@ pub fn create_game_with_template_seated(
         return create_game_with_map_seated(content, player_ids, seed, assignments, card_set)
             .map_err(|e| e.to_string());
     };
-    let loader = crate::maps::TemplateLoader::load()?;
+    let loader = crate::view::maps::TemplateLoader::load()?;
     let template = loader
         .get(alias)
-        .ok_or_else(|| crate::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
+        .ok_or_else(|| crate::view::maps::TemplateError::Unknown(alias.to_owned()).to_string())?;
 
     let mut state = start_game_seeded_with_card_set(content, player_ids, POK, None, seed, card_set)
         .map_err(|e| e.to_string())?;
@@ -440,7 +440,7 @@ pub fn create_game_with_template_seated(
         })
         .collect::<Result<_, _>>()
         .map_err(|e| e.to_string())?;
-    let galaxy = crate::maps::build_template_galaxy(content, template, &homes, seed, POK)
+    let galaxy = crate::view::maps::build_template_galaxy(content, template, &homes, seed, POK)
         .map_err(|e| e.to_string())?;
     // Setup rule: objectives this board can never satisfy are dealt out of the decks.
     ti4_engine::map_feasibility::apply(&mut state, content, POK, &galaxy);
@@ -558,9 +558,9 @@ mod template_tests {
     #[test]
     fn seven_and_eight_players_get_a_board_with_a_home_for_every_seat() {
         let content = ContentStore::embedded();
-        let loader = crate::maps::TemplateLoader::load().unwrap();
+        let loader = crate::view::maps::TemplateLoader::load().unwrap();
         for n in [7, 8] {
-            let alias = crate::maps::default_template_for(content, &loader, n, POK)
+            let alias = crate::view::maps::default_template_for(content, &loader, n, POK)
                 .unwrap_or_else(|| panic!("no template builds for {n} players"));
             let (state, galaxy) =
                 create_game_with_template(content, &players(n), 4, Some(&alias)).unwrap();
@@ -587,10 +587,10 @@ mod template_tests {
     #[test]
     fn a_new_game_never_holds_an_objective_its_map_rules_out() {
         let content = ContentStore::embedded();
-        let loader = crate::maps::TemplateLoader::load().unwrap();
+        let loader = crate::view::maps::TemplateLoader::load().unwrap();
         for n in 3..=6usize {
             let list: Vec<PlayerId> = (0..n).map(|i| PlayerId::new(format!("p{i}"))).collect();
-            let default = crate::maps::default_template_for(content, &loader, n, POK);
+            let default = crate::view::maps::default_template_for(content, &loader, n, POK);
             for template in [None, default.as_deref()] {
                 for seed in 0..6 {
                     let (state, galaxy) =

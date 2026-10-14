@@ -241,7 +241,7 @@ pub struct PlayerLobbyRecord {
     /// value of the process (`TI4_RANDOM_BOT_DELAY_MS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_delay_ms: Option<u64>,
-    /// The scenario of `ti4_view::scenario` that the game starts from. Absent: round 1.
+    /// The scenario of `ti4_host::view::scenario` that the game starts from. Absent: round 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_from: Option<String>,
     pub lobby_version: u64,
@@ -1089,8 +1089,9 @@ impl FileGameStore {
         let content = ContentStore::embedded();
         let galaxy = if let Some(scenario) = start_from {
             // A game that started from a scenario is played on the map of the scenario.
-            let (_, g) = ti4_view::scenario::start(content, scenario, &init_record.player_ids)
-                .map_err(StorageError::Map)?;
+            let (_, g) =
+                ti4_host::view::scenario::start(content, scenario, &init_record.player_ids)
+                    .map_err(StorageError::Map)?;
             Some(g)
         } else if let Some(seed) = init_record.seed {
             let g = crate::map::rebuild_galaxy(

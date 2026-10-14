@@ -13,9 +13,9 @@ use ti4_engine::game::Game;
 use ti4_engine::seating;
 use ti4_host::card_set;
 use ti4_host::maps::catalog::{self, MapChoice};
+use ti4_host::view::map::SpeakerOrder;
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
-use ti4_view::map::SpeakerOrder;
 
 use crate::SEATS;
 
@@ -54,7 +54,7 @@ pub struct Setup {
     /// `"seat"` (the first seat opens) or `"random"`. Left out: the lobby's default.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<String>,
-    /// A prepared board of `ti4_view::scenario` (its seed and players win).
+    /// A prepared board of `ti4_host::view::scenario` (its seed and players win).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<String>,
     /// `"rule"` (the default) or `"random"`: who plays the seats of the others.
@@ -130,7 +130,7 @@ impl Setup {
         let mut setup = self.clone();
         if let Some(id) = &setup.scenario {
             let scenario =
-                ti4_view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
+                ti4_host::view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
             setup.seed = scenario.seed;
             setup.players = scenario.players;
         } else if !(MIN_PLAYERS..=MAX_PLAYERS).contains(&setup.players) {
@@ -186,7 +186,7 @@ impl Setup {
         let human = setup.human_seat.expect("resolved sets the seat");
         let ids: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
         let (state, galaxy) = if let Some(scenario) = &setup.scenario {
-            ti4_view::scenario::start(content, scenario, &ids)?
+            ti4_host::view::scenario::start(content, scenario, &ids)?
         } else {
             let template = match setup.map.as_deref() {
                 None => catalog::recommended_for(players),
@@ -301,7 +301,7 @@ pub fn describe() -> serde_json::Value {
         ],
         "maps": maps,
         "presets": ti4_host::preset::KNOWN,
-        "scenarios": ti4_view::scenario::SCENARIOS,
+        "scenarios": ti4_host::view::scenario::SCENARIOS,
         "content_digest": ti4_content::provenance::embedded_digest().corpus,
         "engine_build": env!("CARGO_PKG_VERSION"),
     })

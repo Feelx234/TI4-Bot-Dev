@@ -33,8 +33,8 @@ use ti4_host::parse_client_message;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
 use ti4_host::protocol::server::{DraftOutcomeMsg, ProtocolErrorMsg, ServerMessage};
+use ti4_host::view::planning::draft::DraftStop;
 use ti4_model::state::{GameState, ReactionMode};
-use ti4_view::planning::draft::DraftStop;
 
 use crate::host_session::{
     Handled, HostSession, Identity, LocalCommand, Restart, Resume, Scripted, decisions_hash,
@@ -266,7 +266,7 @@ pub fn query(len: usize) -> i32 {
             player_count,
             variant,
         } => crate::host_setup::map_preview(&choice, player_count, variant),
-        Query::Catalog => serde_json::to_value(ti4_view::components::catalog(
+        Query::Catalog => serde_json::to_value(ti4_host::view::components::catalog(
             ti4_content::ContentStore::embedded(),
             ti4_model::content_types::POK,
         ))
@@ -310,7 +310,7 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         setup: serde_json::to_value(&built.setup).map_err(|error| error.to_string())?,
     };
     let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
-        ti4_view::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)
+        ti4_host::view::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)
     });
     let never = crate::NEVER.clone();
     {
@@ -572,7 +572,7 @@ pub fn command(len: usize) -> i32 {
             Ok(message) => {
                 session.client_message(message, &mut |script| match crate::draft_outcome(
                     script,
-                    &ti4_view::planning::audit::PlanScope::default(),
+                    &ti4_host::view::planning::audit::PlanScope::default(),
                 ) {
                     Ok(outcome) => match outcome.stop {
                         DraftStop::Refused { reason, .. } => Some(reason),
@@ -597,8 +597,8 @@ pub fn command(len: usize) -> i32 {
 fn run_draft(
     session: &mut HostSession,
     request_id: &str,
-    script: &[ti4_view::planning::draft::DraftStep],
-    scope: &ti4_view::planning::audit::PlanScope,
+    script: &[ti4_host::view::planning::draft::DraftStep],
+    scope: &ti4_host::view::planning::audit::PlanScope,
 ) {
     let message = match crate::draft_outcome(script, scope) {
         Ok(outcome) => ServerMessage::DraftOutcome(DraftOutcomeMsg {

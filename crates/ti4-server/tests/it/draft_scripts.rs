@@ -1,6 +1,6 @@
 //! The two script messages: a draft that is run on a copy of the game (`RunDraft`), and a
 //! script that is sent to the live game (`ApplyDraft`). The scripts are those of the tests of
-//! `ti4_view::planning::draft`, played against a session.
+//! `ti4_host::view::planning::draft`, played against a session.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -11,6 +11,10 @@ use tokio_tungstenite::tungstenite::Message;
 
 use ti4_content::ContentStore;
 use ti4_engine::choice::Choice;
+use ti4_host::view::planning::audit::PlanScope;
+use ti4_host::view::planning::draft::{DraftOutcome, DraftStep, DraftStop};
+use ti4_host::view::planning::steps::PlanStep;
+use ti4_host::view::tactical::TacticalFacts;
 use ti4_model::content_types::POK;
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_server::protocol::PROTOCOL_VERSION;
@@ -18,10 +22,6 @@ use ti4_server::protocol::client::ClientMessage;
 use ti4_server::protocol::server::ServerMessage;
 use ti4_server::protocol::status::{RejectionReason, ViewerRole};
 use ti4_server::session::{GameRegistry, GameSession, MockClient, SeatController, SessionConfig};
-use ti4_view::planning::audit::PlanScope;
-use ti4_view::planning::draft::{DraftOutcome, DraftStep, DraftStop};
-use ti4_view::planning::steps::PlanStep;
-use ti4_view::tactical::TacticalFacts;
 
 const DEADLINE: Duration = Duration::from_secs(60);
 

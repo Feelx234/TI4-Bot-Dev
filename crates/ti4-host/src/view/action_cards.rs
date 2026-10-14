@@ -1,6 +1,6 @@
 //! What a client is shown of the action cards beside its own hand: how many cards the deck still
 //! holds, the discard pile, and the hand limit of the viewer. The printed cards and the deck that
-//! a game begins with are in the catalogue ([`crate::components`]).
+//! a game begins with are in the catalogue ([`crate::view::components`]).
 //!
 //! Nothing here decides a rule. The hand limit is the one that the engine enforces.
 
@@ -9,7 +9,7 @@ use ti4_content::ContentStore;
 use ti4_model::id::ActionCardId;
 use ti4_model::state::GameState;
 
-use crate::status::ViewerRole;
+use crate::view::status::ViewerRole;
 
 /// The action cards as every player at the table sees them, and the hand limit of the viewer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,10 +67,10 @@ mod tests {
             .iter()
             .map(|name| PlayerId::new(*name))
             .collect();
-        let loader = crate::maps::TemplateLoader::load().expect("the templates load");
+        let loader = crate::view::maps::TemplateLoader::load().expect("the templates load");
         let template =
-            crate::maps::default_template_for(content, &loader, 6, POK).expect("a template");
-        crate::map::create_game_with_template(content, &ids, 42, Some(&template))
+            crate::view::maps::default_template_for(content, &loader, 6, POK).expect("a template");
+        crate::view::map::create_game_with_template(content, &ids, 42, Some(&template))
             .expect("a game")
             .0
     }
@@ -89,7 +89,7 @@ mod tests {
             .iter()
             .map(|player| player.action_cards.len())
             .sum();
-        let printed = crate::components::component_catalog(content, POK).action_cards;
+        let printed = crate::view::components::component_catalog(content, POK).action_cards;
 
         assert_eq!(facts.deck + held, printed.len());
         assert!(facts.discard.is_empty());

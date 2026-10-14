@@ -86,8 +86,8 @@ pub(crate) struct SessionPlanning {
     // Kept apart from tactical applications: a seat may hold both drafts.
     secondary_applications: BTreeMap<PlayerId, Application>,
     /// The strategic action that is resolved, for the facts of an update and for a draft of a
-    /// secondary that is run from a script (`ti4_view::secondary`).
-    pub(crate) watch: ti4_view::secondary::SecondaryWatch,
+    /// secondary that is run from a script (`ti4_host::view::secondary`).
+    pub(crate) watch: ti4_host::view::secondary::SecondaryWatch,
 }
 
 impl SessionPlanning {
@@ -103,7 +103,7 @@ impl SessionPlanning {
             applications: BTreeMap::new(),
             secondary: None,
             secondary_applications: BTreeMap::new(),
-            watch: ti4_view::secondary::SecondaryWatch::default(),
+            watch: ti4_host::view::secondary::SecondaryWatch::default(),
         }
     }
 

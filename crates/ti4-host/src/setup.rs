@@ -14,8 +14,8 @@ use ti4_engine::seating;
 use ti4_model::id::{FactionId, PlayerId};
 use ti4_model::state::GameState;
 
-use ti4_view::map::{SpeakerOrder, create_game_with_template_seated};
-use ti4_view::scenario::{self, Scenario};
+use crate::view::map::{SpeakerOrder, create_game_with_template_seated};
+use crate::view::scenario::{self, Scenario};
 
 use crate::maps::catalog::{self, MapChoice, MapPreview};
 
@@ -79,7 +79,7 @@ pub mod bot_kind {
 
 /// Who sits in each seat of a running game. The update of a game carries it, so it is in
 /// `ti4-view`.
-pub use ti4_view::seats::{HUMAN_KIND, SeatFact, TableSeats};
+pub use crate::view::seats::{HUMAN_KIND, SeatFact, TableSeats};
 
 /// How the players of a table get their seats at Start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -146,7 +146,7 @@ pub struct TableSetup {
     pub seat_order: SeatOrder,
     #[serde(default)]
     pub speaker_order: SpeakerOrder,
-    /// The id of a scenario of [`ti4_view::scenario`]: the table starts that game, with its seed,
+    /// The id of a scenario of [`crate::view::scenario`]: the table starts that game, with its seed,
     /// its seats, its map, its cards and its factions. `None` is round 1.
     #[serde(default)]
     pub start_from: Option<String>,
@@ -598,7 +598,7 @@ mod tests {
 
         let players = drawn.seated(&ids(4));
         let by_seat: Vec<Option<String>> = drawn.seated(&chosen);
-        let factions = ti4_view::map::lobby_seat_factions(&by_seat, 9).unwrap();
+        let factions = crate::view::map::lobby_seat_factions(&by_seat, 9).unwrap();
         let assignments: BTreeMap<PlayerId, FactionId> =
             players.iter().cloned().zip(factions).collect();
         let (mut expected, _) = create_game_with_template_seated(

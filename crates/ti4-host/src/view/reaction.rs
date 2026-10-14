@@ -8,7 +8,7 @@
 //! finds the printed card of any option, and no window needs code of its own.
 //!
 //! The same resolver names the *key* of an option: what a seat mutes when it mutes a reaction
-//! ([`crate::reaction_modes`]). An ability that hangs on several events has one key.
+//! ([`crate::view::reaction_modes`]). An ability that hangs on several events has one key.
 
 use serde::{Deserialize, Serialize};
 use ti4_content::{ContentStore, Record};

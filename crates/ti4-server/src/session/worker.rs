@@ -136,7 +136,7 @@ pub struct SessionShared {
     pub(crate) undo: super::undo::UndoTrack,
     /// The steps that the undo before this session took back, for the first snapshot of each
     /// connection of the seat ([`super::GameSession::undone_for`]), until the seat decides again.
-    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
+    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_host::view::planning::steps::PlanStep>>,
     /// The length of the log that the undo left: a decision after it is new.
     pub(crate) undone_from: usize,
     /// What each seat has staged ([`super::staged`]): the book of the session's config, for the
@@ -467,7 +467,7 @@ impl SessionShared {
         seat: &PlayerId,
         expected_version: u64,
     ) -> Result<
-        (usize, Vec<ti4_view::planning::steps::PlanStep>),
+        (usize, Vec<ti4_host::view::planning::steps::PlanStep>),
         crate::protocol::status::RejectionReason,
     > {
         use crate::protocol::status::RejectionReason;
@@ -967,7 +967,7 @@ fn is_action_card_name(name: &str) -> bool {
 }
 
 /// Whether `key` is the key of the card of an ability: one of the kinds of
-/// `ti4_view::reaction`, then the id of a record.
+/// `ti4_host::view::reaction`, then the id of a record.
 fn is_ability_key(key: &str) -> bool {
     key.split_once(':').is_some_and(|(kind, id)| {
         matches!(

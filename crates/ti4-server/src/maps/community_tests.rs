@@ -15,7 +15,7 @@ use super::template_loader::{MapTemplate, TemplateLoader};
 
 fn community() -> Vec<MapTemplate> {
     serde_json::from_str(include_str!(
-        "../../../ti4-view/src/maps/community_maps.json"
+        "../../../ti4-host/src/view/maps/community_maps.json"
     ))
     .expect("community_maps.json parses")
 }
