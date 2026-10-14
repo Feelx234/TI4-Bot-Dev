@@ -722,7 +722,7 @@ fn main() {
         .unwrap_or_else(|| vec!["hacan".to_owned()]);
     let upgrades = std::env::args().any(|arg| arg == "--upgrades");
 
-    let roster: Vec<&'static str> = ti4_training::battle_arena::Profile::wide(content, false)
+    let roster: Vec<&'static str> = ti4_training::wide_profiles(content, false)
         .into_iter()
         .map(|profile| profile.faction)
         .collect();

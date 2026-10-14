@@ -59,34 +59,6 @@ impl Profile {
         ),
     ];
 
-    /// Every faction a game can seat (the wide roster, the three Council Keleres listed apart),
-    /// with and without upgrades when asked: the arena of battle feature version 8.
-    #[must_use]
-    pub fn wide(content: &ContentStore, upgrades: bool) -> Vec<Self> {
-        let mut factions: Vec<&'static str> = Vec::new();
-        for entry in ti4_engine::seating::wide_roster(content, SOURCES) {
-            if entry == ti4_engine::seating::KELERES_FAMILY {
-                factions.extend(ti4_engine::factions::keleres::VARIANTS);
-            } else {
-                factions.push(entry);
-            }
-        }
-        let mut out = Vec::new();
-        for faction in factions {
-            out.push(Self {
-                faction,
-                upgraded: false,
-            });
-            if upgrades {
-                out.push(Self {
-                    faction,
-                    upgraded: true,
-                });
-            }
-        }
-        out
-    }
-
     /// Every catalogue faction, with and without upgrades when asked.
     #[must_use]
     pub fn all(upgrades: bool) -> Vec<Self> {
@@ -1226,7 +1198,20 @@ mod wide_tests {
     #[test]
     fn every_seatable_faction_fields_legal_fleets() {
         let content = ContentStore::embedded();
-        let profiles = Profile::wide(content, true);
+        // The wide roster (the engine is a dev-dependency only), Keleres variants apart.
+        let profiles: Vec<Profile> = ti4_engine::seating::wide_roster(content, SOURCES)
+            .into_iter()
+            .flat_map(|entry| {
+                if entry == ti4_engine::seating::KELERES_FAMILY {
+                    ti4_engine::factions::keleres::VARIANTS.to_vec()
+                } else {
+                    vec![entry]
+                }
+            })
+            .flat_map(|faction| {
+                [false, true].map(|upgraded| Profile { faction, upgraded })
+            })
+            .collect();
         assert!(profiles.len() >= 60, "{} profiles", profiles.len());
         for profile in profiles {
             let fleets = compositions(content, profile, 2, 2);
