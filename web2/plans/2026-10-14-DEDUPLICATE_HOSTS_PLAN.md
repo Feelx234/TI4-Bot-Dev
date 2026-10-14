@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: item 1 done (2026-10-14), items 2–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–2 done (2026-10-14), items 3–11 open.
 
 ## Context
 
@@ -190,25 +190,27 @@ Starts after Step 5 is committed.
 1. **Shims.** (Done.) The users of the `session/mod.rs` re-exports (`smart_bot`,
    `smart_bot_faction_plans`, `batch`, `replay`, `rng_force`, `step_snapshot`, `replay_session*`,
    `RngForce`, `RngMarks`) import them from `ti4_host::…` / `ti4_rule_bot::…`; the shims are gone.
-2. **Delete the planning runner (I).**
-   - Delete `ti4-server/src/planning/`, the six planning `ClientMessage`s and their handlers
-     (`ws/mod.rs`, `session/mod.rs` `submit_planning_choice*` …, `registry.rs`), the
-     `planning_status`/`planning_update`/`planning_result` messages, `ti4_host::planning::wire`
-     (`PlayerPlan`, `AttemptIdentity`, `PlanningEnvelope`, `PlanningUpdate`, `Progress`,
-     `FailureCategory`, `SubmissionError`), `DraftApplication`/`SecondaryDraftStatus` when they are
-     left without a user, and the tests `planning_runner`, `planning`, `session_planning`,
-     `session_secondary_planning`, `secondary_planning_runner`, `planning_transport` (+ their cases in
-     `protocol_roundtrip`, `ws_lifecycle`).
-   - Keep `ti4_host::planning::{draft, audit, fork, steps, undo}` (the draft uses `audit_offer`,
-     `validate_knowledge`, `guard_fork`, `activity_stop`), and keep `RecordingDecider`/`ReplayDecider`
-     (`replay.rs`, `ti4-mlp/examples/capture_offline_pilot.rs`).
-   - `session/planning.rs` becomes a `DraftBasis`: `completed_step`, `fork()` (the checkpoint
-     factory) and `watch: SecondaryWatch`, as `run_draft_on` and `ready_secondary` use them. The hooks
-     in `worker.rs` go (`application_option`, `application_answered`, `announce_primary`,
-     `begin_secondary_application`).
-   - Clients: remove the `planning_*` types and ignore lists (`web2/src/session/wire.ts`,
-     `web/src/protocol/client.ts` + test, `web/src/offline/local/LocalTransport.ts`). Bump
-     `PROTOCOL_VERSION`.
+2. **Delete the planning runner (I).** (Done.)
+   - `ti4-server/src/planning/` is gone, with the six planning `ClientMessage`s and their handlers
+     (`ws/mod.rs`, `session/mod.rs`, `registry.rs`), the `planning_status`/`planning_update`/
+     `planning_result` messages, `ti4_host::planning::wire`, `DraftApplication`,
+     `SecondaryDraftStatus`, `DraftKind`, `PlanningRejection`, `SessionConfig::plans`, and the tests
+     `planning_runner`, `session_planning`, `session_secondary_planning`,
+     `secondary_planning_runner`, `planning_transport` (+ their cases in `protocol_roundtrip`,
+     `ws_lifecycle`). `protocol_roundtrip` checks that the old message types are unknown.
+   - Kept: `ti4_host::planning::{draft, audit, fork, steps, undo}` and the recorders
+     (`RecordingDecider`/`ReplayDecider`, used by `replay.rs` and
+     `ti4-mlp/examples/capture_offline_pilot.rs`), with their test `planning`. The helpers that
+     play a strategic action to its followers and the test of a secondary drafted as a script are
+     in `tests/it/secondary_draft.rs` (`ready_secondary` uses the helpers).
+   - `session/draft_basis.rs::DraftBasis` replaces `session/planning.rs`: `completed_step`,
+     `fork()` (the checkpoint factory), `close` and `watch: SecondaryWatch`, as `run_draft_on`,
+     `apply_draft` and `ready_secondary` use them. The worker binds the watch to the game
+     (`SecondaryWatch::bind`); the decider hooks (`application_option`, `application_answered`,
+     `begin_secondary_application`) are gone.
+   - Clients: the `planning_*` types and ignore lists are gone (`web2/src/session/wire.ts`,
+     `web/src/protocol/client.ts` + test, `web/src/offline/local/LocalTransport.ts`).
+     `PROTOCOL_VERSION` is 4.
 3. **Submission check.** `ti4_host::protocol::check_submission(pending, nonce, pending_nonce,
    expected, current, option_id) -> Result<(), RejectionReason>`. Both hosts call it. The seat and
    reservation checks stay in the server.

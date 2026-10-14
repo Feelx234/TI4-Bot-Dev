@@ -76,80 +76,32 @@ fn staged_work_is_asked_for_and_written_in_the_form_that_web2_sends() {
 }
 
 #[test]
-fn movement_edit_round_trips_with_only_a_server_script_identity() {
-    let message = ClientMessage::EditPlanningMovement {
-        protocol_version: PROTOCOL_VERSION,
-        game_id: "game_abc".into(),
-        identity: ti4_host::planning::wire::AttemptIdentity {
-            checkpoint_id: 10,
-            plan_revision: 4,
-            generation_id: 2,
-        },
-    };
-    let json = serde_json::to_string(&message).unwrap();
-    assert_eq!(parse_client_message(&json).unwrap(), message);
-    assert!(format!("{message:?}").contains("EditPlanningMovement"));
-    let mut injected = serde_json::to_value(message).unwrap();
-    injected["recorded_decisions"] = serde_json::json!([]);
-    assert!(parse_client_message(&injected.to_string()).is_err());
-}
-
-#[test]
-fn planning_updates_and_results_round_trip_without_a_live_game_version() {
-    use ti4_host::planning::wire::{
-        AttemptIdentity, FailureCategory, PlanningEnvelope, PlanningUpdate, Progress,
-    };
-    use ti4_host::protocol::server::{PlanningRejection, PlanningResultMsg, PlanningUpdateMsg};
-    let identity = AttemptIdentity {
-        checkpoint_id: 10,
-        plan_revision: 2,
-        generation_id: 3,
-    };
-    for message in [
-        ServerMessage::PlanningUpdate(PlanningUpdateMsg {
-            protocol_version: PROTOCOL_VERSION,
-            game_id: "game_abc".into(),
-            draft: Default::default(),
-            envelope: PlanningEnvelope {
-                publication_id: 1,
-                identity,
-                reset_revision: 1,
-                editing_movement: true,
-                movement_edit_revision: 1,
-                awaiting_answer: false,
-                recorded_request_ids: vec!["answer-request".into()],
-                recorded_decisions: vec![],
-                assumptions: vec![],
-                progress: Progress {
-                    recorded_answers: 0,
-                    replayed: 1,
-                    remaining: 2,
-                    completed_steps: 3,
-                    nested_answers_since_checkpoint: 0,
-                },
-                update: PlanningUpdate::Failed(FailureCategory::Engine),
-            },
-        }),
-        ServerMessage::PlanningResult(PlanningResultMsg {
-            protocol_version: PROTOCOL_VERSION,
-            game_id: "game_abc".into(),
-            draft: Default::default(),
-            identity: Some(identity),
-            rejection: Some(PlanningRejection::Retired),
-        }),
-        ServerMessage::PlanningResult(PlanningResultMsg {
-            protocol_version: PROTOCOL_VERSION,
-            game_id: "game_abc".into(),
-            draft: Default::default(),
-            identity: None,
-            rejection: None,
-        }),
+fn the_planning_runner_messages_are_unknown() {
+    // A draft is a script (`run_draft`, `apply_draft`); the server runs no plan of its own.
+    for kind in [
+        "start_planning",
+        "reset_planning",
+        "edit_planning_movement",
+        "apply_planning",
+        "submit_planning_choice",
+        "secondary_planning",
     ] {
-        let json = serde_json::to_string(&message).unwrap();
-        assert_eq!(parse_server_message(&json).unwrap(), message);
-        assert_eq!(message.protocol_version(), PROTOCOL_VERSION);
-        assert_eq!(message.game_id(), Some("game_abc"));
-        assert_eq!(message.game_version(), None);
+        let message = serde_json::json!({
+            "type": kind, "protocol_version": PROTOCOL_VERSION, "game_id": "game_abc",
+        });
+        assert!(
+            parse_client_message(&message.to_string()).is_err(),
+            "{kind}"
+        );
+    }
+    for kind in ["planning_status", "planning_update", "planning_result"] {
+        let message = serde_json::json!({
+            "type": kind, "protocol_version": PROTOCOL_VERSION, "game_id": "game_abc",
+        });
+        assert!(
+            parse_server_message(&message.to_string()).is_err(),
+            "{kind}"
+        );
     }
 }
 

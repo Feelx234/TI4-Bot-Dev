@@ -3,7 +3,7 @@
  * Exactly mirrors Rust structs from `crates/ti4-host/src/protocol/`.
  */
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export type ViewerRole =
   | { role: "player"; seat: string; playerSession?: string }

@@ -1973,115 +1973,6 @@ pub struct PongMsg {
     pub sequence: u64,
 }
 
-/// A gated planning publication delivered only to its owning player.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningStatusMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    pub checkpoint_id: u64,
-    pub available: bool,
-    pub can_start: bool,
-    pub has_draft: bool,
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    pub can_apply: bool,
-    pub application: Option<DraftApplication>,
-    /// The strategic action whose secondary this seat may draft, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<SecondaryDraftStatus>,
-}
-
-/// Which of a seat's two independent drafts a planning message is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DraftKind {
-    #[default]
-    Tactical,
-    Secondary,
-}
-
-impl DraftKind {
-    fn is_tactical(&self) -> bool {
-        *self == Self::Tactical
-    }
-}
-
-/// A follower's private view of the secondary they may draft while they wait.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecondaryDraftStatus {
-    pub card: String,
-    pub played_by: PlayerId,
-    /// False while the primary ability is still resolving.
-    pub window_open: bool,
-    /// Followers the live window asks before this seat, once it is open.
-    pub seats_before: Option<usize>,
-    pub can_start: bool,
-    pub has_draft: bool,
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    /// The draft is submitted for the seat when the live window reaches it.
-    pub ready: bool,
-    pub application: Option<DraftApplication>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DraftApplicationState {
-    Applying,
-    WaitingForPlayer,
-    NeedsDecision,
-    Applied,
-}
-
-/// Seat-private live execution progress, retained across socket reconnects.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DraftApplication {
-    pub applied: usize,
-    pub total: usize,
-    pub state: DraftApplicationState,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningUpdateMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
-    pub draft: DraftKind,
-    pub envelope: crate::planning::wire::PlanningEnvelope,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanningRejection {
-    Unauthorized,
-    WrongGame,
-    Unavailable,
-    UnknownSeat,
-    ActivePlayer,
-    NotStarted,
-    Retired,
-    NotWaiting,
-    UnknownOption,
-    NoActionOpportunity,
-    ReplayMismatch,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningResultMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
-    pub draft: DraftKind,
-    /// None identifies a start request; Some identifies an answer, reset, or apply request.
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    /// None means accepted by the controller. Application progress is seat-private status.
-    pub rejection: Option<PlanningRejection>,
-}
-
 /// The answer to `ClientMessage::RunDraft`: where the run of the script ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -2131,9 +2022,6 @@ pub use super::staged::SeatStagedMsg;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ServerMessage {
-    PlanningUpdate(PlanningUpdateMsg),
-    PlanningStatus(PlanningStatusMsg),
-    PlanningResult(PlanningResultMsg),
     InitialSnapshot(InitialSnapshotMsg),
     StateUpdate(StateUpdateMsg),
     PendingChoice(PendingChoiceMsg),
@@ -2163,9 +2051,6 @@ impl ServerMessage {
     #[must_use]
     pub fn protocol_version(&self) -> u16 {
         match self {
-            Self::PlanningUpdate(m) => m.protocol_version,
-            Self::PlanningStatus(m) => m.protocol_version,
-            Self::PlanningResult(m) => m.protocol_version,
             Self::InitialSnapshot(m) => m.protocol_version,
             Self::StateUpdate(m) => m.protocol_version,
             Self::PendingChoice(m) => m.protocol_version,
@@ -2189,9 +2074,6 @@ impl ServerMessage {
     #[must_use]
     pub fn game_id(&self) -> Option<&str> {
         match self {
-            Self::PlanningUpdate(m) => Some(&m.game_id),
-            Self::PlanningStatus(m) => Some(&m.game_id),
-            Self::PlanningResult(m) => Some(&m.game_id),
             Self::InitialSnapshot(m) => Some(&m.game_id),
             Self::StateUpdate(m) => Some(&m.game_id),
             Self::PendingChoice(m) => Some(&m.game_id),
@@ -2226,9 +2108,6 @@ impl ServerMessage {
             // preview names its own `as_of_version`).
             Self::Error(_)
             | Self::Pong(_)
-            | Self::PlanningUpdate(_)
-            | Self::PlanningStatus(_)
-            | Self::PlanningResult(_)
             | Self::DraftOutcome(_)
             | Self::DraftApplied(_)
             | Self::ReactionIntentState(_)

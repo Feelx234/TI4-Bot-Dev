@@ -19,7 +19,7 @@ Contract (checked by CI for T4):
 |---|---|---|
 | `protocol` | `ClientMessage`, `ServerMessage` and every message struct (`StateUpdateMsg`, `InitialSnapshotMsg`, `PendingChoiceMsg`, `TurnStatusMsg`, `ActionAcceptedMsg`/`ActionRejectedMsg`, `GameOverMsg`, `Event`...), `GameEvent`/`GameEventKind`/`EventVisibility`/`SeatDecisionDetail`/`MovementFact`/`PublicRoll` and their builders (`public_roll`, `decision_facts`, `verified_decision_facts`, `decision_grouping`, `action_id_for`, `current_log_path`), `HistoryStatus`, `AutoResolvedNote`, `PROTOCOL_VERSION`, `parse_client_message`/`parse_server_message` | everywhere |
 | `projection` | `project_initial_snapshot[_with_map]`, `project_state_update[_with_map]`, `redacted_state`, `project_turn_status`, `project_pending_choice`, `facts_context`, and the views and the facts they are made of (`project_session_update`, `SessionUpdate`, `FactsContext`; `messages.rs` wraps them in protocol messages) | `session/worker.rs`, `ws` |
-| `planning` | `PlayerPlan`, `AttemptIdentity`, `PlanningEnvelope`, `PlanningUpdate`, `Progress`, `FailureCategory`, `SubmissionError` (`planning::wire`) + the recorders (`RecordingDecider`, `ReplayDecider`, `RecordedDecision`), the draft (`draft::script_answer`, `steps::PlanStep`) and the checks of the publication boundary (`audit`, `fork`) | `planning/runner.rs` (the thread that runs a plan stays in the server) |
+| `planning` | The recorders (`RecordingDecider`, `ReplayDecider`, `RecordedDecision`), the draft (`draft::{run_draft, script_answer}`, `steps::PlanStep`), the checks of the publication boundary (`audit`, `fork`) and the start of an undo (`undo`) | `session/mod.rs` (`run_draft`, `apply_draft`), `session/script.rs`, `session/ready_secondary.rs`, `session/undo.rs` |
 | `view` | The facts of an update that the UI reads, beside the view: `tactical`, `exploration`, `action_cards`, `secret_objectives`, `score`, `agendas`, `secondary`, `reaction`, `seats`; `reaction_modes::NeverOffer`; the catalogue of the printed components (`components`) and the scenarios (`scenario`). It was the crate `ti4-view` until 2026-10-14. | `session/worker.rs`, `ws`, lobby |
 | `journal` | `reconcile_with_redo`, `build_event`, `build_roll_event`, `roll_is_known`, `roll_cursor`, `consume_or_fork_redo`, `EventDraft`, `Reconciled`, `RedoOutcome` | `SessionShared::{record_and_broadcast_event, record_rolls, consume_or_fork_redo}` |
 | `state_update` | `StateUpdateInputs`, `state_update_for`, `queue_auto_resolved`, `answer_reach` | `SessionShared::{broadcast_state_update, note_passed_window}`, `session/reach.rs` |
@@ -66,7 +66,7 @@ sockets. The wasm exports are `ti4_host_start` and `ti4_host_command` (`crates/t
 (`reduceServerMessage`) and web2 (`serverMessages.ts`, shared with its server transport) read the
 messages of the server as they are. Both pages play through this one host.
 
-Input is `ClientMessage` JSON (`{"type": "...", "protocol_version": 3, ...}`; unknown fields
+Input is `ClientMessage` JSON (`{"type": "...", "protocol_version": 4, ...}`; unknown fields
 are an error, `parse_client_message` validates the version). Output is a list of
 `ServerMessage` JSON objects (`{"type": "...", ...}`), in the order the server would have sent
 them to that one connection. The mapping, with the server code that produces each answer today:
@@ -79,7 +79,6 @@ them to that one connection. The mapping, with the server code that produces eac
 | `query_reach {request_id, system_id}` | `reach_into {origins, refused?}` | `state_update::answer_reach(game_id, request_id, system_id, version, Some((&state, &galaxy)))` |
 | `preview_secondary {request_id, card, primary, answers}` | `secondary_preview` | `ti4_engine::secondary_preview` (server glue: `session/preview.rs`, stays out of the host for now; `run_draft` with `scope: secondary` is the wasm equivalent) |
 | `run_draft` / `apply_draft` | `draft_outcome` / `draft_applied` (+ `state_update`) | `ti4_host::planning` (`script_answer`) |
-| `start_planning`, `reset_planning`, `edit_planning_movement`, `apply_planning`, `submit_planning_choice`, `secondary_planning` | `planning_status`, `planning_update`, `planning_result` | `planning::PlanningEnvelope` (the runner thread is the server's; offline uses the draft path above) |
 | `set_reaction_mode {card, mode}` | `state_update` with `reaction_modes` | `StateUpdateInputs.reaction_modes` |
 | `set_reaction_intent`, `pass_reaction_hold` | none (bluff holds are for several humans; dropped offline) | n/a |
 | `ping {sequence}` | `pong` | trivial |
@@ -93,7 +92,7 @@ mapped to a `PlanStep` script for `ti4_host::planning::script_answer`, see the p
 
 The state machine that owns the decision log, the event log, the redo stack, the batches and
 `game_version` is still `ti4_server::session::worker::SessionShared` (fields are coupled to
-`mpsc` subscribers, the file store, bluff books and planning threads). The browser has its own,
+`mpsc` subscribers, the file store and bluff books). The browser has its own,
 small one: `ti4_wasm::host_session::HostSession`, built out of the pieces above (see
 `crates/ti4-wasm/README.md`, "The hosted game"). It produces the same events and decisions as
 `SessionShared` for the same seed and answers (`crates/ti4-wasm/tests/it/server_parity.rs` checks

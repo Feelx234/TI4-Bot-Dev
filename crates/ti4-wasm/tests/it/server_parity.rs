@@ -44,7 +44,7 @@ fn hosted(
         let (picked, _) = ti4_rule_bot::choose(&choice, None, seed, &viewer, cursor);
         let id = choice.options[picked].id.clone();
         let command = json!({
-            "type": "submit_choice", "protocol_version": 3, "game_id": game_id,
+            "type": "submit_choice", "protocol_version": 4, "game_id": game_id,
             "nonce": update["pending_choice"]["nonce"],
             "expected_version": update["game_version"], "option_id": id,
         });

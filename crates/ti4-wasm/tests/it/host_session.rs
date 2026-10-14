@@ -101,7 +101,7 @@ fn install_person(page: &Arc<Mutex<Page>>, seed: u64, viewer: &str) {
         let option = choice.options[picked].id.clone();
         let answered = send(&json!({
             "type": "submit_choice",
-            "protocol_version": 3,
+            "protocol_version": 4,
             "game_id": GAME,
             "nonce": nonce,
             "expected_version": version,
@@ -272,11 +272,11 @@ fn a_command_that_is_not_the_servers_is_refused_the_servers_way() {
     install_person(&page, 5, "a");
     // Before it answers the first time, the person sends things the server would refuse.
     page.lock().unwrap().before_answer = vec![
-        json!({ "type": "submit_choice", "protocol_version": 3, "game_id": GAME,
+        json!({ "type": "submit_choice", "protocol_version": 4, "game_id": GAME,
                 "nonce": "999", "expected_version": 2, "option_id": "x" }),
-        json!({ "type": "ping", "protocol_version": 3, "sequence": 7 }),
-        json!({ "type": "undo", "protocol_version": 3, "game_id": GAME, "expected_version": 2 }),
-        json!({ "type": "preview_secondary", "protocol_version": 3, "game_id": GAME,
+        json!({ "type": "ping", "protocol_version": 4, "sequence": 7 }),
+        json!({ "type": "undo", "protocol_version": 4, "game_id": GAME, "expected_version": 2 }),
+        json!({ "type": "preview_secondary", "protocol_version": 4, "game_id": GAME,
                 "request_id": 1, "card": "x", "primary": "b" }),
     ];
     let (_, end) = start(&setup(5, 3), None);

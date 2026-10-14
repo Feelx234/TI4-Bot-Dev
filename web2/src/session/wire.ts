@@ -715,7 +715,7 @@ export interface SecondaryFacts {
 // The messages of the websocket (`crates/ti4-host/src/protocol`), as far as web2 reads them.
 
 /** `ti4_host::protocol::PROTOCOL_VERSION`. Every message has it. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** `ti4_host::protocol::status::RejectionReason` */
 export type RejectionReason =
@@ -775,8 +775,7 @@ export interface ScriptStopped {
 /**
  * `ti4_host::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
  * `pending_choice` (an update has it), `action_accepted`, `game_over` (the update before it says
- * so), `pong`, and the messages of the planning runner (`planning_update`, `planning_status`,
- * `planning_result`).
+ * so), and `pong`.
  */
 export type ServerMessage =
   | ({ type: "initial_snapshot" } & StateMsg)
@@ -839,7 +838,7 @@ export interface SeatStagedMsg {
   connection?: number;
 }
 
-/** `ti4_host::protocol::ClientMessage`, without the messages of the planning runner. */
+/** `ti4_host::protocol::ClientMessage`. */
 export type ClientMessage = ClientRequest & { protocol_version: number };
 
 /** A message to the server, before it has the version of the protocol. */

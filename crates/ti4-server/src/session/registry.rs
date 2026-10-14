@@ -1159,7 +1159,7 @@ impl GameRegistry {
                 ),
             ));
         }
-        let mut config = session.restart_config();
+        let config = session.restart_config();
         let (prior, step_snapshot) = session.batch_basis();
         drop(state);
         let simulation = simulate(
@@ -1380,7 +1380,6 @@ impl GameRegistry {
             .with_versions(request.expected_version, session.game_version()));
         }
         session.stop();
-        config.plans = session.plans();
         if session.decision_log().len() != start_cursor {
             let replacement = Arc::new(GameSession::start_recovered(
                 config.clone(),
@@ -1926,7 +1925,7 @@ impl GameRegistry {
         &self,
         game_id: &str,
         session: &Arc<GameSession>,
-        mut config: SessionConfig,
+        config: SessionConfig,
         history: GameHistory,
         expected_version: u64,
         original_count: usize,
@@ -1961,9 +1960,6 @@ impl GameRegistry {
             ));
         }
         session.stop();
-        // The drafts of the seats go on in the replacement as they stood when the worker stopped.
-        config.plans = session.plans();
-        next.plans.clone_from(&config.plans);
         if session.decision_log().len() != original_count {
             // This branch is only reachable for an autonomous bot decision; keep the
             // original timeline alive instead of committing an outdated cursor.
@@ -2981,180 +2977,6 @@ impl GameRegistry {
                 std::ptr::eq(Arc::as_ptr(current), std::ptr::from_ref(session))
             }))
         .then_some(())
-    }
-
-    /// Planning authorization shares the takeover/history gate with live answers.
-    pub fn submit_player_planning(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        answer: Option<(ti4_host::planning::wire::AttemptIdentity, &str)>,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        self.submit_player_planning_with_request_id(
-            game_id, credential, player, session, answer, None,
-        )
-    }
-
-    pub fn submit_player_planning_with_request_id(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        answer: Option<(ti4_host::planning::wire::AttemptIdentity, &str)>,
-        request_id: Option<&str>,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        self.player_planning_request(
-            game_id,
-            credential,
-            player,
-            session,
-            answer.map(|(identity, option)| (identity, option, request_id)),
-            None,
-            None,
-            None,
-        )
-    }
-
-    pub fn reset_player_planning(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        self.player_planning_request(
-            game_id,
-            credential,
-            player,
-            session,
-            None,
-            Some(identity),
-            None,
-            None,
-        )
-    }
-
-    pub fn edit_player_planning_movement(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        self.player_planning_request(
-            game_id,
-            credential,
-            player,
-            session,
-            None,
-            None,
-            None,
-            Some(identity),
-        )
-    }
-
-    pub fn apply_player_planning(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-        nonce: &str,
-        expected_version: u64,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        self.player_planning_request(
-            game_id,
-            credential,
-            player,
-            session,
-            None,
-            None,
-            Some((identity, nonce, expected_version)),
-            None,
-        )
-    }
-
-    /// A follower's secondary draft shares the takeover/history gate too.
-    pub fn player_secondary_planning(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        request: &ti4_host::protocol::client::SecondaryPlanningRequest,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        use ti4_host::protocol::server::PlanningRejection as Rejection;
-        let gate = self.game_gate(game_id);
-        let _reservation = gate.lock().expect("game gate lock");
-        if self
-            .authenticate_player_session(game_id, credential)
-            .ok()
-            .as_ref()
-            != Some(player)
-        {
-            return Err(Rejection::Unauthorized);
-        }
-        if self
-            .get_game(game_id)
-            .is_none_or(|current| !std::ptr::eq(Arc::as_ptr(&current), session))
-        {
-            return Err(Rejection::Unavailable);
-        }
-        session
-            .secondary_planning(player, request)
-            .map_err(planning_rejection)
-    }
-
-    fn player_planning_request(
-        &self,
-        game_id: &str,
-        credential: &str,
-        player: &PlayerId,
-        session: &GameSession,
-        answer: Option<(
-            ti4_host::planning::wire::AttemptIdentity,
-            &str,
-            Option<&str>,
-        )>,
-        reset: Option<ti4_host::planning::wire::AttemptIdentity>,
-        apply: Option<(ti4_host::planning::wire::AttemptIdentity, &str, u64)>,
-        edit: Option<ti4_host::planning::wire::AttemptIdentity>,
-    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
-        use ti4_host::protocol::server::PlanningRejection as Rejection;
-        let gate = self.game_gate(game_id);
-        let _reservation = gate.lock().expect("game gate lock");
-        if self
-            .authenticate_player_session(game_id, credential)
-            .ok()
-            .as_ref()
-            != Some(player)
-        {
-            return Err(Rejection::Unauthorized);
-        }
-        if self
-            .get_game(game_id)
-            .is_none_or(|current| !std::ptr::eq(Arc::as_ptr(&current), session))
-        {
-            return Err(Rejection::Unavailable);
-        }
-        let result = match (answer, reset, apply, edit) {
-            (_, _, _, Some(identity)) => session.edit_planning_movement(player, identity),
-            (_, _, Some((identity, nonce, version)), _) => {
-                session.apply_planning(player, identity, nonce, version)
-            }
-            (_, Some(identity), _, _) => session.reset_planning(player, identity),
-            (Some((identity, option, request_id)), _, _, _) => {
-                session.submit_planning_choice_with_request_id(player, identity, option, request_id)
-            }
-            _ => session.start_planning(player),
-        };
-        result.map_err(planning_rejection)
     }
 
     /// Bind a private HTTP snapshot to the current credential under the same
@@ -4418,7 +4240,6 @@ fn running_lobby_from_session_config(config: &SessionConfig) -> LobbyState {
 fn running_lobby_from_session(session: &GameSession) -> LobbyState {
     let (player_ids, seats, seat_tokens, seed) = session.lobby_details();
     running_lobby_from_session_config(&SessionConfig {
-        plans: BTreeMap::new(),
         game_id: session.id().to_owned(),
         state: session.current_state(),
         seats,
@@ -4538,7 +4359,6 @@ fn now_ms() -> u64 {
 
 fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
     running_lobby_from_session_config(&SessionConfig {
-        plans: BTreeMap::new(),
         game_id: init.game_id.clone(),
         state: init.initial_state.clone(),
         seed: init.seed,
@@ -4574,23 +4394,4 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         random_bot_delay_ms: None,
         resume: None,
     })
-}
-
-fn planning_rejection(
-    error: super::PlanningError,
-) -> ti4_host::protocol::server::PlanningRejection {
-    use super::PlanningError;
-    use ti4_host::planning::wire::SubmissionError;
-    use ti4_host::protocol::server::PlanningRejection as Rejection;
-    match error {
-        PlanningError::Unavailable => Rejection::Unavailable,
-        PlanningError::UnknownSeat => Rejection::UnknownSeat,
-        PlanningError::ActivePlayer => Rejection::ActivePlayer,
-        PlanningError::NotStarted => Rejection::NotStarted,
-        PlanningError::NoActionOpportunity => Rejection::NoActionOpportunity,
-        PlanningError::ReplayMismatch => Rejection::ReplayMismatch,
-        PlanningError::Submission(SubmissionError::Retired) => Rejection::Retired,
-        PlanningError::Submission(SubmissionError::NotWaiting) => Rejection::NotWaiting,
-        PlanningError::Submission(SubmissionError::UnknownOption) => Rejection::UnknownOption,
-    }
 }

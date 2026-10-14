@@ -56,7 +56,7 @@ fn slow_an_undo_goes_back_one_answer_and_the_game_goes_on_the_same() {
             );
             let version = question["game_version"].clone();
             page.script.push_front(Act::Cmd(json!({
-                "type": "undo", "protocol_version": 3, "game_id": GAME,
+                "type": "undo", "protocol_version": 4, "game_id": GAME,
                 "expected_version": version,
             })));
         })),
@@ -220,20 +220,20 @@ fn slow_queries_and_settings_answer_in_the_servers_shapes() {
             }
         })),
         Act::Cmd(
-            json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
+            json!({ "type": "query_reach", "protocol_version": 4, "game_id": GAME,
                          "request_id": 9, "system_id": "18" }),
         ),
         Act::Cmd(
-            json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
+            json!({ "type": "query_reach", "protocol_version": 4, "game_id": GAME,
                          "request_id": 10, "system_id": "nowhere" }),
         ),
-        Act::Cmd(json!({ "type": "subscribe", "protocol_version": 3, "game_id": GAME })),
+        Act::Cmd(json!({ "type": "subscribe", "protocol_version": 4, "game_id": GAME })),
         Act::Cmd(
-            json!({ "type": "run_draft", "protocol_version": 3, "game_id": GAME,
+            json!({ "type": "run_draft", "protocol_version": 4, "game_id": GAME,
                          "request_id": "d1", "script": [] }),
         ),
         Act::Cmd(
-            json!({ "type": "set_reaction_mode", "protocol_version": 3, "game_id": GAME,
+            json!({ "type": "set_reaction_mode", "protocol_version": 4, "game_id": GAME,
                          "card": card, "mode": "never" }),
         ),
         Act::Leave,

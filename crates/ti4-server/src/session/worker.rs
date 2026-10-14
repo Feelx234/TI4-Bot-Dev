@@ -67,7 +67,7 @@ pub struct Subscriber {
 
 /// Shared session state accessible across threads.
 pub struct SessionShared {
-    pub(crate) planning: super::planning::SessionPlanning,
+    pub(crate) basis: super::draft_basis::DraftBasis,
     /// The scripts that are being sent to the game, by their seat ([`super::script`]).
     pub(crate) scripts: BTreeMap<PlayerId, super::script::ScriptApplication>,
     /// A history change (undo, redo, ...) is running: a random bot that has picked its answer
@@ -354,7 +354,7 @@ impl SessionShared {
     #[must_use]
     pub fn new(game_id: String, initial_state: GameState) -> Self {
         Self {
-            planning: super::planning::SessionPlanning::new(BTreeMap::new()),
+            basis: super::draft_basis::DraftBasis::default(),
             scripts: BTreeMap::new(),
             game_id,
             game_version: 1,
@@ -728,7 +728,7 @@ impl SessionShared {
             map_tiles: &self.map_tiles,
             galaxy_layout: &self.galaxy_layout,
             galaxy: self.galaxy.as_deref(),
-            watch: &self.planning.watch,
+            watch: &self.basis.watch,
             decision_count: self.decision_log.len(),
             redo_count: self.redo_decisions.len(),
             history_generation: self.history_generation,
@@ -823,11 +823,11 @@ struct ReplayingDecider {
     announce_tail: bool,
 }
 
-struct ClosePlanningOnExit(Arc<Mutex<SessionShared>>);
+struct CloseBasisOnExit(Arc<Mutex<SessionShared>>);
 
-impl Drop for ClosePlanningOnExit {
+impl Drop for CloseBasisOnExit {
     fn drop(&mut self) {
-        self.0.lock().expect("shared lock").planning.close();
+        self.0.lock().expect("shared lock").basis.close();
     }
 }
 
@@ -1008,7 +1008,6 @@ pub fn spawn_session_worker(
     let published_count = Arc::new(Mutex::new(prior_count));
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
-    initial_shared.planning = super::planning::SessionPlanning::new(config.plans.clone());
     if let Some(state) = &boundary_state {
         initial_shared.latest_state = state.clone();
     }
@@ -1084,7 +1083,7 @@ pub fn spawn_session_worker(
         std::sync::atomic::AtomicUsize::new(resume.as_ref().map_or(0, |copy| copy.log_len)),
     );
     let handle = thread::spawn(move || {
-        let _planning_cleanup = ClosePlanningOnExit(worker_shared.clone());
+        let _basis_cleanup = CloseBasisOnExit(worker_shared.clone());
         let mut table = Table::new();
 
         // Configure table deciders
@@ -1365,21 +1364,13 @@ pub fn spawn_session_worker(
                 .undo
                 .observation(),
         );
-        // Followers may draft their secondary as soon as the card is certain to
-        // resolve. The step holds no session lock while its primary is asked.
-        let announced = worker_shared.clone();
-        game.on_strategic_action_chosen(move |primary, card| {
-            announced
-                .lock()
-                .expect("shared lock")
-                .planning
-                .announce_primary(primary, card);
-        });
-        worker_shared
-            .lock()
-            .expect("shared lock")
-            .planning
-            .completed_step(&game);
+        // The watch of the strategic action follows the card from the step that resolves its
+        // primary. It holds no session lock: the step holds none while its primary is asked.
+        {
+            let mut lock = worker_shared.lock().expect("shared lock");
+            lock.basis.watch.bind(&mut game);
+            lock.basis.completed_step(&game);
+        }
         // The secondary preview (`session::preview`) runs on a scratch copy of the position and
         // needs the map; it never touches this game.
         worker_shared.lock().expect("shared lock").preview_galaxy =
@@ -1425,7 +1416,7 @@ pub fn spawn_session_worker(
                 }
                 let mut lock = worker_shared.lock().expect("shared lock");
                 lock.undo.observe(game.table.log.records.len(), &game.state);
-                lock.planning.completed_step(&game);
+                lock.basis.completed_step(&game);
             }
             if game.table.log.records.get(..prior_count) != Some(prior_records.as_slice()) {
                 worker_shared.lock().expect("shared lock").error =
@@ -1769,7 +1760,7 @@ pub fn spawn_session_worker(
                 }
                 lock.publish_history_events_since(event_start);
 
-                lock.planning.completed_step(&game);
+                lock.basis.completed_step(&game);
                 let action_over = super::script::tactical_complete(
                     game.events.get(events_before..).unwrap_or_default(),
                 );

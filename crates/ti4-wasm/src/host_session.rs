@@ -1239,15 +1239,8 @@ impl HostSession {
             // offline game lives in one page, which keeps its staged work itself. Ignored, as
             // `Subscribe::staged` is (no `SeatStaged` is ever sent).
             ClientMessage::PutStaged { .. } => {}
-            ClientMessage::RunDraft { .. }
-            | ClientMessage::StartPlanning { .. }
-            | ClientMessage::ResetPlanning { .. }
-            | ClientMessage::EditPlanningMovement { .. }
-            | ClientMessage::ApplyPlanning { .. }
-            | ClientMessage::SubmitPlanningChoice { .. }
-            | ClientMessage::SecondaryPlanning { .. } => {
-                // `RunDraft` is answered by the caller (it needs the copy of the game); the
-                // server-side planning protocol is replaced by drafts.
+            ClientMessage::RunDraft { .. } => {
+                // `RunDraft` is answered by the caller (it needs the copy of the game).
                 self.protocol_error(
                     ErrorKind::MalformedMessage,
                     "this message is answered by the host, not by the session",

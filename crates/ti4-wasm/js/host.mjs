@@ -104,7 +104,7 @@ export class Host {
 
 const GAME = "local";
 const message = (host, type, fields) =>
-  host.command({ type, protocol_version: 3, game_id: GAME, ...fields });
+  host.command({ type, protocol_version: 4, game_id: GAME, ...fields });
 
 /** The person: the first option, every time. Collects what the page received. */
 function person(host, log, limit) {

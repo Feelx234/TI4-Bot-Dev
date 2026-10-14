@@ -31,7 +31,7 @@ export const LOCAL_TRANSPORT_CAPABILITIES: TransportCapabilities = {
 };
 
 /** Server messages of protocols this client does not use (see GameSessionClient). */
-const IGNORED = new Set(["planning_status", "planning_update", "planning_result", "draft_outcome", "draft_applied"]);
+const IGNORED = new Set(["draft_outcome", "draft_applied"]);
 
 /** After the page stops using the transport, the engine is shut down this much later (React remounts in dev). */
 const CLOSE_DELAY_MS = 1_500;

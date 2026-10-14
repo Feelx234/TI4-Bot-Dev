@@ -425,8 +425,8 @@ workspace.
 - What a draft may show is checked as on the server (`ti4-host/src/planning/audit.rs`): only
   audited offers, no dice, nothing that the seat did not know. The other seats take no optional
   reactions. These checks and the recorded-decision adapters were moved from `ti4-server`,
-  which imports them from there; its `PlanningRunner` is a worker thread around the same checks, and
-  guards its copy with the same code (`ti4-host/src/planning/fork.rs`).
+  which runs the same `run_draft` on a copy of its game, guarded by the same code
+  (`ti4-host/src/planning/fork.rs`).
 - The game at its last finished step is not kept: the checkpoints are made only after a step
   that asked the host. The base of a draft is the last checkpoint with the steps of the random
   seats since then played again on a copy of their stream, as an undo does. It is made for the
@@ -603,7 +603,7 @@ it is faster than the replays of this table.
 ### What a checkpoint is
 
 `Game::fork` in the engine copies a game at a step boundary: the state, the open windows, the
-dice streams, the counters and the resolver. The planning runner of the server uses it. The
+dice streams, the counters and the resolver. The drafts of both hosts use it. The
 test `a_fork_at_a_step_boundary_plays_the_same_game` checks it as a checkpoint for local play,
 on eight seats, seeds 3 and 11, 700 steps each, a copy every 7 steps, each played 30 steps on
 with a copy of the random seats' stream:
@@ -656,8 +656,8 @@ content does not have.
 
 - `ti4-server` does not compile to wasm (tokio, axum, threads, files). The views, the code
   that makes them from a state, the messages, the decision facts and event history, the presets
-  and the maps are in `ti4-host`, which both sides use. Still in the server: the planning runner
-  (a thread), storage, sockets and the lobby.
+  and the maps are in `ti4-host`, which both sides use. Still in the server: storage, sockets
+  and the lobby.
 - The view of a seat is as old as the last finished step, apart from the combat and invasion
   boundary, which is current. The server has the same limit.
 - The other workspace crates were not rebuilt after the `rand` change or the move to
@@ -743,7 +743,7 @@ stored in the save, so a save is self-contained.
 
 ### Commands (input of `ti4_host_command`)
 
-`ClientMessage` JSON as the page sends it today (`protocol_version: 3`, `game_id`):
+`ClientMessage` JSON as the page sends it today (`protocol_version: 4`, `game_id`):
 `subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`;
 resumes with the index of the option), `apply_draft` (a script; `draft_applied` when it ended),
 `run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
@@ -794,7 +794,7 @@ the wasm file to what it stores.
 One `state_update` per question of the person (and one at the end), not per engine step; no
 separate `pending_choice` message; undo is the engine checkpoint (32 deep, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
-redo, planning-thread messages and bluff holds do not exist.
+redo and bluff holds do not exist.
 
 ### Tests
 

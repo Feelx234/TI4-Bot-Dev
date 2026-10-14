@@ -57,7 +57,7 @@ describe("LocalTransport", () => {
     await Promise.resolve();
     expect(port.commands("submit_choice")[0]).toMatchObject({
       type: "submit_choice",
-      protocol_version: 3,
+      protocol_version: 4,
       game_id: GAME,
       nonce: "n1",
       expected_version: 1,
@@ -179,7 +179,7 @@ describe("LocalTransport", () => {
         messages: [
           {
             type: "reach_into",
-            protocol_version: 3,
+            protocol_version: 4,
             game_id: GAME,
             request_id: request.request_id as number,
             system_id: String(request.system_id),
@@ -262,7 +262,7 @@ describe("LocalTransport", () => {
     port.emit({
       t: "end",
       envelope: envelope("end", {
-        messages: [{ type: "game_over", protocol_version: 3, game_id: GAME, game_version: 9, winner: "a", final_scores: { a: 10 } }],
+        messages: [{ type: "game_over", protocol_version: 4, game_id: GAME, game_version: 9, winner: "a", final_scores: { a: 10 } }],
         end: { finished: true, left: false, error: null, decisions: 9, answers: 4 },
       }),
       save: save(["x"], true),

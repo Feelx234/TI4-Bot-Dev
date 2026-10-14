@@ -1,7 +1,7 @@
 pub mod bluff;
 pub mod bluff_hold;
 pub mod decider;
-mod planning;
+mod draft_basis;
 pub mod preview;
 pub mod random_bot;
 pub mod reach;
@@ -78,7 +78,6 @@ impl Drop for SessionSubscription {
 use serde::{Deserialize, Serialize};
 
 pub use decider::RemoteHumanDecider;
-pub use planning::PlanningError;
 pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
 pub use transport::MockClient;
@@ -117,8 +116,6 @@ impl SeatController {
 /// Configuration used to spawn an authoritative game session.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    /// In-memory drafts carried across session replacement (undo/redo).
-    pub plans: BTreeMap<PlayerId, ti4_host::planning::wire::PlayerPlan>,
     pub game_id: String,
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
@@ -199,7 +196,6 @@ impl SessionConfig {
     #[must_use]
     pub fn new(game_id: impl Into<String>, state: GameState) -> Self {
         Self {
-            plans: BTreeMap::new(),
             game_id: game_id.into(),
             state,
             seats: BTreeMap::new(),
@@ -493,7 +489,7 @@ impl GameSession {
             &lock.map_tiles,
             &lock.galaxy_layout,
             lock.galaxy.as_deref(),
-            Some(&lock.planning.watch),
+            Some(&lock.basis.watch),
             &lock.event_log,
         )
         .with_history(
@@ -890,142 +886,6 @@ impl GameSession {
         self.shared.lock().expect("shared lock").game_version
     }
 
-    /// Starts an inactive human seat's draft from the last completed live step.
-    /// This transport-neutral API takes a seat already authorized by its caller,
-    /// just like submit_choice. It does not alter the live pending decision.
-    pub fn start_planning(&self, player: &PlayerId) -> Result<(), PlanningError> {
-        let mut lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-            return Err(PlanningError::Unavailable);
-        }
-        if lock.seats.get(player) != Some(&SeatController::Human) {
-            return Err(PlanningError::UnknownSeat);
-        }
-        if lock.latest_state.active.as_ref() == Some(player) {
-            return Err(PlanningError::ActivePlayer);
-        }
-        lock.planning.start(player)
-    }
-
-    pub fn submit_planning_choice(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-        option_id: &str,
-    ) -> Result<(), PlanningError> {
-        self.submit_planning_choice_with_request_id(player, identity, option_id, None)
-    }
-
-    pub fn submit_planning_choice_with_request_id(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-        option_id: &str,
-        request_id: Option<&str>,
-    ) -> Result<(), PlanningError> {
-        let lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() {
-            return Err(PlanningError::Unavailable);
-        }
-        if lock.planning.has_application(player) {
-            return Err(PlanningError::Submission(
-                ti4_host::planning::wire::SubmissionError::NotWaiting,
-            ));
-        }
-        lock.planning
-            .runners
-            .get(player)
-            .ok_or(PlanningError::NotStarted)?
-            .submit_with_request_id(identity, option_id, request_id)
-            .map_err(PlanningError::Submission)
-    }
-
-    pub fn reset_planning(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> Result<(), PlanningError> {
-        let mut lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-            return Err(PlanningError::Unavailable);
-        }
-        lock.planning.reset(player, identity)
-    }
-
-    pub fn edit_planning_movement(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> Result<(), PlanningError> {
-        let mut lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-            return Err(PlanningError::Unavailable);
-        }
-        lock.planning.edit_movement(player, identity)
-    }
-
-    /// Confirm the current validated draft at a real tactical action opportunity.
-    /// Execution then stays with the live decider, independent of the connection.
-    pub fn apply_planning(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-        nonce: &str,
-        expected_version: u64,
-    ) -> Result<(), PlanningError> {
-        let mut lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-            return Err(PlanningError::Unavailable);
-        }
-        let pending = lock
-            .pending_decision
-            .as_ref()
-            .ok_or(PlanningError::NoActionOpportunity)?;
-        if pending.submission_state != PendingSubmissionState::AwaitingSubmission
-            || pending.nonce != nonce
-            || pending.game_version != expected_version
-        {
-            return Err(PlanningError::Submission(
-                ti4_host::planning::wire::SubmissionError::Retired,
-            ));
-        }
-        let plan = lock
-            .planning
-            .executable_plan(player, identity, &pending.choice)?;
-        let inbox = lock
-            .seat_inboxes
-            .get(player)
-            .ok_or(PlanningError::UnknownSeat)?
-            .clone();
-        let (reply_tx, _reply_rx) = mpsc::channel();
-        lock.pending_decision
-            .as_mut()
-            .expect("pending decision")
-            .submission_state = PendingSubmissionState::Reserved;
-        // Queue the first answer under the same reservation lock used by live input.
-        // No browser-supplied choices or hypothetical state enter the live game.
-        if inbox
-            .send(ChoiceSubmission {
-                seat: player.clone(),
-                nonce: nonce.to_owned(),
-                expected_version,
-                option_id: "tactical".into(),
-                reply_tx,
-            })
-            .is_err()
-        {
-            lock.pending_decision
-                .as_mut()
-                .expect("pending decision")
-                .submission_state = PendingSubmissionState::AwaitingSubmission;
-            return Err(PlanningError::Unavailable);
-        }
-        let activation_seq = lock.latest_state.activation_seq;
-        lock.planning
-            .begin_application(player, plan, activation_seq);
-        Ok(())
-    }
-
     /// Plays `script` as the next turn of `player`, or as its secondary (`scope`), on a copy of
     /// the game at its last completed step, as a local game does (`ti4_host::planning::draft::run_draft`). The game is not
     /// changed and nothing of the script is kept. Returns the version of the game that the
@@ -1108,9 +968,7 @@ impl GameSession {
                     seat: Some(player.clone()),
                 });
             }
-            if pending.submission_state == PendingSubmissionState::Reserved
-                || lock.planning.has_application(player)
-            {
+            if pending.submission_state == PendingSubmissionState::Reserved {
                 return Err(RejectionReason::NoPendingChoice);
             }
             if pending.nonce != nonce {
@@ -1123,7 +981,7 @@ impl GameSession {
                 });
             }
             let choice = pending.choice.clone();
-            let copy = lock.planning.fork();
+            let copy = lock.basis.fork();
             let tail = copy
                 .as_ref()
                 .and_then(|(_, decisions)| lock.decision_log.get(*decisions..))
@@ -1206,212 +1064,6 @@ impl GameSession {
         Ok(None)
     }
 
-    /// One operation on a follower's secondary draft. Unlike a tactical draft it
-    /// is open to every follower at once, whoever the active player is, and
-    /// never touches the live pending decision.
-    pub fn secondary_planning(
-        &self,
-        player: &PlayerId,
-        request: &ti4_host::protocol::client::SecondaryPlanningRequest,
-    ) -> Result<(), PlanningError> {
-        use ti4_host::protocol::client::SecondaryPlanningRequest as Request;
-        let mut lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-            return Err(PlanningError::Unavailable);
-        }
-        if lock.seats.get(player) != Some(&SeatController::Human) {
-            return Err(PlanningError::UnknownSeat);
-        }
-        match request {
-            Request::Start {} => lock.planning.start_secondary(player),
-            Request::Reset { identity } => lock.planning.reset_secondary(player, *identity),
-            Request::Answer {
-                identity,
-                option_id,
-            } => lock.planning.submit_secondary(player, *identity, option_id),
-            Request::SetReady { identity, ready } => {
-                lock.planning.set_secondary_ready(player, *identity, *ready)
-            }
-        }
-    }
-
-    pub fn planning_status(
-        &self,
-        player: &PlayerId,
-    ) -> ti4_host::protocol::server::PlanningStatusMsg {
-        let lock = self.shared.lock().expect("shared lock");
-        let available = !lock.stopped
-            && !lock.finished
-            && lock.error.is_none()
-            && lock.replay_complete
-            && lock.planning.available;
-        let can_apply = available
-            && lock.pending_decision.as_ref().is_some_and(|pending| {
-                pending.submission_state == PendingSubmissionState::AwaitingSubmission
-                    && lock.planning.runners.get(player).is_some_and(|runner| {
-                        lock.planning
-                            .executable_plan(player, runner.identity(), &pending.choice)
-                            .is_ok()
-                    })
-            });
-        ti4_host::protocol::server::PlanningStatusMsg {
-            protocol_version: ti4_host::protocol::PROTOCOL_VERSION,
-            game_id: self.game_id.clone(),
-            checkpoint_id: lock.planning.checkpoint_id,
-            available,
-            can_start: available
-                && lock.seats.get(player) == Some(&SeatController::Human)
-                && lock.latest_state.active.as_ref() != Some(player),
-            has_draft: lock.planning.has_draft(player),
-            identity: lock
-                .planning
-                .runners
-                .get(player)
-                .map(|runner| runner.identity()),
-            can_apply,
-            application: lock.planning.application(player),
-            secondary: (!lock.stopped
-                && !lock.finished
-                && lock.error.is_none()
-                && lock.replay_complete)
-                .then(|| {
-                    lock.planning.secondary_status(
-                        player,
-                        lock.seats.get(player) == Some(&SeatController::Human),
-                    )
-                })
-                .flatten(),
-        }
-    }
-
-    pub(crate) fn subscribe_secondary_planning(
-        &self,
-        player: &PlayerId,
-    ) -> Option<mpsc::Receiver<ti4_host::planning::wire::PlanningEnvelope>> {
-        let lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || !lock.replay_complete {
-            return None;
-        }
-        lock.planning
-            .secondary_runner(player)
-            .map(|runner| runner.subscribe())
-    }
-
-    pub(crate) fn secondary_attempt_is_current(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> bool {
-        let lock = self.shared.lock().expect("shared lock");
-        !lock.stopped
-            && lock
-                .planning
-                .secondary_runner(player)
-                .is_some_and(|runner| runner.is_current_attempt(identity))
-    }
-
-    /// As [`Self::recv_planning_timeout`], for the seat's secondary draft.
-    pub fn recv_secondary_planning_timeout(
-        &self,
-        player: &PlayerId,
-        timeout: std::time::Duration,
-    ) -> Result<ti4_host::planning::wire::PlanningEnvelope, mpsc::RecvTimeoutError> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            {
-                let lock = self.shared.lock().expect("shared lock");
-                if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-                    return Err(mpsc::RecvTimeoutError::Disconnected);
-                }
-                let runner = lock
-                    .planning
-                    .secondary_runner(player)
-                    .ok_or(mpsc::RecvTimeoutError::Disconnected)?;
-                match runner.try_recv() {
-                    Ok(envelope) => return Ok(envelope),
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        return Err(mpsc::RecvTimeoutError::Disconnected);
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
-            }
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return Err(mpsc::RecvTimeoutError::Timeout);
-            }
-            std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
-        }
-    }
-
-    /// Private stream independent of the captured runner output used by tests.
-    pub(crate) fn subscribe_planning(
-        &self,
-        player: &PlayerId,
-    ) -> Option<mpsc::Receiver<ti4_host::planning::wire::PlanningEnvelope>> {
-        let lock = self.shared.lock().expect("shared lock");
-        if lock.stopped || !lock.replay_complete {
-            return None;
-        }
-        lock.planning
-            .runners
-            .get(player)
-            .map(|runner| runner.subscribe())
-    }
-
-    pub(crate) fn planning_attempt_is_current(
-        &self,
-        player: &PlayerId,
-        identity: ti4_host::planning::wire::AttemptIdentity,
-    ) -> bool {
-        let lock = self.shared.lock().expect("shared lock");
-        !lock.stopped
-            && lock
-                .planning
-                .runners
-                .get(player)
-                .is_some_and(|runner| runner.is_current_attempt(identity))
-    }
-
-    /// Wait without holding the session lock: the live worker must remain free
-    /// to refresh or cancel the runner whose output we are waiting for.
-    pub fn recv_planning_timeout(
-        &self,
-        player: &PlayerId,
-        timeout: std::time::Duration,
-    ) -> Result<ti4_host::planning::wire::PlanningEnvelope, mpsc::RecvTimeoutError> {
-        let deadline = std::time::Instant::now() + timeout;
-        loop {
-            {
-                let lock = self.shared.lock().expect("shared lock");
-                if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
-                    return Err(mpsc::RecvTimeoutError::Disconnected);
-                }
-                let runner = lock
-                    .planning
-                    .runners
-                    .get(player)
-                    .ok_or(mpsc::RecvTimeoutError::Disconnected)?;
-                match runner.try_recv() {
-                    Ok(envelope) => return Ok(envelope),
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        return Err(mpsc::RecvTimeoutError::Disconnected);
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {}
-                }
-            }
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return Err(mpsc::RecvTimeoutError::Timeout);
-            }
-            std::thread::sleep(remaining.min(std::time::Duration::from_millis(5)));
-        }
-    }
-
-    /// Scripts survive stopped attempts and session replacement.
-    pub fn plans(&self) -> BTreeMap<PlayerId, ti4_host::planning::wire::PlayerPlan> {
-        self.shared.lock().expect("shared lock").planning.plans()
-    }
-
     /// The live history exactly as `history.json` would hold it right now (unsaved batches
     /// included), with the game's seed and seats, read under one lock so the pieces agree.
     #[must_use]
@@ -1436,7 +1088,6 @@ impl GameSession {
 
     pub fn restart_config(&self) -> SessionConfig {
         let mut config = self.initial_config.clone();
-        config.plans = self.plans();
         // Callers can replace the decision prefix (batch commit, undo, redo).
         // The old speculative view must never be reused for a different cursor.
         config.replay_boundary_state = None;
@@ -1588,7 +1239,7 @@ impl GameSession {
         {
             let mut lock = self.shared.lock().expect("shared lock");
             lock.stopped = true;
-            lock.planning.close();
+            lock.basis.close();
             // A running bluff hold ends at once instead of at its next poll.
             lock.bluff.wake();
             // Dropping inboxes unblocks any waiting RemoteHumanDecider
@@ -1640,7 +1291,7 @@ pub(crate) fn run_draft_on(
             && lock.replay_complete
             && lock.seats.contains_key(player);
         let copy = playable
-            .then(|| lock.planning.fork())
+            .then(|| lock.basis.fork())
             .flatten()
             .map(|(game, _)| game);
         (
@@ -1648,7 +1299,7 @@ pub(crate) fn run_draft_on(
             lock.game_version,
             lock.map_tiles.clone(),
             lock.galaxy.clone(),
-            lock.planning.watch.clone(),
+            lock.basis.watch.clone(),
         )
     };
     let Some(game) = copy else {

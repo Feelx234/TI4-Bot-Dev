@@ -4,9 +4,8 @@
 //! disposable [`Game::fork`] with a fresh hypothetical turn ([`PlanScope::Tactical`]) or with
 //! the window of one follower ([`PlanScope::Secondary`]), and returns where it stopped and
 //! what the planner is shown there. Nothing is kept between two runs, so a changed script is run
-//! again from its start, and the caller needs no thread and no game of its own. The server's
-//! planning runner keeps a worker thread around the same guard ([`super::fork`]) and the same
-//! checks ([`super::audit`]).
+//! again from its start, and the caller needs no thread and no game of its own. The copy is
+//! guarded by [`super::fork`], and what it shows is checked by [`super::audit`].
 //!
 //! The run covers the whole action: the activation, the movement, the landings of an invasion
 //! and the production; or the whole secondary of the planner. It ends where the script does,

@@ -359,10 +359,7 @@ async fn websocket_full_lifecycle_and_rejections() {
                 ServerMessage::PendingChoice(p) => {
                     break (p.nonce, p.game_version, p.choice.options[0].id.clone());
                 }
-                ServerMessage::Event(_)
-                | ServerMessage::StateUpdate(_)
-                | ServerMessage::PlanningStatus(_)
-                | ServerMessage::PlanningUpdate(_) => continue,
+                ServerMessage::Event(_) | ServerMessage::StateUpdate(_) => continue,
                 other => panic!("Expected PendingChoice, got {other:?}"),
             }
         }

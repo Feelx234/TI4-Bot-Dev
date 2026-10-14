@@ -20,7 +20,7 @@ use ti4_server::session::staged::{SecondaryDraft, StagedSlot};
 use ti4_server::session::{GameRegistry, GameSession};
 
 use crate::draft_scripts::next_message;
-use crate::session_secondary_planning::{
+use crate::secondary_draft::{
     LiveOffer, answer_live, answer_until, config_playing, follow_and_research, is_secondary,
     live_offer, play_technology, research, technologies,
 };

@@ -43,14 +43,8 @@ import {
   type TurnRedoStatus,
 } from "./turnRedo.ts";
 
-/** Server messages of the planning/draft protocol, which this client does not use. */
-const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
-  "planning_status",
-  "planning_update",
-  "planning_result",
-  "draft_outcome",
-  "draft_applied",
-]);
+/** Server messages of the draft protocol, which this client does not use. */
+const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["draft_outcome", "draft_applied"]);
 
 /** What the server answered to a `preview_secondary` request. */
 export type SecondaryPreviewReply =
@@ -1398,8 +1392,8 @@ export class GameSessionClient implements GameTransport {
         this.settleReaches(new ReachUnsupportedError());
         return;
       }
-      // The server pushes the planning/draft protocol to every player connection. This client
-      // has no planning UI, so those messages are not for it and must not surface as errors.
+      // The answers of the draft protocol are not for this client, which has no draft UI: they
+      // must not surface as errors.
       if (
         typeof raw === "object" &&
         raw !== null &&

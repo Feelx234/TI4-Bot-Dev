@@ -1,8 +1,7 @@
 //! What a disposable attempt may show its planner.
 //!
 //! An offer is admitted by its producer and the meaning of its options, and a position by what
-//! the planner already knew. The server's planning runner and [`super::draft`] both ask here
-//! before they publish anything.
+//! the planner already knew. [`super::draft`] asks here before it publishes anything.
 
 use serde::{Deserialize, Serialize};
 use ti4_engine::choice::{Choice, ChoiceOption};

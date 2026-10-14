@@ -104,7 +104,7 @@ pub fn install(page: &Arc<Mutex<Page>>, seed: u64, viewer: &str) {
                 let (picked, _) = ti4_rule_bot::choose(&choice, None, seed, &viewer, cursor);
                 let option = choice.options[picked].id.clone();
                 let answered = send(&json!({
-                    "type": "submit_choice", "protocol_version": 3, "game_id": GAME,
+                    "type": "submit_choice", "protocol_version": 4, "game_id": GAME,
                     "nonce": nonce, "expected_version": version, "option_id": option,
                 }));
                 page.messages

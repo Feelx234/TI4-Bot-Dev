@@ -138,7 +138,7 @@ async fn any_viewer_can_ask_and_unknown_systems_are_refused() {
 
 #[test]
 fn the_messages_round_trip_and_old_json_still_parses() {
-    let text = r#"{"type":"query_reach","protocol_version":3,"game_id":"g","request_id":2,"system_id":"18"}"#;
+    let text = r#"{"type":"query_reach","protocol_version":4,"game_id":"g","request_id":2,"system_id":"18"}"#;
     assert!(matches!(
         ti4_host::protocol::parse_client_message(text).unwrap(),
         ClientMessage::QueryReach { request_id: 2, .. }

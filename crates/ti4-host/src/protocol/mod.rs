@@ -24,7 +24,7 @@ pub use view::{
 };
 
 /// Current supported wire protocol schema version.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 /// Validates that the provided protocol version matches the current build.
 ///

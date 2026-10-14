@@ -1324,7 +1324,7 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
-                "type": "subscribe", "protocol_version": 3, "game_id": "history_http",
+                "type": "subscribe", "protocol_version": 4, "game_id": "history_http",
             })
             .to_string()
             .into(),

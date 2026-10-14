@@ -201,7 +201,7 @@ describe("GameSessionClient reducer", () => {
       decodeServerMessage(
         {
           type: "event",
-          protocol_version: 3,
+          protocol_version: 4,
           game_id: "game_12345",
           entry: { id: "bad", decision_count: 1.5 },
         },
@@ -254,7 +254,7 @@ describe("GameSessionClient reducer", () => {
       decodeServerMessage(
         {
           type: "event",
-          protocol_version: 3,
+          protocol_version: 4,
           game_id: "game_12345",
           entry: { ...before.events[1], version: 12 },
         },
@@ -1565,19 +1565,9 @@ describe("GameSessionClient ingress lifecycle", () => {
     return { client, socket, send };
   }
 
-  it("ignores the planning protocol the server pushes to every player", async () => {
+  it("ignores the answers of the draft protocol", async () => {
     const { client, send } = await connectedPlayer();
-    send({
-      type: "planning_status",
-      checkpoint_id: 6,
-      available: false,
-      can_start: false,
-      has_draft: false,
-      identity: null,
-      can_apply: false,
-      application: null,
-    });
-    send({ type: "planning_update" });
+    send({ type: "draft_outcome" });
     send({ type: "draft_applied" });
     expect(client.getState().lastError).toBeNull();
     expect(client.getState().pendingChoice?.nonce).toBe("nonce-4");
@@ -1858,7 +1848,7 @@ describe("GameSessionClient ingress lifecycle", () => {
     socket.onopen?.();
     expect(JSON.parse(socket.sent[0])).toMatchObject({
       type: "subscribe",
-      protocol_version: 3,
+      protocol_version: 4,
       player_session: "private",
     });
     vi.advanceTimersByTime(10_000);

@@ -89,7 +89,7 @@ fn play(request: &Value, mut act: Act) -> (Vec<Seen>, Value) {
 }
 
 fn answer() -> Value {
-    json!({ "type": "submit_choice", "protocol_version": 3, "game_id": GAME })
+    json!({ "type": "submit_choice", "protocol_version": 4, "game_id": GAME })
 }
 
 fn save() -> Value {
