@@ -10,11 +10,9 @@ import type {
   QueuedFeedbackState,
 } from "./types.ts";
 
-export const MOCK_FACTIONS = [
-  "sol", "hacan", "letnev", "xxcha", "jolnar", "l1z1x", "arborec", "mentak", "muaat", "naalu",
-  "nekro", "saar", "sardakk", "winnu", "yin", "yssaril", "ghost", "argent", "cabal", "empyrean",
-  "mahact", "naaz", "nomad", "titans",
-];
+import { OFFLINE_FACTION_IDS } from "./factions.ts";
+
+export const MOCK_FACTIONS = OFFLINE_FACTION_IDS;
 
 export interface MockOptions {
   games?: OfflineGameSummary[];

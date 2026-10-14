@@ -33,7 +33,11 @@ export const OfflineGameRoute: React.FC<{
         if (!controller.signal.aborted)
           setError(cause instanceof Error ? cause.message : "The offline game could not be opened.");
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      // React's dev double-mount runs the effect again: let it start over.
+      started.current = false;
+    };
   }, [handle, launcher, gameId]);
 
   const banner = <OfflineBanner capabilities={launcher.capabilities} feedback={launcher.feedback} />;
