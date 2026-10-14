@@ -12,15 +12,15 @@ pub mod map;
 pub mod maps;
 pub mod planning;
 pub mod preset;
-pub mod projection;
-pub mod protocol;
 pub mod public;
 pub mod session;
 pub mod storage;
 pub mod ws;
 
 pub use http::create_app;
-pub use protocol::*;
+pub use ti4_host::projection;
+pub use ti4_host::protocol;
+pub use ti4_host::protocol::*;
 pub use session::{
     BotServiceConfig, GameRegistry, GameSession, MockClient, RemoteHumanDecider, SeatController,
     SessionConfig,

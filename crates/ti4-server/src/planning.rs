@@ -6,7 +6,7 @@
 
 pub mod runner;
 
-pub use ti4_view::planning::{
+pub use ti4_host::planning::{
     DecisionRecording, RecordedDecision, RecordingDecider, ReplayDecider, ReplayProgress,
     ReplayStatus, ReplayStopReason,
 };

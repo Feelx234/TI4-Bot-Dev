@@ -45,17 +45,17 @@ pub enum ClientMessage {
     ResetPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
     },
     EditPlanningMovement {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
     },
     ApplyPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
         nonce: String,
         expected_version: u64,
     },
@@ -63,7 +63,7 @@ pub enum ClientMessage {
     SubmitPlanningChoice {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
         option_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
@@ -185,22 +185,22 @@ pub enum ClientMessage {
 pub enum SecondaryPlanningRequest {
     Start {},
     Reset {
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
     },
     Answer {
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
         option_id: String,
     },
     /// Ready: submit the draft for this seat when the live window reaches it.
     SetReady {
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: crate::planning::AttemptIdentity,
         ready: bool,
     },
 }
 
 impl SecondaryPlanningRequest {
     #[must_use]
-    pub const fn identity(&self) -> Option<crate::planning::runner::AttemptIdentity> {
+    pub const fn identity(&self) -> Option<crate::planning::AttemptIdentity> {
         match self {
             Self::Start {} => None,
             Self::Reset { identity }
@@ -595,7 +595,7 @@ mod tests {
 
     #[test]
     fn planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::runner::AttemptIdentity {
+        let identity = crate::planning::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn secondary_planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::runner::AttemptIdentity {
+        let identity = crate::planning::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,
