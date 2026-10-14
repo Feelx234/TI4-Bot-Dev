@@ -105,3 +105,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 - `DC-breakthroughs-exploration`: breakthroughs and exploration results (map markers, overview, toasts); `capture-6-tile-fit` zooms the markers on the bigger tiles.
 - `DE-bigger-planets`: bigger planet discs and values on map tiles (its `before-*` PNGs are gitignored; copy them from a worktree that has them or re-take them with `TI4_SHOT_PREFIX=before` on the old commit).
 - `DM-public-dice-rolls`: public dice-roll toasts and event-log lines.
+
+## Offline shell (DN-offline-shell)
+
+`DN-offline-shell` shows the offline UI shell (start-screen entry, setup form, My offline games, resume progress, unsupported browser, banner, queued feedback) against the in-memory launcher in `web/src/offline/mockLauncher.ts`. `npm run screenshots -- DN` asserts the texts, the progress values, no horizontal scroll on the phone and that feedback is queued instead of sent.

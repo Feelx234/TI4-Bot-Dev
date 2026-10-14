@@ -31,7 +31,9 @@ export const CreateLobby: React.FC<{
   onError: (message: string) => void;
   /** Go to a game from the "my games" list (with the seat token this browser holds, if any). */
   onOpenGame?: (gameId: string, token?: string) => void;
-}> = ({ onCreated, onError, onOpenGame }) => {
+  /** Present when this build can play offline: shows the "Play offline" entry. */
+  onPlayOffline?: () => void;
+}> = ({ onCreated, onError, onOpenGame, onPlayOffline }) => {
   const [overflow, setOverflow] = useState<OpenGameRow[] | null>(null);
   const [browse, setBrowse] = useState<OpenGameRow[] | null>(null);
   const [hasMine, setHasMine] = useState(() => listMyGames().length > 0);
@@ -203,6 +205,16 @@ export const CreateLobby: React.FC<{
               onClick={() => void openBrowse()}
             >
               My games
+            </button>
+          )}
+          {onPlayOffline && (
+            <button
+              type="button"
+              data-testid="play-offline-button"
+              className="button button--outline"
+              onClick={onPlayOffline}
+            >
+              Play offline (one player against bots)
             </button>
           )}
         </form>

@@ -18,6 +18,8 @@ import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
 import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
+import { OfflineRoutes, isOfflinePath } from "./offline/OfflineRoutes.tsx";
+import { useOfflineLauncher } from "./offline/useOfflineLauncher.ts";
 import { GameShell } from "./components/GameShell.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
@@ -96,6 +98,9 @@ const DevToastGallery = import.meta.env.DEV
     )
   : null;
 
+// Dev builds can register the in-memory offline launcher (screenshots, local work).
+if (import.meta.env.DEV) void import("./offline/devMock.ts");
+
 const storageKey = (gameId: string) => `ti4.player-session:${gameId}`;
 const pathGameId = () =>
   /^\/games\/([^/]+)$/.exec(window.location.pathname)?.[1]
@@ -119,6 +124,8 @@ export const App: React.FC = () => {
 
 const AppRoutes: React.FC = () => {
   const [gameId, setGameId] = useState(pathGameId);
+  const [offline, setOffline] = useState(() => isOfflinePath(window.location.pathname));
+  const offlineLauncher = useOfflineLauncher();
   const [error, setError] = useState<string | null>(null);
   const [token, setToken] = useState(() =>
     gameId ? (sessionStorage.getItem(storageKey(gameId)) ?? undefined) : undefined,
@@ -134,6 +141,7 @@ const AppRoutes: React.FC = () => {
   useLayoutEffect(() => {
     const receive = () => {
       const id = pathGameId();
+      setOffline(isOfflinePath(window.location.pathname));
       setGameId(id);
       setToken(id ? (sessionStorage.getItem(storageKey(id)) ?? undefined) : undefined);
     };
@@ -164,10 +172,27 @@ const AppRoutes: React.FC = () => {
         <DevScenarioLauncher />
       </React.Suspense>
     );
+  if (offline)
+    return (
+      <OfflineRoutes
+        onExit={() => {
+          history.pushState({}, "", "/");
+          setOffline(false);
+        }}
+      />
+    );
   if (!gameId)
     return (
       <>
         <CreateLobby
+          onPlayOffline={
+            offlineLauncher
+              ? () => {
+                  history.pushState({}, "", "/offline");
+                  setOffline(true);
+                }
+              : undefined
+          }
           onError={setError}
           onCreated={(created) => navigate(created.game_id, created.player_session)}
           onOpenGame={(id, openToken) => navigate(id, openToken)}

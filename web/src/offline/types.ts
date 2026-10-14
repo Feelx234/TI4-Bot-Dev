@@ -1,0 +1,131 @@
+/**
+ * The seam between the offline UI shell (this folder) and whatever actually runs a local game.
+ *
+ * T2 (this shell) is built only against these types. T1 introduces the real `GameTransport`
+ * interface and T3..T5 provide the wasm host; T5 implements `OfflineLauncher` on top of them and
+ * registers it with `registerOfflineLauncher` (see ./README.md). Nothing here imports
+ * GameSessionClient or useGameSession.
+ */
+
+/** Features that exist only against a server. A transport reports them; the UI hides what is off. */
+export interface Capabilities {
+  /** The map splice preview in the lobby / map picker. */
+  splicePreview: boolean;
+  /** Turn redo (undo to the start of the own turn and play it again). */
+  turnRedo: boolean;
+  /** The advisor (neural move suggestions from the server). */
+  advisor: boolean;
+  /** More than one human: lobby, invite links, presence, takeover. */
+  multiplayer: boolean;
+  /** Feedback reaches the server at once (offline it is queued and sent later). */
+  immediateFeedback: boolean;
+}
+
+export const PLAYER_COUNTS = [3, 4, 5, 6] as const;
+export type OfflinePlayerCount = (typeof PLAYER_COUNTS)[number];
+
+/** What the setup form produces. One human, every other seat a rule bot. */
+export interface OfflineSetup {
+  playerCount: OfflinePlayerCount;
+  /** 1-based seat of the human; `null` = the host draws one at random. */
+  humanSeat: number | null;
+  /** Faction id of the human; `null` = random. Bots always draw randomly. */
+  humanFaction: string | null;
+  nickname: string;
+  /** Only ever set from the dev-only seed field. */
+  seed?: number;
+}
+
+/** One row of "My offline games". */
+export interface OfflineGameSummary {
+  gameId: string;
+  playerCount: number;
+  humanFaction: string | null;
+  humanSeat: number;
+  round: number | null;
+  phase: string | null;
+  /** Number of the human's answers stored (the replay length). */
+  answers: number;
+  createdAt: number;
+  updatedAt: number;
+  status: "in_progress" | "finished";
+  /** Rough resume time in ms from the last measured replay; null when unknown. */
+  resumeEstimateMs: number | null;
+}
+
+/**
+ * Progress of loading the engine and replaying a saved game. `total` is null while it is unknown
+ * (the bar is then indeterminate). Replay can take up to about 14 s for a full game.
+ */
+export interface OfflineProgress {
+  phase: "loading-engine" | "replaying" | "starting";
+  done: number;
+  total: number | null;
+}
+
+export type OfflineProgressListener = (progress: OfflineProgress) => void;
+
+/** What a running offline game gives the shell. T5 puts the real `GameTransport` in `transport`. */
+export interface OfflineGameHandle {
+  gameId: string;
+  /** Opaque to the shell. */
+  transport: unknown;
+}
+
+export type FeedbackCategory = "bug" | "confusing" | "idea" | "other";
+
+/** Everything the server needs to write a normal feedback file, plus what replays an offline game. */
+export interface QueuedFeedbackReport {
+  category: FeedbackCategory;
+  text: string;
+  /** The ordinary context of the feedback sheet. */
+  context: Record<string, unknown>;
+  /** Present for offline games: lets triage replay the game. */
+  local?: {
+    gameId: string;
+    seed: number;
+    /** The human's option ids so far. */
+    answers: string[];
+    engineHash: string;
+    playerCount: number;
+    humanSeat: number;
+  };
+}
+
+export type QueuedFeedbackState = "queued" | "sending" | "sent" | "failed";
+
+export interface QueuedFeedbackItem {
+  localId: string;
+  report: QueuedFeedbackReport;
+  state: QueuedFeedbackState;
+  attempts: number;
+  queuedAt: number;
+  /** The server's report id once sent. */
+  serverId?: string;
+}
+
+/**
+ * Store-and-forward for offline feedback. Persistent (IndexedDB) in the real launcher. Sending
+ * happens in the background and never blocks the game; `retry` forces an attempt now.
+ */
+export interface OfflineFeedbackQueue {
+  enqueue(report: QueuedFeedbackReport): Promise<QueuedFeedbackItem>;
+  list(): QueuedFeedbackItem[];
+  subscribe(listener: () => void): () => void;
+  retry(localId: string): void;
+}
+
+export interface OfflineLauncher {
+  capabilities: Capabilities;
+  /** Faction ids the human can choose, in display order. */
+  factions: readonly string[];
+  /** False when this browser cannot run the engine (no JSPI): the reason is shown instead. */
+  supported(): { ok: true } | { ok: false; reason: string };
+  list(): Promise<OfflineGameSummary[]>;
+  create(setup: OfflineSetup, onProgress: OfflineProgressListener, signal: AbortSignal): Promise<OfflineGameHandle>;
+  resume(gameId: string, onProgress: OfflineProgressListener, signal: AbortSignal): Promise<OfflineGameHandle>;
+  remove(gameId: string): Promise<void>;
+  /** A JSON file with seed, answers and engine hash; the user keeps it as a backup. */
+  exportGame(gameId: string): Promise<{ filename: string; blob: Blob }>;
+  feedback: OfflineFeedbackQueue;
+}

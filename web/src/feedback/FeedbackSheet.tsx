@@ -5,6 +5,7 @@ import { PROTOCOL_VERSION } from "../protocol/types.ts";
 import { buildFeedbackContext, currentEnvironment } from "./context.ts";
 import { preferredNickname } from "../protocol/nickname.ts";
 import { currentFeedbackSource } from "./source.ts";
+import { routeFeedback } from "../offline/feedbackRoute.ts";
 import "./feedback.css";
 
 export const MAX_FEEDBACK_CHARS = 4000;
@@ -33,7 +34,11 @@ export const CATEGORIES = [
 ] as const;
 export type FeedbackCategory = (typeof CATEGORIES)[number][0];
 
-export type FeedbackResult = { ok: true; id: string } | { ok: false; message: string };
+export type FeedbackResult = { ok: true; id: string; queued?: boolean } | { ok: false; message: string };
+
+/** The sheet's default: straight to the server, or into the offline queue during an offline game. */
+export const submitFeedback = (body: Parameters<typeof sendFeedback>[0]): Promise<FeedbackResult> =>
+  routeFeedback(body, sendFeedback);
 
 export async function sendFeedback(body: {
   category: FeedbackCategory;
@@ -66,7 +71,7 @@ export interface FeedbackSheetProps {
   send?: typeof sendFeedback;
 }
 
-export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, send = sendFeedback }) => {
+export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, send = submitFeedback }) => {
   const info = useBuildInfo();
   const [category, setCategory] = useState<FeedbackCategory>("bug");
   const [text, setText] = useState("");
@@ -75,6 +80,7 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [sentId, setSentId] = useState<string | null>(null);
+  const [queued, setQueued] = useState(false);
   const trimmed = text.trim();
   const nickname = open ? knownNickname() : undefined;
   const close = () => {
@@ -102,7 +108,10 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
     );
     const result = await send({ category, text: trimmed, context });
     setBusy(false);
-    if (result.ok) setSentId(result.id);
+    if (result.ok) {
+      setSentId(result.id);
+      setQueued(result.queued === true);
+    }
     else setProblem(result.message);
   };
   return (
@@ -119,8 +128,17 @@ export const FeedbackSheet: React.FC<FeedbackSheetProps> = ({ open, onClose, sen
           <h2 className="feedback__title" aria-hidden="true">
             Thank you
           </h2>
-          <p className="feedback__sent-text">Your report was saved. Thank you, it helps.</p>
-          {sentId && (
+          <p className="feedback__sent-text">
+            {queued
+              ? "Your report is saved on this device and will be sent in the background. You can keep playing. Thank you, it helps."
+              : "Your report was saved. Thank you, it helps."}
+          </p>
+          {queued && (
+            <p className="feedback__queued" data-testid="feedback-queued">
+              Will be sent
+            </p>
+          )}
+          {sentId && !queued && (
             <p className="feedback__sent-id">
               Report id <code data-testid="feedback-id">{sentId}</code>
             </p>
