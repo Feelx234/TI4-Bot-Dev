@@ -7,18 +7,27 @@ import { lobbyFixture } from "../_shared/mockLobby";
 // "TypeError: Failed to fetch Check the lobby and try again." that no later success cleared and that
 // could not be dismissed. Now a single failed poll is silent, three in a row show a small chip at the
 // top, the next success removes it, and a failed ACTION keeps a banner with a Dismiss button.
-async function open(page: import("@playwright/test").Page, failPolls: { on: boolean }, readyStatus = 200) {
-  const lobby = lobbyFixture;
+async function open(page: import("@playwright/test").Page, failPolls: { on: boolean }, startStatus = 200) {
+  // A failed action needs one that the host can take: with every seat filled, that is Start.
+  const lobby =
+    startStatus === 200
+      ? lobbyFixture
+      : {
+          ...lobbyFixture,
+          slots: lobbyFixture.slots.map((slot, index) =>
+            slot.occupant ? slot : { ...slot, occupant: `guest_${index}`, nickname: `Guest ${index}`, connected: true },
+          ),
+        };
   await page.route(`**/api/games/${GAME_ID}/lobby/join`, (route) =>
     failPolls.on
       ? route.abort("failed")
       : route.fulfill({ json: { player_session: SESSION, player: { id: lobby.host_player_id }, lobby } }),
   );
   await page.route(`**/api/games/${GAME_ID}/lobby/heartbeat`, (route) => route.fulfill({ json: {} }));
-  await page.route(`**/api/games/${GAME_ID}/lobby/ready`, (route) =>
-    readyStatus === 200
+  await page.route(`**/api/games/${GAME_ID}/lobby/start`, (route) =>
+    startStatus === 200
       ? route.fulfill({ json: lobby })
-      : route.fulfill({ status: readyStatus, body: "Player already ready" }),
+      : route.fulfill({ status: startStatus, body: "Game already running" }),
   );
   await page.route(`**/api/games/${GAME_ID}/lobby`, (route) => route.fulfill({ json: lobby }));
   await page.goto("/");
@@ -46,7 +55,7 @@ test("persistent poll failure: small chip, then gone after recovery", async ({ p
 
 test("a failed action keeps a banner with Dismiss", async ({ page }, testInfo) => {
   await open(page, { on: false }, 409);
-  await page.getByTestId("ready-button").click();
+  await page.getByTestId("start-game-button").click();
   await expect(page.getByTestId("lobby-error")).toBeVisible();
   await shot(page, testInfo, "4-action-error-dismissable");
   await page.getByTestId("lobby-error-dismiss").click();

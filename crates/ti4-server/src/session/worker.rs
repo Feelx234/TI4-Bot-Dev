@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
+use crate::session::reaction_modes::NeverOffer;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{
     AlwaysDecline, Choice, ChoiceOption, Decider, DecisionRecord, FirstOption, IllegalChoice,
@@ -11,7 +12,6 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
-use crate::session::reaction_modes::NeverOffer;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
@@ -63,11 +63,10 @@ pub struct Subscriber {
 }
 
 /// Shared session state accessible across threads.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "worker lifecycle and durable history are independent states"
-)]
 pub struct SessionShared {
+    pub(crate) planning: super::planning::SessionPlanning,
+    /// The scripts that are being sent to the game, by their seat ([`super::script`]).
+    pub(crate) scripts: BTreeMap<PlayerId, super::script::ScriptApplication>,
     /// A history change (undo, redo, ...) is running: a random bot that has picked its answer
     /// holds it back instead of returning it, so no decision lands while the rewind compares
     /// versions and stops the worker.
@@ -75,6 +74,9 @@ pub struct SessionShared {
     /// A random bot seat is choosing (thinking or held back by `history_pause`). Its answer has
     /// not reached the game, so the position is still safe to rewind.
     pub bot_deciding: bool,
+    /// The wait before each answer of a seat that the server plays, in milliseconds. The decider
+    /// reads it for each decision, so it can change while the session runs.
+    pub bot_delay_ms: u64,
     pub game_id: String,
     pub game_version: u64,
     pub latest_state: GameState,
@@ -94,6 +96,9 @@ pub struct SessionShared {
     pub error: Option<String>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
     pub galaxy_layout: crate::map::GalaxyLayout,
+    /// The map of the game, for the facts of a message and for a draft. `None` in a session
+    /// that was made without one: its messages have no `tactical` and no `exploration`.
+    pub galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
     pub event_log: Vec<GameEvent>,
     pub event_counter: u64,
     pub store: Option<Arc<FileGameStore>>,
@@ -122,6 +127,11 @@ pub struct SessionShared {
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
     pub reaction_modes: BTreeMap<PlayerId, crate::session::reaction_modes::NeverSet>,
+    /// The decisions that their seat may take back ([`super::undo`]).
+    pub(crate) undo: super::undo::UndoTrack,
+    /// The steps that the undo before this session took back, for the next snapshot of the
+    /// seat ([`super::GameSession::take_undone`]).
+    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
     /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.
@@ -151,7 +161,9 @@ impl SessionShared {
 
     /// Every seat's Never set as plain data, for persistence and for a restarted worker.
     #[must_use]
-    pub fn reaction_modes_snapshot(&self) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
+    pub fn reaction_modes_snapshot(
+        &self,
+    ) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
         self.reaction_modes
             .iter()
             .map(|(seat, set)| (seat.clone(), set.lock().expect("never set lock").clone()))
@@ -165,13 +177,15 @@ impl SessionShared {
         let ViewerRole::Player(seat) = viewer else {
             return BTreeMap::new();
         };
-        self.reaction_modes.get(seat).map_or_else(BTreeMap::new, |set| {
-            set.lock()
-                .expect("never set lock")
-                .iter()
-                .map(|card| (card.clone(), ReactionMode::Never))
-                .collect()
-        })
+        self.reaction_modes
+            .get(seat)
+            .map_or_else(BTreeMap::new, |set| {
+                set.lock()
+                    .expect("never set lock")
+                    .iter()
+                    .map(|card| (card.clone(), ReactionMode::Never))
+                    .collect()
+            })
     }
 
     /// Record one seat's choice for one printed card name, persist it, and tell that seat's
@@ -217,7 +231,26 @@ impl SessionShared {
     }
 
     /// Queue a note for the seat's next state update, merging a repeat of the same reason.
-    pub fn note_auto_resolved(&mut self, seat: &PlayerId, prompt: &str, selected: &str, reason: &str) {
+    pub fn note_auto_resolved(
+        &mut self,
+        seat: &PlayerId,
+        prompt: &str,
+        selected: &str,
+        reason: &str,
+    ) {
+        self.note_passed_window(seat, prompt, selected, reason, &[]);
+    }
+
+    /// [`Self::note_auto_resolved`] for a reaction window that was declined because the seat
+    /// set each of `cards` to never offer.
+    pub fn note_passed_window(
+        &mut self,
+        seat: &PlayerId,
+        prompt: &str,
+        selected: &str,
+        reason: &str,
+        cards: &[String],
+    ) {
         if let Some((_, existing)) = self
             .pending_auto_resolved
             .iter_mut()
@@ -241,6 +274,7 @@ impl SessionShared {
                 selected: selected.to_owned(),
                 reason: reason.to_owned(),
                 count: 1,
+                passed: cards.to_vec(),
             },
         ));
     }
@@ -271,6 +305,8 @@ impl SessionShared {
     #[must_use]
     pub fn new(game_id: String, initial_state: GameState) -> Self {
         Self {
+            planning: super::planning::SessionPlanning::new(BTreeMap::new()),
+            scripts: BTreeMap::new(),
             game_id,
             game_version: 1,
             latest_state: initial_state,
@@ -296,10 +332,12 @@ impl SessionShared {
                 placements: Vec::new(),
                 off_map_system_ids: Vec::new(),
             },
+            galaxy: None,
             store: None,
             snapshot_decision_count: 0,
             history_pause: false,
             bot_deciding: false,
+            bot_delay_ms: crate::session::random_bot::random_bot_delay_ms(),
             redo_decisions: Vec::new(),
             history_active: false,
             replaying: false,
@@ -311,11 +349,77 @@ impl SessionShared {
             rng_marks: crate::session::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
+            undo: super::undo::UndoTrack::new(),
+            undone: BTreeMap::new(),
             step_snapshot: None,
             resumed_from: None,
             bluff: crate::session::bluff::BluffBook::default(),
             preview_galaxy: None,
         }
+    }
+
+    /// Whether the game waits for `seat` with nothing on its way: no answer that is sent and
+    /// not yet in the log, and no script. Only then may the seat take a decision back.
+    fn waits_for(&self, seat: &PlayerId) -> bool {
+        !self.stopped
+            && !self.finished
+            && self.error.is_none()
+            && self.replay_complete
+            && self.in_flight_submissions.is_empty()
+            && !self.scripts.contains_key(seat)
+            && self.decision_log.len() == self.undo.count()
+            && self.pending_decision.as_ref().is_some_and(|pending| {
+                &pending.seat == seat
+                    && pending.submission_state == PendingSubmissionState::AwaitingSubmission
+            })
+    }
+
+    fn never_of(&self, seat: &PlayerId) -> std::collections::BTreeSet<String> {
+        self.reaction_modes
+            .get(seat)
+            .map(|set| set.lock().expect("never set lock").clone())
+            .unwrap_or_default()
+    }
+
+    /// Whether `viewer` may take back its last decision now ([`super::undo`]).
+    ///
+    /// The game must wait for the seat. The rule would allow an undo while another seat is
+    /// asked and has not answered; but that the seat is asked can tell what it holds (a window
+    /// of a card), so the undo ends where the game asks another seat.
+    #[must_use]
+    pub fn can_undo(&self, viewer: &ViewerRole) -> bool {
+        let ViewerRole::Player(seat) = viewer else {
+            return false;
+        };
+        self.waits_for(seat) && self.undo.can_undo(seat, &self.never_of(seat))
+    }
+
+    /// What an undo of `seat` does ([`super::undo::UndoTrack::plan`]), when the game is at
+    /// `expected_version` and waits for the seat.
+    pub(crate) fn undo_plan(
+        &self,
+        seat: &PlayerId,
+        expected_version: u64,
+    ) -> Result<
+        (usize, Vec<ti4_view::planning::steps::PlanStep>),
+        crate::protocol::status::RejectionReason,
+    > {
+        use crate::protocol::status::RejectionReason;
+        if self.game_version != expected_version {
+            return Err(RejectionReason::StaleVersion {
+                expected: expected_version,
+                current: self.game_version,
+            });
+        }
+        if !self.waits_for(seat) {
+            return Err(RejectionReason::NoPendingChoice);
+        }
+        self.undo
+            .plan(seat, &self.never_of(seat))
+            .map_err(|barrier| match barrier {
+                Some(barrier) => RejectionReason::UndoBarrier { barrier },
+                None => RejectionReason::NoPendingChoice,
+            })
     }
 
     /// A live decision at log position `index` (0-based) was just accepted while a redo stack
@@ -555,7 +659,7 @@ impl SessionShared {
         if !self.history_active {
             return;
         }
-        for entry in self.event_log[index..].iter().cloned() {
+        for entry in &self.event_log[index..] {
             self.subscribers.retain(|_, subscriber| {
                 entry
                     .for_viewer(&subscriber.viewer)
@@ -608,6 +712,19 @@ impl SessionShared {
         });
     }
 
+    /// Tells every subscriber who the game waits for while a seat that the server plays takes its
+    /// time over `choice`: the status that the other seats get when a person is asked. A
+    /// reaction window names no seat.
+    pub fn broadcast_waiting_for(&mut self, choice: &Choice) {
+        let message = ServerMessage::TurnStatus(TurnStatusMsg {
+            protocol_version: PROTOCOL_VERSION,
+            game_id: self.game_id.clone(),
+            game_version: self.game_version,
+            status: project_turn_status(&self.latest_state, Some(choice)),
+        });
+        self.publish(|_| message.clone());
+    }
+
     /// Broadcasts a state update to all subscribers.
     pub fn broadcast_state_update(&mut self) {
         let pending = self
@@ -620,6 +737,7 @@ impl SessionShared {
         let state = self.latest_state.clone();
         let map_tiles = self.map_tiles.clone();
         let galaxy_layout = self.galaxy_layout.clone();
+        let galaxy = self.galaxy.clone();
         let self_decision_count = self.decision_log.len();
         let self_redo_count = self.redo_decisions.len();
         let self_generation = self.history_generation;
@@ -639,6 +757,13 @@ impl SessionShared {
                 )
             })
             .collect();
+        // At most one seat may undo: the one that the game waits for.
+        let may_undo = self
+            .pending_decision
+            .as_ref()
+            .map(|pending| ViewerRole::Player(pending.seat.clone()))
+            .filter(|viewer| self.can_undo(viewer));
+        let watch = self.planning.watch.clone();
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -650,8 +775,11 @@ impl SessionShared {
                     .map(|(choice, nonce)| (choice, nonce.as_str())),
                 &map_tiles,
                 &galaxy_layout,
+                galaxy.as_deref(),
+                Some(&watch),
             )
             .with_history(self_decision_count, self_redo_count, self_generation);
+            update.history.can_undo = may_undo.as_ref() == Some(viewer);
             update.current_path = path.clone();
             update.reaction_modes = modes_by_seat
                 .get(match viewer {
@@ -741,6 +869,14 @@ struct ReplayingDecider {
     announce_tail: bool,
 }
 
+struct ClosePlanningOnExit(Arc<Mutex<SessionShared>>);
+
+impl Drop for ClosePlanningOnExit {
+    fn drop(&mut self) {
+        self.0.lock().expect("shared lock").planning.close();
+    }
+}
+
 /// Capture the actual offer for decisions made by either a human or a bot. Replay
 /// decisions bypass this wrapper and already have their historical events.
 struct ObservedDecider {
@@ -804,7 +940,11 @@ impl ReplayingDecider {
 
         if self.announce_tail
             && next_prior.is_some()
-            && self.prior_queue.lock().expect("prior queue lock").is_empty()
+            && self
+                .prior_queue
+                .lock()
+                .expect("prior queue lock")
+                .is_empty()
         {
             self.shared.lock().expect("shared lock").replaying = false;
         }
@@ -920,6 +1060,7 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
     let published_count = Arc::new(Mutex::new(prior_count));
 
     let mut initial_shared = SessionShared::new(config.game_id.clone(), config.state.clone());
+    initial_shared.planning = super::planning::SessionPlanning::new(config.plans.clone());
     if let Some(state) = &boundary_state {
         initial_shared.latest_state = state.clone();
     }
@@ -927,10 +1068,14 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
     initial_shared.player_ids.clone_from(&config.player_ids);
     initial_shared.seats.clone_from(&config.seats);
     initial_shared.seed = config.seed;
+    if let Some(delay) = config.random_bot_delay_ms {
+        initial_shared.bot_delay_ms = delay;
+    }
     initial_shared.map_tiles.clone_from(&config.map_tiles);
     initial_shared
         .galaxy_layout
         .clone_from(&config.galaxy_layout);
+    initial_shared.galaxy = config.galaxy.clone().map(Arc::new);
     initial_shared.store.clone_from(&config.store);
     initial_shared.game_version = config.initial_version.max(1);
     initial_shared
@@ -942,6 +1087,7 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
     initial_shared.event_counter = config.event_counter;
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
+    initial_shared.undone.clone_from(&config.undone);
     initial_shared.rng_marks.clone_from(&config.rng_marks);
     let rng_force = crate::session::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
@@ -986,10 +1132,8 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
     let decision_counter: crate::session::random_bot::DecisionCounter = Arc::new(
         std::sync::atomic::AtomicUsize::new(resume.as_ref().map_or(0, |copy| copy.log_len)),
     );
-    let random_bot_delay = config
-        .random_bot_delay_ms
-        .unwrap_or_else(crate::session::random_bot::random_bot_delay_ms);
     let handle = thread::spawn(move || {
+        let _planning_cleanup = ClosePlanningOnExit(worker_shared.clone());
         let mut table = Table::new();
 
         // Configure table deciders
@@ -1024,7 +1168,6 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                         seat.clone(),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
-                        random_bot_delay,
                         worker_shared.clone(),
                     ))
                 }
@@ -1033,7 +1176,6 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                         seat.clone(),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
-                        random_bot_delay,
                         worker_shared.clone(),
                     )
                     .smart(),
@@ -1045,21 +1187,20 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
             let inner: Box<dyn Decider> = match (inner_human, never_set) {
                 (true, Some(never)) => {
                     let note_shared = worker_shared.clone();
-                    Box::new(
-                        NeverOffer::new(inner, never).on_skip(move |choice, cards| {
-                            let mut lock = note_shared.lock().expect("shared lock");
-                            if lock.stopped {
-                                return;
-                            }
-                            let names = cards.join(", ");
-                            lock.note_auto_resolved(
-                                &choice.player,
-                                &format!("Reaction window ({names})"),
-                                "Pass",
-                                &format!("you set {names} to never offer"),
-                            );
-                        }),
-                    )
+                    Box::new(NeverOffer::new(inner, never).on_skip(move |choice, cards| {
+                        let mut lock = note_shared.lock().expect("shared lock");
+                        if lock.stopped {
+                            return;
+                        }
+                        let names = cards.join(", ");
+                        lock.note_passed_window(
+                            &choice.player,
+                            &format!("Reaction window ({names})"),
+                            "Pass",
+                            &format!("you set {names} to never offer"),
+                            cards,
+                        );
+                    }))
                 }
                 _ => inner,
             };
@@ -1081,11 +1222,16 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
             } else {
                 inner
             };
+            // Outside the replay: the undo of a seat is told every answer, a replayed one too.
             table.seat(
                 seat,
-                Box::new(crate::session::random_bot::CountingDecider {
-                    inner: outer,
-                    counter: decision_counter.clone(),
+                Box::new(super::undo::Watched {
+                    inner: Box::new(crate::session::random_bot::CountingDecider {
+                        inner: outer,
+                        counter: decision_counter.clone(),
+                    }),
+                    shared: worker_shared.clone(),
+                    human: inner_human,
                 }),
             );
         }
@@ -1114,20 +1260,23 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
         // live game waits a moment (see `session::bluff`). Never during a replay.
         let hold_shared = worker_shared.clone();
         let hold_prior = prior_queue.clone();
-        table.on_window_skipped(Box::new(move |seat, event_type, relation, state, publish| {
-            let replaying = !hold_prior.lock().expect("prior queue lock").is_empty();
-            crate::session::bluff_hold::maybe_hold(
-                &hold_shared,
-                replaying,
-                seat,
-                event_type,
-                relation,
-                state,
-                publish,
-            );
-        }));
+        table.on_window_skipped(Box::new(
+            move |seat, event_type, relation, state, publish| {
+                let replaying = !hold_prior.lock().expect("prior queue lock").is_empty();
+                crate::session::bluff_hold::maybe_hold(
+                    &hold_shared,
+                    replaying,
+                    seat,
+                    event_type,
+                    relation,
+                    state,
+                    publish,
+                );
+            },
+        ));
         table.on_observed_offer(move |records, state| {
             let mut lock = offer_shared.lock().expect("shared lock");
+            lock.undo.observe(records.len(), state);
             let mut published = offer_published.lock().expect("published count lock");
             if lock.stopped || records.len() <= *published {
                 return;
@@ -1253,6 +1402,29 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
         if let Some(force) = &rng_force {
             force.attach(&mut game);
         }
+        // The undo of a seat reads what the engine latches: a die, a shuffle, a hidden card.
+        game.bind_observation(
+            worker_shared
+                .lock()
+                .expect("shared lock")
+                .undo
+                .observation(),
+        );
+        // Followers may draft their secondary as soon as the card is certain to
+        // resolve. The step holds no session lock while its primary is asked.
+        let announced = worker_shared.clone();
+        game.on_strategic_action_chosen(move |primary, card| {
+            announced
+                .lock()
+                .expect("shared lock")
+                .planning
+                .announce_primary(primary, card);
+        });
+        worker_shared
+            .lock()
+            .expect("shared lock")
+            .planning
+            .completed_step(&game);
         // The secondary preview (`session::preview`) runs on a scratch copy of the position and
         // needs the map; it never touches this game.
         worker_shared.lock().expect("shared lock").preview_galaxy =
@@ -1291,9 +1463,14 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                 }
                 if result.finished && game.table.log.records.len() < prior_count {
                     let mut lock = worker_shared.lock().expect("shared lock");
-                    lock.fail_unless_stopped("recovery replay ended before all decisions".to_owned());
+                    lock.fail_unless_stopped(
+                        "recovery replay ended before all decisions".to_owned(),
+                    );
                     return;
                 }
+                let mut lock = worker_shared.lock().expect("shared lock");
+                lock.undo.observe(game.table.log.records.len(), &game.state);
+                lock.planning.completed_step(&game);
             }
             if game.table.log.records.get(..prior_count) != Some(prior_records.as_slice()) {
                 worker_shared.lock().expect("shared lock").error =
@@ -1340,8 +1517,10 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
             // the control flow of a step lives on this thread's stack and cannot. A batch
             // check forks the copy instead of replaying the whole game.
             if snapshot_wanted
-                && let Some(copy) =
-                    crate::session::step_snapshot::StepSnapshot::capture(&mut game, snapshot_generation)
+                && let Some(copy) = crate::session::step_snapshot::StepSnapshot::capture(
+                    &mut game,
+                    snapshot_generation,
+                )
             {
                 let mut lock = worker_shared.lock().expect("shared lock");
                 if !lock.stopped {
@@ -1369,6 +1548,7 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
             }
 
             // Step the engine (will block if human decision is required)
+            let events_before = game.events.len();
             let result = game.step();
 
             // Record outcome
@@ -1382,6 +1562,7 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                 if lock.stopped {
                     break 'worker;
                 }
+                lock.undo.observe(game.table.log.records.len(), &game.state);
                 let mut accepted_replies = Vec::new();
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();
@@ -1630,6 +1811,11 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                 }
                 lock.publish_history_events_since(event_start);
 
+                lock.planning.completed_step(&game);
+                let action_over = super::script::tactical_complete(
+                    game.events.get(events_before..).unwrap_or_default(),
+                );
+                lock.scripts_after_step(action_over);
                 for (reply_tx, accepted) in accepted_replies {
                     let _ = reply_tx.send(Ok(accepted));
                 }
@@ -1722,7 +1908,12 @@ mod auto_resolved_tests {
         let spectator = subscribe(&mut shared, 3, ViewerRole::Spectator);
         let before = shared.decision_log.len();
 
-        shared.note_auto_resolved(&PlayerId::new("a"), "pay 1 more resources", "trade goods", "only way");
+        shared.note_auto_resolved(
+            &PlayerId::new("a"),
+            "pay 1 more resources",
+            "trade goods",
+            "only way",
+        );
         shared.broadcast_state_update();
 
         let mine = notes(&a);
@@ -1784,7 +1975,9 @@ mod tie_break_tests {
         state.round = 4;
         state.objective_deck.clear();
         state.seating_order.clone_from(&players);
-        state.unclaimed_strategy_cards.retain(|card| !cards.contains(card));
+        state
+            .unclaimed_strategy_cards
+            .retain(|card| !cards.contains(card));
         for (seat, card) in players.iter().zip(cards.iter()) {
             let player = state.player_mut(seat).unwrap();
             player.victory_points = 6;
@@ -1813,7 +2006,11 @@ mod tie_break_tests {
         let subscription = session.subscribe(ViewerRole::Spectator);
         let deadline = std::time::Instant::now() + Duration::from_secs(20);
         while !session.is_finished() {
-            assert!(std::time::Instant::now() < deadline, "{:?}", session.error());
+            assert!(
+                std::time::Instant::now() < deadline,
+                "{:?}",
+                session.error()
+            );
             assert!(session.error().is_none(), "{:?}", session.error());
             let Some((seat, nonce, version)) = session.current_pending_decision() else {
                 std::thread::sleep(Duration::from_millis(5));

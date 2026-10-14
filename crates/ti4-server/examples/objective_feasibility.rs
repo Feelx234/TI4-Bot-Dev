@@ -15,7 +15,10 @@ use ti4_model::id::{PlayerId, SystemId};
 use ti4_server::maps::{TemplateLoader, build_template_galaxy};
 
 fn main() {
-    let seeds: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(100);
+    let seeds: u64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
     let content = ContentStore::embedded();
     let loader = TemplateLoader::load().unwrap();
     for n in 3..=6usize {
@@ -31,7 +34,12 @@ fn main() {
         let by_seat: BTreeMap<PlayerId, _> = ids
             .iter()
             .enumerate()
-            .map(|(i, p)| (PlayerId::new(format!("seat_{i:02}")), assignments[p].clone()))
+            .map(|(i, p)| {
+                (
+                    PlayerId::new(format!("seat_{i:02}")),
+                    assignments[p].clone(),
+                )
+            })
             .collect();
 
         let mut kinds: Vec<(String, Vec<Option<ti4_content::galaxy::Galaxy>>)> = Vec::new();

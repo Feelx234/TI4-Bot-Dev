@@ -50,7 +50,9 @@ pub fn maybe_hold(
             return;
         }
         let eligible = matches!(lock.seats.get(seat), Some(SeatController::Human))
-            && state.player(seat).is_some_and(|p| !p.action_cards.is_empty())
+            && state
+                .player(seat)
+                .is_some_and(|p| !p.action_cards.is_empty())
             && lock
                 .reaction_modes
                 .get(seat)
@@ -65,12 +67,19 @@ pub fn maybe_hold(
         }
         let span = policy.max_hold.saturating_sub(policy.min_hold);
         let span_ms = u64::try_from(span.as_millis()).unwrap_or(0);
-        let jitter = if span_ms == 0 { 0 } else { rand::random::<u64>() % (span_ms + 1) };
+        let jitter = if span_ms == 0 {
+            0
+        } else {
+            rand::random::<u64>() % (span_ms + 1)
+        };
         let duration = (policy.min_hold + Duration::from_millis(jitter))
             .min(policy.hard_cap)
             .min(left);
         let (tx, rx) = mpsc::channel();
-        lock.bluff.active = Some(ActiveHold { seat: seat.clone(), wake: tx });
+        lock.bluff.active = Some(ActiveHold {
+            seat: seat.clone(),
+            wake: tx,
+        });
         (rx, duration)
     };
 
@@ -117,9 +126,9 @@ pub fn maybe_hold(
     if lock.stopped {
         return;
     }
-    lock.bluff.account(seat, round, started.elapsed().min(duration));
+    lock.bluff
+        .account(seat, round, started.elapsed().min(duration));
     // Silent resume: the ordinary state update restores everyone's status. No event, no log.
     lock.broadcast_state_update();
     lock.send_reaction_intent_state(seat);
 }
-

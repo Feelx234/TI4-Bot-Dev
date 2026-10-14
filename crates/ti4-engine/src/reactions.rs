@@ -1952,7 +1952,11 @@ mod tests {
             state,
             "SYSTEM_ACTIVATED",
             payload(&[("player", "a".into())]),
-            &["reaction:generic:SYSTEM_ACTIVATED:after", "decline", "decline"],
+            &[
+                "reaction:generic:SYSTEM_ACTIVATED:after",
+                "decline",
+                "decline",
+            ],
         );
         let inner = asked
             .iter()

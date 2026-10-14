@@ -1,8 +1,8 @@
-//! Map generation and template management.
+//! Map generation and template management. The templates themselves are in `ti4-view`.
 
-pub mod build;
 pub mod catalog;
-pub mod template_loader;
+
+pub use ti4_view::maps::{build, template_loader};
 
 #[cfg(test)]
 mod community_tests;

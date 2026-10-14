@@ -157,6 +157,7 @@ impl RngSync {
 pub struct GameRng {
     seed: u64,
     streams: BTreeMap<String, ChaCha8Rng>,
+    observation: Option<crate::observation::ExecutionObservation>,
     sync: Option<Arc<RngSync>>,
 }
 
@@ -166,6 +167,7 @@ impl GameRng {
         Self {
             seed,
             streams: BTreeMap::new(),
+            observation: None,
             sync: None,
         }
     }
@@ -247,6 +249,7 @@ impl GameRng {
 
     /// The stream for one domain, created on first use.
     pub fn stream(&mut self, domain: &str) -> &mut ChaCha8Rng {
+        self.observe_randomness();
         self.apply_sync();
         self.streams
             .entry(domain.to_owned())
@@ -280,6 +283,27 @@ impl GameRng {
     #[must_use]
     pub fn active_domains(&self) -> Vec<&str> {
         self.streams.keys().map(String::as_str).collect()
+    }
+
+    pub fn bind_observation(
+        &mut self,
+        observation: Option<crate::observation::ExecutionObservation>,
+    ) {
+        self.observation = observation;
+    }
+
+    /// Dice call this even when test-preloaded faces bypass the random stream.
+    pub fn observe_randomness(&self) {
+        if let Some(observation) = &self.observation {
+            observation.randomness();
+        }
+    }
+
+    /// Ordered deck reads can reveal an unknown result without using randomness.
+    pub fn observe_hidden_information(&self) {
+        if let Some(observation) = &self.observation {
+            observation.hidden_information();
+        }
     }
 }
 
@@ -340,6 +364,22 @@ mod tests {
 
     fn deck() -> Vec<u32> {
         (0..40).collect()
+    }
+
+    #[test]
+    fn temporary_clones_and_direct_stream_access_share_observation() {
+        let observation = crate::observation::ExecutionObservation::default();
+        let mut rng = GameRng::new(7);
+        rng.bind_observation(Some(observation.clone()));
+        let mut temporary = rng.clone();
+        let _ = temporary.stream(domain::DICE);
+        assert!(observation.activity().randomness);
+        assert!(rng.active_domains().is_empty());
+
+        let fresh = crate::observation::ExecutionObservation::default();
+        rng.bind_observation(Some(fresh.clone()));
+        let _ = rng.stream("direct");
+        assert!(fresh.activity().randomness);
     }
 
     #[test]

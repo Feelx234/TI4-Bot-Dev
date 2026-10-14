@@ -162,10 +162,28 @@ pub const LOBBY_FACTIONS: [&str; 24] = [
 /// How many [`LOBBY_FACTIONS`] belong to the base game (the first ones); the rest are Prophecy of Kings.
 pub const LOBBY_BASE_FACTIONS: usize = 17;
 
-/// Faction assignments for a table, taking the in-scope factions in order.
+/// The factions of seats seven and eight.
 ///
-/// Seats beyond the sixth reuse the list from the start, so a larger table is still playing
-/// factions this engine implements rather than falling off the end into unported ones.
+/// HACK (2026-10-09, owner decision): an eight-player table needs eight factions and eight home
+/// systems, and the scope has six. These two are seated although they are **not fully ported**.
+/// They are kept out of [`IN_SCOPE_FACTIONS`] on purpose, so nothing that reads the scope
+/// (coverage, training, the advisor) changes. To undo: port two factions, add them to the scope,
+/// and delete this constant.
+pub const EXTRA_SEAT_FACTIONS: [&str; 2] = ["sardakk", "yin"];
+
+/// The faction of the seat at `index` (0-based): the in-scope factions in order, then
+/// [`EXTRA_SEAT_FACTIONS`]. Seats beyond the eighth reuse the list from the start.
+#[must_use]
+pub fn seat_faction(index: usize) -> &'static str {
+    let seats = IN_SCOPE_FACTIONS.len() + EXTRA_SEAT_FACTIONS.len();
+    let index = index % seats;
+    IN_SCOPE_FACTIONS
+        .get(index)
+        .copied()
+        .unwrap_or_else(|| EXTRA_SEAT_FACTIONS[index - IN_SCOPE_FACTIONS.len()])
+}
+
+/// Faction assignments for a table, by seat: see [`seat_faction`].
 #[must_use]
 pub fn seat_in_scope(players: &[PlayerId]) -> BTreeMap<PlayerId, FactionId> {
     seat_in_scope_rotated(players, 0)
@@ -183,10 +201,14 @@ pub fn seat_in_scope_rotated(
         .iter()
         .enumerate()
         .map(|(index, player)| {
-            (
-                player.clone(),
-                FactionId::new(IN_SCOPE_FACTIONS[(index + rotation) % IN_SCOPE_FACTIONS.len()]),
-            )
+            // The rotation moves seats along the six in-scope factions; seats seven and eight keep
+            // their extra factions (see `seat_faction`).
+            let faction = if index < IN_SCOPE_FACTIONS.len() {
+                IN_SCOPE_FACTIONS[(index + rotation) % IN_SCOPE_FACTIONS.len()]
+            } else {
+                seat_faction(index)
+            };
+            (player.clone(), FactionId::new(faction))
         })
         .collect()
 }
@@ -297,6 +319,16 @@ pub fn lobby_faction_draw(
             }))
         })
         .collect())
+}
+
+/// The order in which the players of a lobby table sit: a seeded shuffle of the places
+/// `0..count` (the dedicated `seating:lobby-seat-order:v1` stream). Entry `i` is the place in the
+/// lobby (the order of the join) of the player who gets seat `i`. The same seed and count always
+/// give the same order, and the draw uses no other stream of the game.
+#[must_use]
+pub fn lobby_seat_order(count: usize, seed: u64) -> Vec<usize> {
+    let places: Vec<usize> = (0..count).collect();
+    crate::rng::GameRng::new(seed).shuffled("seating:lobby-seat-order:v1", &places)
 }
 
 /// Home system tile ids for a player-to-faction assignment, in assignment order.
@@ -1128,24 +1160,33 @@ mod tests {
     }
 
     #[test]
-    fn a_table_larger_than_the_scope_still_plays_in_scope_factions() {
-        // Falling off the end of the list is how an unported faction gets seated. Reusing it is
-        // wrong as a matchup and right as a scope, and a duplicated faction is visible where a
-        // silently unported one is not.
-        let players: Vec<PlayerId> = (0..8)
+    fn seats_seven_and_eight_get_the_two_extra_factions() {
+        // Owner decision (2026-10-09): an eight-player table has eight distinct factions, two of
+        // them not fully ported. Larger tables reuse the eight.
+        let players: Vec<PlayerId> = (0..10)
             .map(|index| PlayerId::new(format!("p{index}")))
             .collect();
         let seated = seat_in_scope(&players);
 
-        assert_eq!(seated.len(), 8);
-        for faction in seated.values() {
+        for (index, alias) in IN_SCOPE_FACTIONS.iter().enumerate() {
+            assert_eq!(seated[&players[index]].as_str(), *alias);
+        }
+        assert_eq!(seated[&players[6]].as_str(), EXTRA_SEAT_FACTIONS[0]);
+        assert_eq!(seated[&players[7]].as_str(), EXTRA_SEAT_FACTIONS[1]);
+        assert_eq!(seated[&players[8]], seated[&players[0]]);
+        assert_eq!(seated[&players[9]], seated[&players[1]]);
+        for alias in EXTRA_SEAT_FACTIONS {
             assert!(
-                IN_SCOPE_FACTIONS.contains(&faction.as_str()),
-                "{faction} was seated and is not in scope"
+                !IN_SCOPE_FACTIONS.contains(&alias),
+                "{alias} is extra, not in scope"
+            );
+            assert!(
+                ti4_content::factions::get(content(), alias)
+                    .and_then(|faction| faction.home_system())
+                    .is_some(),
+                "{alias} has a home system"
             );
         }
-        assert_eq!(seated[&players[0]], seated[&players[6]]);
-        assert_eq!(seated[&players[1]], seated[&players[7]]);
     }
 
     #[test]
@@ -1655,7 +1696,10 @@ mod tests {
     fn lobby_draw_seats_the_whole_pool_when_all_are_chosen_and_never_repeats_a_choice() {
         let all: Vec<Option<&str>> = LOBBY_FACTIONS.iter().map(|f| Some(*f)).collect();
         let table = lobby_faction_draw(&all, 3).unwrap();
-        assert_eq!(table.iter().map(FactionId::as_str).collect::<Vec<_>>(), LOBBY_FACTIONS);
+        assert_eq!(
+            table.iter().map(FactionId::as_str).collect::<Vec<_>>(),
+            LOBBY_FACTIONS
+        );
     }
 
     #[test]

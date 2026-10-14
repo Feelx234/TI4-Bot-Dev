@@ -143,6 +143,7 @@ impl Dice {
         let faces = if count == 0 {
             Vec::new()
         } else {
+            rng.observe_randomness();
             self.roll_with_rng(rng, count)
         };
         let record = Roll {
@@ -227,6 +228,7 @@ impl Dice {
         let mut replaced = BTreeSet::new();
         for index in positions {
             if index < faces.len() {
+                rng.observe_randomness();
                 faces[index] = rng.die(domain::DICE, self.sides);
                 replaced.insert(index);
             }
@@ -287,6 +289,26 @@ mod tests {
 
     fn roller() -> (Dice, GameRng) {
         (Dice::new(), GameRng::new(7))
+    }
+
+    #[test]
+    fn preloaded_faces_mark_uncertainty_but_zero_dice_and_invalid_rerolls_do_not() {
+        let observation = crate::observation::ExecutionObservation::default();
+        let mut rng = GameRng::new(7);
+        rng.bind_observation(Some(observation.clone()));
+        let mut dice = Dice::from_faces([10]);
+        dice.roll(&mut rng, 0, "zero", None);
+        assert!(!observation.activity().randomness);
+        let roll = dice.roll(&mut rng, 1, "preloaded", None);
+        assert!(observation.activity().randomness);
+        assert!(rng.active_domains().is_empty());
+
+        let rerolls = crate::observation::ExecutionObservation::default();
+        rng.bind_observation(Some(rerolls.clone()));
+        dice.reroll(&mut rng, &roll, [4], None);
+        assert!(!rerolls.activity().randomness);
+        dice.reroll(&mut rng, &roll, [0], None);
+        assert!(rerolls.activity().randomness);
     }
 
     #[test]

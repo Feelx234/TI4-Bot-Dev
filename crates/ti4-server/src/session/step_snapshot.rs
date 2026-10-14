@@ -97,7 +97,10 @@ impl StepSnapshot {
     /// When the copy is not valid for `prefix` (check [`StepSnapshot::is_valid_for`] first).
     #[must_use]
     pub fn fork(&self, prefix: &[DecisionRecord]) -> Game<'static> {
-        assert!(self.log_len <= prefix.len(), "snapshot is newer than the prefix");
+        assert!(
+            self.log_len <= prefix.len(),
+            "snapshot is newer than the prefix"
+        );
         let mut game = self.game.instantiate();
         game.table.log.records = prefix[..self.log_len].to_vec();
         game

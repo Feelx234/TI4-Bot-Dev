@@ -556,6 +556,11 @@ pub fn preview_moves(
             .get("gravity_drive")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        let ionian = option
+            .payload
+            .get("ionian")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
         let kind_id = option
             .payload
             .get("unit")
@@ -573,12 +578,13 @@ pub fn preview_moves(
             crate::action_cards::apply_movement_effects(&mut rules, state, player);
             let path = rules.path_from_ship(
                 origin,
-                effective_move_value_with_gravity(
+                effective_move_value_with_boosts(
                     state,
                     &kind,
                     player,
                     &SystemId::new(origin),
                     gravity_drive,
+                    ionian,
                 ),
                 Some(kind_id),
             );
@@ -876,6 +882,49 @@ mod tests {
             movement_options(&player, &found).options[0].id,
             format!("move_gd|{origin}|0")
         );
+    }
+
+    #[test]
+    fn an_ionian_boost_does_not_hide_a_gravity_rift_in_the_route_preview() {
+        let content = ContentStore::embedded();
+        let rift = crate::fixtures::a_system_where("gravity rift");
+        let plain = crate::fixtures::plain_systems(3);
+        let galaxy = Galaxy::placed(
+            content,
+            &[
+                (rift.as_str(), ti4_model::hex::Hex::new(0, 0)),
+                (plain[0].as_str(), ti4_model::hex::Hex::new(1, 0)),
+                (plain[1].as_str(), ti4_model::hex::Hex::new(2, 0)),
+                (plain[2].as_str(), ti4_model::hex::Hex::new(3, 0)),
+            ],
+            POK,
+        )
+        .unwrap();
+        let player = player();
+        let origin = SystemId::new(rift);
+        let destination = SystemId::new(&plain[2]);
+        let mut state = crate::fixtures::game(&["a"]);
+        crate::fixtures::put(&mut state, &origin, "carrier", &player, 1);
+        state
+            .system_mut(&origin)
+            .set_control(ti4_model::id::PlanetId::new("tempesta"), player.clone());
+        activate(&mut state, &player, &destination).unwrap();
+        let moves = movable(&state, content, POK, &galaxy, &player);
+        assert_eq!(moves.len(), 1);
+        assert!(moves[0].ionian);
+        let choice = preview_moves(
+            &state,
+            content,
+            POK,
+            &galaxy,
+            &player,
+            &destination,
+            movement_options(&player, &moves),
+        );
+        assert!(matches!(
+            choice.options[0].preview.as_ref().unwrap().outcome,
+            crate::preview::Outcome::Unknown { .. }
+        ));
     }
 
     use ti4_model::content_types::POK;

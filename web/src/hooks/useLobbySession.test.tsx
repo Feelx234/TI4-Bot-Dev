@@ -13,7 +13,6 @@ const lobby = {
       position: 1,
       occupant: "player_a",
       nickname: "Host",
-      ready: false,
       connected: true,
       can_take_over: false,
     },
@@ -22,7 +21,6 @@ const lobby = {
       position: 2,
       occupant: null,
       nickname: null,
-      ready: false,
       connected: false,
       can_take_over: false,
     },
@@ -37,7 +35,7 @@ afterEach(() => {
 it("serializes lobby mutations, keeps failed actions actionable, and permits a retry", async () => {
   let finish!: (response: unknown) => void;
   const fetchMock = vi.fn().mockImplementation((url: string) => {
-    if (url.endsWith("/ready"))
+    if (url.endsWith("/map"))
       return new Promise((resolve) => {
         finish = resolve;
       });
@@ -49,26 +47,26 @@ it("serializes lobby mutations, keeps failed actions actionable, and permits a r
   let first!: Promise<void>;
   let blocked!: Promise<void>;
   act(() => {
-    first = result.current.setReady(true);
+    first = result.current.chooseMap({ kind: "random" });
     blocked = result.current.start();
   });
-  expect(result.current.pendingAction).toBe("ready");
+  expect(result.current.pendingAction).toBe("map");
   expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/start"))).toHaveLength(0);
   await act(async () => {
-    finish({ ok: false, status: 409, text: async () => "Player already ready" });
+    finish({ ok: false, status: 409, text: async () => "Game already running" });
     await Promise.all([first, blocked]);
   });
   expect(result.current.pendingAction).toBeNull();
   expect(result.current.error).toContain("409");
   act(() => {
-    first = result.current.setReady(true);
+    first = result.current.chooseMap({ kind: "random" });
   });
   await act(async () => {
-    finish(json({ ...lobby, slots: [{ ...lobby.slots[0], ready: true }, lobby.slots[1]] }));
+    finish(json({ ...lobby, lobby_version: 9 }));
     await first;
   });
   expect(result.current.error).toBeNull();
-  expect(result.current.lobby?.slots[0].ready).toBe(true);
+  expect(result.current.lobby?.lobby_version).toBe(9);
 });
 
 it("posts the host's map choice with the credential and adopts the lobby it returns", async () => {

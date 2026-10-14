@@ -58,6 +58,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             "/api/games",
             get(games::list_games).post(games::create_game),
         )
+        .route("/api/setup-options", get(games::setup_options))
         .route("/api/maps", get(games::list_maps))
         .route("/api/maps/{alias}/preview", get(games::preview_map))
         .route(
@@ -82,12 +83,12 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::heartbeat),
         )
         .route(
-            "/api/games/{game_id}/lobby/ready",
-            axum::routing::post(games::set_ready),
+            "/api/games/{game_id}/lobby/settings",
+            axum::routing::post(games::change_lobby_settings),
         )
         .route(
-            "/api/games/{game_id}/lobby/reorder",
-            axum::routing::post(games::reorder_lobby),
+            "/api/games/{game_id}/lobby/nickname",
+            axum::routing::post(games::rename_in_lobby),
         )
         .route(
             "/api/games/{game_id}/lobby/start",
@@ -142,7 +143,11 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             post(feedback::post_feedback)
                 .layer(DefaultBodyLimit::max(crate::feedback::MAX_BODY_BYTES)),
         )
-        .route("/ws/games/{game_id}", get(ws_handler));
+        .route("/ws/games/{game_id}", get(ws_handler))
+        .route(
+            "/ws/tables/{game_id}",
+            get(crate::ws::table::table_ws_handler),
+        );
     if !is_public {
         router = router
             .route("/api/dev/scenarios", get(crate::dev::list_scenarios))

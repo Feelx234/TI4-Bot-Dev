@@ -1824,7 +1824,9 @@ mod tests {
         crate::fixtures::put(&mut state, &nexus, "cruiser", &seat, 1);
         let id = SecretObjectiveId::new("btgk");
         let kinds = |galaxy: &ti4_content::galaxy::Galaxy| {
-            remaining_position_progress(&id, &on_map(&state, &seat, galaxy)).unwrap().have
+            remaining_position_progress(&id, &on_map(&state, &seat, galaxy))
+                .unwrap()
+                .have
         };
         assert_eq!(kinds(&galaxy), 0, "the locked nexus is gamma only");
         for kind in ["ALPHA", "BETA"] {

@@ -100,9 +100,11 @@ pub fn census(
         })
     };
     let is_legendary_system = |id: &str| {
-        planets_of(id)
-            .iter()
-            .any(|p| planets.get(p).is_some_and(ti4_content::galaxy::Planet::is_legendary))
+        planets_of(id).iter().any(|p| {
+            planets
+                .get(p)
+                .is_some_and(ti4_content::galaxy::Planet::is_legendary)
+        })
     };
 
     let mut c = MapCensus {
@@ -187,7 +189,12 @@ pub fn census(
         .count();
     c.beside_a_home = holdable
         .iter()
-        .filter(|id| galaxy.adjacent(id).into_iter().any(|n| home_ids.contains(n)))
+        .filter(|id| {
+            galaxy
+                .adjacent(id)
+                .into_iter()
+                .any(|n| home_ids.contains(n))
+        })
         .count();
     c
 }
@@ -207,7 +214,10 @@ pub fn unsatisfiable_public(c: &MapCensus) -> Vec<&'static str> {
     when("subdue", c.non_home_planets < 11);
     // Attachments come from exploring a planet, which needs a trait (frontier cards aside).
     when("lost_outposts", c.cultural + c.hazardous + c.industrial < 2);
-    when("ancient_monuments", c.cultural + c.hazardous + c.industrial < 3);
+    when(
+        "ancient_monuments",
+        c.cultural + c.hazardous + c.industrial < 3,
+    );
     when("intimidate", c.beside_mecatol < 2);
     when("outer_rim", c.best_rim < 3);
     when("control_borderlands", c.best_rim < 5);
@@ -342,7 +352,11 @@ mod tests {
         for (i, id) in ids.iter().enumerate() {
             seating::deploy(&mut state, content(), id, &FactionId::new(factions[i]), POK).unwrap();
         }
-        let homes = state.players.iter().filter_map(|p| p.home_system.clone()).collect();
+        let homes = state
+            .players
+            .iter()
+            .filter_map(|p| p.home_system.clone())
+            .collect();
         (state, homes)
     }
 
@@ -363,7 +377,11 @@ mod tests {
 
     /// A board that offers everything: empty systems, anomalies, both wormholes, planets.
     fn rich_board(state: &GameState) -> Galaxy {
-        let own_homes: Vec<String> = state.players.iter().filter_map(|p| p.home_system.as_ref().map(ToString::to_string)).collect();
+        let own_homes: Vec<String> = state
+            .players
+            .iter()
+            .filter_map(|p| p.home_system.as_ref().map(ToString::to_string))
+            .collect();
         let systems = all_systems(content(), POK);
         let homes = ti4_content::galaxy::home_systems(content(), POK);
         let pick = |want: &dyn Fn(&System) -> bool, n: usize| -> Vec<&str> {
@@ -374,7 +392,11 @@ mod tests {
                         && !homes.contains(*id)
                         && !s.is_hyperlane()
                         && !crate::seating::is_mecatol(id)
-                        && !crate::fracture::is_fracture_system(content(), POK, &SystemId::new(**id))
+                        && !crate::fracture::is_fracture_system(
+                            content(),
+                            POK,
+                            &SystemId::new(**id),
+                        )
                         && s.id() != seating::LOCKED_NEXUS
                         && s.id() != seating::OPEN_NEXUS
                         && !["17", "51", "117", "118"].contains(id)
@@ -384,14 +406,23 @@ mod tests {
                 .collect()
         };
         let mut ids: Vec<&str> = vec!["18"];
-        ids.extend(pick(&|s| s.planets().is_empty() && !s.is_anomaly() && s.wormholes().is_empty(), 6));
+        ids.extend(pick(
+            &|s| s.planets().is_empty() && !s.is_anomaly() && s.wormholes().is_empty(),
+            6,
+        ));
         ids.extend(pick(&|s| s.is_anomaly() && !s.planets().is_empty(), 6));
         ids.extend(pick(&|s| s.wormholes().contains("ALPHA"), 1));
         ids.extend(pick(&|s| s.wormholes().contains("BETA"), 1));
         let mut seen = BTreeSet::new();
         ids.retain(|id| seen.insert(*id));
-        let mut planets: Vec<&str> = pick(&|s| s.planets().len() >= 2 && !s.is_anomaly() && s.wormholes().is_empty(), 2);
-        planets.extend(pick(&|s| s.planets().len() == 1 && !s.is_anomaly() && s.wormholes().is_empty(), 30));
+        let mut planets: Vec<&str> = pick(
+            &|s| s.planets().len() >= 2 && !s.is_anomaly() && s.wormholes().is_empty(),
+            2,
+        );
+        planets.extend(pick(
+            &|s| s.planets().len() == 1 && !s.is_anomaly() && s.wormholes().is_empty(),
+            30,
+        ));
         let planets: Vec<&str> = planets
             .into_iter()
             .filter(|id| !seen.contains(id))
@@ -440,7 +471,10 @@ mod tests {
         let (mut state, homes) = seated(4, 11);
         let galaxy = rich_board(&state);
         let c = census(content(), POK, &galaxy, &homes);
-        assert!(c.planetless >= 5 && c.alpha >= 1 && c.beta >= 1 && c.beside_anomaly >= 3, "{c:?}");
+        assert!(
+            c.planetless >= 5 && c.alpha >= 1 && c.beta >= 1 && c.beside_anomaly >= 3,
+            "{c:?}"
+        );
         assert_eq!(unsatisfiable_public(&c), Vec::<&str>::new(), "{c:?}");
         assert_eq!(unsatisfiable_secret(&c), Vec::<&str>::new(), "{c:?}");
         let before = state.clone();
@@ -476,16 +510,37 @@ mod tests {
                     .filter(|id| !public.contains(&id.as_str()))
                     .collect();
                 let now = ten(&state);
-                let survivors: Vec<&str> = now.iter().filter(|id| kept.contains(id)).map(String::as_str).collect();
-                let expected: Vec<&str> = kept.iter().filter(|id| now.contains(id)).map(String::as_str).collect();
+                let survivors: Vec<&str> = now
+                    .iter()
+                    .filter(|id| kept.contains(id))
+                    .map(String::as_str)
+                    .collect();
+                let expected: Vec<&str> = kept
+                    .iter()
+                    .filter(|id| now.contains(id))
+                    .map(String::as_str)
+                    .collect();
                 assert_eq!(survivors, expected);
 
                 // Secrets: nobody holds a ruled-out card, the deck has none, hands keep size,
                 // and a legal card in hand stays.
-                assert!(state.secret_deck.iter().all(|id| !secret.contains(&id.as_str())));
+                assert!(
+                    state
+                        .secret_deck
+                        .iter()
+                        .all(|id| !secret.contains(&id.as_str()))
+                );
                 for (before, after) in original.players.iter().zip(&state.players) {
-                    assert_eq!(before.secret_objectives.len(), after.secret_objectives.len());
-                    assert!(after.secret_objectives.iter().all(|id| !secret.contains(&id.as_str())));
+                    assert_eq!(
+                        before.secret_objectives.len(),
+                        after.secret_objectives.len()
+                    );
+                    assert!(
+                        after
+                            .secret_objectives
+                            .iter()
+                            .all(|id| !secret.contains(&id.as_str()))
+                    );
                     for card in &before.secret_objectives {
                         if !secret.contains(&card.as_str()) {
                             assert!(after.secret_objectives.contains(card));
@@ -493,8 +548,15 @@ mod tests {
                     }
                 }
                 let total = state.secret_deck.len()
-                    + state.players.iter().map(|p| p.secret_objectives.len()).sum::<usize>();
-                assert_eq!(total, build_starting_decks(content(), POK, seed).secrets.len() - secret.len());
+                    + state
+                        .players
+                        .iter()
+                        .map(|p| p.secret_objectives.len())
+                        .sum::<usize>();
+                assert_eq!(
+                    total,
+                    build_starting_decks(content(), POK, seed).secrets.len() - secret.len()
+                );
 
                 // Deterministic: the same seed and board give the same decks.
                 let (mut again, _) = seated(n, seed);

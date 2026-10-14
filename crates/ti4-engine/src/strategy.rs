@@ -308,6 +308,8 @@ pub struct StrategySecondaryWindow {
     /// Whether finishing the window exhausts the primary player's copy of the card. False for
     /// a card resolved by an effect rather than held (see [`StrategySecondaryWindow::foreign`]).
     exhausts_card: bool,
+    /// A disposable one-follower window on a planning fork (see [`StrategySecondaryWindow::preview`]).
+    preview: bool,
 }
 
 impl StrategySecondaryWindow {
@@ -333,7 +335,33 @@ impl StrategySecondaryWindow {
             next_follower: 0,
             resolutions: Vec::new(),
             exhausts_card: false,
+            preview: false,
         }
+    }
+
+    /// One follower's secondary in isolation, for a disposable planning fork.
+    ///
+    /// The window offers `follower` the ordinary question at the ordinary cost. Completing it
+    /// exhausts no card, and the driver neither finishes the action nor advances the turn: the
+    /// fork only previews this seat's own secondary and is then discarded.
+    #[must_use]
+    pub fn preview(primary_player: PlayerId, card: StrategyCardId, follower: PlayerId) -> Self {
+        Self {
+            preview: true,
+            ..Self::foreign(primary_player, card, vec![follower])
+        }
+    }
+
+    /// Whether this is a [`StrategySecondaryWindow::preview`] window.
+    #[must_use]
+    pub const fn is_preview(&self) -> bool {
+        self.preview
+    }
+
+    /// Followers not yet recorded, in resolution order.
+    #[must_use]
+    pub fn unresolved_followers(&self) -> &[PlayerId] {
+        &self.followers[self.next_follower..]
     }
 
     /// A window with `follower` alone in it, for the read-only secondary preview
@@ -352,6 +380,7 @@ impl StrategySecondaryWindow {
             next_follower: 0,
             resolutions: Vec::new(),
             exhausts_card: false,
+            preview: false,
         }
     }
 
@@ -819,6 +848,7 @@ pub fn begin_strategic_action(
         next_follower: 0,
         resolutions: Vec::new(),
         exhausts_card: true,
+        preview: false,
     })
 }
 
@@ -1068,6 +1098,7 @@ mod tests {
             next_follower: 0,
             resolutions: Vec::new(),
             exhausts_card: false,
+            preview: false,
         };
         let choice = window
             .pending_choice(&state, ContentStore::embedded(), POK)
@@ -1101,6 +1132,7 @@ mod tests {
             next_follower: 0,
             resolutions: Vec::new(),
             exhausts_card: false,
+            preview: false,
         };
         let choice = window
             .pending_choice(&state, ContentStore::embedded(), POK)
@@ -1120,6 +1152,7 @@ mod tests {
             next_follower: 0,
             resolutions: Vec::new(),
             exhausts_card: false,
+            preview: false,
         };
         let with = window
             .pending_choice(&state, ContentStore::embedded(), POK)

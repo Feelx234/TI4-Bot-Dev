@@ -1565,6 +1565,24 @@ describe("GameSessionClient ingress lifecycle", () => {
     return { client, socket, send };
   }
 
+  it("ignores the planning protocol the server pushes to every player", async () => {
+    const { client, send } = await connectedPlayer();
+    send({
+      type: "planning_status",
+      checkpoint_id: 6,
+      available: false,
+      can_start: false,
+      has_draft: false,
+      identity: null,
+      can_apply: false,
+      application: null,
+    });
+    send({ type: "planning_update" });
+    send({ type: "draft_applied" });
+    expect(client.getState().lastError).toBeNull();
+    expect(client.getState().pendingChoice?.nonce).toBe("nonce-4");
+  });
+
   it.each([
     { reason: "stale_nonce" },
     { reason: "stale_version", expected: 4, current: 5 },

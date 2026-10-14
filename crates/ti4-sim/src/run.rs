@@ -482,11 +482,7 @@ mod tests {
         let mut scored = 0;
         // Each of these scores a secret; the scored seed-4 game also draws the Shard of the
         // Throne (a relic point), the custodians and Imperial.
-        for (seed, kind) in [
-            (1, Seats::Random),
-            (2, Seats::Random),
-            (4, Seats::Scored),
-        ] {
+        for (seed, kind) in [(1, Seats::Random), (2, Seats::Random), (4, Seats::Scored)] {
             let (state, galaxy) = seat(content, &table, seed).unwrap();
             let mut game =
                 Game::with_table(state, content, kind.table(&players, seed)).with_galaxy(galaxy);
@@ -511,7 +507,10 @@ mod tests {
                 scored += player.victory_points;
             }
         }
-        assert!(scored > 0, "nobody scored, so the ledger was never exercised");
+        assert!(
+            scored > 0,
+            "nobody scored, so the ledger was never exercised"
+        );
     }
 
     #[test]
