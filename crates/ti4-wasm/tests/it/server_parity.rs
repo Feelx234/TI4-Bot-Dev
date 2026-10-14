@@ -13,11 +13,15 @@ use ti4_server::{GameSession, SeatController, SessionConfig};
 use ti4_wasm::host_api;
 use ti4_wasm::host_setup::Setup;
 
-
-
 /// Plays the hosted game with the rule bot as the person; returns its answers, decisions, events
 /// and final state.
-fn hosted(setup: &Setup) -> (Vec<String>, Vec<ti4_engine::choice::DecisionRecord>, Vec<GameEvent>) {
+fn hosted(
+    setup: &Setup,
+) -> (
+    Vec<String>,
+    Vec<ti4_engine::choice::DecisionRecord>,
+    Vec<GameEvent>,
+) {
     let answers = Arc::new(Mutex::new(Vec::<String>::new()));
     let seed = setup.seed;
     let game_id = setup.game_id.clone();
@@ -67,7 +71,11 @@ fn hosted(setup: &Setup) -> (Vec<String>, Vec<ti4_engine::choice::DecisionRecord
 fn server(
     setup: &Setup,
     answers: Vec<String>,
-) -> (Vec<ti4_engine::choice::DecisionRecord>, Vec<GameEvent>, ti4_model::state::GameState) {
+) -> (
+    Vec<ti4_engine::choice::DecisionRecord>,
+    Vec<GameEvent>,
+    ti4_model::state::GameState,
+) {
     let built = setup.build().expect("the table builds");
     let ids: Vec<PlayerId> = (0..built.players)
         .map(|seat| PlayerId::new(["a", "b", "c", "d", "e", "f"][seat]))
@@ -94,7 +102,11 @@ fn server(
         assert!(Instant::now() < deadline, "the server game did not finish");
         std::thread::sleep(Duration::from_millis(20));
     }
-    let out = (session.decision_log(), session.event_log(), session.current_state());
+    let out = (
+        session.decision_log(),
+        session.event_log(),
+        session.current_state(),
+    );
     session.stop();
     out
 }
@@ -116,9 +128,16 @@ fn parity(seed: u64, players: usize) {
     .unwrap();
     let (answers, decisions, events) = hosted(&setup);
     let (server_decisions, server_events, _state) = server(&setup, answers);
-    assert!(decisions.len() > 150, "a real game: {} decisions", decisions.len());
     assert!(
-        events.iter().any(|e| matches!(e.event, ti4_host::protocol::server::GameEventKind::DiceRolled)),
+        decisions.len() > 150,
+        "a real game: {} decisions",
+        decisions.len()
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e.event,
+            ti4_host::protocol::server::GameEventKind::DiceRolled
+        )),
         "dice are events"
     );
     assert_eq!(decisions.len(), server_decisions.len(), "decisions");

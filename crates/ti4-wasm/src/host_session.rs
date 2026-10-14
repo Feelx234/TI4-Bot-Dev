@@ -49,7 +49,9 @@ use ti4_host::protocol::server::{
     public_roll, verified_decision_facts,
 };
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
-use ti4_host::state_update::{StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for};
+use ti4_host::state_update::{
+    StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
+};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase, ReactionMode};
 use ti4_view::map::GalaxyLayout;
@@ -389,12 +391,13 @@ impl HostSession {
     }
 
     fn reject(&mut self, reason: RejectionReason) {
-        self.out.push(ServerMessage::ActionRejected(ActionRejectedMsg {
-            protocol_version: PROTOCOL_VERSION,
-            game_id: self.identity.game_id.clone(),
-            game_version: self.version,
-            reason,
-        }));
+        self.out
+            .push(ServerMessage::ActionRejected(ActionRejectedMsg {
+                protocol_version: PROTOCOL_VERSION,
+                game_id: self.identity.game_id.clone(),
+                game_version: self.version,
+                reason,
+            }));
     }
 
     // --- events -------------------------------------------------------------------------
@@ -482,11 +485,8 @@ impl HostSession {
                 // has settled but the announcement has not happened yet. Leave it for the next
                 // boundary (the server does the same).
                 let selected = self.selected_for(record, false);
-                if record
-                    .context
-                    .as_ref()
-                    .zip(selected.as_ref())
-                    .is_some_and(|(context, option)| {
+                if record.context.as_ref().zip(selected.as_ref()).is_some_and(
+                    |(context, option)| {
                         ti4_host::protocol::server::played_card_detail(
                             context,
                             option,
@@ -502,8 +502,8 @@ impl HostSession {
                                         seat == &record.player && card.as_str() == alias
                                     })
                                 })
-                    })
-                {
+                    },
+                ) {
                     break;
                 }
             }
@@ -677,7 +677,12 @@ impl HostSession {
             final_scores: state
                 .players
                 .iter()
-                .map(|player| (player.id.clone(), player.victory_points.max(0).cast_unsigned()))
+                .map(|player| {
+                    (
+                        player.id.clone(),
+                        player.victory_points.max(0).cast_unsigned(),
+                    )
+                })
                 .collect(),
         }));
     }
@@ -1010,9 +1015,7 @@ impl HostSession {
             request_id,
             system_id,
             self.version,
-            self.galaxy
-                .as_ref()
-                .map(|galaxy| (&self.state, galaxy)),
+            self.galaxy.as_ref().map(|galaxy| (&self.state, galaxy)),
         )
     }
 
@@ -1042,7 +1045,11 @@ impl HostSession {
         let Some(option_id) = option_id else {
             return Some(0);
         };
-        match choice.options.iter().position(|option| option.id == option_id) {
+        match choice
+            .options
+            .iter()
+            .position(|option| option.id == option_id)
+        {
             Some(index) => Some(index),
             None if choice.answer_for(option_id).is_some() => {
                 // A free-form answer (a deal) has no place among the options, and the engine is
@@ -1252,7 +1259,11 @@ impl HostSession {
                 None
             }
             LiveStep::Done | LiveStep::Interrupted(_) => {
-                refuse(self, "the plan has no answer for this choice".to_owned(), None);
+                refuse(
+                    self,
+                    "the plan has no answer for this choice".to_owned(),
+                    None,
+                );
                 None
             }
         }
@@ -1357,7 +1368,12 @@ fn stopped(application: &ScriptRun, reason: &str) -> ScriptStopped {
         applied: application.next,
         remaining: application.script[application.next..].to_vec(),
         interrupted: true,
-        reason: if reason.is_empty() { INTERRUPTED } else { reason }.to_owned(),
+        reason: if reason.is_empty() {
+            INTERRUPTED
+        } else {
+            reason
+        }
+        .to_owned(),
     }
 }
 

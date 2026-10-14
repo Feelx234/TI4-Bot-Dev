@@ -309,12 +309,9 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         human_seat: built.human,
         setup: serde_json::to_value(&built.setup).map_err(|error| error.to_string())?,
     };
-    let tiles = built
-        .galaxy
-        .as_ref()
-        .map_or_else(Vec::new, |galaxy| {
-            ti4_view::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)
-        });
+    let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
+        ti4_view::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)
+    });
     let never = crate::NEVER.clone();
     {
         // The cards of the person's Never set apply to the game that is played live: a replay
@@ -341,7 +338,10 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
             .iter()
             .enumerate()
             .map(|(index, time)| {
-                (time.clone(), resume.event_versions.get(index).copied().flatten())
+                (
+                    time.clone(),
+                    resume.event_versions.get(index).copied().flatten(),
+                )
             })
             .collect(),
     );
@@ -444,12 +444,7 @@ pub fn scripted(choice: &Choice) -> Scripted {
     with(|session| session.scripted(choice)).unwrap_or(Scripted::Ask)
 }
 
-pub fn auto_resolved(
-    seat: &ti4_model::id::PlayerId,
-    prompt: &str,
-    selected: &str,
-    reason: &str,
-) {
+pub fn auto_resolved(seat: &ti4_model::id::PlayerId, prompt: &str, selected: &str, reason: &str) {
     with(|session| session.auto_resolved(seat, prompt, selected, reason));
 }
 
@@ -469,7 +464,10 @@ pub fn passed_window(seat: &ti4_model::id::PlayerId, cards: &[String]) {
 /// How far a replay is: `(played, total)`, `None` when no save is being played again.
 pub fn replay_progress(left: u64) -> Option<(u64, u64)> {
     let replay = REPLAY.lock().expect("replay lock");
-    let total = replay.as_ref().map(|replay| replay.total).filter(|total| *total > 0)?;
+    let total = replay
+        .as_ref()
+        .map(|replay| replay.total)
+        .filter(|total| *total > 0)?;
     Some((total - left.min(total), total))
 }
 
@@ -481,10 +479,7 @@ pub fn replay_finished() {
         .as_ref()
         .map(|replay| replay.never.clone())
         .unwrap_or_default();
-    crate::NEVER
-        .lock()
-        .expect("never set lock")
-        .extend(never);
+    crate::NEVER.lock().expect("never set lock").extend(never);
 }
 
 /// Write a `progress` envelope; the caller then asks the host (which answers [`CONTINUE`]).
@@ -522,7 +517,9 @@ pub fn finish_run(error: Option<&str>, left: bool) -> usize {
 
 fn resume_code(resume: &Resume) -> i32 {
     match resume {
-        Resume::Answer(index) => i32::try_from(*index).expect("a choice has fewer than 2^31 options"),
+        Resume::Answer(index) => {
+            i32::try_from(*index).expect("a choice has fewer than 2^31 options")
+        }
         Resume::Undo => crate::UNDO,
         Resume::Leave => crate::LEAVE,
     }
@@ -564,16 +561,18 @@ pub fn command(len: usize) -> i32 {
                 run_draft(session, &request_id, &script, &scope);
                 Handled::default()
             }
-            Ok(message) => session.client_message(message, &mut |script| {
-                match crate::draft_outcome(script, &ti4_view::planning::audit::PlanScope::default())
-                {
+            Ok(message) => {
+                session.client_message(message, &mut |script| match crate::draft_outcome(
+                    script,
+                    &ti4_view::planning::audit::PlanScope::default(),
+                ) {
                     Ok(outcome) => match outcome.stop {
                         DraftStop::Refused { reason, .. } => Some(reason),
                         _ => None,
                     },
                     Err(error) => Some(error.to_string()),
-                }
-            }),
+                })
+            }
             Err(error) => {
                 let message = ServerMessage::Error(ProtocolErrorMsg {
                     protocol_version: PROTOCOL_VERSION,

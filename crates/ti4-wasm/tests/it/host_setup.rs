@@ -31,10 +31,17 @@ fn the_form_is_offered_cards_factions_maps_and_bots_for_three_to_six() {
     let sets = form["strategy_card_sets"].as_array().unwrap();
     assert_eq!(sets.len(), 3);
     assert_eq!(sets.iter().filter(|set| set["default"] == true).count(), 1);
-    assert!(sets.iter().all(|set| set["cards"].as_array().unwrap().len() == 8));
+    assert!(
+        sets.iter()
+            .all(|set| set["cards"].as_array().unwrap().len() == 8)
+    );
     let groups = form["faction_groups"].as_array().unwrap();
     assert_eq!(groups.len(), 2);
-    assert!(groups.iter().all(|g| !g["factions"].as_array().unwrap().is_empty()));
+    assert!(
+        groups
+            .iter()
+            .all(|g| !g["factions"].as_array().unwrap().is_empty())
+    );
     assert_eq!(form["bot_kinds"].as_array().unwrap().len(), 2);
     for count in 3..=6 {
         let maps = form["maps"][count.to_string()].as_array().unwrap();
@@ -70,11 +77,23 @@ fn a_table_the_host_does_not_offer_is_refused_with_a_reason() {
     for (setup, wanted) in [
         (json!({ "seed": 1, "players": 2 }), "3 to 6"),
         (json!({ "seed": 1, "players": 7 }), "3 to 6"),
-        (json!({ "seed": 1, "players": 4, "human_seat": 4 }), "seat 4"),
-        (json!({ "seed": 1, "players": 4, "human_faction": "nope" }), "faction"),
-        (json!({ "seed": 1, "players": 4, "card_set": "nope" }), "strategy_card_set"),
+        (
+            json!({ "seed": 1, "players": 4, "human_seat": 4 }),
+            "seat 4",
+        ),
+        (
+            json!({ "seed": 1, "players": 4, "human_faction": "nope" }),
+            "faction",
+        ),
+        (
+            json!({ "seed": 1, "players": 4, "card_set": "nope" }),
+            "strategy_card_set",
+        ),
         (json!({ "seed": 1, "players": 4, "bots": "smart" }), "bots"),
-        (json!({ "seed": 1, "players": 4, "map": "no-such-map" }), "map"),
+        (
+            json!({ "seed": 1, "players": 4, "map": "no-such-map" }),
+            "map",
+        ),
     ] {
         let error = start_error(&setup);
         assert!(error.contains(wanted), "{setup}: {error}");
@@ -102,9 +121,13 @@ fn the_person_gets_the_faction_and_the_seat_that_was_asked_for() {
     assert_eq!(mine["faction"], "mentak");
     assert_eq!(snapshot["pending_choice"]["choice"]["player"], "c");
     // The card set of the table is the one that was asked for.
-    let options = snapshot["pending_choice"]["choice"]["options"].as_array().unwrap();
+    let options = snapshot["pending_choice"]["choice"]["options"]
+        .as_array()
+        .unwrap();
     assert!(
-        options.iter().all(|o| o["id"].as_str().unwrap().starts_with("pok")),
+        options
+            .iter()
+            .all(|o| o["id"].as_str().unwrap().starts_with("pok")),
         "{options:?}"
     );
 }

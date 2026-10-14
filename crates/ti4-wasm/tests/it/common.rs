@@ -15,7 +15,9 @@ static SERIAL: Mutex<()> = Mutex::new(());
 
 /// Hold this for the length of a test (a test that failed does not stop the others).
 pub fn serial() -> std::sync::MutexGuard<'static, ()> {
-    SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    SERIAL
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub const GAME: &str = "local";
@@ -164,8 +166,10 @@ pub fn last_question(messages: &[Value]) -> &Value {
         .iter()
         .rev()
         .find(|m| {
-            matches!(m["type"].as_str(), Some("state_update" | "initial_snapshot"))
-                && m["pending_choice"].is_object()
+            matches!(
+                m["type"].as_str(),
+                Some("state_update" | "initial_snapshot")
+            ) && m["pending_choice"].is_object()
         })
         .expect("a question")
 }

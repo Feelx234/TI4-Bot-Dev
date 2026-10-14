@@ -49,7 +49,11 @@ fn slow_an_undo_goes_back_one_answer_and_the_game_goes_on_the_same() {
         Act::Answer(25),
         Act::Probe(Box::new(|page| {
             let question = last_question(&page.messages);
-            assert_eq!(question["history"]["can_undo"], true, "{}", question["history"]);
+            assert_eq!(
+                question["history"]["can_undo"], true,
+                "{}",
+                question["history"]
+            );
             let version = question["game_version"].clone();
             page.script.push_front(Act::Cmd(json!({
                 "type": "undo", "protocol_version": 3, "game_id": GAME,
@@ -60,7 +64,11 @@ fn slow_an_undo_goes_back_one_answer_and_the_game_goes_on_the_same() {
     install(&undone, seed, "a");
     let end = start(&setup(seed, 4), None);
     assert_eq!(end["end"]["finished"], true);
-    assert_eq!(decisions_hash(), reference, "an undo must not change the game");
+    assert_eq!(
+        decisions_hash(),
+        reference,
+        "an undo must not change the game"
+    );
     let page = undone.lock().unwrap();
     // The undo was a request for the engine to take an answer back; the snapshot after it says so.
     let snapshots: Vec<&Value> = page
@@ -68,7 +76,11 @@ fn slow_an_undo_goes_back_one_answer_and_the_game_goes_on_the_same() {
         .iter()
         .filter(|m| m["type"] == "initial_snapshot")
         .collect();
-    assert_eq!(snapshots.len(), 2, "a snapshot at the start and one after the undo");
+    assert_eq!(
+        snapshots.len(),
+        2,
+        "a snapshot at the start and one after the undo"
+    );
     assert_eq!(snapshots[1]["history"]["generation"], 1);
     assert_eq!(snapshots[1]["history"]["redo_count"], 1);
     // The page answered the question that was taken back a second time.
@@ -91,7 +103,11 @@ fn slow_a_save_plays_again_to_the_same_question() {
         let first = first.lock().unwrap();
         let save = first.replies.last().unwrap()["save"].clone();
         assert_eq!(save["answers"].as_array().unwrap().len(), 70);
-        (save, last_question(&first.messages).clone(), events_of(&first.messages))
+        (
+            save,
+            last_question(&first.messages).clone(),
+            events_of(&first.messages),
+        )
     };
 
     let second = page(vec![Act::Leave]);
@@ -102,7 +118,11 @@ fn slow_a_save_plays_again_to_the_same_question() {
     // It was told how far it got, and checked that the game came back to the saved position.
     assert!(second.progress.len() >= 3, "{:?}", second.progress);
     assert_eq!(second.progress.last().unwrap().1, 70);
-    assert_eq!(second.asks[0]["resume_check"]["ok"], true, "{}", second.asks[0]["resume_check"]);
+    assert_eq!(
+        second.asks[0]["resume_check"]["ok"], true,
+        "{}",
+        second.asks[0]["resume_check"]
+    );
     // The first thing it gets is a full snapshot, and it is the position that was saved.
     let snapshot = &second.messages[0];
     assert_eq!(snapshot["type"], "initial_snapshot");
@@ -129,10 +149,7 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
     let rewinding = page(vec![
         Act::Answer(40),
         Act::Probe(Box::new(|page| {
-            let twelfth = pending(
-                page.asks[12]["messages"].as_array().unwrap(),
-            )
-            .unwrap();
+            let twelfth = pending(page.asks[12]["messages"].as_array().unwrap()).unwrap();
             page.script.push_front(Act::Cmd(json!({
                 "type": "history", "action": { "restore_cursor": { "cursor": twelfth.3 } },
             })));
@@ -140,14 +157,11 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
     ]);
     install(&rewinding, seed, "a");
     let end = start(&setup(seed, 3), None);
-    assert_eq!(end["end"]["left"], true, "a rewind ends the run and asks for a new one");
-    let restart = rewinding
-        .lock()
-        .unwrap()
-        .replies
-        .last()
-        .unwrap()["restart"]
-        .clone();
+    assert_eq!(
+        end["end"]["left"], true,
+        "a rewind ends the run and asks for a new one"
+    );
+    let restart = rewinding.lock().unwrap().replies.last().unwrap()["restart"].clone();
     assert_eq!(restart["generation"], 1);
     let answers = restart["answers"].as_array().unwrap().len();
     let redo = restart["redo"].as_array().unwrap().len();
@@ -155,15 +169,14 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
     assert_eq!(answers + redo, 40, "what went back is kept for a redo");
 
     // Play again from there: one redo, then on to the end.
-    let again = page(vec![
-        Act::Probe(Box::new(move |page| {
-            let snapshot = &page.messages[0];
-            assert_eq!(snapshot["type"], "initial_snapshot");
-            assert_eq!(snapshot["history"]["generation"], 1);
-            assert_eq!(snapshot["history"]["redo_count"], redo);
-            page.script.push_front(Act::Cmd(json!({ "type": "history", "action": "redo" })));
-        })),
-    ]);
+    let again = page(vec![Act::Probe(Box::new(move |page| {
+        let snapshot = &page.messages[0];
+        assert_eq!(snapshot["type"], "initial_snapshot");
+        assert_eq!(snapshot["history"]["generation"], 1);
+        assert_eq!(snapshot["history"]["redo_count"], redo);
+        page.script
+            .push_front(Act::Cmd(json!({ "type": "history", "action": "redo" })));
+    }))]);
     install(&again, seed, "a");
     let resume = json!({ "answers": restart["answers"], "redo": restart["redo"],
                          "generation": restart["generation"] });
@@ -193,15 +206,23 @@ fn slow_queries_and_settings_answer_in_the_servers_shapes() {
         .to_owned();
     let queried = page(vec![
         Act::Answer(5),
-        Act::Cmd(json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
-                         "request_id": 9, "system_id": "18" })),
-        Act::Cmd(json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
-                         "request_id": 10, "system_id": "nowhere" })),
+        Act::Cmd(
+            json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
+                         "request_id": 9, "system_id": "18" }),
+        ),
+        Act::Cmd(
+            json!({ "type": "query_reach", "protocol_version": 3, "game_id": GAME,
+                         "request_id": 10, "system_id": "nowhere" }),
+        ),
         Act::Cmd(json!({ "type": "subscribe", "protocol_version": 3, "game_id": GAME })),
-        Act::Cmd(json!({ "type": "run_draft", "protocol_version": 3, "game_id": GAME,
-                         "request_id": "d1", "script": [] })),
-        Act::Cmd(json!({ "type": "set_reaction_mode", "protocol_version": 3, "game_id": GAME,
-                         "card": card, "mode": "never" })),
+        Act::Cmd(
+            json!({ "type": "run_draft", "protocol_version": 3, "game_id": GAME,
+                         "request_id": "d1", "script": [] }),
+        ),
+        Act::Cmd(
+            json!({ "type": "set_reaction_mode", "protocol_version": 3, "game_id": GAME,
+                         "card": card, "mode": "never" }),
+        ),
         Act::Leave,
     ]);
     install(&queried, seed, "a");

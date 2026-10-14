@@ -5,5 +5,5 @@ mod common;
 mod host_batch;
 mod host_history;
 mod host_session;
-mod server_parity;
 mod host_setup;
+mod server_parity;
