@@ -12,6 +12,7 @@ import {
   visibleErrors,
 } from "./smokePlaythrough";
 import { isReactionSubtype, reactionTextProblem } from "./smokePolicy";
+import { storedRecord } from "./offlineDriver";
 import { preferTechWindowUse } from "./smokePolicy";
 
 /**
@@ -43,6 +44,8 @@ export interface OfflineSweepOptions {
   /** No worker message and no decision for this long means the game is stuck. */
   stallSeconds: number;
   viewport: "desktop" | "phone";
+  /** Reload the page once at this decision and check that the game comes back (null: never). */
+  resumeAt: number | null;
   shotCap: number;
   traceDir: string;
   log: (line: string) => void;
@@ -74,6 +77,11 @@ export interface OfflineSweepReport {
   recoveries: number;
   /** Times the harness closed the system inspector because it covered the controls of the question. */
   overlayDismissals: number;
+  /** Committing clicks that did not get a new question within the wait (the harness scanned again). */
+  commitTimeouts: number;
+  /** The resume check, when the run had one. */
+  resume?: { at: number; answers: number; ms: number; ok: boolean };
+  commitTimeoutControls: Record<string, number>;
   seconds: number;
   engine: { build?: string; content_digest?: string; wasmSha256?: string } | null;
   finalDecisionsHash: string | null;
@@ -196,6 +204,8 @@ export function sweepInitScript(arg: { seed: number; autoLone: boolean | null })
 // answers 502), so any call to the server's paths is environment noise, counted but not reported.
 const SERVER_PATH = /^https?:\/\/[^/]+\/(api|ws|advisor|health)(\/|$|\?)/;
 
+const COMMIT_WAIT_MS = Number(process.env.TI4_OFFLINE_COMMIT_MS ?? 1200);
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function playOfflineGame(
@@ -230,6 +240,8 @@ export async function playOfflineGame(
     failedRequests: [],
     recoveries: 0,
     overlayDismissals: 0,
+    commitTimeouts: 0,
+    commitTimeoutControls: {},
     seconds: 0,
     engine: null,
     finalDecisionsHash: null,
@@ -243,6 +255,7 @@ export async function playOfflineGame(
     decisionsPerMinute: 0,
   };
 
+  let currentGameId = "";
   // --- observers -------------------------------------------------------------------------
   let ask: AskSummary | null = null;
   let lastMessageAt = Date.now();
@@ -327,7 +340,9 @@ export async function playOfflineGame(
     if (save) {
       writeTrace("save.json", save);
       report.finalDecisionsHash = save.decisions_hash ?? null;
-      report.engine = { ...(save.engine ?? {}), wasmSha256: await readWasmHash(page) };
+      const stored = currentGameId ? await storedRecord(page, currentGameId).catch(() => null) : null;
+      // the full sha-256 of the engine file (what a saved game records), else the 8 digits the page shows
+      report.engine = { ...(save.engine ?? {}), wasmSha256: stored?.wasmSha256 ?? (await readWasmHash(page)) };
       if (!report.humanSeat && typeof save.human_seat === "number") report.humanSeat = save.human_seat + 1;
     }
     report.finalStandings = players.map((p) => `${p.faction} ${p.vp ?? "?"} VP`);
@@ -369,6 +384,7 @@ export async function playOfflineGame(
     return flush("setup-failed", `setup failed: ${String(error).split("\n")[0]}\nPage text: ${text.slice(0, 800)}`);
   }
   const gameId = /\/offline\/games\/([^/?#]+)/.exec(page.url())?.[1] ?? "unknown";
+  currentGameId = gameId;
   writeTrace("game.json", { gameId, options: { ...options, log: undefined } });
   log(`game ${gameId} seed=${options.gameSeed} clickSeed=${options.clickSeed} players=${options.players} policy=${options.policy}`);
 
@@ -378,6 +394,7 @@ export async function playOfflineGame(
   let outcome: Outcome = "decision-cap";
   let recoveries = 0;
   let layoutChecks = 0;
+  let resumeChecked = false;
   let nextLayoutCheckAt = 1;
   const stallMs = options.stallSeconds * 1000;
   const deadline = started + options.maxSeconds * 1000;
@@ -413,10 +430,37 @@ export async function playOfflineGame(
         return out;
       }, DECISION_CONTAINERS)
       .catch(() => [] as string[]);
+    // Evidence for a stuck question that a covering panel causes: the panel's markup and the chain of the close button.
+    if (/system-inspector|close-inspector/.test(await page.content().catch(() => ""))) {
+      const dom = await page
+        .evaluate(() => {
+          const x = document.querySelector('[data-testid="close-inspector-button"]') as HTMLElement | null;
+          if (!x) return "no close-inspector-button";
+          const r = x.getBoundingClientRect();
+          const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) as HTMLElement | null;
+          const chain: string[] = [];
+          for (let e: HTMLElement | null = x; e && chain.length < 12; e = e.parentElement)
+            chain.push(`${e.tagName.toLowerCase()}${e.id ? `#${e.id}` : ""}.${String(e.className).slice(0, 40)}[${e.getAttribute("data-testid") ?? ""}] pointer-events=${getComputedStyle(e).pointerEvents} z=${getComputedStyle(e).zIndex} position=${getComputedStyle(e).position}`);
+          return `x rect ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}; element at its centre: ${top ? `${top.tagName.toLowerCase()}.${String(top.className).slice(0, 40)}[${top.getAttribute("data-testid") ?? ""}]` : "none"}\n${chain.join("\n")}`;
+        })
+        .catch(() => "");
+      writeTrace("inspector-dom.txt", dom);
+    }
+    const closers = await page
+      .evaluate(() =>
+        Array.from(document.querySelectorAll('[data-testid*="close"], [aria-label*="lose"]'))
+          .slice(0, 8)
+          .map((el) => {
+            const r = el.getBoundingClientRect();
+            const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            return `${el.getAttribute("data-testid") ?? el.getAttribute("aria-label")} ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}${top && !el.contains(top) ? ` covered-by ${top.getAttribute("data-testid") ?? top.tagName}` : ""}`;
+          }),
+      )
+      .catch(() => [] as string[]);
     finding(
       `stuck: ${what} at decision #${report.decisions}, round ${current.round}, ${current.phase}, subtype ${current.subtype}, prompt "${current.prompt}"; ` +
         `options ${JSON.stringify(current.options.map((o) => o.id)).slice(0, 400)}; containers on screen ${JSON.stringify(visible)}; ` +
-        `controls ${JSON.stringify(controls).slice(0, 1500)}; visible text "${text.replace(/\s+/g, " ").slice(0, 300)}"${name ? `; screenshot shots/${name}` : ""}`,
+        `controls ${JSON.stringify(controls).slice(0, 1500)}; close controls ${JSON.stringify(closers)}; visible text "${text.replace(/\s+/g, " ").slice(0, 300)}"${name ? `; screenshot shots/${name}` : ""}`,
     );
   };
 
@@ -490,6 +534,43 @@ export async function playOfflineGame(
       }
 
       // ---- one decision -----------------------------------------------------------------
+      // Resume check (TI4_OFFLINE_RESUME_AT=<decision>): the player closes the tab and opens the game again at
+      // this question. The page must show the same question again (same game version) within a minute.
+      if (options.resumeAt !== null && !resumeChecked && report.decisions >= options.resumeAt) {
+        resumeChecked = true;
+        // the store writes the position of each question as it is asked; let the last write land first (the UI can
+        // answer a lone option by itself meanwhile, so the position to compare with is the one after the wait)
+        await sleep(1500);
+        const settled = (ask as AskSummary | null) ?? current;
+        const before = { version: settled.version, answers: settled.answers, subtype: settled.subtype };
+        const t0 = Date.now();
+        handledSeq = 0;
+        ask = null;
+        await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+        while (!ask && Date.now() - t0 < 60_000 && !ended && !crashed) await sleep(100);
+        const resumed = ask as AskSummary | null;
+        report.resume = {
+          at: report.decisions,
+          answers: before.answers,
+          ms: Date.now() - t0,
+          ok: !!resumed && resumed.answers === before.answers && resumed.subtype === before.subtype,
+        };
+        if (!resumed) {
+          const name = await shot(`resume-hang-d${report.decisions}`);
+          const text = await page.locator("body").innerText().catch(() => "");
+          finding(
+            `resume: reloading the page at decision #${report.decisions} (${before.answers} answers, round ${current.round}, subtype ${before.subtype}) never showed the game again within 60 s; ` +
+              `the page says "${text.replace(/\s+/g, " ").slice(90, 250)}"${name ? `; screenshot shots/${name}` : ""}`,
+          );
+          outcome = "stuck";
+          failure = `resume hang at decision #${report.decisions}`;
+          break;
+        }
+        if (!report.resume.ok)
+          finding(`resume: after a reload at decision #${report.decisions} the page asked ${resumed.subtype} at ${resumed.answers} answers, not ${before.subtype} at ${before.answers}`);
+        log(`  resume check at decision #${report.decisions}: ${report.resume.ok ? "ok" : "DIFFERENT"} in ${report.resume.ms} ms`);
+        continue;
+      }
       const waited = Date.now() - lastMessageAt;
       const subtype = current.subtype;
       const hexWeights =
@@ -578,8 +659,16 @@ export async function playOfflineGame(
         report.timing.scan += Date.now() - scanStart;
         if (!candidates.length) {
           emptyPolls++;
-          // A system inspector (opened by tapping a hex) can cover the map and the prompt; closing it is a
-          // normal player move. Counted, because on a phone it is how a player gets back to the map.
+          // A system inspector (opened by tapping a hex) or a turn bar menu can cover the question; closing it is a
+          // normal player move (counted). A notification covering a control is a finding, and click-through.
+          if (emptyPolls === 8 || emptyPolls === 22) {
+            const closed = await dismissOverlays(page);
+            if (closed.length) {
+              report.overlayDismissals += closed.length;
+              emptyPolls = 0;
+              continue;
+            }
+          }
           if (emptyPolls === 14 || emptyPolls === 30) {
             // Controls of the question that are covered by something else (a toast history, a banner): a real
             // player would close or move the cover; the harness makes the cover click-through, and says so.
@@ -621,10 +710,20 @@ export async function playOfflineGame(
         clicks++;
         report.clicks++;
         if (chosen.commit) {
-          const until = Date.now() + 3_000;
+          // A committing click normally gets its answer to the engine at once; the bots then play on and the
+          // next question arrives within a second or two. A click that does not commit (a staging step that
+          // looks like a confirm) must not hold the loop for long: scan again after COMMIT_WAIT_MS.
           const commitStart = Date.now();
-          while (!answeredNow() && Date.now() < until) await sleep(25);
-          report.timing.commit += Date.now() - commitStart;
+          // Controls that often did not commit (an empty "Propose Deal") only get a short wait.
+          const key = chosen.desc.split(" | ")[0].replace(/[0-9]+/g, "N").slice(0, 40);
+          const until = commitStart + ((report.commitTimeoutControls[key] ?? 0) >= 2 ? Math.min(250, COMMIT_WAIT_MS) : COMMIT_WAIT_MS);
+          while (!answeredNow() && Date.now() < until) await sleep(15);
+          const waitedMs = Date.now() - commitStart;
+          report.timing.commit += waitedMs;
+          if (!answeredNow()) {
+            report.commitTimeouts++;
+            report.commitTimeoutControls[key] = (report.commitTimeoutControls[key] ?? 0) + 1;
+          }
         } else {
           await sleep(40);
         }
@@ -677,13 +776,18 @@ export async function playOfflineGame(
 }
 
 /**
- * Makes whatever covers an enabled control of the pending question click-through. Returns one line per
- * cover ("<control> is covered by <element>"), empty when nothing covers a control.
+ * Makes a notification that covers an enabled control of the pending question click-through (the cover
+ * stays a finding: a player would have to close it). Intended overlays are left alone: a menu or panel of
+ * the turn bar, a dialog or modal, the system inspector (those are closed, see `dismissOverlays`).
+ * Only the covering element and the small containers around it are touched, never a structural container.
+ * Returns one line per cover ("<control> is covered by <element>").
  */
 async function unblockCovered(page: Page): Promise<string[]> {
   return page
     .evaluate((ids) => {
       const out: string[] = [];
+      const intended = '[data-testid="turn-action-bar"], [role="dialog"], [data-testid$="-modal"], [data-testid="system-inspector"], [data-testid="close-inspector-button"], [data-testid="player-sheet"]';
+      const area = window.innerWidth * window.innerHeight;
       for (const id of ids) {
         for (const container of Array.from(document.querySelectorAll(`[data-testid="${id}"]`))) {
           for (const el of Array.from(container.querySelectorAll("button, [role='button']")).slice(0, 60)) {
@@ -696,9 +800,14 @@ async function unblockCovered(page: Page): Promise<string[]> {
             if (x < 0 || y < 0 || x >= window.innerWidth || y >= window.innerHeight) continue;
             const top = document.elementFromPoint(x, y) as HTMLElement | null;
             if (!top || el.contains(top) || top.contains(el)) continue;
-            // the whole cover (its outermost positioned ancestor below the body) stops intercepting
+            if (top.closest(intended)) continue;
+            // the cover and the small containers around it (a toast column), never a big structural parent
             let cover: HTMLElement = top;
-            while (cover.parentElement && cover.parentElement !== document.body && !container.contains(cover.parentElement) && !cover.parentElement.contains(container)) cover = cover.parentElement;
+            while (cover.parentElement && cover.parentElement !== document.body && !cover.parentElement.contains(container)) {
+              const pr = cover.parentElement.getBoundingClientRect();
+              if (pr.width * pr.height > area * 0.2) break;
+              cover = cover.parentElement;
+            }
             const label = (e: Element) => `${e.getAttribute("data-testid") ?? e.tagName.toLowerCase()}${e.className ? `.${String(e.className).split(" ")[0]}` : ""}`;
             out.push(`${el.getAttribute("data-testid") ?? (el.textContent ?? "").trim().slice(0, 20)} (${id}) is covered by ${label(top)}${cover !== top ? ` inside ${label(cover)}` : ""}`);
             cover.style.pointerEvents = "none";
@@ -709,6 +818,16 @@ async function unblockCovered(page: Page): Promise<string[]> {
       return Array.from(new Set(out));
     }, DECISION_CONTAINERS)
     .catch(() => [] as string[]);
+}
+
+/** Closes what a player would close to get back to the question: the system inspector, a turn bar menu. Returns what it closed. */
+async function dismissOverlays(page: Page): Promise<string[]> {
+  const closed: string[] = [];
+  for (const testId of ["close-inspector-button", "turn-bar-menu-close"]) {
+    const button = page.locator(`[data-testid="${testId}"]`).first();
+    if ((await button.count().catch(() => 0)) > 0 && (await button.click({ timeout: 1_000 }).then(() => true).catch(() => false))) closed.push(testId);
+  }
+  return closed;
 }
 
 async function readWasmHash(page: Page): Promise<string | undefined> {

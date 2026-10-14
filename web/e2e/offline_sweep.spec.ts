@@ -10,6 +10,7 @@ import { playOfflineGame } from "./offlineSweep";
 //   TI4_OFFLINE_SEAT (random|1..6|dealt) TI4_OFFLINE_FACTION (random|dealt|<id>)
 //   TI4_OFFLINE_MAX_DECISIONS TI4_OFFLINE_MAX_SECONDS TI4_OFFLINE_STALL_SECONDS
 //   TI4_OFFLINE_VIEWPORT (desktop|phone) TI4_OFFLINE_SHOT_CAP TI4_OFFLINE_TRACE_DIR
+//   TI4_OFFLINE_RESUME_AT=<decision> (reload the page there and check the game comes back)
 // Run by hand: cd web && TI4_OFFLINE_URL=http://127.0.0.1:<port> npm run test:e2e:offline-sweep
 const env = (name: string, fallback: string) => process.env[`TI4_OFFLINE_${name}`] ?? fallback;
 const phone = env("VIEWPORT", "desktop") === "phone";
@@ -34,6 +35,7 @@ test("plays one full offline game", async ({ page, context, baseURL }) => {
     maxSeconds,
     stallSeconds: Number(env("STALL_SECONDS", "90")),
     viewport: phone ? "phone" : "desktop",
+    resumeAt: env("RESUME_AT", "") === "" ? null : Number(env("RESUME_AT", "0")),
     shotCap: Number(env("SHOT_CAP", "30")),
     traceDir,
     log: (line) => console.log(line),
