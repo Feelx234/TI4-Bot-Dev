@@ -81,4 +81,22 @@ describe("CornerToastLayer", () => {
     expect(screen.getByTestId("corner-toasts").style.bottom).toBe("132px");
     bar.remove();
   });
+
+  it("keeps the notifications chip above a turn bar that appears after the toasts are gone", () => {
+    // Runs s1-02-2036 (stall: "End turn" under the chip), o4-02-2033 and others.
+    const { rerender } = render(layer([]));
+    rerender(layer([ev("1", "p2", "activated #22")]));
+    act(() => vi.advanceTimersByTime(TOAST_DURATION_MS.action + 10));
+    act(() => vi.advanceTimersByTime(400));
+    expect(screen.queryByTestId("corner-toast")).not.toBeInTheDocument();
+    expect(screen.getByText(/Recent notifications/)).toBeInTheDocument();
+    expect(screen.getByTestId("corner-toasts").style.bottom).toBe("12px");
+    const bar = document.createElement("div");
+    bar.className = "turn-bar";
+    bar.getBoundingClientRect = () => ({ top: window.innerHeight - 120, left: 0, height: 120 }) as DOMRect;
+    document.body.appendChild(bar);
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.getByTestId("corner-toasts").style.bottom).toBe("132px");
+    bar.remove();
+  });
 });
