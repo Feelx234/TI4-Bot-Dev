@@ -9,9 +9,13 @@
 #![allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
 
 pub mod batch;
+pub mod card_set;
 pub mod clock;
 pub mod journal;
+pub mod map;
+pub mod maps;
 pub mod planning;
+pub mod preset;
 pub mod projection;
 pub mod protocol;
 pub mod replay;
