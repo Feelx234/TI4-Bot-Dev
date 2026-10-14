@@ -37,7 +37,7 @@ impl fmt::Display for CalcError {
 impl std::error::Error for CalcError {}
 
 /// Units count input, accepting either `{"unit_id": count}` or `[["unit_id", count]]`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum UnitCounts {
     Map(BTreeMap<String, usize>),
@@ -63,28 +63,28 @@ pub enum ParticipantInput {
 }
 
 /// Fleet configuration for one participant in space combat.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SideInput {
     /// Player ID whose fleet/guns at the combat system should be included.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player: Option<PlayerId>,
     /// Faction identifier (e.g. "sol", "letnev", "jolnar"). If omitted and `player` is given, read from state.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub faction: Option<String>,
     /// Ships to field as `{"unit_id": count}` or `[["unit_id", count]]`. Added to units from state.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub units: Option<UnitCounts>,
     /// Ships that start damaged as `{"unit_id": count}` or `[["unit_id", count]]`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub damaged: Option<UnitCounts>,
     /// Units firing space cannon before combat as `{"unit_id": count}` or `[["unit_id", count]]`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub guns: Option<UnitCounts>,
 }
 
 /// Outcome statistics from [`arena`] rollouts.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BattleResponse {
     pub simulations: usize,
     pub attacker_win_rate: f64,
@@ -127,7 +127,6 @@ pub struct GroundOddsResponse {
     pub attacker_win_rate: f64,
 }
 
-#[allow(clippy::too_many_lines)]
 /// One side of a space combat: the ships and guns of `participant`, read from `state` at
 /// `system` when a player is named, plus the units the request adds. Returns the side and the
 /// ships it fields by unit id.
@@ -143,108 +142,160 @@ pub fn resolve_side(
     content: &ContentStore,
     sources: SourceSet,
 ) -> Result<(Side, BTreeMap<String, usize>), CalcError> {
-    let (player_id, explicit_faction, extra_units, extra_damaged, extra_guns) = match participant {
-        ParticipantInput::Player(pid) => (Some(pid), None, Vec::new(), Vec::new(), Vec::new()),
-        ParticipantInput::Side(side) => (
-            side.player.as_ref(),
-            side.faction.as_deref(),
-            side.units
-                .clone()
-                .map(UnitCounts::into_entries)
-                .unwrap_or_default(),
-            side.damaged
-                .clone()
-                .map(UnitCounts::into_entries)
-                .unwrap_or_default(),
-            side.guns
-                .clone()
-                .map(UnitCounts::into_entries)
-                .unwrap_or_default(),
-        ),
+    let mut input = match participant {
+        ParticipantInput::Player(pid) => SideInput {
+            player: Some(pid.clone()),
+            ..Default::default()
+        },
+        ParticipantInput::Side(side) => side.clone(),
     };
+    if let Some(pid) = input.player.take() {
+        let game_state =
+            state.ok_or_else(|| CalcError::new("state is required when player is specified"))?;
+        let gathered = gather_side(content, sources, game_state, system, galaxy, &pid)?;
+        input = SideInput {
+            player: None,
+            faction: input.faction.or(gathered.faction),
+            units: joined(gathered.units, input.units),
+            damaged: joined(gathered.damaged, input.damaged),
+            guns: joined(gathered.guns, input.guns),
+        };
+    }
+    build_side(content, sources, &input)
+}
 
+/// Both counts as one list; an id in both is summed where the list is read.
+fn joined(first: Option<UnitCounts>, second: Option<UnitCounts>) -> Option<UnitCounts> {
+    match (first, second) {
+        (None, None) => None,
+        (first, second) => Some(UnitCounts::List(
+            first
+                .into_iter()
+                .chain(second)
+                .flat_map(UnitCounts::into_entries)
+                .collect(),
+        )),
+    }
+}
+
+/// What `state` says of the side of `player` at `system`: its faction, its ships there and which
+/// of them are damaged, and its space cannon on the planets there and in adjacent systems (those
+/// adjacent only with `galaxy`). With no system, the faction alone. The side names no player.
+///
+/// # Errors
+///
+/// Returns a [`CalcError`] if the player is not in `state`.
+pub fn gather_side(
+    content: &ContentStore,
+    sources: SourceSet,
+    state: &GameState,
+    system: Option<&SystemId>,
+    galaxy: Option<&Galaxy>,
+    player: &PlayerId,
+) -> Result<SideInput, CalcError> {
+    let seat = state
+        .player(player)
+        .ok_or_else(|| CalcError::new(format!("player {player} not found in state")))?;
     let mut fleet: BTreeMap<String, usize> = BTreeMap::new();
     let mut damaged: BTreeMap<String, usize> = BTreeMap::new();
     let mut guns: BTreeMap<String, usize> = BTreeMap::new();
 
-    let faction: String = if let Some(pid) = player_id {
-        let game_state =
-            state.ok_or_else(|| CalcError::new("state is required when player is specified"))?;
-        let seat = game_state
-            .player(pid)
-            .ok_or_else(|| CalcError::new(format!("player {pid} not found in state")))?;
-        let player_faction = explicit_faction.unwrap_or(seat.faction.as_str());
-
-        if let Some(sys) = system {
-            let board = game_state.system_state(sys);
-            for unit in &board.units {
-                if &unit.owner == pid
-                    && let Some(kind) =
-                        ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
-                    && kind.is_ship()
-                {
-                    *fleet.entry(unit.type_id.to_string()).or_default() += 1;
-                    if unit.sustained_damage {
-                        *damaged.entry(unit.type_id.to_string()).or_default() += 1;
-                    }
+    if let Some(sys) = system {
+        let board = state.system_state(sys);
+        for unit in &board.units {
+            if &unit.owner == player
+                && let Some(kind) =
+                    ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
+                && kind.is_ship()
+            {
+                *fleet.entry(unit.type_id.to_string()).or_default() += 1;
+                if unit.sustained_damage {
+                    *damaged.entry(unit.type_id.to_string()).or_default() += 1;
                 }
             }
-            for unit in board.planet_units.values().flatten() {
-                if &unit.owner == pid
-                    && let Some(kind) =
-                        ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
-                    && kind.has_space_cannon()
-                {
-                    *guns.entry(unit.type_id.to_string()).or_default() += 1;
-                }
+        }
+        for unit in board.planet_units.values().flatten() {
+            if &unit.owner == player
+                && let Some(kind) =
+                    ti4_content::units::unit_type(content, unit.type_id.as_str(), sources)
+                && kind.has_space_cannon()
+            {
+                *guns.entry(unit.type_id.to_string()).or_default() += 1;
             }
-            if let Some(g) = galaxy {
-                for adjacent_id in g.adjacent(sys.as_str()) {
-                    let adj_sys = SystemId::new(adjacent_id);
-                    let adj_board = game_state.system_state(&adj_sys);
-                    let adj_units = adj_board
-                        .planet_units
-                        .values()
-                        .flatten()
-                        .chain(&adj_board.units);
-                    for unit in adj_units {
-                        if &unit.owner == pid {
-                            let reaches = matches!(
-                                unit.type_id.as_str(),
-                                "pds2" | "xxcha_mech" | "xxcha_flagship"
-                            ) || ti4_content::units::unit_type(
-                                content,
-                                unit.type_id.as_str(),
-                                sources,
-                            )
-                            .and_then(|k| k.record().text("ability"))
-                            .is_some_and(|ability| {
-                                let a = ability.to_ascii_lowercase();
-                                a.contains("space cannon against ships that are")
-                                    && a.contains("adjacent")
-                            });
-                            if reaches {
-                                *guns.entry(unit.type_id.to_string()).or_default() += 1;
-                            }
+        }
+        if let Some(g) = galaxy {
+            for adjacent_id in g.adjacent(sys.as_str()) {
+                let adj_sys = SystemId::new(adjacent_id);
+                let adj_board = state.system_state(&adj_sys);
+                let adj_units = adj_board
+                    .planet_units
+                    .values()
+                    .flatten()
+                    .chain(&adj_board.units);
+                for unit in adj_units {
+                    if &unit.owner == player {
+                        let reaches = matches!(
+                            unit.type_id.as_str(),
+                            "pds2" | "xxcha_mech" | "xxcha_flagship"
+                        ) || ti4_content::units::unit_type(
+                            content,
+                            unit.type_id.as_str(),
+                            sources,
+                        )
+                        .and_then(|k| k.record().text("ability"))
+                        .is_some_and(|ability| {
+                            let a = ability.to_ascii_lowercase();
+                            a.contains("space cannon against ships that are")
+                                && a.contains("adjacent")
+                        });
+                        if reaches {
+                            *guns.entry(unit.type_id.to_string()).or_default() += 1;
                         }
                     }
                 }
             }
         }
-        player_faction.to_owned()
-    } else {
-        explicit_faction.unwrap_or("generic").to_owned()
-    };
+    }
 
-    for (id, count) in extra_units {
-        *fleet.entry(id).or_default() += count;
+    Ok(SideInput {
+        player: None,
+        faction: Some(seat.faction.as_str().to_owned()),
+        units: Some(UnitCounts::Map(fleet)),
+        damaged: Some(UnitCounts::Map(damaged)),
+        guns: Some(UnitCounts::Map(guns)),
+    })
+}
+
+/// The side of a space combat that `input` gives in full, and the ships it fields by unit id. A
+/// side with no faction fights as the generic one.
+///
+/// # Errors
+///
+/// Returns a [`CalcError`] if the side names a player (that needs the state) or a unit id is
+/// unknown.
+pub fn build_side(
+    content: &ContentStore,
+    sources: SourceSet,
+    input: &SideInput,
+) -> Result<(Side, BTreeMap<String, usize>), CalcError> {
+    if input.player.is_some() {
+        return Err(CalcError::new("state is required when player is specified"));
     }
-    for (id, count) in extra_damaged {
-        *damaged.entry(id).or_default() += count;
-    }
-    for (id, count) in extra_guns {
-        *guns.entry(id).or_default() += count;
-    }
+    let tally = |counts: &Option<UnitCounts>| {
+        let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+        for (id, count) in counts
+            .clone()
+            .map(UnitCounts::into_entries)
+            .unwrap_or_default()
+        {
+            *tally.entry(id).or_default() += count;
+        }
+        tally
+    };
+    let fleet = tally(&input.units);
+    let damaged = tally(&input.damaged);
+    let guns = tally(&input.guns);
+    let faction = input.faction.as_deref().unwrap_or("generic");
 
     // Validate unit IDs
     for (id, &count) in &fleet {
@@ -269,7 +320,7 @@ pub fn resolve_side(
     let guns_vec: Vec<(String, usize)> = guns.into_iter().filter(|(_, n)| *n > 0).collect();
 
     let side =
-        Side::of(content, &fleet_vec, &damaged_vec, &faction, true).with_guns(content, &guns_vec);
+        Side::of(content, &fleet_vec, &damaged_vec, faction, true).with_guns(content, &guns_vec);
 
     Ok((side, fleet))
 }
@@ -373,6 +424,42 @@ pub fn space_odds(
         attacker_fielded,
         defender_fielded,
     })
+}
+
+/// Space combat odds of two sides given in full, with no state: each is built by [`build_side`].
+/// A side may field and fire at most [`MAX_PLACEMENTS`] units.
+///
+/// # Errors
+///
+/// Returns a [`CalcError`] if a side names a player, has too many units or an unknown unit id,
+/// or if the number of simulations is out of range.
+pub fn space_odds_of(
+    content: &ContentStore,
+    sources: SourceSet,
+    attacker: &SideInput,
+    defender: &SideInput,
+    options: SpaceOptions,
+) -> Result<BattleResponse, CalcError> {
+    for side in [attacker, defender] {
+        for counts in [&side.units, &side.damaged, &side.guns] {
+            let total = counts
+                .clone()
+                .map(UnitCounts::into_entries)
+                .unwrap_or_default()
+                .into_iter()
+                .try_fold(0usize, |sum, (_, count)| sum.checked_add(count));
+            if total.is_none_or(|total| total > MAX_PLACEMENTS) {
+                return Err(CalcError::new(format!(
+                    "a side has more than {MAX_PLACEMENTS} units"
+                )));
+            }
+        }
+    }
+    space_odds(
+        build_side(content, sources, attacker)?,
+        build_side(content, sources, defender)?,
+        options,
+    )
 }
 
 /// Ground combat odds from [`arena`] rollouts.
@@ -555,6 +642,143 @@ mod tests {
         assert_eq!(response.attacker_fielded.get("cruiser"), Some(&2));
         assert_eq!(response.defender_fielded.get("destroyer"), Some(&1));
         assert!(response.attacker_win_rate > response.defender_win_rate);
+    }
+
+    #[test]
+    fn a_gathered_side_builds_what_resolve_side_gives() {
+        use ti4_engine::fixtures::{hub_from, plain_systems, put, put_on_planet};
+        use ti4_model::id::PlanetId;
+
+        let content = ContentStore::embedded();
+        let hub = hub_from(&plain_systems(7));
+        let mut state = ti4_engine::fixtures::game(&["a", "b"]);
+        let sys = SystemId::new(hub.centre.clone());
+        let next = SystemId::new(hub.outer[0].clone());
+        let (a, b) = (PlayerId::new("a"), PlayerId::new("b"));
+        put(&mut state, &sys, "cruiser", &a, 2);
+        put(&mut state, &sys, "dreadnought", &b, 2);
+        put(&mut state, &sys, "fighter", &b, 3);
+        state.system_mut(&sys).units[2].sustained_damage = true;
+        put_on_planet(&mut state, &sys, &PlanetId::new("here"), "pds", &b, 1);
+        put_on_planet(&mut state, &next, &PlanetId::new("there"), "pds2", &b, 1);
+        let options = SpaceOptions {
+            simulations: Some(200),
+            seed: Some(7),
+            ..Default::default()
+        };
+
+        for (player, extra) in [(&a, None), (&b, Some(("carrier", 1)))] {
+            let participant = ParticipantInput::Side(SideInput {
+                player: Some(player.clone()),
+                units: extra
+                    .map(|(id, n): (&str, usize)| UnitCounts::List(vec![(id.to_owned(), n)])),
+                ..Default::default()
+            });
+            let resolved = resolve_side(
+                &participant,
+                Some(&state),
+                Some(&sys),
+                Some(&hub.galaxy),
+                content,
+                POK,
+            )
+            .expect("resolves");
+            let gathered = gather_side(content, POK, &state, Some(&sys), Some(&hub.galaxy), player)
+                .expect("gathers");
+            assert_eq!(gathered.player, None);
+            let gathered = SideInput {
+                units: joined(gathered.units, participant_units(&participant)),
+                ..gathered
+            };
+            let built = build_side(content, POK, &gathered).expect("builds");
+            assert_eq!(built.1, resolved.1);
+            assert_eq!(built.0.names(), resolved.0.names());
+            assert_eq!(built.0.fielded(), resolved.0.fielded());
+            let foe = side(
+                "letnev",
+                UnitCounts::List(vec![("destroyer".to_owned(), 3)]),
+            );
+            let foe = resolve_side(&foe, None, None, None, content, POK).expect("foe");
+            assert_eq!(
+                space_odds(built, foe.clone(), options),
+                space_odds(resolved, foe, options),
+            );
+        }
+
+        let gathered =
+            gather_side(content, POK, &state, Some(&sys), Some(&hub.galaxy), &b).expect("gathers");
+        let count = |counts: &Option<UnitCounts>, id: &str| match counts {
+            Some(UnitCounts::Map(map)) => map.get(id).copied().unwrap_or(0),
+            _ => 0,
+        };
+        assert_eq!(count(&gathered.units, "dreadnought"), 2);
+        assert_eq!(count(&gathered.damaged, "dreadnought"), 1);
+        assert_eq!(count(&gathered.guns, "pds"), 1);
+        assert_eq!(count(&gathered.guns, "pds2"), 1, "a pds next door reaches");
+    }
+
+    fn participant_units(participant: &ParticipantInput) -> Option<UnitCounts> {
+        match participant {
+            ParticipantInput::Side(side) => side.units.clone(),
+            ParticipantInput::Player(_) => None,
+        }
+    }
+
+    #[test]
+    fn sides_without_state_give_the_odds_of_sides_with_it() {
+        let content = ContentStore::embedded();
+        let attacker = SideInput {
+            faction: Some("sol".to_owned()),
+            units: Some(UnitCounts::Map(
+                [("carrier".to_owned(), 1), ("fighter".to_owned(), 3)]
+                    .into_iter()
+                    .collect(),
+            )),
+            ..Default::default()
+        };
+        let defender = SideInput {
+            faction: Some("letnev".to_owned()),
+            units: Some(UnitCounts::List(vec![("dreadnought".to_owned(), 1)])),
+            damaged: Some(UnitCounts::List(vec![("dreadnought".to_owned(), 1)])),
+            guns: Some(UnitCounts::List(vec![("pds".to_owned(), 1)])),
+            ..Default::default()
+        };
+        let options = SpaceOptions {
+            simulations: Some(300),
+            seed: Some(11),
+            ..Default::default()
+        };
+        let direct = space_odds_of(content, POK, &attacker, &defender, options).expect("odds");
+        let resolved = odds(
+            None,
+            None,
+            &ParticipantInput::Side(attacker.clone()),
+            &ParticipantInput::Side(defender.clone()),
+            options,
+        )
+        .expect("odds");
+        assert_eq!(direct, resolved);
+        assert_eq!(direct.defender_fielded.get("dreadnought"), Some(&1));
+
+        let json = serde_json::to_value(&defender).expect("serializes");
+        assert_eq!(
+            serde_json::from_value::<SideInput>(json).expect("reads back"),
+            defender
+        );
+
+        let named = SideInput {
+            player: Some(PlayerId::new("a")),
+            ..attacker.clone()
+        };
+        assert!(space_odds_of(content, POK, &named, &defender, options).is_err());
+        let swarm = SideInput {
+            units: Some(UnitCounts::List(vec![(
+                "fighter".to_owned(),
+                MAX_PLACEMENTS + 1,
+            )])),
+            ..attacker
+        };
+        assert!(space_odds_of(content, POK, &swarm, &defender, options).is_err());
     }
 
     #[test]

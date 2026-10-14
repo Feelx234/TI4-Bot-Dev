@@ -1104,6 +1104,91 @@ mod tests {
     }
 
     #[test]
+    fn a_fleet_of_another_seat_in_the_active_system_is_a_battle() {
+        let (state, galaxy) = game(LATE_GAME);
+        let content = ContentStore::embedded();
+        let base = |units: &BTreeMap<String, usize>| {
+            let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+            for (unit, count) in units {
+                let kind = ti4_content::units::unit_type(content, unit, POK).expect("a unit");
+                *kinds.entry(kind.base_type().to_owned()).or_default() += count;
+            }
+            kinds
+        };
+        let counts = |pairs: &[(&str, usize)]| -> BTreeMap<String, usize> {
+            pairs
+                .iter()
+                .map(|(unit, n)| ((*unit).to_owned(), *n))
+                .collect()
+        };
+
+        let into_b = facts(&state, &galaxy, at::ENEMY_B);
+        assert!(into_b.ships.iter().any(|ship| ship.r#move.is_some()));
+        let battle = into_b.battle.expect("seat B defends");
+        assert_eq!(battle.defender, "b");
+        assert_eq!(battle.attacker.faction, "sol");
+        assert!(battle.attacker.units.is_empty(), "{battle:?}");
+        assert_eq!(
+            base(&battle.defender_side.units),
+            counts(&[("carrier", 1), ("cruiser", 1), ("fighter", 2)])
+        );
+        assert!(battle.defender_side.damaged.is_empty());
+        assert!(battle.defender_side.guns.is_empty(), "{battle:?}");
+        let faction_b = state
+            .player(&PlayerId::new("b"))
+            .expect("seat B")
+            .faction
+            .as_str();
+        assert_eq!(battle.defender_side.faction, faction_b);
+
+        // The PDS of seat C on its planet fires before the combat.
+        let battle = facts(&state, &galaxy, at::ENEMY_C)
+            .battle
+            .expect("seat C defends");
+        assert_eq!(battle.defender, "c");
+        assert_eq!(
+            base(&battle.defender_side.units),
+            counts(&[("cruiser", 2), ("destroyer", 1)])
+        );
+        assert_eq!(base(&battle.defender_side.guns), counts(&[("pds", 1)]));
+
+        // No other seat has ships in the depot: no combat.
+        assert_eq!(facts(&state, &galaxy, at::DEPOT).battle, None);
+    }
+
+    #[test]
+    fn the_battle_is_on_the_wire_with_its_sides() {
+        let (state, galaxy) = game(LATE_GAME);
+        let facts = facts(&state, &galaxy, at::ENEMY_C);
+        let wire = serde_json::to_value(&facts).expect("serializes");
+        let battle = &wire["battle"];
+        assert_eq!(battle["defender"], "c");
+        assert_eq!(battle["attacker"]["faction"], "sol");
+        assert!(battle["attacker"].get("units").is_none(), "{battle}");
+        // A side of the fact is a side that `ti4_calc` reads.
+        let side: ti4_calc::odds::SideInput =
+            serde_json::from_value(battle["defender_side"].clone()).expect("a side");
+        let odds = ti4_calc::odds::space_odds_of(
+            ContentStore::embedded(),
+            POK,
+            &serde_json::from_value(battle["attacker"].clone()).expect("a side"),
+            &side,
+            ti4_calc::odds::SpaceOptions {
+                simulations: Some(10),
+                seed: Some(1),
+                ..Default::default()
+            },
+        )
+        .expect("odds");
+        assert!(
+            (odds.defender_win_rate - 1.0).abs() < 1e-9,
+            "no ship attacks"
+        );
+        let back: MovementFacts = serde_json::from_value(wire).expect("reads back");
+        assert_eq!(back, facts);
+    }
+
+    #[test]
     fn the_depot_is_on_the_way_of_a_ship() {
         let (state, galaxy) = game(LATE_GAME);
         // Space area and two planets, for some ship that passes: the game chooses the paths.

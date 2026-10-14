@@ -10,6 +10,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ti4-model.workspace = true
 ti4-content.workspace = true
+ti4-calc.workspace = true
 ti4-engine.workspace = true
 ti4-rule-bot.workspace = true
 ti4-view.workspace = true

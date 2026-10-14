@@ -146,6 +146,35 @@ pub struct MovementFacts {
     pub fleet_supply: FleetSupplyFact,
     /// How many ships already moved in this activation.
     pub moved: u32,
+    /// The space combat that ships moving in start: set only when another seat has ships in
+    /// the active system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub battle: Option<BattleFacts>,
+}
+
+/// One side of a space combat in the active system as the state has it, before a ship moves
+/// in: the ships there by unit id, how many of them are damaged, and the units of the side that
+/// fire SPACE CANNON in that system before the combat. The shape of a side of `ti4_calc`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CombatSide {
+    pub faction: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub units: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub damaged: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guns: BTreeMap<String, usize>,
+}
+
+/// The space combat in the active system: the seat that defends, and both sides. The attacker
+/// is the seat that moves; the ships it moves in are added by the client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BattleFacts {
+    pub defender: String,
+    pub attacker: CombatSide,
+    pub defender_side: CombatSide,
 }
 
 /// Ground forces of one kind in one place that the seat can land.
@@ -565,6 +594,7 @@ fn movement(
     }
 
     let standing = ti4_engine::fleet::standing(state, content, sources, player, &active, None);
+    let battle = battle(state, content, sources, galaxy, player, &active);
     Some(MovementFacts {
         active: active.to_string(),
         ships,
@@ -590,6 +620,50 @@ fn movement(
             .get(&format!("private:#moved:{}", state.activation_seq))
             .and_then(|count| count.parse().ok())
             .unwrap_or(0),
+        battle,
+    })
+}
+
+/// The space combat in `active` if `player` moves in: the defender is the seat that the space
+/// cannon offense of the engine fires at.
+fn battle(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &Galaxy,
+    player: &PlayerId,
+    active: &SystemId,
+) -> Option<BattleFacts> {
+    let defender =
+        ti4_engine::combat::opponent_with_ships(state, content, sources, player, active)?;
+    let side = |seat: &PlayerId| {
+        let gathered =
+            ti4_calc::odds::gather_side(content, sources, state, Some(active), Some(galaxy), seat)
+                .ok()?;
+        let tally = |counts: Option<ti4_calc::odds::UnitCounts>| {
+            let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+            for (unit, count) in counts
+                .map(ti4_calc::odds::UnitCounts::into_entries)
+                .into_iter()
+                .flatten()
+            {
+                if count > 0 {
+                    *tally.entry(unit).or_default() += count;
+                }
+            }
+            tally
+        };
+        Some(CombatSide {
+            faction: gathered.faction?,
+            units: tally(gathered.units),
+            damaged: tally(gathered.damaged),
+            guns: tally(gathered.guns),
+        })
+    };
+    Some(BattleFacts {
+        attacker: side(player)?,
+        defender_side: side(&defender)?,
+        defender: defender.to_string(),
     })
 }
 

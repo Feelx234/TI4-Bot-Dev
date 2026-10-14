@@ -1616,6 +1616,63 @@ pub extern "C" fn ti4_catalog() -> i32 {
     ))
 }
 
+/// The two sides of a space combat, as [`ti4_space_odds`] reads them.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SpaceOddsRequest {
+    attacker: ti4_calc::odds::SideInput,
+    defender: ti4_calc::odds::SideInput,
+}
+
+/// The seed of every [`ti4_space_odds`]: the same sides give the same numbers.
+const ODDS_SEED: u64 = 0;
+
+/// The odds of the space combat in the request buffer (`request_len` bytes of JSON:
+/// `{"attacker", "defender"}`, each a side of `ti4_calc::odds::SideInput` with no player) as a
+/// `ti4_calc::odds::BattleResponse` in the response buffer: the rollouts of `ti4_calc`, as many
+/// as it takes by default, from a fixed seed. A side of `MovementFacts.battle` is such a side.
+///
+/// Nothing of the game is read or changed: the host may ask while the game waits, and with no
+/// game at all.
+#[unsafe(no_mangle)]
+pub extern "C" fn ti4_space_odds(request_len: u32) -> i32 {
+    status(request_filled(request_len).and_then(|()| space_odds()))
+}
+
+fn space_odds() -> Result<usize, Failure> {
+    let odds = {
+        let request = REQUEST.lock().expect("request lock");
+        odds_of(request.as_bytes())?
+    };
+    respond("the odds of a space combat", &odds)
+}
+
+/// The odds of the sides in `request`, as [`ti4_space_odds`] gives them.
+fn odds_of(request: &[u8]) -> Result<ti4_calc::odds::BattleResponse, Failure> {
+    let request: SpaceOddsRequest = serde_json::from_slice(request)
+        .map_err(|error| failed(format_args!("the sides are not read: {error}")))?;
+    ti4_calc::odds::space_odds_of(
+        ContentStore::embedded(),
+        POK,
+        &request.attacker,
+        &request.defender,
+        ti4_calc::odds::SpaceOptions {
+            seed: Some(ODDS_SEED),
+            ..Default::default()
+        },
+    )
+    .map_err(failed)
+}
+
+/// Ask [`ti4_space_odds`] for the odds of `request` (JSON), for callers on the native side.
+///
+/// # Errors
+/// The error text of the export.
+pub fn space_odds_native(request: &str) -> Result<String, String> {
+    fill_request(request)?;
+    response(status(space_odds()))
+}
+
 /// Ask the host before each decision of a seat that it does not play (1), or let these seats
 /// play on (0). The host is then asked with an update that has no pending choice, and answers
 /// [`GO`]. With 2 the host is asked the same way, but not before a reaction window that the seat
@@ -1978,6 +2035,52 @@ mod tests {
                 "{}: the seats decided",
                 scenario.id
             );
+        }
+    }
+
+    /// The odds of a space combat need no game: the sides of the request are all there is, and
+    /// the same sides give the same numbers.
+    #[test]
+    fn the_odds_of_a_space_combat_come_from_the_sides_alone() {
+        let request = serde_json::json!({
+            "attacker": { "faction": "sol", "units": { "dreadnought": 2, "carrier": 1, "fighter": 3 } },
+            "defender": {
+                "faction": "letnev",
+                "units": { "cruiser": 2, "destroyer": 1 },
+                "damaged": {},
+                "guns": { "pds": 1 },
+            },
+        })
+        .to_string();
+        let odds = odds_of(request.as_bytes()).unwrap();
+        assert_eq!(odds.simulations, ti4_calc::odds::DEFAULT_SIMULATIONS);
+        assert!(odds.attacker_win_rate > odds.defender_win_rate, "{odds:?}");
+        assert_eq!(odds.attacker_fielded.get("dreadnought"), Some(&2));
+        assert_eq!(odds.defender_fielded.get("cruiser"), Some(&2));
+        assert!(odds.attacker_expected_survivors["dreadnought"] <= 2.0);
+        assert_eq!(odds, odds_of(request.as_bytes()).unwrap());
+
+        let wire: serde_json::Value = serde_json::to_value(&odds).unwrap();
+        for key in [
+            "attacker_win_rate",
+            "defender_win_rate",
+            "mutual_destruction_rate",
+            "unresolved_rate",
+            "attacker_expected_survivors",
+            "defender_expected_survivors",
+            "attacker_fielded",
+            "defender_fielded",
+        ] {
+            assert!(wire.get(key).is_some(), "no {key} in {wire}");
+        }
+
+        for wrong in [
+            serde_json::json!({ "attacker": { "player": "a" }, "defender": {} }),
+            serde_json::json!({ "attacker": { "units": { "nonexistent": 1 } }, "defender": {} }),
+            serde_json::json!({ "attacker": {}, "defender": {}, "simulations": 5 }),
+            serde_json::json!({ "attacker": {} }),
+        ] {
+            assert!(odds_of(wrong.to_string().as_bytes()).is_err(), "{wrong}");
         }
     }
 
@@ -2923,6 +3026,14 @@ mod tests {
                 })
                 .to_string()
             };
+            // The odds of a space combat, through the buffers of the export.
+            let sides =
+                r#"{"attacker":{"units":{"cruiser":1}},"defender":{"units":{"fighter":1}}}"#;
+            let odds: serde_json::Value =
+                serde_json::from_str(&space_odds_native(sides).unwrap()).unwrap();
+            assert_eq!(odds["attacker_fielded"]["cruiser"], 1);
+            assert!(space_odds_native("{}").unwrap_err().contains("not read"));
+
             let preview = json(with_table_native(ti4_setup_preview, &table(5, "human")));
             assert_eq!(preview["map"]["alias"], recommended.as_str());
             assert_eq!(preview["seats"].as_array().unwrap().len(), 6);
