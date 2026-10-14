@@ -91,7 +91,13 @@ jobs:
         run: |
           npm ci
           node ../crates/ti4-wasm/js/host.mjs ../target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm --record "$RUNNER_TEMP/stream.json"
-          TI4_HOSTED_STREAM="$RUNNER_TEMP/stream.json" npx vitest run src/protocol/hostedStream.test.ts
+          TI4_HOSTED_STREAM="$RUNNER_TEMP/stream.json" npx vitest run src/protocol/hostedStream.test.ts src/offline/local/contract.test.ts
+
+      - name: Offline game in Chromium (production build, no network)
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium
+          TI4_WASM_FILE="$GITHUB_WORKSPACE/target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm" npm run test:e2e:offline
 
       - name: Hosted game, native tests
         run: cargo test -p ti4-wasm --release
