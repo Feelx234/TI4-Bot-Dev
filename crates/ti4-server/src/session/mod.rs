@@ -6,6 +6,7 @@ pub mod preview;
 pub mod random_bot;
 pub mod reach;
 pub mod reaction_modes;
+pub(crate) mod ready_secondary;
 pub mod registry;
 pub(crate) mod script;
 pub mod splice;
@@ -430,6 +431,7 @@ impl GameSession {
                 });
             }
             pending.submission_state = PendingSubmissionState::Reserved;
+            lock.note_answer(seat, nonce);
 
             lock.seat_inboxes.get(seat).cloned()
         };
@@ -442,6 +444,7 @@ impl GameSession {
 
         if inbox.send(submission).is_err() {
             let mut lock = self.shared.lock().expect("shared lock");
+            lock.forget_answer(seat, nonce);
             if lock
                 .pending_decision
                 .as_ref()
@@ -722,42 +725,70 @@ impl GameSession {
         value: Option<serde_json::Value>,
         writer: u64,
     ) -> Result<staged::Put, String> {
-        let mut book = self.initial_config.staged.lock();
-        let before = book.get(seat).cloned();
-        let entry = book.entry(seat.clone()).or_default();
-        let put = entry.put(slot, base_revision, value);
-        let current = entry.clone();
-        if put != staged::Put::Written {
-            if before.is_none() {
-                book.remove(seat);
-            }
-            return Ok(put);
-        }
-        if let Some(store) = &self.initial_config.store {
-            let record = crate::storage::StagedRecord {
-                seats: book.clone(),
-            };
-            if let Err(error) = store.save_staged(&self.game_id, &record) {
-                match before {
-                    Some(before) => book.insert(seat.clone(), before),
-                    None => book.remove(seat),
-                };
-                return Err(format!("could not save the staged work: {error}"));
-            }
-        }
-        let mut message = current.message(&self.game_id);
-        message.writer = Some(writer);
-        let message = ServerMessage::SeatStaged(message);
-        // Sent under the lock of the book, so the connections get the writes in their order.
-        let viewer = ViewerRole::Player(seat.clone());
+        staged::put_and_tell(
+            &self.shared,
+            &self.initial_config.staged,
+            seat,
+            slot,
+            base_revision,
+            value,
+            Some(writer),
+        )
+    }
+
+    /// `seat` answered the choice of `nonce` already: from a connection, or the server for it
+    /// (a ready draft of a secondary). Only the newest answers of a seat are kept.
+    #[must_use]
+    pub fn was_answered(&self, seat: &PlayerId, nonce: &str) -> bool {
         self.shared
             .lock()
             .expect("shared lock")
-            .subscribers
-            .retain(|_, subscriber| {
-                subscriber.viewer != viewer || subscriber.tx.try_send(message.clone()).is_ok()
-            });
-        Ok(put)
+            .was_answered(seat, nonce)
+    }
+
+    /// Sends the ready draft of the secondary of `seat` when the game asks the seat that
+    /// secondary now ([`ready_secondary`]): after the seat marked it ready. A draft that the
+    /// game no longer plays whole is made not ready.
+    pub fn send_ready_secondary(&self, seat: &PlayerId) {
+        let asked = {
+            let lock = self.shared.lock().expect("shared lock");
+            lock.pending_decision
+                .as_ref()
+                .filter(|pending| {
+                    pending.seat == *seat
+                        && pending.submission_state == PendingSubmissionState::AwaitingSubmission
+                        && ready_secondary::may_send(&lock, seat, &pending.choice)
+                })
+                .map(|pending| {
+                    (
+                        pending.nonce.clone(),
+                        pending.game_version,
+                        pending.choice.clone(),
+                        lock.latest_state.round,
+                    )
+                })
+        };
+        let Some((nonce, version, choice, round)) = asked else {
+            return;
+        };
+        let book = &self.initial_config.staged;
+        let Some(ready) = ready_secondary::ready_draft(book, seat, &choice, round) else {
+            return;
+        };
+        match ready_secondary::check(&self.shared, seat, &ready.draft) {
+            ready_secondary::Check::Fits(script) => {
+                match self.apply_draft(seat, &nonce, version, &script) {
+                    Ok(None) => ready_secondary::spent(&self.shared, book, seat, ready.revision),
+                    Ok(Some(_)) => ready_secondary::unready(&self.shared, book, seat, ready),
+                    // The seat answered meanwhile, or the game went on.
+                    Err(_) => {}
+                }
+            }
+            ready_secondary::Check::Unfit => {
+                ready_secondary::unready(&self.shared, book, seat, ready);
+            }
+            ready_secondary::Check::Unknown => {}
+        }
     }
 
     /// Set one seat's handling of one action card, by printed name.
@@ -1000,57 +1031,37 @@ impl GameSession {
         scope: &ti4_view::planning::audit::PlanScope,
         script: &[ti4_view::planning::draft::DraftStep],
     ) -> (u64, ti4_view::planning::draft::DraftOutcome) {
-        use ti4_view::planning::draft::{DraftBase, DraftOutcome, DraftStop, run_draft};
-        let (copy, version, tiles, galaxy, state, watch) = {
-            let mut lock = self.shared.lock().expect("shared lock");
-            let playable = !lock.stopped
-                && !lock.finished
-                && lock.error.is_none()
-                && lock.replay_complete
-                && lock.seats.contains_key(player);
-            let copy = playable
-                .then(|| lock.planning.fork())
-                .flatten()
-                .map(|(game, _)| game);
+        use ti4_view::planning::draft::{DraftOutcome, DraftStop};
+        let (version, outcome) = run_draft_on(&self.shared, player, scope, script);
+        if let Some(outcome) = outcome {
+            return (version, outcome);
+        }
+        let (tiles, galaxy, state) = {
+            let lock = self.shared.lock().expect("shared lock");
             (
-                copy,
-                lock.game_version,
                 lock.map_tiles.clone(),
                 lock.galaxy.clone(),
                 lock.latest_state.clone(),
-                lock.planning.watch.clone(),
             )
         };
-        let content = ti4_content::ContentStore::embedded();
-        let Some(game) = copy else {
-            let update = crate::projection::project_session_update(
-                &state,
-                &ViewerRole::Player(player.clone()),
-                None,
-                &tiles,
-                &crate::projection::facts_context(galaxy.as_deref()),
-            );
-            let outcome = DraftOutcome {
-                update,
-                movement: None,
-                invasion: None,
-                production: None,
-                consumed: 0,
-                stop: DraftStop::Failed {
-                    reason: "The game cannot be drafted on now.".to_owned(),
-                },
-            };
-            return (version, outcome);
+        let update = crate::projection::project_session_update(
+            &state,
+            &ViewerRole::Player(player.clone()),
+            None,
+            &tiles,
+            &crate::projection::facts_context(galaxy.as_deref()),
+        );
+        let outcome = DraftOutcome {
+            update,
+            movement: None,
+            invasion: None,
+            production: None,
+            consumed: 0,
+            stop: DraftStop::Failed {
+                reason: "The game cannot be drafted on now.".to_owned(),
+            },
         };
-        let base = DraftBase {
-            game: &game,
-            content,
-            sources: ti4_model::content_types::POK,
-            tiles: &tiles,
-            galaxy: galaxy.as_deref(),
-            secondary: Some(&watch),
-        };
-        (version, run_draft(&base, player, scope, script))
+        (version, outcome)
     }
 
     /// Sends `script` to the live game: the pending choice of `player` and the choices after
@@ -1113,6 +1124,7 @@ impl GameSession {
                 .as_mut()
                 .expect("pending decision")
                 .submission_state = PendingSubmissionState::Reserved;
+            lock.note_answer(player, nonce);
             let never = lock
                 .reaction_modes
                 .get(player)
@@ -1121,6 +1133,7 @@ impl GameSession {
             (choice, copy.map(|(game, _)| game), tail, never)
         };
         let release = |lock: &mut SessionShared| {
+            lock.forget_answer(player, nonce);
             if let Some(pending) = lock
                 .pending_decision
                 .as_mut()
@@ -1596,4 +1609,47 @@ impl Drop for GameSession {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// A run of a draft ([`GameSession::run_draft`]) on the game of `shared`: the version of the
+/// game, and what the game made of the script. `None` when the game cannot be copied now
+/// (stopped, finished, failed, or still in its replay).
+pub(crate) fn run_draft_on(
+    shared: &Mutex<SessionShared>,
+    player: &PlayerId,
+    scope: &ti4_view::planning::audit::PlanScope,
+    script: &[ti4_view::planning::draft::DraftStep],
+) -> (u64, Option<ti4_view::planning::draft::DraftOutcome>) {
+    use ti4_view::planning::draft::{DraftBase, run_draft};
+    let (copy, version, tiles, galaxy, watch) = {
+        let mut lock = shared.lock().expect("shared lock");
+        let playable = !lock.stopped
+            && !lock.finished
+            && lock.error.is_none()
+            && lock.replay_complete
+            && lock.seats.contains_key(player);
+        let copy = playable
+            .then(|| lock.planning.fork())
+            .flatten()
+            .map(|(game, _)| game);
+        (
+            copy,
+            lock.game_version,
+            lock.map_tiles.clone(),
+            lock.galaxy.clone(),
+            lock.planning.watch.clone(),
+        )
+    };
+    let Some(game) = copy else {
+        return (version, None);
+    };
+    let base = DraftBase {
+        game: &game,
+        content: ti4_content::ContentStore::embedded(),
+        sources: ti4_model::content_types::POK,
+        tiles: &tiles,
+        galaxy: galaxy.as_deref(),
+        secondary: Some(&watch),
+    };
+    (version, Some(run_draft(&base, player, scope, script)))
 }

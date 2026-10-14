@@ -7,6 +7,7 @@ use ti4_model::id::PlayerId;
 
 use crate::protocol::server::ActionAcceptedMsg;
 use crate::protocol::status::RejectionReason;
+use crate::session::ready_secondary;
 use crate::session::worker::{PendingDecision, PendingSubmissionState, SessionShared};
 
 /// Incoming choice submission from a client.
@@ -61,7 +62,7 @@ impl Decider for RemoteHumanDecider {
     fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
         let nonce = RandomNonce.next_nonce();
 
-        {
+        let reached = {
             let mut shared = self.shared.lock().expect("session shared lock");
             shared.game_version += 1;
             if let Some(previous) = shared.pending_decision.take()
@@ -97,8 +98,51 @@ impl Decider for RemoteHumanDecider {
                 shared.planning.application_answered(choice, &option);
                 return Ok(option);
             }
-            shared.broadcast_state_update();
-            shared.broadcast_pending_decision(choice, &nonce);
+            // A ready draft of the secondary that the seat is asked is sent by the server. The
+            // choice is reserved while the draft is checked on a copy, which needs no lock.
+            if ready_secondary::may_send(&shared, &self.seat, choice) {
+                let pending = shared.pending_decision.as_mut().expect("pending decision");
+                pending.submission_state = PendingSubmissionState::Reserved;
+                Some(shared.latest_state.round)
+            } else {
+                shared.broadcast_state_update();
+                shared.broadcast_pending_decision(choice, &nonce);
+                None
+            }
+        };
+        if let Some(round) = reached {
+            let send = ready_secondary::on_reach(&self.shared, &self.seat, choice, round);
+            let mut shared = self.shared.lock().expect("session shared lock");
+            let ours = !shared.stopped
+                && shared
+                    .pending_decision
+                    .as_ref()
+                    .is_some_and(|pending| pending.nonce == nonce);
+            match send {
+                Some(send) if ours => {
+                    let (reply_tx, _reply_rx) = mpsc::channel();
+                    let pending = shared.pending_decision.as_mut().expect("pending decision");
+                    pending.submitted_option_id = Some(send.option.id.clone());
+                    pending.reply_tx = Some(reply_tx);
+                    shared.note_answer(&self.seat, &nonce);
+                    shared.begin_script(&self.seat, &nonce, send.script, send.next);
+                    let book = shared.staged.clone();
+                    drop(shared);
+                    ready_secondary::spent(&self.shared, &book, &self.seat, send.revision);
+                    return Ok(send.option);
+                }
+                _ => {
+                    if ours {
+                        shared
+                            .pending_decision
+                            .as_mut()
+                            .expect("pending decision")
+                            .submission_state = PendingSubmissionState::AwaitingSubmission;
+                    }
+                    shared.broadcast_state_update();
+                    shared.broadcast_pending_decision(choice, &nonce);
+                }
+            }
         }
 
         while let Ok(submission) = self.inbox_rx.recv() {

@@ -180,7 +180,8 @@ pub enum ClientMessage {
     },
     /// Replace what this connection's seat has staged in one slot (`None` clears it). The
     /// server keeps it for the seat, not for the connection, so every tab and device of the
-    /// seat has it. The value is the client's and the server does not read it. The put is a
+    /// seat has it. The value is the client's; the server reads only a ready draft of a
+    /// secondary (slot `secondary`), which it sends when the game asks the seat. The put is a
     /// compare-and-set: `base_revision` is the revision of the slot that the client changed
     /// (0 for a slot that was never written). A stale one writes nothing, and the connection is
     /// sent the slots as they are.

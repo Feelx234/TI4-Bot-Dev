@@ -77,6 +77,8 @@ function rejection(reason: RejectionReason): string {
       return `The game does not offer "${reason.option_id}". Nothing was sent.`;
     case "validation_failed":
       return reason.message;
+    case "answered_elsewhere":
+      return "Your answer was given in another tab. Nothing was sent.";
     case "undo_barrier":
       return {
         revealed: "Something hidden was shown since your last decision. It cannot be taken back.",
@@ -266,6 +268,11 @@ export function createWsTransport(
       case "action_rejected": {
         sent = null;
         undoing = false;
+        if (message.reason.reason === "answered_elsewhere") {
+          // Another tab of the seat, or the server for a ready draft, answered first: the update
+          // that shows the answer is on its way, and nothing went wrong.
+          return;
+        }
         say({ kind: "rejected", reason: rejection(message.reason) });
         again();
         const { reason } = message.reason;

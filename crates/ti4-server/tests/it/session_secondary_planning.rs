@@ -28,6 +28,11 @@ fn session(name: &str) -> GameSession {
 /// "a" is about to play `wanted`. The `settled` seat is at home on system 35:
 /// both planets controlled, a space dock on each, the first planet exhausted.
 fn session_playing(name: &str, wanted: &str, settled: Option<&str>) -> GameSession {
+    GameSession::start(config_playing(name, wanted, settled))
+}
+
+/// The game of [`session_playing`], to start.
+pub(crate) fn config_playing(name: &str, wanted: &str, settled: Option<&str>) -> SessionConfig {
     let content = ContentStore::embedded();
     let mut state = game(&["a", "b", "c"]);
     state.phase = Phase::Action;
@@ -73,16 +78,16 @@ fn session_playing(name: &str, wanted: &str, settled: Option<&str>) -> GameSessi
     for seat in ["a", "b", "c"] {
         config = config.with_seat(pid(seat), SeatController::Human);
     }
-    GameSession::start(config)
+    config
 }
 
-struct LiveOffer {
-    choice: Choice,
-    nonce: String,
-    game_version: u64,
+pub(crate) struct LiveOffer {
+    pub(crate) choice: Choice,
+    pub(crate) nonce: String,
+    pub(crate) game_version: u64,
 }
 
-fn live_offer(session: &GameSession, previous_nonce: Option<&str>) -> LiveOffer {
+pub(crate) fn live_offer(session: &GameSession, previous_nonce: Option<&str>) -> LiveOffer {
     let deadline = Instant::now() + DEADLINE;
     loop {
         assert!(session.error().is_none(), "{:?}", session.error());
@@ -103,7 +108,7 @@ fn live_offer(session: &GameSession, previous_nonce: Option<&str>) -> LiveOffer 
     }
 }
 
-fn answer_live(session: &GameSession, offer: &LiveOffer, option: &str) -> LiveOffer {
+pub(crate) fn answer_live(session: &GameSession, offer: &LiveOffer, option: &str) -> LiveOffer {
     session
         .submit_choice(
             &offer.choice.player,
@@ -118,7 +123,7 @@ fn answer_live(session: &GameSession, offer: &LiveOffer, option: &str) -> LiveOf
 /// Submit `option`, then wait for the live offer `wanted` describes. A question
 /// answered from a draft is pending only while its step runs: it is never
 /// broadcast and is gone again without anybody submitting to it.
-fn answer_until(
+pub(crate) fn answer_until(
     session: &GameSession,
     offer: &LiveOffer,
     option: &str,
@@ -140,11 +145,11 @@ fn is_action_menu(choice: &Choice) -> bool {
         .is_some_and(|context| context.subtype == "action_menu")
 }
 
-fn is_secondary(choice: &Choice) -> bool {
+pub(crate) fn is_secondary(choice: &Choice) -> bool {
     choice.details.get("kind").and_then(|kind| kind.as_str()) == Some("strategy_secondary")
 }
 
-fn research(choice: &Choice) -> Option<String> {
+pub(crate) fn research(choice: &Choice) -> Option<String> {
     choice
         .options
         .iter()
@@ -153,7 +158,7 @@ fn research(choice: &Choice) -> Option<String> {
 }
 
 /// "a" plays Technology and is left answering its primary.
-fn play_technology(session: &GameSession) -> LiveOffer {
+pub(crate) fn play_technology(session: &GameSession) -> LiveOffer {
     let menu = live_offer(session, None);
     assert_eq!(menu.choice.player, pid("a"));
     assert!(session.planning_status(&pid("b")).secondary.is_none());
@@ -218,7 +223,7 @@ fn ready(session: &GameSession, player: &PlayerId) {
     assert!(session.planning_status(player).secondary.unwrap().ready);
 }
 
-fn follow_and_research(choice: &Choice) -> String {
+pub(crate) fn follow_and_research(choice: &Choice) -> String {
     if is_secondary(choice) {
         "yes".into()
     } else {
@@ -226,7 +231,7 @@ fn follow_and_research(choice: &Choice) -> String {
     }
 }
 
-fn technologies(session: &GameSession, player: &str) -> usize {
+pub(crate) fn technologies(session: &GameSession, player: &str) -> usize {
     session
         .get_snapshot(&ViewerRole::Spectator)
         .state

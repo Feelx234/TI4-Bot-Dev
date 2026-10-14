@@ -666,6 +666,81 @@ test("a secondary is drafted in one tab while a rule bot takes its time, and the
   expect([...errors, ...otherErrors]).toEqual([]);
 });
 
+test("a ready secondary of a seat in two tabs is sent once, by the server, with no toast", async ({
+  page,
+  context,
+  request,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  const table = await makeTable(request, 4, "Ada");
+  // Blair is the second seat: the first to follow, and the next to have a turn.
+  await table.call("settings", { start_from: "late-game" });
+  const blair = await table.call("join", { kind: "new", nickname: "Blair" }, null);
+  await table.call("bots", { kind: "smart", fill: true });
+  await asPlayers(context, table.id, {
+    [table.host.id]: table.host.session,
+    [blair.player.id]: blair.player_session,
+  });
+  await page.goto(`/?online=${table.id}&seat=${table.host.id}`);
+  // Blair has the game open in two tabs. What the tabs answer is counted.
+  const tabs = [await context.newPage(), await context.newPage()];
+  const errors = [page, ...tabs].map(errorsOf);
+  const answered: string[] = [];
+  for (const tab of tabs) {
+    tab.on("websocket", (socket) =>
+      socket.on("framesent", ({ payload }) => {
+        const { type } = JSON.parse(String(payload));
+        if (type === "submit_choice" || type === "apply_draft") {
+          answered.push(type);
+        }
+      }),
+    );
+    await tab.goto(`/?online=${table.id}&seat=${blair.player.id}`);
+  }
+  await expect(said(tabs[0], "Start from")).toHaveText("Late game");
+  await expect(title(page)).toHaveText("Lobby · 8 players");
+  await page.keyboard.press("Enter");
+  for (const tab of [page, ...tabs]) {
+    await expect(tab.getByText("Round 4 · Action phase")).toBeVisible();
+  }
+  const [one, two] = tabs;
+
+  // The host plays Leadership. One tab drafts the secondary and marks it ready while the host
+  // resolves the primary; the other tab has the same draft.
+  await panel(page)
+    .getByRole("button", { name: /Take your strategic action/ })
+    .click();
+  await send(page).click();
+  await expect(panel(one).getByText("✎ Private draft")).toBeVisible();
+  await panel(one).getByRole("button", { name: "Spend nothing further" }).click();
+  await expect(send(one)).toHaveText(/^Record/);
+  await send(one).click();
+  await expect(send(one)).toHaveText(/^Mark draft ready/);
+  await send(one).click();
+  await expect(panel(two).getByText("✎ Draft ready")).toBeVisible();
+  for (const answer of ["Tactic pool", "Tactic pool", "Tactic pool", "Spend nothing further"]) {
+    await panel(page).getByRole("button", { name: answer }).click();
+    await send(page).click();
+  }
+
+  // The game comes to Blair: the server sends the draft, and the seat is not asked. The
+  // strategic action is over with no answer of a tab, and no tab is told that the game went on
+  // before its answer.
+  await expect(panel(page).getByRole("heading", { name: "End your turn" })).toBeVisible();
+  for (const tab of tabs) {
+    await expect(panel(tab).getByText("✎ Draft ready")).toHaveCount(0);
+    await expect(tab.getByText("Your draft no longer fits the game. It is not ready.")).toHaveCount(
+      0,
+    );
+    await expect(
+      tab.getByRole("status").filter({ hasText: /Nothing was sent|another tab/ }),
+    ).toHaveCount(0);
+  }
+  expect(answered).toEqual([]);
+  expect(errors.flat()).toEqual([]);
+});
+
 test("a table starts from the late game, and each tab has the seat of its join", async ({
   page,
   context,

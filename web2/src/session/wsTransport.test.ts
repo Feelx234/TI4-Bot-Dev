@@ -187,6 +187,25 @@ it("does not ask again after a stale answer when the update came", () => {
   expect(game.sockets).toHaveLength(1);
 });
 
+it("is quiet when another tab of the seat answered first, and the update shows the answer", () => {
+  const game = server();
+  game.open();
+  game.tell(actor);
+  game.take();
+  game.transport.submitChoice("nonce_xyz789", "tactical");
+  game.tell({
+    type: "action_rejected",
+    protocol_version: PROTOCOL_VERSION,
+    reason: { reason: "answered_elsewhere" },
+  });
+  // No toast, and the server is not asked for the game again: its update is on its way.
+  expect(game.take()).toEqual([]);
+  vi.advanceTimersByTime(5_000);
+  expect(game.sockets).toHaveLength(1);
+  game.tell({ ...actor, type: "state_update", game_version: 43 });
+  expect(game.take().map((event) => event.kind)).toEqual(["update"]);
+});
+
 it("reads the end of the game from the update, not from the message of it", () => {
   const game = server();
   game.open();

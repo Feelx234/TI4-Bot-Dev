@@ -38,6 +38,7 @@ mod random_bots;
 mod random_seats;
 mod random_speaker;
 mod reaction_modes;
+mod ready_secondary;
 mod replay_copy_handoff;
 mod replay_export;
 mod seat_order;

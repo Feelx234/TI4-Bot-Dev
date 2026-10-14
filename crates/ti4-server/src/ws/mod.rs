@@ -156,6 +156,9 @@ async fn handle_socket(
     let mut staged_puts: std::collections::VecDeque<std::time::Instant> =
         std::collections::VecDeque::new();
     let mut staged_wanted = false;
+    // The nonces that this connection answered, newest last: an answer that is refused is told
+    // apart from one that another connection of the seat gave (`answered_elsewhere`).
+    let mut own_answers: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let preview_running = Arc::new(AtomicBool::new(false));
     let mut auth_check = tokio::time::interval(Duration::from_millis(250));
     // The draft requests of this connection. One is run at a time and only the newest waits,
@@ -455,6 +458,7 @@ async fn handle_socket(
                         .await;
                     continue;
                 };
+                let elsewhere = answered_elsewhere(&mut own_answers, &nonce, staged_wanted);
                 let registry = registry.clone();
                 let session = session.clone();
                 let game_id = game_id.clone();
@@ -463,6 +467,8 @@ async fn handle_socket(
                 let outbound_tx = outbound_tx.clone();
                 tokio::spawn(async move {
                     let applied = {
+                        let player = player.clone();
+                        let session = session.clone();
                         let game_id = game_id.clone();
                         let nonce = nonce.clone();
                         tokio::task::spawn_blocking(move || {
@@ -490,7 +496,7 @@ async fn handle_socket(
                             protocol_version: PROTOCOL_VERSION,
                             game_id,
                             game_version: expected_version,
-                            reason,
+                            reason: elsewhere(&session, &player, &nonce).unwrap_or(reason),
                         }),
                         Err(error) => {
                             warn!(%game_id, %nonce, %error, "apply_draft task failed");
@@ -817,6 +823,25 @@ async fn handle_socket(
                                             .await;
                                         None
                                     }
+                                    Ok(crate::session::staged::Put::Written)
+                                        if slot
+                                            == crate::session::staged::StagedSlot::Secondary =>
+                                    {
+                                        // A draft that is marked ready while the game asks the
+                                        // seat is sent now.
+                                        if let Some(token) = current_token.clone() {
+                                            let registry = registry.clone();
+                                            let session = session.clone();
+                                            let game_id = game_id.clone();
+                                            let seat = seat.clone();
+                                            tokio::task::spawn_blocking(move || {
+                                                registry.send_ready_secondary(
+                                                    &game_id, &token, &seat, &session,
+                                                );
+                                            });
+                                        }
+                                        None
+                                    }
                                     Ok(_) => None,
                                     Err(message) => Some((ErrorKind::EngineError, message)),
                                 }
@@ -1068,6 +1093,7 @@ async fn handle_socket(
                                 .await;
                             continue;
                         };
+                        let elsewhere = answered_elsewhere(&mut own_answers, &nonce, staged_wanted);
                         let registry = registry.clone();
                         let session = session.clone();
                         let game_id = game_id.clone();
@@ -1078,6 +1104,8 @@ async fn handle_socket(
                             debug!(%game_id, %nonce, expected_version, %option_id, "submit_choice received");
                             let log_game_id = game_id.clone();
                             let log_nonce = nonce.clone();
+                            let seat = acting_seat.clone();
+                            let asked = session.clone();
                             let result = tokio::task::spawn_blocking(move || {
                                 registry.submit_player_choice(
                                     &game_id,
@@ -1101,7 +1129,8 @@ async fn handle_socket(
                                         protocol_version: PROTOCOL_VERSION,
                                         game_id: message_game_id.clone(),
                                         game_version: expected_version,
-                                        reason,
+                                        reason: elsewhere(&asked, &seat, &log_nonce)
+                                            .unwrap_or(reason),
                                     })
                                 }
                                 Err(error) => {
@@ -1135,5 +1164,34 @@ async fn handle_socket(
         let _ = outbound_task.await;
     } else {
         outbound_task.abort();
+    }
+}
+
+/// How many nonces a connection keeps of its own answers.
+const OWN_ANSWERS_KEPT: usize = 16;
+
+/// What an answer to `nonce` that the game refuses is told, when the seat answered it already
+/// from another connection (or the server sent a ready draft for it): `answered_elsewhere` to a
+/// connection that asked for the staged work of its seat (web2 shows no toast for it), and
+/// `stale_nonce` to every other one (web shows a text for each reason it knows). `None` for a
+/// refusal of anything else. Notes `nonce` as an answer of this connection.
+fn answered_elsewhere(
+    own_answers: &mut std::collections::VecDeque<String>,
+    nonce: &str,
+    staged_wanted: bool,
+) -> impl FnOnce(&GameSession, &ti4_model::id::PlayerId, &str) -> Option<RejectionReason> + use<> {
+    let again = own_answers.iter().any(|own| own == nonce);
+    if !again {
+        if own_answers.len() >= OWN_ANSWERS_KEPT {
+            own_answers.pop_front();
+        }
+        own_answers.push_back(nonce.to_owned());
+    }
+    move |session, seat, nonce| {
+        (!again && session.was_answered(seat, nonce)).then_some(if staged_wanted {
+            RejectionReason::AnsweredElsewhere
+        } else {
+            RejectionReason::StaleNonce
+        })
     }
 }

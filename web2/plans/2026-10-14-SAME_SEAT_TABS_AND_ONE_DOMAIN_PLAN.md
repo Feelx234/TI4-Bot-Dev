@@ -9,8 +9,10 @@ Updated 2026-10-14 16:45 Berlin, against `dev` at `6b5a36da`.
   on branch `seat-staged-sync`. What was built, and where it differs from the plan, is in Phase 1
   below.
 - **Phase 2 is done** (2026-10-14, on `dev` after `7bef1db4`): web2 keeps the staged work of an
-  online seat on the server. What was built and the deviations are in Phase 2 below. Phases 3–4
-  are not started.
+  online seat on the server. What was built and the deviations are in Phase 2 below.
+- **Phase 3 is done** (2026-10-14, on `dev` after `86cfd5cc`): the server sends a ready draft of a
+  secondary, and a second answer of a seat is quiet. What was built and the deviations are in
+  Phase 3 below. Phase 4 is not started.
 - **Felix's work was merged** (`056ae71a Merge remote-tracking branch 'felix/main' into dev`),
   with the offline single player of web (`5381af51 Merge offline-final ...`). What matters here:
   - **The protocol moved to a new crate.** `crates/ti4-server/src/protocol/*` is now
@@ -280,7 +282,80 @@ The merge moved the wire types to `ti4-host`, where Felix's merge had put the pr
   on the screen is per tab. Also the bullet "A seat for each tab": what is staged is no longer
   kept under `onlineKeys`.
 
-## Phase 3 — One sender for answers of a seat
+## Phase 3 — One sender for answers of a seat — DONE
+
+**As built** (2026-10-14).
+- **The Rust type of the slot** (`session/staged.rs`): `SecondaryDraft { round, primary, card,
+  answers: [DraftAnswer { id }], ready }`, read with `SecondaryDraft::of(value)`; other fields and
+  the labels are ignored. `script()` makes the `DraftStep`s. Pinned by the unit test
+  `a_draft_of_a_secondary_is_read_as_web2_writes_it`, and `protocol_roundtrip.rs` now puts web2's
+  shape (`answers: [{id, label}]`, the gap of phase 1).
+- **The sender** (`session/ready_secondary.rs`): `ready_draft` (the slot is ready, has answers, and
+  is of the round, the primary and the card that the choice asks: `details.kind ==
+  "strategy_secondary"`, `played_by`, `card`), `check` (`run_draft_on` with the scope; it fits when
+  every answer is played and the stop is `Complete` or `Stopped`, as `isOver` of web2), `unready`
+  (writes the value back with `ready: false`) and `spent` (clears the slot), both through
+  `staged::put_and_tell` with no writer.
+  - **When the game asks the seat**: the decider of the seat (`decider.rs`) reserves the choice
+    before it broadcasts it, checks the draft with no lock held, and answers the first question
+    itself; the rest is a script (`begin_script`), as `apply_draft` does. The seat is not asked
+    (nothing is broadcast). A draft that does not fit is made not ready, and the seat is asked.
+  - **When a tab marks the draft ready while the game asks the seat**: a written put of slot
+    `secondary` runs `GameRegistry::send_ready_secondary` (`spawn_blocking`, under the game gate,
+    for the current session only), which calls `GameSession::send_ready_secondary` →
+    `apply_draft`.
+- **Refactors**: `GameSession::put_staged` is `staged::put_and_tell` with `Some(writer)`;
+  `GameSession::run_draft` is `run_draft_on(&shared, …)` with the failed outcome around it.
+  `SessionShared` has the book (`staged`, a clone of the config's) and `answered`.
+- **A double answer**: `SessionShared.answered` keeps the newest 16 nonces of each seat, noted
+  when a choice is reserved (`reserve_choice`, `apply_draft`, the decider's send) and forgotten when
+  the reservation is released. The ws handler keeps the nonces that the connection itself sent.
+  A refused `submit_choice` or `apply_draft` whose nonce the seat answered, and not from this
+  connection, is `RejectionReason::AnsweredElsewhere` (`ti4-view/src/status.rs`) for a connection
+  with `staged: true`, and `StaleNonce` for any other (`answered_elsewhere` in `ws/mod.rs`).
+- **web2**: `answered_elsewhere` in `wire.ts`; `wsTransport` shows no toast for it and schedules
+  no resync. `useLiveSession` does not send a ready draft when `transport.staged` exists
+  (`serverSends`), and does not hold the live question back then. `SeatStore.subscribe` has a
+  third argument `server` (the message has no `writer` and no `connection`); a server write of the
+  secondary with `ready: false` sets the note "Your draft no longer fits the game. It is not
+  ready." in every tab.
+- **Docs**: `web2/AGENTS.md` (Online play: "One sender for the answers of a seat", "A ready draft
+  of a secondary is sent by the server"; Strategy cards), the doc comments of
+  `protocol/staged.rs` and `PutStaged`.
+- **Tests**: `crates/ti4-server/tests/it/ready_secondary.rs`: sent when the seat is reached (the
+  slot is cleared); a draft that does not fit is made not ready and the seat is asked; marked
+  ready while asked (session and over a socket); two sockets mark it ready and it is sent once;
+  `answered_elsewhere` for an opted-in socket, `stale_nonce` for one that did not opt in, and
+  not for the socket that answered. web2: `wsTransport.test.ts` (no toast, no resync),
+  `liveSecondary.test.tsx` (with `staged` the page sends nothing and shows the note of a server
+  write), e2e `lobby.spec.ts` "a ready secondary of a seat in two tabs is sent once, by the
+  server, with no toast" (the host's action ends with no frame `submit_choice`/`apply_draft` from
+  the two tabs of Blair).
+
+**Deviations from the plan.**
+- The seat is reached in the decider, not by a check after the broadcast: the server answers
+  before the seat is asked, as the scripts of the server do. So the page needs no "holding".
+- **The server clears the slot after it sent the draft** (phase 1 said that the server never
+  clears a slot). Every tab drops the draft at once, and a draft of an old action does not stay
+  when no tab is open.
+- Answers of web's planning (`ApplyPlanning`, `SubmitPlanningChoice`) are not mapped: web does not
+  opt in, and its planning messages answer with `PlanningResult`, not `ActionRejected`.
+- A connection that did not opt in is now told `stale_nonce` for an answered nonce also where it
+  was told `unauthorized_seat` or `no_pending_choice` before (the game went on to another seat, or
+  the answer was still on its way).
+- Not sent: while a change of the history runs (`history_pause`), and when the game cannot be
+  copied (`run_draft_on` is `None`). The seat is then asked with its draft still ready; the page
+  shows the question.
+
+**Gaps left.**
+- web (`web/`) was not run: it does not opt in and its messages did not change.
+- The e2e of phase 3 and the older "a secondary is drafted in one tab while a rule bot takes its
+  time" fail now and then (about 2 in 10 here, 3 in 8 for the older one also without phase 3): a
+  rule bot of the late-game scenario (Sardakk) sometimes reacts when the strategic action begins,
+  and the action of the host ends with no secondary. The whole `npm run e2e` passed once.
+- No test of `history_pause` or of a copy that cannot be made.
+
+### The plan of phase 3
 
 - **The server sends a ready secondary.**
   - When a put of slot `secondary` has `ready: true`, and the game then asks that seat the

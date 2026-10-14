@@ -2967,6 +2967,26 @@ impl GameRegistry {
         Some(session.run_draft(player, scope, script))
     }
 
+    /// Sends the ready draft of the secondary of the seat of this credential, when the game asks
+    /// the seat now ([`GameSession::send_ready_secondary`]). It shares the takeover/history gate
+    /// with live answers, as a script that a page sends does.
+    pub fn send_ready_secondary(
+        &self,
+        game_id: &str,
+        credential: &str,
+        player: &PlayerId,
+        session: &GameSession,
+    ) {
+        let gate = self.game_gate(game_id);
+        let _reservation = gate.lock().expect("game gate lock");
+        if self
+            .current_player_session(game_id, credential, player, session)
+            .is_some()
+        {
+            session.send_ready_secondary(player);
+        }
+    }
+
     /// `Some` when `credential` is of `player` and `session` is the running game.
     fn current_player_session(
         &self,

@@ -84,6 +84,11 @@ pub enum RejectionReason {
     ValidationFailed { message: String },
     /// The seat may not take back its last decision: it lies behind this barrier.
     UndoBarrier { barrier: UndoBarrier },
+    /// Another connection of the seat answered this choice already, or the server sent a ready
+    /// draft of the seat for it. Sent only to a connection that asked for the staged work of its
+    /// seat (`Subscribe::staged`); every other one is told `StaleNonce`. The update that follows
+    /// shows the answer.
+    AnsweredElsewhere,
 }
 
 /// What a seat cannot undo past: after it, the seat knows something that it did not know

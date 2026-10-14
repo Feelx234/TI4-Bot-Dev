@@ -726,7 +726,12 @@ export type RejectionReason =
   | { reason: "unknown_option"; option_id: string }
   | { reason: "validation_failed"; message: string }
   /** `UndoBarrier`: the decision that the seat asked to take back lies behind it. */
-  | { reason: "undo_barrier"; barrier: "revealed" | "random" | "other_seat" };
+  | { reason: "undo_barrier"; barrier: "revealed" | "random" | "other_seat" }
+  /**
+   * `AnsweredElsewhere`: another tab or device of the seat answered this choice already, or the
+   * server sent a ready draft of the seat for it. Only to a page that asked for the staged work.
+   */
+  | { reason: "answered_elsewhere" };
 
 /**
  * `InitialSnapshotMsg` and `StateUpdateMsg`: a `SessionUpdate` with the version of the game.

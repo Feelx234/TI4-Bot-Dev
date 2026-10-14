@@ -25,9 +25,10 @@ export interface SeatStore {
   set(slot: StagedSlot, value: unknown): void;
   /**
    * Told when another tab or device of the seat changed a slot, with the new value: `get`
-   * returns it from then on. A change of `set` is not told.
+   * returns it from then on. `server`: the server wrote it, not a tab (a ready draft of a
+   * secondary that no longer fits, or one that the server sent). A change of `set` is not told.
    */
-  subscribe(listener: (slot: StagedSlot, value: unknown) => void): () => void;
+  subscribe(listener: (slot: StagedSlot, value: unknown, server: boolean) => void): () => void;
 }
 
 /** JSON with the keys of every object in order: the server keeps the keys of a value sorted. */
@@ -108,7 +109,8 @@ interface Slot {
  *   with `writer` = this connection, which carries the new revision), and goes on that base.
  * - A value equal to the server's is not written: the server would answer nothing.
  * - A message with a newer revision of a slot, from another connection or from none, is the
- *   server's value. It replaces the slot, also a value that was not sent yet.
+ *   server's value. It replaces the slot, also a value that was not sent yet. One from no
+ *   connection (and not the first after the snapshot) is a write of the server itself.
  * - A value over `MAX_STAGED_BYTES` stays in this page and is not written.
  */
 export function seatSync(
@@ -121,16 +123,16 @@ export function seatSync(
       { revision: 0, server: null, local: null, dirty: false, inFlight: false },
     ]),
   ) as Record<StagedSlot, Slot>;
-  const listeners = new Set<(slot: StagedSlot, value: unknown) => void>();
+  const listeners = new Set<(slot: StagedSlot, value: unknown, server: boolean) => void>();
   const debounce = new Map<StagedSlot, ReturnType<typeof setTimeout>>();
   const answer = new Map<StagedSlot, ReturnType<typeof setTimeout>>();
   /** The id of this connection. Null while there is none. */
   let me: number | null = null;
   let migrated = false;
 
-  const tell = (slot: StagedSlot) => {
+  const tell = (slot: StagedSlot, server = false) => {
     for (const listener of listeners) {
-      listener(slot, slots[slot].local);
+      listener(slot, slots[slot].local, server);
     }
   };
   const settle = (slot: StagedSlot) => {
@@ -207,7 +209,7 @@ export function seatSync(
           at.dirty = false;
           if (!sameStaged(at.local, at.server)) {
             at.local = at.server;
-            tell(slot);
+            tell(slot, message.writer === undefined && message.connection === undefined);
           }
         } else if (message.writer === undefined && at.inFlight) {
           // The answer to a write that the server did not take, with nothing newer: what was

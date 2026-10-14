@@ -3,7 +3,8 @@
 //! secondary). The server keeps it for the seat, so every tab and every device of the seat has
 //! the same staged work; the state and its persistence are the server's
 //! (`ti4_server::session::staged`). The values are the client's; the server stores and forwards
-//! them and does not read them.
+//! them, and reads only a draft of a secondary that is ready, to send it when the game asks the
+//! seat (`ti4_server::session::ready_secondary`).
 //!
 //! Revisions count up for the whole seat, so the newest message of a seat is the one with the
 //! highest `revision`.

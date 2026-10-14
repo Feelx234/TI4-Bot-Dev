@@ -27,28 +27,25 @@ function storage(): SaveStorage & { values: Map<string, string> } {
   };
 }
 
-async function open() {
+/**
+ * `server`: the transport keeps the staged work of the seat (`Transport.staged`), as a game on
+ * the server does, so the page sends no ready draft itself.
+ */
+async function open({ server = false } = {}) {
   const engine: Engine = {
     module: await WebAssembly.compile(readFileSync(WASM)),
     hash: "test",
     scenarios: [],
     catalog: null,
   };
-  const transport = createWasmTransport(
-    engine,
-    { seed: 4, players: 8, humans: 1 },
-    { stepping: true },
-  );
-  const applyDraft = vi.spyOn(transport, "applyDraft");
-  const submitChoice = vi.spyOn(transport, "submitChoice");
   const kept = storage();
   const local = localSeatStore(kept, {
     movement: "movement",
     plan: "plan",
     secondary: "secondary",
   });
-  // The store of a seat that another tab changes, as the server tells it (`emit`).
-  const listeners = new Set<(slot: StagedSlot, value: unknown) => void>();
+  // The store of a seat that another tab or the server changes, as the server tells it (`emit`).
+  const listeners = new Set<(slot: StagedSlot, value: unknown, server: boolean) => void>();
   const drafts: SeatStore = {
     get: local.get,
     set: vi.fn(local.set),
@@ -57,13 +54,21 @@ async function open() {
       return () => listeners.delete(listener);
     },
   };
-  const emit = (slot: StagedSlot, value: unknown) =>
+  const emit = (slot: StagedSlot, value: unknown, byServer = false) =>
     act(async () => {
       local.set(slot, value);
       for (const listener of listeners) {
-        listener(slot, value);
+        listener(slot, value, byServer);
       }
     });
+  const engineTransport = createWasmTransport(
+    engine,
+    { seed: 4, players: 8, humans: 1 },
+    { stepping: true },
+  );
+  const transport = server ? { ...engineTransport, staged: drafts } : engineTransport;
+  const applyDraft = vi.spyOn(transport, "applyDraft");
+  const submitChoice = vi.spyOn(transport, "submitChoice");
   /** The strategic action of the last update of the game. */
   let last: SessionUpdate | null = null;
   transport.subscribe((event) => {
@@ -277,6 +282,37 @@ it.skipIf(!built)(
     await waitFor(() => expect(mine()?.status.label).toBe("Private draft"));
     expect(menu(mine()?.open)).toHaveLength(2);
     expect(drafts.set).not.toHaveBeenCalled();
+    game.transport.close();
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "online the server sends a ready draft: the page sends none, and says when the server made it not ready",
+  async () => {
+    const game = await open({ server: true });
+    const { flow, dispatch, button, mine, menu, stepUntil, emit } = game;
+    await stepUntil(() => flow().heading === "Politics" && !!mine()?.open);
+    await dispatch(menu(mine()?.open)[0].intent);
+    await dispatch({ type: "flow", action: "resolve" });
+    await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
+    await dispatch({ type: "flow", action: "ready" });
+    expect(mine()?.status.label).toBe("Draft ready");
+    const ready = game.drafts.get("secondary") as { ready: boolean };
+    expect(ready.ready).toBe(true);
+
+    // The game comes to the seat. This game sends nothing for it, so it asks: the page shows
+    // the question and sends no draft.
+    await stepUntil(() => flow().pill?.label === "Your decision");
+    expect(game.applyDraft).not.toHaveBeenCalled();
+
+    // The server found that the draft no longer fits: every tab says so.
+    await emit("secondary", { ...ready, ready: false }, true);
+    await waitFor(() =>
+      expect(flow().footer.note).toBe("Your draft no longer fits the game. It is not ready."),
+    );
+    expect(mine()?.status.label).not.toBe("Draft ready");
+    expect(game.applyDraft).not.toHaveBeenCalled();
     game.transport.close();
   },
   120_000,

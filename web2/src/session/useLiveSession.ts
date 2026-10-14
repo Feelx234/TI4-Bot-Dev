@@ -123,6 +123,9 @@ interface DraftRun {
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
+/** The note of a ready draft of a secondary that the game no longer plays whole. */
+const UNFIT = { text: "Your draft no longer fits the game. It is not ready.", error: true };
+
 const readFollowOf = (store: SeatStore | undefined): SecondaryDraft | null =>
   store ? parseFollow(store.get("secondary")) : null;
 
@@ -597,7 +600,7 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
   // written back.
   useEffect(
     () =>
-      drafts?.subscribe((slot, value) => {
+      drafts?.subscribe((slot, value, server) => {
         if (slot === "plan") {
           const draft = parsePlan(value);
           return setPlan((now) =>
@@ -610,6 +613,10 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
         }
         if (slot === "secondary") {
           const follow = parseFollow(value);
+          if (server && follow && !follow.ready) {
+            // The server sends a ready draft, and makes one that no longer fits not ready.
+            setLocal((now) => ({ ...now, planNote: UNFIT }));
+          }
           return setFollow((now) => (sameStaged(now, follow) ? now : follow));
         }
         // The staged steps of the open choice. Steps of another choice are not of this game.
@@ -794,9 +801,11 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
 
   // A ready draft is sent when the game asks the seat, if the game still plays it whole. One
   // that no longer fits is not ready, and the seat decides in Live. Both need the check of the
-  // game as it is now.
+  // game as it is now. A game that keeps the staged work of the seat (online) does this itself,
+  // once for every tab, also when none is open: the page does not send.
+  const serverSends = !!transport?.staged;
   useEffect(() => {
-    if (!transport || !mine?.ready || !followFresh || !followOutcome) {
+    if (!transport || serverSends || !mine?.ready || !followFresh || !followOutcome) {
       return;
     }
     const fits = isOver(mine, followOutcome);
@@ -806,12 +815,9 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
       setLocal((now) => ({ ...now, sent: reached, planNote: null }));
     } else if (!fits) {
       setFollow({ ...mine, ready: false });
-      setLocal((now) => ({
-        ...now,
-        planNote: { text: "Your draft no longer fits the game. It is not ready.", error: true },
-      }));
+      setLocal((now) => ({ ...now, planNote: UNFIT }));
     }
-  }, [transport, mine, followFresh, followOutcome, reached]);
+  }, [transport, serverSends, mine, followFresh, followOutcome, reached]);
 
   // The sheet of the landings or of the build opens when the draft comes to that step.
   const draftStage =
@@ -834,8 +840,10 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
       return null;
     }
     // The live question of the secondary is not shown while a ready draft is checked for it.
-    // A check that the game does not answer holds nothing back.
+    // A check that the game does not answer holds nothing back. A server that sends the draft
+    // does not ask the seat; when it does, it did not send the draft.
     const holding =
+      !serverSends &&
       reached !== null &&
       !!mine?.ready &&
       mine.answers.length > 0 &&
@@ -1353,6 +1361,7 @@ export function useLiveSession(transport: Transport | null, drafts?: SeatStore):
     reached,
     followOutcome,
     followChecked,
+    serverSends,
   ]);
 
   // The engine of the page is asked for the odds of each new movement. The answer for a movement

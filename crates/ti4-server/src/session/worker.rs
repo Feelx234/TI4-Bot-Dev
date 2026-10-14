@@ -139,6 +139,12 @@ pub struct SessionShared {
     pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
     /// The length of the log that the undo left: a decision after it is new.
     pub(crate) undone_from: usize,
+    /// What each seat has staged ([`super::staged`]): the book of the session's config, for the
+    /// decider of a seat, which sends a ready draft of a secondary ([`super::ready_secondary`]).
+    pub(crate) staged: super::staged::StagedBook,
+    /// The newest nonces that each seat answered, from any connection or by the server. A second
+    /// answer to one of them is told apart from a stale one ([`Self::was_answered`]).
+    pub(crate) answered: BTreeMap<PlayerId, VecDeque<String>>,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
     /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.
@@ -153,7 +159,34 @@ pub struct SessionShared {
     pub preview_galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
 }
 
+/// How many answered nonces are kept for each seat.
+const ANSWERED_KEPT: usize = 16;
+
 impl SessionShared {
+    /// `seat` answered the choice of `nonce` (it is reserved for the answer).
+    pub(crate) fn note_answer(&mut self, seat: &PlayerId, nonce: &str) {
+        let answered = self.answered.entry(seat.clone()).or_default();
+        if answered.len() >= ANSWERED_KEPT {
+            answered.pop_front();
+        }
+        answered.push_back(nonce.to_owned());
+    }
+
+    /// The answer of `seat` to the choice of `nonce` did not reach the game.
+    pub(crate) fn forget_answer(&mut self, seat: &PlayerId, nonce: &str) {
+        if let Some(answered) = self.answered.get_mut(seat) {
+            answered.retain(|kept| kept != nonce);
+        }
+    }
+
+    /// `seat` answered the choice of `nonce` already.
+    #[must_use]
+    pub fn was_answered(&self, seat: &PlayerId, nonce: &str) -> bool {
+        self.answered
+            .get(seat)
+            .is_some_and(|answered| answered.iter().any(|kept| kept == nonce))
+    }
+
     /// Who sits in each seat, for a snapshot and an update: the name of the player and who
     /// plays the seat. `None` for a session with no table (it has no names).
     #[must_use]
@@ -369,6 +402,8 @@ impl SessionShared {
             undo: super::undo::UndoTrack::new(),
             undone: BTreeMap::new(),
             undone_from: 0,
+            staged: super::staged::StagedBook::default(),
+            answered: BTreeMap::new(),
             step_snapshot: None,
             resumed_from: None,
             bluff: crate::session::bluff::BluffBook::default(),
@@ -1026,6 +1061,7 @@ pub fn spawn_session_worker(
     initial_shared.batches.clone_from(&config.batches);
     initial_shared.undone.clone_from(&config.undone);
     initial_shared.undone_from = config.prior_decisions.len();
+    initial_shared.staged = config.staged.clone();
     initial_shared.rng_marks.clone_from(&config.rng_marks);
     let rng_force = crate::session::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
