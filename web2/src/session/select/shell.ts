@@ -77,7 +77,7 @@ export function selectShell(
   const facts = tacticalFacts(update, local);
   const movement =
     facts?.kind === "movement" && local.step === null
-      ? { facts, draft: local.movement, handled: local.handled }
+      ? { facts, draft: local.movement, handled: local.handled, odds: local.odds ?? null }
       : null;
   const landing =
     facts?.kind === "invasion" ? { facts, draft: local.landing, chosen: local.landingKind } : null;

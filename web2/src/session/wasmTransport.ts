@@ -11,6 +11,8 @@ import type {
   ReactionMode,
   ReactionModes,
   SessionUpdate,
+  SpaceOddsRequest,
+  SpaceOddsResponse,
   TableDraw,
   TableOptions,
   TablePreview,
@@ -28,6 +30,7 @@ interface Exports {
   ti4_set_rule_seats(mask: number): void;
   ti4_scenarios(): number;
   ti4_catalog(): number;
+  ti4_space_odds(length: number): number;
   ti4_can_undo(): number;
   ti4_response_ptr(): number;
   ti4_update_ptr(): number;
@@ -137,7 +140,15 @@ async function ask<T>(
   request?: unknown,
 ) {
   const instance = await WebAssembly.instantiate(module, { host: { ask: () => LEAVE } });
-  const exports = instance.exports as unknown as Exports;
+  return askOn<T>(instance.exports as unknown as Exports, question, request);
+}
+
+/** Asks an instance that plays no game. */
+function askOn<T>(
+  exports: Exports,
+  question: (exports: Exports, length: number) => number,
+  request?: unknown,
+) {
   const bytes = new TextEncoder().encode(request === undefined ? "" : JSON.stringify(request));
   new Uint8Array(exports.memory.buffer).set(bytes, exports.ti4_request_ptr());
   const status = question(exports, bytes.length);
@@ -148,6 +159,41 @@ async function ask<T>(
     throw new Error(text);
   }
   return JSON.parse(text) as T;
+}
+
+/** The instance of a module that answers the questions that come often. It plays no game. */
+const kept = new WeakMap<WebAssembly.Module, Promise<Exports>>();
+
+function keptOf(module: WebAssembly.Module) {
+  let exports = kept.get(module);
+  if (!exports) {
+    exports = WebAssembly.instantiate(module, { host: { ask: () => LEAVE } }).then(
+      (instance) => instance.exports as unknown as Exports,
+    );
+    kept.set(module, exports);
+  }
+  return exports;
+}
+
+/**
+ * The odds of a space combat (`ti4_space_odds`). It is asked for each change of a staged
+ * movement, so one instance of the module answers all of them.
+ */
+export async function spaceOddsOf(module: WebAssembly.Module, request: SpaceOddsRequest) {
+  const exports = await keptOf(module);
+  try {
+    return askOn<SpaceOddsResponse>(
+      exports,
+      (on, length) => on.ti4_space_odds(length),
+      request,
+    );
+  } catch (error) {
+    // A trap may leave the instance broken: the next question makes a new one.
+    if (error instanceof WebAssembly.RuntimeError) {
+      kept.delete(module);
+    }
+    throw error;
+  }
 }
 
 /** Asks the engine for its scenarios. */
@@ -813,6 +859,7 @@ export function createWasmTransport(
 
   return {
     catalog: engine.catalog,
+    odds: (request) => spaceOddsOf(engine.module, request),
     capabilities,
     subscribe(listener) {
       listeners.add(listener);

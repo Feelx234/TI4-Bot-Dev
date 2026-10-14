@@ -117,6 +117,34 @@ export interface OddsView {
   caveat: string;
 }
 
+/**
+ * The odds of the space combat that a staged movement starts, as `ti4-calc` computes them in the
+ * page. The attacker is the seat that moves.
+ */
+export interface SpaceOddsView {
+  defender: SeatId;
+  /** Whole percentages of the attacker, which sum to 100. Null before the first answer. */
+  win: number | null;
+  /** Both sides destroyed, or no end in the rounds of a rollout. */
+  draw: number | null;
+  loss: number | null;
+  /** How many rollouts the numbers are of. 0 before the first answer. */
+  rollouts: number;
+  /** The numbers are of another movement: the answer for this one is on its way. */
+  pending: boolean;
+  /** The attacker, then the defender: the ships by kind, in the order of the units. */
+  sides: {
+    seat: SeatId;
+    ships: {
+      unit: UnitType;
+      /** The ships that are expected to survive, with one decimal ("1.8"). Null before the first answer. */
+      expected: string | null;
+      /** The ships that fight. */
+      fielded: number;
+    }[];
+  }[];
+}
+
 export interface OutcomeView {
   title: string;
   subtitle: string;
@@ -308,6 +336,8 @@ export interface MovementView {
   removed: UnitType[];
   cannon: BattleTableView | null;
   cannonSkipped: boolean;
+  /** The space combat that the staged ships start. Null when no other seat has ships there, or no ship moves. */
+  odds: SpaceOddsView | null;
 }
 
 export interface CombatView {

@@ -382,6 +382,7 @@ export function movement(state: State): MovementView {
     removed: editing ? [] : state.removed,
     cannon,
     cannonSkipped: !editing && !pds && !!state.done[1],
+    odds: null,
   };
 }
 
@@ -411,6 +412,8 @@ export function movementArrival(state: State) {
       ? `${plural(ships, "ship")}${cargo ? ` · ${cargo} cargo` : ""} · fleet supply ${it.shipsAfter} / ${SUPPLY}`
       : "Nothing moves here yet",
     origins,
+    // The demo has its own odds, in the battle table.
+    odds: null,
   };
 }
 

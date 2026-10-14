@@ -197,7 +197,7 @@ function movement(
     };
   }
   const nothing = Object.keys(local.movement).length === 0;
-  const content = selectMovement(update, facts, local.movement, local.handled);
+  const content = selectMovement(update, facts, local.movement, local.handled, local.odds ?? null);
   if (local.draft) {
     return { target, content, footer: draftFooter(local, "Move nothing") };
   }

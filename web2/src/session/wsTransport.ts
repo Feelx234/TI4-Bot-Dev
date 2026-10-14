@@ -2,6 +2,7 @@
 import type { PlanStep } from "./movementPlan";
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
+import { spaceOddsOf } from "./wasmTransport";
 import {
   type Catalog,
   type ClientRequest,
@@ -13,6 +14,7 @@ import {
   type RejectionReason,
   type ServerMessage,
   type SessionUpdate,
+  type SpaceOddsRequest,
   type StateMsg,
 } from "./wire";
 
@@ -101,10 +103,11 @@ const updateOf = (message: StateMsg): SessionUpdate => ({
 /**
  * Plays one game of the server. The first update is the snapshot that the server sends after
  * the subscription. `catalog` is the one of the engine of this page (`Engine.catalog`): the
- * server sends ids, and the game is played only when both have the same corpus.
+ * server sends ids, and the game is played only when both have the same corpus. The odds of a
+ * combat are computed by `module`, the engine of this page, as in a local game.
  */
 export function createWsTransport(
-  engine: { catalog: Catalog | null },
+  engine: { catalog: Catalog | null; module?: WebAssembly.Module },
   game: OnlineGame,
   play: OnlinePlay = {},
 ): Transport {
@@ -353,6 +356,10 @@ export function createWsTransport(
 
   return {
     catalog: engine.catalog,
+    odds: (request: SpaceOddsRequest) =>
+      engine.module
+        ? spaceOddsOf(engine.module, request)
+        : Promise.reject(new Error("This page has no engine for the odds.")),
     // The tools of a local game are not on the server.
     capabilities: {},
     subscribe(listener) {

@@ -36,6 +36,7 @@ import {
   setLanding,
 } from "./landingDraft";
 import { type MovementDraft, fill, poolOfSource, resetOrigin, setCount } from "./movementDraft";
+import { type KeptOdds, type OddsRequest, oddsRequest } from "./movementOdds";
 import { type MovementPlan, type PlanStep, draftOf, stageOf, stepsOf } from "./movementPlan";
 import {
   GOODS,
@@ -94,6 +95,7 @@ const NOTHING: LocalState = {
   stepping: null,
   draftLocked: null,
   draft: null,
+  odds: null,
 };
 
 /** The label of a system as the activation step lists it, for the search field. */
@@ -563,6 +565,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
           remaining,
           planNote,
           stepping: event.stepping?.seat ?? null,
+          odds: null,
         };
       });
     });
@@ -734,7 +737,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     setLocal((now) => ({ ...now, inspected: system, productionStage: "build" }));
   }, [draftSheet]);
 
-  const session = useMemo((): GameSession | null => {
+  const built = useMemo((): { session: GameSession; odds: OddsRequest | null } | null => {
     if (!update || !transport) {
       return null;
     }
@@ -1230,14 +1233,18 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     };
     const { stepping, switchSeat, scenarios, save } = transport.capabilities;
     return {
-      view: { ...selectShell(shown, state, transport.catalog, cards), toast },
-      dispatch,
-      capabilities: {
-        stepping: !!stepping,
-        switchSeat: !!switchSeat,
-        scenarios: !!scenarios,
-        save: !!save,
+      session: {
+        view: { ...selectShell(shown, state, transport.catalog, cards), toast },
+        dispatch,
+        capabilities: {
+          stepping: !!stepping,
+          switchSeat: !!switchSeat,
+          scenarios: !!scenarios,
+          save: !!save,
+        },
       },
+      // The odds of the space combat that the movement in view starts, Live or in a draft.
+      odds: moving && local.step === null ? oddsRequest(moving, state.movement) : null,
     };
   }, [
     update,
@@ -1256,5 +1263,21 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     followChecked,
   ]);
 
-  return { session, error: local.error, replaying: local.replaying };
+  // The engine of the page is asked for the odds of each new movement. The answer for a movement
+  // that changed since is not kept: the answer for the new one is on its way.
+  const oddsKey = built?.odds?.key ?? null;
+  useEffect(() => {
+    if (!transport || oddsKey === null) {
+      return;
+    }
+    let current = true;
+    const keep = (response: KeptOdds["response"]) =>
+      current && setLocal((now) => ({ ...now, odds: { key: oddsKey, response } }));
+    transport.odds(JSON.parse(oddsKey)).then(keep, () => keep(null));
+    return () => {
+      current = false;
+    };
+  }, [transport, oddsKey]);
+
+  return { session: built?.session ?? null, error: local.error, replaying: local.replaying };
 }

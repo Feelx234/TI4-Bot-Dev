@@ -380,6 +380,30 @@ function contract(start: () => Promise<Side>) {
     expect(game.modes()).toEqual({});
     game.transport.close();
   }, 60_000);
+
+  it("computes the odds of a space combat in the page, the same for the same sides", async () => {
+    const game = await start();
+    const sides = {
+      attacker: { faction: "sol", units: { dreadnought: 2, carrier: 1, fighter: 3 } },
+      defender: { faction: "letnev", units: { cruiser: 2, destroyer: 1 }, guns: { pds: 1 } },
+    };
+    const odds = await game.transport.odds(sides);
+    expect(odds.attacker_fielded).toEqual({ dreadnought: 2, carrier: 1, fighter: 3 });
+    expect(odds.attacker_win_rate).toBeGreaterThan(odds.defender_win_rate);
+    expect(
+      odds.attacker_win_rate +
+        odds.defender_win_rate +
+        odds.mutual_destruction_rate +
+        odds.unresolved_rate,
+    ).toBeCloseTo(1);
+    expect(await game.transport.odds(sides)).toEqual(odds);
+    // Sides that the engine does not read are refused, and the next question is answered.
+    await expect(
+      game.transport.odds({ ...sides, attacker: { faction: "sol", units: { nothing: 1 } } }),
+    ).rejects.toThrow();
+    expect(await game.transport.odds(sides)).toEqual(odds);
+    game.transport.close();
+  }, 60_000);
 }
 
 describe.skipIf(!existsSync(WASM))("the engine in this page", () => {
@@ -395,11 +419,12 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
   const port = 20_000 + Math.floor(Math.random() * 30_000);
   const data = mkdtempSync(join(tmpdir(), "ti4-contract-"));
   let server: ChildProcess;
-  let engine: Pick<Engine, "catalog">;
+  let engine: Pick<Engine, "catalog" | "module">;
   beforeAll(async () => {
     // The printed cards are those of the engine of this page, as in the browser: the transport
-    // plays only when the server has the same corpus.
-    engine = { catalog: await catalogOf(await WebAssembly.compile(readFileSync(WASM))) };
+    // plays only when the server has the same corpus. The odds are of that engine too.
+    const module = await WebAssembly.compile(readFileSync(WASM));
+    engine = { catalog: await catalogOf(module), module };
     server = spawn(SERVER, [], {
       env: {
         ...process.env,

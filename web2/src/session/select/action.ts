@@ -3,6 +3,7 @@
 import type { ApplyView, BoardTaskView, FlowActionView, MenuRowView } from "../../model";
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
+import type { KeptOdds } from "../movementOdds";
 import type { MovementPlan } from "../movementPlan";
 import type { ProductionDraft } from "../productionDraft";
 import type { Catalog, Choice, ExplorationCatalog, ReactionModes, SessionUpdate } from "../wire";
@@ -106,6 +107,11 @@ export interface LocalState {
   draft: DraftInfo | null;
   /** The private draft of the viewer's secondary. Null while there is none to draft. */
   follow?: FollowInfo | null;
+  /**
+   * The last answer of the engine for the odds of the space combat that the staged movement
+   * starts. Of another movement while the answer for this one is on its way.
+   */
+  odds?: KeptOdds | null;
 }
 
 /** The choice that the viewer can answer now. */

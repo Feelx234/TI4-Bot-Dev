@@ -231,6 +231,52 @@ export interface MovementFacts {
   fleet_supply: { limit: number; charged: number };
   /** How many ships already moved in this activation. */
   moved: number;
+  /** The space combat that ships moving in start: only when another seat has ships in the active system. */
+  battle?: BattleFacts;
+}
+
+/**
+ * `ti4_view::tactical::CombatSide`: one side of a space combat as the state has it, by unit id.
+ * It is a side of `ti4_space_odds` as it is.
+ */
+export interface CombatSide {
+  faction: string;
+  /** The ships of the side in the active system. */
+  units?: Record<string, number>;
+  /** How many of them are damaged. */
+  damaged?: Record<string, number>;
+  /** The units of the side that fire SPACE CANNON in the active system before the combat. */
+  guns?: Record<string, number>;
+}
+
+/** `ti4_view::tactical::BattleFacts`: the space combat in the active system, before a ship moves in. */
+export interface BattleFacts {
+  /** The seat that defends. */
+  defender: string;
+  /** The seat that moves, with what it has there already. The page adds the ships that it moves in. */
+  attacker: CombatSide;
+  defender_side: CombatSide;
+}
+
+/** What `ti4_space_odds` reads: two sides of a space combat. */
+export interface SpaceOddsRequest {
+  attacker: CombatSide;
+  defender: CombatSide;
+}
+
+/** `ti4_calc::odds::BattleResponse`: the rates are fractions of the rollouts, the survivors by unit id. */
+export interface SpaceOddsResponse {
+  simulations: number;
+  attacker_win_rate: number;
+  defender_win_rate: number;
+  mutual_destruction_rate: number;
+  /** The rollouts that did not end. */
+  unresolved_rate: number;
+  average_rounds: number;
+  attacker_expected_survivors: Record<string, number>;
+  defender_expected_survivors: Record<string, number>;
+  attacker_fielded: Record<string, number>;
+  defender_fielded: Record<string, number>;
 }
 
 /** `ti4_view::tactical::LandingPool` */

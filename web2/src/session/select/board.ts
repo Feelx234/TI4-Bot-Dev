@@ -10,6 +10,7 @@ import type {
 } from "../../model";
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
+import type { KeptOdds } from "../movementOdds";
 import type { ProductionDraft } from "../productionDraft";
 import type {
   BoardTileView,
@@ -198,7 +199,13 @@ export function selectBoard(
   inspected: string | null,
   task: BoardTaskView | null,
   /** The open movement step: the board shows what is staged, and a system opens its fleet. */
-  movement: { facts: MovementFacts; draft: MovementDraft; handled: string[] } | null = null,
+  movement: {
+    facts: MovementFacts;
+    draft: MovementDraft;
+    handled: string[];
+    /** The last answer of the engine for the odds of the space combat there. */
+    odds?: KeptOdds | null;
+  } | null = null,
   /** The open landings: the planets of the active system are the choice, and it opens them. */
   landing: { facts: InvasionFacts; draft: LandingDraft; chosen: number | null } | null = null,
   /** The printed names and texts of the attachments. */
@@ -290,7 +297,14 @@ export function selectBoard(
         ? {
             ...inspector(open, board.systems[open.system_id], viewer, traits),
             ...(movement && open.system_id === movement.facts.active
-              ? { arriving: selectArrival(update, movement.facts, movement.draft) }
+              ? {
+                  arriving: selectArrival(
+                    update,
+                    movement.facts,
+                    movement.draft,
+                    movement.odds ?? null,
+                  ),
+                }
               : {}),
           }
         : null,

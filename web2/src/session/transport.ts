@@ -8,6 +8,8 @@ import type {
   ReactionMode,
   ReactionModes,
   SessionUpdate,
+  SpaceOddsRequest,
+  SpaceOddsResponse,
 } from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
@@ -149,6 +151,11 @@ export interface Transport {
    * movement is taken back whole, and so are the landings, and the next update tells the steps.
    */
   undo(): void;
+  /**
+   * The odds of a space combat between two sides, from the engine of this page also online: the
+   * same sides give the same numbers. Nothing of the game is read or changed.
+   */
+  odds(request: SpaceOddsRequest): Promise<SpaceOddsResponse>;
   /** Ends the game on this side. */
   close(): void;
 }
