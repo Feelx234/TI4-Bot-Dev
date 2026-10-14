@@ -14,6 +14,9 @@ LIBTORCH = { value = "out/libtorch-2.9.1-cpu", relative = true }
 # engine and everything above it a second time: use the aliases, and narrow a test run with a
 # filter (`cargo t-web undo::`). `t-web` names its targets because a bare `cargo test` also links
 # every example.
+# Use `l-web` for every check: Clippy includes the check, and `c-web` builds a second set of
+# metadata of the game crates (it shares nothing with `l-web` or `t-web`). `c-web` stays only so
+# that old references to it still work.
 c-web = "check -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
 l-web = "clippy -p ti4-model -p ti4-content -p ti4-calc -p ti4-engine -p ti4-view -p ti4-rule-bot -p ti4-server -p ti4-wasm --all-targets"
 # The fast tier: a test whose name starts with `slow_` is left out (each takes 3 s or more in a
