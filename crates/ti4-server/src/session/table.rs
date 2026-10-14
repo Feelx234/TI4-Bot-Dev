@@ -438,6 +438,7 @@ mod tests {
         record.players.insert(
             id.clone(),
             PlayerLobbyMember {
+                legacy_ready: None,
                 session: PlayerSession::generate(),
                 nickname: name.to_owned(),
                 bot: bot.map(str::to_owned),
