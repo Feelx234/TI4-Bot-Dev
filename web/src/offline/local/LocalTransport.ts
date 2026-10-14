@@ -127,6 +127,15 @@ export class LocalTransport implements GameTransport {
   }
 
   /** True while the game is open to look at only. */
+  /** The faction of the human, as the board shows it; null before the first question. */
+  humanFaction(): string | null {
+    const snapshot = this.store.get().snapshot;
+    if (snapshot?.viewer.role !== "player") return null;
+    const seat = snapshot.viewer.seat;
+    const player = snapshot.view.players.find((p) => p.id === seat);
+    return typeof player?.faction === "string" ? player.faction : null;
+  }
+
   get viewOnly(): boolean {
     return this.readOnly;
   }
@@ -258,8 +267,9 @@ export class LocalTransport implements GameTransport {
   }
 
   private accept(envelope: Envelope, save: HostSave | null): void {
-    this.remember(save);
+    // The messages first: the stored game names the human's faction, which the board tells.
     this.ingest(envelope.messages);
+    this.remember(save);
     this.store.set({ ...this.store.get(), status: "connected", fatal: null, reconnecting: false });
     this.readyHandlers?.resolve();
     this.readyHandlers = null;

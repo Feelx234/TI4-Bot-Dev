@@ -80,6 +80,8 @@ test("closing the tab and opening the game later (same IndexedDB) resumes the sa
   // The list of saved games offers it ...
   await reopened.goto("/offline");
   await expect(reopened.getByTestId("offline-game-row")).toHaveCount(1);
+  // The list names the faction the engine drew for the human (a random choice is stored too).
+  await expect(reopened.getByTestId("offline-game-row")).not.toContainText("Faction pending");
   // ... and resuming replays it to the same position.
   await reopened.getByTestId("offline-resume").click();
   await reopened.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 });

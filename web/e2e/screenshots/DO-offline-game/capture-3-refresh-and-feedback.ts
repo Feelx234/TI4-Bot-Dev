@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { shot } from "../_shared/shot";
-import { playUntil } from "../../offlineDriver";
+import { playUntil, storedAnswers } from "../../offlineDriver";
 import { startGame } from "./offlineGame";
 
 // A refresh in the middle of a game plays the stored answers again and lands on the same
@@ -13,7 +13,7 @@ test("refresh resumes the game and feedback is queued", async ({ page }, testInf
   await page.reload();
   await expect(page.getByTestId("offline-game")).toBeVisible({ timeout: 60_000 });
   expect(page.url()).toContain(id);
-  expect(await page.evaluate((key) => JSON.parse(sessionStorage.getItem(key) ?? "{}").save.answers.length, `ti4.offline.game:${id}`)).toBeGreaterThanOrEqual(answers);
+  expect(await storedAnswers(page, id)).toBeGreaterThanOrEqual(answers);
   expect(nonce).toBeGreaterThanOrEqual(0);
   await shot(page, testInfo, "5-resumed-after-refresh-desktop");
 

@@ -127,7 +127,10 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
       wasmSha256: engine.wasmSha256,
       viewOnly: entry.viewOnly,
       config,
-      onSave: (save) => persist(entry, save),
+      onSave: (save) => {
+        entry.humanFaction = transport.humanFaction() ?? entry.humanFaction;
+        return persist(entry, save);
+      },
       onProgress: (progress) => onProgress({ phase: "replaying", done: progress.done, total: progress.total }),
       onDiverged:
         decide && saved

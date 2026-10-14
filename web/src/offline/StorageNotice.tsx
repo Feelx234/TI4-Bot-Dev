@@ -13,7 +13,7 @@ export const StorageNotice: React.FC<{ storage: OfflineStorage | undefined }> = 
   );
   if (!warning) return null;
   return (
-    <div className="session-error offline-storage-notice" role="alert" data-testid="offline-storage-warning">
+    <div className="offline-storage-notice" role="alert" data-testid="offline-storage-warning">
       <strong>Games are not being saved on this device.</strong> {warning}
     </div>
   );
