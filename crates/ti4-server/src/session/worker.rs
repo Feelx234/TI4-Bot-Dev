@@ -49,6 +49,16 @@ pub struct PendingDecision {
     >,
 }
 
+impl PendingDecision {
+    /// The choice with its nonce while it can take an answer, as
+    /// [`ti4_host::protocol::check_submission`] reads it: `None` once a submission reserved it.
+    #[must_use]
+    pub fn open(&self) -> Option<(&Choice, &str)> {
+        (self.submission_state == PendingSubmissionState::AwaitingSubmission)
+            .then_some((&self.choice, self.nonce.as_str()))
+    }
+}
+
 /// Lifecycle of an engine-generated choice while the worker waits for a client submission.
 ///
 /// A submission is reserved before it enters the worker inbox so concurrent requests cannot

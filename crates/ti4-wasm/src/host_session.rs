@@ -48,6 +48,7 @@ use ti4_host::planning::fork::TACTICAL_COMPLETE;
 use ti4_host::planning::steps::{INTERRUPTED, PlanStep};
 use ti4_host::planning::undo::{self, Answered};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
+use ti4_host::protocol::check_submission;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
 use ti4_host::protocol::reach::ReachIntoMsg;
@@ -1262,53 +1263,44 @@ impl HostSession {
         )
     }
 
-    /// Checks the nonce and the version of a request against the pending choice. On success the
-    /// place of `option_id` in it (0 when none is asked for).
+    /// Checks a request against the pending choice ([`check_submission`]). On success the place
+    /// of `option_id` among its options (0 when none is asked for).
     fn check_pending(
         &mut self,
         nonce: &str,
         expected_version: u64,
         option_id: Option<&str>,
     ) -> Option<usize> {
-        let Some((choice, pending_nonce)) = &self.pending else {
-            self.reject(RejectionReason::NoPendingChoice);
-            return None;
-        };
-        if pending_nonce != nonce {
-            self.reject(RejectionReason::StaleNonce);
-            return None;
-        }
-        if expected_version != self.version {
-            self.reject(RejectionReason::StaleVersion {
-                expected: expected_version,
-                current: self.version,
-            });
+        let checked = check_submission(
+            self.pending
+                .as_ref()
+                .map(|(choice, pending_nonce)| (choice, pending_nonce.as_str())),
+            nonce,
+            expected_version,
+            self.version,
+            option_id,
+        );
+        if let Err(reason) = checked {
+            self.reject(reason);
             return None;
         }
         let Some(option_id) = option_id else {
             return Some(0);
         };
-        match choice
-            .options
-            .iter()
-            .position(|option| option.id == option_id)
-        {
-            Some(index) => Some(index),
-            None if choice.answer_for(option_id).is_some() => {
-                // A free-form answer (a deal) has no place among the options, and the engine is
-                // answered by place.
-                self.reject(RejectionReason::ValidationFailed {
-                    message: "free-form answers are not available in an offline game".to_owned(),
-                });
-                None
-            }
-            None => {
-                self.reject(RejectionReason::UnknownOption {
-                    option_id: option_id.to_owned(),
-                });
-                None
-            }
+        let place = self.pending.as_ref().and_then(|(choice, _)| {
+            choice
+                .options
+                .iter()
+                .position(|option| option.id == option_id)
+        });
+        if place.is_none() {
+            // A free-form answer (a deal) has no place among the options, and the engine is
+            // answered by place.
+            self.reject(RejectionReason::ValidationFailed {
+                message: "free-form answers are not available in an offline game".to_owned(),
+            });
         }
+        place
     }
 
     /// Sends `script` to the game: the pending choice and the choices after it are answered

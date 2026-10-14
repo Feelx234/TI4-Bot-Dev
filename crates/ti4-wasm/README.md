@@ -744,8 +744,9 @@ stored in the save, so a save is self-contained.
 ### Commands (input of `ti4_host_command`)
 
 `ClientMessage` JSON as the page sends it today (`protocol_version: 4`, `game_id`):
-`subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`;
-resumes with the index of the option), `apply_draft` (a script; `draft_applied` when it ended),
+`subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`,
+checked as on the server by `ti4_host::protocol::check_submission`; resumes with the index of the
+option), `apply_draft` (a script; `draft_applied` when it ended),
 `run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
 `set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`).
 `preview_secondary` is answered with an `error` that names it (the page then falls back to its

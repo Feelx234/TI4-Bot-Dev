@@ -25,6 +25,7 @@ use ti4_engine::fingerprint::CanonicalHash;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
+use ti4_host::protocol::check_submission;
 use ti4_host::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::rng_force::RngMarks;
@@ -405,23 +406,13 @@ impl GameSession {
                 });
             }
 
-            if pending.submission_state == PendingSubmissionState::Reserved {
-                return Err(RejectionReason::NoPendingChoice);
-            }
-            if pending.nonce != nonce {
-                return Err(RejectionReason::StaleNonce);
-            }
-            if pending.game_version != expected_version {
-                return Err(RejectionReason::StaleVersion {
-                    expected: expected_version,
-                    current: pending.game_version,
-                });
-            }
-            if pending.choice.answer_for(option_id).is_none() {
-                return Err(RejectionReason::UnknownOption {
-                    option_id: option_id.to_owned(),
-                });
-            }
+            check_submission(
+                pending.open(),
+                nonce,
+                expected_version,
+                pending.game_version,
+                Some(option_id),
+            )?;
             pending.submission_state = PendingSubmissionState::Reserved;
             lock.note_answer(seat, nonce);
 
@@ -968,18 +959,13 @@ impl GameSession {
                     seat: Some(player.clone()),
                 });
             }
-            if pending.submission_state == PendingSubmissionState::Reserved {
-                return Err(RejectionReason::NoPendingChoice);
-            }
-            if pending.nonce != nonce {
-                return Err(RejectionReason::StaleNonce);
-            }
-            if pending.game_version != expected_version {
-                return Err(RejectionReason::StaleVersion {
-                    expected: expected_version,
-                    current: pending.game_version,
-                });
-            }
+            check_submission(
+                pending.open(),
+                nonce,
+                expected_version,
+                pending.game_version,
+                None,
+            )?;
             let choice = pending.choice.clone();
             let copy = lock.basis.fork();
             let tail = copy

@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–2 done (2026-10-14), items 3–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–3 done (2026-10-14), items 4–11 open.
 
 ## Context
 
@@ -211,9 +211,13 @@ Starts after Step 5 is committed.
    - Clients: the `planning_*` types and ignore lists are gone (`web2/src/session/wire.ts`,
      `web/src/protocol/client.ts` + test, `web/src/offline/local/LocalTransport.ts`).
      `PROTOCOL_VERSION` is 4.
-3. **Submission check.** `ti4_host::protocol::check_submission(pending, nonce, pending_nonce,
-   expected, current, option_id) -> Result<(), RejectionReason>`. Both hosts call it. The seat and
-   reservation checks stay in the server.
+3. **Submission check.** (Done.) `ti4_host::protocol::check_submission(pending: Option<(&Choice,
+   &str)>, nonce, expected, current, option_id: Option<&str>) -> Result<(), RejectionReason>`
+   checks, in this order, a pending choice, the nonce, the version and the option (`answer_for`).
+   The server calls it in `reserve_choice` and `apply_draft` (`PendingDecision::open` is `None`
+   while a submission reserves the choice); `HostSession::check_pending` calls it and then refuses
+   a free-form answer, which has no place among the options. The seat and reservation checks stay
+   in the server.
 4. **Script application.** `ti4_host::planning::script::ScriptRuns` (map seat → run; `begin`,
    `answer(&Choice) -> (Option<ChoiceOption>, Vec<Ended>)`, `after_step(tactical_complete, active)
    -> Vec<Ended>`; it stops another human seat's script when that seat is asked). `ACTION_OVER`,
