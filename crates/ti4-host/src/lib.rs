@@ -8,8 +8,15 @@
 
 #![allow(clippy::missing_panics_doc, clippy::missing_errors_doc)]
 
+pub mod batch;
+pub mod clock;
+pub mod journal;
 pub mod planning;
 pub mod projection;
 pub mod protocol;
+pub mod replay;
+pub mod rng_force;
+pub mod state_update;
+pub mod step_snapshot;
 
 pub use protocol::*;

@@ -5,14 +5,10 @@
 //! waited on and the game, its RNG, logs and storage are never touched. Only units that stand on
 //! the board (public) are read.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-use ti4_content::ContentStore;
-use ti4_model::content_types::POK;
-use ti4_model::id::SystemId;
-
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::reach::{ReachIntoMsg, ReachRefusal};
+use crate::protocol::reach::ReachIntoMsg;
+use ti4_host::state_update::answer_reach;
 use crate::session::worker::SessionShared;
 
 /// Answer one reach query for `system_id`.
@@ -35,31 +31,9 @@ pub fn answer(
             lock.game_version,
         )
     };
-    let reply = |origins, refused| ReachIntoMsg {
-        protocol_version: PROTOCOL_VERSION,
-        game_id: game_id.to_owned(),
-        request_id,
-        system_id: system_id.to_owned(),
-        as_of_version: version,
-        origins,
-        refused,
+    let position = match (&state, &galaxy) {
+        (Some(state), Some(galaxy)) => Some((state, &**galaxy)),
+        _ => None,
     };
-    let (Some(state), Some(galaxy)) = (state, galaxy) else {
-        return reply(Vec::new(), Some(ReachRefusal::Busy));
-    };
-    if !galaxy_has(&galaxy, system_id) {
-        return reply(Vec::new(), Some(ReachRefusal::UnknownSystem));
-    }
-    let origins = ti4_engine::reach_query::who_can_reach(
-        &state,
-        ContentStore::embedded(),
-        POK,
-        &galaxy,
-        &SystemId::new(system_id),
-    );
-    reply(origins, None)
-}
-
-fn galaxy_has(galaxy: &Arc<ti4_content::galaxy::Galaxy>, system_id: &str) -> bool {
-    galaxy.system_ids().contains(&system_id)
+    answer_reach(game_id, request_id, system_id, version, position)
 }

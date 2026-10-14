@@ -16,6 +16,9 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
 use crate::projection::project_turn_status;
+use ti4_host::clock::SystemClock;
+use ti4_host::journal::{self, EventDraft, RedoOutcome, Reconciled};
+use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{
     EventVisibility, GameEvent, GameEventKind, GameOverMsg, MovementFact, PendingChoiceMsg,
@@ -251,32 +254,16 @@ impl SessionShared {
         reason: &str,
         cards: &[String],
     ) {
-        if let Some((_, existing)) = self
-            .pending_auto_resolved
-            .iter_mut()
-            .find(|(who, note)| who == seat && note.reason == reason && note.selected == selected)
-        {
-            existing.count += 1;
-            existing.prompt = prompt.to_owned();
-            return;
-        }
-        let id = format!(
-            "auto-{}-{}-{}",
+        state_update::queue_auto_resolved(
+            &mut self.pending_auto_resolved,
             self.decision_log.len(),
-            self.pending_auto_resolved.len(),
-            self.game_version
+            self.game_version,
+            seat,
+            prompt,
+            selected,
+            reason,
+            cards,
         );
-        self.pending_auto_resolved.push((
-            seat.clone(),
-            crate::protocol::server::AutoResolvedNote {
-                id,
-                prompt: prompt.to_owned(),
-                selected: selected.to_owned(),
-                reason: reason.to_owned(),
-                count: 1,
-                passed: cards.to_vec(),
-            },
-        ));
     }
 
     fn persist_history(&self) -> Result<(), String> {
@@ -431,29 +418,12 @@ impl SessionShared {
     /// events and the rest of the redo list stays. Any other decision forks history: the redo
     /// list, its events and everything recorded past `index` are dropped.
     fn consume_or_fork_redo(&mut self, record: &DecisionRecord, index: usize) {
-        if self.redo_decisions.is_empty() {
-            return;
+        if journal::consume_or_fork_redo(&mut self.redo_decisions, &mut self.redo_events, record)
+            == RedoOutcome::Forked
+        {
+            self.batches.retain(|b| b.end_cursor <= index);
+            self.rng_marks.truncate_to(index);
         }
-        if self.redo_decisions.first() == Some(record) {
-            self.redo_decisions.remove(0);
-            if let Some(resolved) = self
-                .redo_events
-                .iter()
-                .position(|entry| matches!(entry.event, GameEventKind::DecisionResolved))
-            {
-                self.redo_events.drain(..=resolved);
-            }
-            if self.redo_decisions.is_empty() {
-                self.redo_events.clear();
-            }
-            return;
-        }
-        // Only an accepted, different decision forks history; autonomous engine steps between
-        // decisions leave redo available.
-        self.redo_decisions.clear();
-        self.redo_events.clear();
-        self.batches.retain(|b| b.end_cursor <= index);
-        self.rng_marks.truncate_to(index);
     }
 
     fn publish(&mut self, message: impl Fn(&ViewerRole) -> ServerMessage) {
@@ -472,96 +442,37 @@ impl SessionShared {
         movement: Option<MovementFact>,
         seat_detail: Option<crate::protocol::server::SeatDecisionDetail>,
     ) -> Result<(), String> {
-        if self.history_active
-            && !self.redo_decisions.is_empty()
-            && matches!(
-                event,
-                GameEventKind::PhaseTransition { .. } | GameEventKind::GameFinished { .. }
-            )
-        {
-            if self.event_log.last().is_some_and(|previous| {
-                previous.event == event && previous.decision_count == Some(decision_count)
-            }) {
-                return Ok(());
-            }
-            // A replay may traverse an automatic phase step before it reaches the next
-            // human choice. Reattach its original event instead of duplicating its ID.
-            let before_next_decision = self
-                .redo_events
-                .iter()
-                .take_while(|entry| !matches!(entry.event, GameEventKind::DecisionResolved))
-                .count();
-            if let Some(index) = self.redo_events[..before_next_decision]
-                .iter()
-                .position(|entry| {
-                    entry.event == event
-                        && entry.decision_count.unwrap_or(decision_count) == decision_count
-                })
-            {
+        match journal::reconcile_with_redo(
+            self.history_active,
+            !self.redo_decisions.is_empty(),
+            &self.event_log,
+            &self.redo_events,
+            &event,
+            decision_count,
+        ) {
+            Reconciled::Duplicate => return Ok(()),
+            Reconciled::Reattach(index) => {
                 self.event_log.push(self.redo_events.remove(index));
                 return Ok(());
             }
+            Reconciled::Fresh => {}
         }
         self.event_counter += 1;
-        let id = format!("{}-{}", self.game_id, self.event_counter);
-        let timestamp = current_utc_time_string();
-        let action_id = (matches!(event, GameEventKind::DecisionResolved)
-            && self
-                .decision_log
-                .get(decision_count.saturating_sub(1))
-                .is_some_and(|record| {
-                    record.prompt == "action phase"
-                        || record
-                            .context
-                            .as_ref()
-                            .is_some_and(|context| context.phase == ti4_model::state::Phase::Action)
-                }))
-        .then(|| crate::protocol::server::action_id_for(&self.decision_log, decision_count))
-        .flatten();
-        let action_start_cursor = action_id
-            .as_ref()
-            .and_then(|id| id.strip_prefix("action_"))
-            .and_then(|n| n.parse::<usize>().ok())
-            .and_then(|n| n.checked_sub(1));
-        let grouping = matches!(event, GameEventKind::DecisionResolved)
-            .then(|| {
-                decision_count
-                    .checked_sub(1)
-                    .and_then(|i| self.decision_log.get(i))
-            })
-            .flatten()
-            .map(|record| {
-                crate::protocol::server::decision_grouping(
-                    record,
-                    None,
-                    &self.decision_log,
-                    decision_count,
-                )
-            });
-        let entry = GameEvent {
-            id,
-            timestamp,
-            version,
-            visibility,
-            event,
-            decision_count: Some(decision_count),
-            batch_id: None,
-            batch_start_cursor: None,
-            batch_end_cursor: None,
-            action_id,
-            action_start_cursor,
-            actor: grouping.as_ref().and_then(|g| g.0.clone()),
-            round: grouping.as_ref().and_then(|g| g.1),
-            phase: grouping.as_ref().and_then(|g| g.2),
-            action_type: grouping.as_ref().and_then(|g| g.3.clone()),
-            action_actor: grouping.as_ref().and_then(|g| g.4.clone()),
-            stage: grouping.as_ref().and_then(|g| g.5.clone()),
-            detail,
-            movement,
-            seat_detail,
-            private_detail: None,
-            roll: None,
-        };
+        let entry = journal::build_event(
+            &SystemClock,
+            &self.game_id,
+            self.event_counter,
+            &self.decision_log,
+            EventDraft {
+                visibility,
+                event,
+                version,
+                decision_count,
+                detail,
+                movement,
+                seat_detail,
+            },
+        );
         self.push_event(entry)
     }
 
@@ -612,44 +523,22 @@ impl SessionShared {
         version: Option<u64>,
     ) -> Result<(), String> {
         for roll in rolls {
-            if self
-                .event_log
-                .iter()
-                .any(|event| event.roll.as_ref().is_some_and(|known| known.index == roll.index))
-            {
+            if journal::roll_is_known(&self.event_log, &roll) {
                 continue;
             }
             // The cursor the history file validates: decisions resolved so far.
-            let cursor = self
-                .event_log
-                .iter()
-                .filter(|event| matches!(event.event, GameEventKind::DecisionResolved))
-                .count();
+            let cursor = journal::roll_cursor(&self.event_log);
             self.event_counter += 1;
-            let entry = GameEvent {
-                id: format!("{}-{}", self.game_id, self.event_counter),
-                timestamp: current_utc_time_string(),
+            let entry = journal::build_roll_event(
+                &SystemClock,
+                &self.game_id,
+                self.event_counter,
+                cursor,
+                self.latest_state.round,
+                self.latest_state.phase,
                 version,
-                visibility: EventVisibility::Public,
-                event: GameEventKind::DiceRolled,
-                decision_count: Some(cursor),
-                batch_id: None,
-                batch_start_cursor: None,
-                batch_end_cursor: None,
-                action_id: None,
-                action_start_cursor: None,
-                actor: roll.roller.clone(),
-                round: Some(self.latest_state.round),
-                phase: Some(self.latest_state.phase),
-                action_type: None,
-                action_actor: None,
-                stage: None,
-                detail: Some(roll.describe()),
-                movement: None,
-                seat_detail: None,
-                private_detail: None,
-                roll: Some(roll),
-            };
+                roll,
+            );
             self.push_event(entry)?;
         }
         Ok(())
@@ -731,21 +620,7 @@ impl SessionShared {
             .pending_decision
             .as_ref()
             .map(|p| (p.choice.clone(), p.nonce.clone()));
-
-        let game_id = self.game_id.clone();
-        let version = self.game_version;
         let state = self.latest_state.clone();
-        let map_tiles = self.map_tiles.clone();
-        let galaxy_layout = self.galaxy_layout.clone();
-        let galaxy = self.galaxy.clone();
-        let self_decision_count = self.decision_log.len();
-        let self_redo_count = self.redo_decisions.len();
-        let self_generation = self.history_generation;
-        let path = crate::protocol::server::current_log_path(
-            &state,
-            pending.as_ref().map(|(choice, _)| choice),
-            &self.decision_log,
-        );
         let auto_resolved = std::mem::take(&mut self.pending_auto_resolved);
         let modes_by_seat: BTreeMap<PlayerId, BTreeMap<String, ReactionMode>> = self
             .reaction_modes
@@ -763,38 +638,36 @@ impl SessionShared {
             .as_ref()
             .map(|pending| ViewerRole::Player(pending.seat.clone()))
             .filter(|viewer| self.can_undo(viewer));
-        let watch = self.planning.watch.clone();
-        self.publish(|viewer| {
-            let mut update = crate::projection::project_state_update_with_map(
-                &game_id,
-                version,
-                &state,
-                viewer,
-                pending
-                    .as_ref()
-                    .map(|(choice, nonce)| (choice, nonce.as_str())),
-                &map_tiles,
-                &galaxy_layout,
-                galaxy.as_deref(),
-                Some(&watch),
-            )
-            .with_history(self_decision_count, self_redo_count, self_generation);
-            update.history.can_undo = may_undo.as_ref() == Some(viewer);
-            update.current_path = path.clone();
-            update.reaction_modes = modes_by_seat
-                .get(match viewer {
-                    ViewerRole::Player(seat) => seat,
-                    _ => return ServerMessage::StateUpdate(update),
-                })
-                .cloned()
-                .unwrap_or_default();
-            // Only the seat the decision belonged to is told; it already saw those options.
-            update.auto_resolved = auto_resolved
+        let inputs = StateUpdateInputs {
+            game_id: &self.game_id,
+            version: self.game_version,
+            state: &state,
+            pending: pending
+                .as_ref()
+                .map(|(choice, nonce)| (choice, nonce.as_str())),
+            map_tiles: &self.map_tiles,
+            galaxy_layout: &self.galaxy_layout,
+            galaxy: self.galaxy.as_deref(),
+            watch: &self.planning.watch,
+            decision_count: self.decision_log.len(),
+            redo_count: self.redo_decisions.len(),
+            history_generation: self.history_generation,
+            decision_log: &self.decision_log,
+            auto_resolved: &auto_resolved,
+            reaction_modes: &modes_by_seat,
+            may_undo: may_undo.as_ref(),
+        };
+        let path = inputs.path();
+        let messages: Vec<_> = self
+            .subscribers
+            .iter()
+            .map(|(id, subscriber)| (*id, state_update_for(&inputs, &path, &subscriber.viewer)))
+            .collect();
+        self.subscribers.retain(|id, subscriber| {
+            messages
                 .iter()
-                .filter(|(seat, _)| viewer.is_actor(seat))
-                .map(|(_, note)| note.clone())
-                .collect();
-            ServerMessage::StateUpdate(update)
+                .find(|(key, _)| key == id)
+                .is_some_and(|(_, message)| subscriber.tx.try_send(message.clone()).is_ok())
         });
     }
 
@@ -1827,17 +1700,6 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
     });
 
     (shared, handle)
-}
-
-pub(crate) fn current_utc_time_string() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_secs = now.as_secs();
-    let hours = (total_secs / 3600) % 24;
-    let mins = (total_secs / 60) % 60;
-    let secs = total_secs % 60;
-    format!("{hours:02}:{mins:02}:{secs:02}")
 }
 
 #[cfg(test)]
