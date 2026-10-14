@@ -275,7 +275,25 @@ A sample can get a Sonnet review (`NIGHTLY_OFFLINE_PROCTOR_PERCENT`, default 0 =
 
 **Measured** (this box: 8 cores, 15 GB, 4 GB swap; four-player games, desktop viewport, the steer policy):
 
-@MEASURED@
+| Workers | Games per hour | Mean game | Memory in use (above idle) | Peak load |
+|---|---|---|---|---|
+| 1 | 28 (4 games in 506 s) | 120 s | +1.0 GB | 1.9 |
+| 2 | 56 (8 games in 510 s) | 121 s | +1.7 GB | 2.6 |
+| 4 | 89 (16 games in 650 s) | 136 s | +3.5 GB | 5.1 |
+
+A game is 190 to 230 questions of the human seat (the bots decide about 550 more inside the engine; the save of a
+finished game holds about 750 engine decisions), round 5 to 8, about 400 clicks. One game's processes (Chromium
+renderer, GPU process, engine worker, node) peak at about 430 MB (PSS). Scaling is close to linear up to the
+physical cores (8 here): four workers need about 3.5 GB, a quarter of what one proctored four-player game used (about
+4 GB for the game, server and browsers). For comparison, the past server nights (255 runs in `nightly-reports/`, 162
+finished): median 17.7 minutes per finished game (3 players 13.7, 4 players 21.3, 6 players 32.7), about 1050 clicked decisions
+per game (every seat is clicked), so a finished game per slot every 18 minutes (3 an hour); two slots plus a proctor model
+each. One offline worker is therefore about 8 times one proctored slot, four workers about 25 times, per game; a game
+exercises one seat's UI instead of all of them. Where an offline game's time goes (`trace/report.json` `timing`): about
+60 % Playwright clicks (130 ms each: its actionability checks), 5 % scanning the page for controls, the rest waiting for
+the engine and bots (a late bot turn can take 1 to 3 s). The first cold build of the engine file is a `cargo build` of
+`ti4-wasm` for wasm32 (56 s cold on this box, target dir 270 MB; again only when `crates/` changes); the bundle itself builds in under a
+second.
 
 **Caveats.** One seat's UI per game, not all seats (the server sweep drives every seat's tab); no start presets (the
 offline setup has none: `combat`, `agenda`, `world` etc. exist only in the server sweep, so rare situations such as

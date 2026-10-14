@@ -7,6 +7,8 @@
 #   nightly.sh tick-decide       prints what tick would start, without starting it (tests)
 #   nightly.sh loop [night]      the sweep itself: one proctored run after another until END
 #                                (NIGHTLY_SLOTS=N: N such sequences side by side, see README.md)
+#                                (NIGHTLY_MODE=offline|both: offline games instead of / beside them, see
+#                                README.md, "Offline mode"; default server = the classic sweep)
 #   nightly.sh fix <round> [night]   an Opus fix round, working in its own git worktree
 #   nightly.sh summary [night]   the Opus morning summary (read-only)
 #

@@ -184,7 +184,7 @@ OFFLINE_REQUEST_FIX="${NIGHTLY_OFFLINE_REQUEST_FIX:-1}"
 OFFLINE_BATCH_SECONDS="${NIGHTLY_OFFLINE_BATCH_SECONDS:-1800}"
 # Built web bundles and engine files, keyed by the content of web/ and crates/ (about 8 MB each).
 OFFLINE_CACHE="${NIGHTLY_OFFLINE_CACHE:-$REPORT_ROOT/offline-cache}"
-# cargo target dir of the wasm engine build (kept between nights; about 1 GB).
+# cargo target dir of the wasm engine build (kept between nights; about 270 MB, a cold build takes about a minute).
 OFFLINE_TARGET="${NIGHTLY_OFFLINE_TARGET:-$REPORT_ROOT/target-offline}"
 
 CLAUDE_BIN="${NIGHTLY_CLAUDE:-/root/.local/bin/claude}"

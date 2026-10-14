@@ -138,6 +138,24 @@ check "no active marker left" "$(ls -a "$E/night" | grep -c '^\.active-o')" 0
 check "a second batch continues each worker's numbering" "$(ls "$E/night/runs" | grep -c '^o1-0[4-9]-\|^o2-0[3-9]-')" 2
 check "--games counts per batch" "$(cat "$E/night/.offline-started")" 2
 
+echo "== offline-run.sh: optional Sonnet review of a sample"
+setup_env "$TMP/rv"
+cat > "$E/claude" <<'STUB'
+#!/usr/bin/env bash
+prompt=""; while [ $# -gt 0 ]; do case "$1" in --) shift; prompt="$1"; break ;; *) shift ;; esac; done
+echo "review $(printf '%s' "$prompt" | grep -c 'Machine entry')" >> "$STUB_LOG"
+rd=$(printf '%s' "$prompt" | sed -n 's/^Run directory: //p' | head -1)
+printf '## Run %s — reviewed (stub)\n- facts\n' "$(basename "$rd")"
+STUB
+chmod +x "$E/claude"
+NIGHTLY_OFFLINE_PROCTOR_PERCENT=100 timeout 60 $RUN --night-dir "$E/night" --workers 1 --games 2 > "$E/rv.out" 2>&1
+check "both entries are the reviewer's" "$(grep -c '^## Run o1-0[0-9]-[0-9]* — reviewed (stub)' "$E/night/report.md")" 2
+check "the reviewer was started once per run" "$(grep -c '^review 1' "$STUB_LOG")" 2
+check "no machine entry replaced it" "$(grep -c '^## Run o1-0[0-9]-[0-9]* — clean' "$E/night/report.md")" 0
+setup_env "$TMP/rv0"
+NIGHTLY_OFFLINE_PROCTOR_PERCENT=0 timeout 60 $RUN --night-dir "$E/night" --workers 1 --games 1 > "$E/rv0.out" 2>&1
+check "percent 0 never starts a model" "$(grep -c 'claude-started\|^review' "$STUB_LOG")" 0
+
 echo "== offline-run.sh: a build failure is reported"
 STUB_BUILD_FAIL=1 timeout 60 $RUN --night-dir "$E/night-bf" --workers 1 --games 1 > "$E/bf.out" 2>&1
 check "exit status 1" "$?" 1
