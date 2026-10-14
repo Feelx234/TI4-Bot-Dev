@@ -4,6 +4,7 @@ import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.
 import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
+import { SEAT_INK_LIGHT, seatInk } from "../presentation/playerDisplay.ts";
 import { computePlayerStats } from "../presentation/playerStats.ts";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import {
@@ -527,7 +528,6 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                 <span className="technology-modal__roster-label">Players:</span>
                 {playerList.map((player) => {
                   const identity = display(player.id);
-                  const isDarkColor = identity.position === 8;
                   return (
                     <span
                       key={player.id}
@@ -540,7 +540,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                         className="player-tech-marker__symbol-wrap"
                         style={{
                           backgroundColor: identity.color,
-                          color: isDarkColor ? "#ffffff" : "#090d16",
+                          color: seatInk(identity.color),
                         }}
                       >
                         {identity.symbol}
@@ -1026,14 +1026,14 @@ const TechCard: React.FC<TechCardProps> = ({
         <span className="technology-card__researched-label">Researched:</span>
         {researchedPlayers.length > 0 ? (
           researchedPlayers.map(({ player, identity, exhausted }) => {
-            const isDarkColor = identity.position === 8;
+            const isDarkColor = seatInk(identity.color) === SEAT_INK_LIGHT;
             return (
               <span
                 key={player.id}
                 className="player-tech-marker player-tech-marker--compact"
                 style={{
                   backgroundColor: identity.color,
-                  color: isDarkColor ? "#ffffff" : "#090d16",
+                  color: seatInk(identity.color),
                   borderColor: isDarkColor ? "#64748b" : "transparent",
                 }}
                 data-exhausted={exhausted}

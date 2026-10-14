@@ -189,7 +189,7 @@ describe("lobby UI", () => {
     expect(screen.getByText(/Position 1: Same name/)).toBeInTheDocument();
     expect(screen.getByText(/Position 2: Same name \(Host\)/)).toBeInTheDocument();
     expect(screen.getByText(/Position 1: Same name/).closest(".lobby-list__item")).toHaveStyle({
-      borderLeftColor: "rgb(230, 159, 0)",
+      borderLeftColor: "rgb(59, 130, 246)",
     });
   });
 

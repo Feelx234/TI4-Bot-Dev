@@ -93,3 +93,15 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 
 `DD-who-can-go-here` shows the system overview's Who can go here tab (own-only, other-players-only, mixed and empty answers, a picked entry, and the folded panel on a phone) and the Details tab's units listed strictly per owner, desktop and 390x844. The engine's answer is mocked (`query_reach` / `reach_into` over the mocked websocket); `npm run screenshots -- DD` asserts the texts, the green/red arrow counts, 44 px tabs and no horizontal scroll on the phone.
 
+
+## Seat colours (DF-seat-colors)
+
+`DF-seat-colors` shows the TI4-traditional seat colours (blue, green, white, red, pink, orange, yellow, purple) for 3, 6 and 8 players: map, player sheets, event log and lobby, desktop and 390x844. The `before-*` PNGs (committed in `before/`) were taken with `TI4_SHOT_PREFIX=before` on the commit with the old Okabe-Ito colours; `npm run screenshots -- DF` regenerates the `after-*` PNGs.
+
+## Other alpha folders
+
+- `CJ-mahact-held-tokens`: Mahact's held command tokens on the player sheet and readable ids in prompts.
+- `DB-free-form-trade`: the trade desk with free-form (unequal) amounts.
+- `DC-breakthroughs-exploration`: breakthroughs and exploration results (map markers, overview, toasts); `capture-6-tile-fit` zooms the markers on the bigger tiles.
+- `DE-bigger-planets`: bigger planet discs and values on map tiles (its `before-*` PNGs are gitignored; copy them from a worktree that has them or re-take them with `TI4_SHOT_PREFIX=before` on the old commit).
+- `DM-public-dice-rolls`: public dice-roll toasts and event-log lines.

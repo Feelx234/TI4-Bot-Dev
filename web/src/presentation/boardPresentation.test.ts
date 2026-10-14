@@ -475,3 +475,13 @@ describe("boardPresentation Presentation Model", () => {
     });
   });
 });
+
+describe("neutral and unassigned greys", () => {
+  it("do not collide with the white/silver seat or any other seat colour", () => {
+    for (const grey of [NEUTRAL_COLOR, UNASSIGNED_COLOR]) {
+      expect(PLAYER_PALETTE).not.toContain(grey);
+      expect(grey).not.toBe(PLAYER_PALETTE[2]);
+    }
+    expect(NEUTRAL_COLOR).not.toBe(UNASSIGNED_COLOR);
+  });
+});

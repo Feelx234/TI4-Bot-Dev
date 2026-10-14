@@ -51,7 +51,7 @@ describe("CornerToastLayer", () => {
     expect(toasts).toHaveLength(1);
     expect(toasts[0]).toHaveTextContent("Blair played Sabotage");
     expect(screen.getByTestId("toast-actor")).toHaveTextContent("Blair");
-    expect(toasts[0].style.getPropertyValue("--toast-accent")).toBe("#56B4E9");
+    expect(toasts[0].style.getPropertyValue("--toast-accent")).toBe("#4ADE80");
   });
 
   it("hides on its own after a few seconds", () => {

@@ -208,13 +208,13 @@ describe("hierarchical event log", () => {
       "az2 landed sol_infantry on kraag",
     );
     expect(rows[1].querySelector(".event-log__body")).not.toHaveTextContent("Position 1");
-    expect(rows[1].querySelector(".event-log__participant")).toHaveStyle({ color: "#E69F00" });
+    expect(rows[1].querySelector(".event-log__participant")).toHaveStyle({ color: "#3B82F6" });
     expect(rows[2].querySelectorAll(".event-log__participant")).toHaveLength(2);
     expect(rows[2].querySelectorAll(".event-log__participant")[0]).toHaveStyle({
-      color: "#56B4E9",
+      color: "#4ADE80",
     });
     expect(rows[2].querySelectorAll(".event-log__participant")[1]).toHaveStyle({
-      color: "#E69F00",
+      color: "#3B82F6",
     });
     const symbol = rows[1].querySelector(".event-log__actor");
     expect(symbol).toHaveAttribute("title", "az2 (● Position 1)");
