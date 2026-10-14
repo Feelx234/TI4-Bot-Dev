@@ -81,4 +81,22 @@ describe("CornerToastLayer", () => {
     expect(screen.getByTestId("corner-toasts").style.bottom).toBe("132px");
     bar.remove();
   });
+
+  // Runs o4-02-2033, o4-05-2039: once the toasts had gone, the "Recent notifications" pill kept
+  // its old place and covered the turn bar's Tactical action that showed up afterwards.
+  it("keeps the notification history above a turn bar that appears after the toasts are gone", () => {
+    const { rerender } = render(layer([]));
+    rerender(layer([ev("1", "p2", "activated #22")]));
+    act(() => vi.advanceTimersByTime(TOAST_DURATION_MS.action + 10));
+    act(() => vi.advanceTimersByTime(400));
+    expect(screen.queryByTestId("corner-toast")).not.toBeInTheDocument();
+    expect(screen.getByTestId("toast-history-toggle")).toBeInTheDocument();
+    const bar = document.createElement("div");
+    bar.className = "turn-bar";
+    bar.getBoundingClientRect = () => ({ top: window.innerHeight - 120, left: 0, height: 120 }) as DOMRect;
+    document.body.appendChild(bar);
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.getByTestId("corner-toasts").style.bottom).toBe("132px");
+    bar.remove();
+  });
 });
