@@ -1,5 +1,5 @@
 {
-  "title": "Offline play: saves, import, engine checks and feedback queue",
+  "title": "Offline saves and engine checks",
   "description": "The IndexedDB save store and the durable feedback queue wired into the offline game: saved games list with Import, the engine-mismatch dialog (view only, try anyway, delete), the storage warning banner, feedback states and the engine label. Every shot is the real app with the real engine in a Web Worker and the real stores; calls to a server are blocked or answered by the capture where a state needs it.",
   "tag": "web/e2e/screenshots/DP-offline-saves",
   "shots": [
