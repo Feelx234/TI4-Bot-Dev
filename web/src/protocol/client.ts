@@ -163,7 +163,7 @@ export interface BatchResume {
 }
 
 /** Decision subtypes each plan kind is answered through. */
-const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
+export const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
   tactical_movement: ["movement_step"],
   payment: ["pay_resources", "pay_influence"],
   agenda_vote_planets: ["vote_exhaust_planet"],
