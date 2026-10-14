@@ -91,9 +91,11 @@ pub(crate) fn live_offer(session: &GameSession, previous_nonce: Option<&str>) ->
     let deadline = Instant::now() + DEADLINE;
     loop {
         assert!(session.error().is_none(), "{:?}", session.error());
-        if let Some((seat, _, _)) = session.current_pending_decision() {
+        // Only an open question: one that is reserved (a ready draft checked) may not be asked.
+        if let Some((seat, open, _)) = session.open_pending_decision() {
             let snapshot = session.get_snapshot(&ViewerRole::Player(seat));
             if let Some(pending) = snapshot.pending_choice
+                && pending.nonce == open
                 && previous_nonce != Some(pending.nonce.as_str())
             {
                 return LiveOffer {

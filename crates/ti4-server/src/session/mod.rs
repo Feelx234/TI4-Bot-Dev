@@ -574,6 +574,18 @@ impl GameSession {
             .map(|p| (p.seat.clone(), p.nonce.clone(), p.game_version))
     }
 
+    /// The pending decision of [`Self::current_pending_decision`] once its seat may answer it: not
+    /// while it is reserved, as when the server checks a ready draft of a secondary before the
+    /// seat is asked (`ready_secondary`).
+    #[must_use]
+    pub fn open_pending_decision(&self) -> Option<(PlayerId, String, u64)> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.pending_decision
+            .as_ref()
+            .filter(|p| p.submission_state == PendingSubmissionState::AwaitingSubmission)
+            .map(|p| (p.seat.clone(), p.nonce.clone(), p.game_version))
+    }
+
     /// Returns a clone of the authoritative latest `GameState`.
     #[must_use]
     pub fn current_state(&self) -> GameState {
