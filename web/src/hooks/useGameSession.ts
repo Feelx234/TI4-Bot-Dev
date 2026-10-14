@@ -8,6 +8,7 @@ import {
   serverEventLog,
   SnapshotState,
 } from "../protocol/client.ts";
+import type { GameTransport, TransportCapabilities } from "../protocol/transport.ts";
 
 export { serverEventLog };
 export type { ConnectionStatus, GameLogEntry, SnapshotState };
@@ -16,9 +17,16 @@ export interface UseGameSessionOptions {
   gameId: string;
   viewer: ViewerRole;
   serverUrl?: string;
+  /**
+   * Builds the transport for this session (default: the server WebSocket/HTTP client). The
+   * offline mode passes its local transport here.
+   */
+  createTransport?: () => GameTransport;
 }
 
 export interface UseGameSessionReturn {
+  /** Which optional features this session's transport offers; hide the rest. */
+  capabilities: TransportCapabilities;
   status: ConnectionStatus;
   gameVersion: number;
   snapshot: SnapshotState | null;
@@ -70,8 +78,11 @@ export function useGameSession({
   gameId,
   viewer,
   serverUrl,
+  createTransport,
 }: UseGameSessionOptions): UseGameSessionReturn {
-  const [client] = useState(() => new GameSessionClient({ gameId, viewer, serverUrl }));
+  const [client] = useState<GameTransport>(() =>
+    createTransport ? createTransport() : new GameSessionClient({ gameId, viewer, serverUrl }),
+  );
   const [state, setState] = useState<GameSessionState>(() => client.getState());
 
   useEffect(() => {
@@ -102,6 +113,7 @@ export function useGameSession({
 
   return {
     ...state,
+    capabilities: client.capabilities,
     submitChoice,
     fatal: state.fatal ?? null,
     retryConnection: () => client.retryNow(),
