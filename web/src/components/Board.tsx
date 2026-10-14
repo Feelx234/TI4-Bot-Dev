@@ -1,3 +1,4 @@
+import { AnomalyClipDefs } from "./anomaly/AnomalyArt.tsx";
 import React, { useEffect, useMemo, useState, useRef, useId } from "react";
 import { createPortal } from "react-dom";
 import { useCompactLayout } from "../hooks/useCompactLayout.ts";
@@ -377,6 +378,7 @@ export const Board: React.FC<BoardProps> = ({
             <feGaussianBlur stdDeviation="4" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
+          <AnomalyClipDefs />
           <filter id="target-glow" x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur stdDeviation="6" result="blur" />
             <feMerge>
