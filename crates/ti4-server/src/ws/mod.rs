@@ -900,18 +900,21 @@ async fn handle_socket(
                     continue;
                 }
                 // Bounded request rate; the answer is cheap but a client could ask in a loop.
-                if last_reach.is_some_and(|at: std::time::Instant| at.elapsed() < MIN_REACH_INTERVAL)
+                if last_reach
+                    .is_some_and(|at: std::time::Instant| at.elapsed() < MIN_REACH_INTERVAL)
                 {
                     let _ = outbound_tx
-                        .send(ServerMessage::ReachInto(crate::protocol::reach::ReachIntoMsg {
-                            protocol_version: PROTOCOL_VERSION,
-                            game_id: game_id.clone(),
-                            request_id,
-                            system_id,
-                            as_of_version: session.game_version(),
-                            origins: Vec::new(),
-                            refused: Some(crate::protocol::reach::ReachRefusal::RateLimited),
-                        }))
+                        .send(ServerMessage::ReachInto(
+                            crate::protocol::reach::ReachIntoMsg {
+                                protocol_version: PROTOCOL_VERSION,
+                                game_id: game_id.clone(),
+                                request_id,
+                                system_id,
+                                as_of_version: session.game_version(),
+                                origins: Vec::new(),
+                                refused: Some(crate::protocol::reach::ReachRefusal::RateLimited),
+                            },
+                        ))
                         .await;
                     continue;
                 }

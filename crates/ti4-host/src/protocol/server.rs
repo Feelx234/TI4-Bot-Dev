@@ -7,7 +7,7 @@ use ti4_model::id::PlayerId;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
-use crate::map::GalaxyLayout;
+use ti4_view::map::GalaxyLayout;
 pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
@@ -745,7 +745,7 @@ pub fn public_decision_facts(
 
 /// Only the card explicitly named by the engine's selected offer can become a public fact.
 /// A multi-card outer offer contains no card; its inner selected offer carries the alias.
-pub(crate) fn played_card_detail(
+pub fn played_card_detail(
     context: &ti4_engine::decision_context::DecisionContext,
     option: &ChoiceOption,
     actor: &ti4_model::id::PlayerId,
@@ -1548,7 +1548,7 @@ mod fact_tests {
     #[test]
     fn event_visibility_wire_shape_matches_the_client_fixture() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../fixtures/event_visibility.json")).unwrap();
+            serde_json::from_str(include_str!("../../../ti4-server/fixtures/event_visibility.json")).unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
         assert_eq!(events[0].visibility, EventVisibility::Public);
         assert_eq!(
@@ -1953,7 +1953,7 @@ pub struct PlanningStatusMsg {
     pub available: bool,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::runner::AttemptIdentity>,
+    pub identity: Option<crate::planning::AttemptIdentity>,
     pub can_apply: bool,
     pub application: Option<DraftApplication>,
     /// The strategic action whose secondary this seat may draft, if any.
@@ -1988,7 +1988,7 @@ pub struct SecondaryDraftStatus {
     pub seats_before: Option<usize>,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::runner::AttemptIdentity>,
+    pub identity: Option<crate::planning::AttemptIdentity>,
     /// The draft is submitted for the seat when the live window reaches it.
     pub ready: bool,
     pub application: Option<DraftApplication>,
@@ -2020,7 +2020,7 @@ pub struct PlanningUpdateMsg {
     pub game_id: String,
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
-    pub envelope: crate::planning::runner::PlanningEnvelope,
+    pub envelope: crate::planning::PlanningEnvelope,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2047,7 +2047,7 @@ pub struct PlanningResultMsg {
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
     /// None identifies a start request; Some identifies an answer, reset, or apply request.
-    pub identity: Option<crate::planning::runner::AttemptIdentity>,
+    pub identity: Option<crate::planning::AttemptIdentity>,
     /// None means accepted by the controller. Application progress is seat-private status.
     pub rejection: Option<PlanningRejection>,
 }

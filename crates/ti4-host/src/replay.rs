@@ -9,7 +9,7 @@ use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash
 use ti4_engine::game::Game;
 use ti4_model::state::GameState;
 
-use crate::session::step_snapshot::StepSnapshot;
+use crate::step_snapshot::StepSnapshot;
 
 #[derive(Debug, Error)]
 pub enum ReplayError {
@@ -40,7 +40,7 @@ struct ReplayDecider {
     script: VecDeque<String>,
     #[allow(dead_code)]
     step_index: usize,
-    force: Option<crate::session::RngForce>,
+    force: Option<crate::rng_force::RngForce>,
     /// Every answer given, as the engine's log would record it. A system activation is rolled
     /// back as a whole when a nested question finds the script used up, which takes the
     /// activation's earlier answers out of the game's log; this list keeps them.
@@ -99,7 +99,7 @@ pub fn replay_session(
         initial_state,
         galaxy,
         records,
-        &crate::session::RngMarks::new(),
+        &crate::rng_force::RngMarks::new(),
     )
 }
 
@@ -113,7 +113,7 @@ pub fn replay_session_forced(
     initial_state: &GameState,
     galaxy: Option<&Galaxy>,
     records: &[DecisionRecord],
-    marks: &crate::session::RngMarks,
+    marks: &crate::rng_force::RngMarks,
 ) -> Result<ReplayReport, ReplayError> {
     replay(initial_state, galaxy, records, marks, None).map(|(report, _)| report)
 }
@@ -129,7 +129,7 @@ pub fn replay_session_with_copy(
     initial_state: &GameState,
     galaxy: Option<&Galaxy>,
     records: &[DecisionRecord],
-    marks: &crate::session::RngMarks,
+    marks: &crate::rng_force::RngMarks,
     generation: u64,
 ) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
     replay(initial_state, galaxy, records, marks, Some(generation))
@@ -139,7 +139,7 @@ fn replay(
     initial_state: &GameState,
     galaxy: Option<&Galaxy>,
     records: &[DecisionRecord],
-    marks: &crate::session::RngMarks,
+    marks: &crate::rng_force::RngMarks,
     copy_generation: Option<u64>,
 ) -> Result<(ReplayReport, Option<StepSnapshot>), ReplayError> {
     let original_hashes: Vec<CanonicalHash> = records
@@ -148,7 +148,7 @@ fn replay(
         .collect();
 
     let choices: VecDeque<String> = records.iter().map(|r| r.chosen.clone()).collect();
-    let force = crate::session::RngForce::new(marks);
+    let force = crate::rng_force::RngForce::new(marks);
     let answered = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let decider = Box::new(ReplayDecider {
         script: choices,
@@ -175,7 +175,7 @@ fn replay(
         if let Some(generation) = copy_generation {
             // Between steps: copy the game once the script is nearly used up.
             let answered = answered.lock().expect("replay answers lock").len();
-            if records.len().saturating_sub(answered) <= crate::session::batch::TAIL_COPY_WINDOW
+            if records.len().saturating_sub(answered) <= crate::batch::TAIL_COPY_WINDOW
                 && copy
                     .as_ref()
                     .is_none_or(|copy| copy.log_len < game.table.log.records.len())

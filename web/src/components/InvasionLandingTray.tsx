@@ -1,3 +1,4 @@
+import { useCapability } from "../offline/capabilities.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import React, { useEffect, useRef, useState } from "react";
 import type { BoardView, PendingChoiceDto, PlayerView } from "../protocol/types.ts";
@@ -63,6 +64,7 @@ export const InvasionLandingTray: React.FC<{
   embedded = false,
 }) => {
   const present = useParticipantText();
+  const advisorOn = useCapability("advisor");
   const system = board?.invasion?.system_id ?? board?.active_system ?? "";
   const [localDraft, setLocalDraft] = useState<Landing[]>([]);
   const draft = controlledDraft ?? localDraft;
@@ -196,7 +198,7 @@ export const InvasionLandingTray: React.FC<{
       setOdds({ key: previewKey, value: "unavailable" });
       return;
     }
-    if (!players?.[choice.actor] || !players[opponent]) {
+    if (!advisorOn || !players?.[choice.actor] || !players[opponent]) {
       setOdds({ key: previewKey, value: "unavailable" });
       return;
     }
@@ -237,7 +239,7 @@ export const InvasionLandingTray: React.FC<{
         if (!controller.signal.aborted) setOdds({ key: previewKey, value: "unavailable" });
       });
     return () => controller.abort();
-  }, [previewKey, choice.actor, viewerSeat]);
+  }, [previewKey, choice.actor, viewerSeat, advisorOn]);
 
   useEffect(() => {
     if (!running || submitting.current || submittedNonce.current === choice.nonce || !draft.length)

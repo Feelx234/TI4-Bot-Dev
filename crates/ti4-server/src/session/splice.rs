@@ -216,9 +216,7 @@ impl Decider for StrictDecider {
                     shared.reordered.push(index);
                 }
                 shared.accepted += 1;
-                Ok(choice
-                    .answer_for(&record.chosen)
-                    .expect("checked on offer"))
+                Ok(choice.answer_for(&record.chosen).expect("checked on offer"))
             }
             Err(conflict) => {
                 let reason = format!("splice conflict: {:?}", conflict.kind);

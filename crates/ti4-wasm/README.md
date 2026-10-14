@@ -664,6 +664,131 @@ content does not have.
 - The UI queries are the `tactical` field of the update and the draft. No bots other than random. Undo and resume are replays from the seed; a stored
   position that can be resumed would need the engine to stop at step boundaries only.
 
+## The hosted game (`web/`, offline play)
+
+One person at a table of 3 to 6 against rule bots, in a Web Worker, speaking the protocol of the
+server. The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
+(`HostSession`: what the server's `SessionShared` does around the engine), `src/host_setup.rs`
+(table setup, the form's data). `js/host.mjs` is a working reference host and a smoke test.
+Chrome and Edge 137 and later only (JSPI); Node 24 has it too.
+
+### Exports
+
+All strings are UTF-8 JSON. A status of 0 or more is the length of the output; below 0 it is the
+negated length of an error text. The output is at `ti4_host_out_ptr()` for `ti4_host_out_len()`
+bytes: read both again after every call (the buffer can move).
+
+| Export | |
+|---|---|
+| `ti4_host_in(len) -> ptr` | Reserve the input buffer; write `len` bytes of request there. |
+| `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
+| `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
+| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}`. |
+| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup": Setup, "resume": Save?}`. Returns when the game ends or is left; the output is an `end` envelope. |
+| `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
+
+The import is `host.ask() -> i32` (`WebAssembly.Suspending`), as for `ti4_play`.
+
+One instance plays one game at a time (statics). Make a new instance for a new game, or end
+the run (`leave`) and wait for the `ti4_host_start` promise before starting another.
+
+### `Setup` (`host_setup::Setup`)
+
+`seed` (number, up to 2^53), `players` (3 to 6), `human_seat?` (0-based; left out: drawn from the
+seed), `human_faction?` (id of `describe().faction_groups`; left out: drawn), `card_set?`
+(`te` default, `pok`, `base_game_codex1`), `map?` (template alias, `"random"`, left out: the
+recommended template), `speaker?` (`seat`, `random`), `bots?` (`rule` default, `random`),
+`game_id?` (default `"local"`), `preset?` and `scenario?` (test tables). Seats are the ids `a` to
+`f`; the person is `ViewerRole::Player(<their seat>)`. The result of `resolved()` is stored in the
+save, so a save is self-contained.
+
+### Output: the envelope
+
+```json
+{ "kind": "ask" | "progress" | "end" | "command",
+  "messages": [ServerMessage...],      // the shapes of crates/ti4-host/src/protocol/server.rs
+  "progress": {"done","total"},        // progress: a saved game is being played again
+  "resume": -1 | -2 | <option index>,  // command: what the parked game does now
+  "restart": {"answers","redo","generation","version"},  // command: play again with these (after resume -1)
+  "batch": {...},                      // how a submit_batch ended (ask or command)
+  "save": {...},                       // command save_state
+  "resume_check": {"ok",...},          // first ask after a replayed save
+  "end": {"finished","left","error","decisions","answers"} }  // end
+```
+
+### Flow
+
+1. `ti4_host_set_time`, then `ti4_host_start(config)` (do not await it yet).
+2. The game runs (bots, dice) until the person must decide. It calls `host.ask`. The output is an
+   `ask` envelope: forward `messages` to the UI (the same objects `GameSessionClient` gets from
+   the socket; `reduceServerMessage` takes them as they are). The first `ask` of a run starts
+   with an `initial_snapshot`; later ones carry `event` messages, then one `state_update` with
+   `pending_choice`. Then **the import returns a promise** that stays pending.
+3. While parked, call `ti4_host_command(...)` as often as needed (queries do not resume). A
+   command whose envelope has `resume` is the answer: call `ti4_host_set_time`, then settle the
+   pending promise with that number. `-2` is an undo, `-1` leaves.
+4. A `progress` envelope (a save is being replayed) is answered at once with `-5` (`CONTINUE`);
+   forward `progress` to the UI. It is sent every 20 replayed answers.
+5. The game over: `ti4_host_start` settles with an `end` envelope (`game_over` is in its or the
+   last `ask`'s messages). `command` still works afterwards (`save_state`, `subscribe`,
+   `query_reach`).
+
+### Commands (input of `ti4_host_command`)
+
+`ClientMessage` JSON as the page sends it today (`protocol_version: 3`, `game_id`):
+`subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`;
+resumes with the index of the option), `apply_draft` (a script; `draft_applied` when it ended),
+`run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
+`set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`).
+`preview_secondary` is answered with an `error` that names it (the page then falls back to its
+own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
+
+- `{"type":"submit_batch","nonce","expected_version","plan": BatchPlan}`: the `BatchPlan` of
+  `web/` (`tactical_movement`, `production`, `payment`, `casualties`, `tokens`,
+  `agenda_vote_planets`, `ready_planets`), applied as the engine asks with the logic of the
+  server's batch (`ti4_host::batch::LiveBatch`). A refused first step: `batch.status:"refused"`
+  in the reply, nothing resumes. A later step that fails takes the game back to the question the
+  plan began at (a checkpoint rollback; the history does not change) and the next `ask` says
+  `batch.status:"refused"`. A reaction window between steps pauses it: `status:"interrupted"`
+  with `remaining_steps` and `waiting`. Done: `status:"applied"`.
+- `{"type":"history","action": ...}` with `"undo"`, `"undo_batch"`, `"undo_pipeline"`, `"redo"`,
+  `"redo_batch"`, `"redo_pipeline"`, `{"restore_cursor":{"cursor"}}` or
+  `{"restore":{"event_id"}}`. `undo*` is the checkpoint undo (resume `-2`; the next `ask` has an
+  `initial_snapshot` with `history.generation + 1` and `undone` steps). The others reply
+  `restart` and `resume: -1`: the page waits for `ti4_host_start` to settle and starts again with
+  `resume = restart` (`{answers, redo, generation, version}`, in a new instance; `version` keeps the
+  game versions rising, so a client that keeps its state does not drop the new snapshot as stale). A rewind lands on the person's
+  next question at or after the cursor.
+- `{"type":"save_state"}`: reply `save`.
+- `{"type":"leave"}`: resume `-1`.
+
+### Save and resume
+
+`save` is `{format:1, game_id, seed, players, human_seat, setup, answers[], redo[], never[],
+event_times[], event_versions[], version, generation, decisions, decisions_hash, finished, round,
+phase, engine:{build, content_digest}}`. Resume: `ti4_host_start({"setup": save.setup,
+"resume": save})`. The game plays the `answers` again without asking (a few hundred ms for 40
+answers, seconds for a late game), reporting `progress`; the first `ask` then has `resume_check`
+(`ok` is whether the decisions are the saved ones: false means the engine changed) and an
+`initial_snapshot` with the full event log, times of day included. The page adds the hash of
+the wasm file to what it stores.
+
+### What differs from the server
+
+One `state_update` per question of the person (and one at the end), not per engine step; no
+separate `pending_choice` message; undo is the engine checkpoint (32 deep, no barriers); redo and
+rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
+redo, planning-thread messages and bluff holds do not exist.
+
+### Tests
+
+`cargo test -p ti4-wasm --test it` (names with `slow_` are the slow tier, `cargo t-web-slow`).
+`it/server_parity.rs` plays the same table through `ti4-server`'s own session and compares the
+decisions and the whole event log; `it/host_session.rs` checks every message against the
+`ServerMessage` types and the order a client relies on. `node js/host.mjs <wasm>` runs the same
+flow in a real WebAssembly instance (CI does). `node scripts/wasm-size-gate.mjs` checks the size
+against `size-budget.json`.
+
 ## Commands
 
 ```sh
@@ -676,6 +801,10 @@ cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
 # (arguments: seed, steps, players)
 node crates/ti4-wasm/js/run.mjs target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm 3 2000 8
 cargo run -p ti4-wasm --example run -- 3 2000 8
+
+# The hosted game (see "The hosted game"): smoke test in Node 24 and the size gate
+node crates/ti4-wasm/js/host.mjs target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm
+node scripts/wasm-size-gate.mjs target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm
 
 # JSPI in Chromium (from web2/, which has Playwright)
 cd web2 && node ../crates/ti4-wasm/js/jspi.mjs ../target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm

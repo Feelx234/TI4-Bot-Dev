@@ -46,7 +46,10 @@ fn main() {
             }) {
             Ok(init) => init,
             Err(error) => {
-                println!("{}", serde_json::json!({"game": id, "error": error.to_string()}));
+                println!(
+                    "{}",
+                    serde_json::json!({"game": id, "error": error.to_string()})
+                );
                 continue;
             }
         };
@@ -55,7 +58,10 @@ fn main() {
             || store.load_decisions(&id).unwrap_or_default(),
             |h| h.decisions.clone(),
         );
-        let marks = history.as_ref().map(|h| h.rng_marks.clone()).unwrap_or_default();
+        let marks = history
+            .as_ref()
+            .map(|h| h.rng_marks.clone())
+            .unwrap_or_default();
         let galaxy = seed.and_then(|seed| {
             ti4_server::map::rebuild_galaxy(
                 content,

@@ -1,18 +1,14 @@
-pub mod batch;
 pub mod bluff;
 pub mod bluff_hold;
 pub mod decider;
 mod planning;
 pub mod preview;
-pub mod reach;
 pub mod random_bot;
+pub mod reach;
 pub mod reaction_modes;
 pub mod registry;
-pub mod replay;
-pub mod rng_force;
 pub(crate) mod script;
 pub mod splice;
-pub mod step_snapshot;
 pub mod table;
 pub mod transport;
 pub mod turn_redo;
@@ -84,8 +80,9 @@ pub use decider::RemoteHumanDecider;
 pub use planning::PlanningError;
 pub use random_bot::{RANDOM_BOT_DELAY_ENV, random_bot_delay_ms};
 pub use registry::{BotServiceConfig, GameRegistry};
-pub use replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
-pub use rng_force::{RngForce, RngMarks};
+pub use ti4_host::replay::{ReplayError, ReplayReport, replay_session, replay_session_forced};
+pub use ti4_host::rng_force::{RngForce, RngMarks};
+pub use ti4_host::{batch, replay, rng_force, step_snapshot};
 pub use transport::MockClient;
 
 /// Configuration for the controller occupying a table seat.
@@ -170,6 +167,28 @@ pub struct SessionConfig {
     /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
     /// and ignored when it does not fit.
     pub resume: Option<Arc<step_snapshot::StepSnapshot>>,
+}
+
+impl batch::ReplayBasis for SessionConfig {
+    fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    fn galaxy(&self) -> Option<&ti4_content::galaxy::Galaxy> {
+        self.galaxy.as_ref()
+    }
+
+    fn rng_marks(&self) -> &RngMarks {
+        &self.rng_marks
+    }
+
+    fn history_generation(&self) -> u64 {
+        self.history_generation
+    }
+
+    fn clock(&self) -> &dyn ti4_host::clock::Clock {
+        &ti4_host::clock::SystemClock
+    }
 }
 
 impl SessionConfig {

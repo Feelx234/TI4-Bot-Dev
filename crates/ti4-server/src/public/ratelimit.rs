@@ -71,8 +71,12 @@ impl RateLimits {
     /// password attempts (brute-force protection); anything else keeps the defaults.
     #[must_use]
     pub fn from_env() -> Self {
-        let off = std::env::var("TI4_RATE_LIMITS")
-            .is_ok_and(|v| matches!(v.trim().to_lowercase().as_str(), "off" | "0" | "false" | "none"));
+        let off = std::env::var("TI4_RATE_LIMITS").is_ok_and(|v| {
+            matches!(
+                v.trim().to_lowercase().as_str(),
+                "off" | "0" | "false" | "none"
+            )
+        });
         let mut limits = Self::default();
         if off {
             let open = RateSpec::new(1e9, 1e9);

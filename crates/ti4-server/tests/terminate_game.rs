@@ -69,8 +69,17 @@ async fn terminate(base: &str, id: &str, token: Option<&str>) -> StatusCode {
 }
 
 async fn list_ids(base: &str) -> Vec<String> {
-    let v: Value = reqwest::get(format!("{base}/api/games")).await.unwrap().json().await.unwrap();
-    v.as_array().unwrap().iter().map(|g| g["game_id"].as_str().unwrap().to_owned()).collect()
+    let v: Value = reqwest::get(format!("{base}/api/games"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .map(|g| g["game_id"].as_str().unwrap().to_owned())
+        .collect()
 }
 
 async fn join_and_start(base: &str, id: &str, host: &str) -> String {
@@ -112,12 +121,23 @@ async fn host_terminates_a_lobby_and_it_is_archived_not_recovered() {
     let (id, host) = create(&base).await;
     assert!(list_ids(&base).await.contains(&id));
     assert_eq!(terminate(&base, &id, None).await, StatusCode::FORBIDDEN);
-    assert_eq!(terminate(&base, &id, Some("forged")).await, StatusCode::FORBIDDEN);
-    assert_eq!(terminate(&base, "game_nope", Some(&host)).await, StatusCode::NOT_FOUND);
+    assert_eq!(
+        terminate(&base, &id, Some("forged")).await,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        terminate(&base, "game_nope", Some(&host)).await,
+        StatusCode::NOT_FOUND
+    );
     assert_eq!(terminate(&base, &id, Some(&host)).await, StatusCode::OK);
     assert!(!list_ids(&base).await.contains(&id));
-    assert_eq!(terminate(&base, &id, Some(&host)).await, StatusCode::NOT_FOUND);
-    let lobby = reqwest::get(format!("{base}/api/games/{id}/lobby")).await.unwrap();
+    assert_eq!(
+        terminate(&base, &id, Some(&host)).await,
+        StatusCode::NOT_FOUND
+    );
+    let lobby = reqwest::get(format!("{base}/api/games/{id}/lobby"))
+        .await
+        .unwrap();
     assert_eq!(lobby.status(), StatusCode::NOT_FOUND);
     assert!(!dir.join(&id).exists());
     assert!(dir.join("terminated").join(&id).join("lobby.json").exists());
@@ -133,7 +153,10 @@ async fn only_the_host_may_terminate_a_started_game() {
     let base = spawn(&dir, false, None).await;
     let (id, host) = create(&base).await;
     let guest = join_and_start(&base, &id, &host).await;
-    assert_eq!(terminate(&base, &id, Some(&guest)).await, StatusCode::FORBIDDEN);
+    assert_eq!(
+        terminate(&base, &id, Some(&guest)).await,
+        StatusCode::FORBIDDEN
+    );
     assert!(list_ids(&base).await.contains(&id));
     assert_eq!(terminate(&base, &id, Some(&host)).await, StatusCode::OK);
     assert!(!list_ids(&base).await.contains(&id));
@@ -175,9 +198,17 @@ async fn too_many_games_lists_the_open_games_and_terminating_frees_the_cap() {
     assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
     let body: Value = refused.json().await.unwrap();
     assert_eq!(body["error"], "too_many_games");
-    assert!(body["message"].as_str().unwrap().contains("unfinished games"));
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap()
+            .contains("unfinished games")
+    );
     let games = body["games"].as_array().unwrap();
-    let ids: Vec<&str> = games.iter().map(|g| g["game_id"].as_str().unwrap()).collect();
+    let ids: Vec<&str> = games
+        .iter()
+        .map(|g| g["game_id"].as_str().unwrap())
+        .collect();
     assert!(ids.contains(&a.as_str()) && ids.contains(&b.as_str()) && ids.len() == 2);
     assert_eq!(games[0]["phase"], "lobby");
     assert_eq!(games[0]["players"], 1);

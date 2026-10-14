@@ -34,6 +34,8 @@ import {
   decodeServerMessage,
   isStaleServerMessage,
 } from "./decode.ts";
+import { SERVER_CAPABILITIES } from "./capabilities.ts";
+import type { GameTransport } from "./transport.ts";
 import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
 import {
   decodeTurnRedoStatusResponse,
@@ -161,7 +163,7 @@ export interface BatchResume {
 }
 
 /** Decision subtypes each plan kind is answered through. */
-const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
+export const PLAN_SUBTYPES: Record<BatchPlan["kind"], string[]> = {
   tactical_movement: ["movement_step"],
   payment: ["pay_resources", "pay_influence"],
   agenda_vote_planets: ["vote_exhaust_planet"],
@@ -440,7 +442,8 @@ export function reduceServerMessage(
 }
 
 /** Owns every network ingress point and the lifecycle of one game-session connection. */
-export class GameSessionClient {
+export class GameSessionClient implements GameTransport {
+  readonly capabilities = SERVER_CAPABILITIES;
   private state = initialState;
   private readonly listeners = new Set<Listener>();
   private socket: WebSocket | null = null;
