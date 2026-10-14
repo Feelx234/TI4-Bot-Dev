@@ -648,11 +648,8 @@ impl PrivateDecider {
             if let Some(force) = &script.force {
                 force.before_answer(prefix_index);
             }
-            let matching: Vec<_> = choice
-                .options
-                .iter()
-                .filter(|o| o.id == record.chosen)
-                .collect();
+            // A free-form answer (a trade deal with any amounts) is not a listed option.
+            let matching = choice.answer_for(&record.chosen);
             return if choice.player == record.player
                 && choice.prompt == record.prompt
                 && choice.ids()
@@ -669,9 +666,10 @@ impl PrivateDecider {
                         .context
                         .as_ref()
                         .map(ti4_engine::decision_context::DecisionContext::without_display_fields)
-                && matching.len() == 1
+                && choice.options.iter().filter(|o| o.id == record.chosen).count() <= 1
+                && let Some(matching) = matching
             {
-                Ok(matching[0].clone())
+                Ok(matching)
             } else {
                 Err(IllegalChoice::DeciderFailed {
                     player: choice.player.clone(),
@@ -1985,6 +1983,29 @@ mod tests {
         let mut changed = pay;
         changed.options.push(ChoiceOption::decline());
         assert!(script.choose(&changed).is_err());
+        assert_eq!(script.0.lock().unwrap().next, 0);
+    }
+
+    /// Run s1-01-2030 (2026-10-14): a free-form trade answer ("x;rn=cf:xxcha;") is not a listed
+    /// option, so replaying the recorded prefix from the opening state failed with "batch prefix
+    /// diverged" and every later batch of the game was rejected.
+    #[test]
+    fn prefix_replays_a_free_form_transaction_answer() {
+        let deal = offered(
+            "propose_transaction",
+            vec![ChoiceOption::decline()],
+        )
+        .accepting_free_form(ti4_engine::transactions::FREE_FORM_PREFIX);
+        let mut script = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
+        script.0.lock().unwrap().prefix.push_back(DecisionRecord {
+            player: deal.player.clone(),
+            prompt: deal.prompt.clone(),
+            chosen: "x;rn=cf:xxcha;".into(),
+            offered: deal.ids().iter().map(|id| (*id).to_owned()).collect(),
+            context: deal.context.clone(),
+        });
+        let chosen = script.choose(&deal).expect("free-form prefix answer replays");
+        assert_eq!(chosen.id, "x;rn=cf:xxcha;");
         assert_eq!(script.0.lock().unwrap().next, 0);
     }
 
