@@ -6,17 +6,18 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use ti4_content::{ContentStore, galaxy::all_systems};
 use ti4_engine::fixtures::{game, hub_with_centre, put};
-use ti4_model::{
-    content_types::POK,
-    id::{PlayerId, SystemId},
-    state::Phase,
-};
-use ti4_server::planning::runner::{AttemptIdentity, PlanningEnvelope, PlanningUpdate, StopReason};
-use ti4_server::protocol::{
+use ti4_host::planning::audit::StopReason;
+use ti4_host::planning::wire::{AttemptIdentity, PlanningEnvelope, PlanningUpdate};
+use ti4_host::protocol::{
     PROTOCOL_VERSION,
     client::ClientMessage,
     server::{PlanningRejection, ServerMessage},
     status::ViewerRole,
+};
+use ti4_model::{
+    content_types::POK,
+    id::{PlayerId, SystemId},
+    state::Phase,
 };
 use ti4_server::session::{
     GameRegistry, GameSession, SeatController, SessionConfig, registry::HistoryAction,

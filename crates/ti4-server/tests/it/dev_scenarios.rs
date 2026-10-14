@@ -3,9 +3,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::ViewerRole;
 use ti4_server::dev::{available_scenarios, execute_launch_scenario};
-use ti4_server::protocol::server::ServerMessage;
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{GameRegistry, MockClient};
 
@@ -164,7 +164,7 @@ fn dev_movement_history_rewinds_to_the_action_choice() {
                     session.submit_choice(&seat, &pending.nonce, snapshot.game_version, &chosen.id);
                 if matches!(
                     result,
-                    Err(ti4_server::protocol::status::RejectionReason::NoPendingChoice)
+                    Err(ti4_host::protocol::status::RejectionReason::NoPendingChoice)
                 ) {
                     continue;
                 }
@@ -657,7 +657,7 @@ fn test_launch_score_objective_imperial_scenario() {
 /// naming who rolled, what for, the faces and the outcome, and each roll appears once.
 #[test]
 fn combat_rolls_are_published_once_as_public_events() {
-    use ti4_server::protocol::server::{EventVisibility, GameEventKind};
+    use ti4_host::protocol::server::{EventVisibility, GameEventKind};
     let registry = Arc::new(GameRegistry::new());
     let launched = execute_launch_scenario(&registry, "ongoing_combat", Some(42)).unwrap();
     let seat = ti4_model::id::PlayerId::new(&launched.player_id);

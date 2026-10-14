@@ -8,6 +8,7 @@ rust-version.workspace = true
 real-e2e = ["dep:ti4-advisor", "dep:ti4-tensor"]
 
 [dependencies]
+ti4-host.workspace = true
 ti4-model.workspace = true
 ti4-server.workspace = true
 ti4-advisor = { workspace = true, optional = true }

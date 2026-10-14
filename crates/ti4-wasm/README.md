@@ -508,7 +508,7 @@ workspace.
 - What a draft may show is checked as on the server (`ti4-host/src/planning/audit.rs`): only
   audited offers, no dice, nothing that the seat did not know. The other seats take no optional
   reactions. These checks and the recorded-decision adapters were moved from `ti4-server`,
-  which re-exports them; its `PlanningRunner` is a worker thread around the same checks, and
+  which imports them from there; its `PlanningRunner` is a worker thread around the same checks, and
   guards its copy with the same code (`ti4-host/src/planning/fork.rs`).
 - The game at its last finished step is not kept: the checkpoints are made only after a step
   that asked the host. The base of a draft is the last checkpoint with the steps of the random
@@ -740,7 +740,7 @@ content does not have.
   it does not show the redaction. The tests of `ti4-server` do (`tests/projection_redaction.rs`).
 - The other workspace crates were not rebuilt after the `rand` change or the move to
   `ti4-host`. `ti4-engine`, `ti4-host`, `ti4-server`, `ti4-bot-agent` and `ti4-wasm` pass their
-  tests. `ti4-advisor` uses the moved paths through the re-exports of `ti4-server` and was not
+  tests. `ti4-advisor` imports the moved paths from `ti4-host` (since 2026-10-14) and was not
   built (it needs libtorch).
 - The UI queries are the `tactical` field of the update and the draft. No bots other than random. Undo and resume are replays from the seed; a stored
   position that can be resumed would need the engine to stop at step boundaries only.

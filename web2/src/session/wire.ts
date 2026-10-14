@@ -712,9 +712,9 @@ export interface SecondaryFacts {
   draft: boolean;
 }
 
-// The messages of the websocket (`crates/ti4-server/src/protocol`), as far as web2 reads them.
+// The messages of the websocket (`crates/ti4-host/src/protocol`), as far as web2 reads them.
 
-/** `ti4_server::protocol::PROTOCOL_VERSION`. Every message has it. */
+/** `ti4_host::protocol::PROTOCOL_VERSION`. Every message has it. */
 export const PROTOCOL_VERSION = 3;
 
 /** `ti4_host::protocol::status::RejectionReason` */
@@ -772,7 +772,7 @@ export interface ScriptStopped {
 }
 
 /**
- * `ti4_server::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
+ * `ti4_host::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
  * `pending_choice` (an update has it), `action_accepted`, `game_over` (the update before it says
  * so), `pong`, and the messages of the planning runner (`planning_update`, `planning_status`,
  * `planning_result`).
@@ -838,7 +838,7 @@ export interface SeatStagedMsg {
   connection?: number;
 }
 
-/** `ti4_server::protocol::ClientMessage`, without the messages of the planning runner. */
+/** `ti4_host::protocol::ClientMessage`, without the messages of the planning runner. */
 export type ClientMessage = ClientRequest & { protocol_version: number };
 
 /** A message to the server, before it has the version of the protocol. */
@@ -905,7 +905,7 @@ export interface LobbySlot {
   faction?: string;
 }
 
-/** `ti4_server::maps::MapChoiceView` */
+/** `ti4_host::maps::MapChoiceView` */
 export interface MapChoiceView {
   kind: "template" | "random";
   alias?: string | null;
@@ -959,7 +959,7 @@ export interface SetupOptions {
   scenarios: { id: string; title: string; description: string; seed: number; players: number }[];
 }
 
-/** `ti4_server::maps::MapPreview`: the board that the table will play. */
+/** `ti4_host::maps::MapPreview`: the board that the table will play. */
 export interface MapPreview {
   player_count: number;
   tiles: BoardTileView[];

@@ -230,9 +230,9 @@ fn recovery_migrates_legacy_initialized_records_to_running_lobbies() {
     let store = Arc::new(FileGameStore::new(&path).expect("create store"));
     let players = vec![PlayerId::new("p1"), PlayerId::new("p2")];
     let content = ti4_content::ContentStore::embedded();
-    let (state, galaxy) = ti4_server::map::create_game_with_template(content, &players, 29, None)
+    let (state, galaxy) = ti4_host::map::create_game_with_template(content, &players, 29, None)
         .expect("create legacy map");
-    let map_tiles = ti4_server::map::build_board_tiles(content, &galaxy);
+    let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
     let registry = GameRegistry::new().with_store(store.clone());
     let legacy = registry
         .create_game(

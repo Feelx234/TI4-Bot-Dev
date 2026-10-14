@@ -14,10 +14,7 @@ use super::catalog;
 use super::template_loader::{MapTemplate, TemplateLoader};
 
 fn community() -> Vec<MapTemplate> {
-    serde_json::from_str(include_str!(
-        "../../../ti4-host/src/maps/community_maps.json"
-    ))
-    .expect("community_maps.json parses")
+    serde_json::from_str(include_str!("community_maps.json")).expect("community_maps.json parses")
 }
 
 #[test]

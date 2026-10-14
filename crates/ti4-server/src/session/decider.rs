@@ -5,8 +5,9 @@ use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObser
 use ti4_host::clock::NonceSource as _;
 use ti4_model::id::PlayerId;
 
-use crate::protocol::server::ActionAcceptedMsg;
-use crate::protocol::status::RejectionReason;
+use ti4_host::protocol::server::ActionAcceptedMsg;
+use ti4_host::protocol::status::RejectionReason;
+
 use crate::session::ready_secondary;
 use crate::session::worker::{PendingDecision, PendingSubmissionState, SessionShared};
 

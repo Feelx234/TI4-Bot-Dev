@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–3 done (2026-10-14); Steps 4–5 open.
+Status: Steps 1–4 done (2026-10-14); Step 5 open.
 
 ## Context
 

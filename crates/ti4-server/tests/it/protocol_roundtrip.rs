@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 use ti4_engine::choice::{Choice, ChoiceOption};
-use ti4_model::id::PlayerId;
-use ti4_server::protocol::client::ClientMessage;
-use ti4_server::protocol::error::{ErrorKind, ProtocolError};
-use ti4_server::protocol::server::{
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::error::{ErrorKind, ProtocolError};
+use ti4_host::protocol::server::{
     ActionAcceptedMsg, ActionRejectedMsg, GameOverMsg, PendingChoiceMsg, ProtocolErrorMsg,
     ServerMessage,
 };
-use ti4_server::protocol::status::RejectionReason;
-use ti4_server::protocol::{
+use ti4_host::protocol::status::RejectionReason;
+use ti4_host::protocol::{
     PROTOCOL_VERSION, parse_client_message, parse_server_message, validate_protocol_version,
 };
+use ti4_model::id::PlayerId;
 
 #[test]
 fn client_subscribe_round_trips() {
@@ -80,7 +80,7 @@ fn movement_edit_round_trips_with_only_a_server_script_identity() {
     let message = ClientMessage::EditPlanningMovement {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".into(),
-        identity: ti4_server::planning::runner::AttemptIdentity {
+        identity: ti4_host::planning::wire::AttemptIdentity {
             checkpoint_id: 10,
             plan_revision: 4,
             generation_id: 2,
@@ -96,10 +96,10 @@ fn movement_edit_round_trips_with_only_a_server_script_identity() {
 
 #[test]
 fn planning_updates_and_results_round_trip_without_a_live_game_version() {
-    use ti4_server::planning::runner::{
+    use ti4_host::planning::wire::{
         AttemptIdentity, FailureCategory, PlanningEnvelope, PlanningUpdate, Progress,
     };
-    use ti4_server::protocol::server::{PlanningRejection, PlanningResultMsg, PlanningUpdateMsg};
+    use ti4_host::protocol::server::{PlanningRejection, PlanningResultMsg, PlanningUpdateMsg};
     let identity = AttemptIdentity {
         checkpoint_id: 10,
         plan_revision: 2,
@@ -262,7 +262,7 @@ fn server_pending_choice_round_trips() {
             ],
         ),
         state,
-        galaxy_layout: ti4_server::map::GalaxyLayout {
+        galaxy_layout: ti4_host::map::GalaxyLayout {
             version: 1,
             active_sources: vec!["base".to_owned()],
             placements: Vec::new(),
@@ -276,15 +276,15 @@ fn server_pending_choice_round_trips() {
 
 #[test]
 fn server_event_round_trips() {
-    let msg = ServerMessage::Event(ti4_server::protocol::server::GameEventMsg {
+    let msg = ServerMessage::Event(ti4_host::protocol::server::GameEventMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
-        entry: ti4_server::protocol::server::GameEvent {
+        entry: ti4_host::protocol::server::GameEvent {
             id: "game_abc-1".to_owned(),
             timestamp: "12:34:56".to_owned(),
             version: Some(2),
-            visibility: ti4_server::protocol::server::EventVisibility::Public,
-            event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
+            visibility: ti4_host::protocol::server::EventVisibility::Public,
+            event: ti4_host::protocol::server::GameEventKind::DecisionResolved,
             decision_count: Some(1),
             batch_id: None,
             batch_start_cursor: None,
@@ -388,8 +388,8 @@ fn subscribe_accepts_only_the_v3_player_session_field() {
 fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
     use ti4_host::planning::draft::DraftStep;
     use ti4_host::planning::steps::PlanStep;
-    use ti4_server::protocol::client::MAX_SCRIPT_ENTRIES;
-    use ti4_server::protocol::server::{DraftAppliedMsg, ScriptStopped};
+    use ti4_host::protocol::client::MAX_SCRIPT_ENTRIES;
+    use ti4_host::protocol::server::{DraftAppliedMsg, ScriptStopped};
 
     // The script of the page: an answer by its id, then the steps as `submitPlan` has them.
     let json = serde_json::json!({
@@ -458,8 +458,8 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
 
 #[test]
 fn the_undo_of_a_seat_round_trips_and_is_absent_from_a_message_without_it() {
-    use ti4_server::protocol::server::{ActionRejectedMsg, HistoryStatus};
-    use ti4_server::protocol::status::UndoBarrier;
+    use ti4_host::protocol::server::{ActionRejectedMsg, HistoryStatus};
+    use ti4_host::protocol::status::UndoBarrier;
 
     let json = serde_json::json!({
         "type": "undo",

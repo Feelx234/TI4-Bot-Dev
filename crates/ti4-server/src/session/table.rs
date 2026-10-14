@@ -8,8 +8,9 @@ use serde::{Deserialize, Deserializer};
 use ti4_host::setup::TableSetup;
 use ti4_model::id::PlayerId;
 
+use ti4_host::maps::MapChoice;
+
 use super::registry::LobbyError;
-use crate::maps::MapChoice;
 use crate::storage::{LobbySlotId, PlayerLobbyRecord, PlayerLobbySlot};
 
 pub use ti4_host::setup::{
@@ -87,7 +88,7 @@ where
 pub struct TableSettings {
     /// 2 to 8.
     pub player_count: Option<usize>,
-    /// One of [`crate::card_set::OFFERED`].
+    /// One of [`ti4_host::setup::card_set::OFFERED`].
     pub strategy_card_set: Option<String>,
     /// 0 to [`MAX_BOT_DELAY_MS`].
     pub bot_delay_ms: Option<u64>,
@@ -171,7 +172,7 @@ fn resize(record: &mut PlayerLobbyRecord, count: usize) -> Result<(), LobbyError
         }
     }
     if record.map_template.is_some() {
-        record.map_template = crate::maps::catalog::recommended_for(count);
+        record.map_template = ti4_host::maps::catalog::recommended_for(count);
     }
     record.map_revision += 1;
     Ok(())
@@ -237,7 +238,7 @@ pub fn apply_settings(
         resize(&mut updated, count)?;
     }
     if let Some(name) = &settings.strategy_card_set {
-        let set = crate::card_set::validate(name)
+        let set = ti4_host::setup::card_set::validate(name)
             .map_err(|error| LobbyError::InvalidSetting(error.to_string()))?;
         updated.strategy_card_set = Some(set.to_owned());
     }
@@ -357,10 +358,13 @@ mod tests {
     #[test]
     fn the_map_follows_the_count_and_a_random_board_stays_random() {
         let mut record = table(4);
-        record.map_template = crate::maps::catalog::recommended_for(4);
+        record.map_template = ti4_host::maps::catalog::recommended_for(4);
         assert!(record.map_template.is_some());
         let six = apply_settings(&record, &count(6), false).unwrap();
-        assert_eq!(six.map_template, crate::maps::catalog::recommended_for(6));
+        assert_eq!(
+            six.map_template,
+            ti4_host::maps::catalog::recommended_for(6)
+        );
         assert_ne!(six.map_template, record.map_template);
 
         record.map_template = None;

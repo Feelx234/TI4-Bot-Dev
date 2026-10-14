@@ -8,12 +8,12 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::client::{ClientMessage, MAX_STAGED_VALUE_BYTES};
+use ti4_host::protocol::error::ErrorKind;
+use ti4_host::protocol::server::{SeatStagedMsg, ServerMessage};
+use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::PlayerId;
-use ti4_server::protocol::PROTOCOL_VERSION;
-use ti4_server::protocol::client::{ClientMessage, MAX_STAGED_VALUE_BYTES};
-use ti4_server::protocol::error::ErrorKind;
-use ti4_server::protocol::server::{SeatStagedMsg, ServerMessage};
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::staged::{Put, StagedSlot};
 use ti4_server::session::{GameRegistry, MockClient};
 use ti4_server::storage::FileGameStore;
@@ -38,7 +38,7 @@ fn game(registry: &GameRegistry, game_id: &str) -> (PlayerId, String) {
             "Host",
             None,
             None,
-            ti4_server::card_set::DEFAULT,
+            ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
             ti4_server::session::table::SeatOrder::Join,
             Some(0),

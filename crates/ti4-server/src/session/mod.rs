@@ -5,7 +5,6 @@ mod planning;
 pub mod preview;
 pub mod random_bot;
 pub mod reach;
-pub mod reaction_modes;
 pub(crate) mod ready_secondary;
 pub mod registry;
 pub(crate) mod script;
@@ -30,8 +29,10 @@ use ti4_engine::fingerprint::CanonicalHash;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
-use crate::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg, ServerMessage};
+use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::view::reaction_modes;
+
 use crate::session::decider::ChoiceSubmission;
 use crate::session::worker::{
     PendingSubmissionState, SessionShared, Subscriber, spawn_session_worker,
@@ -122,7 +123,7 @@ impl SeatController {
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
     /// In-memory drafts carried across session replacement (undo/redo).
-    pub plans: BTreeMap<PlayerId, crate::planning::runner::PlayerPlan>,
+    pub plans: BTreeMap<PlayerId, ti4_host::planning::wire::PlayerPlan>,
     pub game_id: String,
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
@@ -131,17 +132,17 @@ pub struct SessionConfig {
     pub nicknames: BTreeMap<PlayerId, String>,
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
-    pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
-    pub galaxy_layout: crate::map::GalaxyLayout,
+    pub map_tiles: Vec<ti4_host::protocol::view::BoardTileView>,
+    pub galaxy_layout: ti4_host::map::GalaxyLayout,
     pub seed: Option<u64>,
     pub player_ids: Vec<PlayerId>,
     pub store: Option<Arc<crate::storage::FileGameStore>>,
     pub prior_decisions: Vec<DecisionRecord>,
-    pub prior_events: Vec<crate::protocol::server::GameEvent>,
+    pub prior_events: Vec<ti4_host::protocol::server::GameEvent>,
     pub initial_version: u64,
     pub redo_decisions: Vec<DecisionRecord>,
     pub history_active: bool,
-    pub redo_events: Vec<crate::protocol::server::GameEvent>,
+    pub redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     pub event_counter: u64,
     pub history_generation: u64,
     pub batches: Vec<crate::storage::BatchRecord>,
@@ -211,7 +212,7 @@ impl SessionConfig {
             seat_tokens: BTreeMap::new(),
             galaxy: None,
             map_tiles: Vec::new(),
-            galaxy_layout: crate::map::GalaxyLayout {
+            galaxy_layout: ti4_host::map::GalaxyLayout {
                 version: 1,
                 active_sources: Vec::new(),
                 placements: Vec::new(),
@@ -260,11 +261,11 @@ impl SessionConfig {
     pub fn with_galaxy(
         mut self,
         galaxy: ti4_content::galaxy::Galaxy,
-        map_tiles: Vec<crate::protocol::view::BoardTileView>,
+        map_tiles: Vec<ti4_host::protocol::view::BoardTileView>,
     ) -> Self {
         self.galaxy = Some(galaxy);
         self.map_tiles = map_tiles;
-        self.galaxy_layout = crate::map::GalaxyLayout::from_galaxy(
+        self.galaxy_layout = ti4_host::map::GalaxyLayout::from_galaxy(
             self.galaxy.as_ref().expect("galaxy just assigned"),
             ti4_model::content_types::POK,
         );
@@ -299,7 +300,7 @@ impl SessionConfig {
     pub fn with_prior_history(
         mut self,
         decisions: Vec<DecisionRecord>,
-        events: Vec<crate::protocol::server::GameEvent>,
+        events: Vec<ti4_host::protocol::server::GameEvent>,
     ) -> Self {
         self.replay_boundary_state = None;
         self.prior_decisions = decisions;
@@ -337,7 +338,7 @@ impl GameSession {
     pub fn start_recovered(
         mut config: SessionConfig,
         prior_decisions: Vec<DecisionRecord>,
-        prior_events: Vec<crate::protocol::server::GameEvent>,
+        prior_events: Vec<ti4_host::protocol::server::GameEvent>,
     ) -> Self {
         let game_id = config.game_id.clone();
         if config.prior_decisions != prior_decisions {
@@ -488,7 +489,7 @@ impl GameSession {
             .as_ref()
             .map(|p| (&p.choice, p.nonce.as_str()));
 
-        let mut snapshot = crate::projection::project_initial_snapshot_with_map(
+        let mut snapshot = ti4_host::projection::project_initial_snapshot_with_map(
             &self.game_id,
             lock.game_version,
             &lock.latest_state,
@@ -508,7 +509,7 @@ impl GameSession {
         snapshot.history.can_undo = lock.can_undo(viewer);
         snapshot.seats = lock.table_seats();
         snapshot.reaction_modes = lock.reaction_modes_for(viewer);
-        snapshot.current_path = crate::protocol::server::current_log_path(
+        snapshot.current_path = ti4_host::protocol::server::current_log_path(
             &lock.latest_state,
             pending.map(|(choice, _)| choice),
             &lock.decision_log,
@@ -560,7 +561,7 @@ impl GameSession {
 
     /// Returns static board tiles for the game session.
     #[must_use]
-    pub fn map_tiles(&self) -> Vec<crate::protocol::view::BoardTileView> {
+    pub fn map_tiles(&self) -> Vec<ti4_host::protocol::view::BoardTileView> {
         let lock = self.shared.lock().expect("shared lock");
         lock.map_tiles.clone()
     }
@@ -664,14 +665,14 @@ impl GameSession {
 
     /// Returns the accumulated authoritative game event log.
     #[must_use]
-    pub fn event_log(&self) -> Vec<crate::protocol::server::GameEvent> {
+    pub fn event_log(&self) -> Vec<ti4_host::protocol::server::GameEvent> {
         self.shared.lock().expect("shared lock").event_log.clone()
     }
 
     /// Public decision cursor and the number of decisions available for redo.
-    pub fn history_status(&self) -> crate::protocol::server::HistoryStatus {
+    pub fn history_status(&self) -> ti4_host::protocol::server::HistoryStatus {
         let lock = self.shared.lock().expect("shared lock");
-        crate::protocol::server::HistoryStatus {
+        ti4_host::protocol::server::HistoryStatus {
             cursor: lock.decision_log.len(),
             redo_count: lock.redo_decisions.len(),
             generation: lock.history_generation,
@@ -838,7 +839,7 @@ impl GameSession {
         &self,
         seat: &PlayerId,
         request: &preview::PreviewRequest,
-    ) -> crate::protocol::server::SecondaryPreviewMsg {
+    ) -> ti4_host::protocol::server::SecondaryPreviewMsg {
         preview::answer(&self.shared, &self.game_id, seat, request)
     }
 
@@ -849,7 +850,7 @@ impl GameSession {
         &self,
         request_id: u64,
         system_id: &str,
-    ) -> crate::protocol::reach::ReachIntoMsg {
+    ) -> ti4_host::protocol::reach::ReachIntoMsg {
         reach::answer(&self.shared, &self.game_id, request_id, system_id)
     }
 
@@ -867,7 +868,7 @@ impl GameSession {
     pub fn reaction_intent_state(
         &self,
         seat: &PlayerId,
-    ) -> crate::protocol::server::ReactionIntentStateMsg {
+    ) -> ti4_host::protocol::server::ReactionIntentStateMsg {
         self.shared
             .lock()
             .expect("shared lock")
@@ -914,7 +915,7 @@ impl GameSession {
     pub fn submit_planning_choice(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
         option_id: &str,
     ) -> Result<(), PlanningError> {
         self.submit_planning_choice_with_request_id(player, identity, option_id, None)
@@ -923,7 +924,7 @@ impl GameSession {
     pub fn submit_planning_choice_with_request_id(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
         option_id: &str,
         request_id: Option<&str>,
     ) -> Result<(), PlanningError> {
@@ -933,7 +934,7 @@ impl GameSession {
         }
         if lock.planning.has_application(player) {
             return Err(PlanningError::Submission(
-                crate::planning::runner::SubmissionError::NotWaiting,
+                ti4_host::planning::wire::SubmissionError::NotWaiting,
             ));
         }
         lock.planning
@@ -947,7 +948,7 @@ impl GameSession {
     pub fn reset_planning(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> Result<(), PlanningError> {
         let mut lock = self.shared.lock().expect("shared lock");
         if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
@@ -959,7 +960,7 @@ impl GameSession {
     pub fn edit_planning_movement(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> Result<(), PlanningError> {
         let mut lock = self.shared.lock().expect("shared lock");
         if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
@@ -973,7 +974,7 @@ impl GameSession {
     pub fn apply_planning(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
         nonce: &str,
         expected_version: u64,
     ) -> Result<(), PlanningError> {
@@ -990,7 +991,7 @@ impl GameSession {
             || pending.game_version != expected_version
         {
             return Err(PlanningError::Submission(
-                crate::planning::runner::SubmissionError::Retired,
+                ti4_host::planning::wire::SubmissionError::Retired,
             ));
         }
         let plan = lock
@@ -1056,12 +1057,12 @@ impl GameSession {
                 lock.latest_state.clone(),
             )
         };
-        let update = crate::projection::project_session_update(
+        let update = ti4_host::projection::project_session_update(
             &state,
             &ViewerRole::Player(player.clone()),
             None,
             &tiles,
-            &crate::projection::facts_context(galaxy.as_deref()),
+            &ti4_host::projection::facts_context(galaxy.as_deref()),
         );
         let outcome = DraftOutcome {
             update,
@@ -1096,7 +1097,7 @@ impl GameSession {
         nonce: &str,
         expected_version: u64,
         script: &[ti4_host::planning::draft::DraftStep],
-    ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
+    ) -> Result<Option<ti4_host::protocol::server::ScriptStopped>, RejectionReason> {
         use ti4_host::planning::draft::{ScriptAnswer, script_answer};
         // The choice is reserved while the copy plays, so no other answer can take it.
         let (choice, copy, tail, never) = {
@@ -1216,9 +1217,9 @@ impl GameSession {
     pub fn secondary_planning(
         &self,
         player: &PlayerId,
-        request: &crate::protocol::client::SecondaryPlanningRequest,
+        request: &ti4_host::protocol::client::SecondaryPlanningRequest,
     ) -> Result<(), PlanningError> {
-        use crate::protocol::client::SecondaryPlanningRequest as Request;
+        use ti4_host::protocol::client::SecondaryPlanningRequest as Request;
         let mut lock = self.shared.lock().expect("shared lock");
         if lock.stopped || lock.finished || lock.error.is_some() || !lock.replay_complete {
             return Err(PlanningError::Unavailable);
@@ -1239,7 +1240,10 @@ impl GameSession {
         }
     }
 
-    pub fn planning_status(&self, player: &PlayerId) -> crate::protocol::server::PlanningStatusMsg {
+    pub fn planning_status(
+        &self,
+        player: &PlayerId,
+    ) -> ti4_host::protocol::server::PlanningStatusMsg {
         let lock = self.shared.lock().expect("shared lock");
         let available = !lock.stopped
             && !lock.finished
@@ -1255,8 +1259,8 @@ impl GameSession {
                             .is_ok()
                     })
             });
-        crate::protocol::server::PlanningStatusMsg {
-            protocol_version: crate::protocol::PROTOCOL_VERSION,
+        ti4_host::protocol::server::PlanningStatusMsg {
+            protocol_version: ti4_host::protocol::PROTOCOL_VERSION,
             game_id: self.game_id.clone(),
             checkpoint_id: lock.planning.checkpoint_id,
             available,
@@ -1288,7 +1292,7 @@ impl GameSession {
     pub(crate) fn subscribe_secondary_planning(
         &self,
         player: &PlayerId,
-    ) -> Option<mpsc::Receiver<crate::planning::runner::PlanningEnvelope>> {
+    ) -> Option<mpsc::Receiver<ti4_host::planning::wire::PlanningEnvelope>> {
         let lock = self.shared.lock().expect("shared lock");
         if lock.stopped || !lock.replay_complete {
             return None;
@@ -1301,7 +1305,7 @@ impl GameSession {
     pub(crate) fn secondary_attempt_is_current(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> bool {
         let lock = self.shared.lock().expect("shared lock");
         !lock.stopped
@@ -1316,7 +1320,7 @@ impl GameSession {
         &self,
         player: &PlayerId,
         timeout: std::time::Duration,
-    ) -> Result<crate::planning::runner::PlanningEnvelope, mpsc::RecvTimeoutError> {
+    ) -> Result<ti4_host::planning::wire::PlanningEnvelope, mpsc::RecvTimeoutError> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             {
@@ -1348,7 +1352,7 @@ impl GameSession {
     pub(crate) fn subscribe_planning(
         &self,
         player: &PlayerId,
-    ) -> Option<mpsc::Receiver<crate::planning::runner::PlanningEnvelope>> {
+    ) -> Option<mpsc::Receiver<ti4_host::planning::wire::PlanningEnvelope>> {
         let lock = self.shared.lock().expect("shared lock");
         if lock.stopped || !lock.replay_complete {
             return None;
@@ -1362,7 +1366,7 @@ impl GameSession {
     pub(crate) fn planning_attempt_is_current(
         &self,
         player: &PlayerId,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> bool {
         let lock = self.shared.lock().expect("shared lock");
         !lock.stopped
@@ -1379,7 +1383,7 @@ impl GameSession {
         &self,
         player: &PlayerId,
         timeout: std::time::Duration,
-    ) -> Result<crate::planning::runner::PlanningEnvelope, mpsc::RecvTimeoutError> {
+    ) -> Result<ti4_host::planning::wire::PlanningEnvelope, mpsc::RecvTimeoutError> {
         let deadline = std::time::Instant::now() + timeout;
         loop {
             {
@@ -1409,7 +1413,7 @@ impl GameSession {
     }
 
     /// Scripts survive stopped attempts and session replacement.
-    pub fn plans(&self) -> BTreeMap<PlayerId, crate::planning::runner::PlayerPlan> {
+    pub fn plans(&self) -> BTreeMap<PlayerId, ti4_host::planning::wire::PlayerPlan> {
         self.shared.lock().expect("shared lock").planning.plans()
     }
 
@@ -1575,7 +1579,7 @@ impl GameSession {
             .clone()
     }
 
-    pub fn history_events(&self) -> (Vec<crate::protocol::server::GameEvent>, u64) {
+    pub fn history_events(&self) -> (Vec<ti4_host::protocol::server::GameEvent>, u64) {
         let lock = self.shared.lock().expect("shared lock");
         (lock.redo_events.clone(), lock.event_counter)
     }

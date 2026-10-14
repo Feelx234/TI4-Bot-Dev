@@ -9,10 +9,10 @@ use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
 use ti4_content::ContentStore;
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::protocol::turn_redo::{TurnRedoStage, TurnRedoStop};
 use ti4_model::id::PlayerId;
 use ti4_server::create_app;
-use ti4_server::protocol::status::ViewerRole;
-use ti4_server::protocol::turn_redo::{TurnRedoStage, TurnRedoStop};
 use ti4_server::session::registry::HistoryError;
 use ti4_server::session::turn_redo::find_turns;
 use ti4_server::session::{GameRegistry, GameSession, SeatController, SessionConfig};
@@ -42,9 +42,9 @@ fn table(id: &str, third: SeatController, store: Option<Arc<FileGameStore>>) -> 
     let players = vec![host.clone(), guest.clone(), third_seat.clone()];
     let seed = 42;
     let (state, galaxy) =
-        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
+        ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, seed, None)
             .unwrap();
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(id, state)
         .with_seed(seed)
         .with_player_ids(players)
@@ -140,7 +140,7 @@ impl Table3 {
             .map(|_| ())
     }
 
-    fn status(&self, token: &str) -> Option<ti4_server::protocol::turn_redo::TurnRedoStatus> {
+    fn status(&self, token: &str) -> Option<ti4_host::protocol::turn_redo::TurnRedoStatus> {
         self.registry.turn_redo_status(&self.id, token).unwrap()
     }
 }
@@ -387,7 +387,7 @@ fn a_new_turn_then_autoplay_keeps_the_round_and_a_second_redo_keeps_the_first_or
         .filter(|e| {
             matches!(
                 e.event,
-                ti4_server::protocol::server::GameEventKind::DecisionResolved
+                ti4_host::protocol::server::GameEventKind::DecisionResolved
             )
         })
         .count();

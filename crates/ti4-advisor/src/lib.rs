@@ -17,6 +17,7 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_engine::laws;
+use ti4_host::map::GalaxyLayout;
 use ti4_mlp::{Actor, CriticInput, FactionRow, SparseOption};
 use ti4_model::content_types::{POK, Source, SourceSet};
 use ti4_model::hex::Hex;
@@ -25,7 +26,6 @@ use ti4_model::state::GameState;
 use ti4_policy::critic::{CriticFeatures, critic_vector};
 use ti4_policy::progress::Baseline;
 use ti4_policy::vocabulary::Vocabulary;
-use ti4_server::map::GalaxyLayout;
 
 const MAX_OPTIONS: usize = 512;
 const MAX_PLACEMENTS: usize = odds::MAX_PLACEMENTS;
@@ -535,12 +535,12 @@ mod tests {
             version: 1,
             active_sources: vec!["base".to_owned(), "pok".to_owned()],
             placements: vec![
-                ti4_server::map::GalaxyPlacement {
+                ti4_host::map::GalaxyPlacement {
                     system_id: "18".to_owned(),
                     q: 0,
                     r: 0,
                 },
-                ti4_server::map::GalaxyPlacement {
+                ti4_host::map::GalaxyPlacement {
                     system_id: "39".to_owned(),
                     q: 2,
                     r: 0,
@@ -568,7 +568,7 @@ mod tests {
     fn duplicate_layout_systems_are_rejected() {
         let content = ContentStore::embedded();
         let mut invalid = layout();
-        invalid.placements.push(ti4_server::map::GalaxyPlacement {
+        invalid.placements.push(ti4_host::map::GalaxyPlacement {
             system_id: "18".to_owned(),
             q: 1,
             r: 0,

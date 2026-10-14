@@ -14,15 +14,16 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::client::ClientMessage;
-use crate::protocol::error::ErrorKind;
-use crate::protocol::server::{
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::error::ErrorKind;
+use ti4_host::protocol::server::{
     ActionRejectedMsg, DraftAppliedMsg, DraftKind, DraftOutcomeMsg, PlanningRejection,
     PlanningResultMsg, PlanningUpdateMsg, PongMsg, PreviewRefusal, PreviewResult, ProtocolErrorMsg,
     SecondaryPreviewMsg, ServerMessage,
 };
-use crate::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+
 use crate::session::preview::PreviewRequest;
 use crate::session::{GameRegistry, GameSession};
 
@@ -1023,14 +1024,14 @@ async fn handle_socket(
                 {
                     let _ = outbound_tx
                         .send(ServerMessage::ReachInto(
-                            crate::protocol::reach::ReachIntoMsg {
+                            ti4_host::protocol::reach::ReachIntoMsg {
                                 protocol_version: PROTOCOL_VERSION,
                                 game_id: game_id.clone(),
                                 request_id,
                                 system_id,
                                 as_of_version: session.game_version(),
                                 origins: Vec::new(),
-                                refused: Some(crate::protocol::reach::ReachRefusal::RateLimited),
+                                refused: Some(ti4_host::protocol::reach::ReachRefusal::RateLimited),
                             },
                         ))
                         .await;

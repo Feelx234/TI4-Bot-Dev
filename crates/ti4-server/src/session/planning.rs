@@ -5,14 +5,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::game::Game;
+use ti4_host::planning::RecordedDecision;
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::wire::{AttemptIdentity, PlayerPlan, SubmissionError};
+use ti4_host::protocol::server::{DraftApplication, DraftApplicationState, SecondaryDraftStatus};
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::Phase;
 
-use crate::planning::RecordedDecision;
-use crate::planning::runner::{
-    AttemptIdentity, PlanScope, PlanningRunner, PlayerPlan, SubmissionError,
-};
-use crate::protocol::server::{DraftApplication, DraftApplicationState, SecondaryDraftStatus};
+use crate::planning::runner::PlanningRunner;
 
 // Checkpoint identities stay distinct even when undo replaces the whole session.
 static NEXT_CHECKPOINT: AtomicU64 = AtomicU64::new(1);
@@ -185,7 +185,7 @@ impl SessionPlanning {
     pub fn reset(
         &mut self,
         player: &PlayerId,
-        identity: super::super::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> Result<(), PlanningError> {
         if self.closed || !self.available {
             return Err(PlanningError::Unavailable);

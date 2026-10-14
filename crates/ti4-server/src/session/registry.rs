@@ -8,8 +8,9 @@ use serde::Serialize;
 use ti4_content::ContentStore;
 use ti4_model::id::PlayerId;
 
-use crate::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
-use crate::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::protocol::server::{ActionAcceptedMsg, InitialSnapshotMsg};
+use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+
 use crate::session::batch::{BatchFailure, BatchRequest, simulate};
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
@@ -64,9 +65,9 @@ mod committed_worker_tests {
         let guest = PlayerId::new("p2");
         let players = vec![host.clone(), guest.clone()];
         let (state, galaxy) =
-            crate::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
                 .unwrap();
-        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
         let config = SessionConfig::new("replay_retry", state)
             .with_seed(42)
             .with_player_ids(players)
@@ -210,9 +211,9 @@ mod committed_worker_tests {
         let guest = PlayerId::new("p2");
         let players = vec![host.clone(), guest.clone()];
         let (state, galaxy) =
-            crate::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
                 .unwrap();
-        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
         let config = SessionConfig::new(game_id, state)
             .with_seed(42)
             .with_player_ids(players)
@@ -397,8 +398,8 @@ mod committed_worker_tests {
 struct Timeline {
     current: Vec<ti4_engine::choice::DecisionRecord>,
     redo: Vec<ti4_engine::choice::DecisionRecord>,
-    events: Vec<crate::protocol::server::GameEvent>,
-    redo_events: Vec<crate::protocol::server::GameEvent>,
+    events: Vec<ti4_host::protocol::server::GameEvent>,
+    redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     event_counter: u64,
 }
 
@@ -535,7 +536,7 @@ pub struct PlayerLobbyView {
     /// falls back to `bot_service_enabled`.
     pub bot_kinds: Vec<String>,
     /// What the table will play on; never the seed.
-    pub map: crate::maps::MapChoiceView,
+    pub map: ti4_host::maps::MapChoiceView,
     /// Changes whenever the previewed board changes; refetch the preview when it does.
     pub map_revision: u64,
     /// The strategy card set this table plays (`te`, `pok`, `base_game_codex1`); `pok` for a
@@ -632,7 +633,7 @@ impl PlayerLobbyRecord {
             seed,
             map_template: None,
             start_preset: None,
-            strategy_card_set: Some(crate::card_set::DEFAULT.to_owned()),
+            strategy_card_set: Some(ti4_host::setup::card_set::DEFAULT.to_owned()),
             speaker_order: None,
             map_revision: 0,
             seat_order: None,
@@ -737,8 +738,8 @@ impl PlayerLobbyRecord {
                 .iter()
                 .map(|kind| (*kind).to_owned())
                 .collect(),
-            map: crate::maps::catalog::describe(
-                &crate::maps::MapChoice::from_stored(self.map_template.as_deref()),
+            map: ti4_host::maps::catalog::describe(
+                &ti4_host::maps::MapChoice::from_stored(self.map_template.as_deref()),
                 self.slots.len(),
             ),
             map_revision: self.map_revision,
@@ -1187,7 +1188,7 @@ impl GameRegistry {
                 .as_ref()
                 .is_some_and(|c| c.phase == ti4_model::state::Phase::Action)
             {
-                crate::protocol::server::action_id_for(&all_decisions, start_cursor + i + 1)
+                ti4_host::protocol::server::action_id_for(&all_decisions, start_cursor + i + 1)
             } else {
                 None
             };
@@ -1196,26 +1197,27 @@ impl GameRegistry {
                 .and_then(|id| id.strip_prefix("action_"))
                 .and_then(|n| n.parse::<usize>().ok())
                 .and_then(|n| n.checked_sub(1));
-            let (detail, movement, seat_detail) = crate::protocol::server::verified_decision_facts(
-                decision,
-                Some(offered),
-                (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
-                    .then_some(request.plan.destination.as_str()),
-                &boundary_state,
-            );
-            let grouping = crate::protocol::server::decision_grouping(
+            let (detail, movement, seat_detail) =
+                ti4_host::protocol::server::verified_decision_facts(
+                    decision,
+                    Some(offered),
+                    (request.plan.kind == crate::session::batch::BatchKind::TacticalMovement)
+                        .then_some(request.plan.destination.as_str()),
+                    &boundary_state,
+                );
+            let grouping = ti4_host::protocol::server::decision_grouping(
                 decision,
                 Some(offered),
                 &all_decisions,
                 start_cursor + i + 1,
             );
             counter += 1;
-            events.push(crate::protocol::server::GameEvent {
+            events.push(ti4_host::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
                 timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
-                visibility: crate::protocol::server::EventVisibility::Public,
-                event: crate::protocol::server::GameEventKind::DecisionResolved,
+                visibility: ti4_host::protocol::server::EventVisibility::Public,
+                event: ti4_host::protocol::server::GameEventKind::DecisionResolved,
                 decision_count: Some(start_cursor + i + 1),
                 batch_id: Some(batch_id.clone()),
                 batch_start_cursor: Some(start_cursor),
@@ -1240,12 +1242,12 @@ impl GameRegistry {
                 .filter(|(cursor, _, _)| *cursor == start_cursor + i + 1)
             {
                 counter += 1;
-                events.push(crate::protocol::server::GameEvent {
+                events.push(ti4_host::protocol::server::GameEvent {
                     id: format!("{game_id}-{counter}"),
                     timestamp: timestamp.clone(),
                     version: Some(request.expected_version),
-                    visibility: crate::protocol::server::EventVisibility::Public,
-                    event: crate::protocol::server::GameEventKind::PhaseTransition {
+                    visibility: ti4_host::protocol::server::EventVisibility::Public,
+                    event: ti4_host::protocol::server::GameEventKind::PhaseTransition {
                         phase: *phase,
                         round: *round,
                     },
@@ -1277,17 +1279,17 @@ impl GameRegistry {
                     continue;
                 }
                 let active = boundary_state.active_system.as_ref().map(|id| id.as_str());
-                let Some(public) = crate::protocol::server::public_roll(*index, roll, active)
+                let Some(public) = ti4_host::protocol::server::public_roll(*index, roll, active)
                 else {
                     continue;
                 };
                 counter += 1;
-                events.push(crate::protocol::server::GameEvent {
+                events.push(ti4_host::protocol::server::GameEvent {
                     id: format!("{game_id}-{counter}"),
                     timestamp: timestamp.clone(),
                     version: Some(request.expected_version),
-                    visibility: crate::protocol::server::EventVisibility::Public,
-                    event: crate::protocol::server::GameEventKind::DiceRolled,
+                    visibility: ti4_host::protocol::server::EventVisibility::Public,
+                    event: ti4_host::protocol::server::GameEventKind::DiceRolled,
                     decision_count: Some(start_cursor + i + 1),
                     batch_id: None,
                     batch_start_cursor: None,
@@ -1310,12 +1312,12 @@ impl GameRegistry {
         }
         if let Some(winner) = simulation.winner {
             counter += 1;
-            events.push(crate::protocol::server::GameEvent {
+            events.push(ti4_host::protocol::server::GameEvent {
                 id: format!("{game_id}-{counter}"),
                 timestamp: timestamp.clone(),
                 version: Some(request.expected_version),
-                visibility: crate::protocol::server::EventVisibility::Public,
-                event: crate::protocol::server::GameEventKind::GameFinished { winner },
+                visibility: ti4_host::protocol::server::EventVisibility::Public,
+                event: ti4_host::protocol::server::GameEventKind::GameFinished { winner },
                 decision_count: Some(end_cursor),
                 batch_id: None,
                 batch_start_cursor: None,
@@ -1517,7 +1519,7 @@ impl GameRegistry {
         for event in &all_events {
             if matches!(
                 event.event,
-                crate::protocol::server::GameEventKind::DecisionResolved
+                ti4_host::protocol::server::GameEventKind::DecisionResolved
             ) {
                 count += 1;
             }
@@ -1643,8 +1645,8 @@ impl GameRegistry {
         &self,
         game_id: &str,
         credential: &str,
-        edit: &crate::protocol::splice::SpliceEdit,
-    ) -> Result<crate::protocol::splice::SplicePreview, HistoryError> {
+        edit: &ti4_host::protocol::splice::SpliceEdit,
+    ) -> Result<ti4_host::protocol::splice::SplicePreview, HistoryError> {
         let (decisions, config) = {
             let state = self.state.lock().expect("registry lock");
             Self::require_host(&state, game_id, credential)?;
@@ -1727,7 +1729,7 @@ impl GameRegistry {
                     .find(|event| {
                         matches!(
                             event.event,
-                            crate::protocol::server::GameEventKind::DecisionResolved
+                            ti4_host::protocol::server::GameEventKind::DecisionResolved
                         ) && event.decision_count == Some(last + 1)
                     })
                     .and_then(|event| event.action_id.as_ref())
@@ -1792,7 +1794,7 @@ impl GameRegistry {
                     .find(|event| {
                         matches!(
                             event.event,
-                            crate::protocol::server::GameEventKind::DecisionResolved
+                            ti4_host::protocol::server::GameEventKind::DecisionResolved
                         ) && event.decision_count == Some(current.len() + 1)
                     })
                     .and_then(|event| event.action_id.as_ref())
@@ -1831,7 +1833,7 @@ impl GameRegistry {
                     .find(|event| {
                         if matches!(
                             event.event,
-                            crate::protocol::server::GameEventKind::DecisionResolved
+                            ti4_host::protocol::server::GameEventKind::DecisionResolved
                         ) {
                             count += 1;
                         }
@@ -2496,7 +2498,7 @@ impl GameRegistry {
     }
 
     /// As [`Self::create_player_lobby_with_template`], also naming a start preset that prepares
-    /// the opening state (see [`crate::preset`]).
+    /// the opening state (see [`ti4_host::preset`]).
     pub fn create_player_lobby_with_options(
         &self,
         game_id: String,
@@ -2513,12 +2515,12 @@ impl GameRegistry {
             nickname,
             map_template,
             start_preset,
-            crate::card_set::DEFAULT,
+            ti4_host::setup::card_set::DEFAULT,
         )
     }
 
     /// As [`Self::create_player_lobby_with_options`], also naming the strategy card set
-    /// (one of [`crate::card_set::OFFERED`]).
+    /// (one of [`ti4_host::setup::card_set::OFFERED`]).
     #[allow(
         clippy::too_many_arguments,
         reason = "one argument per creation option"
@@ -2593,7 +2595,7 @@ impl GameRegistry {
         speaker_order: ti4_host::setup::SpeakerOrder,
         seat_order: super::table::SeatOrder,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
-        crate::card_set::validate(strategy_card_set)
+        ti4_host::setup::card_set::validate(strategy_card_set)
             .map_err(|error| LobbyError::Storage(error.to_string()))?;
         check_nickname(nickname)?;
         let mut state = self.state.lock().expect("registry lock");
@@ -2912,7 +2914,7 @@ impl GameRegistry {
         nonce: &str,
         version: u64,
         script: &[ti4_host::planning::draft::DraftStep],
-    ) -> Result<Option<crate::protocol::server::ScriptStopped>, RejectionReason> {
+    ) -> Result<Option<ti4_host::protocol::server::ScriptStopped>, RejectionReason> {
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         self.current_player_session(game_id, credential, player, session)
@@ -2988,8 +2990,8 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        answer: Option<(crate::planning::runner::AttemptIdentity, &str)>,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        answer: Option<(ti4_host::planning::wire::AttemptIdentity, &str)>,
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
         self.submit_player_planning_with_request_id(
             game_id, credential, player, session, answer, None,
         )
@@ -3001,9 +3003,9 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        answer: Option<(crate::planning::runner::AttemptIdentity, &str)>,
+        answer: Option<(ti4_host::planning::wire::AttemptIdentity, &str)>,
         request_id: Option<&str>,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
         self.player_planning_request(
             game_id,
             credential,
@@ -3022,8 +3024,8 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        identity: crate::planning::runner::AttemptIdentity,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        identity: ti4_host::planning::wire::AttemptIdentity,
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
         self.player_planning_request(
             game_id,
             credential,
@@ -3042,8 +3044,8 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        identity: crate::planning::runner::AttemptIdentity,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+        identity: ti4_host::planning::wire::AttemptIdentity,
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
         self.player_planning_request(
             game_id,
             credential,
@@ -3062,10 +3064,10 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        identity: crate::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
         nonce: &str,
         expected_version: u64,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
         self.player_planning_request(
             game_id,
             credential,
@@ -3085,9 +3087,9 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        request: &crate::protocol::client::SecondaryPlanningRequest,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
-        use crate::protocol::server::PlanningRejection as Rejection;
+        request: &ti4_host::protocol::client::SecondaryPlanningRequest,
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
+        use ti4_host::protocol::server::PlanningRejection as Rejection;
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         if self
@@ -3115,12 +3117,16 @@ impl GameRegistry {
         credential: &str,
         player: &PlayerId,
         session: &GameSession,
-        answer: Option<(crate::planning::runner::AttemptIdentity, &str, Option<&str>)>,
-        reset: Option<crate::planning::runner::AttemptIdentity>,
-        apply: Option<(crate::planning::runner::AttemptIdentity, &str, u64)>,
-        edit: Option<crate::planning::runner::AttemptIdentity>,
-    ) -> Result<(), crate::protocol::server::PlanningRejection> {
-        use crate::protocol::server::PlanningRejection as Rejection;
+        answer: Option<(
+            ti4_host::planning::wire::AttemptIdentity,
+            &str,
+            Option<&str>,
+        )>,
+        reset: Option<ti4_host::planning::wire::AttemptIdentity>,
+        apply: Option<(ti4_host::planning::wire::AttemptIdentity, &str, u64)>,
+        edit: Option<ti4_host::planning::wire::AttemptIdentity>,
+    ) -> Result<(), ti4_host::protocol::server::PlanningRejection> {
+        use ti4_host::protocol::server::PlanningRejection as Rejection;
         let gate = self.game_gate(game_id);
         let _reservation = gate.lock().expect("game gate lock");
         if self
@@ -3221,17 +3227,17 @@ impl GameRegistry {
     /// # Errors
     /// [`LobbyError::InvalidMap`] for an unknown, wrongly sized or unbuildable template;
     /// [`LobbyError::HostRequired`]; [`LobbyError::AlreadyRunning`]. `start_preset` is the dev
-    /// opening-state preset (see [`crate::preset`]); it is validated here and is not public.
+    /// opening-state preset (see [`ti4_host::preset`]); it is validated here and is not public.
     pub fn choose_player_lobby_map(
         &self,
         game_id: &str,
         credential: &str,
-        choice: &crate::maps::MapChoice,
+        choice: &ti4_host::maps::MapChoice,
         start_preset: Option<&str>,
     ) -> Result<PlayerLobbyView, LobbyError> {
         if let Some(name) = start_preset
             && !name.is_empty()
-            && !crate::preset::is_known(name)
+            && !ti4_host::preset::is_known(name)
         {
             return Err(LobbyError::InvalidMap(format!(
                 "unknown start_preset {name:?}"
@@ -3254,7 +3260,7 @@ impl GameRegistry {
             ));
         }
         let seed = rand::random::<u64>();
-        crate::maps::catalog::preview(choice, lobby.slots.len(), seed)
+        ti4_host::maps::catalog::preview(choice, lobby.slots.len(), seed)
             .map_err(LobbyError::InvalidMap)?;
         let mut updated = lobby.clone();
         updated.map_template = choice.stored();
@@ -3280,7 +3286,7 @@ impl GameRegistry {
     pub fn player_lobby_map_preview(
         &self,
         game_id: &str,
-    ) -> Result<crate::maps::MapPreview, LobbyError> {
+    ) -> Result<ti4_host::maps::MapPreview, LobbyError> {
         let setup = {
             let state = self.state.lock().expect("registry lock");
             let lobby = state
@@ -3381,7 +3387,7 @@ impl GameRegistry {
         let players = drawn.seated(&joined);
         let (initial_state, galaxy) =
             ti4_host::setup::create(content, &setup, &players, &drawn).map_err(LobbyError::Map)?;
-        let map_tiles = crate::map::build_board_tiles(content, &galaxy);
+        let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
         let mut config = SessionConfig::new(game_id, initial_state.clone())
             .with_seed(seed)
             .with_player_ids(players.clone())
@@ -4420,7 +4426,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         seat_tokens,
         galaxy: None,
         map_tiles: Vec::new(),
-        galaxy_layout: crate::map::GalaxyLayout {
+        galaxy_layout: ti4_host::map::GalaxyLayout {
             version: 1,
             active_sources: Vec::new(),
             placements: Vec::new(),
@@ -4538,7 +4544,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         seed: init.seed,
         galaxy: None,
         map_tiles: init.map_tiles.clone(),
-        galaxy_layout: crate::map::GalaxyLayout {
+        galaxy_layout: ti4_host::map::GalaxyLayout {
             version: 1,
             active_sources: Vec::new(),
             placements: Vec::new(),
@@ -4570,10 +4576,12 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
     })
 }
 
-fn planning_rejection(error: super::PlanningError) -> crate::protocol::server::PlanningRejection {
+fn planning_rejection(
+    error: super::PlanningError,
+) -> ti4_host::protocol::server::PlanningRejection {
     use super::PlanningError;
-    use crate::planning::runner::SubmissionError;
-    use crate::protocol::server::PlanningRejection as Rejection;
+    use ti4_host::planning::wire::SubmissionError;
+    use ti4_host::protocol::server::PlanningRejection as Rejection;
     match error {
         PlanningError::Unavailable => Rejection::Unavailable,
         PlanningError::UnknownSeat => Rejection::UnknownSeat,

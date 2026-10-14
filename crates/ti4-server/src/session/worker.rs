@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
-use crate::session::reaction_modes::NeverOffer;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{
     AlwaysDecline, Choice, ChoiceOption, Decider, DecisionRecord, FirstOption, IllegalChoice,
@@ -12,22 +11,23 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
-use ti4_model::id::PlayerId;
-use ti4_model::state::{GameState, ReactionMode};
-
-use crate::projection::project_turn_status;
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::server::{
+use ti4_host::clock::SystemClock;
+use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
+use ti4_host::projection::project_turn_status;
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::server::{
     EventVisibility, GameEvent, GameEventKind, GameOverMsg, MovementFact, PendingChoiceMsg,
     ServerMessage, TurnStatusMsg,
 };
-use crate::protocol::status::ViewerRole;
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
+use ti4_host::view::reaction_modes::NeverOffer;
+use ti4_model::id::PlayerId;
+use ti4_model::state::{GameState, ReactionMode};
+
 use crate::session::decider::{ChoiceSubmission, RemoteHumanDecider};
 use crate::session::{SeatController, SessionConfig};
 use crate::storage::FileGameStore;
-use ti4_host::clock::SystemClock;
-use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
-use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 
 /// State of a currently pending decision awaiting a human answer.
 #[derive(Debug, Clone)]
@@ -42,8 +42,8 @@ pub struct PendingDecision {
     pub reply_tx: Option<
         mpsc::Sender<
             Result<
-                crate::protocol::server::ActionAcceptedMsg,
-                crate::protocol::status::RejectionReason,
+                ti4_host::protocol::server::ActionAcceptedMsg,
+                ti4_host::protocol::status::RejectionReason,
             >,
         >,
     >,
@@ -99,8 +99,8 @@ pub struct SessionShared {
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
-    pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
-    pub galaxy_layout: crate::map::GalaxyLayout,
+    pub map_tiles: Vec<ti4_host::protocol::view::BoardTileView>,
+    pub galaxy_layout: ti4_host::map::GalaxyLayout,
     /// The map of the game, for the facts of a message and for a draft. `None` in a session
     /// that was made without one: its messages have no `tactical` and no `exploration`.
     pub galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
@@ -128,10 +128,10 @@ pub struct SessionShared {
     pub rng_marks: crate::session::RngMarks,
     /// Decisions auto-resolved since the last state update, with the seat they belong to.
     /// Transient by design: not persisted, so a restart's replay never re-announces them.
-    pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
+    pub pending_auto_resolved: Vec<(PlayerId, ti4_host::protocol::server::AutoResolvedNote)>,
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
-    pub reaction_modes: BTreeMap<PlayerId, crate::session::reaction_modes::NeverSet>,
+    pub reaction_modes: BTreeMap<PlayerId, ti4_host::view::reaction_modes::NeverSet>,
     /// The decisions that their seat may take back ([`super::undo`]).
     pub(crate) undo: super::undo::UndoTrack,
     /// The steps that the undo before this session took back, for the first snapshot of each
@@ -232,7 +232,7 @@ impl SessionShared {
     #[must_use]
     pub fn reaction_modes_snapshot(
         &self,
-    ) -> BTreeMap<PlayerId, crate::session::reaction_modes::Modes> {
+    ) -> BTreeMap<PlayerId, ti4_host::view::reaction_modes::Modes> {
         self.reaction_modes
             .iter()
             .map(|(seat, set)| (seat.clone(), set.lock().expect("never set lock").clone()))
@@ -273,7 +273,7 @@ impl SessionShared {
             return Err(format!("unknown reaction '{card}'"));
         }
         let before = set.lock().expect("never set lock").clone();
-        crate::session::reaction_modes::set_mode(
+        ti4_host::view::reaction_modes::set_mode(
             &mut set.lock().expect("never set lock"),
             card,
             mode,
@@ -376,7 +376,7 @@ impl SessionShared {
             stopped: false,
             error: None,
             map_tiles: Vec::new(),
-            galaxy_layout: crate::map::GalaxyLayout {
+            galaxy_layout: ti4_host::map::GalaxyLayout {
                 version: 1,
                 active_sources: Vec::new(),
                 placements: Vec::new(),
@@ -440,7 +440,7 @@ impl SessionShared {
         self.undone.retain(|seat, _| !decided.contains(seat));
     }
 
-    fn never_of(&self, seat: &PlayerId) -> crate::session::reaction_modes::Modes {
+    fn never_of(&self, seat: &PlayerId) -> ti4_host::view::reaction_modes::Modes {
         self.reaction_modes
             .get(seat)
             .map(|set| set.lock().expect("never set lock").clone())
@@ -468,9 +468,9 @@ impl SessionShared {
         expected_version: u64,
     ) -> Result<
         (usize, Vec<ti4_host::planning::steps::PlanStep>),
-        crate::protocol::status::RejectionReason,
+        ti4_host::protocol::status::RejectionReason,
     > {
-        use crate::protocol::status::RejectionReason;
+        use ti4_host::protocol::status::RejectionReason;
         if self.game_version != expected_version {
             return Err(RejectionReason::StaleVersion {
                 expected: expected_version,
@@ -519,7 +519,7 @@ impl SessionShared {
         decision_count: usize,
         detail: Option<String>,
         movement: Option<MovementFact>,
-        seat_detail: Option<crate::protocol::server::SeatDecisionDetail>,
+        seat_detail: Option<ti4_host::protocol::server::SeatDecisionDetail>,
     ) -> Result<(), String> {
         match journal::reconcile_with_redo(
             self.history_active,
@@ -580,7 +580,7 @@ impl SessionShared {
                     subscriber
                         .tx
                         .try_send(ServerMessage::Event(
-                            crate::protocol::server::GameEventMsg {
+                            ti4_host::protocol::server::GameEventMsg {
                                 protocol_version: PROTOCOL_VERSION,
                                 game_id: self.game_id.clone(),
                                 entry: projected,
@@ -598,7 +598,7 @@ impl SessionShared {
     /// Reads the engine's roll history only; nothing here can reach back into the game.
     pub fn record_rolls(
         &mut self,
-        rolls: Vec<crate::protocol::server::PublicRoll>,
+        rolls: Vec<ti4_host::protocol::server::PublicRoll>,
         version: Option<u64>,
     ) -> Result<(), String> {
         for roll in rolls {
@@ -635,7 +635,7 @@ impl SessionShared {
                         subscriber
                             .tx
                             .try_send(ServerMessage::Event(
-                                crate::protocol::server::GameEventMsg {
+                                ti4_host::protocol::server::GameEventMsg {
                                     protocol_version: PROTOCOL_VERSION,
                                     game_id: self.game_id.clone(),
                                     entry: projected,
@@ -666,7 +666,7 @@ impl SessionShared {
                     game_version,
                     nonce: nonce.to_owned(),
                     choice: choice.clone(),
-                    state: crate::projection::redacted_state(&state, viewer),
+                    state: ti4_host::projection::redacted_state(&state, viewer),
                     galaxy_layout: galaxy_layout.clone(),
                 })
             } else {
@@ -1270,8 +1270,12 @@ pub fn spawn_session_worker(
                 // choice for the next boundary instead of publishing an unverified play.
                 if record.context.as_ref().zip(selected.as_ref()).is_some_and(
                     |(context, option)| {
-                        crate::protocol::server::played_card_detail(context, option, &record.player)
-                            .is_some()
+                        ti4_host::protocol::server::played_card_detail(
+                            context,
+                            option,
+                            &record.player,
+                        )
+                        .is_some()
                             && !option
                                 .payload
                                 .get("card")
@@ -1293,7 +1297,7 @@ pub fn spawn_session_worker(
                 lock.decision_log = records[..start + index + 1].to_vec();
                 let version = lock.game_version;
                 let (detail, movement, seat_detail) =
-                    crate::protocol::server::verified_decision_facts(
+                    ti4_host::protocol::server::verified_decision_facts(
                         record,
                         selected.as_ref(),
                         state.active_system.as_ref().map(|id| id.as_str()),
@@ -1341,7 +1345,7 @@ pub fn spawn_session_worker(
                 {
                     replies.push((
                         reply,
-                        crate::protocol::server::ActionAcceptedMsg {
+                        ti4_host::protocol::server::ActionAcceptedMsg {
                             protocol_version: PROTOCOL_VERSION,
                             game_id: lock.game_id.clone(),
                             game_version: version,
@@ -1557,7 +1561,7 @@ pub fn spawn_session_worker(
                     );
                     for reply_tx in replies {
                         let _ = reply_tx.send(Err(
-                            crate::protocol::status::RejectionReason::ValidationFailed {
+                            ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                 message: "engine transition failed".to_owned(),
                             },
                         ));
@@ -1583,7 +1587,7 @@ pub fn spawn_session_worker(
                                 .and_then(|pending| pending.reply_tx.take())
                             {
                                 let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                    ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                         message: "decision could not be persisted".to_owned(),
                                     },
                                 ));
@@ -1598,7 +1602,7 @@ pub fn spawn_session_worker(
                         );
                         let offered = selected.as_ref();
                         let (detail, movement, seat_detail) =
-                            crate::protocol::server::verified_decision_facts(
+                            ti4_host::protocol::server::verified_decision_facts(
                                 record,
                                 offered,
                                 lock.latest_state
@@ -1626,7 +1630,7 @@ pub fn spawn_session_worker(
                                 .and_then(|pending| pending.reply_tx.take())
                             {
                                 let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                    ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                         message: "event could not be persisted".to_owned(),
                                     },
                                 ));
@@ -1654,7 +1658,7 @@ pub fn spawn_session_worker(
                         {
                             accepted_replies.push((
                                 reply_tx,
-                                crate::protocol::server::ActionAcceptedMsg {
+                                ti4_host::protocol::server::ActionAcceptedMsg {
                                     protocol_version: PROTOCOL_VERSION,
                                     game_id: lock.game_id.clone(),
                                     game_version: version,
@@ -1681,7 +1685,7 @@ pub fn spawn_session_worker(
                             .iter()
                             .enumerate()
                             .filter_map(|(offset, roll)| {
-                                crate::protocol::server::public_roll(
+                                ti4_host::protocol::server::public_roll(
                                     rolls_seen + offset,
                                     roll,
                                     active,
@@ -1710,7 +1714,7 @@ pub fn spawn_session_worker(
                         lock.error = Some(format!("failed to persist snapshot: {error}"));
                         for (reply_tx, _) in accepted_replies {
                             let _ = reply_tx.send(Err(
-                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                     message: "snapshot could not be persisted".to_owned(),
                                 },
                             ));
@@ -1753,7 +1757,7 @@ pub fn spawn_session_worker(
                         lock.error = Some(error);
                         for (reply_tx, _) in accepted_replies {
                             let _ = reply_tx.send(Err(
-                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                     message: "history could not be persisted".to_owned(),
                                 },
                             ));
@@ -1781,7 +1785,7 @@ pub fn spawn_session_worker(
                     lock.error = Some(error);
                     for (reply_tx, _) in accepted_replies {
                         let _ = reply_tx.send(Err(
-                            crate::protocol::status::RejectionReason::ValidationFailed {
+                            ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                 message: "history could not be persisted".to_owned(),
                             },
                         ));
@@ -1861,7 +1865,9 @@ mod auto_resolved_tests {
         rx
     }
 
-    fn notes(rx: &mpsc::Receiver<ServerMessage>) -> Vec<crate::protocol::server::AutoResolvedNote> {
+    fn notes(
+        rx: &mpsc::Receiver<ServerMessage>,
+    ) -> Vec<ti4_host::protocol::server::AutoResolvedNote> {
         match rx.try_recv().expect("a state update") {
             ServerMessage::StateUpdate(update) => update.auto_resolved,
             other => panic!("expected a state update, got {other:?}"),
@@ -1926,9 +1932,9 @@ mod tie_break_tests {
     fn tied_last_turn(game_id: &str, history_active: bool) -> SessionConfig {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            crate::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+            ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
                 .unwrap();
-        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+        let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
         let mut by_initiative: Vec<(StrategyCardId, i32)> = state
             .card_initiative
             .iter()

@@ -15,8 +15,9 @@ use ti4_engine::choice::DecisionRecord;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::protocol::server::GameEvent;
-use crate::protocol::view::BoardTileView;
+use ti4_host::protocol::server::GameEvent;
+use ti4_host::protocol::view::BoardTileView;
+
 use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
 
@@ -207,9 +208,9 @@ impl std::fmt::Debug for PlayerLobbyMember {
 
 /// The strategy card set of a record written before the option existed: those games keep the
 /// Prophecy of Kings cards they were recorded with; only newly created games default to
-/// [`crate::card_set::DEFAULT`]. The cards themselves are baked into the saved initial state, so
+/// [`ti4_host::setup::card_set::DEFAULT`]. The cards themselves are baked into the saved initial state, so
 /// a restart or a history replacement replays the same cards.
-pub const LEGACY_CARD_SET: &str = crate::card_set::POK;
+pub const LEGACY_CARD_SET: &str = ti4_host::setup::card_set::POK;
 
 /// The strategy card set a stored value stands for: a missing value is a legacy record.
 #[must_use]
@@ -230,10 +231,10 @@ pub struct PlayerLobbyRecord {
     pub seed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_template: Option<String>,
-    /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
+    /// Opening-state preset (see [`ti4_host::preset`]); the result is saved in the init record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
-    /// Strategy card set chosen at creation (see [`crate::card_set`]). Absent in records written
+    /// Strategy card set chosen at creation (see [`ti4_host::setup::card_set`]). Absent in records written
     /// before the option existed: those games play the PoK cards they were recorded with
     /// ([`LEGACY_CARD_SET`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -563,7 +564,7 @@ impl FileGameStore {
         for event in history.events.iter().chain(&history.redo_events) {
             if matches!(
                 event.event,
-                crate::protocol::server::GameEventKind::DecisionResolved
+                ti4_host::protocol::server::GameEventKind::DecisionResolved
             ) {
                 cursor += 1;
             }
@@ -604,7 +605,7 @@ impl FileGameStore {
                             && event.batch_id.as_deref() == Some(&batch.batch_id)
                             && matches!(
                                 event.event,
-                                crate::protocol::server::GameEventKind::DecisionResolved
+                                ti4_host::protocol::server::GameEventKind::DecisionResolved
                             )
                     })
                 {
@@ -621,7 +622,7 @@ impl FileGameStore {
                     .and_then(|value| value.parse::<usize>().ok());
                 if !matches!(
                     event.event,
-                    crate::protocol::server::GameEventKind::DecisionResolved
+                    ti4_host::protocol::server::GameEventKind::DecisionResolved
                 ) || !start.is_some_and(|start| {
                     start > 0
                         && start <= event.decision_count.unwrap_or(0)
@@ -640,7 +641,7 @@ impl FileGameStore {
                     &batch.batch_id == id
                         && matches!(
                             event.event,
-                            crate::protocol::server::GameEventKind::DecisionResolved
+                            ti4_host::protocol::server::GameEventKind::DecisionResolved
                         )
                         && event.decision_count.is_some_and(|cursor| {
                             cursor > batch.start_cursor && cursor <= batch.end_cursor
@@ -1107,7 +1108,7 @@ impl FileGameStore {
                     .map_err(StorageError::Map)?;
             Some(g)
         } else if let Some(seed) = init_record.seed {
-            let g = crate::map::rebuild_galaxy(
+            let g = ti4_host::map::rebuild_galaxy(
                 content,
                 &init_record.player_ids,
                 seed,
@@ -1122,7 +1123,7 @@ impl FileGameStore {
 
         let map_tiles = if init_record.map_tiles.is_empty() {
             if let Some(g) = &galaxy {
-                crate::map::build_board_tiles(content, g)
+                ti4_host::map::build_board_tiles(content, g)
             } else {
                 Vec::new()
             }
@@ -1186,7 +1187,7 @@ impl FileGameStore {
                 .filter(|entry| {
                     matches!(
                         entry.event,
-                        crate::protocol::server::GameEventKind::DecisionResolved
+                        ti4_host::protocol::server::GameEventKind::DecisionResolved
                     )
                 })
                 .count();
@@ -1571,7 +1572,7 @@ mod player_record_tests {
 
     #[test]
     fn only_offered_sets_validate_and_missing_means_pok() {
-        use crate::card_set::{DEFAULT, OFFERED, validate};
+        use ti4_host::setup::card_set::{DEFAULT, OFFERED, validate};
         for set in OFFERED {
             assert_eq!(validate(set), Ok(set));
         }

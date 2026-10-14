@@ -9,7 +9,6 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, SeatObservation, Table,
 };
@@ -17,11 +16,12 @@ use ti4_engine::game::Game;
 use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
 use ti4_host::planning::fork::TACTICAL_COMPLETE;
 use ti4_host::planning::steps::INTERRUPTED;
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::server::{DraftAppliedMsg, ScriptStopped, ServerMessage};
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::view::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
 
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::server::{DraftAppliedMsg, ScriptStopped, ServerMessage};
-use crate::protocol::status::ViewerRole;
 use crate::session::worker::SessionShared;
 
 /// How many engine steps the check of a script takes at most, as a run of a draft.
@@ -200,7 +200,7 @@ struct Probe {
     actor: PlayerId,
     /// The cards that the actor is never offered: the live game declines a window of such
     /// cards before the seat, and so before its script, is asked.
-    never: crate::session::reaction_modes::Modes,
+    never: ti4_host::view::reaction_modes::Modes,
     script: Vec<DraftStep>,
     next: usize,
     verdict: Option<Check>,
@@ -306,7 +306,7 @@ pub(crate) fn check_script(
     pending: &Choice,
     script: &[DraftStep],
     actor: &PlayerId,
-    never: crate::session::reaction_modes::Modes,
+    never: ti4_host::view::reaction_modes::Modes,
 ) -> Check {
     let probe = Arc::new(Mutex::new(Probe {
         tail: tail.into(),

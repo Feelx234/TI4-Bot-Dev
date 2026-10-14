@@ -23,14 +23,14 @@
 //! after the first live decision was recorded beyond the auto-play hand-off. Until then, restoring
 //! is exact: the decision log, events, redo list and batches come back unchanged.
 
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::protocol::turn_redo::{TurnRedoOutcome, TurnRedoStage, TurnRedoStatus};
 use ti4_model::id::PlayerId;
 
 use super::{
     Arc, GameHistory, GameRegistry, GameSession, HistoryError, InitialSnapshotMsg, RegistryState,
     SessionConfig,
 };
-use crate::protocol::status::ViewerRole;
-use crate::protocol::turn_redo::{TurnRedoOutcome, TurnRedoStage, TurnRedoStatus};
 use crate::session::replay::replay_session_with_copy;
 use crate::session::turn_redo::{
     AlternateTimeline, TurnRedoError, TurnRedoRecord, autoplay, events_through, find_turns,
@@ -52,8 +52,8 @@ struct Snapshot {
     config: SessionConfig,
     decisions: Vec<ti4_engine::choice::DecisionRecord>,
     redo: Vec<ti4_engine::choice::DecisionRecord>,
-    events: Vec<crate::protocol::server::GameEvent>,
-    redo_events: Vec<crate::protocol::server::GameEvent>,
+    events: Vec<ti4_host::protocol::server::GameEvent>,
+    redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     event_counter: u64,
     batches: Vec<crate::storage::BatchRecord>,
     marks: crate::session::RngMarks,
@@ -448,7 +448,7 @@ impl GameRegistry {
         next.outcome = Some(TurnRedoOutcome {
             kept: 0,
             tail_total: 0,
-            stop: crate::protocol::turn_redo::TurnRedoStop::TailExhausted,
+            stop: ti4_host::protocol::turn_redo::TurnRedoStop::TailExhausted,
             asking_seat: current
                 .session
                 .pending_prompt()

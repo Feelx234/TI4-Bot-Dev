@@ -4,10 +4,10 @@
 use std::fs;
 use std::sync::Arc;
 
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::PlayerId;
 use ti4_server::dev::execute_launch_scenario;
-use ti4_server::protocol::server::ServerMessage;
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::{GameRegistry, GameSession, MockClient};
 use ti4_server::storage::FileGameStore;
 

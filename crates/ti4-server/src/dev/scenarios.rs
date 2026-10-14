@@ -14,8 +14,9 @@ use ti4_model::units::Unit;
 use std::thread;
 use std::time::Duration;
 
-use crate::protocol::server::ServerMessage;
-use crate::protocol::status::ViewerRole;
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::ViewerRole;
+
 use crate::session::{GameRegistry, GameSession, MockClient, SeatController, SessionConfig};
 use crate::storage::{
     LobbySlotId, PLAYER_RECORD_VERSION, PersistedLobbyPhase, PlayerLobbyMember, PlayerLobbyRecord,
@@ -1096,7 +1097,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
 
     let player_ids = vec![p1.clone(), p2.clone(), p3.clone()];
     let (mut state, galaxy) =
-        crate::map::create_game_with_template(content, &player_ids, seed, None)?;
+        ti4_host::map::create_game_with_template(content, &player_ids, seed, None)?;
 
     // Sol: Leadership (initiative 1), Hacan: Trade (5), Letnev: Warfare (6)
     let strat_sol = StrategyCardId::new("leadership");
@@ -1121,7 +1122,7 @@ fn setup_base_3p_game(seed: u64, game_prefix: &str) -> Result<Base3pGameSetup, S
         sol.strategic_tokens = 2;
     }
 
-    let map_tiles = crate::map::build_board_tiles(content, &galaxy);
+    let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
     let game_id = format!("{game_prefix}_{:016x}", rand::random::<u64>());
 
     let mut config = SessionConfig::new(&game_id, state)

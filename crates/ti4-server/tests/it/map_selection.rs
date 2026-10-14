@@ -401,7 +401,7 @@ async fn every_startable_player_count_has_a_working_random_board() {
     // Seats seven and eight have factions of their own (`seating::EXTRA_SEAT_FACTIONS`), so
     // every table size the lobby allows has distinct homes.
     for n in 2..=8 {
-        ti4_server::maps::catalog::validate(&ti4_server::maps::MapChoice::Random, n)
+        ti4_host::maps::catalog::validate(&ti4_host::maps::MapChoice::Random, n)
             .unwrap_or_else(|e| panic!("random for {n}: {e}"));
     }
 }

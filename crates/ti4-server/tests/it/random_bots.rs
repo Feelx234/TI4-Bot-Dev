@@ -23,7 +23,7 @@ pub fn config_with(
     controllers: &[SeatController],
 ) -> SessionConfig {
     let ids = players(controllers.len());
-    let (state, galaxy) = ti4_server::map::create_game_with_template_seated(
+    let (state, galaxy) = ti4_host::map::create_game_with_template_seated(
         ContentStore::embedded(),
         &ids,
         seed,
@@ -32,7 +32,7 @@ pub fn config_with(
         Some(card_set),
     )
     .expect("create game");
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(id, state)
         .with_seed(seed)
         .with_player_ids(ids.clone())
@@ -247,8 +247,8 @@ fn the_same_game_with_a_wait_of_0_and_of_20_ms() {
 /// waits for, as when a person is asked.
 #[test]
 fn a_seat_that_waits_is_named_to_the_other_seats() {
-    use ti4_server::protocol::server::ServerMessage;
-    use ti4_server::protocol::status::{PublicTurnStatus, ViewerRole};
+    use ti4_host::protocol::server::ServerMessage;
+    use ti4_host::protocol::status::{PublicTurnStatus, ViewerRole};
 
     let config = bot_config("rb_wait_named", 3, 5, "te").with_random_bot_delay_ms(150);
     let session = GameSession::start(config);
@@ -316,7 +316,7 @@ impl HostTable {
             if let Some((seat, nonce, version)) = session.current_pending_decision() {
                 assert_eq!(seat.as_str(), "p1", "only the host seat is a person");
                 let option = session
-                    .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+                    .get_snapshot(&ti4_host::protocol::status::ViewerRole::Player(
                         seat.clone(),
                     ))
                     .pending_choice
@@ -563,7 +563,7 @@ fn a_movement_batch_commits_beside_bot_seats_and_undoes() {
         let session = t.session();
         let (seat, nonce, version) = session.current_pending_decision().expect("host asked");
         let choice = session
-            .get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+            .get_snapshot(&ti4_host::protocol::status::ViewerRole::Player(
                 seat.clone(),
             ))
             .pending_choice

@@ -10,11 +10,11 @@ use tokio_tungstenite::tungstenite::Message;
 
 use ti4_host::planning::draft::DraftStep;
 use ti4_host::planning::steps::PlanStep;
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::{RejectionReason, UndoBarrier, ViewerRole};
 use ti4_model::id::PlayerId;
-use ti4_server::protocol::PROTOCOL_VERSION;
-use ti4_server::protocol::client::ClientMessage;
-use ti4_server::protocol::server::ServerMessage;
-use ti4_server::protocol::status::{RejectionReason, UndoBarrier, ViewerRole};
 use ti4_server::session::{GameRegistry, GameSession};
 
 use crate::draft_scripts::{
@@ -32,7 +32,7 @@ fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
             "Host",
             None,
             None,
-            ti4_server::card_set::DEFAULT,
+            ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
             ti4_server::session::table::SeatOrder::Join,
             None,

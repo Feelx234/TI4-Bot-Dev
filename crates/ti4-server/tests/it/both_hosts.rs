@@ -85,7 +85,7 @@ fn on_the_server(setup: &TableSetup, seats: &Seats, decisions: usize) -> Vec<Dec
     let drawn = setup::draw(setup, &chosen).expect("the table is drawn");
     let players = drawn.seated(&joined);
     let (state, galaxy) = setup::create(content, setup, &players, &drawn).expect("the game");
-    let tiles = ti4_server::map::build_board_tiles(content, &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(content, &galaxy);
     let mut config = SessionConfig::new("both_hosts", state)
         .with_seed(setup.game_seed())
         .with_player_ids(players)

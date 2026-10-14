@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use reqwest::StatusCode;
 use serde_json::json;
 use ti4_content::ContentStore;
+use ti4_host::protocol::status::ViewerRole;
 use ti4_host::view::scenario::LATE_GAME;
 use ti4_model::id::PlayerId;
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::public::PublicConfig;
 use ti4_server::session::registry::LobbyError;
 use ti4_server::session::table::TableSettings;
@@ -131,7 +131,7 @@ async fn a_table_of_two_people_and_bots_starts_the_late_game_and_recovers_it() {
         serde_json::to_value(&expected).unwrap()
     );
     assert_eq!(init.start_from.as_deref(), Some(LATE_GAME));
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     assert_eq!(session.map_tiles(), tiles);
     let state = session.current_state();
     assert_eq!(state.round, 4);

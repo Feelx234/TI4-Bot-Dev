@@ -14,7 +14,6 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_engine::observation::ExecutionObservation;
 use ti4_host::planning::audit::learned_identity;
@@ -22,6 +21,7 @@ use ti4_host::planning::steps::PlanStep;
 use ti4_host::projection::project_game_view;
 use ti4_host::protocol::status::{UndoBarrier, ViewerRole};
 use ti4_host::protocol::view::GameView;
+use ti4_host::view::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
@@ -127,7 +127,7 @@ impl UndoTrack {
     fn start(
         &self,
         seat: &PlayerId,
-        never: &crate::session::reaction_modes::Modes,
+        never: &ti4_host::view::reaction_modes::Modes,
     ) -> Option<usize> {
         (self.owner() == Some(seat))
             .then(|| start(&self.tail, never))
@@ -138,7 +138,7 @@ impl UndoTrack {
     pub(crate) fn can_undo(
         &self,
         seat: &PlayerId,
-        never: &crate::session::reaction_modes::Modes,
+        never: &ti4_host::view::reaction_modes::Modes,
     ) -> bool {
         self.start(seat, never).is_some()
     }
@@ -153,7 +153,7 @@ impl UndoTrack {
     pub(crate) fn plan(
         &self,
         seat: &PlayerId,
-        never: &crate::session::reaction_modes::Modes,
+        never: &ti4_host::view::reaction_modes::Modes,
     ) -> Result<(usize, Vec<PlanStep>), Option<UndoBarrier>> {
         let Some(start) = self.start(seat, never) else {
             // The last decision is of another seat, whatever was rolled after it.
@@ -209,7 +209,7 @@ fn inside(tail: &[(Choice, ChoiceOption)], at: usize) -> bool {
 /// again, so the undo goes back over it to the answer before.
 fn start(
     tail: &[(Choice, ChoiceOption)],
-    never: &crate::session::reaction_modes::Modes,
+    never: &ti4_host::view::reaction_modes::Modes,
 ) -> Option<usize> {
     let mut found = None;
     for at in (0..tail.len()).rev() {
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn one_undo_takes_back_one_answer_and_a_movement_whole() {
-        let none = crate::session::reaction_modes::Modes::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let answers = [
             asked("a", "action_menu", ChoiceOption::new("tactical", "action")),
             asked("a", "activate", ChoiceOption::new("18", "system")),
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn a_purchase_goes_back_with_what_paid_and_placed_it() {
-        let none = crate::session::reaction_modes::Modes::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let answers = [
             asked(
                 "a",
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn a_window_that_is_declined_for_a_never_card_goes_with_the_answer_before_it() {
-        let never: crate::session::reaction_modes::Modes =
+        let never: ti4_host::view::reaction_modes::Modes =
             std::iter::once(("Sabotage".to_owned(), ti4_model::state::ReactionMode::Never))
                 .collect();
         let window = {
@@ -387,7 +387,7 @@ mod tests {
         // Asked again, the window is an answer of the player.
         assert_eq!(
             track_of
-                .plan(&seat(), &crate::session::reaction_modes::Modes::new())
+                .plan(&seat(), &ti4_host::view::reaction_modes::Modes::new())
                 .unwrap()
                 .0,
             1
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn a_decision_of_another_seat_a_die_and_a_reveal_are_barriers() {
-        let none = crate::session::reaction_modes::Modes::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let own = asked("a", "activate", ChoiceOption::new("18", "system"));
         let other = asked("b", "activate", ChoiceOption::new("19", "system"));
 
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn a_card_that_the_seat_holds_after_its_decision_is_a_barrier() {
-        let none = crate::session::reaction_modes::Modes::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let own = asked("a", "activate", ChoiceOption::new("18", "system"));
         let mut before = state();
         let mut track = UndoTrack::new();

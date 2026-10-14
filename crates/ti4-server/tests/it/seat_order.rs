@@ -30,7 +30,7 @@ fn started(id: &str, seed: u64, order: SeatOrder, registry: GameRegistry) -> Sta
             "Ada",
             None,
             None,
-            ti4_server::card_set::DEFAULT,
+            ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::default(),
             order,
         )

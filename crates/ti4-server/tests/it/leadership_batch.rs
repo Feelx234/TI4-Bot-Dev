@@ -17,7 +17,7 @@ fn current(session: &GameSession) -> Pending {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some((seat, nonce, version)) = session.current_pending_decision() {
-            let snapshot = session.get_snapshot(&ti4_server::protocol::status::ViewerRole::Player(
+            let snapshot = session.get_snapshot(&ti4_host::protocol::status::ViewerRole::Player(
                 seat.clone(),
             ));
             return (
@@ -53,11 +53,11 @@ fn at_leadership(game_id: &str, p2_goods: i32) -> Table {
     let registry = GameRegistry::new().with_store(store.clone());
     let players = vec![PlayerId::new("p1"), PlayerId::new("p2")];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+        ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
             .unwrap();
     state.player_mut(&players[0]).unwrap().trade_goods = 7;
     state.player_mut(&players[1]).unwrap().trade_goods = p2_goods;
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new(game_id, state)
         .with_seed(42)
         .with_player_ids(players.clone())

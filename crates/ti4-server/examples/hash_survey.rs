@@ -63,7 +63,7 @@ fn main() {
             .map(|h| h.rng_marks.clone())
             .unwrap_or_default();
         let galaxy = seed.and_then(|seed| {
-            ti4_server::map::rebuild_galaxy(
+            ti4_host::map::rebuild_galaxy(
                 content,
                 &player_ids,
                 seed,

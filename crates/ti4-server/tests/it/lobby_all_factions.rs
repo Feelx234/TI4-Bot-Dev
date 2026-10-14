@@ -82,7 +82,7 @@ fn play(
     decisions: usize,
     budget: Duration,
 ) -> (GameState, Option<String>, usize) {
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(format!("allfac_{seed}"), state)
         .with_seed(seed)
         .with_player_ids(players.to_vec())
@@ -126,7 +126,7 @@ fn slow_every_faction_builds_as_a_chosen_seat_on_every_template_that_seats_the_t
         let players = ids(n);
         let mut maps: Vec<Option<String>> = vec![None];
         maps.extend(
-            ti4_server::maps::catalog::catalog(Some(n))
+            ti4_host::maps::catalog::catalog(Some(n))
                 .expect("catalog")
                 .into_iter()
                 .map(|t| Some(t.alias)),
@@ -240,7 +240,7 @@ fn slow_tricky_factions_play_a_longer_smart_game() {
 
 #[test]
 fn the_pool_is_the_survey_roster() {
-    let roster: BTreeSet<&str> = ti4_server::preset::ROSTER.iter().copied().collect();
+    let roster: BTreeSet<&str> = ti4_host::preset::ROSTER.iter().copied().collect();
     let pool: BTreeSet<&str> = LOBBY_FACTIONS.iter().copied().collect();
     assert_eq!(roster, pool);
     // Plans exist for every faction in the pool.

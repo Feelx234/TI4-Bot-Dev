@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use ti4_model::id::{PlayerId, StrategyCardId};
 
-use crate::protocol::staged::SeatStagedMsg;
-pub use crate::protocol::staged::{StagedSlot, StagedValue};
+use ti4_host::protocol::staged::SeatStagedMsg;
+pub use ti4_host::protocol::staged::{StagedSlot, StagedValue};
 
 /// Every slot of one seat.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,9 +183,9 @@ pub(crate) fn put_and_tell(
     }
     let mut message = current.message(&game_id);
     message.writer = writer;
-    let message = crate::protocol::server::ServerMessage::SeatStaged(message);
+    let message = ti4_host::protocol::server::ServerMessage::SeatStaged(message);
     // Sent under the lock of the book, so the connections get the writes in their order.
-    let viewer = crate::protocol::status::ViewerRole::Player(seat.clone());
+    let viewer = ti4_host::protocol::status::ViewerRole::Player(seat.clone());
     shared
         .lock()
         .expect("shared lock")
