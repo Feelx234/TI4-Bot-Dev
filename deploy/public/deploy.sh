@@ -133,11 +133,20 @@ say "Building the web client ($COMMIT)"
 if command -v rustup >/dev/null 2>&1; then
   rustup target add wasm32-unknown-unknown   # rust-toolchain.toml lists it; this makes it explicit
 fi
+# web/scripts/build-wasm.mjs (`npm run build:wasm`) builds crates/ti4-wasm and copies the engine to
+# web/src/offline/local/engine/, where vite finds it. `npm run build` runs it as its `prebuild`
+# hook. TI4_REQUIRE_WASM=1 turns "cargo or the wasm32 target is missing" into an error: without it
+# the script only warns and the release would silently have no "Play offline".
+HAS_WASM_SCRIPT=0
+if node -e 'process.exit(require("./web/package.json").scripts?.["build:wasm"] ? 0 : 1)'; then
+  HAS_WASM_SCRIPT=1
+  export TI4_REQUIRE_WASM=1
+fi
 (
   cd web
   npm ci
-  # `npm run build` runs build:wasm itself once the script is part of it; otherwise run it first.
-  if node -e 'const s=require("./package.json").scripts||{}; process.exit(s["build:wasm"] && !String(s.build).includes("build:wasm") ? 0 : 1)'; then
+  # A ref that has the script but does not run it from `build` (no prebuild hook): run it first.
+  if node -e 'const s=require("./package.json").scripts||{}; process.exit(s["build:wasm"] && !s.prebuild && !String(s.build).includes("build:wasm") ? 0 : 1)'; then
     npm run build:wasm
   fi
   npm run build
@@ -146,8 +155,12 @@ fi
 say "Compressing wasm for the server (.br, .gz next to each file)"
 mapfile -t WASM_FILES < <(find web/dist -name '*.wasm')
 if (( ${#WASM_FILES[@]} == 0 )); then
-  if [[ -d web/src/offline ]]; then
-    echo "WARNING: this ref has offline play (web/src/offline) but web/dist holds no .wasm;" >&2
+  if (( HAS_WASM_SCRIPT )); then
+    echo "ERROR: this ref builds the offline engine (web/scripts/build-wasm.mjs) but web/dist holds no .wasm;" >&2
+    echo "       'Play offline' would not work in this release. Nothing was installed." >&2
+    exit 1
+  elif [[ -d web/src/offline ]]; then
+    echo "WARNING: this ref has offline play (web/src/offline) but no wasm build script;" >&2
     echo "         'Play offline' will not work in this release." >&2
   else
     echo "no wasm in this build"

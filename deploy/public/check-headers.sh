@@ -36,15 +36,15 @@ if [[ -z "$WEB" ]]; then # fixture: index, a hash-named wasm with .gz/.br, a has
 import sys, gzip, zlib, os
 d = sys.argv[1]
 body = b"\0asm\x01\0\0\0" + bytes(range(256)) * 400
-for n in ("ti4_host-9f8e7d6c.wasm", "plain-11223344.wasm"):
+for n in ("ti4_wasm-9f8e7d6c.wasm", "plain-11223344.wasm"):
     open(os.path.join(d, n), "wb").write(body)
-open(os.path.join(d, "ti4_host-9f8e7d6c.wasm.gz"), "wb").write(gzip.compress(body, 9))
+open(os.path.join(d, "ti4_wasm-9f8e7d6c.wasm.gz"), "wb").write(gzip.compress(body, 9))
 P
   node -e 'const z=require("zlib"),fs=require("fs"),d=process.argv[1];
-    fs.writeFileSync(d+"/ti4_host-9f8e7d6c.wasm.br", z.brotliCompressSync(fs.readFileSync(d+"/ti4_host-9f8e7d6c.wasm")))' "$WEB/assets"
+    fs.writeFileSync(d+"/ti4_wasm-9f8e7d6c.wasm.br", z.brotliCompressSync(fs.readFileSync(d+"/ti4_wasm-9f8e7d6c.wasm")))' "$WEB/assets"
 fi
 # Prefer a wasm that has precompressed siblings (what deploy.sh produces).
-WASM="$(cd "$WEB" && { for f in $(find assets -name '*.wasm'); do [[ -e "$f.gz" ]] && echo "$f"; done; find assets -name '*.wasm'; } | head -1)"
+WASM="$(cd "$WEB" && { for f in $(find assets -name '*.wasm'); do [[ -e "$f.gz" ]] && echo "$f"; done; find assets -name '*.wasm'; } | sed -n 1p)"
 [[ -n "$WASM" ]] || { echo "no .wasm under $WEB/assets" >&2; exit 2; }
 
 free_port() { python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])'; }
