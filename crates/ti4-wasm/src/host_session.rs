@@ -85,6 +85,9 @@ pub struct Restart {
     pub redo: Vec<String>,
     /// The history generation of the new run.
     pub generation: u64,
+    /// The game version so far: the new run goes on from it, so that a client that keeps what it
+    /// has does not take the new snapshot for an old message.
+    pub version: u64,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -1159,6 +1162,7 @@ impl HostSession {
                             answers,
                             redo: self.redo[1..].to_vec(),
                             generation: self.generation + 1,
+                            version: self.version,
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1203,6 +1207,7 @@ impl HostSession {
             answers: self.answers[..keep].to_vec(),
             redo,
             generation: self.generation + 1,
+            version: self.version,
         });
         handled.resume = Some(Resume::Leave);
     }

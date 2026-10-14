@@ -86,5 +86,12 @@ jobs:
       - name: Play a game in WebAssembly
         run: node crates/ti4-wasm/js/host.mjs target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm
 
+      - name: The page decodes what the hosted game sends
+        working-directory: web
+        run: |
+          npm ci
+          node ../crates/ti4-wasm/js/host.mjs ../target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm --record "$RUNNER_TEMP/stream.json"
+          TI4_HOSTED_STREAM="$RUNNER_TEMP/stream.json" npx vitest run src/protocol/hostedStream.test.ts
+
       - name: Hosted game, native tests
         run: cargo test -p ti4-wasm --release

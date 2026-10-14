@@ -1052,7 +1052,8 @@ fn drive(
     }
     if hosted {
         let left = host().left;
-        let error = stopped.as_ref().map(ToString::to_string);
+        // The engine stops with an error when the host leaves; that is no failure of the game.
+        let error = stopped.as_ref().filter(|_| !left).map(ToString::to_string);
         return Ok(host_api::finish_run(error.as_deref(), left));
     }
     // The last update: where the game stopped, with nothing left to answer.

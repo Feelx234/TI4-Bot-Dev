@@ -281,6 +281,12 @@ fn a_command_that_is_not_the_servers_is_refused_the_servers_way() {
     ];
     let (_, end) = start(&setup(5, 3), None);
     assert_eq!(end["end"]["left"], true);
+    assert_eq!(
+        end["end"]["error"],
+        Value::Null,
+        "leaving is no failure: {end}"
+    );
+    assert!(end["messages"].as_array().unwrap().is_empty(), "{end}");
     let page = page.lock().unwrap();
     let kinds = kinds(&page.messages);
     assert!(kinds.contains(&"action_rejected"), "{kinds:?}");

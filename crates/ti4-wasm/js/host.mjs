@@ -221,6 +221,23 @@ async function long(wasmPath) {
   }));
 }
 
+/**
+ * `--record <out.json>`: the messages of a game of four, with an undo and a rewind in it, as a
+ * client receives them in order (a fixture for the contract tests of the page).
+ */
+async function record(wasmPath, outPath) {
+  const { writeFileSync } = await import("node:fs");
+  const module = await WebAssembly.compile(readFileSync(wasmPath));
+  const log = { messages: [], answers: [], undoAt: 10 };
+  const host = await Host.create(module);
+  person(host, log, 120);
+  const end = await host.start({ setup: { game_id: GAME, seed: 17, players: 4, human_seat: 0 } });
+  log.messages.push(...end.messages);
+  writeFileSync(outPath, JSON.stringify({ game_id: GAME, messages: log.messages }));
+  console.log(`${log.messages.length} messages, ${log.answers.length} answers -> ${outPath}`);
+}
+
 if (process.argv[1].endsWith("host.mjs") && process.argv[2]) {
-  await (process.argv[3] === "--long" ? long(process.argv[2]) : smoke(process.argv[2]));
+  const [, , wasm, mode, out] = process.argv;
+  await (mode === "--long" ? long(wasm) : mode === "--record" ? record(wasm, out) : smoke(wasm));
 }
