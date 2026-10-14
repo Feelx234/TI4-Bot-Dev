@@ -14,7 +14,7 @@ import type {
 } from "../../model";
 import { Button, Eyebrow, Hint, Kbd, Peek, Select, Toast, cx, usePhone } from "../../ui";
 import { Board } from "../board/Board";
-import { GameProvider } from "../context";
+import { GameProvider, SeatSymbol } from "../context";
 import { LinkProvider } from "../link";
 import { ShellFrame } from "../shell/ShellFrame";
 import { keyIsFree } from "../shell/shortcuts";
@@ -441,35 +441,117 @@ function SetupValue({
   );
 }
 
+/** The values of the setup, one row each. `dense`: in a sheet, which has its own margins. */
+function SetupRows({
+  view,
+  dispatch,
+  dense = false,
+}: {
+  view: LobbyView;
+  dispatch: (intent: LobbyIntent) => void;
+  dense?: boolean;
+}) {
+  return (
+    <dl className={cx(dense && "mt-1 rounded border border-line")}>
+      {view.setup.map((row) => (
+        <div
+          key={row.id}
+          className={cx(
+            "flex min-h-9 items-center justify-between gap-3 py-0.5 text-base [div+&]:border-t [div+&]:border-line/50",
+            dense ? "px-2.5" : "px-5 phone:px-3",
+          )}
+        >
+          <dt className="flex flex-none items-center gap-2 text-muted">
+            {row.label}
+            {row.help.length > 0 && (
+              <Hint label={`About ${row.label}`}>
+                {row.help.map((item) => (
+                  <span key={item.title} className="block">
+                    <strong>{item.title}.</strong> {item.text}
+                  </span>
+                ))}
+              </Hint>
+            )}
+          </dt>
+          <dd className="flex min-w-0 items-center">
+            <SetupValue row={row} dispatch={dispatch} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Setup({ view, dispatch }: { view: LobbyView; dispatch: (intent: LobbyIntent) => void }) {
   return (
     <section aria-label="Setup" className="flex-none">
       <Heading>Setup</Heading>
-      <dl>
-        {view.setup.map((row) => (
-          <div
-            key={row.id}
-            className="flex min-h-9 items-center justify-between gap-3 px-5 py-0.5 text-base phone:px-3 [div+&]:border-t [div+&]:border-line/50"
-          >
-            <dt className="flex flex-none items-center gap-2 text-muted">
-              {row.label}
-              {row.help.length > 0 && (
-                <Hint label={`About ${row.label}`}>
-                  {row.help.map((item) => (
-                    <span key={item.title} className="block">
-                      <strong>{item.title}.</strong> {item.text}
-                    </span>
-                  ))}
-                </Hint>
-              )}
-            </dt>
-            <dd className="flex min-w-0 items-center">
-              <SetupValue row={row} dispatch={dispatch} />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <SetupRows view={view} dispatch={dispatch} />
     </section>
+  );
+}
+
+/**
+ * The table of a running game, as a reference sheet: who sits in each seat and how the game was
+ * set up. It is the lobby with nothing open (pattern 10): the rows of the players in the order
+ * of their seats, with the symbol of the seat, and the rows of the setup. Only the wait has a
+ * control, for the host.
+ */
+export function TableSheet({
+  view,
+  dispatch,
+}: {
+  view: LobbyView;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  return (
+    <>
+      {view.status && (
+        <p role="status" className="mt-2 text-muted">
+          {view.status}
+        </p>
+      )}
+      <section aria-label="Players">
+        <h3 className="mt-3.5 text-muted">
+          <Eyebrow>Players</Eyebrow>
+        </h3>
+        <ul className="mt-1 rounded border border-line">
+          {view.rows.map((row) => (
+            <li
+              key={row.id}
+              aria-current={row.you ? "true" : undefined}
+              className={cx(
+                "flex min-h-9 flex-wrap items-center gap-x-2 px-2.5 py-0.5 text-base [li+&]:border-t [li+&]:border-line/50",
+                row.you && "bg-cyan/[.06]",
+              )}
+            >
+              {row.player !== null && <SeatSymbol seat={row.player} />}
+              <Sign sign={row.sign} />
+              {/* A name is cut on desktop, with the full name on hover; a phone gives it a second line. */}
+              <span
+                title={row.name}
+                className="min-w-0 flex-1 truncate font-mid phone:whitespace-normal phone:[overflow-wrap:anywhere]"
+              >
+                {row.name}
+                {row.you && <span className="font-normal text-muted"> (you)</span>}
+              </span>
+              <span className="flex max-w-[45%] flex-none text-muted">
+                <FactionName name={row.faction} sheet={row.sheet} />
+              </span>
+              {row.buttons.map((button) => (
+                <RowButton key={button.label} view={button} dispatch={dispatch} />
+              ))}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section aria-label="Setup">
+        <h3 className="mt-3.5 text-muted">
+          <Eyebrow>Setup</Eyebrow>
+        </h3>
+        <SetupRows view={view} dispatch={dispatch} dense />
+      </section>
+    </>
   );
 }
 

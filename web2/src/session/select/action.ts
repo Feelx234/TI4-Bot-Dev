@@ -7,7 +7,7 @@ import type { MovementPlan } from "../movementPlan";
 import type { ProductionDraft } from "../productionDraft";
 import type { Catalog, Choice, ExplorationCatalog, ReactionModes, SessionUpdate } from "../wire";
 import { exploringCard } from "./exploration";
-import { factionName, sentence } from "./names";
+import { seatLabel, sentence } from "./names";
 import { selectReaction } from "./reaction";
 
 /** The private draft that is in view: what its toolbar and its screens say. */
@@ -175,8 +175,7 @@ export function selectAction(
     intent: { type: "chooseOption", option: option.id },
   }));
   const status = update.turn_status;
-  const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, printed);
+  const faction = (seat: string) => seatLabel(update, seat, printed);
   const stepping = !choice && !local.error && !local.replaying ? local.stepping : null;
   const idle = local.draft
     ? (local.draft.problem ??

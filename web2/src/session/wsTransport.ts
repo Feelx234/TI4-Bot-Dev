@@ -94,6 +94,8 @@ const updateOf = (message: StateMsg): SessionUpdate => ({
   score: message.score,
   agendas: message.agendas,
   secondary: message.secondary,
+  reaction: message.reaction,
+  seats: message.seats,
 });
 
 /**

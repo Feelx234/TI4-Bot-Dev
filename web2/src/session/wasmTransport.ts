@@ -309,7 +309,7 @@ export function createWasmTransport(
     switchTo: (humans: number) => number;
   } | null = null;
   let stepping = play.stepping ?? false;
-  const waitMs = play.waitMs ?? 0;
+  let waitMs = play.waitMs ?? 0;
   /** What the engine is told (`ti4_set_stepping`): it asks before each decision of another seat, or before each that takes the wait, or not at all. */
   const pauses = () => (stepping ? 1 : waitMs > 0 ? 2 : 0);
   /** Tells the engine of the run that is the game whether it waits for each seat. */
@@ -802,6 +802,10 @@ export function createWasmTransport(
       switches.push({ decision: switchTo(humans), humans });
       keep();
       answer(SWITCH);
+    },
+    wait(ms) {
+      waitMs = Math.max(0, ms);
+      tellStepping();
     },
     scenarios: true,
     save: true,

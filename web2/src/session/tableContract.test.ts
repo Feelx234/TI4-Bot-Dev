@@ -276,11 +276,12 @@ describe.skipIf(!existsSync(WASM))("the table in this page", () => {
           map: { kind: "template", alias: first.lobby.map.alias },
           strategy_cards: "pok",
         },
+        // The names of the players: the game says who sits in each seat by them.
         seats: [
-          { kind: "human", faction: "hacan" },
-          { kind: "smart" },
-          { kind: "random" },
-          { kind: "smart" },
+          { kind: "human", faction: "hacan", name: "Contract" },
+          { kind: "smart", name: "Rule bot 1" },
+          { kind: "random", name: "Random 1" },
+          { kind: "smart", name: "Rule bot 2" },
         ],
       },
     });

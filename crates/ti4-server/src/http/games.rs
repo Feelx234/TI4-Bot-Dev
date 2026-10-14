@@ -507,6 +507,34 @@ pub async fn change_lobby_settings(
     .map_err(lobby_error)
 }
 
+/// Body of `POST /api/games/{game_id}/settings`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunningSettings {
+    /// 0 to [`crate::session::table::MAX_BOT_DELAY_MS`]. Missing: the wait stays as it is.
+    pub bot_delay_ms: Option<u64>,
+}
+
+/// Handler for `POST /api/games/{game_id}/settings` (host only, for a running game): the wait of
+/// the seats that the server plays. It is the one value of a table that changes after Start.
+pub async fn change_running_settings(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+    Json(payload): Json<RunningSettings>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        match payload.bot_delay_ms {
+            Some(delay) => registry.change_running_bot_delay(&game_id, token, delay),
+            None => registry
+                .player_lobby_status(&game_id, Some(token))
+                .map(|(view, _)| view),
+        }
+        .map_err(lobby_error)?,
+    ))
+}
+
 /// Handler for `POST /api/games/{game_id}/lobby/nickname`: the player of the credential takes
 /// another name, before Start.
 pub async fn rename_in_lobby(
@@ -726,6 +754,7 @@ fn lobby_error(error: LobbyError) -> (StatusCode, String) {
         | LobbyError::SeatsTaken(_)
         | LobbyError::ScenarioTable(_)
         | LobbyError::AlreadyRunning
+        | LobbyError::NotRunning
         | LobbyError::NotInLobby
         | LobbyError::SeatUnavailable
         | LobbyError::TakeoverUnavailable => StatusCode::CONFLICT,

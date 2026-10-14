@@ -66,6 +66,10 @@ pub struct InitialSnapshotMsg {
     /// The reaction window that the viewer is asked in ([`ti4_view::reaction`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reaction: Option<ti4_view::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it
+    /// ([`ti4_view::setup::SeatFact`]). Public; absent for a game with no table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<ti4_view::setup::TableSeats>,
     /// The digest of the corpus that this server plays with
     /// ([`ti4_content::provenance::embedded_digest`]). A client that has the printed texts of
     /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
@@ -1530,6 +1534,10 @@ pub struct StateUpdateMsg {
     /// The reaction window that the viewer is asked in ([`ti4_view::reaction`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reaction: Option<ti4_view::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it
+    /// ([`ti4_view::setup::SeatFact`]). Public; absent for a game with no table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<ti4_view::setup::TableSeats>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.

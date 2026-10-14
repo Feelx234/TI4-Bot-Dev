@@ -623,3 +623,70 @@ it("a table in the page is single player: no tab to join from, no name to change
     intent: { type: "start" },
   });
 });
+
+/** The table of a game that runs: Ada, Bart who is away, and a rule bot, in the order of their seats. */
+const running = (change: Partial<LobbyState> = {}) =>
+  lobby({
+    phase: "running",
+    slots: [
+      person(1, "bart", LONG, { connected: false, can_take_over: true, faction: "sol" }),
+      person(2, "ada", "Ada", { faction: "hacan" }),
+      slot(3, { occupant: "bot1", nickname: "Rule bot 1", bot: "smart", connected: true }),
+    ],
+    ...change,
+  });
+
+it("the table of a running game is the same screen with nothing open, and the host sets the wait", () => {
+  const view = selectLobby(of(running(), "ada"), local(), catalog);
+  expect(view.title).toBe("Table · 3 players");
+  // The rows are the seats of the game, by their players.
+  expect(view.rows.map((row) => [row.player, row.name, row.sign?.kind ?? null])).toEqual([
+    ["bart", LONG, "away"],
+    ["ada", "Ada", "host"],
+    ["bot1", "Rule bot 1", "rule"],
+  ]);
+  for (const row of view.rows) {
+    expect([row.editor, row.remove, row.rename, row.buttons]).toEqual([null, null, false, []]);
+  }
+  expect(view.fill).toBeNull();
+  expect(view.footer).toEqual({ note: "", main: null, nickname: false });
+  // Of the setup only the wait has a control.
+  expect(view.setup.filter((row) => row.control).map((row) => row.id)).toEqual(["wait"]);
+  const wait = view.setup.find((row) => row.id === "wait")!;
+  expect(wait.control).toMatchObject({
+    kind: "counter",
+    more: { intent: { type: "set", change: { waitMs: 1000 } } },
+  });
+});
+
+it("a player who is not the host reads the table of a running game, with no control", () => {
+  const view = selectLobby(of(running({ host_player_id: "bart" }), "ada"), local(), catalog);
+  expect(view.setup.every((row) => row.control === null)).toBe(true);
+  expect(view.rows.flatMap((row) => row.buttons)).toEqual([]);
+  expect(view.footer.main).toBeNull();
+});
+
+it("a visitor of a running game watches, or sits down in the seat of a person who is away", () => {
+  const view = selectLobby(of(running(), null), local(), catalog);
+  expect(view.footer).toEqual({
+    note: "",
+    main: { label: "Watch", disabled: false, intent: { type: "watch" } },
+    nickname: false,
+  });
+  expect(view.rows.map((row) => row.buttons)).toEqual([
+    [
+      {
+        label: "Rejoin",
+        title: `Rejoin as ${LONG}: play this seat from this tab`,
+        intent: { type: "takeOver", player: "bart", name: LONG },
+      },
+    ],
+    [],
+    [],
+  ]);
+  expect(view.setup.every((row) => row.control === null)).toBe(true);
+  // Before the grace time is over the seat is not offered.
+  const early = running();
+  early.slots[0].can_take_over = false;
+  expect(selectLobby(of(early, null), local(), catalog).rows[0].buttons).toEqual([]);
+});

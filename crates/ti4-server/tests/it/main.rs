@@ -61,6 +61,7 @@ mod splice_http;
 mod strategy_card_set;
 mod support;
 mod table_http;
+mod table_in_game;
 mod table_scenario;
 mod table_socket;
 mod turn_redo;

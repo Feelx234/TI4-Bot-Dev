@@ -17,16 +17,24 @@ export function selectSeats(
   catalog: Catalog | null = null,
 ): Record<SeatId, SeatView> {
   return Object.fromEntries(
-    seated(update).map((player, index) => [
-      player.id,
-      {
+    seated(update).map((player, index) => {
+      // The table says who sits in the seat. A game with no table has no names: the letter of
+      // the seat tells the seats apart.
+      const fact = update.seats?.[player.id];
+      const seat: SeatView = {
         id: player.id,
-        // A local game has no player names. The seat letter tells the seats apart.
-        name: `Seat ${player.id.toUpperCase()}`,
+        name: fact?.nickname || `Seat ${player.id.toUpperCase()}`,
         faction: factionName(player.faction, catalog),
         ...seatMark(index),
-      },
-    ]),
+      };
+      if (fact && fact.kind !== "human") {
+        seat.played = {
+          kind: fact.kind === "smart" ? "rule" : "random",
+          word: "No person plays this seat",
+        };
+      }
+      return [player.id, seat];
+    }),
   );
 }
 

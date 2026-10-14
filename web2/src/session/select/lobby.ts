@@ -110,9 +110,11 @@ function setupRows(
     intent: reason ? null : set(change),
     reason,
   });
-  // A scenario is a game of its own: its seats, its map and its cards are not chosen.
+  // A scenario is a game of its own: its seats, its map and its cards are not chosen. After
+  // the start nothing of the setup is chosen but the wait.
   const scenario = lobby.start_from ?? null;
-  const free = host && scenario === null;
+  const before = lobby.phase === "lobby";
+  const free = host && scenario === null && before;
   const min = options?.min_players ?? 2;
   const max = options?.max_players ?? 8;
   const people = lobby.slots.filter((slot) => slot.occupant !== null && !slot.bot).length;
@@ -212,7 +214,7 @@ function setupRows(
           : (scenarios.find((item) => item.id === scenario)?.title ??
             titleCase(scenario.replaceAll("-", " "))),
       control:
-        host && scenarios.length
+        host && before && scenarios.length
           ? {
               kind: "list",
               chosen: scenario ?? "",
@@ -330,7 +332,8 @@ export function selectLobby(
     };
   };
   // The seats of a scenario have its factions, and after the start nothing is chosen.
-  const choosing = lobby.phase === "lobby" && (lobby.start_from ?? null) === null;
+  const before = lobby.phase === "lobby";
+  const choosing = before && (lobby.start_from ?? null) === null;
 
   let firstOpen = true;
   const rows = lobby.slots.map((slot): LobbyRowView => {
@@ -352,14 +355,25 @@ export function selectLobby(
       }
       firstOpen = false;
     }
-    const removable = host && slot.occupant !== null && !you;
+    // A person who is away from a running game: a visitor can sit down in the seat.
+    if (!before && viewer === null && slot.occupant !== null && slot.can_take_over) {
+      const name = slot.nickname ?? "Player";
+      // The row has the name: the button does not repeat it (a name can be long).
+      buttons.push({
+        label: "Rejoin",
+        title: `Rejoin as ${name}: play this seat from this tab`,
+        intent: { type: "takeOver", player: slot.occupant, name },
+      });
+    }
+    const removable = before && host && slot.occupant !== null && !you;
     return {
       id: slot.slot_id,
+      player: slot.occupant,
       sign: sign(slot, lobby, you, options, single),
       name: slot.nickname ?? "Open",
       you,
       // The player of a table in the page has the name of this browser: the start screen has it.
-      rename: you && !single,
+      rename: you && !single && before,
       become:
         slot.occupant !== null && !you && local.mine.includes(slot.occupant)
           ? { type: "become", player: slot.occupant }
@@ -381,8 +395,15 @@ export function selectLobby(
   });
 
   const blocked = open ? `Waiting for ${plural(open, "open seat")}` : "";
-  const footer: LobbyFooterView =
-    viewer === null
+  const footer: LobbyFooterView = !before
+    ? {
+        // A game that runs waits for nobody here. A visitor opens it, with no seat.
+        note: "",
+        main:
+          viewer === null ? { label: "Watch", disabled: false, intent: { type: "watch" } } : null,
+        nickname: false,
+      }
+    : viewer === null
       ? {
           note: open ? plural(open, "open seat") : "Every seat is taken",
           main: { label: "Join", disabled: open === 0, intent: { type: "join" } },
@@ -398,7 +419,7 @@ export function selectLobby(
 
   const preview = table.preview;
   return {
-    title: `${single ? "Single player" : "Lobby"} · ${plural(seats, "player")}`,
+    title: `${single ? "Single player" : before ? "Lobby" : "Table"} · ${plural(seats, "player")}`,
     status: local.offline ? "Offline · reconnecting" : "",
     board: selectPreviewBoard(
       preview?.tiles ?? [],

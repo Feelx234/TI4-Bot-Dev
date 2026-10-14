@@ -3,7 +3,13 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { PlanStep } from "./movementPlan";
 import type { TransportEvent } from "./transport";
-import { type Catalog, type ClientMessage, type DraftOutcome, PROTOCOL_VERSION } from "./wire";
+import {
+  type Catalog,
+  type ClientMessage,
+  type DraftOutcome,
+  PROTOCOL_VERSION,
+  type ReactionFacts,
+} from "./wire";
 import { GAME_UNKNOWN, type OnlineGame, type Socket, createWsTransport } from "./wsTransport";
 
 // The messages that the server wrote (`crates/ti4-server/fixtures`, checked against the server
@@ -609,6 +615,18 @@ it("tells the Never cards as the server keeps them, and a window that was passed
   ]);
   game.tell({ ...passed, game_version: 44 });
   expect(game.take().map((event) => event.kind)).toEqual(["update"]);
+});
+
+it("hands on the reaction window that the viewer is asked in", () => {
+  const game = server();
+  game.open();
+  const reaction: ReactionFacts = {
+    own_turn_applies: true,
+    offers: [{ option: "opt_1", key: "Sabotage", kind: "action_card", name: "Sabotage" }],
+  };
+  game.tell({ ...actor, reaction });
+  const event = game.take().at(-1);
+  expect(event).toMatchObject({ kind: "update", update: { reaction } });
 });
 
 it("tells who the game waits for while a seat of the server takes its time", () => {

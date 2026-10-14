@@ -90,6 +90,12 @@ export interface Capabilities {
    * this side, or when the seat is played here already.
    */
   switchSeat?(seat: string): void;
+  /**
+   * The wait of the seats that this page plays, in milliseconds. A seat that waits now finishes
+   * its wait. It is of the table of the game: the sheet "Table" has its control, and the app
+   * that made the transport keeps it.
+   */
+  wait?(ms: number): void;
   /** The game can start from a prepared board. The app that made the transport has the list. */
   scenarios?: true;
   /** The game is kept in this page: the app that made the transport can start it again, export it and import it. */

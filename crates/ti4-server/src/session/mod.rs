@@ -126,6 +126,9 @@ pub struct SessionConfig {
     pub game_id: String,
     pub state: GameState,
     pub seats: BTreeMap<PlayerId, SeatController>,
+    /// The name of each player at the table. With it every snapshot and update says who sits in
+    /// each seat ([`ti4_view::setup::SeatFact`]); a session with no table has none.
+    pub nicknames: BTreeMap<PlayerId, String>,
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub galaxy: Option<ti4_content::galaxy::Galaxy>,
     pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
@@ -179,6 +182,7 @@ impl SessionConfig {
             game_id: game_id.into(),
             state,
             seats: BTreeMap::new(),
+            nicknames: BTreeMap::new(),
             seat_tokens: BTreeMap::new(),
             galaxy: None,
             map_tiles: Vec::new(),
@@ -479,6 +483,7 @@ impl GameSession {
             lock.history_generation,
         );
         snapshot.history.can_undo = lock.can_undo(viewer);
+        snapshot.seats = lock.table_seats();
         snapshot.reaction_modes = lock.reaction_modes_for(viewer);
         snapshot.current_path = crate::protocol::server::current_log_path(
             &lock.latest_state,
@@ -1322,6 +1327,8 @@ impl GameSession {
             config.rng_marks.clone_from(&lock.rng_marks);
             // The wait of the table as it is now, not as it was when this worker started.
             config.random_bot_delay_ms = Some(lock.bot_delay_ms);
+            // And its names: a seat that was taken over has the name of who took it.
+            config.nicknames.clone_from(&lock.nicknames);
         }
         config
     }
@@ -1337,6 +1344,27 @@ impl GameSession {
     pub fn set_bot_delay_ms(&self, delay_ms: u64) {
         self.shared.lock().expect("shared lock").bot_delay_ms =
             delay_ms.min(table::MAX_BOT_DELAY_MS);
+    }
+
+    /// Gives the players of the table their names: every snapshot and update after this says
+    /// them. The registry calls it for a recovered game and when a seat is taken over.
+    pub fn set_nicknames(&self, nicknames: impl IntoIterator<Item = (PlayerId, String)>) {
+        self.shared
+            .lock()
+            .expect("shared lock")
+            .nicknames
+            .extend(nicknames);
+    }
+
+    /// The faction of each player of the game, as the game seated them.
+    #[must_use]
+    pub fn factions(&self) -> BTreeMap<PlayerId, String> {
+        let lock = self.shared.lock().expect("shared lock");
+        lock.latest_state
+            .players
+            .iter()
+            .map(|player| (player.id.clone(), player.faction.as_str().to_owned()))
+            .collect()
     }
 
     /// The forced random positions of the live timeline (empty unless a turn redo made it).

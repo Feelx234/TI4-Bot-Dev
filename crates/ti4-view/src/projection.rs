@@ -874,6 +874,11 @@ pub struct SessionUpdate {
     /// ([`crate::reaction`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reaction: Option<crate::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it ([`crate::setup::SeatFact`]).
+    /// It is of the table and not of the game, so the host of the game sets it; a game with no
+    /// table has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<crate::setup::TableSeats>,
 }
 
 /// What the facts of an update are made from, beside the state of the game.
@@ -914,6 +919,7 @@ pub fn project_session_update(
         agendas: None,
         secondary: None,
         reaction: None,
+        seats: None,
     };
     fill_facts(&mut update, state, facts);
     update

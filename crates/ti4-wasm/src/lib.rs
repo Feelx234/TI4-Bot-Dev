@@ -129,6 +129,21 @@ struct SeatRequest {
     kind: SeatKind,
     #[serde(default)]
     faction: Option<String>,
+    /// The name of the player at the table. With a name for every player, the updates of the
+    /// game say who sits in each seat ([`TABLE_SEATS`]).
+    #[serde(default)]
+    name: Option<String>,
+}
+
+impl SeatKind {
+    /// The kind as a fact of the update names it (`ti4_view::setup::SeatFact::kind`).
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Human => setup::HUMAN_KIND,
+            Self::Rule => bot_kind::RULE,
+            Self::Random => bot_kind::RANDOM,
+        }
+    }
 }
 
 /// The table of the page, as the setup exports read it from the request buffer: what the host
@@ -179,6 +194,24 @@ impl TableRequest {
         let chosen: Vec<Option<String>> =
             self.seats.iter().map(|seat| seat.faction.clone()).collect();
         setup::draw(&self.setup, &chosen).map_err(failed)
+    }
+
+    /// Who sits in each seat, by the id of its player. `None` when a player has no name: a
+    /// table of an older page.
+    fn seats(&self) -> Option<setup::TableSeats> {
+        self.joined()
+            .into_iter()
+            .zip(&self.seats)
+            .map(|(player, seat)| {
+                Some((
+                    player,
+                    setup::SeatFact {
+                        nickname: seat.name.clone()?,
+                        kind: seat.kind.as_str().to_owned(),
+                    },
+                ))
+            })
+            .collect()
     }
 
     /// The players of `kind` as a mask (bit 0 is the player who came first).
@@ -234,6 +267,26 @@ fn facts_context(galaxy: Option<&Galaxy>) -> FactsContext<'_> {
         galaxy,
         secondary: Some(&SECONDARY),
     }
+}
+
+/// Who sits in each seat of the game that is played, when it is the game of a table whose
+/// players have names ([`ti4_play_setup`]). It is a fact of every update of that game.
+static TABLE_SEATS: Mutex<Option<setup::TableSeats>> = Mutex::new(None);
+
+/// [`project_session_update`] for the host: the update of the game, with the seats of its table.
+fn host_update(
+    state: &GameState,
+    viewer: &ViewerRole,
+    pending_choice: Option<(&Choice, &str)>,
+    tiles: &[BoardTileView],
+    galaxy: Option<&Galaxy>,
+) -> ti4_view::projection::SessionUpdate {
+    let mut update =
+        project_session_update(state, viewer, pending_choice, tiles, &facts_context(galaxy));
+    update
+        .seats
+        .clone_from(&TABLE_SEATS.lock().expect("table seats lock"));
+    update
 }
 
 /// The strategic action of the game that is played, from the card that is played to its last
@@ -930,12 +983,12 @@ fn show(viewer: &ViewerRole, choice: &Choice, nonce: &str) -> Result<(), TooLarg
     let Some(latest) = latest.as_ref() else {
         return Ok(());
     };
-    let update = project_session_update(
+    let update = host_update(
         &latest.state,
         viewer,
         Some((choice, nonce)),
         &latest.tiles,
-        &facts_context(latest.galaxy.as_ref()),
+        latest.galaxy.as_ref(),
     );
     store(
         &mut UPDATE.lock().expect("update lock"),
@@ -1043,6 +1096,7 @@ fn play_setup(request_len: u32) -> Result<usize, Failure> {
     let game = table.game(ContentStore::embedded())?;
     // The rule seats are of this game: the mask of the host is back when it is over.
     let before = RULE_SEATS.swap(table.mask(SeatKind::Rule), Ordering::Relaxed);
+    *TABLE_SEATS.lock().expect("table seats lock") = table.seats();
     let played = play_game(
         game,
         table.setup.game_seed(),
@@ -1051,6 +1105,7 @@ fn play_setup(request_len: u32) -> Result<usize, Failure> {
         true,
     );
     RULE_SEATS.store(before, Ordering::Relaxed);
+    *TABLE_SEATS.lock().expect("table seats lock") = None;
     played
 }
 
@@ -1159,13 +1214,7 @@ fn play_game(
     // The last update: where the game stopped, with nothing left to answer.
     let viewer = viewer.map_or(ViewerRole::Spectator, ViewerRole::Player);
     let tiles = latest_of(&game, content).tiles;
-    let update = project_session_update(
-        &game.state,
-        &viewer,
-        None,
-        &tiles,
-        &facts_context(game.galaxy()),
-    );
+    let update = host_update(&game.state, &viewer, None, &tiles, game.galaxy());
     store(
         &mut UPDATE.lock().expect("update lock"),
         "the update for the host",

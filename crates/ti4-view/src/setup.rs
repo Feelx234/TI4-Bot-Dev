@@ -76,6 +76,23 @@ pub mod bot_kind {
     pub const RANDOM: &str = "random";
 }
 
+/// Who sits in a seat of a running game. It is public: a host tells it to every viewer with the
+/// game, so a page names a seat by its player.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SeatFact {
+    /// The name of the player at the table.
+    pub nickname: String,
+    /// Who plays the seat: `human`, or a kind of [`bot_kind`].
+    pub kind: String,
+}
+
+/// The kind of a seat that a person plays ([`SeatFact::kind`]).
+pub const HUMAN_KIND: &str = "human";
+
+/// The seats of a running game by the id of their player ([`SeatFact`]).
+pub type TableSeats = BTreeMap<PlayerId, SeatFact>;
+
 /// How the players of a table get their seats at Start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

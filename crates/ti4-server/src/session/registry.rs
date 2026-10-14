@@ -760,6 +760,15 @@ impl PlayerLobbyRecord {
     }
 }
 
+/// The name of every player of a table, for the session of its game.
+fn nicknames_of(record: &PlayerLobbyRecord) -> BTreeMap<PlayerId, String> {
+    record
+        .players
+        .iter()
+        .map(|(id, member)| (id.clone(), member.nickname.clone()))
+        .collect()
+}
+
 /// Summary of an active, completed, or unstarted game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GameSummary {
@@ -850,6 +859,8 @@ pub enum LobbyError {
     NotFound,
     NotInLobby,
     AlreadyRunning,
+    /// The call is for a running game, and the table is still a lobby.
+    NotRunning,
     InvalidCapability,
     HumanSeatRequired,
     HostRequired,
@@ -884,6 +895,7 @@ impl LobbyError {
             Self::NotFound => "Game not found".to_owned(),
             Self::NotInLobby => "Game has no lobby".to_owned(),
             Self::AlreadyRunning => "Game has already started".to_owned(),
+            Self::NotRunning => "Game has not started".to_owned(),
             Self::InvalidCapability => "Invalid seat capability".to_owned(),
             Self::HumanSeatRequired => "Only human seats may update readiness".to_owned(),
             Self::HostRequired => "Only the lobby host may perform this action".to_owned(),
@@ -2073,7 +2085,21 @@ impl GameRegistry {
         if self.bot_config.is_some() {
             view.bot_kinds.push("mlp".to_owned());
         }
+        // The seats of a running game have the factions that the start gave them, also the
+        // seats that chose none.
+        let seated = state
+            .sessions
+            .get(&record.game_id)
+            .filter(|_| matches!(record.phase, PersistedLobbyPhase::Running))
+            .map(|session| session.factions());
         for slot in &mut view.slots {
+            if let Some(faction) = seated
+                .as_ref()
+                .zip(slot.occupant.as_ref())
+                .and_then(|(seated, player)| seated.get(player))
+            {
+                slot.faction = Some(faction.clone());
+            }
             if slot.bot.is_some() {
                 // An in-process bot has no connection to lose: always present, never taken over.
                 slot.connected = true;
@@ -2363,6 +2389,12 @@ impl GameRegistry {
                             .map_err(|e| ("session replay", e))?,
                     );
                     record.phase = PersistedLobbyPhase::Running;
+                    // The names and the wait are of the table: its record has them as they
+                    // were last, also after a seat was taken over or the host changed the wait.
+                    session.set_nicknames(nicknames_of(&record));
+                    if let Some(delay) = record.bot_delay_ms {
+                        session.set_bot_delay_ms(delay);
+                    }
                     Some(session)
                 } else {
                     record.phase = PersistedLobbyPhase::Lobby;
@@ -2783,6 +2815,8 @@ impl GameRegistry {
         }
         if let Some(session) = state.sessions.get(game_id) {
             session.replace_player_session(player, replacement.as_str());
+            // The seat has the name of who took it: the next update of the game says so.
+            session.set_nicknames([(player.clone(), nickname.to_owned())]);
         }
         state.player_lobbies.insert(game_id.to_owned(), updated);
         // Discard all old connection IDs and heartbeat timestamps. The new holder
@@ -3345,6 +3379,7 @@ impl GameRegistry {
             .filter(|(_, m)| m.bot.is_none())
             .map(|(p, m)| (p.clone(), m.session.as_str().to_owned()))
             .collect();
+        config.nicknames = nicknames_of(lobby);
         config.store.clone_from(&self.store);
         let mut running = lobby.clone();
         running.phase = PersistedLobbyPhase::Running;
@@ -3439,6 +3474,48 @@ impl GameRegistry {
         *lobby = updated;
         for player in removed {
             state.presence.remove(&(game_id.to_owned(), player));
+        }
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Host only, for a running game: the wait of the seats that the server plays. A seat that
+    /// waits now has the new wait at once; the record of the table keeps it, so a recovered
+    /// game has it.
+    ///
+    /// # Errors
+    /// The usual lobby errors, [`LobbyError::NotRunning`] before the start, and
+    /// [`LobbyError::InvalidSetting`] for a wait outside its range.
+    pub fn change_running_bot_delay(
+        &self,
+        game_id: &str,
+        credential: &str,
+        delay_ms: u64,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        if delay_ms > super::table::MAX_BOT_DELAY_MS {
+            return Err(LobbyError::InvalidSetting(format!(
+                "bot_delay_ms must be 0-{}",
+                super::table::MAX_BOT_DELAY_MS
+            )));
+        }
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Running) {
+            return Err(LobbyError::NotRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let session = state.sessions.get(game_id).ok_or(LobbyError::NotFound)?;
+        if lobby.bot_delay_ms != Some(delay_ms) {
+            let mut updated = lobby.clone();
+            updated.bot_delay_ms = Some(delay_ms);
+            updated.lobby_version += 1;
+            self.save_player_lobby(&updated)?;
+            session.set_bot_delay_ms(delay_ms);
+            state.player_lobbies.insert(game_id.to_owned(), updated);
         }
         Ok(self.player_view(&state, &state.player_lobbies[game_id]))
     }
@@ -4427,6 +4504,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         game_id: session.id().to_owned(),
         state: session.current_state(),
         seats,
+        nicknames: BTreeMap::new(),
         seat_tokens,
         galaxy: None,
         map_tiles: Vec::new(),
@@ -4558,6 +4636,7 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
             off_map_system_ids: Vec::new(),
         },
         seats: init.seats.clone(),
+        nicknames: BTreeMap::new(),
         seat_tokens: init.seat_tokens.clone(),
         store: None,
         player_ids: init.player_ids.clone(),

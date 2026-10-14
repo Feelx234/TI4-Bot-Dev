@@ -87,6 +87,8 @@ pub struct SessionShared {
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub player_ids: Vec<PlayerId>,
     pub seats: BTreeMap<PlayerId, SeatController>,
+    /// The name of each player at the table ([`SessionConfig::nicknames`]).
+    pub nicknames: BTreeMap<PlayerId, String>,
     pub seed: Option<u64>,
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
@@ -145,6 +147,35 @@ pub struct SessionShared {
 }
 
 impl SessionShared {
+    /// Who sits in each seat, for a snapshot and an update: the name of the player and who
+    /// plays the seat. `None` for a session with no table (it has no names).
+    #[must_use]
+    pub fn table_seats(&self) -> Option<ti4_view::setup::TableSeats> {
+        use ti4_view::setup::{HUMAN_KIND, SeatFact, bot_kind};
+        if self.nicknames.is_empty() {
+            return None;
+        }
+        Some(
+            self.nicknames
+                .iter()
+                .map(|(player, nickname)| {
+                    let kind = match self.seats.get(player) {
+                        Some(SeatController::BotSmart) => bot_kind::RULE,
+                        Some(controller) if controller.is_in_process_bot() => bot_kind::RANDOM,
+                        _ => HUMAN_KIND,
+                    };
+                    (
+                        player.clone(),
+                        SeatFact {
+                            nickname: nickname.clone(),
+                            kind: kind.to_owned(),
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
     /// Fail the session closed with `error`, unless it has been stopped on purpose.
     ///
     /// A stopped session's worker unwinds with errors (a human decider whose inbox was dropped
@@ -310,6 +341,7 @@ impl SessionShared {
             seat_tokens: BTreeMap::new(),
             player_ids: Vec::new(),
             seats: BTreeMap::new(),
+            nicknames: BTreeMap::new(),
             seed: None,
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
@@ -697,6 +729,7 @@ impl SessionShared {
             .map(|pending| ViewerRole::Player(pending.seat.clone()))
             .filter(|viewer| self.can_undo(viewer));
         let watch = self.planning.watch.clone();
+        let table_seats = self.table_seats();
         self.publish(|viewer| {
             let mut update = crate::projection::project_state_update_with_map(
                 &game_id,
@@ -714,6 +747,7 @@ impl SessionShared {
             .with_history(self_decision_count, self_redo_count, self_generation);
             update.history.can_undo = may_undo.as_ref() == Some(viewer);
             update.current_path = path.clone();
+            update.seats.clone_from(&table_seats);
             update.reaction_modes = modes_by_seat
                 .get(match viewer {
                     ViewerRole::Player(seat) => seat,
@@ -1014,6 +1048,7 @@ pub fn spawn_session_worker(config: SessionConfig) -> (Arc<Mutex<SessionShared>>
     initial_shared.seat_tokens.clone_from(&config.seat_tokens);
     initial_shared.player_ids.clone_from(&config.player_ids);
     initial_shared.seats.clone_from(&config.seats);
+    initial_shared.nicknames.clone_from(&config.nicknames);
     initial_shared.seed = config.seed;
     if let Some(delay) = config.random_bot_delay_ms {
         initial_shared.bot_delay_ms = delay;

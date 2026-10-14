@@ -1,6 +1,6 @@
 // How ids of the wire protocol are shown. Presentation only: no rule is decided here.
 import type { Force, TechColor, UnitType } from "../../model";
-import type { Catalog } from "../wire";
+import type { Catalog, SessionUpdate } from "../wire";
 
 const SYMBOLS = ["●", "◆", "▲", "■", "✚", "✖", "♣", "★"];
 const COLORS = [
@@ -31,6 +31,13 @@ export const titleCase = (text: string) =>
  */
 export const factionName = (id: string, catalog: Catalog | null) =>
   catalog?.components.faction_sheets?.[id]?.name ?? titleCase(id);
+/**
+ * Who a seat is, where the page says who the game waits for: the name of its player, as the
+ * table says it, and in a game with no table the faction.
+ */
+export const seatLabel = (update: SessionUpdate, seat: string, catalog: Catalog | null) =>
+  update.seats?.[seat]?.nickname ||
+  factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, catalog);
 /** The commodity value of the faction sheet. Null without the catalogue. */
 export const commodityValue = (id: string, catalog: Catalog | null): number | null =>
   catalog?.components.faction_sheets?.[id]?.commodities ?? null;

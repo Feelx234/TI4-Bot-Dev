@@ -736,7 +736,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         : null;
     // The editor of the secondary asks the question of the draft, on the game as it is.
     const shown =
-      drafted?.update ??
+      // A draft is played on a copy of the game, which no table is told to: the seats are those of the game.
+      (drafted && { ...drafted.update, seats: update.seats }) ??
       (followInfo?.editing
         ? { ...update, pending_choice: followOutcome?.update.pending_choice }
         : holding

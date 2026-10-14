@@ -137,3 +137,65 @@ test("phone: the choice of the faction and the sheet of a faction", async ({ pag
   await players.getByRole("button", { name: `Faction of ${LONG[0]}: Sol` }).tap();
   await expect(choice).toHaveCount(0);
 });
+
+test("phone: a visitor of a running game has its table on the panes, and the game has the sheet", async ({
+  page,
+  request,
+}) => {
+  // A started table of eight: the two long names, and six seats that the server plays.
+  const response = await request.post("/api/games", {
+    data: { player_count: 8, seed: 11, nickname: LONG[0] },
+  });
+  const made = await response.json();
+  const call = async (path: string, data: object, session?: string) =>
+    expect(
+      (
+        await request.post(`/api/games/${made.game_id}/lobby/${path}`, {
+          data,
+          headers: session ? { "x-ti4-player-session": session } : {},
+        })
+      ).ok(),
+    ).toBe(true);
+  await call("join", { kind: "new", nickname: LONG[1] });
+  await call("bots", { kind: "smart", count: 3 }, made.player_session);
+  await call("bots", { kind: "random", count: 3 }, made.player_session);
+  await call("start", {}, made.player_session);
+  // The second person is away for this page: its seat is offered.
+  await page.routeWebSocket(/\/ws\/tables\//, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((data) => {
+      const message = JSON.parse(String(data));
+      for (const slot of message.lobby?.slots ?? []) {
+        slot.can_take_over = slot.nickname === LONG[1];
+      }
+      socket.send(JSON.stringify(message));
+    });
+  });
+  await page.goto(`/?online=${made.game_id}`);
+
+  // The table first, on the panes of the lobby, with "Watch" under every pane.
+  await expect(page.locator("header strong").first()).toHaveText("Table · 8 players");
+  const seats = page.getByRole("region", { name: "Players" }).locator("ul > li");
+  await expect(seats).toHaveCount(8);
+  await expect(seats.getByRole("button", { name: "Rejoin", exact: true })).toHaveCount(1);
+  await expect(main(page)).toHaveText(/Watch/);
+  await fits(page);
+  await page.screenshot({ path: "shots/online/phone-table-visitor.png", animations: "disabled" });
+  await pane(page, "Setup").click();
+  await expect(page.getByRole("region", { name: "Setup" })).toContainText("Strategy cards");
+  await expect(main(page)).toBeVisible();
+  await fits(page);
+
+  // The game, with no seat, and its table as a sheet of the menu: the names are not cut.
+  await main(page).click();
+  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  // The status names a player with a long name: it is cut, and the menu stays in reach.
+  await fits(page);
+  await page.getByRole("button", { name: "Reference and more" }).click();
+  await page.getByRole("menuitem", { name: "Table" }).click();
+  const sheet = page.getByRole("complementary", { name: "Table" });
+  await expect(sheet.getByRole("region", { name: "Players" }).getByRole("listitem")).toHaveCount(8);
+  await expect(sheet).toContainText("Bots wait");
+  await fits(page);
+  await page.screenshot({ path: "shots/online/phone-table-sheet.png", animations: "disabled" });
+});

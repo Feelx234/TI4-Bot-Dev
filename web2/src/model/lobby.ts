@@ -31,6 +31,10 @@ export type LobbyIntent =
   /** The faction of a seat: of the viewer, or of a seat that the server plays. Null: random. */
   | { type: "faction"; player: string; faction: string | null }
   | { type: "start" }
+  /** A visitor of a running game opens the game, with no seat. */
+  | { type: "watch" }
+  /** A visitor takes the seat of a person who is away, under the name of the seat. */
+  | { type: "takeOver"; player: string; name: string }
   | { type: "inspectSystem"; system: string }
   | { type: "closeInspector" };
 
@@ -86,6 +90,8 @@ export interface LobbyFactionEditorView {
 /** One seat of the table, in the order in which the players came. The list has no numbers. */
 export interface LobbyRowView {
   id: string;
+  /** The player of the seat. Of a running game it is the seat of the game. Null: the seat is open. */
+  player: SeatId | null;
   sign: LobbySignView | null;
   /** The nickname, or "Open". */
   name: string;
@@ -104,7 +110,7 @@ export interface LobbyRowView {
    * of a seat that the server plays. Null: the row is no control.
    */
   editor: LobbyFactionEditorView | null;
-  /** The controls of the row: the kinds of an open seat, "Join in a new tab", "×". */
+  /** The controls of the row: the kinds of an open seat, "Join in a new tab", "Rejoin". */
   buttons: LobbyButtonView[];
   /** Removes the seat. Shown as "×". */
   remove: LobbyButtonView | null;
@@ -143,9 +149,12 @@ export interface LobbyFooterView {
   nickname: boolean;
 }
 
-/** The lobby of a table: the map, the players and the setup. The same screen for everyone. */
+/**
+ * The lobby of a table: the map, the players and the setup. The same screen for everyone, and
+ * for the table of a running game, where nothing but the wait has a control.
+ */
 export interface LobbyView {
-  /** "Lobby · 6 players" */
+  /** "Lobby · 6 players"; of a running game "Table · 6 players". */
   title: string;
   /** "Offline · reconnecting", or empty. */
   status: string;

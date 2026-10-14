@@ -3,8 +3,9 @@
 Status: plan, 2026-10-12, second version. Phases 0, 1, 2 and 3 are built (2026-10-13, see
 "Progress of phase 2" and "Progress of phase 3"). Phase 5 is built too (see "Progress of
 phase 5": the rule bot in a crate, the setup in `ti4-view`, the exports of the wasm host), and
-so is phase 6 (see "Progress of phase 6": single player on the screen of the lobby). Next is
-phase 4, then 7.
+so is phase 6 (see "Progress of phase 6": single player on the screen of the lobby), and
+phase 7 (2026-10-14, see "Progress of phase 7": the table in the game). Phase 4 (the map) is
+skipped for now (owner, 2026-10-14) and is the one phase that is left.
 **Phase 4 (the map) is postponed until after phase 6** (owner, 2026-10-13): the target is
 single player on the shared setup. The order is 6, then 4, then 7. The text below it is of the
 day of the plan:
@@ -1114,6 +1115,74 @@ Tests: the redaction test gets the new fact (it holds no credential); a selector
 names; `e2e/lobby.spec.ts`: the names of three tabs are in the player table of each; the host
 changes the wait in the running game; a tab that is closed is taken over from another tab
 after the grace time (the server is started with a short one for the e2e, if it can be set).
+
+#### Progress of phase 7 (2026-10-14)
+
+Built before phase 4, which the owner skipped for now. Items 1 to 4 are built, with their tests.
+
+1. **Nicknames in the game.** The fact is `seats` of the snapshot and of the update: for each
+   player id the nickname and who plays the seat (`ti4_view::setup::SeatFact`, kind `human`,
+   `smart` or `random`). It is public and the same for every viewer.
+   - Server: the session has the names of its table (`SessionConfig.nicknames`), from the lobby
+     record at the start and at recovery; a seat that is taken over has its new name
+     (`GameSession::set_nicknames`), and a worker that an undo starts keeps the names. A session
+     with no table says no `seats`.
+   - Wasm host: a player of the table of the page has a name (`SeatRequest.name`,
+     `TableSeat.name`), and the updates of its game say them. A table of an older page has no
+     names, and its game says none.
+   - Page: `SeatView.name` is the nickname (`select/players.ts`), so the player table, the sheet
+     of a player and the Dev sheet have it; a seat that no person plays has its sign there
+     (`SeatView.played`, "⚙" and "⚄" as in the lobby). The status of the toolbar ("Waiting for
+     Ada"), the list of the seats of a strategic action and "… decides next" name the player too
+     (`seatLabel` in `select/names.ts`). A draft is played on a copy of the game: its screen has
+     the seats of the game.
+2. **The sheet "Table"** is the last reference sheet, in a game that has a table. It is the
+   lobby with nothing open (`TableSheet` in `game/lobby/LobbyScreen.tsx`, over the same
+   `LobbyView`): the seats in their order, each with the symbol of its seat, its sign, its
+   player and its faction, then the rows of the setup. `select/lobby.ts` gives a running table
+   no control but the wait of the host. The sheet reads the table while it is in view
+   (`dev/GameTable.tsx`): the socket of the table online, `localGameTable` in single player.
+   - `POST /api/games/{id}/settings` (`{ "bot_delay_ms": … }`, host only, running only): the
+     session is told, and the lobby record keeps the value, so a recovered game has it.
+     `Table.setSettings` sends it for a running table.
+   - Single player: the transport has the capability `wait`, and the saved game keeps the value.
+   - The lobby view of a running table has the faction of every seat, also of a seat that chose
+     none (`GameSession::factions`).
+3. **A visitor of a running game** is shown the lobby screen of the table, with its board,
+   "Watch" as the main button and "Rejoin" in the row of a seat that can be taken over
+   (`Table.takeOver`, `join` of kind `takeover`, under the name of the seat). The browser keeps
+   the player and the page is loaded as that player. A visitor who watches has the sheet
+   "Table" with the same button.
+4. `NEXT.md`, `TODOS.md`, `AGENTS.md` and the online plan ("Postponed") are brought up to date.
+
+Tests: `crates/ti4-server/tests/it/table_in_game.rs` (the fact holds no credential and is the
+same for a spectator; the factions of the running view; the wait: only the host, its range, kept
+through a recovery; the name after a take-over); `select/shell.test.ts` (the names),
+`select/lobby.test.ts` (the running table for the host, a player and a visitor),
+`table.test.ts` (the take-over, the wait of a running game, the board of a running table),
+`wasmTransport.test.ts` (the names of a table of the page, a wait that changes while the game
+runs), `LobbyScreen.test.tsx` (the sheet); `e2e/lobby.spec.ts` (the names of three tabs in the
+player table of each; the sheet and the wait in two tabs; a visitor: the table, "Rejoin",
+"Watch"), `e2e/lobby.phone.spec.ts` (the same on the phone, with eight seats and the long names).
+
+Decisions made while building, for the owner to confirm:
+
+- **The button is "Rejoin", not "Rejoin as Ada".** It is in the row of the seat, which has the
+  name; a name of 32 letters made a button that a phone has no room for. The name is in its
+  tooltip.
+- The seat is taken over under the name that it has. A visitor is asked no name.
+- The texts that state the game keep the faction (the trigger of a reaction window, the
+  exploration, the Objectives sheet). The item of the plan names the player table, the status of
+  the toolbar, the list of a strategic action and the sheets; these have the name of the player.
+- The sheet has the players first and the setup second: its question begins with "who".
+- A long name in the status of the toolbar pushed the menu of a phone out of view: the status
+  has the room that is left now, and is cut.
+- The call of the running game refuses a table that is still a lobby (409, `NotRunning`): the
+  lobby has its own call.
+- The e2e does not play a take-over against the grace time (see `NEXT.md`): the server of the
+  e2e cannot have a short one, because the page pings every ten seconds.
+
+Still open: see `NEXT.md`, "the table in the game".
 
 ## Later
 

@@ -5,7 +5,7 @@ import type {
   PlayerTableView,
 } from "../../model";
 import { cx } from "../../ui";
-import { SeatSymbol, useDispatch, useSeat } from "../context";
+import { SeatSymbol, useDispatch, useSeat, useSeats } from "../context";
 
 // Full names: the table is wide at the design size (1920×1080). The title explains the format.
 const COLUMNS = [
@@ -32,15 +32,21 @@ const cardLine = (cards: ComponentCardView[], name: (card: ComponentCardView) =>
     .map((card) => `${name(card)}${card.state && card.state !== "ready" ? ` ${card.state}` : ""}`)
     .join(" · ");
 
+/** The sign of a seat that no person plays, as the lobby has it. */
+const PLAYED = { rule: "⚙", random: "⚄" };
+
 function Row({
   row,
   first,
   pick,
+  signs,
   onOpen,
 }: {
   row: PlayerRowView;
   first: boolean;
   pick: PlayerPickView | null;
+  /** A seat of the table has a sign: every row has its column. */
+  signs: boolean;
   onOpen: () => void;
 }) {
   const seat = useSeat(row.seat);
@@ -116,6 +122,19 @@ function Row({
           className="flex w-full min-w-0 items-baseline gap-[5px] overflow-hidden text-left text-xs focus-visible:outline-offset-1"
         >
           <SeatSymbol seat={row.seat} />
+          {signs &&
+            (seat.played ? (
+              <span
+                className="w-3 flex-none text-center text-muted"
+                role="img"
+                aria-label={seat.played.word}
+                title={seat.played.word}
+              >
+                {PLAYED[seat.played.kind]}
+              </span>
+            ) : (
+              <span className="w-3 flex-none" />
+            ))}
           <span className={cx("w-[84px] flex-none truncate font-strong", quiet)} title={seat.name}>
             {seat.name}
           </span>
@@ -191,6 +210,7 @@ export function PlayerTable({
   const shown =
     open || view.pick ? view.rows : view.rows.filter((row) => row.isMe || row.turn === "now");
   const hint = open ? "Show only you and the active player" : "Show all players";
+  const signs = Object.values(useSeats()).some((seat) => seat.played);
   const head = "border-b border-line py-[3px] text-2xs font-semibold text-faint";
   return (
     <section
@@ -240,6 +260,7 @@ export function PlayerTable({
               row={row}
               first={index === 0}
               pick={view.pick}
+              signs={signs}
               onOpen={() => onOpenSeat(row.seat)}
             />
           ))}

@@ -562,6 +562,14 @@ export interface DraftOutcome {
 }
 
 /** `ti4_view::projection::SessionUpdate`: the fields of `StateUpdateMsg` that web2 reads. */
+/** `ti4_view::setup::SeatFact`: who sits in a seat of a running game. It is public. */
+export interface SeatFact {
+  /** The name of the player at the table. */
+  nickname: string;
+  /** "human" is a person, "smart" the rule bot, "random" a seat that decides at random. */
+  kind: "human" | "smart" | "random";
+}
+
 export interface SessionUpdate {
   viewer: ViewerRole;
   view: GameView;
@@ -583,6 +591,8 @@ export interface SessionUpdate {
   secondary?: SecondaryFacts;
   /** The reaction window that the viewer is asked in, with what it offers as printed. */
   reaction?: ReactionFacts;
+  /** Who sits in each seat, by the id of its player. A game with no table has none. */
+  seats?: Record<string, SeatFact>;
 }
 
 /**
@@ -900,6 +910,8 @@ export interface TableSeat {
   kind: "human" | "smart" | "random";
   /** The faction that was chosen for the player. Absent: drawn from the seed. */
   faction?: string | null;
+  /** The name of the player at the table. With a name for every player the game says them (`SessionUpdate.seats`). */
+  name?: string;
 }
 
 /**

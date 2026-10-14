@@ -1,8 +1,17 @@
-import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { SeatShape } from "../game/context";
 import { GameShell } from "../game/shell/GameShell";
 import { DEFAULT_GAME } from "./defaultGame";
 import { DemoApp } from "./DemoApp";
+import { GameTable } from "./GameTable";
 import { onlineAddress } from "./onlineStart";
 import {
   type LocalGame,
@@ -20,6 +29,7 @@ import {
   saveKey,
   storeSavedGame,
 } from "../session/savedGame";
+import { localGameTable } from "../session/localTable";
 import type { Transport } from "../session/transport";
 import type { ReactionModes } from "../session/wire";
 import { useLiveSession } from "../session/useLiveSession";
@@ -88,6 +98,14 @@ export function LocalApp({
   // The game that is played is told, and the next one starts with it.
   const steps = useRef(stepping);
   steps.current = stepping;
+  /**
+   * The wait of the seats that the page plays, as the host set it last: in the setup, or in the
+   * sheet "Table" of the game. The game that is played is told, and the saved game keeps it.
+   */
+  const wait = useRef(game.waitMs ?? 0);
+  useEffect(() => {
+    wait.current = game.waitMs ?? 0;
+  }, [game]);
   // Without the shell nothing else closes the Dev sheet: Esc does, as in the shell.
   useEffect(() => {
     if (!settingsOpen) {
@@ -135,7 +153,7 @@ export function LocalApp({
       switches: saved?.switches,
       stepping: steps.current,
       table: game.table,
-      waitMs: game.waitMs,
+      waitMs: wait.current,
       modes: readModes(game),
       onModes: (modes) => localStorage.setItem(cardsKey(game), JSON.stringify(modes)),
       onDecisions(list, changes, own) {
@@ -143,6 +161,7 @@ export function LocalApp({
           format: 3,
           engine: engine.hash,
           ...played,
+          waitMs: wait.current || undefined,
           decisions: [...list],
           ...(changes.length ? { switches: [...changes] } : {}),
         });
@@ -175,6 +194,29 @@ export function LocalApp({
     transport?.capabilities.stepping?.set(on);
   };
   const { session, error, replaying } = useLiveSession(transport, drafts);
+  // The table of the game, for its sheet: of its setup the wait can still change.
+  const module = start.kind === "ready" ? start.engine.module : null;
+  const catalog = start.kind === "ready" ? start.engine.catalog : null;
+  const openTable = useCallback(
+    () =>
+      localGameTable(module!, game, {
+        waitMs: wait.current,
+        onWait(ms) {
+          wait.current = ms;
+          transport?.capabilities.wait?.(ms);
+          // The saved game is the game with its wait: a reload waits as long.
+          try {
+            const saved = loadSavedGame(localStorage, game);
+            if (saved) {
+              storeSavedGame(localStorage, { ...saved, waitMs: ms || undefined });
+            }
+          } catch {
+            // A save that is not read is left as it is.
+          }
+        },
+      }),
+    [module, game, transport],
+  );
   // The shell takes an open Dev sheet over. A page without the shell starts with it closed.
   const shown = !waits && !!session;
   useEffect(() => {
@@ -431,6 +473,7 @@ export function LocalApp({
         other={other}
         settings={settingsView}
         settingsOpen={settingsOpen}
+        table={game.table && module ? <GameTable open={openTable} catalog={catalog} /> : undefined}
       />
     );
   }

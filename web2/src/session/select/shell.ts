@@ -5,7 +5,7 @@ import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
 import { type CardSettings, NO_CARD_SETTINGS, selectActionCards } from "./cards";
 import { selectExploration } from "./exploration";
-import { factionName, phaseName } from "./names";
+import { phaseName, seatLabel } from "./names";
 import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
 import { selectScore } from "./score";
@@ -16,8 +16,7 @@ import { selectTactical, tacticalFacts } from "./tactical";
 
 function status(update: SessionUpdate, local: LocalState, printed: Catalog | null): string {
   const turn = update.turn_status;
-  const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, printed);
+  const faction = (seat: string) => seatLabel(update, seat, printed);
   if (local.error) {
     return "The game stopped";
   }

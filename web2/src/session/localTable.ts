@@ -105,6 +105,17 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
           ? { kind: "template", alias: usual.alias }
           : { kind: "random" };
     const cards = next.cards ?? known.strategy_card_sets.find((set) => set.default)?.id;
+    const kinds = new Map(known.bot_kinds.map((kind) => [kind.id, kind.name]));
+    const numbers = new Map<string, number>();
+    /** The name of each player: the person of the page, or the kind of a seat with its number. */
+    const names = next.seats.map((seat) => {
+      if (seat.kind === null || seat.kind === "human") {
+        return play.nickname;
+      }
+      const number = (numbers.get(seat.kind) ?? 0) + 1;
+      numbers.set(seat.kind, number);
+      return `${kinds.get(seat.kind) ?? seat.kind} ${number}`;
+    });
     const made: TableRequest = {
       setup: {
         player_count: count,
@@ -114,33 +125,28 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
         ...(scenario ? { start_from: scenario.id } : {}),
       },
       // An open seat is no player yet: the engine is asked for the board, which needs none.
-      seats: next.seats.map((seat) => ({
+      seats: next.seats.map((seat, place) => ({
         kind: seat.kind ?? "human",
         ...(seat.faction && !scenario ? { faction: seat.faction } : {}),
+        // The game says who sits in each seat by these names.
+        name: names[place],
       })),
     };
     const preview: TablePreview = await setupPreviewOf(module, made);
     // A scenario seats its own factions, in the order of the join.
     const seated = scenario ? (await setupDrawOf(module, made)).factions : null;
-    const kinds = new Map(known.bot_kinds.map((kind) => [kind.id, kind.name]));
-    const numbers = new Map<string, number>();
     const lobby: LobbyState = {
       game_id: "single",
       phase: running ? "running" : "lobby",
       host_player_id: VIEWER,
       slots: next.seats.map((seat, place) => {
         const bot = seat.kind !== null && seat.kind !== "human" ? seat.kind : null;
-        const number = bot ? (numbers.get(bot) ?? 0) + 1 : 0;
-        if (bot) {
-          numbers.set(bot, number);
-        }
         const faction = seated ? seated[place] : seat.faction;
         return {
           slot_id: `slot_${place + 1}`,
           position: place + 1,
           occupant: seat.kind === null ? null : PLAYERS[place],
-          nickname:
-            seat.kind === null ? null : bot ? `${kinds.get(bot) ?? bot} ${number}` : play.nickname,
+          nickname: seat.kind === null ? null : names[place],
           connected: seat.kind !== null,
           can_take_over: false,
           ...(bot ? { bot } : {}),
@@ -214,6 +220,10 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
       return () => listeners.delete(listener);
     },
     async join() {
+      say({ kind: "rejected", reason: "A table in the page has one person." });
+      return null;
+    },
+    async takeOver() {
       say({ kind: "rejected", reason: "A table in the page has one person." });
       return null;
     },
@@ -341,6 +351,150 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
         });
       });
     },
+    close() {
+      closed = true;
+      listeners.clear();
+    },
+  };
+}
+
+export interface LocalGameTablePlay {
+  /** The wait of the seats that the page plays, as the game has it now. */
+  waitMs: number;
+  /** The host set another wait: the game is told, and the saved game keeps it. */
+  onWait(ms: number): void;
+}
+
+/**
+ * The table of a game of single player that runs: who sits in each seat as the start drew it,
+ * and how the game was set up. It is read from the table that the game was started from
+ * (`LocalGame.table`). Of its setup only the wait changes.
+ */
+export function localGameTable(
+  module: WebAssembly.Module,
+  game: LocalGame,
+  play: LocalGameTablePlay,
+): Table {
+  const listeners = new Set<(event: TableEvent) => void>();
+  const request = game.table;
+  let waitMs = play.waitMs;
+  let latest: Extract<TableEvent, { kind: "table" }> | null = null;
+  let failed: string | null = null;
+  let closed = false;
+  let version = 1;
+  let longest = 30_000;
+
+  const say = (event: TableEvent) => {
+    for (const listener of listeners) {
+      listener(event);
+    }
+  };
+  const refuse = (reason: string) => say({ kind: "rejected", reason });
+  const RUNNING = "The game runs: its table is as it was set up.";
+
+  const read = async () => {
+    if (!request) {
+      throw new Error("This game was not started from a table.");
+    }
+    const [known, preview, draw] = await Promise.all([
+      setupOptionsOf(module, request.setup.player_count),
+      setupPreviewOf(module, request),
+      setupDrawOf(module, request),
+    ]);
+    longest = known.max_bot_delay_ms;
+    const scenario = request.setup.start_from ?? null;
+    const usual = known.strategy_card_sets.find((set) => set.default)?.id ?? "";
+    const kinds = new Map(known.bot_kinds.map((kind) => [kind.id, kind.name]));
+    const lobby: LobbyState = {
+      game_id: "single",
+      phase: "running",
+      host_player_id: VIEWER,
+      // The slots of a running table are the seats of the game, in their order.
+      slots: draw.players.map((player, seat) => {
+        const place = draw.order[seat] ?? seat;
+        const joined = request.seats[place];
+        const bot = joined && joined.kind !== "human" ? joined.kind : null;
+        return {
+          slot_id: `slot_${seat + 1}`,
+          position: seat + 1,
+          occupant: player,
+          // A table of an older page has no names: a seat is named by who plays it.
+          nickname: joined?.name ?? (bot ? (kinds.get(bot) ?? bot) : "Player"),
+          connected: true,
+          can_take_over: false,
+          ...(bot ? { bot } : {}),
+          ...(draw.factions[seat] ? { faction: draw.factions[seat] } : {}),
+        };
+      }),
+      lobby_version: version,
+      bot_kinds: known.bot_kinds.map((kind) => kind.id),
+      map: preview.map,
+      map_revision: 0,
+      strategy_card_set: scenario ? usual : (request.setup.strategy_cards ?? usual),
+      speaker_order: request.setup.speaker_order ?? "random",
+      factions: known.faction_groups.flatMap((group) => group.factions.map((item) => item.id)),
+      seat_order: scenario ? "join" : (request.setup.seat_order ?? "random"),
+      bot_delay_ms: waitMs,
+      ...(scenario ? { start_from: scenario } : {}),
+    };
+    return { lobby, preview, known };
+  };
+
+  read().then(
+    ({ lobby, preview, known }) => {
+      if (closed) {
+        return;
+      }
+      latest = { kind: "table", lobby, viewer: VIEWER, preview, options: known, local: true };
+      say(latest);
+    },
+    (error: unknown) => {
+      failed = error instanceof Error ? error.message : String(error);
+      say({ kind: "error", message: failed });
+    },
+  );
+
+  return {
+    subscribe(listener) {
+      listeners.add(listener);
+      if (failed !== null) {
+        listener({ kind: "error", message: failed });
+      } else if (latest) {
+        listener(latest);
+      }
+      return () => listeners.delete(listener);
+    },
+    async join() {
+      refuse("A table in the page has one person.");
+      return null;
+    },
+    async takeOver() {
+      refuse("A table in the page has one person.");
+      return null;
+    },
+    leave() {},
+    addBots: () => refuse(RUNNING),
+    removeSeat: () => refuse(RUNNING),
+    setSettings(settings: TableSettings) {
+      if (settings.waitMs === undefined || !latest) {
+        return refuse(RUNNING);
+      }
+      waitMs = Math.min(longest, Math.max(0, Math.round(settings.waitMs)));
+      version += 1;
+      play.onWait(waitMs);
+      latest = {
+        ...latest,
+        lobby: { ...latest.lobby, bot_delay_ms: waitMs, lobby_version: version },
+      };
+      say(latest);
+    },
+    rename() {},
+    setFaction: () => refuse(RUNNING),
+    async maps(players): Promise<MapSummary[]> {
+      return (await setupOptionsOf(module, players)).maps;
+    },
+    setMap: () => refuse(RUNNING),
+    start() {},
     close() {
       closed = true;
       listeners.clear();

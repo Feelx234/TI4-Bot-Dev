@@ -696,8 +696,11 @@ What can go then:
    About 4000 lines of source; no crate outside `ti4-server` uses them. Raise `PROTOCOL_VERSION`.
 2. `web/`.
 
-Before that, list what `web/` has and web2 does not (the lobby, the host history, the event log,
-the map picker, the advisor, and what else is found), and bring each to web2 or ask the owner.
+Before that, list what `web/` has and web2 does not (the host history, the event log, the map
+picker, the advisor, the MLP bot, and what else is found), and bring each to web2 or ask the
+owner. The lobby is in web2 since 2026-10-14 (`2026-10-12-LOBBY_PLAN.md`, phases 1 to 3 and 5
+to 7): the table, its setup, the factions, the nicknames in the game, the table of a running
+game and the take-over of a seat.
 
 ## Checks that every phase must pass
 

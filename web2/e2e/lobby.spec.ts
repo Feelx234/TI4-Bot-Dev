@@ -45,8 +45,10 @@ const send = (page: Page) => page.locator('footer button[aria-keyshortcuts="Ente
 /** The seat of the page in the running game: the row of the player table that is marked as its own. */
 const ownSeat = (page: Page) =>
   page.getByRole("region", { name: "Players" }).locator('tbody tr[class*="bg-cyan"] th button');
-/** A seat of a game is named by the id of its player, until the game knows the nicknames. */
-const seatName = (player: string | null) => new RegExp(`^Seat ${player!.toUpperCase()}, `);
+/** The player table of the running game: one row for each seat. */
+const seatRows = (page: Page) => page.getByRole("region", { name: "Players" }).locator("tbody tr");
+/** The sheet "Table" of the running game. */
+const sheet = (page: Page) => page.getByRole("complementary", { name: "Table" });
 
 /** The errors of the page. A test expects none. */
 function errorsOf(page: Page) {
@@ -188,15 +190,26 @@ test("three tabs of one browser make a table from the start screen, fill it and 
   for (const [index, tab] of [page, second, third].entries()) {
     await expect(tab.getByText("Round 1 · Strategy phase")).toBeVisible();
     await expect(tab.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(4);
-    // Each tab is another seat of the same game: the seat of its address.
-    await expect(ownSeat(tab)).toHaveAttribute("aria-label", seatName(seats[index]));
+    // Each tab is another seat of the same game: the seat of its address, by its name.
+    await expect(ownSeat(tab)).toHaveAttribute(
+      "aria-label",
+      new RegExp(`^${["Ada", "Ada 2", "Ada 3"][index]}, `),
+    );
+    // The names of the three tabs are in the player table of each, and the seat that the
+    // server plays has its sign.
+    for (const name of ["Ada", "Ada 2", "Ada 3", "Rule bot 1"]) {
+      await expect(seatRows(tab).getByText(name, { exact: true })).toBeVisible();
+    }
+    await expect(seatRows(tab).getByRole("img", { name: "No person plays this seat" })).toHaveCount(
+      1,
+    );
     expect(new URL(tab.url()).searchParams.get("online")).toBe(game);
     expect(new URL(tab.url()).searchParams.get("seat")).toBe(seats[index]);
   }
   // A reload of a tab of the running game is the same seat.
   await third.reload();
   await expect(third.getByText("Round 1 · Strategy phase")).toBeVisible();
-  await expect(ownSeat(third)).toHaveAttribute("aria-label", seatName(seats[2]));
+  await expect(ownSeat(third)).toHaveAttribute("aria-label", /^Ada 3, /);
   expect(errors).toEqual([]);
 });
 
@@ -488,7 +501,8 @@ test("two tabs choose their factions, a taken faction is refused, and each plays
   const seats = page.getByRole("region", { name: "Players" }).locator("tbody tr th button");
   await expect(seats).toHaveCount(4);
   const factions = (await seats.evaluateAll((nodes) => nodes.map((node) => node.ariaLabel!))).map(
-    (label) => label.replace(/^Seat [^,]+, /, "").replace(/[.,].*$/, ""),
+    // The label is the name of the player, then the faction.
+    (label) => label.replace(/^[^,]+, /, "").replace(/[.,].*$/, ""),
   );
   expect(factions).toEqual(expect.arrayContaining(["Jol-Nar", "Sol", "Naalu"]));
   expect(new Set(factions).size).toBe(4);
@@ -626,7 +640,7 @@ test("a secondary is drafted in one tab while a rule bot takes its time, and the
   // The other tab drafts its secondary from the moment the card is played.
   await expect(panel(other).getByRole("heading", { name: "Leadership" })).toBeVisible();
   await expect(panel(other).getByText("✎ Private draft")).toBeVisible();
-  await expect(title(other)).toHaveText("Waiting for Sol");
+  await expect(title(other)).toHaveText("Waiting for Ada");
   for (const answer of ["Tactic pool", "Tactic pool", "Tactic pool", "Spend nothing further"]) {
     await panel(page).getByRole("button", { name: answer }).click();
     await send(page).click();
@@ -634,7 +648,7 @@ test("a secondary is drafted in one tab while a rule bot takes its time, and the
   // The first seat after the host is a rule bot. It takes a second for each of its answers, and
   // every tab reads who the game waits for.
   for (const tab of [page, other]) {
-    await expect(title(tab)).toHaveText("Waiting for Hacan");
+    await expect(title(tab)).toHaveText("Waiting for Rule bot 1");
     await expect(panel(tab).getByText("▶ Deciding")).toHaveCount(1);
   }
   // Meanwhile the draft is made and marked ready. With no wait the game would be past this
@@ -645,7 +659,7 @@ test("a secondary is drafted in one tab while a rule bot takes its time, and the
   await expect(send(other)).toHaveText(/^Mark draft ready/);
   await send(other).click();
   await expect(panel(other).getByText("✎ Draft ready")).toBeVisible();
-  await expect(title(other)).toHaveText("Waiting for Hacan");
+  await expect(title(other)).toHaveText("Waiting for Rule bot 1");
   // The draft is private: the host sees the row of that seat wait, and nothing of the draft.
   await expect(panel(page).getByText("✎")).toHaveCount(0);
   await other.screenshot({ path: "shots/online/secondary-draft-wait.png", animations: "disabled" });
@@ -684,7 +698,7 @@ test("a table starts from the late game, and each tab has the seat of its join",
   await expect(ownSeat(page)).toHaveAttribute("aria-label", /Sol/);
   await expect(ownSeat(other)).toHaveAttribute("aria-label", /Hacan/);
   await expect(title(page)).toHaveText("Your decision");
-  await expect(title(other)).toHaveText("Waiting for Sol");
+  await expect(title(other)).toHaveText("Waiting for Ada");
   // A sheet of the late game in each tab: each seat has its own hand of the scenario.
   for (const tab of [page, other]) {
     await tab.getByRole("button", { name: "Secrets", exact: true }).click();
@@ -698,4 +712,140 @@ test("a table starts from the late game, and each tab has the seat of its join",
     "10 VP to win",
   );
   expect(errors).toEqual([]);
+});
+
+/** A started table of four: Ada (the host), a person with a long name, a rule bot and a random seat. */
+async function runningTable(request: APIRequestContext) {
+  const table = await makeTable(request, 4, "Ada");
+  const guest = await table.call("join", { kind: "new", nickname: LONG[0] }, null);
+  await table.call("bots", { kind: "smart" });
+  await table.call("bots", { kind: "random" });
+  await table.call("start", {});
+  return {
+    ...table,
+    guest: { id: guest.player.id as string, session: guest.player_session as string },
+  };
+}
+
+test("the table of a running game: every tab has the names, and the host sets the wait in the sheet", async ({
+  page,
+  context,
+  request,
+}) => {
+  const errors = errorsOf(page);
+  const table = await runningTable(request);
+  await asPlayers(context, table.id, {
+    [table.host.id]: table.host.session,
+    [table.guest.id]: table.guest.session,
+  });
+  await page.goto(`/?online=${table.id}&seat=${table.host.id}`);
+  const other = await context.newPage();
+  const otherErrors = errorsOf(other);
+  await other.goto(`/?online=${table.id}&seat=${table.guest.id}`);
+  for (const tab of [page, other]) {
+    await expect(tab.getByText("Round 1 · Strategy phase")).toBeVisible();
+    await expect(seatRows(tab)).toHaveCount(4);
+    // A seat is named by its player. A long name is cut, with the full name on hover.
+    for (const name of ["Ada", LONG[0], "Rule bot 1", "Random bot 1"]) {
+      await expect(seatRows(tab).getByTitle(name, { exact: true })).toBeVisible();
+    }
+    await expect(seatRows(tab).getByRole("img", { name: "No person plays this seat" })).toHaveCount(
+      2,
+    );
+  }
+  await expect(ownSeat(page)).toHaveAttribute("aria-label", /^Ada, /);
+  await expect(ownSeat(other)).toHaveAttribute("aria-label", new RegExp(`^${LONG[0]}, `));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(1920);
+
+  // The sheet "Table" is the lobby with nothing open: the seats in their order, each with the
+  // symbol of its seat, its player and its faction, and the setup.
+  await page.getByRole("button", { name: "Table", exact: true }).click();
+  const seats = sheet(page).getByRole("region", { name: "Players" }).getByRole("listitem");
+  await expect(seats).toHaveCount(4);
+  await expect(seats.filter({ hasText: "Ada (you)" })).toHaveCount(1);
+  await expect(
+    seats.filter({ hasText: "Ada (you)" }).getByRole("img", { name: "Host" }),
+  ).toBeVisible();
+  await expect(
+    seats.filter({ hasText: "Rule bot 1" }).getByRole("img", { name: /^Rule bot/ }),
+  ).toBeVisible();
+  // Every seat has the faction that the start gave it: none is "Random" any more.
+  await expect(seats.filter({ hasText: "Random bot 1" })).toHaveCount(1);
+  await expect(seats.filter({ hasText: /Random$/ })).toHaveCount(0);
+  const setupOf = (tab: Page) => sheet(tab).getByRole("region", { name: "Setup" });
+  await expect(setupOf(page)).toContainText("Strategy cards");
+  await expect(setupOf(page)).toContainText("Thunder’s Edge".replace("’", "'"));
+  // Nothing of the table is edited there but the wait, and only by the host.
+  await expect(sheet(page).getByRole("combobox")).toHaveCount(0);
+  await expect(
+    sheet(page).getByRole("button", { name: /Remove|Change your name|Faction of/ }),
+  ).toHaveCount(0);
+  await expect(setupOf(page).getByLabel("Bots wait", { exact: true })).toHaveText("Off");
+  await setupOf(page).getByRole("button", { name: "Wait more" }).click();
+  await expect(setupOf(page).getByLabel("Bots wait", { exact: true })).toHaveText("0.5 s");
+  await page.screenshot({ path: "shots/online/table-sheet.png", animations: "disabled" });
+
+  // The other player reads the same table, with the new wait and no control.
+  await other.getByRole("button", { name: "Table", exact: true }).click();
+  await expect(
+    sheet(other).getByRole("region", { name: "Players" }).getByRole("listitem"),
+  ).toHaveCount(4);
+  await expect(setupOf(other)).toContainText("0.5 s");
+  await expect(setupOf(other).getByRole("button", { name: "Wait more" })).toHaveCount(0);
+  // Esc closes the sheet, as every reference sheet.
+  await page.keyboard.press("Escape");
+  await expect(sheet(page)).toHaveCount(0);
+  expect([...errors, ...otherErrors]).toEqual([]);
+});
+
+test("a visitor of a running game is shown its table first: Watch opens the game, and a seat of a person who is away is offered", async ({
+  page,
+  request,
+}) => {
+  const errors = errorsOf(page);
+  const table = await runningTable(request);
+  // The grace time of a server is half a minute. The table of this page says that it is over
+  // for the second person; the server still decides, and refuses.
+  await page.routeWebSocket(/\/ws\/tables\//, (socket) => {
+    const server = socket.connectToServer();
+    server.onMessage((data) => {
+      const message = JSON.parse(String(data));
+      for (const slot of message.lobby?.slots ?? []) {
+        slot.can_take_over = slot.occupant === table.guest.id;
+      }
+      socket.send(JSON.stringify(message));
+    });
+  });
+  await page.goto(`/?online=${table.id}`);
+  // The same screen as the lobby, with nothing to set up: the board, the seats, the setup.
+  await expect(title(page)).toHaveText("Table · 4 players");
+  await expect(rows(page)).toHaveCount(4);
+  await expect(page.locator("g.system.home")).toHaveCount(4);
+  await expect(rows(page).filter({ hasText: "(you)" })).toHaveCount(0);
+  await expect(setup(page).getByRole("button", { name: /Wait/ })).toHaveCount(0);
+  await expect(setup(page).getByRole("combobox")).toHaveCount(0);
+  await expect(page.getByLabel("Name")).toHaveCount(0);
+  await expect(main(page)).toHaveText(/Watch/);
+  await page.screenshot({ path: "shots/online/table-visitor.png", animations: "disabled" });
+
+  // Only the seat of the person who is away is offered. The server has the last word.
+  const rejoin = players(page).getByRole("button", { name: "Rejoin", exact: true });
+  await expect(rejoin).toHaveCount(1);
+  await expect(
+    rows(page).filter({ has: page.getByRole("button", { name: "Rejoin", exact: true }) }),
+  ).toContainText(LONG[0]);
+  await rejoin.click();
+  await expect(toast(page, "Takeover is not available yet")).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`\\?online=${table.id}$`));
+
+  // Enter is the main button: the visitor watches the game, with no seat.
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Round 1 · Strategy phase")).toBeVisible();
+  await expect(seatRows(page)).toHaveCount(4);
+  await expect(ownSeat(page)).toHaveCount(0);
+  await expect(seatRows(page).getByTitle("Ada", { exact: true })).toBeVisible();
+  // The refusal of the server is the one error of the page: the browser logs the answer.
+  expect(errors).toEqual([
+    "Failed to load resource: the server responded with a status of 409 (Conflict)",
+  ]);
 });

@@ -1648,3 +1648,51 @@ it.skipIf(!built)(
   },
   120_000,
 );
+
+it.skipIf(!built)(
+  "the game of a table says who sits in each seat, and its wait changes while it runs",
+  async () => {
+    const seats: TableRequest["seats"] = [
+      { kind: "human", name: "Ada" },
+      { kind: "smart", name: "Rule bot 1" },
+      { kind: "random", name: "Random 1" },
+      { kind: "smart", name: "Rule bot 2" },
+    ];
+    const table: TableRequest = { setup: { player_count: 4, seed: 12 }, seats };
+    const game = { seed: 12, players: 4, humans: 1 };
+    const { transport, next, nonce } = await play(false, game, { table });
+    let event = await next();
+    // The players have the ids of the join ("a" came first), wherever the draw seated them.
+    expect(event.update.seats).toEqual({
+      a: { nickname: "Ada", kind: "human" },
+      b: { nickname: "Rule bot 1", kind: "smart" },
+      c: { nickname: "Random 1", kind: "random" },
+      d: { nickname: "Rule bot 2", kind: "smart" },
+    });
+    // With no wait the page is asked only its own decisions. The host sets a wait: from now on
+    // the page is shown the game while another seat takes its time.
+    expect(event.update.pending_choice).toBeDefined();
+    transport.capabilities.wait?.(2);
+    let waited = 0;
+    for (let asked = 0; asked < 6 && waited === 0;) {
+      if (event.update.pending_choice) {
+        asked += 1;
+        transport.submitChoice(nonce(event), event.update.pending_choice.choice.options[0].id);
+      } else {
+        waited += 1;
+        expect(event.update.seats?.a.nickname).toBe("Ada");
+      }
+      event = await next();
+    }
+    expect(waited).toBeGreaterThan(0);
+    transport.close();
+
+    // A table of an older page has no names: its game says none.
+    const old = await play(false, game, {
+      table: { ...table, seats: seats.map(({ kind }) => ({ kind })) },
+    });
+    expect((await old.next()).update.seats).toBeUndefined();
+    old.transport.close();
+  },
+  120_000,
+);
