@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { expect, test } from "@playwright/test";
 import { shot } from "../_shared/shot";
 import { GAMES, SIZES, openOffline } from "./offline";
@@ -27,7 +29,9 @@ test("no entry without a launcher, and an invalid seed is reported", async ({ pa
   await page.route("**/api/**", (route) => route.fulfill({ status: 503, json: {} }));
   await page.goto("/");
   await page.getByTestId("create-game-button").waitFor();
-  await expect(page.getByTestId("play-offline-button")).toHaveCount(0);
+  // Only a build without the engine file has no launcher (a build with it registers the real one).
+  if (!existsSync(resolve(process.cwd(), "src/offline/local/engine/ti4_wasm.wasm")))
+    await expect(page.getByTestId("play-offline-button")).toHaveCount(0);
   await openOffline(page, "/offline");
   await page.getByTestId("offline-nickname").fill("Ada");
   await page.getByTestId("offline-seed").fill("-4");

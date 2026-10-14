@@ -56,7 +56,8 @@ export const OfflineGameRoute: React.FC<{
   return (
     <CapabilityProvider value={launcher.capabilities}>
       {handle ? (
-        renderGame ? (
+        // (the dev mock launcher has no game to render: it gets the placeholder)
+        renderGame && handle.transport ? (
           renderGame(handle, banner)
         ) : (
           <main className="lobby-page" data-testid="offline-game-placeholder">
