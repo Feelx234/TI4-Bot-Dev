@@ -4,8 +4,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { BlockView, FlowActionView, Intent, SeatRowView } from "../model";
 import type { SaveStorage } from "./savedGame";
-import { type DraftStore, type LiveSession, useLiveSession } from "./useLiveSession";
+import { type SeatStore, type StagedSlot, localSeatStore } from "./seatStore";
+import { type LiveSession, useLiveSession } from "./useLiveSession";
 import { type Engine, createWasmTransport } from "./wasmTransport";
+import type { SessionUpdate } from "./wire";
 
 // The private draft of a secondary, on the real engine (`scripts/build-wasm.sh`): a game of
 // seed 4 with seat a on this side. The other seats wait for a step before each decision, so
@@ -40,7 +42,35 @@ async function open() {
   const applyDraft = vi.spyOn(transport, "applyDraft");
   const submitChoice = vi.spyOn(transport, "submitChoice");
   const kept = storage();
-  const drafts: DraftStore = { storage: kept, key: "movement", secondaryKey: "secondary" };
+  const local = localSeatStore(kept, {
+    movement: "movement",
+    plan: "plan",
+    secondary: "secondary",
+  });
+  // The store of a seat that another tab changes, as the server tells it (`emit`).
+  const listeners = new Set<(slot: StagedSlot, value: unknown) => void>();
+  const drafts: SeatStore = {
+    get: local.get,
+    set: vi.fn(local.set),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+  const emit = (slot: StagedSlot, value: unknown) =>
+    act(async () => {
+      local.set(slot, value);
+      for (const listener of listeners) {
+        listener(slot, value);
+      }
+    });
+  /** The strategic action of the last update of the game. */
+  let last: SessionUpdate | null = null;
+  transport.subscribe((event) => {
+    if (event.kind === "update") {
+      last = event.update;
+    }
+  });
   const { result } = renderHook(() => useLiveSession(transport, drafts));
   const flow = (live: LiveSession = result.current): FlowActionView => {
     const action = live.session?.view.action;
@@ -92,6 +122,9 @@ async function open() {
     submitChoice,
     kept,
     transport,
+    drafts,
+    emit,
+    last: () => last,
   };
 }
 
@@ -211,6 +244,39 @@ it.skipIf(!built)(
     expect(game.applyDraft).toHaveBeenCalledTimes(1);
     expect(seatA().tokens[2]).toBe(before.tokens[2] - 1);
     expect(seatA().actionCards).toBe(before.actionCards + 2);
+    game.transport.close();
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "shows the draft of a secondary that another tab of the seat changed, and does not write it back",
+  async () => {
+    const game = await open();
+    const { flow, mine, menu, stepUntil, drafts, emit } = game;
+    await stepUntil(() => flow().heading === "Politics" && !!mine()?.open);
+    const option = menu(mine()?.open)[0].intent;
+    const update = game.last()!;
+    const { primary, card } = update.secondary!;
+    const draft = {
+      round: update.view.round,
+      primary,
+      card,
+      answers: [{ id: option.type === "chooseOption" ? option.option : "", label: "decline" }],
+      ready: true,
+    };
+    vi.mocked(drafts.set).mockClear();
+    await emit("secondary", draft);
+    await waitFor(() =>
+      expect(mine()).toMatchObject({ status: { sign: "✎", label: "Draft ready" } }),
+    );
+    expect(mine()?.text).toMatch(/^Decline · not sent/);
+    expect(drafts.set).not.toHaveBeenCalled();
+    // The other tab starts over: the row is the draft again, with nothing answered.
+    await emit("secondary", null);
+    await waitFor(() => expect(mine()?.status.label).toBe("Private draft"));
+    expect(menu(mine()?.open)).toHaveLength(2);
+    expect(drafts.set).not.toHaveBeenCalled();
     game.transport.close();
   },
   120_000,

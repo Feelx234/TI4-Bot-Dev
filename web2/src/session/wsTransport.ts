@@ -1,5 +1,6 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
 import type { PlanStep } from "./movementPlan";
+import { type LegacyStaged, seatSync } from "./seatStore";
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import { spaceOddsOf } from "./wasmTransport";
@@ -23,6 +24,8 @@ export interface OnlineGame {
   gameId: string;
   /** What the server gave the player when the game was made or joined. Null: a spectator. */
   playerSession: string | null;
+  /** What an older page kept of the staged work of the player in this browser: put once, when the server has none. */
+  legacyStaged?: LegacyStaged;
 }
 
 export { type Socket, openSocket } from "./socket";
@@ -142,6 +145,19 @@ export function createWsTransport(
   let undoing = false;
   /** The notes of the server that were told. A note has an id so that a repeat can be dropped. */
   const noted = new Set<string>();
+  /** The staged work of the seat, kept by the server for every tab of the seat. A spectator has none. */
+  const player = game.playerSession !== null;
+  const staged = seatSync(
+    (slot, base, value) =>
+      send({
+        type: "put_staged",
+        game_id: game.gameId,
+        slot,
+        base_revision: base,
+        ...(value === null ? {} : { value }),
+      }),
+    game.legacyStaged,
+  );
 
   const say = (event: TransportEvent) => {
     for (const listener of listeners) {
@@ -276,7 +292,18 @@ export function createWsTransport(
               : `The server refused the game: ${message.message}`,
           );
         }
-        return say({ kind: "rejected", reason: message.message });
+        // A write of the staged work that the server did not take is followed by what it keeps.
+        return say({
+          kind: "rejected",
+          reason: staged.waiting()
+            ? "The server did not keep what you staged. It stays in this tab."
+            : message.message,
+        });
+      case "seat_staged":
+        if (player) {
+          staged.receive(message);
+        }
+        return;
       case "draft_outcome":
         if (asked?.id === message.request_id) {
           const { script, scope } = asked;
@@ -321,7 +348,9 @@ export function createWsTransport(
       send({
         type: "subscribe",
         game_id: game.gameId,
-        ...(game.playerSession === null ? {} : { player_session: game.playerSession }),
+        ...(game.playerSession === null
+          ? {}
+          : { player_session: game.playerSession, staged: true }),
       });
     },
     // The server counts a player as present while its connection pings.
@@ -340,6 +369,7 @@ export function createWsTransport(
       // What was on its way is lost. The snapshot after the next subscription says where the game is.
       sent = null;
       asked = null;
+      staged.lost();
       // The server replaced the game for the undo of this side: the game is not lost, and the
       // snapshot of the next subscription is what the undo left. Any other end is a loss.
       const undone = undoing && event.code === REPLACED;
@@ -352,6 +382,15 @@ export function createWsTransport(
     },
   });
 
+  // A reload, or a tab that is put away, does not wait for the next change: what was staged
+  // last is written now.
+  const leave = () => staged.flushNow();
+  const hidden = () => document.visibilityState === "hidden" && staged.flushNow();
+  if (player && typeof window !== "undefined") {
+    window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", hidden);
+  }
+
   const isPlayer = () => latest?.update.viewer.role === "player";
 
   return {
@@ -362,6 +401,7 @@ export function createWsTransport(
         : Promise.reject(new Error("This page has no engine for the odds.")),
     // The tools of a local game are not on the server.
     capabilities: {},
+    ...(player ? { staged: staged.store } : {}),
     subscribe(listener) {
       listeners.add(listener);
       listener({ kind: "modes", modes: { ...modes } });
@@ -441,6 +481,11 @@ export function createWsTransport(
     close() {
       closed = true;
       settle();
+      if (player && typeof window !== "undefined") {
+        window.removeEventListener("pagehide", leave);
+        document.removeEventListener("visibilitychange", hidden);
+      }
+      staged.close();
       link?.close();
       listeners.clear();
     },

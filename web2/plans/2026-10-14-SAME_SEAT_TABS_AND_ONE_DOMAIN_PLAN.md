@@ -7,7 +7,10 @@ Updated 2026-10-14 16:45 Berlin, against `dev` at `6b5a36da`.
 - **Phase 1 is done** and merged: `6b5a36da Merge origin/seat-staged-sync: staged work for each
   seat (phase 1)`, one commit `86406f6b server: staged work for each seat, the same in every tab`
   on branch `seat-staged-sync`. What was built, and where it differs from the plan, is in Phase 1
-  below. Phases 2–4 are not started.
+  below.
+- **Phase 2 is done** (2026-10-14, on `dev` after `7bef1db4`): web2 keeps the staged work of an
+  online seat on the server. What was built and the deviations are in Phase 2 below. Phases 3–4
+  are not started.
 - **Felix's work was merged** (`056ae71a Merge remote-tracking branch 'felix/main' into dev`),
   with the offline single player of web (`5381af51 Merge offline-final ...`). What matters here:
   - **The protocol moved to a new crate.** `crates/ti4-server/src/protocol/*` is now
@@ -163,7 +166,56 @@ The merge moved the wire types to `ti4-host`, where Felix's merge had put the pr
   action). Nothing removes `staged.json` but the removal of the game's directory.
 - web2's `wire.ts` has no types for any of it yet (phase 2).
 
-## Phase 2 — web2: a seat store in place of `localStorage` for online games
+## Phase 2 — web2: a seat store in place of `localStorage` for online games — DONE
+
+**As built** (2026-10-14).
+- `web2/src/session/seatStore.ts`: `SeatStore { get, set, subscribe }`; `localSeatStore(storage,
+  keys)` for local games and single player; `seatSync(put, legacy)`, the online store, which
+  `createWsTransport` holds and exposes as `Transport.staged` for a player (not for a
+  spectator). `subscribe` tells only a change of another connection, as `(slot, value)`.
+- Wire types in `wire.ts`: `StagedSlot`, `StagedValue`, `SeatStagedMsg` (`seat_staged`),
+  `put_staged`, `subscribe.staged`. The transport subscribes with `staged: true` as a player.
+- `useLiveSession(transport, store?: SeatStore)`; `DraftStore` is gone. `OnlineApp` passes
+  `transport.staged`; `LocalApp` a `localSeatStore` over `draftKey`/`planKey`/`secondaryKey`.
+  `draft.ts` and `secondaryDraft.ts` have `parseDraft(value)` in place of `readDraft`/`storeDraft`;
+  `draft.ts` has `trimDraft` (oldest undo states first, then redo states).
+- Migration: `legacyStaged(storage, gameId, playerId)` in `onlineKeys.ts`, given to the transport
+  as `OnlineGame.legacyStaged`.
+- Tests: `wsTransport.test.ts` (the echo is the base, one write on its way, key order, clear;
+  another tab over a stale write; a refused write; a lost connection; migration),
+  `transportContract.test.ts` (server only: a write reaches the second and a later connection
+  of the seat), `liveSecondary.test.tsx` (a remote secondary draft shows in the row and is not
+  written back), `draft.test.ts` (`trimDraft`), e2e `online.spec.ts` "the same seat in two tabs".
+
+**Deviations and details.**
+- Values are compared with sorted keys (`sameStaged`): the server keeps a value as a
+  `serde_json::Value` without `preserve_order`, so its echo has sorted keys. Without it the store
+  would put an "equal" value, get no answer, and wait.
+- The hook writes a slot only when this tab's own value changed since its last look (`shown` in
+  `useLiveSession`), not whenever it differs from the store: an effect of a render before a remote
+  change would write the old value back.
+- The movement slot is cleared only when this tab takes back what it staged for the open choice.
+  A value of another choice stays in the slot and is not read (it carries its nonce). The hook no
+  longer clears the slot on every update without staged steps: a tab that is behind would clear
+  what another tab staged for the next choice.
+- A remote plan of `null` closes the Draft workspace of the tab; a draft with no system resets
+  the step in view. `draftView` already falls back when the step is no longer reached.
+- What waits for the debounce is written at once on `pagehide` and when the tab is hidden: the
+  e2e of a reload staged and reloaded inside 250 ms and lost the draft.
+- A write with no answer in 5 s is given up. An `error` while a write is on its way is told as
+  "The server did not keep what you staged. It stays in this tab." and the value is not tried
+  again until the page changes it (no loop on a failing save).
+- What a page of before kept is dropped on the first `seat_staged` also when the server has
+  something for the seat (it is put only when the server has nothing).
+
+**Gaps left.**
+- No client test of the rate limit (the debounce keeps a slot under 4 writes a second) and no unit
+  test of the flush on `pagehide` (the e2e reload covers it).
+- Two tabs can still both send the same answer ("Move fleet", a choice): phase 3.
+- `e2e/online.spec.ts` "a lost connection …" timed out once on its first load in one full run;
+  it passed 38 times after it, and 5 times on the code before.
+
+### The plan of phase 2
 
 - **Wire types** in `web2/src/session/wire.ts`: `staged?: boolean` on the `subscribe` request,
   a `put_staged` request, a `seat_staged` server message (`StagedSlot`, `StagedValue`,

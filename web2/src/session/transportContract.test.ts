@@ -445,6 +445,66 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
     server?.kill();
     rmSync(data, { recursive: true, force: true });
   });
+  /** A game of eight with one seat for this side, and the transport of that seat. */
+  const play = async (made?: { game_id: string; player_session: string }) => {
+    if (!made) {
+      const response = await fetch(`http://127.0.0.1:${port}/api/games`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          player_count: 8,
+          seed: 3,
+          nickname: "Contract",
+          fill_seats: "random",
+        }),
+      });
+      expect(response.status).toBe(200);
+      made = await response.json();
+    }
+    const game = made!;
+    return {
+      made: game,
+      transport: createWsTransport(
+        engine,
+        { gameId: game.game_id, playerSession: game.player_session },
+        { open: (id) => openSocket(`ws://127.0.0.1:${port}/ws/games/${id}`) },
+      ),
+    };
+  };
+  // Only the server keeps what a seat staged: a game in this page is in one tab.
+  it("keeps what a seat staged for every connection of the seat", async () => {
+    const first = await play();
+    const second = await play(first.made);
+    const a = first.transport.staged!;
+    const b = second.transport.staged!;
+    /** The next value of a slot that the other connection wrote. */
+    const next = (store: typeof b) =>
+      new Promise<unknown>((told) => {
+        const stop = store.subscribe((slot, value) => {
+          stop();
+          told([slot, value]);
+        });
+      });
+    // The second tab is told what the first staged, as the server keeps it.
+    const draft = { history: [{ system: "26", steps: null }], cursor: 0 };
+    let told = next(b);
+    a.set("plan", draft);
+    expect(await told).toEqual(["plan", draft]);
+    expect(b.get("plan")).toEqual(draft);
+    // And the first what the second clears.
+    told = next(a);
+    b.set("plan", null);
+    expect(await told).toEqual(["plan", null]);
+    // A tab that comes later has it at once.
+    a.set("secondary", { card: "pok3politics", answers: [], ready: false });
+    await new Promise((settle) => setTimeout(settle, 500));
+    const late = await play(first.made);
+    const told3 = await next(late.transport.staged!);
+    expect(told3).toEqual(["secondary", { answers: [], card: "pok3politics", ready: false }]);
+    for (const side of [first, second, late]) {
+      side.transport.close();
+    }
+  }, 30_000);
   contract(async () => {
     const response = await fetch(`http://127.0.0.1:${port}/api/games`, {
       method: "POST",

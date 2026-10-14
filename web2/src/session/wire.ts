@@ -801,14 +801,50 @@ export type ServerMessage =
       outcome: DraftOutcome;
     }
   | { type: "draft_applied"; protocol_version: number; nonce: string; stopped?: ScriptStopped }
+  | ({ type: "seat_staged" } & SeatStagedMsg)
   | { type: "other"; protocol_version: number };
+
+/** `ti4_host::protocol::staged::StagedSlot`: one kind of staged work of a seat. */
+export type StagedSlot = "movement" | "plan" | "secondary";
+
+/** `ti4_host::protocol::staged::StagedValue`: a slot and the revision of its last write. */
+export interface StagedValue {
+  revision: number;
+  /** Null or absent: the slot was cleared. */
+  value?: unknown;
+}
+
+/**
+ * `ti4_host::protocol::staged::SeatStagedMsg`: what the seat of this connection has staged, sent
+ * to a connection that subscribed with `staged`: after the snapshot, after every write of any
+ * connection of the seat, and as the answer to a write that was not taken. It has no game
+ * version: the newest is the one with the highest `revision`.
+ */
+export interface SeatStagedMsg {
+  protocol_version: number;
+  game_id: string;
+  /** The revision of the newest write of any slot (0: never written). */
+  revision: number;
+  /** The slots that were ever written. */
+  slots: Partial<Record<StagedSlot, StagedValue>>;
+  /** The connection whose write this is. */
+  writer?: number;
+  /** The id of this connection, in the message after the snapshot only: the `writer` of its writes. */
+  connection?: number;
+}
 
 /** `ti4_server::protocol::ClientMessage`, without the messages of the planning runner. */
 export type ClientMessage = ClientRequest & { protocol_version: number };
 
 /** A message to the server, before it has the version of the protocol. */
 export type ClientRequest =
-  | { type: "subscribe"; game_id: string; player_session?: string }
+  | {
+      type: "subscribe";
+      game_id: string;
+      player_session?: string;
+      /** The connection takes part in the staged work of its seat (`seat_staged`, `put_staged`). */
+      staged?: boolean;
+    }
   | {
       type: "submit_choice";
       game_id: string;
@@ -834,6 +870,17 @@ export type ClientRequest =
     }
   /** Takes back the last decision of the seat. The server then closes the socket as replaced. */
   | { type: "undo"; game_id: string; expected_version: number }
+  /**
+   * Writes a slot of the staged work of the seat, when `base_revision` is its revision
+   * (`ti4_host::protocol::client::ClientMessage::PutStaged`). No value clears it.
+   */
+  | {
+      type: "put_staged";
+      game_id: string;
+      slot: StagedSlot;
+      base_revision: number;
+      value?: unknown;
+    }
   | { type: "ping"; sequence: number };
 
 // ---- The table of a game on the server, before and while it runs --------------------------------

@@ -13,8 +13,8 @@ import {
   frontier,
   isBoundary,
   newDraft,
+  parseDraft as parsePlan,
   problemOf,
-  readDraft as readPlan,
   redo,
   scriptOf,
   setLandings,
@@ -23,7 +23,7 @@ import {
   stageAfter,
   startOver,
   stepsOfStage,
-  storeDraft as storePlan,
+  trimDraft,
   undo,
 } from "./draft";
 import {
@@ -53,7 +53,13 @@ import {
   togglePlanet,
   totals,
 } from "./productionDraft";
-import type { SaveStorage } from "./savedGame";
+import {
+  MAX_STAGED_BYTES,
+  type SeatStore,
+  type StagedSlot,
+  sameStaged,
+  stagedBytes,
+} from "./seatStore";
 import {
   type SecondaryDraft,
   asksSecondary,
@@ -62,11 +68,10 @@ import {
   isOver,
   newDraft as newFollow,
   problemOf as followProblem,
-  readDraft as readFollow,
+  parseDraft as parseFollow,
   record,
   scopeOf,
   scriptOf as followScriptOf,
-  storeDraft as storeFollow,
 } from "./secondaryDraft";
 import type { DraftInfo, FollowInfo, LocalState } from "./select/action";
 import type { CardSettings } from "./select/cards";
@@ -102,16 +107,6 @@ const NOTHING: LocalState = {
 const sameSystem = (query: string, id: string) =>
   query.trim() === id || query.trim().endsWith(`#${id}`);
 
-/** Where the staged movement is kept between two visits. */
-export interface DraftStore {
-  storage: SaveStorage;
-  key: string;
-  /** Where the private draft of a tactical action is kept. Without it a reload loses the draft. */
-  planKey?: string;
-  /** Where the private draft of a secondary is kept. */
-  secondaryKey?: string;
-}
-
 /** A script that the game is asked to play, and what it is of. No scope: a tactical action. */
 interface Wanted {
   script: DraftStep[];
@@ -128,8 +123,8 @@ interface DraftRun {
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-const readFollowOf = (drafts: DraftStore | undefined): SecondaryDraft | null =>
-  drafts?.secondaryKey ? readFollow(drafts.storage, drafts.secondaryKey) : null;
+const readFollowOf = (store: SeatStore | undefined): SecondaryDraft | null =>
+  store ? parseFollow(store.get("secondary")) : null;
 
 /** The private draft of the page, and whether it is in view. */
 interface Plan {
@@ -139,11 +134,14 @@ interface Plan {
   stage: Stage | null;
 }
 
-const readPlanOf = (drafts: DraftStore | undefined): Plan => ({
-  draft: drafts?.planKey ? readPlan(drafts.storage, drafts.planKey) : null,
+const readPlanOf = (store: SeatStore | undefined): Plan => ({
+  draft: store ? parsePlan(store.get("plan")) : null,
   open: false,
   stage: null,
 });
+
+/** The draft as it is kept: within the bound of a slot of the server. */
+const keptPlan = (draft: Draft | null) => draft && trimDraft(draft, MAX_STAGED_BYTES, stagedBytes);
 
 /** The steps of a plan that belong to the steps of the action after `stage`. Null when there are none. */
 function laterSteps(plan: MovementPlan | null, stage: Stage): MovementPlan | null {
@@ -337,13 +335,24 @@ interface SavedDraft {
   steps: PlanStep[];
 }
 
-function readDraft(store: DraftStore | undefined): SavedDraft | null {
-  try {
-    const value = JSON.parse(store?.storage.getItem(store.key) ?? "null");
-    return value && Array.isArray(value.steps) ? value : null;
-  } catch {
-    return null;
-  }
+function parseSaved(value: unknown): SavedDraft | null {
+  const saved = value as SavedDraft | null;
+  return saved && typeof saved.nonce === "string" && Array.isArray(saved.steps) ? saved : null;
+}
+
+const readDraft = (store: SeatStore | undefined): SavedDraft | null =>
+  store ? parseSaved(store.get("movement")) : null;
+
+/** The steps of a staged movement, landings or production, as the game would be sent them. Null: nothing is staged. */
+function stagedSteps(update: SessionUpdate, local: LocalState): PlanStep[] | null {
+  const facts = update.tactical;
+  return facts?.kind === "movement" && Object.keys(local.movement).length
+    ? stepsOf(facts, local.movement)
+    : facts?.kind === "invasion" && Object.keys(local.landing).length
+      ? landingSteps(facts, local.landing)
+      : facts?.kind === "production" && !isEmpty(local.production)
+        ? productionSteps(facts, local.production)
+        : null;
 }
 
 export interface LiveSession {
@@ -358,9 +367,10 @@ export interface LiveSession {
 /**
  * A `GameSession` on a transport: the game comes from the updates, and what the player stages
  * between two updates is kept here. Only the main button sends something.
- * With `drafts`, a staged movement is still staged after a reload.
+ * With `drafts`, what is staged is still staged after a reload, and a change of it in another
+ * tab of the seat is staged here too. What is open on the screen is of this tab.
  */
-export function useLiveSession(transport: Transport | null, drafts?: DraftStore): LiveSession {
+export function useLiveSession(transport: Transport | null, drafts?: SeatStore): LiveSession {
   const [update, setUpdate] = useState<SessionUpdate | null>(null);
   const [local, setLocal] = useState<LocalState>(NOTHING);
   const [plan, setPlan] = useState<Plan>(() => readPlanOf(drafts));
@@ -376,6 +386,14 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
   const [run, setRun] = useState<DraftRun | null>(null);
   /** The script that the transport was asked last, and the update of then. An answer for another script is late. */
   const asked = useRef<{ wanted: Wanted; base: SessionUpdate } | null>(null);
+  /** The last update, for a change of another tab. */
+  const latest = useRef<SessionUpdate | null>(null);
+  /**
+   * What this tab had staged in each slot when it last looked: a slot is written only when this
+   * changes, so an effect of a render before a change of another tab does not write it back.
+   * Undefined: not looked yet.
+   */
+  const shown = useRef<Partial<Record<StagedSlot, unknown>>>({});
 
   useEffect(() => {
     setUpdate(null);
@@ -386,6 +404,8 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     setFaked([]);
     setRun(null);
     asked.current = null;
+    latest.current = null;
+    shown.current = {};
     /** The step and the system whose sheet (the landings, the build) opened with the last update. */
     let sheetAt: { key: string; system: string } | null = null;
     /** What the inspector showed before the landings opened. */
@@ -445,6 +465,7 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         return setToast((now) => ({ id: (now?.id ?? 0) + 1, text: reason }));
       }
       setUpdate(event.update);
+      latest.current = event.update;
       // The landings open at the active system when their step opens, and so does the build of
       // a production.
       const tactical = event.update.tactical;
@@ -571,37 +592,99 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     });
   }, [transport, drafts]);
 
+  // A change that another tab of the seat staged is staged here too. What is open on the
+  // screen stays as this tab has it. What is applied is the value of the store, so it is not
+  // written back.
+  useEffect(
+    () =>
+      drafts?.subscribe((slot, value) => {
+        if (slot === "plan") {
+          const draft = parsePlan(value);
+          return setPlan((now) =>
+            sameStaged(keptPlan(now.draft), draft)
+              ? now
+              : draft
+                ? { ...now, draft, stage: entryOf(draft).system === null ? null : now.stage }
+                : { open: false, draft: null, stage: null },
+          );
+        }
+        if (slot === "secondary") {
+          const follow = parseFollow(value);
+          return setFollow((now) => (sameStaged(now, follow) ? now : follow));
+        }
+        // The staged steps of the open choice. Steps of another choice are not of this game.
+        const update = latest.current;
+        const facts = update?.tactical;
+        const nonce = update?.pending_choice?.nonce;
+        if (!facts || facts.kind === "activation" || !nonce) {
+          return;
+        }
+        const place = facts.kind === "production" ? facts.system : facts.active;
+        const saved = parseSaved(value);
+        if (saved && (saved.nonce !== nonce || saved.destination !== place)) {
+          return;
+        }
+        const steps = saved?.steps ?? [];
+        setLocal((now) => {
+          if (latest.current?.pending_choice?.nonce !== nonce || now.sent === nonce) {
+            return now;
+          }
+          const mine = stagedSteps(update, now);
+          if (sameStaged(mine ?? [], steps)) {
+            return now;
+          }
+          return facts.kind === "movement"
+            ? { ...now, movement: draftOf(facts, steps), planNote: null }
+            : facts.kind === "invasion"
+              ? { ...now, landing: landingOf(facts, steps), planNote: null }
+              : { ...now, production: productionOf(facts, steps), planNote: null };
+        });
+      }),
+    [drafts],
+  );
+
   // The staged movement is kept for a reload, with the choice that it belongs to. So are the
-  // staged landings.
+  // staged landings and the staged production.
   useEffect(() => {
     const facts = update?.tactical;
     const nonce = update?.pending_choice?.nonce;
-    if (!update || !drafts) {
+    if (!update || !drafts || !facts || facts.kind === "activation" || !nonce) {
       return;
     }
-    const steps =
-      facts?.kind === "movement" && Object.keys(local.movement).length
-        ? stepsOf(facts, local.movement)
-        : facts?.kind === "invasion" && Object.keys(local.landing).length
-          ? landingSteps(facts, local.landing)
-          : facts?.kind === "production" && !isEmpty(local.production)
-            ? productionSteps(facts, local.production)
-            : null;
-    if (facts && facts.kind !== "activation" && nonce && steps) {
-      const destination = facts.kind === "production" ? facts.system : facts.active;
-      const saved: SavedDraft = { nonce, destination, steps };
-      drafts.storage.setItem(drafts.key, JSON.stringify(saved));
-    } else {
-      drafts.storage.removeItem(drafts.key);
+    const destination = facts.kind === "production" ? facts.system : facts.active;
+    const now = { nonce, destination, steps: stagedSteps(update, local) };
+    const before = shown.current.movement as typeof now | undefined;
+    shown.current.movement = now;
+    if (!before || sameStaged(before, now)) {
+      return;
     }
-  }, [update, local.movement, local.landing, local.production, drafts]);
+    if (now.steps) {
+      if (!sameStaged(now, drafts.get("movement"))) {
+        drafts.set("movement", now);
+      }
+    } else if (before.nonce === nonce && before.steps && readDraft(drafts)?.nonce === nonce) {
+      // What this tab staged for this choice is taken back. Another tab may have staged for a
+      // choice that this tab is not told yet; what is kept for another choice is not read.
+      drafts.set("movement", null);
+    }
+  }, [update, local, drafts]);
 
   // The private draft is kept for a reload, with its undo history.
   useEffect(() => {
-    if (update && drafts?.planKey) {
-      storePlan(drafts.storage, drafts.planKey, plan.draft);
+    if (!drafts) {
+      return;
     }
-  }, [update, plan.draft, drafts]);
+    const kept = keptPlan(plan.draft);
+    const before = shown.current.plan;
+    shown.current.plan = kept;
+    if (
+      before !== undefined &&
+      !sameStaged(before, kept) &&
+      !sameStaged(kept, drafts.get("plan"))
+    ) {
+      drafts.set("plan", kept);
+    }
+  }, [plan.draft, drafts]);
 
   // The secondary of the strategic action that is resolved can be drafted from the moment its
   // card is played, in Live: the row of the viewer in the list of the seats is the draft.
@@ -618,10 +701,19 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
     }
   }, [update, follow, action]);
   useEffect(() => {
-    if (update && drafts?.secondaryKey) {
-      storeFollow(drafts.storage, drafts.secondaryKey, follow);
+    if (!drafts) {
+      return;
     }
-  }, [update, follow, drafts]);
+    const before = shown.current.secondary;
+    shown.current.secondary = follow;
+    if (
+      before !== undefined &&
+      !sameStaged(before, follow) &&
+      !sameStaged(follow, drafts.get("secondary"))
+    ) {
+      drafts.set("secondary", follow);
+    }
+  }, [follow, drafts]);
   /** The nonce of the first question of the secondary, when the live game asks the viewer for it. */
   const reached =
     drafting &&

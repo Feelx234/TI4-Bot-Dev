@@ -8,8 +8,8 @@ import {
   dropPlayer,
   keepPlayer,
   legacySession,
+  legacyStaged,
   moveLegacy,
-  onlineKeys,
   playersOf,
 } from "../session/onlineKeys";
 import { hostChange, nextNickname, selectLobby } from "../session/select/lobby";
@@ -103,27 +103,20 @@ function OnlineGame({
   const [transport, setTransport] = useState<Transport | null>(null);
   // Made in an effect, as the game of `LocalApp`: each mount gets a connection of its own.
   useEffect(() => {
-    const made = createWsTransport(engine, { gameId, playerSession: seat?.playerSession ?? null });
+    const made = createWsTransport(engine, {
+      gameId,
+      playerSession: seat?.playerSession ?? null,
+      // What a page of before kept in this browser goes to the server once.
+      legacyStaged: seat ? legacyStaged(localStorage, gameId, seat.playerId) : undefined,
+    });
     setTransport(made);
     return () => {
       made.close();
       setTransport(null);
     };
   }, [engine, gameId, seat]);
-  // What is staged is kept for the player: two tabs of one browser are two seats.
-  const drafts = useMemo(() => {
-    if (!seat) {
-      return undefined;
-    }
-    const keys = onlineKeys(gameId, seat.playerId);
-    return {
-      storage: localStorage,
-      key: keys.draft,
-      planKey: keys.plan,
-      secondaryKey: keys.secondary,
-    };
-  }, [gameId, seat]);
-  const { session, error } = useLiveSession(transport, drafts);
+  // What is staged is kept by the server for the seat: every tab of the seat has the same.
+  const { session, error } = useLiveSession(transport, transport?.staged);
   // The table of the game has a socket of its own, open while the sheet "Table" is in view.
   const openTable = useCallback(() => serverTable(gameId, seat), [gameId, seat]);
   const takeOver = useCallback(

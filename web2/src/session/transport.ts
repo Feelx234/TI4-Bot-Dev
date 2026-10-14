@@ -1,4 +1,5 @@
 import type { MovementPlan, PlanStep } from "./movementPlan";
+import type { SeatStore } from "./seatStore";
 import type {
   Catalog,
   DraftOutcome,
@@ -113,6 +114,12 @@ export interface Transport {
   /** The printed cards. An update names them by id only. */
   readonly catalog: Catalog | null;
   readonly capabilities: Capabilities;
+  /**
+   * Where the game keeps what this seat has staged and not sent, the same in every tab and
+   * device of the seat. Absent when the game does not keep it (a game in this page, a
+   * spectator): the app that made the transport keeps it then.
+   */
+  readonly staged?: SeatStore;
   /**
    * A new listener is told the cards that are never offered and the latest update, replay or
    * error at once, if there is one.

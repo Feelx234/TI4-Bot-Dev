@@ -89,6 +89,7 @@ it("subscribes as the player, and the snapshot is the first update", () => {
       protocol_version: PROTOCOL_VERSION,
       game_id: GAME.gameId,
       player_session: "secret",
+      staged: true,
     },
   ]);
   game.tell(actor);
@@ -126,6 +127,9 @@ it("shows a seat that is not asked and a spectator the game with no choice", () 
   const watcher = server({ gameId: actor.game_id, playerSession: null });
   watcher.open();
   expect(watcher.sent()[0]).not.toHaveProperty("player_session");
+  // A spectator has nothing staged.
+  expect(watcher.sent()[0]).not.toHaveProperty("staged");
+  expect(watcher.transport.staged).toBeUndefined();
   watcher.tell(spectator);
   const [seen] = watcher.take().slice(-1);
   expect(seen.kind === "update" && seen.update.viewer).toEqual({ role: "spectator" });
@@ -658,4 +662,201 @@ it("tells who the game waits for while a seat of the server takes its time", () 
   // The status of another version belongs to an update that is on its way.
   game.tell({ ...message, game_version: opponent.game_version + 1 });
   expect(game.take()).toEqual([]);
+});
+
+/** A `seat_staged` of the server: the slots of the seat, by revision. */
+const seatStaged = (
+  revision: number,
+  slots: Record<string, { revision: number; value?: unknown }>,
+  more: { writer?: number; connection?: number } = {},
+) => ({
+  type: "seat_staged",
+  protocol_version: PROTOCOL_VERSION,
+  game_id: GAME.gameId,
+  revision,
+  slots,
+  ...more,
+});
+
+/** The writes of the staged work that the transport sent. */
+const puts = (game: ReturnType<typeof server>) =>
+  game.sent().filter((message) => message.type === "put_staged");
+
+it("keeps what the seat staged on the server: one write on its way, and the echo is its base", () => {
+  const game = server();
+  game.open();
+  game.tell(actor);
+  const store = game.transport.staged!;
+  const told: unknown[] = [];
+  store.subscribe((slot, value) => told.push([slot, value]));
+  // Before the server said who this connection is, nothing is written.
+  store.set("plan", { cursor: 0 });
+  vi.advanceTimersByTime(1_000);
+  expect(puts(game)).toEqual([]);
+  game.tell(seatStaged(0, {}, { connection: 7 }));
+  expect(puts(game)).toEqual([
+    {
+      type: "put_staged",
+      protocol_version: PROTOCOL_VERSION,
+      game_id: GAME.gameId,
+      slot: "plan",
+      base_revision: 0,
+      value: { cursor: 0 },
+    },
+  ]);
+  // A change waits a moment for the next one: a movement is many clicks.
+  store.set("plan", { cursor: 1 });
+  store.set("plan", { cursor: 2 });
+  expect(store.get("plan")).toEqual({ cursor: 2 });
+  vi.advanceTimersByTime(250);
+  // One write of a slot is on its way at a time: the next waits for the echo of the first.
+  expect(puts(game)).toHaveLength(1);
+  game.tell(seatStaged(1, { plan: { revision: 1, value: { cursor: 0 } } }, { writer: 7 }));
+  expect(puts(game)).toHaveLength(2);
+  expect(puts(game)[1]).toMatchObject({ slot: "plan", base_revision: 1, value: { cursor: 2 } });
+  // Its own writes are not told as a change of another tab.
+  game.tell(seatStaged(2, { plan: { revision: 2, value: { cursor: 2 } } }, { writer: 7 }));
+  expect(told).toEqual([]);
+  // A value that the server has is not written again: the server would not answer.
+  store.set("plan", { cursor: 2 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toHaveLength(2);
+  // The order of the keys is no change: the server keeps them sorted.
+  store.set("movement", { b: 1, a: 2 });
+  vi.advanceTimersByTime(250);
+  game.tell(
+    seatStaged(
+      3,
+      {
+        plan: { revision: 2, value: { cursor: 2 } },
+        movement: { revision: 3, value: { a: 2, b: 1 } },
+      },
+      { writer: 7 },
+    ),
+  );
+  store.set("movement", { b: 1, a: 2 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toHaveLength(3);
+  // A slot is cleared with no value.
+  store.set("movement", null);
+  vi.advanceTimersByTime(250);
+  expect(puts(game)[3]).toEqual({
+    type: "put_staged",
+    protocol_version: PROTOCOL_VERSION,
+    game_id: GAME.gameId,
+    slot: "movement",
+    base_revision: 3,
+  });
+});
+
+it("takes what another tab of the seat staged, also over a write of its own that was stale", () => {
+  const game = server();
+  game.open();
+  game.tell(actor);
+  const store = game.transport.staged!;
+  const told: unknown[] = [];
+  store.subscribe((slot, value) => told.push([slot, value]));
+  // The server has what the seat staged before: it is the page's, and told.
+  game.tell(seatStaged(4, { secondary: { revision: 4, value: { card: "x" } } }, { connection: 2 }));
+  expect(store.get("secondary")).toEqual({ card: "x" });
+  expect(told).toEqual([["secondary", { card: "x" }]]);
+  // This tab writes on revision 4, and another tab was there first.
+  store.set("secondary", { card: "mine" });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toEqual([expect.objectContaining({ base_revision: 4 })]);
+  game.tell(seatStaged(5, { secondary: { revision: 5, value: { card: "other" } } }, { writer: 3 }));
+  expect(store.get("secondary")).toEqual({ card: "other" });
+  expect(told.at(-1)).toEqual(["secondary", { card: "other" }]);
+  // The answer to the stale write is the slot as it is: nothing new, and nothing written again.
+  game.tell(seatStaged(5, { secondary: { revision: 5, value: { card: "other" } } }));
+  vi.advanceTimersByTime(1_000);
+  expect(puts(game)).toHaveLength(1);
+  expect(told).toHaveLength(2);
+  // A newer value of the server replaces one that was not sent yet.
+  store.set("secondary", { card: "later" });
+  game.tell(seatStaged(6, { secondary: { revision: 6 } }, { writer: 3 }));
+  vi.advanceTimersByTime(1_000);
+  expect(store.get("secondary")).toBeNull();
+  expect(puts(game)).toHaveLength(1);
+});
+
+it("says a write that the server did not take in words of the page, and does not try it again", () => {
+  const game = server();
+  game.open();
+  game.tell(actor);
+  game.take();
+  const store = game.transport.staged!;
+  game.tell(seatStaged(0, {}, { connection: 1 }));
+  store.set("plan", { cursor: 0 });
+  vi.advanceTimersByTime(250);
+  game.tell({
+    type: "error",
+    protocol_version: PROTOCOL_VERSION,
+    kind: "malformed_message",
+    message: "too many staged writes; wait a moment",
+  });
+  game.tell(seatStaged(0, {}));
+  expect(game.take()).toEqual([
+    { kind: "rejected", reason: "The server did not keep what you staged. It stays in this tab." },
+  ]);
+  vi.advanceTimersByTime(10_000);
+  expect(puts(game)).toHaveLength(1);
+  expect(store.get("plan")).toEqual({ cursor: 0 });
+  // The next change is written.
+  store.set("plan", { cursor: 1 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toHaveLength(2);
+});
+
+it("writes again after a lost connection what the server did not get", () => {
+  const game = server();
+  game.open();
+  game.tell(actor);
+  const store = game.transport.staged!;
+  game.tell(seatStaged(0, {}, { connection: 1 }));
+  store.set("plan", { cursor: 0 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toHaveLength(1);
+  game.drop();
+  vi.advanceTimersByTime(100);
+  game.open();
+  game.tell(actor);
+  expect(puts(game)).toEqual([]);
+  // The new connection has another id; the server did not write the value.
+  game.tell(seatStaged(0, {}, { connection: 2 }));
+  expect(puts(game)).toEqual([expect.objectContaining({ base_revision: 0, value: { cursor: 0 } })]);
+  game.tell(seatStaged(1, { plan: { revision: 1, value: { cursor: 0 } } }, { writer: 2 }));
+  store.set("plan", { cursor: 1 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)[1]).toMatchObject({ base_revision: 1 });
+});
+
+it("puts once what a page of before kept in this browser, when the server has nothing", () => {
+  const dropped: string[] = [];
+  const legacy = {
+    read: () => ({ plan: { cursor: 0 }, movement: { nonce: "n" } }),
+    drop: () => void dropped.push("all"),
+  };
+  const game = server({ ...GAME, legacyStaged: legacy });
+  game.open();
+  game.tell(actor);
+  const store = game.transport.staged!;
+  const told: unknown[] = [];
+  store.subscribe((slot) => told.push(slot));
+  game.tell(seatStaged(0, {}, { connection: 1 }));
+  expect(told).toEqual(["movement", "plan"]);
+  expect(store.get("plan")).toEqual({ cursor: 0 });
+  expect(puts(game).map((put) => put.type === "put_staged" && put.slot)).toEqual([
+    "movement",
+    "plan",
+  ]);
+  expect(dropped).toEqual(["all"]);
+  // The server has what the seat staged: what the browser kept is dropped, not put.
+  const later = server({ ...GAME, legacyStaged: legacy });
+  later.open();
+  later.tell(actor);
+  later.tell(seatStaged(2, { plan: { revision: 2, value: { cursor: 5 } } }, { connection: 3 }));
+  expect(later.transport.staged!.get("plan")).toEqual({ cursor: 5 });
+  expect(puts(later)).toEqual([]);
+  expect(dropped).toEqual(["all", "all"]);
 });
