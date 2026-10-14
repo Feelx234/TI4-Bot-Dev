@@ -8,8 +8,8 @@
 use std::sync::Mutex;
 
 use crate::protocol::reach::ReachIntoMsg;
-use ti4_host::state_update::answer_reach;
 use crate::session::worker::SessionShared;
+use ti4_host::state_update::answer_reach;
 
 /// Answer one reach query for `system_id`.
 #[must_use]

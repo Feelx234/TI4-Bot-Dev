@@ -8,10 +8,10 @@ import { ResumeProgress } from "./ResumeProgress.tsx";
 import { OfflineBanner } from "./OfflineBanner.tsx";
 import { OfflineHome } from "./OfflineHome.tsx";
 import { createMockLauncher, MOCK_FACTIONS } from "./mockLauncher.ts";
-import { routeFeedback } from "./feedbackRoute.ts";
+import { feedbackRequestBody, routeFeedback } from "./feedbackRoute.ts";
 import { feedbackChipText } from "./useFeedbackQueue.ts";
 import { registerOfflineLauncher, setActiveOfflineGame } from "./registry.ts";
-import type { OfflineGameSummary } from "./types.ts";
+import type { OfflineFeedbackLocal, OfflineGameSummary } from "./types.ts";
 
 afterEach(() => {
   cleanup();
@@ -137,6 +137,15 @@ describe("progress", () => {
   });
 });
 
+const LOCAL: OfflineFeedbackLocal = {
+  seed: 7, setup: { seed: 7, players: 4 }, answers: ["a", "b"],
+  engine: { build: "abc", content_digest: "d" }, wasm_sha256: "ff",
+  save: {
+    seed: 7, setup: { seed: 7, players: 4 }, answers: ["a", "b"], redo: [], never: [],
+    event_times: [], event_versions: [], generation: 0, version: 3, decisions: 9, decisions_hash: "00ff00ff00ff00ff",
+  },
+};
+
 describe("banner and queued feedback", () => {
   it("names the hidden features and the queue state", async () => {
     const launcher = createMockLauncher({ feedback: [{ state: "queued" }, { state: "sending" }] });
@@ -162,12 +171,21 @@ describe("banner and queued feedback", () => {
     expect(await routeFeedback(body, online)).toEqual({ ok: true, id: "fb_1" });
     setActiveOfflineGame({
       gameId: "off_1",
-      local: () => ({ gameId: "off_1", seed: 7, answers: ["a", "b"], engineHash: "h", playerCount: 4, humanSeat: 2 }),
+      local: () => LOCAL,
     });
     const result = await routeFeedback(body, online);
     expect(result).toMatchObject({ ok: true, queued: true });
     expect(online).toHaveBeenCalledTimes(1);
-    expect(launcher.feedback.list()[0].report.local).toMatchObject({ seed: 7, answers: ["a", "b"], engineHash: "h" });
+    expect(launcher.feedback.list()[0].report.local).toMatchObject({ seed: 7, answers: ["a", "b"] });
+    const queued = launcher.feedback.list()[0].report;
+    expect(queued.reportId).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
+    // The wire body: local goes into context, the id is the report_id; no local, no change.
+    const wire = feedbackRequestBody(queued);
+    expect(wire).toMatchObject({ category: "bug", text: "t", report_id: queued.reportId });
+    expect(wire.context).toEqual({ a: 1, local: LOCAL });
+    expect(feedbackRequestBody({ category: "idea", text: "x", context: { b: 2 } })).toEqual({
+      category: "idea", text: "x", context: { b: 2 },
+    });
   });
 });
 

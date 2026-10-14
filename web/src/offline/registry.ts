@@ -1,4 +1,4 @@
-import type { OfflineLauncher, QueuedFeedbackReport } from "./types.ts";
+import type { OfflineFeedbackLocal, OfflineLauncher } from "./types.ts";
 
 /**
  * Where T5 plugs the real launcher in. The shell asks `getOfflineLauncher()`; with nothing
@@ -26,7 +26,7 @@ export function subscribeLauncher(listener: () => void): () => void {
 export interface ActiveOfflineGame {
   gameId: string;
   /** Read when a report is created: seed, the human's answers so far, engine hash. */
-  local(): NonNullable<QueuedFeedbackReport["local"]>;
+  local(): OfflineFeedbackLocal;
 }
 let active: ActiveOfflineGame | null = null;
 const activeListeners = new Set<() => void>();
