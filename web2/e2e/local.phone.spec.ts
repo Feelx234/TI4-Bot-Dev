@@ -128,11 +128,24 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
   await system("23").click();
   await expect(send).toHaveText(/Activate system/);
   await expect(send).toBeInViewport({ ratio: 1 });
+  // The click shows what is in the system too.
+  const details = page.getByRole("button", { name: "Close system details" });
+  await expect(details).toBeVisible();
+  await expect(page.getByRole("heading", { name: /· 23$/ })).toBeVisible();
+  await fits();
+  await page.screenshot({
+    path: "shots/phone/local/activation-details.png",
+    animations: "disabled",
+  });
   await send.click();
+  // The details close with the activation: the movement has the whole map.
+  await expect(details).toBeHidden();
   // Every change of the movement is recorded, and nothing follows it here: the footer has no
   // main button. The controls of the draft are in the toolbar.
   await system("01").click();
   const sheet = page.getByRole("group", { name: /^Move from / });
+  // The fleet sheet has what is in the system, as the inspector has it.
+  await expect(sheet.getByText("4 / 2")).toBeAttached();
   await sheet.getByRole("button", { name: /^Carrier 1 of / }).click();
   await sheet.getByRole("button", { name: "Done with this system" }).click();
   await expect(send).toHaveCount(0);

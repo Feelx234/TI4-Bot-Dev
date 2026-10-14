@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { OriginView } from "../../../model";
 import { plural } from "../../../model";
 import { Button, Icon, cx } from "../../../ui";
+import { SystemDetails } from "../../board/SystemDetails";
 import { useDispatch } from "../../context";
 import { Stays } from "./parts";
 import { CargoRow, OriginTokens, loadSource } from "./Tokens";
@@ -61,6 +62,13 @@ export function OriginSheet({ view }: { view: OriginView }) {
       </div>
       <OriginTokens origin={view} source={source} editing />
       <Stays origin={view} />
+      {/* What is in the system, as the inspector has it. It scrolls with the ships. */}
+      {view.details && (
+        <SystemDetails
+          view={view.details}
+          className="border-t border-line px-3 pb-2.5 pt-1.5 text-xs phone:px-2.5"
+        />
+      )}
     </div>
   );
 }

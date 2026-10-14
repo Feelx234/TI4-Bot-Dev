@@ -153,13 +153,26 @@ test("a tactical action: the system and the movement are staged on the map", asy
   expect(standOut).toBeLessThan(48);
   await expect(system("01")).not.toHaveClass(/plain/);
   await page.screenshot({ path: "shots/local/activation-open.png", animations: "disabled" });
+  // A click chooses the system and shows what is in it.
+  const details = page.getByRole("button", { name: "Close system details" });
   await system("01").click();
   await expect(panel(page).getByText("Production 6")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Jord - Sol · 01" })).toBeVisible();
+  await expect(page.getByText("2 Carriers")).toBeVisible();
+  await page.screenshot({ path: "shots/local/activation-details.png", animations: "disabled" });
+  // The details cover the corner of the board where 23 is.
+  await details.click();
   await system("23").click();
   await expect(page.locator("g.system.chosen")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: /· 23$/ })).toBeVisible();
   await expect(panel(page).getByText("3 ships in range")).toBeVisible();
   await expect(panel(page).getByText("From 1 system")).toBeVisible();
   await page.screenshot({ path: "shots/local/activation.png", animations: "disabled" });
+  // Closing the details does not take the choice back.
+  await details.click();
+  await expect(details).toBeHidden();
+  await expect(page.locator("g.system.chosen")).toHaveCount(1);
+  await expect(send(page)).toBeEnabled();
   await page.keyboard.press("Enter");
 
   // Movement: nothing is staged, and moving nothing is what the main button says.
@@ -170,6 +183,8 @@ test("a tactical action: the system and the movement are staged on the map", asy
   await system("01").click();
   const sheet = page.getByRole("group", { name: /^Move from Jord/ });
   await expect(sheet).toBeVisible();
+  // The fleet sheet has what is in the system, as the inspector has it.
+  await expect(sheet.getByText("4 / 2")).toBeVisible();
   await sheet.getByRole("button", { name: "Carrier 1 of 2" }).click();
   await sheet.getByRole("button", { name: /^Load Infantry, Planet Jord, 5 left/ }).click();
   await sheet.getByRole("button", { name: "Load Infantry on Carrier 1 of 2" }).first().click();

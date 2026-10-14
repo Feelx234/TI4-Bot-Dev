@@ -227,9 +227,15 @@ export function selectBoard(
       open?.system_id ?? null,
       movement.handled,
     );
-  const origin =
+  // A sheet of a task at a system has what is in it, as the inspector has.
+  const details = (tile: BoardTileView) => {
+    const { facts, notes, rows } = inspector(tile, board.systems[tile.system_id], viewer, traits);
+    return { facts, notes, rows };
+  };
+  const fleet =
     movement &&
     selectOrigin(update, movement.facts, movement.draft, open?.system_id ?? null, movement.handled);
+  const origin = fleet && open ? { ...fleet, details: details(open) } : fleet;
   const tiles = map.map((tile) => tileView(tile, board.systems[tile.system_id], viewer, traits));
   // The landings with their controls take the place of the inspector of the active system.
   const sheet =
@@ -239,7 +245,10 @@ export function selectBoard(
   // The build with its controls takes the place of the inspector too, while it is chosen.
   const build =
     production && production.stage === "build" && open?.system_id === production.facts.system
-      ? selectBuild(update, production.facts, production.draft, "build")
+      ? {
+          ...selectBuild(update, production.facts, production.draft, "build"),
+          details: details(open),
+        }
       : null;
   return {
     tiles: move

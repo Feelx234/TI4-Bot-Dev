@@ -1,4 +1,4 @@
-import type { PlanetTraitsView } from "./board";
+import type { PlanetTraitsView, SystemDetailsView } from "./board";
 import type {
   CounterView,
   Force,
@@ -276,6 +276,8 @@ export interface OriginView {
   warning: string | null;
   /** The player is done with this system: something leaves it, or the player marked it. */
   handled: boolean;
+  /** What is in the system, as the inspector shows it. Only the sheet on the board has it. */
+  details?: SystemDetailsView;
 }
 
 export interface RiftRowView {
@@ -479,6 +481,8 @@ export interface BuildSheetView {
   gauges: GaugeView[];
   /** The build is chosen first; then the map is the payment. */
   stage: "build" | "pay";
+  /** What is in the system, as the inspector shows it. Only the sheet on the board has it. */
+  details?: SystemDetailsView;
 }
 
 export interface ProductionView {

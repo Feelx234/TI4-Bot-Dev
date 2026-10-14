@@ -124,12 +124,16 @@ export interface InspectorRowView {
   notes?: { text: string; tone: "muted" | "planned" }[];
 }
 
-export interface InspectorView {
-  system: SystemId;
-  title: string;
+/** What is in one system. The inspector shows it, and every sheet of a task at a system. */
+export interface SystemDetailsView {
   facts: string;
   notes: string[];
   rows: InspectorRowView[];
+}
+
+export interface InspectorView extends SystemDetailsView {
+  system: SystemId;
+  title: string;
   /** Set when the player may start a tactical action here. */
   activate: "allowed" | "token" | null;
   /**

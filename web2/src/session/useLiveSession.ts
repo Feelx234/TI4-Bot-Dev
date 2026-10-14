@@ -803,6 +803,14 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
         setLocal((now) => ({ ...now, staged: now.staged === option ? null : option }));
       }
     };
+    /**
+     * A click on a system of the choice: it is staged, and it shows what is in it. Closing the
+     * inspector does not take the choice back.
+     */
+    const inspectAndStage = (system: string) => {
+      stage(system);
+      setLocal((now) => ({ ...now, inspected: system }));
+    };
     const facts = tacticalFacts(shown, state);
     const moving = facts?.kind === "movement" ? facts : null;
     const landing = facts?.kind === "invasion" ? facts : null;
@@ -965,7 +973,15 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
       }
       if (local.staged) {
         transport.submitChoice(pending.nonce, local.staged);
-        setLocal((now) => ({ ...now, staged: null, sent: pending.nonce }));
+        // The details that the choice of the system opened close with it: the movement starts
+        // with the whole map in view, as in a draft.
+        const opened = facts?.kind === "activation" ? local.staged : null;
+        setLocal((now) => ({
+          ...now,
+          staged: null,
+          sent: pending.nonce,
+          inspected: opened !== null && now.inspected === opened ? null : now.inspected,
+        }));
       }
     };
     const apply = () => {
@@ -1076,11 +1092,11 @@ export function useLiveSession(transport: Transport | null, drafts?: DraftStore)
                 ...now,
                 inspected: now.inspected === intent.system ? null : intent.system,
               }))
-            : stage(intent.system);
+            : inspectAndStage(intent.system);
         case "findSystem": {
           const found = pending?.choice.options.find((item) => sameSystem(intent.query, item.id));
           if (found && facts?.kind === "activation") {
-            setLocal((now) => ({ ...now, staged: found.id }));
+            setLocal((now) => ({ ...now, staged: found.id, inspected: found.id }));
           }
           return;
         }
