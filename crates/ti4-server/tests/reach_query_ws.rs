@@ -31,7 +31,9 @@ async fn connect(addr: &str, game_id: &str, token: Option<&str>) -> Socket {
         player_session: token.map(str::to_owned),
     };
     stream
-        .send(Message::Text(serde_json::to_string(&subscribe).unwrap().into()))
+        .send(Message::Text(
+            serde_json::to_string(&subscribe).unwrap().into(),
+        ))
         .await
         .expect("subscribe");
     let reply = stream.next().await.expect("snapshot").expect("ws ok");
@@ -101,7 +103,9 @@ async fn any_viewer_can_ask_and_unknown_systems_are_refused() {
         assert!(origin.ships.iter().all(|ship| ship.count > 0));
     }
     // Compact: the whole table's reach into Mecatol is a few hundred bytes.
-    let size = serde_json::to_string(&ServerMessage::ReachInto(answer)).unwrap().len();
+    let size = serde_json::to_string(&ServerMessage::ReachInto(answer))
+        .unwrap()
+        .len();
     assert!(size < 4_000, "payload {size} bytes");
 
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -113,7 +117,10 @@ async fn any_viewer_can_ask_and_unknown_systems_are_refused() {
 
     // Oversized fields are rejected as malformed before any work.
     tokio::time::sleep(Duration::from_millis(100)).await;
-    spectator.send(query(&game_id, 7, &"x".repeat(200))).await.unwrap();
+    spectator
+        .send(query(&game_id, 7, &"x".repeat(200)))
+        .await
+        .unwrap();
     loop {
         let reply = spectator.next().await.expect("reply").expect("ws ok");
         if let Ok(ServerMessage::Error(error)) =
@@ -147,5 +154,8 @@ fn the_messages_round_trip_and_old_json_still_parses() {
     let json = serde_json::to_string(&message).unwrap();
     assert!(json.contains(r#""type":"reach_into""#));
     assert!(!json.contains("refused"));
-    assert_eq!(ti4_server::protocol::parse_server_message(&json).unwrap(), message);
+    assert_eq!(
+        ti4_server::protocol::parse_server_message(&json).unwrap(),
+        message
+    );
 }

@@ -683,31 +683,53 @@ fn combat_rolls_are_published_once_as_public_events() {
                 .unwrap_or(&pending.choice.options[0]);
             let _ = session.submit_choice(&seat, &pending.nonce, snapshot.game_version, &option.id);
         }
-        assert!(std::time::Instant::now() < deadline, "no dice were published");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no dice were published"
+        );
         thread::sleep(Duration::from_millis(5));
     };
     let indexes: Vec<usize> = rolls
         .iter()
-        .map(|event| event.roll.as_ref().expect("a roll event carries its roll").index)
+        .map(|event| {
+            event
+                .roll
+                .as_ref()
+                .expect("a roll event carries its roll")
+                .index
+        })
         .collect();
     let mut unique = indexes.clone();
     unique.sort_unstable();
     unique.dedup();
-    assert_eq!(unique.len(), indexes.len(), "each roll is published once: {indexes:?}");
+    assert_eq!(
+        unique.len(),
+        indexes.len(),
+        "each roll is published once: {indexes:?}"
+    );
     for event in &rolls {
         let roll = event.roll.as_ref().unwrap();
         assert_eq!(event.visibility, EventVisibility::Public);
         assert!(roll.roller.is_some(), "combat dice say whose they are");
         assert!(
-            matches!(roll.reason.as_str(), "space combat" | "anti-fighter barrage"),
+            matches!(
+                roll.reason.as_str(),
+                "space combat" | "anti-fighter barrage"
+            ),
             "{}",
             roll.reason
         );
         assert!(!roll.faces.is_empty());
-        assert!(roll.system.is_some(), "and which system they were rolled in");
+        assert!(
+            roll.system.is_some(),
+            "and which system they were rolled in"
+        );
         assert!(roll.outcome.is_some());
         let detail = event.detail.as_deref().unwrap();
-        assert!(detail.contains(&format!("rolled {}", roll.label)), "{detail}");
+        assert!(
+            detail.contains(&format!("rolled {}", roll.label)),
+            "{detail}"
+        );
     }
     // A spectator sees them too.
     let seen = session.get_snapshot(&ViewerRole::Spectator);

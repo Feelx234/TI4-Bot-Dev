@@ -16,9 +16,6 @@ use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
 use crate::projection::project_turn_status;
-use ti4_host::clock::SystemClock;
-use ti4_host::journal::{self, EventDraft, RedoOutcome, Reconciled};
-use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 use crate::protocol::PROTOCOL_VERSION;
 use crate::protocol::server::{
     EventVisibility, GameEvent, GameEventKind, GameOverMsg, MovementFact, PendingChoiceMsg,
@@ -28,6 +25,9 @@ use crate::protocol::status::ViewerRole;
 use crate::session::decider::{ChoiceSubmission, RemoteHumanDecider};
 use crate::session::{SeatController, SessionConfig};
 use crate::storage::FileGameStore;
+use ti4_host::clock::SystemClock;
+use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
+use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 
 /// State of a currently pending decision awaiting a human answer.
 #[derive(Debug, Clone)]
@@ -888,7 +888,9 @@ fn is_action_card_name(name: &str) -> bool {
 /// Spawns the dedicated session worker thread for an active game session.
 #[allow(clippy::too_many_lines)]
 #[must_use]
-pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShared>>, JoinHandle<()>) {
+pub fn spawn_session_worker(
+    mut config: SessionConfig,
+) -> (Arc<Mutex<SessionShared>>, JoinHandle<()>) {
     ti4_engine::exploration::mark_legacy_device_ids(&mut config.state, &config.prior_decisions);
     let prior_count = config.prior_decisions.len();
     let prior_records = config.prior_decisions.clone();
@@ -1579,7 +1581,11 @@ pub fn spawn_session_worker(mut config: SessionConfig) -> (Arc<Mutex<SessionShar
                             .iter()
                             .enumerate()
                             .filter_map(|(offset, roll)| {
-                                crate::protocol::server::public_roll(rolls_seen + offset, roll, active)
+                                crate::protocol::server::public_roll(
+                                    rolls_seen + offset,
+                                    roll,
+                                    active,
+                                )
                             })
                             .collect();
                         let version = lock.game_version;

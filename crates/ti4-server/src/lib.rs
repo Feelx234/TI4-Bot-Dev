@@ -15,12 +15,12 @@ pub mod storage;
 pub mod ws;
 
 pub use http::create_app;
-pub use ti4_host::{card_set, map, preset};
-pub use ti4_host::projection;
-pub use ti4_host::protocol;
-pub use ti4_host::protocol::*;
 pub use session::{
     BotServiceConfig, GameRegistry, GameSession, MockClient, RemoteHumanDecider, SeatController,
     SessionConfig,
 };
 pub use storage::{FileGameStore, GameInitRecord, StorageError};
+pub use ti4_host::projection;
+pub use ti4_host::protocol;
+pub use ti4_host::protocol::*;
+pub use ti4_host::{card_set, map, preset};
