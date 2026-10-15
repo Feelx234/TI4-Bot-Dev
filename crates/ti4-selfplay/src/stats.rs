@@ -233,10 +233,17 @@ pub fn aggregate(games: &[&GameResult], detail: bool) -> Agg {
         .map(|(k, (g, w, v))| (k, win_stat(g, w, v)))
         .collect();
     if detail {
-        let mut by_map: BTreeMap<&str, Vec<&GameResult>> = BTreeMap::new();
+        let mut by_map: BTreeMap<String, Vec<&GameResult>> = BTreeMap::new();
         let mut by_players: BTreeMap<usize, Vec<&GameResult>> = BTreeMap::new();
         for g in games {
-            by_map.entry(&g.spec.map).or_default().push(g);
+            by_map
+                .entry(if g.spec.map == "random" {
+                    format!("random@{}p", g.spec.players)
+                } else {
+                    g.spec.map.clone()
+                })
+                .or_default()
+                .push(g);
             by_players.entry(g.spec.players).or_default().push(g);
         }
         agg.by_map = by_map

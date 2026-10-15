@@ -88,11 +88,12 @@ pub fn set_enabled_for(seats: &[&str]) {
 }
 
 fn enabled_for(seat: &PlayerId) -> bool {
-    ENABLED
-        .lock()
-        .expect("objective layer switch")
-        .as_ref()
-        .is_none_or(|seats| seats.contains(seat.as_str()))
+    tuning::objectives_enabled()
+        && ENABLED
+            .lock()
+            .expect("objective layer switch")
+            .as_ref()
+            .is_none_or(|seats| seats.contains(seat.as_str()))
 }
 
 /// Whether the objective layer plays this decision.

@@ -551,6 +551,9 @@ pub fn plan_for(faction: &str) -> Option<&'static Plan> {
 }
 
 fn seat_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<&'static Plan> {
+    if !tuning::faction_plans_enabled() {
+        return None;
+    }
     seen.seat(me)
         .and_then(|seat| plan_for(seat.faction.as_str()))
 }

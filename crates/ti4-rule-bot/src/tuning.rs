@@ -67,6 +67,8 @@ tuning! {
     progress_value: f64 = crate::objectives::PROGRESS_VALUE, "worth of progress toward an objective";
     deny_value: f64 = crate::objectives::DENY_VALUE, "worth of denying a rival about to win";
     deny_within: i32 = crate::objectives::DENY_WITHIN, "points from winning at which a rival is denied";
+    objectives_enabled: bool = true, "false: the objective layer (round 3 on) is switched off for every seat";
+    faction_plans_enabled: bool = true, "false: the faction plans (research order, production weights, preferred card) are off";
     short_bonus: f64 = crate::faction_plans::SHORT_BONUS, "production weight of a unit the faction plan is short of";
     upgraded_bonus: f64 = crate::faction_plans::UPGRADED_BONUS, "production weight of an upgraded unit";
 }
