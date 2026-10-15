@@ -244,14 +244,20 @@ pub struct PlayerLobbyRecord {
     /// seat). Absent means random; the drawn speaker itself is saved in the init record's state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker_order: Option<String>,
-    /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
-    /// order) so clients know to refetch the preview.
+    /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new count)
+    /// so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub map_revision: u64,
-    /// How the seats are given at Start: `"random"` (drawn from the seed) or `"join"` (the order
-    /// in which the players came). Absent means random. See [`crate::session::table`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seat_order: Option<String>,
+    /// The seat order (`"random"` or `"join"`) of a record written before 2026-10-15. Nothing
+    /// reads it: a table seats its players in the order of its slots. It is kept only so that
+    /// such a record serializes back to the bytes its checksum was made over; it is never set for
+    /// a new table and is not written when absent.
+    #[serde(
+        default,
+        rename = "seat_order",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_seat_order: Option<String>,
     /// The wait before each answer of a seat that the server plays, in milliseconds. Absent: the
     /// value of the process (`TI4_RANDOM_BOT_DELAY_MS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]

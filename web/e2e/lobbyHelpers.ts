@@ -40,12 +40,10 @@ export async function createStartedGame(
   const created = await request.post(`${backend}/api/games`, {
     // The server draws the opening speaker from the seed by default; these specs drive the host
     // as the first picker, so they pin the first seat. TI4_SMOKE_SPEAKER=random opts back in.
-    // The seats are drawn from the seed too; `players` below is in seat order, so the seats keep
-    // the order of the join. TI4_SMOKE_SEATS=random opts back in.
+    // The seats are the order of the join, so `players` below is in seat order.
     data: {
       ...createGameBody(playerCount, seed, startPreset, cardSet, mapTemplate),
       speaker_order: process.env.TI4_SMOKE_SPEAKER?.trim() || "seat",
-      seat_order: process.env.TI4_SMOKE_SEATS?.trim() || "join",
     },
   });
   expect(created.ok()).toBeTruthy();

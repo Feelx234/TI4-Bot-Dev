@@ -598,6 +598,7 @@ function Players({
               </Hint>
             )}
             <span className="ml-auto" />
+            {view.shuffle && <RowButton view={view.shuffle} dispatch={dispatch} />}
             {view.fill && <RowButton view={view.fill} dispatch={dispatch} />}
           </>
         }

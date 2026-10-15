@@ -99,6 +99,11 @@ export interface Table {
   /** Removes a seat that the server plays, or another player. Host only. */
   removeSeat(playerId: string): void;
   /**
+   * Puts the players in another order of the rows, which are the seats of the game. Host only,
+   * before the start.
+   */
+  shuffleSeats(): void;
+  /**
    * Changes the setup. Host only. The change applies at once, for every player. Of a running
    * game only the wait changes.
    */
@@ -395,6 +400,7 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
     leave: () => void change("leave", {}),
     addBots: (kind, fill = false) => void change("bots", fill ? { kind, fill: true } : { kind }),
     removeSeat: (playerId) => void change("remove-bot", { player_id: playerId }),
+    shuffleSeats: () => void change("shuffle-seats", {}),
     setSettings: (settings) =>
       latest?.lobby.phase === "running"
         ? // The wait is the one value of a table that changes after the start: the game has the call.

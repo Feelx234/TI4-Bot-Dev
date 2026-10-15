@@ -1128,6 +1128,20 @@ pub fn spawn_session_worker(
         let _basis_cleanup = CloseBasisOnExit(worker_shared.clone());
         let mut table = Table::new();
 
+        // A bot seat decides by its place in the seat order of the game, not by its id.
+        let order: Vec<PlayerId> = config
+            .state
+            .players
+            .iter()
+            .map(|player| player.id.clone())
+            .collect();
+        let place_of = |seat: &PlayerId| {
+            order
+                .iter()
+                .position(|player| player == seat)
+                .expect("a seat of the session is a seat of the game")
+        };
+
         // Configure table deciders
         for (seat, controller) in config.seats {
             let inner_human = matches!(controller, SeatController::Human);
@@ -1157,7 +1171,7 @@ pub fn spawn_session_worker(
                 SeatController::BotScripted(script) => Box::new(Scripted::new(script)),
                 SeatController::BotRandom => {
                     Box::new(crate::session::random_bot::RandomBotDecider::new(
-                        seat.clone(),
+                        place_of(&seat),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
                         worker_shared.clone(),
@@ -1165,7 +1179,7 @@ pub fn spawn_session_worker(
                 }
                 SeatController::BotSmart => Box::new(
                     crate::session::random_bot::RandomBotDecider::new(
-                        seat.clone(),
+                        place_of(&seat),
                         config.seed.unwrap_or_default(),
                         decision_counter.clone(),
                         worker_shared.clone(),

@@ -25,7 +25,7 @@ export interface LocalGame {
   /**
    * The table that the game was set up as (single player). The engine starts the game from it:
    * `seed` and `players` are those of its setup, and `humans` is the mask of its players of the
-   * kind "human" (bit 0 is the player who came first, with the id "a").
+   * kind "human" (bit 0 is the first seat, with the id "a").
    */
   table?: TableRequest;
   /** The wait of the seats that the page plays before each answer, in milliseconds. */

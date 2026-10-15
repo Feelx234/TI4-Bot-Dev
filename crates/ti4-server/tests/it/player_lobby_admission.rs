@@ -142,7 +142,7 @@ fn nicknames_follow_identity_through_the_seat_draw_and_running_takeover_recovery
         registry.join_player_lobby("names", Some(guest_token.as_str()), Some("Other")),
         Err(LobbyError::InvalidNickname)
     ));
-    // The seats are drawn at the start: a name is found by its player, not by its place.
+    // A name is found by its player, not by its place.
     registry
         .start_player_lobby("names", host_token.as_str())
         .unwrap();

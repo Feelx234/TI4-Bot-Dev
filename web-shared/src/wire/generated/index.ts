@@ -152,7 +152,6 @@ export type { ScriptStopped } from "./ScriptStopped.ts";
 export type { SeatDecisionDetail } from "./SeatDecisionDetail.ts";
 export type { SeatFact } from "./SeatFact.ts";
 export type { SeatKind } from "./SeatKind.ts";
-export type { SeatOrder } from "./SeatOrder.ts";
 export type { SeatPreview } from "./SeatPreview.ts";
 export type { SeatRequest } from "./SeatRequest.ts";
 export type { SeatStaged } from "./SeatStaged.ts";

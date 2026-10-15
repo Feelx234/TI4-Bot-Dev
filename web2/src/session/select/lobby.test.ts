@@ -49,7 +49,6 @@ const lobby = (change: Partial<LobbyState> = {}): LobbyState => ({
   strategy_card_set: "te",
   speaker_order: "random",
   factions: ["sol", "hacan"],
-  seat_order: "random",
   bot_delay_ms: 600,
   ...change,
 });
@@ -147,6 +146,8 @@ it("the host sees the rows with their signs, the kinds of an open seat and the r
   ]);
   expect(view.rows[4].buttons.map((button) => button.label)).toEqual(["Rule bot", "Random"]);
   expect(view.fill?.intent).toEqual({ type: "fillBots", kind: "smart" });
+  // The rows are the seats of the game: the host puts them in another order.
+  expect(view.shuffle).toMatchObject({ label: "Shuffle seats", intent: { type: "shuffleSeats" } });
   expect(view.help.map((item) => item.title)).toEqual(["Rule bot", "Random"]);
 });
 
@@ -206,6 +207,7 @@ it("a player who is not the host has the same rows, no controls of the table and
     [],
   ]);
   expect(view.fill).toBeNull();
+  expect(view.shuffle).toBeNull();
   expect(view.help).toHaveLength(2);
   expect(view.setup.every((row) => row.control === null)).toBe(true);
   expect(view.rows.map((row) => row.rename)).toEqual([false, true, false, false, false, false]);
@@ -415,6 +417,13 @@ it("a change of the host is one sentence for the other players", () => {
   expect(hostChange(before, lobby({ start_from: "late-game", map_revision: 2 }))).toBe(
     "The host changed where the game starts",
   );
+  // The same players in another order of the rows; a join is no shuffle.
+  const shuffled = lobby();
+  shuffled.slots = [shuffled.slots[2], shuffled.slots[0], ...shuffled.slots.slice(3), shuffled.slots[1]];
+  expect(hostChange(before, shuffled)).toBe("The host shuffled the seats");
+  const joined = lobby();
+  joined.slots[3] = person(4, "cy", "Cy");
+  expect(hostChange(before, joined)).toBeNull();
 });
 
 it("a lost connection has one signal", () => {
@@ -664,6 +673,7 @@ it("the table of a running game is the same screen with nothing open, and the ho
     expect([row.editor, row.remove, row.rename, row.buttons]).toEqual([null, null, false, []]);
   }
   expect(view.fill).toBeNull();
+  expect(view.shuffle).toBeNull();
   expect(view.footer).toEqual({ note: "", main: null, nickname: false });
   // Of the setup only the wait has a control.
   expect(view.setup.filter((row) => row.control).map((row) => row.id)).toEqual(["wait"]);

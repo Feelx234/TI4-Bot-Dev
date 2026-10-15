@@ -30,7 +30,8 @@ use ti4_server::session::random_bot::{decision_rng, pick_index};
 
 /// A `BotSmart` seat without the session around it.
 struct SmartSeat {
-    seat: PlayerId,
+    /// The place of the seat in the seat order.
+    place: usize,
     seed: u64,
     counter: Arc<AtomicUsize>,
 }
@@ -38,7 +39,7 @@ struct SmartSeat {
 impl SmartSeat {
     fn answer(&self, choice: &Choice, seen: Option<&SeatObservation<'_>>) -> ChoiceOption {
         let index = self.counter.fetch_add(1, Ordering::SeqCst);
-        let mut rng = decision_rng(self.seed, &self.seat, index);
+        let mut rng = decision_rng(self.seed, self.place, index);
         let random = pick_index(choice, &mut rng);
         let picked = seen
             .and_then(|seen| ti4_rule_bot::pick(choice, seen, &mut rng))
@@ -156,11 +157,11 @@ fn play(seats: usize, seed: u64, max_round: u32) -> GameRecord {
     .expect("create game");
     let counter = Arc::new(AtomicUsize::new(0));
     let mut table = Table::new();
-    for id in &ids {
+    for (place, id) in ids.iter().enumerate() {
         table.seat(
             id.clone(),
             Box::new(SmartSeat {
-                seat: id.clone(),
+                place,
                 seed,
                 counter: counter.clone(),
             }),

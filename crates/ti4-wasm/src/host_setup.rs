@@ -18,7 +18,7 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::game::Game;
 use ti4_engine::seating;
 use ti4_host::maps::catalog::{self, MapChoice};
-use ti4_host::setup::{self, SeatOrder, SpeakerOrder, TableSeats, TableSetup, bot_kind, card_set};
+use ti4_host::setup::{self, SpeakerOrder, TableSeats, TableSetup, bot_kind, card_set};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::ReactionMode;
@@ -253,9 +253,8 @@ pub struct SeatRequest {
 }
 
 /// The table of web2's single player: what the host chose (`ti4_host::setup::TableSetup`), and
-/// its players in the order in which they came. The player who came as number `i` has the id
-/// of [`SEATS`]`[i]`, wherever the draw seats it: the masks of this host name a player by that
-/// letter.
+/// its players in the order of their seats. The player of seat `i` has the id of [`SEATS`]`[i]`:
+/// the masks of this host name a player by that letter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -287,7 +286,7 @@ impl TableRequest {
         Ok(table)
     }
 
-    /// The ids of the players in the order in which they came.
+    /// The ids of the players in the order of their seats.
     #[must_use]
     pub fn joined(&self) -> Vec<PlayerId> {
         SEATS[..self.setup.player_count]
@@ -296,7 +295,7 @@ impl TableRequest {
             .collect()
     }
 
-    /// What the start draws: who sits where, and the faction of every seat.
+    /// What the start draws: the faction of every seat.
     ///
     /// # Errors
     /// A message when a chosen faction is not offered.
@@ -344,7 +343,7 @@ impl TableRequest {
         let table = self.checked()?;
         let content = ContentStore::embedded();
         let drawn = table.drawn()?;
-        let players = drawn.seated(&table.joined());
+        let players = table.joined();
         let (state, galaxy) = setup::create(content, &table.setup, &players, &drawn)?;
         let opening = table
             .setup
@@ -486,8 +485,8 @@ pub struct Built {
 }
 
 impl Setup {
-    /// The table of `ti4_host::setup` that this request asks for. The seats keep the order of the
-    /// join: the person sits at the place that they asked for.
+    /// The table of `ti4_host::setup` that this request asks for. The person sits at the place
+    /// that they asked for.
     #[must_use]
     pub fn table(&self) -> TableSetup {
         let map = match self.map.as_deref() {
@@ -502,7 +501,6 @@ impl Setup {
                 .card_set
                 .clone()
                 .unwrap_or_else(|| card_set::DEFAULT.to_owned()),
-            seat_order: SeatOrder::Join,
             speaker_order: self.speaker.unwrap_or_default(),
             start_from: self.scenario.clone(),
             preset: self.preset.clone(),
@@ -562,7 +560,7 @@ impl Setup {
             .collect();
         let joined: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
         let drawn = setup::draw(&table, &chosen)?;
-        let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)?;
+        let (state, galaxy) = setup::create(content, &table, &joined, &drawn)?;
         let opening = table
             .scenario()?
             .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));

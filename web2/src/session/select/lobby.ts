@@ -251,6 +251,12 @@ export function hostChange(before: LobbyState, after: LobbyState): string | null
   if (before.slots.length !== after.slots.length) {
     return `The host set the players to ${after.slots.length}`;
   }
+  // The same players in another order of the rows: a join or a seat that goes is no shuffle.
+  const order = (lobby: LobbyState) => lobby.slots.map((slot) => slot.occupant);
+  const players = (lobby: LobbyState) => order(lobby).filter(Boolean).sort().join();
+  if (players(before) === players(after) && order(before).join() !== order(after).join()) {
+    return "The host shuffled the seats";
+  }
   if (before.strategy_card_set !== after.strategy_card_set) {
     return "The host changed the strategy cards";
   }
@@ -444,6 +450,14 @@ export function selectLobby(
         ? {
             label: `Fill with ${usual.name.toLowerCase()}s`,
             intent: { type: "fillBots", kind: usual.id },
+          }
+        : null,
+    shuffle:
+      host && before && seats > 1
+        ? {
+            label: "Shuffle seats",
+            title: "Put the players in another order: the rows are the seats of the game",
+            intent: { type: "shuffleSeats" },
           }
         : null,
     footer,

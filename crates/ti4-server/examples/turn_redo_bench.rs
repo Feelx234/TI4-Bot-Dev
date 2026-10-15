@@ -120,7 +120,7 @@ fn grow(session: &GameSession, seat: &PlayerId, target: usize) {
         {
             let snap = session.get_snapshot(&ViewerRole::Player(seat.clone()));
             if let Some(pending) = snap.pending_choice {
-                let mut rng = random_bot::decision_rng(7, seat, len);
+                let mut rng = random_bot::decision_rng(7, 0, len);
                 let index = random_bot::pick_index(&pending.choice, &mut rng);
                 let _ = session.submit_choice(
                     seat,

@@ -236,6 +236,9 @@ struct Host {
     humans: u32,
     /// The seed of the game: a rule seat decides from it ([`ti4_rule_bot::choose`]).
     seed: u64,
+    /// The players in the seat order of the game: a seat decides by its place here, not by its
+    /// id ([`ti4_rule_bot::choose`]).
+    order: Vec<PlayerId>,
     /// The game is of a table (`host_setup::TableRequest`): a random seat decides as on the
     /// server, from the seed, the seat and the number of the decision, not from the stream of
     /// [`RANDOM`].
@@ -360,6 +363,7 @@ static HOST: Mutex<Host> = Mutex::new(Host {
     players: 0,
     humans: 0,
     seed: 0,
+    order: Vec::new(),
     table: false,
     paused: false,
     decided: 0,
@@ -711,16 +715,21 @@ fn pick(
     if !peek {
         PICKS.fetch_add(1, Ordering::Relaxed);
     }
-    let (seed, index, table) = {
+    let (seed, index, table, place) = {
         let host = host();
-        (host.seed, host.decided, host.table)
+        (
+            host.seed,
+            host.decided,
+            host.table,
+            seat_place(&host.order, &choice.player),
+        )
     };
     if (rule.is_some() || table) && !choice.options.is_empty() {
-        // The seed, the seat and the number of the decision give the answer, so a checkpoint
-        // keeps nothing for it, and the stream of the random seats does not move. In the game
-        // of a table a random seat decides the same way, as on the server.
+        // The seed, the place of the seat and the number of the decision give the answer, so a
+        // checkpoint keeps nothing for it, and the stream of the random seats does not move. In
+        // the game of a table a random seat decides the same way, as on the server.
         let index = usize::try_from(index).expect("a game has fewer decisions than 2^32");
-        let (picked, _) = ti4_rule_bot::choose(choice, rule, seed, &choice.player, index);
+        let (picked, _) = ti4_rule_bot::choose(choice, rule, seed, place, index);
         return Ok(choice.options[picked].clone());
     }
     let mut random = RANDOM.lock().expect("random lock");
@@ -730,6 +739,14 @@ fn pick(
     } else {
         stream.choose(choice)
     }
+}
+
+/// The place of `player` in the seat order `order` of the game, from 0.
+fn seat_place(order: &[PlayerId], player: &PlayerId) -> usize {
+    order
+        .iter()
+        .position(|seat| seat == player)
+        .expect("a seat that decides is a seat of the game")
 }
 
 /// Wait until the host lets the seat of `choice` decide. The host is shown the game as its own
@@ -983,6 +1000,13 @@ fn play_hosted(request_len: usize) -> Result<usize, Failure> {
             players: prepared.players,
             humans: prepared.human_mask,
             seed: prepared.seed,
+            order: prepared
+                .game
+                .state
+                .players
+                .iter()
+                .map(|player| player.id.clone())
+                .collect(),
             table: prepared.table,
             switches: prepared
                 .switches
@@ -1140,6 +1164,8 @@ struct Replayed {
     random: SeededRandom,
     decided: u64,
     seed: u64,
+    /// The players in the seat order of the game, as [`Host::order`].
+    order: Vec<PlayerId>,
     /// The game is of a table: a random seat decides from the seed, as in [`pick`].
     table: bool,
 }
@@ -1154,7 +1180,8 @@ impl Replayed {
         self.decided += 1;
         let rule = seen.filter(|_| rule_seat(&choice.player));
         if (rule.is_some() || self.table) && !choice.options.is_empty() {
-            let (picked, _) = ti4_rule_bot::choose(choice, rule, self.seed, &choice.player, index);
+            let place = seat_place(&self.order, &choice.player);
+            let (picked, _) = ti4_rule_bot::choose(choice, rule, self.seed, place, index);
             return Ok(choice.options[picked].clone());
         }
         self.random.choose(choice)
@@ -1190,14 +1217,15 @@ fn draft_base() -> Result<Game<'static>, Failure> {
             .clone()
             .ok_or_else(|| failed("the game has no random stream"))?;
         // One lock: a guard in a field of this literal would live to the end of the statement.
-        let (seed, table) = {
+        let (seed, order, table) = {
             let host = host();
-            (host.seed, host.table)
+            (host.seed, host.order.clone(), host.table)
         };
         game.table = Table::with_default(Box::new(Replayed {
             random,
             decided: checkpoint.decided,
             seed,
+            order,
             table,
         }));
         for _ in 0..SINCE.get() {
@@ -1333,8 +1361,7 @@ struct TablePreview {
 #[derive(Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct TableDraw {
-    /// The players in the order of their seats: the player who came as number `i` is
-    /// [`SEATS`]`[i]`.
+    /// The players in the order of their seats: the player of seat `i` is [`SEATS`]`[i]`.
     players: Vec<PlayerId>,
     #[serde(flatten)]
     drawn: setup::Drawn,
@@ -1373,16 +1400,15 @@ pub extern "C" fn ti4_setup_preview(request_len: u32) -> i32 {
     }))
 }
 
-/// What Start draws for the table in the request buffer: who sits where, and the faction of
-/// every seat (for a scenario, the factions that it seats). It is what the start of the table
+/// What Start draws for the table in the request buffer: the faction of every seat (for a scenario, the factions that it seats). It is what the start of the table
 /// plays (`ti4_host_start` with `table`), so a host that shows it shows the game.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_setup_draw(request_len: u32) -> i32 {
     status(read_table(request_len).and_then(|table| {
         let mut drawn = table.drawn().map_err(failed)?;
         if drawn.factions.is_empty() {
-            // A scenario seats the factions of its seats, in the order of the join: a host that
-            // shows the table before the start names them, as the lobby of the server does.
+            // A scenario seats the factions of its seats: a host that shows the table before the
+            // start names them, as the lobby of the server does.
             drawn.factions = (0..table.setup.player_count)
                 .map(|seat| ti4_model::id::FactionId::new(ti4_engine::seating::seat_faction(seat)))
                 .collect();
@@ -1390,7 +1416,7 @@ pub extern "C" fn ti4_setup_draw(request_len: u32) -> i32 {
         respond(
             "the draw of a table",
             &TableDraw {
-                players: drawn.seated(&table.joined()),
+                players: table.joined(),
                 drawn,
             },
         )
@@ -1872,7 +1898,8 @@ mod tests {
             assert_eq!(preview["seats"].as_array().unwrap().len(), 6);
             assert!(!preview["tiles"].as_array().unwrap().is_empty());
 
-            // The draw seats every player once, and a chosen faction stays with its player.
+            // The players sit in the order of the table, and a chosen faction stays with its
+            // player; the others are drawn from the seed.
             let draw = json(with_table_native(ti4_setup_draw, &table(5, "human")));
             let players: Vec<&str> = draw["players"]
                 .as_array()
@@ -1880,21 +1907,15 @@ mod tests {
                 .iter()
                 .map(|id| id.as_str().unwrap())
                 .collect();
-            let mut sorted = players.clone();
-            sorted.sort_unstable();
-            assert_eq!(sorted, &SEATS[..6]);
-            let faction_of = |id: &str| {
-                let seat = players.iter().position(|player| *player == id).unwrap();
-                draw["factions"][seat].as_str().unwrap().to_owned()
-            };
-            assert_eq!(faction_of("a"), "hacan");
-            assert_eq!(faction_of("c"), "ghost");
+            assert_eq!(players, &SEATS[..6]);
+            assert_eq!(draw["factions"][0], "hacan");
+            assert_eq!(draw["factions"][2], "ghost");
             assert!(
                 (0..20).any(|seed| {
-                    json(with_table_native(ti4_setup_draw, &table(seed, "human")))["players"]
-                        != draw["players"]
+                    json(with_table_native(ti4_setup_draw, &table(seed, "human")))["factions"]
+                        != draw["factions"]
                 }),
-                "some seed moves a player"
+                "some seed draws other factions"
             );
 
             // What a table cannot be is refused, with the reason.

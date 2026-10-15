@@ -4,9 +4,8 @@ import type { TableSetup } from "./TableSetup.ts";
 
 /**
  * The table of web2's single player: what the host chose (`ti4_host::setup::TableSetup`), and
- * its players in the order in which they came. The player who came as number `i` has the id
- * of [`SEATS`]`[i]`, wherever the draw seats it: the masks of this host name a player by that
- * letter.
+ * its players in the order of their seats. The player of seat `i` has the id of [`SEATS`]`[i]`:
+ * the masks of this host name a player by that letter.
  */
 export type TableRequest = { setup: TableSetup, 
 /**

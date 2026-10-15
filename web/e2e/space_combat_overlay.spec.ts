@@ -69,49 +69,44 @@ async function expectShipHitPills(page: Page, state: InitialSnapshotMsg) {
 }
 
 /**
- * Launches "ongoing_combat", stays, and waits for Letnev to sustain damage so that Sol is offered
- * Direct Hit. The rule bots are seeded by their seat ids, which a launch draws at random, so
- * Letnev does not sustain in every game: relaunch until it does.
+ * Launches "ongoing_combat" on `seed`, stays, and waits for Letnev to sustain damage so that Sol
+ * is offered Direct Hit. The seats that the server plays decide by their place, so the seed tells
+ * the game: Letnev sustains damage on the seeds of these tests.
  */
 async function launchToDirectHit(page: Page, request: APIRequestContext, seed: number | string) {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
-      data: `{"scenario_id":"ongoing_combat","seed":${seed}}`,
-      headers: { "content-type": "application/json" },
-    });
-    expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
-    const launched = (await launch.json()) as {
-      game_id: string;
-      player_session: string;
-      player_id: string;
-    };
-    const { game_id: gameId, player_session: session, player_id: playerId } = launched;
-    const initial = await snapshot(request, gameId, session);
-    expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
-    expect(initial.pending_choice?.choice.player).toBe(playerId);
-    await openPlayerGame(page, gameId, session);
-    await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
-    const stay = initial.pending_choice!.choice.options.find(
-      (option) => option.id === "stay" || option.id === "decline",
-    );
-    expect(stay).toBeDefined();
-    await page.getByTestId(`retreat-opt-${stay!.id}`).click();
-    let offered: boolean | undefined;
-    await expect
-      .poll(async () => {
-        const state = await snapshot(request, gameId, session);
-        const choice = state.pending_choice?.choice;
-        if (state.game_version <= initial.game_version || choice?.player !== playerId)
-          return false;
-        offered = choice.options.some((option) =>
-          option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"),
-        );
-        return true;
-      })
-      .toBe(true);
-    if (offered) return { gameId, session, playerId, initial };
-  }
-  throw new Error("Letnev sustains damage in one of ten games");
+  const launch = await request.post(`${backend}/api/dev/scenarios/launch`, {
+    data: `{"scenario_id":"ongoing_combat","seed":${seed}}`,
+    headers: { "content-type": "application/json" },
+  });
+  expect(launch.ok(), `launch scenario: ${launch.status()} ${await launch.text()}`).toBe(true);
+  const launched = (await launch.json()) as {
+    game_id: string;
+    player_session: string;
+    player_id: string;
+  };
+  const { game_id: gameId, player_session: session, player_id: playerId } = launched;
+  const initial = await snapshot(request, gameId, session);
+  expect(initial.pending_choice?.choice.context?.subtype).toBe("announce_retreat");
+  expect(initial.pending_choice?.choice.player).toBe(playerId);
+  await openPlayerGame(page, gameId, session);
+  await expect(page.getByTestId("combat-resolution-modal")).toBeVisible();
+  const stay = initial.pending_choice!.choice.options.find(
+    (option) => option.id === "stay" || option.id === "decline",
+  );
+  expect(stay).toBeDefined();
+  await page.getByTestId(`retreat-opt-${stay!.id}`).click();
+  let offered: boolean | undefined;
+  await expect
+    .poll(async () => {
+      const state = await snapshot(request, gameId, session);
+      const choice = state.pending_choice?.choice;
+      if (state.game_version <= initial.game_version || choice?.player !== playerId) return false;
+      offered = choice.options.some((option) => option.id.endsWith(":SUSTAIN_DAMAGE_USED:after"));
+      return true;
+    })
+    .toBe(true);
+  expect(offered, `Letnev sustains damage on seed ${seed}`).toBe(true);
+  return { gameId, session, playerId, initial };
 }
 
 test.describe("Space Combat Overlay", () => {
@@ -293,7 +288,7 @@ test.describe("Space Combat Overlay", () => {
 
   // This full-width seed rolls enough return-fire hits to open a nested reaction
   // before the Direct Hit engine step returns to the server worker.
-  for (const seed of [42, "11056244294849564155"])
+  for (const seed of [2, "11056244294849564155"])
     test(`can submit sustain damage after playing Direct Hit (seed ${seed})`, async ({
       page,
       request,
@@ -313,7 +308,7 @@ test.describe("Space Combat Overlay", () => {
         .poll(async () => (await snapshot(request, gameId, session)).game_version)
         .toBeGreaterThan(initial.game_version);
       const after = await snapshot(request, gameId, session);
-      if (seed === 42) expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
+      if (seed === 2) expect(dreadnoughts(after)).toBeLessThan(dreadnoughts(initial));
 
       await expect
         .poll(async () =>
@@ -367,7 +362,8 @@ test.describe("Space Combat Overlay", () => {
 
   test("plays Shields Holding to cancel incoming combat hits", async ({ page, request }) => {
     test.setTimeout(120_000);
-    const { gameId, session, playerId, initial } = await launchToDirectHit(page, request, 42);
+    // On seed 7 the return fire is three hits: Shields Holding cancels two of them.
+    const { gameId, session, playerId, initial } = await launchToDirectHit(page, request, 7);
     expect(
       initial.view.players.find((player) => player.id === playerId)?.held_action_cards,
     ).toContain("sh1");

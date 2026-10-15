@@ -84,14 +84,15 @@ const VIEW: LobbyView = {
     row("slot_2", "Bo", { faction: "Sol", sheet: { ...SHEET, title: "The Federation of Sol" } }),
   ],
   fill: null,
+  shuffle: null,
   footer: { note: "", main: null, nickname: false },
 };
 
-function lobby() {
+function lobby(view: LobbyView = VIEW) {
   const sent: LobbyIntent[] = [];
   render(
     <LobbyScreen
-      view={VIEW}
+      view={view}
       dispatch={(intent) => sent.push(intent)}
       nickname="Ada"
       onNickname={() => {}}
@@ -121,6 +122,21 @@ it("the faction of the viewer opens its choice in the row, and a row sends its c
   expect(editor()).not.toBeNull();
   fireEvent.click(opener());
   expect(editor()).toBeNull();
+});
+
+it("the host shuffles the seats from the heading of the players", () => {
+  expect(screen.queryByRole("button", { name: "Shuffle seats" })).toBeNull();
+  const sent = lobby({
+    ...VIEW,
+    shuffle: {
+      label: "Shuffle seats",
+      title: "Put the players in another order: the rows are the seats of the game",
+      intent: { type: "shuffleSeats" },
+    },
+  });
+  const players = screen.getByRole("region", { name: "Players" });
+  fireEvent.click(within(players).getByRole("button", { name: "Shuffle seats" }));
+  expect(sent).toEqual([{ type: "shuffleSeats" }]);
 });
 
 it("a faction of another seat stays in its place, says who has it and sends nothing", () => {

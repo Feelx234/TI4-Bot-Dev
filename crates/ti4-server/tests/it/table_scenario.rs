@@ -64,7 +64,6 @@ async fn a_table_of_two_people_and_bots_starts_the_late_game_and_recovers_it() {
     assert_eq!(view["start_from"], LATE_GAME);
     assert_eq!(view["slots"].as_array().unwrap().len(), 8);
     assert_eq!(open_seats(&view), 6);
-    assert_eq!(view["seat_order"], "join");
     assert_eq!(view["strategy_card_set"], "pok");
     assert_eq!(view["slots"][0]["faction"], "sol");
     assert_eq!(view["slots"][1]["faction"], "hacan");
@@ -210,7 +209,6 @@ async fn round_1_gives_the_table_its_setup_back() {
         )
         .await;
     assert!(view.get("start_from").is_none(), "{view}");
-    assert_eq!(view["seat_order"], "random");
     assert_eq!(view["strategy_card_set"], "te");
     // The count stays, and the host sets it again.
     assert_eq!(view["slots"].as_array().unwrap().len(), 8);

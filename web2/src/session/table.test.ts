@@ -41,7 +41,6 @@ const lobby = (version: number, change: Partial<LobbyState> = {}): LobbyState =>
   strategy_card_set: "te",
   speaker_order: "random",
   factions: [],
-  seat_order: "random",
   bot_delay_ms: 600,
   ...change,
 });

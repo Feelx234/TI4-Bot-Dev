@@ -61,8 +61,6 @@ export interface LobbyState {
   strategy_card_set: string;
   speaker_order: string;
   factions: string[];
-  /** How the seats are given at the start: "random" (drawn from the seed) or "join". */
-  seat_order: string;
   /** The wait before each answer of a seat that the server plays, in milliseconds. */
   bot_delay_ms: number;
   /** The scenario that the game starts from. Absent: round 1. */

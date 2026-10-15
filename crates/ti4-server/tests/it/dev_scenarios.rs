@@ -606,11 +606,10 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
     );
 }
 
-/// Launches "ongoing_combat" and plays Sol (stay, decline) until Letnev sustains damage, then
-/// plays Direct Hit. The rule bots are seeded by their seat ids, which a launch draws at random,
-/// so Letnev does not sustain damage in every game: `None` when the combat ends without it.
-fn play_to_direct_hit(registry: &Arc<GameRegistry>) -> Option<LaunchScenarioResponse> {
-    let launched = launch_scenario(registry, "ongoing_combat", Some(42)).unwrap();
+/// Launches "ongoing_combat" on `seed` and plays Sol (stay, decline) until Letnev sustains
+/// damage, then plays Direct Hit. `None` when the combat of the seed ends without it.
+fn play_to_direct_hit(registry: &Arc<GameRegistry>, seed: u64) -> Option<LaunchScenarioResponse> {
+    let launched = launch_scenario(registry, "ongoing_combat", Some(seed)).unwrap();
     let seat = ti4_model::id::PlayerId::new(&launched.player_id);
     let session = registry.get_game(&launched.game_id).unwrap();
     let first = session.get_snapshot(&ViewerRole::Player(seat.clone()));
@@ -669,12 +668,14 @@ fn play_to_direct_hit(registry: &Arc<GameRegistry>) -> Option<LaunchScenarioResp
     }
 }
 
+/// A seed of "ongoing_combat" on which Letnev sustains damage before the combat ends. The seats
+/// that the server plays decide by their place, so the seed tells the game.
+const SUSTAIN_SEED: u64 = 42;
+
 #[test]
 fn ongoing_combat_can_undo_twice() {
     let registry = Arc::new(GameRegistry::new());
-    let launched = (0..10)
-        .find_map(|_| play_to_direct_hit(&registry))
-        .expect("Letnev sustains damage in one of ten games");
+    let launched = play_to_direct_hit(&registry, SUSTAIN_SEED).expect("Letnev sustains damage");
     let seat = ti4_model::id::PlayerId::new(&launched.player_id);
 
     for attempt in 0..2 {

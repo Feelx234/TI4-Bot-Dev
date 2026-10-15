@@ -89,9 +89,6 @@ pub struct CreateGameRequest {
     /// Who opens as speaker: `"random"` (default; a seat drawn from the seed, so the same seed
     /// gives the same speaker) or `"seat"` (the first seat). Anything else is a 400.
     pub speaker_order: Option<String>,
-    /// How the seats are given at Start: `"random"` (default; drawn from the seed) or `"join"`
-    /// (the order in which the players came; tests and presets use it). Anything else is a 400.
-    pub seat_order: Option<String>,
     /// The wait before each answer of a seat that the server plays, in milliseconds (0 to
     /// 30 000). Without it the table waits as the process says, until the host sets a value.
     pub bot_delay_ms: Option<u64>,
@@ -334,11 +331,6 @@ pub async fn create_game(
         None => ti4_host::setup::SpeakerOrder::default(),
     };
 
-    let seat_order = match payload.seat_order.as_deref() {
-        Some(name) => crate::session::table::SeatOrder::parse(name)
-            .map_err(|error| (StatusCode::BAD_REQUEST, error))?,
-        None => crate::session::table::SeatOrder::default(),
-    };
     let bot_delay_ms = payload.bot_delay_ms;
     if bot_delay_ms.is_some_and(|delay| delay > crate::session::table::MAX_BOT_DELAY_MS) {
         return Err((
@@ -365,7 +357,6 @@ pub async fn create_game(
                 payload.start_preset,
                 strategy_card_set,
                 speaker_order,
-                seat_order,
                 bot_delay_ms,
             )
         })
@@ -373,7 +364,7 @@ pub async fn create_game(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     } else {
         registry
-            .create_player_lobby_with_seating(
+            .create_player_lobby_with_speaker(
                 game_id.clone(),
                 payload.player_count,
                 seed,
@@ -382,7 +373,6 @@ pub async fn create_game(
                 payload.start_preset,
                 strategy_card_set,
                 speaker_order,
-                seat_order,
             )
             .and_then(|(lobby, player, session)| {
                 let lobby = match bot_delay_ms {
@@ -737,6 +727,21 @@ pub async fn set_lobby_seat_faction(
     ))
 }
 
+/// Handler for `POST /api/games/{game_id}/lobby/shuffle-seats`: the host puts the players of
+/// the table in another order of its rows, which are the seats of the game.
+pub async fn shuffle_lobby_seats(
+    Path(game_id): Path<String>,
+    headers: HeaderMap,
+    State(registry): State<Arc<GameRegistry>>,
+) -> Result<Json<PlayerLobbyView>, (StatusCode, String)> {
+    let token = require_player_session(&headers)?;
+    Ok(Json(
+        registry
+            .shuffle_seats(&game_id, token)
+            .map_err(lobby_error)?,
+    ))
+}
+
 fn player_session(headers: &HeaderMap) -> Result<Option<&str>, (StatusCode, String)> {
     headers
         .get("x-ti4-player-session")
@@ -1062,7 +1067,6 @@ mod template_request_tests {
             fill_seats: None,
             strategy_card_set: None,
             speaker_order: None,
-            seat_order: None,
             bot_delay_ms: None,
         })
     }
@@ -1078,7 +1082,6 @@ mod template_request_tests {
             fill_seats: None,
             strategy_card_set: None,
             speaker_order: None,
-            seat_order: None,
             bot_delay_ms: None,
         })
     }

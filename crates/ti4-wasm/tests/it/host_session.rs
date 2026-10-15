@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use serde_json::{Value, json};
 use ti4_engine::choice::Choice;
 use ti4_host::protocol::server::ServerMessage;
-use ti4_model::id::PlayerId;
 use ti4_wasm::host_api;
 
 const GAME: &str = "local";
@@ -60,7 +59,8 @@ fn pending(messages: &[Value]) -> Option<(String, u64, Choice, usize)> {
 /// The person: the rule bot, deciding without a view of the board.
 fn install_person(page: &Arc<Mutex<Page>>, seed: u64, viewer: &str) {
     let page = page.clone();
-    let viewer = PlayerId::new(viewer);
+    // The person answers as a rule seat of its place would (seat `a` is place 0).
+    let place = usize::from(viewer.as_bytes()[0] - b'a');
     ti4_wasm::set_native_host(move |text: &str| {
         let envelope: Value = serde_json::from_str(text).expect("the output is JSON");
         let mut page = page.lock().unwrap();
@@ -97,7 +97,7 @@ fn install_person(page: &Arc<Mutex<Page>>, seed: u64, viewer: &str) {
         }
         let (nonce, version, choice, cursor) =
             pending(&page.messages).expect("an ask has a pending choice");
-        let (picked, _) = ti4_rule_bot::choose(&choice, None, seed, &viewer, cursor);
+        let (picked, _) = ti4_rule_bot::choose(&choice, None, seed, place, cursor);
         let option = choice.options[picked].id.clone();
         let answered = send(&json!({
             "type": "submit_choice",

@@ -34,7 +34,6 @@ fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
             None,
             ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
-            ti4_server::session::table::SeatOrder::Join,
             None,
         )
         .expect("a started game");
@@ -73,11 +72,11 @@ struct Moved {
     version: u64,
 }
 
-/// Plays the seat to its turn and sends the movement of one ship. The rule bots are seeded by
-/// their seat ids, which a game draws at random: in some games another seat answers the
-/// movement (Foresight of the Naalu, whose ships are in the system), and the seat may not take
-/// back what came before that answer. `None` then.
-fn moved_alone(game_id: &str) -> Option<Moved> {
+/// Plays the seat to its turn and sends the movement of one ship. In the game of the seed of
+/// [`game`] no other seat answers the movement (as Foresight of the Naalu could, whose ships are
+/// in the system): the seat may take back all of it. The seats that the server plays decide by
+/// their place, so the seed tells the game.
+fn moved_alone(game_id: &str) -> Moved {
     let (registry, seat, credential) = game(game_id);
     let session = registry.get_game(game_id).expect("the game runs");
     let (_, nonce, version) = to_the_turn_menu(&session, &seat);
@@ -92,14 +91,13 @@ fn moved_alone(game_id: &str) -> Option<Moved> {
     );
     let (_, _, version) = asked(&session, &seat);
     assert_eq!(ships_at(&session, &target, &seat, &unit), before + 1);
-    let alone = session.decision_log()[at_the_menu.len()..]
-        .iter()
-        .all(|record| record.player == seat);
-    if !alone {
-        session.stop();
-        return None;
-    }
-    Some(Moved {
+    assert!(
+        session.decision_log()[at_the_menu.len()..]
+            .iter()
+            .all(|record| record.player == seat),
+        "another seat answers the movement: the test needs a seed where none does"
+    );
+    Moved {
         game_id: game_id.to_owned(),
         registry,
         seat,
@@ -111,7 +109,7 @@ fn moved_alone(game_id: &str) -> Option<Moved> {
         unit,
         before,
         version,
-    })
+    }
 }
 
 #[test]
@@ -128,9 +126,7 @@ fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
         unit,
         before,
         version,
-    } = (0..10)
-        .find_map(|attempt| moved_alone(&format!("undo_action_{attempt}")))
-        .expect("no other seat answers the movement in one of ten games");
+    } = moved_alone("undo_action");
     let game_id = game_id.as_str();
     assert!(can_undo(&session, &seat));
     // No other viewer may undo, and a version that is not the game's is refused.

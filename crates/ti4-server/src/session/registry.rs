@@ -546,9 +546,6 @@ pub struct PlayerLobbyView {
     /// The factions a seat can be given (`ti4_engine::seating::LOBBY_FACTIONS`, base game first): what
     /// every seat's faction picker offers. A seat that chose none is dealt one of the rest by the seed.
     pub factions: Vec<String>,
-    /// How the seats are given at Start: `random` (drawn from the seed) or `join` (the order of
-    /// the slots). A table with a start preset or a scenario is always `join`.
-    pub seat_order: String,
     /// The wait before each answer of a seat that the server plays, in milliseconds: the value
     /// of the table, or the value of the process when the host set none.
     pub bot_delay_ms: u64,
@@ -635,7 +632,7 @@ impl PlayerLobbyRecord {
             strategy_card_set: Some(ti4_host::setup::card_set::DEFAULT.to_owned()),
             speaker_order: None,
             map_revision: 0,
-            seat_order: None,
+            legacy_seat_order: None,
             bot_delay_ms: None,
             start_from: None,
             lobby_version: 1,
@@ -756,7 +753,6 @@ impl PlayerLobbyRecord {
                 .iter()
                 .map(|faction| (*faction).to_owned())
                 .collect(),
-            seat_order: super::table::seat_order_of(self).as_str().to_owned(),
             bot_delay_ms: self
                 .bot_delay_ms
                 .unwrap_or_else(super::random_bot::random_bot_delay_ms),
@@ -2559,37 +2555,6 @@ impl GameRegistry {
         strategy_card_set: &str,
         speaker_order: ti4_host::setup::SpeakerOrder,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
-        self.create_player_lobby_with_seating(
-            game_id,
-            count,
-            seed,
-            nickname,
-            map_template,
-            start_preset,
-            strategy_card_set,
-            speaker_order,
-            super::table::SeatOrder::default(),
-        )
-    }
-
-    /// As [`Self::create_player_lobby_with_speaker`], also choosing how the seats are given at
-    /// Start: drawn from the seed (the default) or in the order of the join.
-    #[allow(
-        clippy::too_many_arguments,
-        reason = "one argument per creation option"
-    )]
-    pub fn create_player_lobby_with_seating(
-        &self,
-        game_id: String,
-        count: usize,
-        seed: u64,
-        nickname: &str,
-        map_template: Option<String>,
-        start_preset: Option<String>,
-        strategy_card_set: &str,
-        speaker_order: ti4_host::setup::SpeakerOrder,
-        seat_order: super::table::SeatOrder,
-    ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
         ti4_host::setup::card_set::validate(strategy_card_set)
             .map_err(|error| LobbyError::Storage(error.to_string()))?;
         check_nickname(nickname)?;
@@ -2611,7 +2576,6 @@ impl GameRegistry {
         record.start_preset = start_preset;
         record.strategy_card_set = Some(strategy_card_set.to_owned());
         record.speaker_order = Some(speaker_order.as_str().to_owned());
-        record.seat_order = Some(seat_order.as_str().to_owned());
         self.save_player_lobby(&record)?;
         let view = record.public_view();
         state
@@ -3137,10 +3101,9 @@ impl GameRegistry {
         start_preset: Option<String>,
         strategy_card_set: &'static str,
         speaker_order: ti4_host::setup::SpeakerOrder,
-        seat_order: super::table::SeatOrder,
         bot_delay_ms: Option<u64>,
     ) -> Result<(PlayerLobbyView, PlayerId, PlayerSession), LobbyError> {
-        let (_, player, credential) = self.create_player_lobby_with_seating(
+        let (_, player, credential) = self.create_player_lobby_with_speaker(
             game_id.clone(),
             count,
             seed,
@@ -3149,7 +3112,6 @@ impl GameRegistry {
             start_preset,
             strategy_card_set,
             speaker_order,
-            seat_order,
         )?;
         if let Some(delay) = bot_delay_ms {
             self.change_player_lobby_settings(
@@ -3192,11 +3154,10 @@ impl GameRegistry {
         let setup = super::table::setup_of(lobby);
         // A scenario is the game of its own seed; every other table plays the seed of the lobby.
         let seed = setup.game_seed();
-        // The seats are drawn here (decision 7 of the lobby plan): the players of the slots are
-        // shuffled with a stream of the seed, and the factions are then drawn for that order, so
-        // a chosen faction stays with its player.
-        let joined = super::table::joined_players(lobby);
-        let chosen: Vec<Option<String>> = joined
+        // The players sit in the order of the slots, as the lobby shows them (decision 7 of the
+        // lobby plan); the factions that nobody chose are drawn for that order.
+        let players = super::table::joined_players(lobby);
+        let chosen: Vec<Option<String>> = players
             .iter()
             .map(|player| lobby.players[player].faction.clone())
             .collect();
@@ -3205,7 +3166,6 @@ impl GameRegistry {
         // A start preset (a tool of this server) seats its own factions in the order of the join
         // and sets its cases on the opening state; `ti4_host::setup` does both.
         let drawn = ti4_host::setup::draw(&setup, &chosen).map_err(LobbyError::Map)?;
-        let players = drawn.seated(&joined);
         let (initial_state, galaxy) =
             ti4_host::setup::create(content, &setup, &players, &drawn).map_err(LobbyError::Map)?;
         let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
@@ -3246,10 +3206,6 @@ impl GameRegistry {
         running.phase = PersistedLobbyPhase::Running;
         running.lobby_version += 1;
         running.seed = seed;
-        // From here the slots are the seats of the game, in their order.
-        for (slot, player) in running.slots.iter_mut().zip(&players) {
-            slot.occupant = Some(player.clone());
-        }
         if let Some(store) = &self.store {
             store
                 .save_player_sessions(&PlayerSessionsRecord {
@@ -3637,6 +3593,34 @@ impl GameRegistry {
                 },
             );
         }
+        updated.lobby_version += 1;
+        self.save_player_lobby(&updated)?;
+        *lobby = updated;
+        Ok(self.player_view(&state, &state.player_lobbies[game_id]))
+    }
+
+    /// Host only, lobby phase only: the players of the table in another order of its rows
+    /// ([`super::table::shuffle_seats`]). The rows are the seats of the game.
+    ///
+    /// # Errors
+    /// The usual lobby errors, and [`LobbyError::HostRequired`] for another player.
+    pub fn shuffle_seats(
+        &self,
+        game_id: &str,
+        credential: &str,
+    ) -> Result<PlayerLobbyView, LobbyError> {
+        let mut state = self.state.lock().expect("registry lock");
+        let lobby = state
+            .player_lobbies
+            .get_mut(game_id)
+            .ok_or(LobbyError::NotFound)?;
+        if !matches!(lobby.phase, PersistedLobbyPhase::Lobby) {
+            return Err(LobbyError::AlreadyRunning);
+        }
+        if authenticate_player(lobby, credential)? != lobby.host_player_id {
+            return Err(LobbyError::HostRequired);
+        }
+        let mut updated = super::table::shuffle_seats(lobby, &mut rand::rng());
         updated.lobby_version += 1;
         self.save_player_lobby(&updated)?;
         *lobby = updated;

@@ -208,15 +208,14 @@ exports of their own.
 - `table`: the table of web2's single player, `{ "setup": TableSetup, "seats": [...] }` (also
   the request of the setup exports). `setup` is `ti4_host::setup::TableSetup`: `player_count`
   and `seed`, and optional `map` (`{"kind":"template","alias"}` or `{"kind":"random"}`, the
-  default), `strategy_cards` (`te` by default, `pok`, `base_game_codex1`), `seat_order`
-  (`random` or `join`), `speaker_order` (`random` or `seat`) and `start_from` (the id of a
-  scenario). `seats` are the players in the order in which they came: `kind` (`human`, `smart`
-  for the rule bot, `random`), `faction` (or none, for one drawn from the seed) and `name`. The
-  player who came as number i has the id of the i-th letter (`a`, `b`, …) wherever the draw
-  seats it, so a mask names a player, not a place at the table. The game is started as the
-  server starts the table of a lobby (`ti4_host::setup::{draw, create}`), and a seat that the
-  page does not play decides as on the server, the random seats too: a table of a seed is the
-  same game on both hosts (`crates/ti4-server/tests/it/both_hosts.rs`). With a name for every
+  default), `strategy_cards` (`te` by default, `pok`, `base_game_codex1`), `speaker_order`
+  (`random` or `seat`) and `start_from` (the id of a scenario). `seats` are the players in the
+  order of their seats: `kind` (`human`, `smart` for the rule bot, `random`), `faction` (or
+  none, for one drawn from the seed) and `name`. The player of seat i has the id of the i-th
+  letter (`a`, `b`, …). The game is started as the server starts the table of a lobby
+  (`ti4_host::setup::{draw, create}`), and a seat that the page does not play decides as on the
+  server, the random seats too, by its place, not its id (`ti4_rule_bot::choose`): a table of a
+  seed is the same game on both hosts (`crates/ti4-server/tests/it/both_hosts.rs`). With a name for every
   player, each update says who sits where (`seats`).
 - `local`: a game of a fixed setup, `{ "seed", "players", "humans", "scenario"?,
   "rule_seats"? }`: web2's `?local=` and `?scenario=`. The game is on the recommended map

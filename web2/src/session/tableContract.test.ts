@@ -102,7 +102,6 @@ function contract(make: () => Promise<Side>) {
     expect(lobby.phase).toBe("lobby");
     expect(lobby.slots).toHaveLength(4);
     expect(lobby.slots[0].occupant).toBe(viewer);
-    expect(lobby.seat_order).toBe("random");
     // The board has a place for each seat, and the table says which map it is.
     expect(preview!.player_count).toBe(4);
     expect(preview!.seats).toHaveLength(4);
@@ -196,6 +195,34 @@ function contract(make: () => Promise<Side>) {
     expect(chosen.lobby.map_revision).toBeGreaterThan(first.lobby.map_revision);
     at.table.setMap({ kind: "template", alias: "no-such-map" });
     expect(await at.refused()).not.toBe("");
+    at.table.close();
+  }, 30_000);
+
+  it("the host shuffles the rows, and the game seats the players in their order", async () => {
+    const at = await make();
+    const first = await at.until((state) => state.preview !== null);
+    const names = (state: TableState) => state.lobby.slots.map((slot) => slot.nickname).join();
+    let full = first;
+    if (open(first).length) {
+      at.table.addBots("smart", true);
+      full = await at.until((state) => open(state).length === 0);
+    }
+    at.table.shuffleSeats();
+    const shuffled = await at.until((state) => names(state) !== names(full));
+    expect([...names(shuffled).split(",")].sort()).toEqual([...names(full).split(",")].sort());
+    // The host is the person, wherever its row is.
+    const host = shuffled.lobby.slots.find((slot) => slot.occupant === shuffled.viewer);
+    expect(host?.bot).toBeUndefined();
+    expect(shuffled.lobby.host_player_id).toBe(shuffled.viewer);
+    at.table.start();
+    const running = await at.until((state) => state.lobby.phase === "running");
+    expect(names(running)).toBe(names(shuffled));
+    // The page plays the seat of the person, where its row is.
+    const game = at.game();
+    if (game) {
+      const place = shuffled.lobby.slots.findIndex((slot) => slot.occupant === shuffled.viewer);
+      expect(game.humans).toBe(1 << place);
+    }
     at.table.close();
   }, 30_000);
 
@@ -295,7 +322,6 @@ describe.skipIf(!existsSync(WASM))("the table in this page", () => {
     at.table.setSettings({ startFrom: scenario.id });
     const set = await at.until((state) => state.lobby.start_from === scenario.id);
     expect(set.lobby.slots).toHaveLength(scenario.players);
-    expect(set.lobby.seat_order).toBe("join");
     expect(set.preview!.player_count).toBe(scenario.players);
     expect(set.lobby.slots.every((slot) => !!slot.faction)).toBe(true);
     expect(new Set(set.lobby.slots.map((slot) => slot.faction)).size).toBe(scenario.players);

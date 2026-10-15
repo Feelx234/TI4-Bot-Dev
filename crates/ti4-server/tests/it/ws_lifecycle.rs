@@ -139,7 +139,7 @@ async fn create_game(
     let response = client
         .post(format!("http://{addr}/api/games"))
         .json(
-            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host", "seat_order": "join" }),
+            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host" }),
         )
         .send()
         .await

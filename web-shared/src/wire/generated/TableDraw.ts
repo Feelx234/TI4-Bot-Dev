@@ -7,14 +7,9 @@ import type { PlayerId } from "./PlayerId.ts";
  */
 export type TableDraw = { 
 /**
- * The players in the order of their seats: the player who came as number `i` is
- * [`SEATS`]`[i]`.
+ * The players in the order of their seats: the player of seat `i` is [`SEATS`]`[i]`.
  */
 players: Array<PlayerId>, 
-/**
- * For each seat, the place of its player in the order of the join.
- */
-order: Array<number>, 
 /**
  * The faction of each seat. Empty for a table that starts from a scenario: the scenario
  * seats its own factions.

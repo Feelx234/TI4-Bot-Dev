@@ -1,6 +1,5 @@
 // Generated from the Rust types by `cargo wire-web` (ti4_wasm::wire_ts). Do not edit.
 import type { MapChoice } from "./MapChoice.ts";
-import type { SeatOrder } from "./SeatOrder.ts";
 import type { SpeakerOrder } from "./SpeakerOrder.ts";
 
 /**
@@ -18,10 +17,6 @@ map?: MapChoice,
  */
 strategy_cards?: string, 
 /**
- * Left out: `random`, drawn from the seed.
- */
-seat_order?: SeatOrder, 
-/**
  * Left out: `random`, drawn from the seed. `seat` is the first seat.
  */
 speaker_order?: SpeakerOrder, 
@@ -31,12 +26,12 @@ speaker_order?: SpeakerOrder,
  */
 start_from?: string, 
 /**
- * A start preset of [`crate::preset`] (a test table): it seats its own factions in the order
- * of the join and sets its cases on the opening state. A scenario wins over it.
+ * A start preset of [`crate::preset`] (a test table): it seats its own factions and sets its
+ * cases on the opening state. A scenario wins over it.
  */
 preset?: string, 
 /**
- * The seed of the table. It tells the seats and the factions that nobody chose, so a host
+ * The seed of the table. It tells the factions that nobody chose, so a host
  * with several people keeps it to itself.
  */
 seed: number, };

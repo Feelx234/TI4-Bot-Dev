@@ -122,6 +122,8 @@ function SingleSetup({
         return table?.addBots(intent.kind, true);
       case "remove":
         return table?.removeSeat(intent.player);
+      case "shuffleSeats":
+        return table?.shuffleSeats();
       case "set":
         if (intent.change.players !== undefined) {
           // The next table of this browser has as many seats.
