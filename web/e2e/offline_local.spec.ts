@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { NICKNAME, playUntil, startOfflineGame, storedAnswers, storedFeedback, storedRecord, storedSetup } from "./offlineDriver";
+import { NICKNAME, clickOnce, playUntil, startOfflineGame, storedAnswers, storedFeedback, storedRecord, storedSetup } from "./offlineDriver";
 import { startTestServer, type TestServer } from "./offlineServer";
 
 // The offline game, end to end, with the production build only (see offline.config.ts): the
@@ -214,8 +214,9 @@ test("undo and history rewind work offline", async ({ page, context, baseURL }) 
   // (a decision dialog may cover the corners of the board: click through the DOM)
   await page.getByTestId("event-log-toggle").dispatchEvent("click");
   const undo = page.locator(".event-log__undo");
-  await expect(undo.first()).toBeVisible();
-  await undo.first().dispatchEvent("click");
+  // (newest first: the last button belongs to the oldest decision)
+  await expect(undo.last()).toBeVisible();
+  await undo.last().dispatchEvent("click");
   const confirm = page.getByTestId("undo-confirm-accept");
   if (await confirm.isVisible().catch(() => false)) await confirm.dispatchEvent("click");
   await expect.poll(() => storedAnswers(page, gameId), { timeout: 120_000 }).toBeLessThan(reached);
@@ -232,6 +233,98 @@ test("undo and history rewind work offline", async ({ page, context, baseURL }) 
   const now = await storedAnswers(page, gameId);
   await playUntil(page, gameId, now + 3);
   await expect(page.getByTestId("history-error")).toHaveCount(0);
+});
+
+test("single player: log toggle in the objectives row, swipe a toast, newest first, undo one decision, reload", async ({ page, context, baseURL }) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  const gameId = await startOfflineGame(page, 3);
+  // Play until a toast is on screen.
+  let guard = 0;
+  // (a decision dialog's backdrop sits over the toasts: wait for the action phase's bar)
+  while (((await page.getByTestId("corner-toast").count()) === 0 || (await page.getByTestId("turn-action-bar").count()) === 0) && guard++ < 120) {
+    await clickOnce(page);
+    await page.waitForTimeout(200);
+  }
+  await expect(page.getByTestId("corner-toast").first()).toBeVisible();
+
+  // The notification log is an icon in the row of the objective buttons, and the old pill is gone.
+  const toggle = page.getByTestId("toast-history-toggle");
+  await expect(toggle).toHaveAttribute("aria-label", /Notifications/);
+  await expect(toggle).toHaveText(/^\d*\+?$/);
+  const objectives = (await page.getByTestId("objectives-modal-button").boundingBox())!;
+  const bell = (await toggle.boundingBox())!;
+  expect(Math.abs(bell.y - objectives.y)).toBeLessThan(6);
+  await expect(page.getByText(/Recent notifications \(/)).toHaveCount(0);
+
+  // Swipe (mouse drag) a toast away: gone from the screen, still in the log.
+  const toasts = page.getByTestId("corner-toast");
+  const count = await toasts.count();
+  const first = toasts.first();
+  const phrase = ((await first.locator(".toast-value").textContent()) ?? "").trim().slice(0, 24);
+  const box = (await first.boundingBox())!;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(box.x + box.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 140, y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => toasts.count(), { timeout: 3000 }).toBeLessThan(count);
+  await toggle.click();
+  await expect(page.getByTestId("toast-history-item").filter({ hasText: phrase }).first()).toBeVisible();
+  await toggle.click();
+
+  // Play on, then the event log lists the newest entry first.
+  const reached = await playUntil(page, gameId, 8);
+  await page.waitForTimeout(500);
+  await page.getByTestId("event-log-toggle").dispatchEvent("click");
+  const numbers = await page.getByTestId("event-log-entry").evaluateAll((rows) =>
+    rows.map((r) => Number(/#(\d+)/.exec(r.querySelector(".event-log__index")?.textContent ?? "")?.[1])).filter((n) => !Number.isNaN(n)),
+  );
+  expect(numbers.length).toBeGreaterThan(3);
+  expect(numbers[0]).toBeGreaterThan(numbers[numbers.length - 1]);
+
+  // Undo takes back exactly one answer of the human; the save follows; a reload resumes there.
+  const answers = await storedAnswers(page, gameId);
+  expect(answers).toBeGreaterThanOrEqual(reached);
+  await expect(page.getByTestId("event-log-undo-last")).toBeEnabled();
+  await page.getByTestId("event-log-undo-last").dispatchEvent("click");
+  await expect.poll(() => storedAnswers(page, gameId), { timeout: 60_000 }).toBe(answers - 1);
+  await expect(page.getByTestId("event-log-undo-status")).toContainText("Undid your last decision");
+  await page.reload();
+  await page.waitForSelector('[data-testid="offline-game"]', { timeout: 60_000 });
+  expect(await storedAnswers(page, gameId)).toBe(answers - 1);
+  await expect(page.getByTestId("history-error")).toHaveCount(0);
+});
+
+test("single player: the browser Back button undoes the last decision; with nothing to undo it leaves the game", async ({ page, context, baseURL }) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  const gameId = await startOfflineGame(page, 3);
+  const reached = await playUntil(page, gameId, 6);
+  await page.waitForTimeout(600);
+  const url = page.url();
+  await page.goBack();
+  await expect.poll(() => storedAnswers(page, gameId), { timeout: 60_000 }).toBe(reached - 1);
+  expect(page.url()).toBe(url); // stayed in the game
+  await expect(page.getByTestId("back-undo-note")).toContainText("Undid your last decision");
+  // A reload keeps one sentinel only: Back still undoes one decision, not two.
+  await page.reload();
+  await page.waitForSelector('[data-testid="offline-game"]', { timeout: 60_000 });
+  expect(await storedAnswers(page, gameId)).toBe(reached - 1);
+  await page.waitForTimeout(600);
+  await page.goBack();
+  await expect.poll(() => storedAnswers(page, gameId), { timeout: 60_000 }).toBe(reached - 2);
+  expect(page.url()).toBe(url);
+  // Forward does nothing harmful.
+  await page.goForward().catch(() => undefined);
+  expect(await storedAnswers(page, gameId)).toBe(reached - 2);
+});
+
+test("single player: Back at the start of a game, with nothing to undo, goes back to the offline start page", async ({ page, context, baseURL }) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  const gameId = await startOfflineGame(page, 3);
+  await page.waitForTimeout(500);
+  await page.goBack();
+  await expect.poll(() => new URL(page.url()).pathname, { timeout: 10_000 }).toBe("/offline");
+  expect(await storedAnswers(page, gameId)).toBe(0);
 });
 
 test.describe("feedback written offline", () => {

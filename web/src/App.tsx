@@ -62,7 +62,9 @@ import { ConnectionProblem, ReconnectingChip, useAfterDelay } from "./components
 import { readBreakthroughs } from "./presentation/breakthroughs.ts";
 import { readExplorationLog } from "./presentation/explorationToasts.ts";
 import { readAgendaLog } from "./presentation/agendaToasts.ts";
+import { useBackUndo } from "./hooks/useBackUndo.ts";
 import { CornerToastLayer } from "./components/CornerToastLayer.tsx";
+import { NotificationLogButton, NotificationLogProvider } from "./components/NotificationLog.tsx";
 import { PaymentDraftProvider, usePaymentDraftState } from "./presentation/PaymentDraftContext.tsx";
 import {
   CommandTokenDraftProvider,
@@ -460,24 +462,38 @@ const GameViewContainer: React.FC<{
       setUndoRequest({ action, steps });
       return;
     }
-    runHistoryChange(action);
+    void runHistoryChange(action);
   };
-  const runHistoryChange = (action: import("./protocol/client.ts").HistoryChange) => {
+  /** Resolves true when the change went through (false: the error is on screen). */
+  const runHistoryChange = (action: import("./protocol/client.ts").HistoryChange): Promise<boolean> => {
     setHistoryBusy(true);
     setHistoryError(null);
-    void changeHistory(action)
+    return changeHistory(action)
       .then(() => {
         setSelectedOptionId(undefined);
         setSelectedPlanetId(null);
         setSelectedSystemId(null);
         setCardSubject(null);
+        return true;
       })
-      .catch((error: unknown) =>
-        setHistoryError(error instanceof Error ? error.message : String(error)),
-      )
+      .catch((error: unknown) => {
+        setHistoryError(error instanceof Error ? error.message : String(error));
+        return false;
+      })
       .finally(() => setHistoryBusy(false));
   };
+  // Single-player undo: take back the human's last answer (the engine's live undo; the bots'
+  // decisions after it are replayed, not undone one by one).
+  const undoLastDecision = (): Promise<boolean> =>
+    historyBusy ? Promise.resolve(false) : runHistoryChange("undo");
   const userSeat = viewer.role === "player" ? viewer.seat : undefined;
+  const singlePlayerUndo = !multiplayerOn && Boolean(createTransport) && userSeat === lobby.host_player_id;
+  const backNote = useBackUndo({
+    enabled: singlePlayerUndo,
+    canUndo: gameHistory.can_undo === true,
+    busy: historyBusy,
+    undo: undoLastDecision,
+  });
   const turnRedo = useTurnRedo({
     enabled: viewer.role === "player" && turnRedoOn,
     fetchStatus: fetchTurnRedoStatus,
@@ -651,6 +667,7 @@ const GameViewContainer: React.FC<{
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <PublicStateProvider state={snapshot?.state}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
+    <NotificationLogProvider inline={!multiplayerOn}>
     <BluffScope
       gameId={gameId}
       seat={multiplayerOn ? userSeat : undefined}
@@ -682,7 +699,7 @@ const GameViewContainer: React.FC<{
           onConfirm={() => {
             const { action } = undoRequest;
             setUndoRequest(null);
-            runHistoryChange(action);
+            void runHistoryChange(action);
           }}
         />
       )}
@@ -702,6 +719,11 @@ const GameViewContainer: React.FC<{
       <ReconnectingChip visible={reconnecting} />
       {fatal && (
         <ConnectionProblem kind={fatal.kind} message={fatal.message} onRetry={retryConnection} />
+      )}
+      {backNote && (
+        <div role="status" aria-live="polite" className="back-undo-note" data-testid="back-undo-note">
+          {backNote}
+        </div>
       )}
       <CornerToastLayer
         events={events}
@@ -779,6 +801,7 @@ const GameViewContainer: React.FC<{
               >
                 Objectives
               </button>
+              <NotificationLogButton />
             </div>
             )}
           </div>
@@ -856,6 +879,8 @@ const GameViewContainer: React.FC<{
         logHistoryKey={logHistoryKey.current}
         history={gameHistory}
         historyBusy={historyBusy}
+        onUndoLast={!multiplayerOn && userSeat === lobby.host_player_id ? undoLastDecision : undefined}
+        newestFirst={!multiplayerOn}
         onAutoSubmitNotice={(note) => setLocalNotes((prev) => [...prev, note])}
         onChangeHistory={userSeat === lobby.host_player_id ? onChangeHistory : undefined}
         onFetchReplay={userSeat ? fetchReplay : undefined}
@@ -951,6 +976,7 @@ const GameViewContainer: React.FC<{
       </PaymentDraftProvider>
     </PreparedHintProvider>
     </BluffScope>
+    </NotificationLogProvider>
     </DecisionTableProvider>
     </PublicStateProvider>
     </SeatInfoProvider>

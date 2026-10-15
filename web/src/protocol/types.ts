@@ -533,6 +533,8 @@ export interface HistoryStatus {
   cursor: number;
   redo_count: number;
   generation?: number;
+  /** The viewer's last answer can be taken back with a plain `undo` (offline: the engine's live undo). */
+  can_undo?: boolean;
 }
 
 export interface CurrentLogPath {
