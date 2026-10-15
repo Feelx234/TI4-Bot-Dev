@@ -22,8 +22,8 @@ import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { useBoardChromeOffset } from "../hooks/useBoardChromeOffset.ts";
-import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
-import { getHyperlaneNetwork, tileKey } from "./hyperlane/hyperlaneNetwork.ts";
+import { HyperlaneLinks, HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { connectionsAt, getHyperlaneNetwork, tileKey } from "./hyperlane/hyperlaneNetwork.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
@@ -476,6 +476,14 @@ export const Board: React.FC<BoardProps> = ({
               model={hyperlaneModel}
               hot={hotLaneKey}
               bed={presentation.tiles.find((t) => t.hyperlane)?.fillColor}
+            />
+          )}
+          {hyperlaneTiles.length > 0 && hotLaneKey && (
+            <HyperlaneLinks
+              tiles={hyperlaneTiles}
+              model={hyperlaneModel}
+              only={connectionsAt(hyperlaneModel, hotLaneKey)}
+              hot={connectionsAt(hyperlaneModel, hotLaneKey)}
             />
           )}
 

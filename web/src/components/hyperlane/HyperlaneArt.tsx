@@ -13,6 +13,7 @@ import {
   connectionsAt,
   portPoint,
   tileKey,
+  type HyperlaneConnection,
   type HyperlaneNetworkModel,
   type NetTileInput,
 } from "./hyperlaneNetwork.ts";
@@ -93,13 +94,15 @@ export const HyperlaneNetwork: React.FC<{
   weight?: number;
   bed?: string;
   hot?: string | null;
-}> = ({ tiles, model, weight = 1, bed, hot = null }) => {
+  /** Lights exactly these routes instead of those through `hot`. */
+  hotConnections?: readonly HyperlaneConnection[];
+}> = ({ tiles, model, weight = 1, bed, hot = null, hotConnections }) => {
   const lanes = tiles
     .map((t) => ({ t, key: tileKey(t.q, t.r), tile: parseHyperlaneId(t.systemId) }))
     .filter((x): x is { t: NetworkTile; key: string; tile: NonNullable<typeof x.tile> } => x.tile !== null);
   if (lanes.length === 0) return null;
   const at = (key: string) => lanes.find((l) => l.key === key);
-  const hotSegs = new Set(connectionsAt(model, hot).flatMap((c) => c.segments));
+  const hotSegs = new Set((hotConnections ?? connectionsAt(model, hot)).flatMap((c) => c.segments));
   const paths = (stroke: string, width: number, pick?: (seg: string) => boolean, extra?: object) =>
     lanes.map(({ t, key, tile }) => (
       <g key={key} transform={`translate(${t.cx} ${t.cy})`}>
@@ -215,6 +218,63 @@ export const HyperlaneNetwork: React.FC<{
           >
             <rect x={-r * 0.7} y={-r * 0.7} width={r * 1.4} height={r * 1.4} fill={INK} />
             <rect x={-r * 0.35} y={-r * 0.35} width={r * 0.7} height={r * 0.7} fill={BED} />
+          </g>
+        );
+      })}
+    </g>
+  );
+};
+
+/** Id of a linked pair, as in `data-pair`. */
+export const connectionId = (c: HyperlaneConnection) => `${c.fromKey}|${c.toKey}`;
+
+/**
+ * One thin arc between the two systems of every linked pair, so each pair is individually
+ * visible even where routes share lanes. Arcs bow to the left of from-to (canonical order), so
+ * the two directions of a crowded corridor never lie on each other. `only` draws just those pairs
+ * (the game board shows the arcs of the hovered or selected system); `hot` thickens some.
+ */
+export const HyperlaneLinks: React.FC<{
+  tiles: readonly NetworkTile[];
+  model: HyperlaneNetworkModel;
+  weight?: number;
+  bed?: string;
+  only?: readonly HyperlaneConnection[];
+  hot?: readonly HyperlaneConnection[];
+}> = ({ tiles, model, weight = 1, bed = "#0b1220", only, hot = [] }) => {
+  const centre = new Map(tiles.map((t) => [tileKey(t.q, t.r), t]));
+  const hotIds = new Set(hot.map(connectionId));
+  const dim = hotIds.size > 0;
+  const list = only ?? model.connections;
+  if (list.length === 0) return null;
+  return (
+    <g data-testid="hyperlane-links" pointerEvents="none" aria-hidden="true" fill="none" strokeLinecap="round">
+      {list.map((c) => {
+        const a = centre.get(c.fromKey);
+        const b = centre.get(c.toKey);
+        if (!a || !b) return null;
+        const dx = b.cx - a.cx;
+        const dy = b.cy - a.cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len;
+        const uy = dy / len;
+        const trim = Math.min(30, len / 3);
+        const x1 = a.cx + ux * trim;
+        const y1 = a.cy + uy * trim;
+        const x2 = b.cx - ux * trim;
+        const y2 = b.cy - uy * trim;
+        const bow = len * 0.16;
+        const qx = (a.cx + b.cx) / 2 + uy * bow;
+        const qy = (a.cy + b.cy) / 2 - ux * bow;
+        const d = `M${x1.toFixed(1)} ${y1.toFixed(1)}Q${qx.toFixed(1)} ${qy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+        const id = connectionId(c);
+        const isHot = hotIds.has(id);
+        return (
+          <g key={id} data-testid="hyperlane-link" data-pair={id} data-hot={isHot || undefined} opacity={dim && !isHot ? 0.12 : isHot ? 1 : 0.55}>
+            <path d={d} stroke={bed} strokeWidth={(isHot ? 6 : 2.8) * weight} opacity={0.6} />
+            <path d={d} stroke={LINK} strokeWidth={(isHot ? 3 : 1.2) * weight} />
+            <circle cx={x1} cy={y1} r={(isHot ? 4 : 2.6) * weight} fill={LINK} />
+            <circle cx={x2} cy={y2} r={(isHot ? 4 : 2.6) * weight} fill={LINK} />
           </g>
         );
       })}

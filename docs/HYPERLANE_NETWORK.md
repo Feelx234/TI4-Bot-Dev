@@ -19,3 +19,14 @@ Code: `web/src/components/hyperlane/` (`hyperlaneNetwork.ts` analysis, `Hyperlan
   of hyperlane tile ids and places plus which other places hold a system). A test fails when the
   table is stale; refresh with `cd web && npm run hyperlane:table`. Random or custom maps are
   computed on first draw and cached; nothing is stored in game state or save formats.
+
+## Every pair visible
+
+Routes share lane segments, so the lanes alone cannot show each pair. The preview therefore also
+draws one thin arc per linked pair between the two systems (`HyperlaneLinks`) and lists all pairs
+under the board (hover, focus or tap a pair to light its route and arc). The game board draws the
+arcs of the hovered or selected system. Test `hyperlanePairs.test.tsx` renders the preview of
+every community layout with hyperlanes and checks arcs and list entries against a second oracle
+(physical-edge union-find): expected = drawn = listed on all 14 layouts.
+Assumption not verifiable offline: lanes that share a port continue into each other (a ship may
+turn at a junction); lane tables come from the earlier DY work, the engine has none.
