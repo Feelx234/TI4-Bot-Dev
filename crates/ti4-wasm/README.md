@@ -831,7 +831,7 @@ One `state_update` per question of the person (and one at the end), not per engi
 separate `pending_choice` message; undo is the engine checkpoint (32 deep), and its track has the
 local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
-redo and bluff holds do not exist; the page is one connection, so the staged work of a seat is
+redo (`ti4_host::history`, offered only by the server) and bluff holds do not exist; the page is one connection, so the staged work of a seat is
 told to it only while it is shown as that seat.
 
 ### Tests

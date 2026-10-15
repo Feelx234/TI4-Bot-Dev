@@ -10,6 +10,7 @@
 
 pub mod batch;
 pub mod clock;
+pub mod history;
 pub mod journal;
 pub mod map;
 pub mod maps;

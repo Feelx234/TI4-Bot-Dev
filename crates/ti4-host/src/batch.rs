@@ -556,6 +556,22 @@ impl BatchFailure {
     }
 }
 
+/// A batch applied to the history: its request, its seat and the decisions it answered
+/// (`start_cursor..end_cursor`). Saved with the history and in the timeline a turn redo keeps
+/// (`history::turn_redo::AlternateTimeline`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BatchRecord {
+    pub request_id: String,
+    pub batch_id: String,
+    pub actor: PlayerId,
+    pub start_cursor: usize,
+    pub end_cursor: usize,
+    /// Set when the batch stopped at a reaction window; answers a repeated request the same way.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<BatchInterruption>,
+}
+
 /// A batch that stopped early because the engine opened a reaction window the plan did not
 /// plan for. The steps before it are applied and recorded; the window stays pending for its
 /// seat, and `remaining_steps` is what the client may offer to re-send once it has resolved.

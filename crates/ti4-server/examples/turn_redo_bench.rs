@@ -89,7 +89,7 @@ fn truncate(store: &FileGameStore, game_id: &str, len: usize) {
     history.decisions.truncate(len);
     history.redo.clear();
     history.redo_events.clear();
-    let split = ti4_server::session::turn_redo::events_through(&history.events, 0, len);
+    let split = ti4_host::history::turn_redo::events_through(&history.events, 0, len);
     history.events.truncate(split);
     history.batches.retain(|b| b.end_cursor <= len);
     history.rng_marks.truncate_to(len);

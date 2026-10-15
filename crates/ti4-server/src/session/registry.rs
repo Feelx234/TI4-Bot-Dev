@@ -13,10 +13,9 @@ use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 
 use crate::session::{GameSession, SeatController, SessionConfig};
 use crate::storage::{
-    BatchRecord, GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat,
-    StorageError,
+    GameHistory, GameInitRecord, LobbyRecord, PersistedLobbyPhase, PersistedLobbySeat, StorageError,
 };
-use ti4_host::batch::{BatchFailure, BatchRequest, simulate};
+use ti4_host::batch::{BatchFailure, BatchRecord, BatchRequest, simulate};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
@@ -955,7 +954,7 @@ pub struct GameRegistry {
     active_bots: Mutex<BTreeMap<String, Vec<BotChild>>>,
     /// Redos in flight, by game: the saved original timeline and where the redo stands.
     /// Mirrors `turn_redo.json`; loaded from the store on first use after a restart.
-    turn_redos: Mutex<BTreeMap<String, crate::session::turn_redo::TurnRedoRecord>>,
+    turn_redos: Mutex<BTreeMap<String, ti4_host::history::turn_redo::TurnRedoRecord>>,
     /// Games ended by their host since this process started; open sockets use it to say why they close.
     terminated: Mutex<BTreeSet<String>>,
     /// Public-playtest hardening; inert by default.
@@ -1656,7 +1655,7 @@ impl GameRegistry {
                 .clone();
             (session.decision_log(), session.restart_config())
         };
-        crate::session::splice::splice_preview(
+        ti4_host::history::splice::splice_preview(
             &config.state,
             config.galaxy.as_ref(),
             &decisions,

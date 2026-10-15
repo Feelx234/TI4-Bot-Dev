@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use ti4_content::ContentStore;
+use ti4_host::history::splice::SpliceBaseline;
 use ti4_host::protocol::splice::{RngStatus, SpliceEdit};
-use ti4_server::session::splice::SpliceBaseline;
 use ti4_server::storage::FileGameStore;
 
 #[derive(Default)]

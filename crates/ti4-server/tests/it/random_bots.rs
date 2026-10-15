@@ -503,7 +503,7 @@ fn undo_while_a_bot_is_thinking_never_loses_a_bot_decision_or_errors_mid_rewind(
 fn the_host_can_redo_a_bot_seats_turn_and_the_bot_plays_the_new_turn_itself() {
     let t = host_table("rb_turn_redo", 5);
     let bot_turns_done = |log: &[DecisionRecord]| {
-        ti4_server::session::turn_redo::find_turns(log)
+        ti4_host::history::turn_redo::find_turns(log)
             .iter()
             .filter(|s| s.seat.as_str() == "p2" && s.complete)
             .count()

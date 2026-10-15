@@ -135,7 +135,7 @@ pub struct SessionShared {
     /// How many of the game's rolls the worker has already shown (see `record_rolls`).
     pub rolls_seen: usize,
     pub history_generation: u64,
-    pub batches: Vec<crate::storage::BatchRecord>,
+    pub batches: Vec<ti4_host::batch::BatchRecord>,
     /// Forced random positions of a timeline made by a turn redo, by decision index.
     pub rng_marks: ti4_host::rng_force::RngMarks,
     /// Decisions auto-resolved since the last state update, with the seat they belong to.

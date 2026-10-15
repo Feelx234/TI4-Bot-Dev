@@ -19,6 +19,7 @@ use ti4_host::protocol::server::GameEvent;
 use ti4_host::protocol::view::BoardTileView;
 
 use crate::session::{GameSession, SeatController, SessionConfig};
+use ti4_host::batch::BatchRecord;
 use ti4_host::replay::{replay_session, replay_session_forced};
 
 /// Errors encountered during game persistence or recovery.
@@ -415,19 +416,6 @@ pub struct GameHistory {
         skip_serializing_if = "ti4_host::rng_force::RngMarks::is_empty"
     )]
     pub rng_marks: ti4_host::rng_force::RngMarks,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BatchRecord {
-    pub request_id: String,
-    pub batch_id: String,
-    pub actor: PlayerId,
-    pub start_cursor: usize,
-    pub end_cursor: usize,
-    /// Set when the batch stopped at a reaction window; answers a repeated request the same way.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupted: Option<ti4_host::batch::BatchInterruption>,
 }
 
 /// Per-seat "never offer" choices, saved beside the decision log in `reaction_modes.json`.
@@ -864,7 +852,7 @@ impl FileGameStore {
     pub fn save_turn_redo(
         &self,
         game_id: &str,
-        record: &crate::session::turn_redo::TurnRedoRecord,
+        record: &ti4_host::history::turn_redo::TurnRedoRecord,
     ) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
@@ -878,7 +866,7 @@ impl FileGameStore {
     pub fn load_turn_redo(
         &self,
         game_id: &str,
-    ) -> Result<Option<crate::session::turn_redo::TurnRedoRecord>, StorageError> {
+    ) -> Result<Option<ti4_host::history::turn_redo::TurnRedoRecord>, StorageError> {
         let path = self.game_dir(game_id)?.join("turn_redo.json");
         if !path.exists() {
             return Ok(None);

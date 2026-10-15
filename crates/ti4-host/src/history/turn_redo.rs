@@ -2,7 +2,7 @@
 //!
 //! The game seed is fixed. A request rewinds the live history to the start of the seat's turn;
 //! the seat plays a new turn live; [`autoplay`] then replays the decisions that followed the old
-//! turn, with the strict matcher of [`crate::session::splice`]: the other seats' recorded
+//! turn, with the strict matcher of [`crate::history::splice`]: the other seats' recorded
 //! decisions *and* the redoing seat's own recorded decisions that are not a turn start (reaction
 //! windows, secondaries of other seats' strategy cards, agenda votes, picks...). It keeps each
 //! only while it still fits and stops
@@ -46,13 +46,13 @@ use ti4_model::deck_reserve::{DeckSegment, OPEN, ReservedDraw};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
-use ti4_host::protocol::server::{GameEvent, GameEventKind};
-use ti4_host::protocol::splice::ConflictKind;
-use ti4_host::protocol::turn_redo::{TurnRedoConflict, TurnRedoStage, TurnRedoStop};
+use crate::protocol::server::{GameEvent, GameEventKind};
+use crate::protocol::splice::ConflictKind;
+use crate::protocol::turn_redo::{TurnRedoConflict, TurnRedoStage, TurnRedoStop};
 
-use crate::session::splice::{RawConflict, StrictDecider};
-use crate::storage::BatchRecord;
-use ti4_host::rng_force::{RngForce, RngMarks};
+use crate::batch::BatchRecord;
+use crate::history::splice::{RawConflict, StrictDecider};
+use crate::rng_force::{RngForce, RngMarks};
 
 /// How many of a seat's turns one request may rewind.
 pub const MAX_TURNS_BACK: u8 = 2;
@@ -763,7 +763,7 @@ pub fn reserved_card_detail(deck: &str, card: Option<&str>, recipient: &str) -> 
 /// secret objective) is named only to the seat it was reserved for; everyone else is told that
 /// some card of that deck is missing.
 pub fn redact_for_viewer(
-    outcome: &mut ti4_host::protocol::turn_redo::TurnRedoOutcome,
+    outcome: &mut crate::protocol::turn_redo::TurnRedoOutcome,
     viewer: &PlayerId,
 ) {
     let TurnRedoStop::Conflict { conflict } = &mut outcome.stop else {
@@ -897,7 +897,7 @@ pub struct TurnRedoRecord {
     pub handoff_len: Option<usize>,
     /// Where the latest request's recorded tail comes from.
     pub source: TailSource,
-    pub outcome: Option<ti4_host::protocol::turn_redo::TurnRedoOutcome>,
+    pub outcome: Option<crate::protocol::turn_redo::TurnRedoOutcome>,
     /// The timeline before the first redo of the chain.
     pub alternate: AlternateTimeline,
 }

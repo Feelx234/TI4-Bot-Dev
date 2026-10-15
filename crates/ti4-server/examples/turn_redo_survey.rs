@@ -26,14 +26,14 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, Table};
 use ti4_engine::game::Game;
+use ti4_host::history::turn_redo::{
+    AutoplayResult, RedoWindow, TailBaseline, TailSource, autoplay, find_turns, next_turn_start,
+    open_segment,
+};
 use ti4_host::protocol::turn_redo::TurnRedoStop;
 use ti4_host::rng_force::{RngForce, RngMarks};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::session::turn_redo::{
-    AutoplayResult, RedoWindow, TailBaseline, TailSource, autoplay, find_turns, next_turn_start,
-    open_segment,
-};
 use ti4_server::storage::FileGameStore;
 
 struct Lcg(u64);

@@ -31,7 +31,7 @@ use super::{
     Arc, GameHistory, GameRegistry, GameSession, HistoryError, InitialSnapshotMsg, RegistryState,
     SessionConfig,
 };
-use crate::session::turn_redo::{
+use ti4_host::history::turn_redo::{
     AlternateTimeline, TurnRedoError, TurnRedoRecord, autoplay, events_through, find_turns,
     open_segment, prepare_tail, redact_for_viewer, redo_window,
 };
@@ -55,7 +55,7 @@ struct Snapshot {
     events: Vec<ti4_host::protocol::server::GameEvent>,
     redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     event_counter: u64,
-    batches: Vec<crate::storage::BatchRecord>,
+    batches: Vec<ti4_host::batch::BatchRecord>,
     marks: ti4_host::rng_force::RngMarks,
     generation: u64,
 }

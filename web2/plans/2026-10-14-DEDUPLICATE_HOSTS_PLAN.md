@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), item 7 done (2026-10-15), items 8–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–8 done (2026-10-15), items 9–11 open.
 
 ## Context
 
@@ -269,8 +269,9 @@ Starts after Step 5 is committed.
      (`serverSends`, `holding` in `useLiveSession.ts`) are gone. `wasmTransport.ts` gives
      `Transport.staged` through `seatSync` (`put_staged` while the game is parked, then the save);
      `seatSync` takes the message after a snapshot as the seat's slots whatever their revision.
-8. **History rewrite.** `git mv` `session/splice.rs`, `session/turn_redo.rs` →
-   `ti4-host/src/history/`, and `BatchRecord` → `ti4_host::batch`. `registry/turn_redo_ops.rs`
+8. **History rewrite.** (Done.) `ti4_host::history::{splice, turn_redo}` (moved with `git mv`
+   from `session/`) and `ti4_host::batch::BatchRecord` (from `storage.rs`). The server's
+   registry, storage, examples and tests import them from the host. `registry/turn_redo_ops.rs`
    stays (gates, publish, storage).
 9. **Secondary preview.** `ti4_host::preview::{eligibility, answer}`. The server's `preview.rs` keeps
    the lock and the busy check. `HostSession` answers `preview_secondary`.

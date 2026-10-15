@@ -8,11 +8,9 @@ pub mod reach;
 pub(crate) mod ready_secondary;
 pub mod registry;
 pub(crate) mod script;
-pub mod splice;
 pub mod staged;
 pub mod table;
 pub mod transport;
-pub mod turn_redo;
 pub(crate) mod undo;
 pub mod worker;
 
@@ -138,7 +136,7 @@ pub struct SessionConfig {
     pub redo_events: Vec<ti4_host::protocol::server::GameEvent>,
     pub event_counter: u64,
     pub history_generation: u64,
-    pub batches: Vec<crate::storage::BatchRecord>,
+    pub batches: Vec<ti4_host::batch::BatchRecord>,
     /// Stream positions forced while replaying `prior_decisions` and `redo_decisions`
     /// (set only on a timeline made by a turn redo).
     pub rng_marks: RngMarks,
@@ -1209,7 +1207,7 @@ impl GameSession {
         (lock.redo_events.clone(), lock.event_counter)
     }
 
-    pub fn batches(&self) -> Vec<crate::storage::BatchRecord> {
+    pub fn batches(&self) -> Vec<ti4_host::batch::BatchRecord> {
         self.shared.lock().expect("shared lock").batches.clone()
     }
 

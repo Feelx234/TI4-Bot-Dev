@@ -18,7 +18,7 @@ use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalC
 use ti4_engine::game::Game;
 use ti4_model::state::GameState;
 
-use ti4_host::protocol::splice::{
+use crate::protocol::splice::{
     AlignmentChange, AlignmentNote, ConflictKind, RngCounters, RngIndicator, RngStatus,
     SpliceConflict, SpliceEdit, SplicePreview,
 };
