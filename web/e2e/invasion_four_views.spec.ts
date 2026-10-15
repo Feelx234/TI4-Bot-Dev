@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Locator } from "@playwright/test";
 import { openPlayerGame } from "./lobbyHelpers";
 import type { InitialSnapshotMsg } from "../src/protocol/types";
 
@@ -15,6 +15,16 @@ async function snapshot(
   );
   expect(response.ok(), await response.text()).toBe(true);
   return response.json();
+}
+
+/** The tray opens with the default plan staged; empty it so the test stages its own landings. */
+async function clearLandingDraft(tray: Locator) {
+  const confirm = tray.getByRole("button", { name: "Confirm landings" });
+  // The default plan arrives once the board is known; clear it only after it is staged.
+  await expect(confirm).toBeEnabled();
+  const remove = tray.locator('button[aria-label^="Remove "]:enabled');
+  while ((await remove.count()) > 0) await remove.first().click();
+  await expect(confirm).toBeDisabled();
 }
 
 test("invasion lands, fights and hands off consistently in four independent views", async ({
@@ -96,6 +106,7 @@ test("invasion lands, fights and hands off consistently in four independent view
     expect(choice?.context?.subtype).toBe("commit_ground_forces");
     const tray = pages[0].getByTestId("invasion-landing-tray");
     await expect(tray).toBeVisible();
+    await clearLandingDraft(tray);
     await tray.getByRole("button", { name: planet, exact: true }).click();
     const infantry = tray.getByRole("button", { name: /land infantry.*in space/i }).first();
     await infantry.click();
@@ -138,12 +149,15 @@ test("invasion lands, fights and hands off consistently in four independent view
         for (const page of pages) await expect(page.getByTestId("invasion-step")).toBeVisible();
       }
       const page = pages[ids.indexOf(active)];
+      // Decline what can be declined (a defender's mech deployment would ask for a payment).
+      const answer =
+        offered.options.find((option) => option.kind === "decline") ?? offered.options[0];
       const button =
         offered.context?.subtype === "fight_ground_combat_round"
           ? page.getByRole("button", { name: "Fight next round" }).first()
           : page
               .getByTestId("invasion-overlay")
-              .getByRole("button", { name: offered.options[0].label })
+              .getByRole("button", { name: answer.label })
               .first();
       await button.click();
       await expect
@@ -211,6 +225,7 @@ test("Parley interrupts a non-atomic landing pipeline and preserves the remainin
     const state = await snapshot(request, game, seats[invader]);
     const planet = state.view.board.invasion!.planets[0];
     const tray = invaderPage.getByTestId("invasion-landing-tray");
+    await clearLandingDraft(tray);
     await tray.getByRole("button", { name: planet, exact: true }).click();
     const infantry = tray.getByRole("button", { name: /land infantry.*in space/i }).first();
     await infantry.click();
@@ -306,6 +321,7 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
         (unit) => unit.owner === invader && !unit.planet && unit.unit_type === "infantry",
       ).length,
     ).toBe(6);
+    await clearLandingDraft(tray);
     for (const planet of planets) {
       await tray.getByRole("button", { name: planet, exact: true }).click();
       const planetCard = tray.locator(".invasion-planet-landing-card").filter({

@@ -34,6 +34,8 @@ export async function createStartedGame(
   startPreset?: string,
   cardSet?: string,
   mapTemplate?: string,
+  /** Factions the host sets per seat (in join order) before the start; left out: drawn. */
+  factions?: (string | undefined)[],
 ) {
   const created = await request.post(`${backend}/api/games`, {
     // The server draws the opening speaker from the seed by default; these specs drive the host
@@ -76,6 +78,14 @@ export async function createStartedGame(
     expect(joined.ok()).toBeTruthy();
     const result = await joined.json();
     players.push({ id: result.player.id, session: result.player_session });
+  }
+  for (const [seat, faction] of (factions ?? []).entries()) {
+    if (!faction) continue;
+    const set = await request.post(`${backend}/api/games/${gameId}/lobby/seat-faction`, {
+      data: { player_id: players[seat].id, faction },
+      headers: { "x-ti4-player-session": players[0].session },
+    });
+    expect(set.ok(), `seat ${seat} as ${faction}: ${set.status()} ${await set.text()}`).toBeTruthy();
   }
   const started = await request.post(`${backend}/api/games/${gameId}/lobby/start`, {
     headers: { "x-ti4-player-session": players[0].session },
