@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::ViewerRole;
-use ti4_server::dev::{available_scenarios, launch_scenario};
+use ti4_server::dev::{LaunchScenarioResponse, available_scenarios, launch_scenario};
 use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{GameRegistry, MockClient};
 
@@ -606,10 +606,11 @@ fn test_launch_ongoing_combat_scenario_starts_in_combat() {
     );
 }
 
-#[test]
-fn ongoing_combat_can_undo_twice() {
-    let registry = Arc::new(GameRegistry::new());
-    let launched = launch_scenario(&registry, "ongoing_combat", Some(42)).unwrap();
+/// Launches "ongoing_combat" and plays Sol (stay, decline) until Letnev sustains damage, then
+/// plays Direct Hit. The rule bots are seeded by their seat ids, which a launch draws at random,
+/// so Letnev does not sustain damage in every game: `None` when the combat ends without it.
+fn play_to_direct_hit(registry: &Arc<GameRegistry>) -> Option<LaunchScenarioResponse> {
+    let launched = launch_scenario(registry, "ongoing_combat", Some(42)).unwrap();
     let seat = ti4_model::id::PlayerId::new(&launched.player_id);
     let session = registry.get_game(&launched.game_id).unwrap();
     let first = session.get_snapshot(&ViewerRole::Player(seat.clone()));
@@ -624,7 +625,6 @@ fn ongoing_combat_can_undo_twice() {
         .submit_choice(&seat, &retreat.nonce, first.game_version, &stay.id)
         .unwrap();
 
-    // Sol stays and declines until Letnev sustains damage, then plays Direct Hit.
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     let mut answered = retreat.nonce.clone();
     loop {
@@ -642,7 +642,10 @@ fn ongoing_combat_can_undo_twice() {
                     .submit_choice(&seat, &asked.nonce, snapshot.game_version, &play.id)
                     .unwrap();
                 assert_eq!(accepted.option_id, play.id);
-                break;
+                return Some(launched);
+            }
+            if snapshot.view.board.combat.is_none() {
+                return None;
             }
             let option = asked
                 .choice
@@ -659,10 +662,20 @@ fn ongoing_combat_can_undo_twice() {
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "waiting for Direct Hit reaction"
+            "waiting for Direct Hit reaction: {:?}",
+            session.error()
         );
         thread::sleep(Duration::from_millis(5));
     }
+}
+
+#[test]
+fn ongoing_combat_can_undo_twice() {
+    let registry = Arc::new(GameRegistry::new());
+    let launched = (0..10)
+        .find_map(|_| play_to_direct_hit(&registry))
+        .expect("Letnev sustains damage in one of ten games");
+    let seat = ti4_model::id::PlayerId::new(&launched.player_id);
 
     for attempt in 0..2 {
         let session = registry.get_game(&launched.game_id).unwrap();
