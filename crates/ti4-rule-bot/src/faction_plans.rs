@@ -19,6 +19,7 @@
 //!
 //! Own-seat view only (the seat's faction, technologies and units, all public), deterministic.
 
+use crate::tuning;
 use std::collections::BTreeMap;
 
 use ti4_content::units::UnitType;
@@ -699,11 +700,11 @@ pub fn unit_weight(seen: &Observed<'_>, me: &PlayerId, kind: UnitType<'_>) -> f6
         };
         weight *= w;
         if wanted > 0 && count_of(seen, me, base) < wanted {
-            weight *= SHORT_BONUS;
+            weight *= tuning::short_bonus();
         }
     }
     if kind.upgrades_from().is_some() {
-        weight *= UPGRADED_BONUS;
+        weight *= tuning::upgraded_bonus();
     }
     weight
 }

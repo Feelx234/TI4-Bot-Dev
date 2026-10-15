@@ -87,6 +87,7 @@ pub mod agents;
 
 pub mod faction_plans;
 pub mod random;
+pub mod tuning;
 
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.
@@ -137,13 +138,26 @@ pub fn choose(
     seat: &PlayerId,
     index: usize,
 ) -> (usize, ChaCha8Rng) {
+    let (picked, _, rng) = choose_explained(choice, seen, game_seed, seat, index);
+    (picked, rng)
+}
+
+/// As [`choose`], also saying whether the rule bot's own opinion decided (`true`) or the random
+/// pick stood (`false`: no opinion, or none without `seen`). Same pick, same stream.
+#[must_use]
+pub fn choose_explained(
+    choice: &Choice,
+    seen: Option<&SeatObservation<'_>>,
+    game_seed: u64,
+    seat: &PlayerId,
+    index: usize,
+) -> (usize, bool, ChaCha8Rng) {
     let mut rng = random::decision_rng(game_seed, seat, index);
     let random_pick = random::pick_index(choice, &mut rng);
-    let picked = seen
+    let smart = seen
         .and_then(|seen| pick(choice, seen, &mut rng))
-        .filter(|&smart| smart < choice.options.len())
-        .unwrap_or(random_pick);
-    (picked, rng)
+        .filter(|&smart| smart < choice.options.len());
+    (smart.unwrap_or(random_pick), smart.is_some(), rng)
 }
 
 /// The smart answer to `choice`, or `None` to keep the random pick.
@@ -393,7 +407,7 @@ fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
     )]
     let mut worth = (record.resources() + record.influence()) as f64 + 0.5;
     if planet == MECATOL && !seen.custodians_removed() {
-        worth += MECATOL_BONUS;
+        worth += tuning::mecatol_bonus();
     }
     worth
 }
@@ -445,7 +459,7 @@ fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
     if seen.system(&mr).planet_control.get(&planet) == Some(me) {
         return false;
     }
-    activation_value(seen, me, &mr) >= MECATOL_BONUS
+    activation_value(seen, me, &mr) >= tuning::mecatol_bonus()
 }
 
 /// Whether the seat holds Mecatol Rex (Imperial's point).
@@ -575,7 +589,7 @@ fn wants_to_build(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool
 /// [`MIN_IDLE_GROUND`]), so more would only sit there.
 fn enough_ground(seen: &Observed<'_>, me: &PlayerId) -> bool {
     let (idle, lift) = idle_ground_and_lift(seen, me);
-    idle >= usize::try_from(lift.max(MIN_IDLE_GROUND)).unwrap_or(0)
+    idle >= usize::try_from(lift.max(tuning::min_idle_ground())).unwrap_or(0)
 }
 
 fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
@@ -614,7 +628,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     let contested = has_hostile_ships(seen, me, system);
     let mut value = 0.0;
     if contested {
-        if movable.is_empty() || matchup(&own, &enemy) < WIN_MARGIN {
+        if movable.is_empty() || matchup(&own, &enemy) < tuning::win_margin() {
             return -10.0;
         }
         value += 1.0 + 0.5 * enemy.cost;
@@ -661,7 +675,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
             && home_builder_ahead(seen, me)
             && home_system(seen, me).as_ref() == Some(system);
         let build = !waiting_build
-            && spare_resources(seen, me) >= PLENTY_RESOURCES
+            && spare_resources(seen, me) >= tuning::plenty_resources()
             && wants_to_build(seen, me, system);
         let ferry = needs_transport(seen, me, system)
             && movable.iter().any(|m| {
@@ -682,7 +696,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
 
 /// Whether this is one of the opening rounds, when planets come first.
 fn expanding(seen: &Observed<'_>) -> bool {
-    seen.round() <= EXPANSION_ROUNDS
+    seen.round() <= tuning::expansion_rounds()
 }
 
 /// The seat's home system: where its home planets are.
@@ -1412,7 +1426,7 @@ fn pick_activation(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
         .filter(|(_, o)| o.kind == "activate")
         .map(|(i, o)| (i, activation_value(seen, me, &SystemId::new(&o.id))))
         .collect();
-    best_above(&scored, ACTIVATION_THRESHOLD)
+    best_above(&scored, tuning::activation_threshold())
 }
 
 /// Highest score at or above `threshold`, first on a tie.
@@ -1492,7 +1506,8 @@ fn pick_action(
         short_of_transports(seen, me) && !out_of_tokens && !ground_produces(seen, me);
     if expanding(seen)
         && !warfare_builds
-        && (worth >= EAGER_WORTH || (out_of_tokens && worth >= ACTIVATION_THRESHOLD))
+        && (worth >= tuning::eager_worth()
+            || (out_of_tokens && worth >= tuning::activation_threshold()))
         && let Some(index) = play("Warfare")
     {
         return Some(index);
@@ -1500,7 +1515,7 @@ fn pick_action(
     if out_of_tokens {
         return None;
     }
-    if worth < ACTIVATION_THRESHOLD {
+    if worth < tuning::activation_threshold() {
         // Nothing worth a command token: play the card or pass rather than waste one. But not
         // pass while Warfare's secondary would still build the transport its tokens could send:
         // a token on an empty system keeps the seat in the round.
@@ -1509,7 +1524,7 @@ fn pick_action(
     // A planet worth having is there for the taking: always go (the card waits for a quieter
     // turn). Otherwise now and then play the card first.
     match strategic {
-        Some(index) if worth < EAGER_WORTH && rng.random_bool(0.25) => Some(index),
+        Some(index) if worth < tuning::eager_worth() && rng.random_bool(0.25) => Some(index),
         _ => Some(tactical),
     }
 }
@@ -1567,7 +1582,7 @@ fn pick_free_tactical(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
             (i, value)
         })
         .collect();
-    best_above(&scored, ACTIVATION_THRESHOLD)
+    best_above(&scored, tuning::activation_threshold())
 }
 
 /// Construction's primary: a production at home when the opening plan wants a new transport there,
@@ -1685,7 +1700,7 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     if has_hostile_ships(seen, me, &active) {
         let enemy = hostile_space(seen, me, &active);
         let now = fleet(seen, me, present.iter().copied());
-        if matchup(&now, &enemy) >= WIN_MARGIN + 0.3 {
+        if matchup(&now, &enemy) >= tuning::win_margin() + 0.3 {
             // Already winning: only a carrier for the invasion is still useful.
             return carrier_for_ground(&moves, seen, me, &active).or(Some(done));
         }
@@ -1697,7 +1712,7 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
                 .copied()
                 .chain(seen.movable_into(me, &active).iter().map(|m| &m.unit)),
         );
-        if matchup(&everything, &enemy) < WIN_MARGIN {
+        if matchup(&everything, &enemy) < tuning::win_margin() {
             return Some(done); // a losing fight: stay out
         }
         // Strongest warship first.
@@ -2031,7 +2046,7 @@ fn pick_retreat(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
             .filter(|u| &u.owner == me && is_ship(seen, u)),
     );
     let enemy = hostile_space(seen, me, &system);
-    Some(if matchup(&own, &enemy) < RETREAT_MARGIN {
+    Some(if matchup(&own, &enemy) < tuning::retreat_margin() {
         retreat
     } else {
         stay
@@ -2143,7 +2158,7 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
     // Ground forces that only fill the production limit, cheapest first.
     let mut filler: Vec<(usize, f64)> = Vec::new();
     let (idle, lift) = idle_ground_and_lift(seen, me);
-    let ground_glut = idle >= usize::try_from(2 * lift.max(MIN_IDLE_GROUND)).unwrap_or(0);
+    let ground_glut = idle >= usize::try_from(2 * lift.max(tuning::min_idle_ground())).unwrap_or(0);
     // The opening: transports and troops free to move this round (outside activated systems).
     // Troops first while there are fewer than two per transport, then another transport while
     // there are fewer than three.
@@ -2210,7 +2225,8 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         // The faction's plan from round 3 on (1.0 in the opening).
         worth *= faction_plans::unit_weight(seen, me, kind);
         // With resources to spare, production slots are what runs out: value per slot.
-        let rich = payload_f64(option, "available_resources").unwrap_or(0.0) >= RICH_RESOURCES;
+        let rich =
+            payload_f64(option, "available_resources").unwrap_or(0.0) >= tuning::rich_resources();
         let price = if rich {
             payload_f64(option, "production_spent")
                 .unwrap_or(count)
@@ -2429,7 +2445,7 @@ fn opening_pools(seen: &Observed<'_>, me: &PlayerId) -> Option<(i32, i32)> {
             };
             Some((fleet_lean(seen, me), strategy))
         }
-        ti4_model::state::Phase::Status if seen.round() < EXPANSION_ROUNDS => {
+        ti4_model::state::Phase::Status if seen.round() < tuning::expansion_rounds() => {
             let stack = i32::try_from(biggest_stack(seen, me)).unwrap_or(i32::MAX);
             Some((stack.max(2), 1))
         }
@@ -2456,7 +2472,7 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
         })
         .max()
         .unwrap_or(0);
-    FLEET_TOKENS_WANTED.max(i32::try_from(stack).unwrap_or(i32::MAX))
+    tuning::fleet_tokens_wanted().max(i32::try_from(stack).unwrap_or(i32::MAX))
 }
 
 /// Redistribution ("tactic|fleet|strategy"): the fleet pool at [`fleet_wanted`], the rest split
@@ -2577,7 +2593,9 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
                 && secondary_to_come(seen, me, "Warfare")
                 && seen.seat(me).is_some_and(|seat| seat.strategic_tokens > 0));
         return answer(
-            pools < ENOUGH_TOKENS && !saving && (!mecatol_in_reach(seen, me) || spare >= 6),
+            pools < tuning::enough_tokens()
+                && !saving
+                && (!mecatol_in_reach(seen, me) || spare >= 6),
         );
     }
     None
@@ -2654,7 +2672,7 @@ fn pick_answer(choice: &Choice) -> Option<usize> {
     let refuse = choice.options.iter().position(ChoiceOption::is_decline);
     let net = accept.and_then(|i| payload_f64(&choice.options[i], "net"));
     match (accept, net) {
-        (Some(index), Some(net)) if net >= ACCEPT_NET => Some(index),
+        (Some(index), Some(net)) if net >= tuning::accept_net() => Some(index),
         _ => refuse,
     }
 }
@@ -2669,7 +2687,7 @@ fn pick_proposal(choice: &Choice) -> Option<usize> {
         .filter_map(|(i, o)| {
             let net = payload_f64(o, "net")?;
             let theirs = payload_f64(o, "their_net")?;
-            (net > 0.0 && theirs >= ACCEPT_NET).then_some((i, net))
+            (net > 0.0 && theirs >= tuning::accept_net()).then_some((i, net))
         })
         .collect();
     best_above(&scored, f64::NEG_INFINITY)
