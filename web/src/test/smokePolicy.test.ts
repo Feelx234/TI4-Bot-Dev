@@ -20,6 +20,7 @@ import {
   reactionTextProblem,
   preferTechWindowUse,
   CHAOS_FREE_OFFERS,
+  OVERLAY_CLOSE_IDS,
 } from "../../e2e/smokePolicy.ts";
 
 const c = (desc: string, checked = false) => ({ desc, checked });
@@ -603,5 +604,25 @@ describe("serverProgressed (smoke harness)", () => {
     expect(serverProgressed({ game_version: 5, turn_status: { kind: "active_turn" } }, 5)).toBe(false);
     expect(serverProgressed({ game_version: 6, turn_status: { kind: "active_turn" } }, 5)).toBe(true);
     expect(serverProgressed({ game_version: 5, turn_status: { kind: "game_over" } }, 5)).toBe(true);
+  });
+});
+
+describe("overlays the sweep driver closes (smoke harness)", () => {
+  it("knows the Insider Information preview card, and random play never clicks any of them", () => {
+    expect(OVERLAY_CLOSE_IDS).toContain("agenda-peek-close");
+    for (const id of OVERLAY_CLOSE_IDS) expect(EXCLUDED_CONTROLS.test(`${id} | Close the agenda preview | ×`), id).toBe(true);
+  });
+
+  it("lets the action-card picker panels make progress by their own controls", () => {
+    // Dice: ticking only stages; "Reroll"/"Keep all dice" answers. Stepper: +/- stage, "Spend" answers.
+    const dice = [
+      "reroll-die | Combat Value 8 die 1: shows 3, needs 8 or more, miss, kept | 3 Miss keep",
+      "reroll-confirm | Keep all dice",
+    ].map((d) => classifyControl(d));
+    expect(dice.map((x) => x.commit)).toEqual([false, true]);
+    expect(dice.some((x) => x.unstage)).toBe(false);
+    const stepper = ["stepper-minus | Fewer | −", "stepper-max | All (3)", "stepper-confirm | Spend nothing"].map((d) => classifyControl(d));
+    expect(stepper.map((x) => x.commit)).toEqual([false, false, true]);
+    expect(stepper.some((x) => x.unstage)).toBe(false);
   });
 });

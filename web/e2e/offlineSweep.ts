@@ -11,7 +11,7 @@ import {
   pick,
   visibleErrors,
 } from "./smokePlaythrough";
-import { isReactionSubtype, reactionTextProblem } from "./smokePolicy";
+import { isReactionSubtype, OVERLAY_CLOSE_IDS, reactionTextProblem } from "./smokePolicy";
 import { storedRecord } from "./offlineDriver";
 import { preferTechWindowUse } from "./smokePolicy";
 
@@ -823,7 +823,7 @@ async function unblockCovered(page: Page): Promise<string[]> {
 /** Closes what a player would close to get back to the question: the system inspector, a turn bar menu. Returns what it closed. */
 async function dismissOverlays(page: Page): Promise<string[]> {
   const closed: string[] = [];
-  for (const testId of ["close-inspector-button", "turn-bar-menu-close"]) {
+  for (const testId of OVERLAY_CLOSE_IDS) {
     const button = page.locator(`[data-testid="${testId}"]`).first();
     if ((await button.count().catch(() => 0)) > 0 && (await button.click({ timeout: 1_000 }).then(() => true).catch(() => false))) closed.push(testId);
   }
