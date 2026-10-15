@@ -3,11 +3,12 @@ import type { BoardTileView, MapSeatPreview } from "../protocol/types.ts";
 import { deriveHexGeometry } from "../presentation/boardPresentation.ts";
 import { homeIdSet, mainTiles, tileKind, type TileKind } from "../presentation/mapPicker.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
+import { HyperlaneThumb } from "./hyperlane/HyperlaneArt.tsx";
 
 export const TILE_FILL: Record<TileKind, string> = {
   home: "#38bdf8",
   mecatol: "#fbbf24",
-  hyperlane: "#6d28d9",
+  hyperlane: "#312e81",
   anomaly: "#b45309",
   wormhole: "#0f766e",
   planets: "#475569",
@@ -46,14 +47,24 @@ export const MapThumbnail: React.FC<{
         const kind = tileKind(tile, homes);
         const seat = seatOf.get(tile.system_id);
         return (
-          <polygon
-            key={`${tile.system_id}-${index}`}
-            data-kind={kind}
-            points={geometry.points}
-            fill={TILE_FILL[kind]}
-            stroke={seat ? seatStyle(seat).color : "#0b1220"}
-            strokeWidth={seat ? 14 : 6}
-          />
+          <g key={`${tile.system_id}-${index}`}>
+            <polygon
+              data-kind={kind}
+              points={geometry.points}
+              fill={TILE_FILL[kind]}
+              stroke={seat ? seatStyle(seat).color : "#0b1220"}
+              strokeWidth={seat ? 14 : 6}
+            />
+            {kind === "hyperlane" && (
+              <HyperlaneThumb
+                systemId={tile.system_id}
+                cx={geometry.center.x}
+                cy={geometry.center.y}
+                weight={1.7}
+                bed={TILE_FILL.hyperlane}
+              />
+            )}
+          </g>
         );
       })}
     </svg>
