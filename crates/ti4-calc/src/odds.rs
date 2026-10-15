@@ -103,30 +103,46 @@ pub struct BattleResponse {
     pub defender_fielded: BTreeMap<String, usize>,
 }
 
+/// One side of a ground combat on a planet: its ground forces by unit id, and for the defender
+/// the units that fire as defense guns before the combat (`space_cannon` of a PDS).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GroundOddsSide {
+    /// Faction identifier (e.g. "sol"): its unit upgrades and abilities apply.
     pub faction: String,
+    /// Ground forces as `{"unit_id": count}`.
     pub units: BTreeMap<String, usize>,
+    /// Of `units`, those that start damaged.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub damaged: BTreeMap<String, usize>,
+    /// The defender only: units on the planet that fire as defense guns.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub guns: BTreeMap<String, usize>,
 }
 
+/// The two sides of a ground combat, and the ships of the attacker that bombard.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GroundOddsRequest {
     pub attacker: GroundOddsSide,
     pub defender: GroundOddsSide,
     /// Legal bombarding ships that fire Harrow after rounds (never before landing).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub harrow: BTreeMap<String, usize>,
+    /// Number of rollouts (defaults to 2000, at most 50000).
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub simulations: Option<usize>,
 }
 
+/// Outcome of the rollouts of a ground combat: the share that the attacker wins.
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GroundOddsResponse {
     pub simulations: usize,
     pub attacker_win_rate: f64,

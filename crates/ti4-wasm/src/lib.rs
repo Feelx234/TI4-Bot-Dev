@@ -1407,11 +1407,12 @@ pub extern "C" fn ti4_scenarios() -> i32 {
     ))
 }
 
-/// The two sides of a space combat, as [`ti4_space_odds`] reads them.
+/// The two sides of a space combat, as [`ti4_space_odds`] and `{"query":"space_odds"}` of
+/// [`ti4_host_query`] read them.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-struct SpaceOddsRequest {
+pub(crate) struct SpaceOddsRequest {
     attacker: ti4_calc::odds::SideInput,
     defender: ti4_calc::odds::SideInput,
 }
@@ -1443,6 +1444,14 @@ fn space_odds() -> Result<usize, Failure> {
 fn odds_of(request: &[u8]) -> Result<ti4_calc::odds::BattleResponse, Failure> {
     let request: SpaceOddsRequest = serde_json::from_slice(request)
         .map_err(|error| failed(format_args!("the sides are not read: {error}")))?;
+    space_odds_of(&request).map_err(failed)
+}
+
+/// The odds of a space combat: the default number of rollouts of `ti4_calc`, from
+/// [`ODDS_SEED`].
+pub(crate) fn space_odds_of(
+    request: &SpaceOddsRequest,
+) -> Result<ti4_calc::odds::BattleResponse, ti4_calc::odds::CalcError> {
     ti4_calc::odds::space_odds_of(
         ContentStore::embedded(),
         POK,
@@ -1453,7 +1462,6 @@ fn odds_of(request: &[u8]) -> Result<ti4_calc::odds::BattleResponse, Failure> {
             ..Default::default()
         },
     )
-    .map_err(failed)
 }
 
 /// Ask [`ti4_space_odds`] for the odds of `request` (JSON), for callers on the native side.
@@ -1543,7 +1551,8 @@ pub extern "C" fn ti4_host_set_time(unix_ms: f64, monotonic_ms: f64) {
     host_api::set_time(unix_ms as u64, monotonic_ms as u64);
 }
 
-/// A question of the setup form that needs no game: see `host_api::query`.
+/// A question that needs no game (the setup form, the catalogue, the odds of a combat): see
+/// `host_api::query`. The host may ask while a game waits.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_host_query(len: u32) -> i32 {
     host_api::query(len as usize)

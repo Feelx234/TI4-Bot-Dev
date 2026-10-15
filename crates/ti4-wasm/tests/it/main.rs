@@ -7,6 +7,7 @@ mod feedback_offline;
 mod host_batch;
 mod host_history;
 mod host_local;
+mod host_odds;
 mod host_preview;
 mod host_scenario;
 mod host_script;

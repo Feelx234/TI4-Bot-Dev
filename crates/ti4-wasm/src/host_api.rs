@@ -10,7 +10,7 @@
 //! | `ti4_host_in(len)` | Reserve the input buffer; returns where to write `len` bytes. |
 //! | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output (re-read after every call). |
 //! | `ti4_host_set_time(unix_ms, monotonic_ms)` | Tell the engine the time (events carry it). |
-//! | `ti4_host_query(len)` | Stateless: `describe`, `map_preview`, `catalog`. |
+//! | `ti4_host_query(len)` | Stateless: `describe`, `map_preview`, `catalog`, `space_odds`, `ground_odds`. |
 //! | `ti4_host_start(len)` | Play a game (JSPI `promising`): returns when it ends or is left. |
 //! | `ti4_host_command(len)` | A command while the game waits for the person. |
 //!
@@ -273,13 +273,20 @@ pub fn put_input(text: &str) -> usize {
 
 // --- queries -------------------------------------------------------------------------------
 
-/// Stateless questions of the setup form. The input is `{"query": "...", ...}`:
+/// Stateless questions. The input is `{"query": "...", ...}`:
 ///
 /// - `{"query":"describe"}`: players, card sets, factions, bot kinds, maps per table size,
 ///   presets, scenarios (`host_setup::describe`).
 /// - `{"query":"map_preview","choice":{"kind":"template","alias":"..."}|{"kind":"random"},
 ///   "player_count":4,"variant":0}`: a pictured map (`MapPreview` of the server).
 /// - `{"query":"catalog"}`: the printed cards (as `GET /api/catalog` of the server).
+/// - `{"query":"space_odds", ...SpaceOddsRequest}`: the odds of a space combat, a
+///   `ti4_calc::odds::BattleResponse` (as [`crate::ti4_space_odds`]).
+/// - `{"query":"ground_odds", ...GroundOddsRequest}`: the odds of a ground combat, a
+///   `ti4_calc::odds::GroundOddsResponse` of `ti4_calc::odds::ground_odds`.
+///
+/// Nothing of a game is read or changed: the host may ask while a game waits for the page, and
+/// with no game at all.
 pub fn query(len: usize) -> i32 {
     #[derive(serde::Deserialize)]
     #[serde(tag = "query", rename_all = "snake_case")]
@@ -292,6 +299,8 @@ pub fn query(len: usize) -> i32 {
             variant: u32,
         },
         Catalog,
+        SpaceOdds(crate::SpaceOddsRequest),
+        GroundOdds(ti4_calc::odds::GroundOddsRequest),
     }
     let text = match input(len) {
         Ok(text) => text,
@@ -324,16 +333,34 @@ pub fn query(len: usize) -> i32 {
             .expect("the catalogue serializes");
             return length(out.len());
         }
+        Query::SpaceOdds(request) => {
+            return match crate::space_odds_of(&request) {
+                Ok(odds) => write_json(&odds),
+                Err(error) => write_error(format_args!("space odds: {error}")),
+            };
+        }
+        Query::GroundOdds(request) => {
+            return match ti4_calc::odds::ground_odds(
+                ti4_content::ContentStore::embedded(),
+                &request,
+            ) {
+                Ok(odds) => write_json(&odds),
+                Err(error) => write_error(format_args!("ground odds: {error}")),
+            };
+        }
     };
     match value {
-        Ok(value) => {
-            let mut out = OUT.lock().expect("out lock");
-            out.clear();
-            serde_json::to_writer(&mut *out, &value).expect("a value serializes");
-            length(out.len())
-        }
+        Ok(value) => write_json(&value),
         Err(error) => write_error(error),
     }
+}
+
+/// Write `value` as the output; returns its length.
+fn write_json(value: &impl Serialize) -> i32 {
+    let mut out = OUT.lock().expect("out lock");
+    out.clear();
+    serde_json::to_writer(&mut *out, value).expect("a value serializes");
+    length(out.len())
 }
 
 // --- starting a game -------------------------------------------------------------------------

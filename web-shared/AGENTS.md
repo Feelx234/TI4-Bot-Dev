@@ -44,7 +44,8 @@ is `web2/plans/2026-10-14-SHARED_TRANSPORT_PLAN.md`.
 src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelope, HostSave, StartConfig
              jspi.ts      hasJspi(), on its own so that a page checks it without loading the host
              runner.ts    HostRunner: one game at a time in the Worker, a save at each question; a restart
-                          starts as the game was started, with the stepping and the modes changed since
+                          starts as the game was started, with the stepping and the modes changed since; a
+                          query goes to the instance of the running game, else to a new one
              worker.ts    the Worker entry; it gets a compiled WebAssembly.Module, not the file
              protocol.ts  ToWorker, FromWorker, HostPort (the Worker or a fake)
              port.ts      workerPort (a HostPort on a Worker that the app made), inlinePort (the engine in
@@ -88,7 +89,7 @@ The types of what the server and the engine send and take, generated from the Ru
   status, the staged work and the planning wire), `Catalog`, the setup of a table
   (`SetupOptions` and `MapPreview` as the server gives them, `TableOptions`, `TablePreview`,
   `TableDraw`, `GameRequest`), the odds of a space combat (`SpaceOddsRequest`, `BattleResponse`)
-  and the save (`HostSave`). Every type that they name is generated with them.
+  and of a ground combat (`GroundOddsRequest`, `GroundOddsResponse`), and the save (`HostSave`). Every type that they name is generated with them.
   `PROTOCOL_VERSION` is generated too. The types of `ti4-server` (the lobby of a table) are not.
 - The doc comments are those of the Rust types: a comment for a page is written there. A field
   that Rust leaves out when it is empty is `name?: T`. A field that a page may leave out of what

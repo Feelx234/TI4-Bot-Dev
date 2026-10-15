@@ -199,6 +199,38 @@ describe("HostRunner", () => {
     });
   });
 
+  it("asks a query of the instance of the running game, and of a new one when none runs", async () => {
+    const out: FromWorker[] = [];
+    const host = new FakeHost("game", () => envelope("command"));
+    const queries: string[] = [];
+    let created = 0;
+    const runner = new HostRunner(
+      (m) => out.push(m),
+      async () => {
+        created += 1;
+        const name = created === 1 ? "game" : "spare";
+        const target = created === 1 ? host : new FakeHost(name, () => envelope("command"));
+        return Object.assign(target, {
+          query: (request: object) => {
+            queries.push(name);
+            return { asked: request };
+          },
+        }) as unknown as Host;
+      },
+    );
+    await runner.handle({ t: "init", module: {} as WebAssembly.Module });
+    const started = runner.handle({ t: "start", config: { setup: {} } });
+    await tick();
+    host.ask(envelope("ask"));
+    await runner.handle({ t: "query", id: 4, request: { query: "space_odds" } });
+    expect(out.at(-1)).toEqual({ t: "reply", id: 4, value: { asked: { query: "space_odds" } } });
+    await runner.handle({ t: "close" });
+    await runner.handle({ t: "query", id: 5, request: { query: "describe" } });
+    expect(queries).toEqual(["game", "spare"]);
+    host.end(envelope("end"));
+    await started;
+  });
+
   it("answers a command with an error when no game runs, and reports a trap as a crash", async () => {
     const out: FromWorker[] = [];
     const runner = new HostRunner(

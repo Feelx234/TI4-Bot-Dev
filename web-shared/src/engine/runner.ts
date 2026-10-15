@@ -44,9 +44,13 @@ export class HostRunner {
     }
   }
 
+  /**
+   * A query (`describe`, `catalog`, the odds, …) needs no game: it is asked of the instance of the
+   * game when one is there (also while it waits at a question), else of a new instance.
+   */
   private async query(id: number, request: object): Promise<void> {
     try {
-      const host = await this.instance();
+      const host = this.host ?? (await this.instance());
       this.post({ t: "reply", id, value: host.query(request) });
     } catch (error) {
       this.post({ t: "reply", id, error: text(error) });

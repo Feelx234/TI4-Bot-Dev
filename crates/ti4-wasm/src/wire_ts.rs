@@ -8,7 +8,8 @@
 //! The roots are what a page sends and reads: `ClientMessage` and `ServerMessage` of
 //! `ti4_host::protocol`, the catalogue, the setup of a table (its options and preview as the
 //! server and the engine give them, its draw, and the game request of a start), the odds of a
-//! space combat, and the save of a game. Every type that they name is written with them.
+//! space and of a ground combat, and the save of a game. Every type that they name is written
+//! with them.
 
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
@@ -56,6 +57,8 @@ pub fn files() -> BTreeMap<String, String> {
     collect.visit::<crate::host_setup::GameRequest>();
     collect.visit::<crate::SpaceOddsRequest>();
     collect.visit::<ti4_calc::odds::BattleResponse>();
+    collect.visit::<ti4_calc::odds::GroundOddsRequest>();
+    collect.visit::<ti4_calc::odds::GroundOddsResponse>();
     collect.visit::<crate::host_session::HostSave>();
     let mut index = format!("{NOTE}\n");
     for name in collect.names.keys() {
