@@ -96,6 +96,10 @@ pub struct Resume {
     pub decisions: Option<usize>,
     #[serde(default)]
     pub decisions_hash: Option<String>,
+    /// The rule bot version the game was played with (a save and a restart carry it besides
+    /// the setup's own; see [`Start::settle_bot_version`]).
+    #[serde(default)]
+    pub bot_version: Option<u32>,
 }
 
 /// The request of `ti4_host_start`.
@@ -108,14 +112,14 @@ pub struct Start {
 }
 
 impl Start {
-    /// Fill in the bot version when the setup leaves it out: a resumed save without one was
-    /// made by version 1 (the field came with version 2), a new game plays the current bot.
+    /// Fill in the bot version when the setup leaves it out: the resume's (a save or a restart
+    /// of this host carries it); a resumed save without one was made by version 1 (the field
+    /// came with version 2); a new game plays the current bot.
     pub fn settle_bot_version(&mut self) {
         if self.setup.bot_version.is_none() {
-            self.setup.bot_version = Some(if self.resume.is_some() {
-                1
-            } else {
-                ti4_rule_bot::tuning::BOT_VERSION
+            self.setup.bot_version = Some(match &self.resume {
+                Some(resume) => resume.bot_version.unwrap_or(1),
+                None => ti4_rule_bot::tuning::BOT_VERSION,
             });
         }
     }

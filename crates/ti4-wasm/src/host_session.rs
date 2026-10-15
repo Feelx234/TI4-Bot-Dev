@@ -88,6 +88,10 @@ pub struct Restart {
     /// The game version so far: the new run goes on from it, so that a client that keeps what it
     /// has does not take the new snapshot for an old message.
     pub version: u64,
+    /// The rule bot version the game is played with (`host_setup::Setup::bot_version`): the new
+    /// run plays the same bot even when its request repeats a setup that leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_version: Option<u32>,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -1163,6 +1167,7 @@ impl HostSession {
                             redo: self.redo[1..].to_vec(),
                             generation: self.generation + 1,
                             version: self.version,
+                            bot_version: self.bot_version(),
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1208,8 +1213,18 @@ impl HostSession {
             redo,
             generation: self.generation + 1,
             version: self.version,
+            bot_version: self.bot_version(),
         });
         handled.resume = Some(Resume::Leave);
+    }
+
+    /// The rule bot version of this game, as its setup records it.
+    fn bot_version(&self) -> Option<u32> {
+        self.identity
+            .setup
+            .get("bot_version")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
     }
 
     /// A staged plan of the page (`BatchPlan` of `web/`) sent as one request: the person's
@@ -1335,6 +1350,7 @@ impl HostSession {
             "players": self.identity.players,
             "human_seat": self.identity.human_seat,
             "setup": self.identity.setup,
+            "bot_version": self.bot_version(),
             "answers": self.answers,
             "redo": self.redo,
             "never": self.never.lock().expect("never set lock").iter().collect::<BTreeSet<_>>(),
