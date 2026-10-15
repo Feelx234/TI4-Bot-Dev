@@ -84,6 +84,7 @@ tuning! {
     plans_v2: bool = false, "v2: reworked plans of the weakest factions (yssaril, l1z1x, nekro, hacan, arborec)";
     rift_caution: bool = false, "v2: outside a fight, no move that exits a gravity rift (a 30% loss per rift)";
     sftt_rule: bool = false, "v2: never give away a Support for the Throne (a victory point) in a trade";
+    end_turn_rule: bool = false, "v2: end the turn when nothing else is wanted; always use a legendary planet's end-of-turn ability";
     misc_rule: bool = false, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
 }
 
@@ -114,6 +115,7 @@ pub fn for_version(version: u32) -> Tuning {
         plans_v2: false,
         rift_caution: false,
         sftt_rule: false,
+        end_turn_rule: false,
         ..current
     }
 }

@@ -297,6 +297,17 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     {
         return pick_cheapest_removal(choice, observed);
     }
+    // Bot version 2: nothing else wanted at the end of a turn, end it (a random free option
+    // spends an agent or opens a trade for nothing); a legendary planet's ability is always used.
+    if tuning::end_turn_rule() {
+        match subtype {
+            Some("end_turn") => return choice.options.iter().position(|o| o.id == "end_turn"),
+            Some("legendary_end_of_turn") => {
+                return choice.options.iter().position(|o| !o.is_decline());
+            }
+            _ => {}
+        }
+    }
     None
 }
 
