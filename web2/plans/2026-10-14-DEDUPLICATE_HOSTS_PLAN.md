@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–5 done (2026-10-14), items 6–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–11 open.
 
 ## Context
 
@@ -234,13 +234,21 @@ Starts after Step 5 is committed.
    and the length of the log there) and the tail of its decision log: a refused script is
    answered with `draft_applied` and the game is not resumed. The take-back of `OnMismatch` stays
    for what the copy cannot see (a decision of another seat before the mismatch).
-6. **Undo.** `ti4_host::planning::undo::UndoTrack` with `UndoRules`:
-   - `Table` (server): another seat, a die, a shuffle, a revealed card cut the tail.
-   - `Local` (wasm): only a change of the page's seats cuts, because a checkpoint restores the dice.
-     Entries keep `decision` and `asked`, which the checkpoint reach needs.
-   `Watched` (it holds `Arc<Mutex<SessionShared>>`) stays in the server. `HostSession` feeds the
-   track from `selected`/`after_step`. `HostSession::{own, undo_start}` and the server's `start`
-   wrapper go.
+6. **Undo.** (Done.) `ti4_host::planning::undo::UndoTrack` with `UndoRules`:
+   - `Table` (server): another seat, a die, a shuffle, a revealed card cut the tail
+     (`answered`, `observe` with the engine latch and `learned_identity`, `plan`, `can_undo`).
+   - `Local` (wasm): only a change of the page's seats cuts (`seats_changed`), because a
+     checkpoint restores the dice; `observe` does nothing. The track keeps every answer of the
+     page (the history counts them), and an undo starts no earlier than the last change.
+   `UndoEntry` keeps the seat, `decision`, `asked` (the checkpoint reach), subtype, kind,
+   `passed` and the plan step; under `Table` also a window that may be declined, read against
+   the Never cards at the undo. `start(seat, never)` is the place of the first answer one undo
+   takes back (`Table`: only the seat of the tail), `steps_from`, `take_back(keep)` for a
+   checkpoint. `Watched` (it holds `Arc<Mutex<SessionShared>>`) stays in the server
+   (`session/undo.rs`). `HostSession` pushes an entry for each answer of the page when its
+   record is published (`selected` → `after_step`/`offer`); `Own`, `HostSession::own` and the
+   server's `start` wrapper are gone. Tests: the track's own (moved from the server, plus the
+   local rules) and `host_local::an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them`.
 7. **Staged work and the ready secondary.**
    - `ti4_host::staged` (`SeatStaged`, `Put`, `SecondaryDraft`, `DraftAnswer`) and
      `ti4_host::staged::ready` (`asked`, `ready_draft` over `&BTreeMap<PlayerId, SeatStaged>`,

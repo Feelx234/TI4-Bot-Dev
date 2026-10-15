@@ -16,6 +16,9 @@ struct Seen {
     asked: Option<String>,
     waiting: Option<String>,
     nonce: Option<String>,
+    /// The page may take an answer back.
+    can_undo: bool,
+    version: u64,
 }
 
 /// The last update of an envelope.
@@ -55,6 +58,8 @@ fn play(request: &Value, mut act: Act) -> (Vec<Seen>, Value) {
             asked: pending["choice"]["player"].as_str().map(str::to_owned),
             waiting: envelope["waiting"].as_str().map(str::to_owned),
             nonce: pending["nonce"].as_str().map(str::to_owned),
+            can_undo: update["history"]["can_undo"].as_bool().unwrap_or(false),
+            version: update["game_version"].as_u64().unwrap_or(0),
         };
         let count = {
             let mut seen = sink.lock().unwrap();
@@ -155,6 +160,48 @@ fn the_page_plays_several_seats_and_changes_them_and_a_save_plays_the_same_game(
     assert_eq!(again[0].asked, last.asked);
     assert_eq!(again[0].nonce, last.nonce);
     assert_eq!(save()["log"], saved["log"]);
+    ti4_wasm::set_round_limit_native(None);
+}
+
+#[test]
+fn an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them() {
+    let _serial = serial();
+    ti4_wasm::set_round_limit_native(Some(1));
+    // Seats a and c are played here (hot seat). At the tenth question seat e is played in place
+    // of the seat that is shown; at the twelfth the page undoes its answer of the eleventh.
+    let local = json!({ "local": { "seed": 3, "players": 8, "humans": 0b101 } });
+    let (seen, _) = play(
+        &local,
+        Box::new(|count, now| match count {
+            10 => Some(json!({ "type": "switch_seat", "seat": "e" })),
+            12 => {
+                assert!(now.can_undo, "an answer since the change: {now:?}");
+                Some(json!({
+                    "type": "undo", "protocol_version": 4, "game_id": GAME,
+                    "expected_version": now.version,
+                }))
+            }
+            13 => None,
+            _ => Some(answer()),
+        }),
+    );
+    assert_eq!(seen.len(), 13, "{seen:#?}");
+    // Before the change every question but the first has an answer of the page to take back,
+    // the answer of its other seat too: a die, a shuffle and the other seats do not cut.
+    assert!(!seen[0].can_undo);
+    for (index, now) in seen.iter().enumerate().take(10).skip(1) {
+        assert!(now.can_undo, "question {index}: {now:?}");
+    }
+    assert!(
+        (1..10).any(|index| seen[index].viewer != seen[index - 1].viewer),
+        "the page answers for both of its seats: {seen:#?}"
+    );
+    // The seat changed: the answers from before it stay.
+    assert!(!seen[10].can_undo, "{:?}", seen[10]);
+    // The undo opens the question of the eleventh again, and nothing is left to take back.
+    assert_eq!(seen[12].asked, seen[10].asked);
+    assert_eq!(seen[12].nonce, seen[10].nonce);
+    assert!(!seen[12].can_undo, "{:?}", seen[12]);
     ti4_wasm::set_round_limit_native(None);
 }
 

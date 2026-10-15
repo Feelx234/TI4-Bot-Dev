@@ -145,7 +145,7 @@ pub struct SessionShared {
     /// deciders, which read them as each question is asked.
     pub reaction_modes: BTreeMap<PlayerId, ti4_host::view::reaction_modes::NeverSet>,
     /// The decisions that their seat may take back ([`super::undo`]).
-    pub(crate) undo: super::undo::UndoTrack,
+    pub(crate) undo: ti4_host::planning::undo::UndoTrack,
     /// The steps that the undo before this session took back, for the first snapshot of each
     /// connection of the seat ([`super::GameSession::undone_for`]), until the seat decides again.
     pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_host::planning::steps::PlanStep>>,
@@ -411,7 +411,9 @@ impl SessionShared {
             rng_marks: ti4_host::rng_force::RngMarks::new(),
             pending_auto_resolved: Vec::new(),
             reaction_modes: BTreeMap::new(),
-            undo: super::undo::UndoTrack::new(),
+            undo: ti4_host::planning::undo::UndoTrack::new(
+                ti4_host::planning::undo::UndoRules::Table,
+            ),
             undone: BTreeMap::new(),
             undone_from: 0,
             staged: super::staged::StagedBook::default(),
@@ -472,7 +474,7 @@ impl SessionShared {
         self.waits_for(seat) && self.undo.can_undo(seat, &self.never_of(seat))
     }
 
-    /// What an undo of `seat` does ([`super::undo::UndoTrack::plan`]), when the game is at
+    /// What an undo of `seat` does ([`ti4_host::planning::undo::UndoTrack::plan`]), when the game is at
     /// `expected_version` and waits for the seat.
     pub(crate) fn undo_plan(
         &self,

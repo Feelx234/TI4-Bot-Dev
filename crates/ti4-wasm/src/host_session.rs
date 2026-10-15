@@ -12,7 +12,7 @@
 //! | `ObservedDecider` (what was chosen)          | [`HostSession::selected`]              |
 //! | `RemoteHumanDecider::choose` (state update)  | [`HostSession::ask`]                   |
 //! | the code after `game.step()`                 | [`HostSession::after_step`]            |
-//! | `UndoTrack` / registry undo                  | checkpoints: [`HostSession::mark`], [`HostSession::took_back`] |
+//! | `UndoTrack` (table rules) / registry undo    | `UndoTrack` (local rules), checkpoints: [`HostSession::mark`], [`HostSession::took_back`] |
 //! | `SessionShared::*` commands                  | [`HostSession::command`]               |
 //!
 //! Differences from the server, all on purpose:
@@ -22,12 +22,13 @@
 //!   those updates.
 //! - The pending choice travels inside the `state_update` / `initial_snapshot` only; the separate
 //!   `pending_choice` message is not sent.
-//! - Undo is the engine checkpoint of this crate (no `UndoTrack` barriers: one person, and a
-//!   checkpoint restores the dice, so an undo cannot be used to re-roll).
+//! - Undo is the engine checkpoint of this crate. The track of the answers is the server's
+//!   `UndoTrack` under `UndoRules::Local`: only a change of the page's seats cuts it, so an undo
+//!   may go back over what other seats decided and over a die or a shuffle (a checkpoint restores
+//!   the dice, so an undo cannot be used to re-roll).
 //! - Redo and rewind are by replay: the session says what to replay ([`Restart`]); the host starts
 //!   the game again with those answers. So is an undo that goes back further than the
-//!   checkpoints. A local game has no undo barrier: an undo may go back over what other seats
-//!   decided, as far as the last change of the page's seats.
+//!   checkpoints.
 //! - A seat that the page does not play may wait for the page before it decides (stepping, or
 //!   the wait of a table): the session then sends an update with no pending choice, and the
 //!   page lets the seat go on ([`LocalCommand::Step`]).
@@ -49,7 +50,7 @@ use ti4_host::planning::script::{
     tactical_complete,
 };
 use ti4_host::planning::steps::PlanStep;
-use ti4_host::planning::undo::{self, Answered};
+use ti4_host::planning::undo::{UndoEntry, UndoRules, UndoTrack};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
 use ti4_host::protocol::check_submission;
 use ti4_host::protocol::client::ClientMessage;
@@ -67,7 +68,7 @@ use ti4_host::setup::TableSeats;
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
-use ti4_host::view::reaction_modes::NeverSet;
+use ti4_host::view::reaction_modes::{Modes, NeverSet};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase, ReactionMode};
 
@@ -218,30 +219,6 @@ struct Selected {
     passed: bool,
 }
 
-/// An answer of the page, as an undo reads it.
-#[derive(Debug, Clone)]
-struct Own {
-    /// Its place in the decision log.
-    decision: usize,
-    /// The number the play loop gave it.
-    asked: u64,
-    subtype: String,
-    kind: String,
-    /// A window that the game declined for the Never cards: no answer of the player.
-    passed: bool,
-    step: Option<PlanStep>,
-}
-
-impl Answered for Own {
-    fn subtype(&self) -> &str {
-        &self.subtype
-    }
-
-    fn kind(&self) -> &str {
-        &self.kind
-    }
-}
-
 /// An undo that goes back over several answers, through the checkpoints one at a time.
 #[derive(Debug, Clone)]
 struct Undoing {
@@ -302,9 +279,11 @@ pub struct HostSession {
     prev_phase: Phase,
     prev_round: u32,
     selected: VecDeque<Selected>,
-    /// The page's answers (ids), in order, and what an undo reads of each.
+    /// The page's answers (ids), in order.
     answers: Vec<String>,
-    own: Vec<Own>,
+    /// What an undo reads of each answer of the page (local rules: only a change of the page's
+    /// seats cuts).
+    undo: UndoTrack,
     /// The next decision of the page is a window that was declined for its Never cards.
     declined: bool,
     redo: Vec<String>,
@@ -387,7 +366,13 @@ impl HostSession {
             prev_round: state.round,
             selected: VecDeque::new(),
             answers: Vec::new(),
-            own: Vec::new(),
+            undo: {
+                let mut undo = UndoTrack::new(UndoRules::Local);
+                if let Some(switch) = resume.switches.last() {
+                    undo.seats_changed(usize::try_from(switch.decision).unwrap_or(usize::MAX));
+                }
+                undo
+            },
             declined: false,
             redo: resume.redo.clone(),
             marks: VecDeque::new(),
@@ -688,20 +673,21 @@ impl HostSession {
     /// A decision of the page is in the log, at `index`.
     fn note_answer(&mut self, record: &DecisionRecord, index: usize, selected: Option<&Selected>) {
         self.answers.push(record.chosen.clone());
-        self.own.push(Own {
-            decision: index,
-            asked: selected.and_then(|selected| selected.own).unwrap_or(0),
-            subtype: record
-                .context
-                .as_ref()
-                .map(|context| context.subtype.clone())
-                .unwrap_or_default(),
-            kind: selected
-                .map(|selected| selected.option.kind.clone())
-                .unwrap_or_default(),
-            passed: selected.is_some_and(|selected| selected.passed),
-            step: selected.and_then(|selected| PlanStep::of_option(&selected.option)),
-        });
+        let entry = match selected {
+            Some(selected) => UndoEntry::new(&selected.choice, &selected.option, index)
+                .asked(selected.own.unwrap_or(0))
+                .passed(selected.passed),
+            None => UndoEntry::recorded(
+                record.player.clone(),
+                index,
+                record
+                    .context
+                    .as_ref()
+                    .map(|context| context.subtype.clone())
+                    .unwrap_or_default(),
+            ),
+        };
+        self.undo.push(entry, true);
         // A redo list survives only while the person plays it again (as the server's does). An
         // answer that is played again from a save or after an undo is no new decision.
         if self.quiet > 0 {
@@ -940,9 +926,10 @@ impl HostSession {
     pub fn ask(&mut self, choice: &Choice, nonce: &str, state: &GameState) -> Option<Resume> {
         self.resuming = false;
         if let Some(undoing) = &self.undoing {
-            let last = self.own.iter().rev().find(|own| !own.passed);
-            if self.own.len() > undoing.keep
-                && last.is_some_and(|own| self.play_loop.reaches(own.asked))
+            let entries = self.undo.entries();
+            let last = entries.iter().rev().find(|entry| !entry.passed);
+            if entries.len() > undoing.keep
+                && last.is_some_and(|entry| self.play_loop.reaches(entry.asked))
             {
                 return Some(Resume::Undo);
             }
@@ -1046,12 +1033,12 @@ impl HostSession {
             return;
         };
         let undone_answers: Vec<String> = self.answers.split_off(mark.answers);
-        let undone_steps = self.own.split_off(mark.answers);
+        let undone_steps = self.undo.take_back(mark.answers);
         if !rollback {
             if self.undoing.is_none() {
                 self.undone = undone_steps
                     .into_iter()
-                    .filter_map(|own| own.step)
+                    .filter_map(|entry| entry.step)
                     .collect();
             }
             let mut redo = undone_answers;
@@ -1314,15 +1301,12 @@ impl HostSession {
         check_script(game, tail.to_vec(), choice, script, &choice.player, never)
     }
 
-    /// The place in [`Self::own`] of the first answer that one undo takes back: the last
-    /// answer of the page, or a movement, the landings or a purchase whole. An answer from before
-    /// the last change of the seats stays.
+    /// The place in the entries of the track of the first answer that one undo takes back: the
+    /// last answer of the page, or a movement, the landings or a purchase whole. An answer from
+    /// before the last change of the seats stays. A window that was declined for the Never cards
+    /// is marked when it is answered, so no cards are read here.
     fn undo_start(&self) -> Option<usize> {
-        let since = self.switches.last().map_or(0, |switch| {
-            usize::try_from(switch.decision).unwrap_or(usize::MAX)
-        });
-        let fence = self.own.partition_point(|own| own.decision < since);
-        undo::start(&self.own, fence, |own| own.passed)
+        self.undo.start(&self.viewer, &Modes::new())
     }
 
     /// One undo of the page: through the checkpoints when they reach back far enough, else by
@@ -1333,11 +1317,8 @@ impl HostSession {
             self.reject(RejectionReason::NoPendingChoice);
             return;
         };
-        let first = &self.own[keep];
-        let steps: Vec<PlanStep> = self.own[keep..]
-            .iter()
-            .filter_map(|own| own.step.clone())
-            .collect();
+        let first = self.undo.entries()[keep].clone();
+        let steps = self.undo.steps_from(keep);
         if parked && !self.finished && self.play_loop.reaches(first.asked) {
             self.undoing = Some(Undoing { keep, steps });
             handled.resume = Some(Resume::Undo);
@@ -1385,6 +1366,8 @@ impl HostSession {
             humans,
         };
         self.switches.push(switch);
+        self.undo
+            .seats_changed(usize::try_from(switch.decision).unwrap_or(usize::MAX));
         self.undoing = None;
         handled.switch = Some(switch);
         handled.resume = Some(Resume::Switch);
@@ -1461,7 +1444,10 @@ impl HostSession {
             });
             return;
         }
-        let keep = self.own.partition_point(|own| own.decision < cursor);
+        let keep = self
+            .undo
+            .entries()
+            .partition_point(|entry| entry.decision < cursor);
         let mut redo = self.answers[keep..].to_vec();
         redo.extend(self.redo.iter().cloned());
         handled.restart = Some(Restart {

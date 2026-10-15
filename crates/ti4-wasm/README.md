@@ -553,8 +553,9 @@ the SHA-256 of the engine file (`web2/src/session/savedGame.ts`, format 4).
 - A decision of the log that the game does not offer ends the run: the `end` envelope has
   `diverged`, which names its number, its id, the prompt and the ids that are offered.
 - **Undo.** One undo takes back one answer of the page, or a movement, the landings or a
-  purchase whole (`ti4_host::planning::undo`, the rule of the server's undo), back to the last
-  switch of the seats. The engine keeps a checkpoint (`Game::fork` and the position of the
+  purchase whole, back to the last switch of the seats. The answers are kept in the server's
+  track (`ti4_host::planning::undo::UndoTrack`) under `UndoRules::Local`: a die, a shuffle, a
+  revealed card and the decisions of the other seats do not cut it, only a switch. The engine keeps a checkpoint (`Game::fork` and the position of the
   random seats' stream) after each step that asked the page, the last 32 of them; when they
   reach back far enough, the run goes back one answer at a time (each without asking the page)
   and opens the choice again. Else, and when the game is over, the session replies `restart`
@@ -801,7 +802,8 @@ the wasm file to what it stores.
 ### What differs from the server
 
 One `state_update` per question of the person (and one at the end), not per engine step; no
-separate `pending_choice` message; undo is the engine checkpoint (32 deep, no barriers); redo and
+separate `pending_choice` message; undo is the engine checkpoint (32 deep), and its track has the
+local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
 redo and bluff holds do not exist.
 
