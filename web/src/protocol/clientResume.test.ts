@@ -87,6 +87,7 @@ afterEach(() => {
   FakeWebSocket.all = [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("GameSessionClient resume after idle", () => {
@@ -176,6 +177,8 @@ describe("GameSessionClient resume after idle", () => {
   it("retries the snapshot through transient failures without ever setting an error", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("WebSocket", FakeWebSocket);
+    // Worst-case jitter: the three retry sleeps add up to 1 + 2 + 4 = 7 s.
+    vi.spyOn(Math, "random").mockReturnValue(1);
     const fetchMock = vi
       .fn()
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
@@ -185,7 +188,7 @@ describe("GameSessionClient resume after idle", () => {
     vi.stubGlobal("fetch", fetchMock);
     const client = newClient();
     client.start();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(client.getState().lastError).toBeNull();
     }
