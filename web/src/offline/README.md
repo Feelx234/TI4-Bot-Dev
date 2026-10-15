@@ -46,8 +46,8 @@ runs it as `prebuild`, and a build without cargo or the wasm target just has no 
 
 | File | What |
 |---|---|
-| `hostApi.ts` | TypeScript port of `crates/ti4-wasm/js/host.mjs` (`Host`: JSPI, envelopes, save types) |
-| `hostWorker.ts`, `hostRunner.ts`, `hostProtocol.ts` | the Web Worker: one game at a time, save attached to every question, history restarts in a new instance |
+| `web-shared/src/engine/host.ts` | TypeScript port of `crates/ti4-wasm/js/host.mjs` (`Host`: JSPI, envelopes, save types); shared with web2 (`web-shared/AGENTS.md`) |
+| `web-shared/src/engine/worker.ts`, `runner.ts`, `protocol.ts` | the Web Worker: one game at a time, save attached to every question, history restarts in a new instance |
 | `LocalTransport.ts` | `GameTransport` on a `HostPort` (the Worker, or a fake in tests); decodes and reduces like `GameSessionClient` |
 | `session.ts` | lazy chunk: fetch and compile the wasm once, spawn the Worker |
 | `launcher.ts`, `register.ts` | `OfflineLauncher`; `register.ts` is the only part in the main bundle (flags, JSPI check, feedback queue, a lazy proxy) |

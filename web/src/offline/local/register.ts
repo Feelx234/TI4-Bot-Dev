@@ -8,8 +8,8 @@ import {
   type OfflineSaveStore,
 } from "../storage/index.ts";
 import type { OfflineFeedbackQueue, OfflineLauncher } from "../types.ts";
-import { hasEngineAsset } from "./engineAsset.ts";
-import { JSPI_MISSING, jspiSupported } from "./jspi.ts";
+import { hasJspi } from "@ti4/shared/engine/jspi.ts";
+import { hasEngineAsset, JSPI_MISSING } from "./engineAsset.ts";
 
 /**
  * The launcher as the page registers it at startup: only what the shell needs at once (flags,
@@ -24,7 +24,7 @@ export function createLazyLauncher(store: OfflineSaveStore, feedback: OfflineFee
   return {
     capabilities: OFFLINE_CAPABILITIES,
     factions: OFFLINE_FACTION_IDS,
-    supported: () => (jspiSupported() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
+    supported: () => (hasJspi() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
     list: () => store.listSummaries(),
     create: async (setup, onProgress, signal) => (await launcher()).create(setup, onProgress, signal),
     resume: async (gameId, onProgress, signal, options) =>

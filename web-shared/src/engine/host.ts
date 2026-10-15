@@ -7,6 +7,8 @@
  * (`restart` in the reply) needs a new `Host`.
  */
 
+export { hasJspi } from "./jspi.ts";
+
 /** The answer to a `progress` output: go on. */
 const CONTINUE = -5;
 export const RESUME_LEAVE = -1;
@@ -102,12 +104,6 @@ interface Exports {
   ti4_host_start(length: number): number;
 }
 
-/** JSPI (WebAssembly.Suspending / promising); Chrome and Edge 137 and later, Node 24. */
-export function hasJspi(): boolean {
-  const wa = WebAssembly as unknown as Record<string, unknown>;
-  return typeof wa.Suspending === "function" && typeof wa.promising === "function";
-}
-
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -149,7 +145,9 @@ export class Host {
 
   private result(status: number): Envelope {
     const text = this.out();
-    if (status < 0) throw new Error(text);
+    if (status < 0) {
+      throw new Error(text);
+    }
     return JSON.parse(text) as Envelope;
   }
 
@@ -193,7 +191,9 @@ export class Host {
   private ask(): Promise<number> {
     const envelope = JSON.parse(this.out()) as Envelope;
     if (envelope.kind === "progress") {
-      if (envelope.progress) this.onProgress(envelope.progress);
+      if (envelope.progress) {
+        this.onProgress(envelope.progress);
+      }
       return Promise.resolve(CONTINUE);
     }
     return new Promise<number>((resolve) => {

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PreviewUnsupportedError } from "../../protocol/client.ts";
 import { LocalTransport } from "./LocalTransport.ts";
 import { GAME, FakePort, accepted, envelope, question, rejected, save, snapshot } from "./testKit.ts";
-import type { StartConfig } from "./hostApi.ts";
+import type { StartConfig } from "@ti4/shared/engine/host.ts";
 
 const config: StartConfig = { setup: { game_id: GAME, seed: 7, players: 3 } };
 

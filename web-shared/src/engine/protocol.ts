@@ -1,4 +1,4 @@
-import type { Envelope, HostProgress, HostSave, StartConfig } from "./hostApi.ts";
+import type { Envelope, HostProgress, HostSave, StartConfig } from "./host.ts";
 
 /** Page to Worker. */
 export type ToWorker =

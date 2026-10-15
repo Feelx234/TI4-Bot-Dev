@@ -143,3 +143,10 @@ web/
 ├── playwright.config.ts                # Playwright configuration with auto-spawning dev servers
 └── vite.config.ts                      # Vite configuration with proxy to ti4-server
 ```
+
+### Shared with web2
+
+The engine driver of offline play (the Worker, `Host`, `HostRunner`, the engine file hash) is in
+`../web-shared/`, which web and web2 share. This app imports it as `@ti4/shared/...` (the alias is in
+`vite.config.ts` and `tsconfig.json`). Read [`../web-shared/AGENTS.md`](../web-shared/AGENTS.md)
+before you change it: some changes there need the agreement of both maintainers.

@@ -13,7 +13,7 @@ import { feedbackChipText } from "./useFeedbackQueue.ts";
 import { registerOfflineLauncher, setActiveOfflineGame } from "./registry.ts";
 import type { OfflineFeedbackLocal, OfflineGameSummary, OfflineMismatchPrompt } from "./types.ts";
 import { setLoadedEngine } from "./engineInfo.ts";
-import { sha256Hex } from "./local/sha256.ts";
+import { sha256Hex } from "@ti4/shared/engine/identity.ts";
 
 afterEach(() => {
   cleanup();
@@ -307,7 +307,7 @@ describe("saves, import and the engine", () => {
     const bytes = new TextEncoder().encode("abc");
     const expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     expect(await sha256Hex(bytes)).toBe(expected);
-    const { sha256 } = await import("./local/sha256.ts");
+    const { sha256 } = await import("@ti4/shared/engine/identity.ts");
     expect(Array.from(sha256(bytes), (b) => b.toString(16).padStart(2, "0")).join("")).toBe(expected);
     const long = new Uint8Array(1000).fill(97);
     const viaSubtle = await sha256Hex(long);

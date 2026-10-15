@@ -1,6 +1,6 @@
 import { PROTOCOL_VERSION } from "../../protocol/types.ts";
-import type { Envelope, HostSave } from "./hostApi.ts";
-import type { FromWorker, HostPort, ToWorker } from "./hostProtocol.ts";
+import type { Envelope, HostSave } from "@ti4/shared/engine/host.ts";
+import type { FromWorker, HostPort, ToWorker } from "@ti4/shared/engine/protocol.ts";
 
 /** Messages and a fake worker for the tests of the local transport (no wasm needed). */
 export const GAME = "off_test";

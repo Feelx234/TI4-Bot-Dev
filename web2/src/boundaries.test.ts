@@ -37,3 +37,29 @@ it.each(Object.keys(ALLOWED))("%s imports only its allowed layers", (layer) => {
   }
   expect(bad).toEqual([]);
 });
+
+// The module shared with web/ (`web-shared/AGENTS.md`). Only `session` imports it.
+it.each(Object.keys(ALLOWED))("%s imports @ti4/shared only if it is session", (layer) => {
+  const bad = files(join(root, layer)).filter(
+    (file) => layer !== "session" && /from "@ti4\/shared[/"]/.test(readFileSync(file, "utf8")),
+  );
+  expect(bad.map((file) => relative(root, file))).toEqual([]);
+});
+
+// `web-shared` imports no app, and no package but `node:` and vitest (a new dependency needs
+// both maintainers).
+it("web-shared imports no app", () => {
+  const shared = resolve(root, "../../web-shared");
+  const bad: string[] = [];
+  for (const file of files(shared)) {
+    for (const [, target] of readFileSync(file, "utf8").matchAll(/(?:from|import\() ?"([^"]+)"/g)) {
+      const outside = target.startsWith(".")
+        ? relative(shared, resolve(dirname(file), target)).startsWith("..")
+        : !/^(node:|vitest$)/.test(target);
+      if (outside) {
+        bad.push(`${relative(shared, file)} -> ${target}`);
+      }
+    }
+  }
+  expect(bad).toEqual([]);
+});

@@ -4,6 +4,7 @@
 // (`serverMessages.ts`). The questions that need no game are exports of their own. The engine
 // keeps the staged work of each seat in its saved game, as the server keeps it for the seat
 // (`put_staged`, `seat_staged`: `seatSync`), and sends a ready draft of a secondary itself.
+import { sha256Hex } from "@ti4/shared/engine/identity.ts";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { seatSync } from "./seatStore";
 import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
@@ -213,11 +214,10 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
     );
   }
   const bytes = await response.arrayBuffer();
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   const module = await WebAssembly.compile(bytes);
   return {
     module,
-    hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+    hash: await sha256Hex(bytes),
     scenarios: await scenariosOf(module),
     catalog: await catalogOf(module),
   };

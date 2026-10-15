@@ -15,7 +15,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@ti4/shared/*": ["../web-shared/src/*"],
+      "vitest": ["./node_modules/vitest"]
+    },
     "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "../web-shared/src"]
 }

@@ -18,11 +18,11 @@ import {
   type OfflineResumeOptions,
   type OfflineSetup,
 } from "../types.ts";
-import type { HostSave, StartConfig } from "./hostApi.ts";
-import { JSPI_MISSING, jspiSupported } from "./jspi.ts";
+import type { HostSave, StartConfig } from "@ti4/shared/engine/host.ts";
+import { hasJspi } from "@ti4/shared/engine/jspi.ts";
+import { JSPI_MISSING } from "./engineAsset.ts";
 import type { LocalTransport } from "./LocalTransport.ts";
 
-export { JSPI_MISSING, jspiSupported };
 
 /** Hands out the lazily loaded session code (a dynamic import, so it is a separate chunk). */
 const sessionModule = () => import("./session.ts");
@@ -194,10 +194,10 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
   return {
     capabilities: OFFLINE_CAPABILITIES,
     factions: OFFLINE_FACTIONS,
-    supported: () => (jspiSupported() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
+    supported: () => (hasJspi() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
     list: () => store.listSummaries(),
     async create(setup, onProgress, signal) {
-      if (!jspiSupported()) throw new Error(JSPI_MISSING);
+      if (!hasJspi()) throw new Error(JSPI_MISSING);
       const gameId = newGameId();
       const config: StartConfig = { setup: engineSetup(setup, gameId) };
       const { session, engine, current } = await loadCurrent(onProgress, null);
@@ -221,7 +221,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
         return { gameId, transport: existing, ...(existing.viewOnly ? { viewOnly: true } : {}) };
       existing?.close();
       live.delete(gameId);
-      if (!jspiSupported()) throw new Error(JSPI_MISSING);
+      if (!hasJspi()) throw new Error(JSPI_MISSING);
       const record: SavedGameRecord | null = await store.load(gameId);
       if (!record) throw new Error("This offline game is not on this device any more.");
       const { session, engine, current } = await loadCurrent(onProgress, record.engine);

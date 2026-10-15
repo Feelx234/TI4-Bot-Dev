@@ -104,3 +104,4 @@ The rules of each feature are in `docs/agents/`. Before you change a feature, re
 | The lobby, single player, the setup of a table, the Table sheet (`src/game/lobby/`, `table.ts`, `localTable.ts`) | `docs/agents/lobby.md` |
 | A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game (`src/session/`, `LocalApp.tsx`) | `docs/agents/local-play.md` |
 | Tests, fixtures, screenshots, Rust builds, the wasm build | `docs/agents/testing.md` |
+| The code shared with web/: the engine driver (`@ti4/shared`, `../web-shared/`) | `../web-shared/AGENTS.md` |

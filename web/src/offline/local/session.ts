@@ -1,7 +1,7 @@
 import { engineHashOf, engineUrl } from "./engineAsset.ts";
-import type { FromWorker, HostPort, ToWorker } from "./hostProtocol.ts";
+import type { FromWorker, HostPort, ToWorker } from "@ti4/shared/engine/protocol.ts";
 import { LocalTransport, type LocalTransportOptions } from "./LocalTransport.ts";
-import { sha256Hex } from "./sha256.ts";
+import { type EngineIdentity, sha256Hex } from "@ti4/shared/engine/identity.ts";
 
 /**
  * The lazily loaded half of the launcher: the engine file, the Web Worker and the transport.
@@ -13,13 +13,6 @@ export interface LoadedEngine {
   /** Content hash of the engine file's name. */
   hash: string;
   /** sha-256 of the engine file itself (what saves and feedback name). */
-  wasmSha256: string;
-}
-
-/** Which engine this is: build and content digest as the engine says, the file hash as measured. */
-export interface EngineIdentity {
-  build: string;
-  contentDigest: string;
   wasmSha256: string;
 }
 
@@ -93,7 +86,10 @@ export function engineIdentity(engine: LoadedEngine): Promise<EngineIdentity> {
 
 /** A new Web Worker with the engine module handed in; resolves when it is ready. */
 export function workerPort(engine: LoadedEngine): Promise<HostPort> {
-  const worker = new Worker(new URL("./hostWorker.ts", import.meta.url), { type: "module" });
+  // A relative path, not `@ti4/shared`: vite bundles a Worker only from a literal `new URL`.
+  const worker = new Worker(new URL("../../../../web-shared/src/engine/worker.ts", import.meta.url), {
+    type: "module",
+  });
   let listener: (message: FromWorker) => void = () => undefined;
   const port: HostPort = {
     post: (message: ToWorker) => worker.postMessage(message),

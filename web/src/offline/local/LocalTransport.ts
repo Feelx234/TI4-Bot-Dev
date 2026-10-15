@@ -18,8 +18,8 @@ import {
 } from "../../protocol/transport.ts";
 import { PROTOCOL_VERSION, type ReactionModeSetting, type ServerMessage } from "../../protocol/types.ts";
 import type { TurnRedoCommand, TurnRedoStatus } from "../../protocol/turnRedo.ts";
-import type { Envelope, HostProgress, HostSave, StartConfig } from "./hostApi.ts";
-import type { FromWorker, HostPort } from "./hostProtocol.ts";
+import type { Envelope, HostProgress, HostSave, StartConfig } from "@ti4/shared/engine/host.ts";
+import type { FromWorker, HostPort } from "@ti4/shared/engine/protocol.ts";
 
 /** What a local game offers in `GameTransport` terms. The shell's `Capabilities` say the same. */
 export const LOCAL_TRANSPORT_CAPABILITIES: TransportCapabilities = {

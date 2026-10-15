@@ -1,8 +1,35 @@
 import { describe, expect, it } from "vitest";
-import type { Envelope, Host, StartConfig } from "./hostApi.ts";
-import { HostRunner } from "./hostRunner.ts";
-import type { FromWorker } from "./hostProtocol.ts";
-import { envelope, save } from "./testKit.ts";
+import type { Envelope, Host, HostSave, StartConfig } from "./host.ts";
+import { HostRunner } from "./runner.ts";
+import type { FromWorker } from "./protocol.ts";
+
+const envelope = (kind: Envelope["kind"], fields: Partial<Envelope> = {}): Envelope => ({
+  kind,
+  messages: [],
+  ...fields,
+});
+
+const save = (answers: string[] = []): HostSave => ({
+  format: 1,
+  game_id: "off_test",
+  seed: 7,
+  players: 3,
+  human_seat: 0,
+  setup: { game_id: "off_test", seed: 7, players: 3 },
+  answers,
+  redo: [],
+  never: [],
+  event_times: [],
+  event_versions: [],
+  version: 1,
+  generation: 0,
+  decisions: answers.length,
+  decisions_hash: "h",
+  finished: false,
+  round: 1,
+  phase: "action",
+  engine: { build: "b", content_digest: "d" },
+});
 
 /** A scripted engine: `start` parks at questions the test releases with `answer`. */
 class FakeHost {
@@ -11,7 +38,10 @@ class FakeHost {
   commands: Record<string, unknown>[] = [];
   private finish!: (e: Envelope) => void;
   started: StartConfig | null = null;
-  constructor(readonly name: string, private readonly onCommand: (host: FakeHost, request: Record<string, unknown>) => Envelope) {}
+  constructor(
+    readonly name: string,
+    private readonly onCommand: (host: FakeHost, request: Record<string, unknown>) => Envelope,
+  ) {}
   start(config: StartConfig): Promise<Envelope> {
     this.started = config;
     return new Promise((resolve) => (this.finish = resolve));
@@ -34,9 +64,14 @@ describe("HostRunner", () => {
   it("starts a game, attaches the save to each question and forwards progress and commands", async () => {
     const out: FromWorker[] = [];
     const host = new FakeHost("one", (_h, request) =>
-      request.type === "save_state" ? envelope("command", { save: save(["x"]) }) : envelope("command", { resume: 0 }),
+      request.type === "save_state"
+        ? envelope("command", { save: save(["x"]) })
+        : envelope("command", { resume: 0 }),
     );
-    const runner = new HostRunner((m) => out.push(m), async () => host as unknown as Host);
+    const runner = new HostRunner(
+      (m) => out.push(m),
+      async () => host as unknown as Host,
+    );
     await runner.handle({ t: "init", module: {} as WebAssembly.Module });
     expect(out[0]).toEqual({ t: "ready" });
     const config = { setup: { players: 3 } };
@@ -44,12 +79,19 @@ describe("HostRunner", () => {
     await tick();
     host.onProgress({ done: 20, total: 40 });
     host.ask(envelope("ask", { messages: [1] }));
-    expect(out.find((m) => m.t === "progress")).toEqual({ t: "progress", progress: { done: 20, total: 40 } });
+    expect(out.find((m) => m.t === "progress")).toEqual({
+      t: "progress",
+      progress: { done: 20, total: 40 },
+    });
     const ask = out.find((m) => m.t === "ask");
     expect(ask).toMatchObject({ t: "ask", save: { answers: ["x"] } });
     await runner.handle({ t: "command", id: 9, request: { type: "submit_choice" } });
     expect(out.at(-1)).toMatchObject({ t: "reply", id: 9, envelope: { resume: 0 } });
-    host.end(envelope("end", { end: { finished: true, left: false, error: null, decisions: 1, answers: 1 } }));
+    host.end(
+      envelope("end", {
+        end: { finished: true, left: false, error: null, decisions: 1, answers: 1 },
+      }),
+    );
     await started;
     expect(out.at(-1)).toMatchObject({ t: "end", save: { answers: ["x"] } });
   });
@@ -60,9 +102,19 @@ describe("HostRunner", () => {
     const restart = { answers: ["a", "b"], redo: ["c"], generation: 1, version: 7 };
     const make = () => {
       const host = new FakeHost(`h${hosts.length}`, (h, request) => {
-        if (request.type === "save_state") return envelope("command", { save: { ...save(["a", "b", "c"]), never: ["Shields"], setup: { seed: 7 } } });
+        if (request.type === "save_state") {
+          return envelope("command", {
+            save: { ...save(["a", "b", "c"]), never: ["Shields"], setup: { seed: 7 } },
+          });
+        }
         if (request.type === "history") {
-          queueMicrotask(() => h.end(envelope("end", { end: { finished: false, left: true, error: null, decisions: 0, answers: 0 } })));
+          queueMicrotask(() =>
+            h.end(
+              envelope("end", {
+                end: { finished: false, left: true, error: null, decisions: 0, answers: 0 },
+              }),
+            ),
+          );
           return envelope("command", { resume: -1, restart });
         }
         return envelope("command", {});
@@ -70,7 +122,10 @@ describe("HostRunner", () => {
       hosts.push(host);
       return host;
     };
-    const runner = new HostRunner((m) => out.push(m), async () => make() as unknown as Host);
+    const runner = new HostRunner(
+      (m) => out.push(m),
+      async () => make() as unknown as Host,
+    );
     await runner.handle({ t: "init", module: {} as WebAssembly.Module });
     void runner.handle({ t: "start", config: { setup: { seed: 7 } } });
     await tick();
@@ -79,7 +134,10 @@ describe("HostRunner", () => {
     await tick();
     await tick();
     expect(hosts).toHaveLength(2);
-    expect(hosts[1].started).toEqual({ setup: { seed: 7 }, resume: { ...restart, never: ["Shields"] } });
+    expect(hosts[1].started).toEqual({
+      setup: { seed: 7 },
+      resume: { ...restart, never: ["Shields"] },
+    });
     // The page sees the reply, then the next question of the new run; never an end for the old run.
     expect(out.filter((m) => m.t === "end")).toHaveLength(0);
     hosts[1].ask(envelope("ask"));
@@ -88,9 +146,12 @@ describe("HostRunner", () => {
 
   it("answers a command with an error when no game runs, and reports a trap as a crash", async () => {
     const out: FromWorker[] = [];
-    const runner = new HostRunner((m) => out.push(m), async () => {
-      throw new Error("instantiate failed");
-    });
+    const runner = new HostRunner(
+      (m) => out.push(m),
+      async () => {
+        throw new Error("instantiate failed");
+      },
+    );
     await runner.handle({ t: "init", module: {} as WebAssembly.Module });
     await runner.handle({ t: "command", id: 3, request: { type: "ping" } });
     expect(out.at(-1)).toEqual({ t: "reply", id: 3, error: "There is no game running" });

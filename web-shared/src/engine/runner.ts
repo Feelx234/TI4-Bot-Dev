@@ -1,6 +1,6 @@
-import type { Host } from "./hostApi.ts";
-import type { Envelope, HostRestart, HostSave, StartConfig } from "./hostApi.ts";
-import type { FromWorker, ToWorker } from "./hostProtocol.ts";
+import type { Host } from "./host.ts";
+import type { Envelope, HostRestart, HostSave, StartConfig } from "./host.ts";
+import type { FromWorker, ToWorker } from "./protocol.ts";
 
 /**
  * The logic of the Worker, apart from `self`: one game at a time, started on a wasm instance,
@@ -49,7 +49,9 @@ export class HostRunner {
   }
 
   private async instance(): Promise<Host> {
-    if (!this.module) throw new Error("The engine is not loaded");
+    if (!this.module) {
+      throw new Error("The engine is not loaded");
+    }
     return this.create(this.module);
   }
 
@@ -66,14 +68,18 @@ export class HostRunner {
     this.save = null;
     host.onProgress = (progress) => this.post({ t: "progress", progress });
     host.onAsk = (envelope) => {
-      if (run !== this.run) return;
+      if (run !== this.run) {
+        return;
+      }
       // Cheap (about 20 ms late in a game) and makes every question a place to come back to.
       this.save = this.snapshot(host);
       this.post({ t: "ask", envelope, save: this.save });
     };
     try {
       const end = await host.start(config);
-      if (run !== this.run) return;
+      if (run !== this.run) {
+        return;
+      }
       const restart = this.restart;
       this.restart = null;
       const save = this.lastSave();
@@ -87,7 +93,9 @@ export class HostRunner {
       }
       this.post({ t: "end", envelope: end, save: end.end?.finished ? this.snapshot(host) : null });
     } catch (error) {
-      if (run === this.run) this.post({ t: "crash", message: text(error) });
+      if (run === this.run) {
+        this.post({ t: "crash", message: text(error) });
+      }
     }
   }
 
@@ -111,9 +119,13 @@ export class HostRunner {
     }
     try {
       // A history change may restart the game: keep the settings (the Never set) as they are now.
-      if ((request as { type?: string }).type === "history") this.save = this.snapshot(host) ?? this.save;
+      if ((request as { type?: string }).type === "history") {
+        this.save = this.snapshot(host) ?? this.save;
+      }
       const envelope: Envelope = host.command(request);
-      if (envelope.restart) this.restart = envelope.restart;
+      if (envelope.restart) {
+        this.restart = envelope.restart;
+      }
       this.post({ t: "reply", id, envelope });
       // The game was over (an undo of its last answer): no parked run leaves, so the history
       // change is played at once.

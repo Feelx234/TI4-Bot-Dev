@@ -8,7 +8,7 @@ import { OfflineGameDeletedError, type OfflineMismatchPrompt, type QueuedFeedbac
 import { OFFLINE_FACTIONS, createLocalLauncher, engineSetup } from "./launcher.ts";
 import { FakePort, GAME, envelope, question, save, snapshot } from "./testKit.ts";
 import { LocalTransport } from "./LocalTransport.ts";
-import { Host, hasJspi } from "./hostApi.ts";
+import { Host, hasJspi } from "@ti4/shared/engine/host.ts";
 import type { OfflineSetup } from "../types.ts";
 
 const setup: OfflineSetup = { playerCount: 4, humanSeat: 2, humanFaction: "hacan", nickname: "Ada" };
