@@ -811,7 +811,7 @@ impl PrivateDecider {
                     c.target.as_ref().is_none_or(|target| matches!(target, DecisionTarget::System(id) if id.as_str() == script.destination))
                 })
         });
-        let matches: Vec<_> = if choice.player == script.actor && context_ok {
+        let mut matches: Vec<_> = if choice.player == script.actor && context_ok {
             choice
                 .options
                 .iter()
@@ -820,6 +820,25 @@ impl PrivateDecider {
         } else {
             Vec::new()
         };
+        // The hold also offers identical units waiting in the active system or along the path;
+        // a Load names the ship's origin, so it means the ones picked up there.
+        if matches.len() > 1
+            && let MovementStep::Load { origin, .. } = step
+        {
+            let at_origin: Vec<_> = matches
+                .iter()
+                .copied()
+                .filter(|o| {
+                    o.payload
+                        .get("pickup_system")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(origin.as_str())
+                })
+                .collect();
+            if at_origin.len() == 1 {
+                matches = at_origin;
+            }
+        }
         let own_seat = choice.player == script.actor;
         let offered_subtype = choice.context.as_ref().map(|c| c.subtype.clone());
         // The engine takes a lone payment option without asking, so a payment can settle before
@@ -1815,6 +1834,32 @@ mod tests {
     }
 
     #[test]
+    fn a_load_prefers_the_unit_waiting_at_the_ships_origin() {
+        // The hold also offers identical fighters waiting in the active system; the plan's Load
+        // names the ship's origin, so it means the ones there (runs s2-06-2048, o4-07-2042:
+        // "ambiguous option" for Load { origin: "54", unit: "fighter", .. }).
+        let plan: MovementPlan = serde_json::from_str(
+            r#"{"destination":"63","steps":[{"kind":"load","origin":"54","unit":"fighter","source":null,"damaged":false},{"kind":"done_moving"}]}"#,
+        )
+        .unwrap();
+        let options = ["63", "54"].map(|pickup| {
+            let mut option =
+                ChoiceOption::labelled(format!("load|{pickup}"), "load", "Load fighter");
+            option.payload = serde_json::from_value(serde_json::json!({
+                "system": "54", "unit": "fighter", "source": null, "pickup_system": pickup,
+                "damaged": false, "galvanized": false
+            }))
+            .unwrap();
+            option
+        });
+        let mut choice = offered("load_cargo", options.to_vec());
+        choice.context.as_mut().unwrap().target =
+            Some(DecisionTarget::System(ti4_model::id::SystemId::new("54")));
+        let mut script = decider(plan.kind, plan.steps);
+        assert_eq!(script.choose(&choice).unwrap().id, "load|54");
+    }
+
+    #[test]
     fn legacy_load_without_a_cargo_variant_still_rejects_ambiguity() {
         let plan: MovementPlan = serde_json::from_str(
             r#"{"destination":"42","steps":[{"kind":"load","origin":"24","unit":"infantry","source":"home","damaged":false},{"kind":"done_moving"}]}"#,
@@ -1878,6 +1923,31 @@ mod tests {
             casualty_owed: None,
             answered: Vec::new(),
         })))
+    }
+
+    #[test]
+    fn a_recorded_free_form_offer_replays_from_the_prefix() {
+        // A transaction answered with a composed offer ("x;...") is not one of the listed ids;
+        // the prefix replay must accept it the way the live game did (run s2-02-2037: every
+        // later batch failed with "batch prefix diverged" at "transaction with hacan").
+        let choice = offered(
+            "propose_transaction",
+            vec![
+                ChoiceOption::labelled("ss", "offer", "support"),
+                ChoiceOption::labelled("decline", "decline", "decline"),
+            ],
+        )
+        .accepting_free_form("x;");
+        let mut log = ti4_engine::choice::DecisionLog::default();
+        log.record(&choice, &choice.answer_for("x;rn=cf:hacan;").unwrap());
+        let mut decider = decider(BatchKind::Tokens, vec![pool("fleet_tokens")]);
+        {
+            let mut script = decider.0.lock().unwrap();
+            script.prefix_len = log.records.len();
+            script.prefix = log.records.into();
+        }
+        assert_eq!(decider.choose(&choice).unwrap().id, "x;rn=cf:hacan;");
+        assert_eq!(decider.choose(&gain_ask()).unwrap().id, "fleet_tokens");
     }
 
     #[test]

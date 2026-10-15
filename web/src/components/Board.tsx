@@ -124,6 +124,25 @@ export const Board: React.FC<BoardProps> = ({
     tokenPaymentPlanets,
   );
 
+  // A hex tapped to answer a pick (an activation) opens the inspector too; once that decision is
+  // answered the inspector closes, or it would cover the map at the next pick on a phone.
+  const pickedRef = useRef<{ nonce: string; systemId: string } | null>(null);
+  const selectTile = (id: string | null) => {
+    const tile = id ? presentation.tiles.find((t) => t.systemId === id) : undefined;
+    pickedRef.current =
+      id && pendingChoice && tile?.isCandidateTarget ? { nonce: pendingChoice.nonce, systemId: id } : null;
+    setSelectedSystemId(id);
+  };
+  const pendingNonce = pendingChoice?.nonce;
+  useEffect(() => {
+    const picked = pickedRef.current;
+    if (!picked || picked.nonce === pendingNonce) return;
+    pickedRef.current = null;
+    if (selectedSystemId === picked.systemId) setSelectedSystemId(null);
+    // Only a new decision closes it; the selection is read as it is then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNonce]);
+
   // "Who can go here": the inspector's second tab asks the engine and draws the answer as arrows.
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("details");
   const [reachFocus, setReachFocus] = useState<string | null>(null);
@@ -427,7 +446,7 @@ export const Board: React.FC<BoardProps> = ({
               players={players}
               onSelectTarget={onSelectTarget}
               onSelectOptionId={onSelectOptionId}
-              onSelectSystem={setSelectedSystemId}
+              onSelectSystem={selectTile}
               onMouseEnter={() => {
                 setHoveredTile({
                   systemId: tile.systemId,
