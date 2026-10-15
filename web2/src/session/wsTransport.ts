@@ -2,7 +2,7 @@
 import type { PlanStep } from "./movementPlan";
 import { type LegacyStaged, seatSync } from "./seatStore";
 import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
-import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
+import { type Connection, type Socket, backoff, connect, pageSocket } from "@ti4/shared/net/socket.ts";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
 import { spaceOddsOf } from "./wasmTransport";
 import {
@@ -26,7 +26,7 @@ export interface OnlineGame {
   legacyStaged?: LegacyStaged;
 }
 
-export { type Socket, openSocket } from "./socket";
+export { type Socket, openSocket } from "@ti4/shared/net/socket.ts";
 
 export interface OnlinePlay {
   /** Opens the socket of a game. Without it: `/ws/games/<id>` at the address of the page. */

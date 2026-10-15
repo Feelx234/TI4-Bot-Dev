@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { localTable } from "./localTable";
 import type { LocalGame } from "./savedGame";
-import { openSocket } from "./socket";
+import { openSocket } from "@ti4/shared/net/socket.ts";
 import { type Table, type TableState, createTable, serverTable } from "./table";
 
 // What a table promises, checked on both: the table in this page (single player, over the

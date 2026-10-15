@@ -45,6 +45,7 @@ src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelop
              worker.ts    the Worker entry; it gets a compiled WebAssembly.Module, not the file
              protocol.ts  ToWorker, FromWorker, HostPort (the Worker or a fake)
              identity.ts  sha256Hex/sha256 of the engine file, EngineIdentity {build, contentDigest, wasmSha256}
+src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,

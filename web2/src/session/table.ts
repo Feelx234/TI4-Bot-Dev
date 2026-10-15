@@ -1,7 +1,7 @@
 // The table of a game: who sits at it and how the game is set up, before the game and while it
 // runs. `Table` is the seam of the setup, as `Transport` is the seam of a game: the screen of the
 // lobby does not know where the table is kept.
-import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
+import { type Connection, type Socket, backoff, connect, pageSocket } from "@ti4/shared/net/socket.ts";
 import {
   type LobbyState,
   type MapChoice,

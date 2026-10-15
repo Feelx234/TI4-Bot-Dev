@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { Socket } from "./socket";
+import type { Socket } from "@ti4/shared/net/socket.ts";
 import {
   type Seat,
   TABLE_UNKNOWN,

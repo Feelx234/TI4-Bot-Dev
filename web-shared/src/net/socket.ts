@@ -1,5 +1,5 @@
-// A websocket of the server that is opened again when it is lost. The socket of a game
-// (`wsTransport.ts`) and the socket of a table (`table.ts`) use it.
+// A websocket of the server that is opened again when it is lost. web2's socket of a game
+// (`wsTransport.ts`) and socket of a table (`table.ts`) use it.
 
 /** The part of `WebSocket` that is used, so a test can pass a socket of its own. */
 export interface Socket {
