@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–4 done (2026-10-14), items 5–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–5 done (2026-10-14), items 6–11 open.
 
 ## Context
 
@@ -225,12 +225,15 @@ Starts after Step 5 is committed.
    `TakeBack` (wasm: `Ended::taken_back`, the host rolls back to the choice the nonce numbers and
    reports the script as sent). `first_answer` (the first answer, or why the game refuses the
    script), `ACTION_OVER`, `refused` and `tactical_complete` move with it. Each host only sends
-   `DraftApplied`; the server's `check_script` stays until item 5.
-5. **Script precheck.** `check_script`/`Probe`/`Check` → `ti4_host::planning::script`.
-   `HostSession` uses it with a copy at the last checkpoint + the tail. (Step 5 removed the
-   `draft_outcome` refusal of `host_api.rs`, which used the scope of a tactical turn and so
-   refused a secondary: a script that the game refuses now rolls back to its first choice, all
-   or nothing. The precheck makes the refusal cheap again.)
+   `DraftApplied`.
+5. **Script precheck.** (Done.) `ti4_host::planning::script::{check_script, Check}` (the
+   `Probe` plays the tail of the live game on a copy, then the script, behind the actor's Never
+   cards; `Refused` / `Plays` / `Unknown`). The server calls it in `apply_draft` with the copy of
+   `DraftBasis`. `HostSession::apply_script` calls it through `PlayLoop::script_copy` (`lib.rs`:
+   the game at its last finished step, the last checkpoint with the steps since it played again,
+   and the length of the log there) and the tail of its decision log: a refused script is
+   answered with `draft_applied` and the game is not resumed. The take-back of `OnMismatch` stays
+   for what the copy cannot see (a decision of another seat before the mismatch).
 6. **Undo.** `ti4_host::planning::undo::UndoTrack` with `UndoRules`:
    - `Table` (server): another seat, a die, a shuffle, a revealed card cut the tail.
    - `Local` (wasm): only a change of the page's seats cuts, because a checkpoint restores the dice.

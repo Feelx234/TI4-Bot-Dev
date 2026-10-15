@@ -1198,6 +1198,23 @@ fn draft_base() -> Result<Game<'static>, Failure> {
     })
 }
 
+/// A copy of the game at its last finished step, for the check of a script that is sent
+/// ([`ti4_host::planning::script::check_script`]), and how many decisions the log had at that
+/// step. `None` while no game is played.
+pub(crate) fn script_copy() -> Option<(Game<'static>, usize)> {
+    if DRAFT_BASE.with_borrow(Option::is_none) {
+        let base = draft_base().ok()?;
+        DRAFT_BASE.set(Some(base));
+    }
+    let at_checkpoint = CHECKPOINTS
+        .with_borrow(|checkpoints| checkpoints.back().map(|checkpoint| checkpoint.decisions))?;
+    DRAFT_BASE.with_borrow(|base| {
+        let base = base.as_ref()?;
+        // The steps since the checkpoint were played again on the base, each decision logged.
+        Some((base.fork(), at_checkpoint + base.table.log.records.len()))
+    })
+}
+
 /// Run `script` as the next turn of the host's seat on a copy of the game at its last finished
 /// step.
 pub(crate) fn draft_outcome(

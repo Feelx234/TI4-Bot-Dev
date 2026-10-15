@@ -4,28 +4,18 @@
 //! ([`ti4_host::planning::draft::DraftStep`]). The server keeps none: a run plays the whole
 //! script on a copy and forgets it ([`run_draft`]), and a script that is sent lives only while
 //! the game answers its questions from it ([`ti4_host::planning::script::ScriptRuns`]). Here the
-//! server tells each seat what became of its script, and checks a script on a copy before it is
-//! sent ([`check_script`]).
+//! server tells each seat what became of its script. The check of a script on a copy before it
+//! is sent is [`ti4_host::planning::script::check_script`].
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-
-use ti4_engine::choice::{
-    Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, SeatObservation, Table,
-};
-use ti4_engine::game::Game;
-use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_host::planning::script::{ACTION_OVER, Ended, tactical_complete};
+use ti4_engine::choice::{Choice, ChoiceOption};
+use ti4_host::planning::draft::DraftStep;
+use ti4_host::planning::script::Ended;
 use ti4_host::protocol::PROTOCOL_VERSION;
 use ti4_host::protocol::server::{DraftAppliedMsg, ServerMessage};
 use ti4_host::protocol::status::ViewerRole;
-use ti4_host::view::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
 
 use crate::session::worker::SessionShared;
-
-/// How many engine steps the check of a script takes at most, as a run of a draft.
-const STEP_BOUND: usize = 64;
 
 impl SessionShared {
     /// Tells the connections of each seat what became of its script.
@@ -45,7 +35,7 @@ impl SessionShared {
     }
 
     /// Begins to answer `seat` from `script`, whose first answer is given by the caller: `next`
-    /// and `script` are as [`script_answer`] left them after it.
+    /// and `script` are as [`ti4_host::planning::draft::script_answer`] left them after it.
     pub(crate) fn begin_script(
         &mut self,
         seat: &PlayerId,
@@ -74,181 +64,6 @@ impl SessionShared {
         let ended = self.scripts.after_step(tactical_complete, active.as_ref());
         self.tell_scripts(ended);
     }
-}
-
-/// What a check of a script on a copy of the game found.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Check {
-    /// The game takes the script as far as the copy can tell: to its end, to a question that
-    /// is not of the script, or to a decision of another seat.
-    Plays,
-    /// The game does not offer what entry `step` asks for.
-    Refused { step: usize, reason: String },
-    /// The copy did not come to the choice that the live game waits in.
-    Unknown,
-}
-
-struct Probe {
-    /// The decisions of the live game since the copy was made, which the copy plays again.
-    tail: VecDeque<DecisionRecord>,
-    /// The choice that the live game waits in. `None` once the copy came to it.
-    pending: Option<Choice>,
-    actor: PlayerId,
-    /// The cards that the actor is never offered: the live game declines a window of such
-    /// cards before the seat, and so before its script, is asked.
-    never: ti4_host::view::reaction_modes::Modes,
-    script: Vec<DraftStep>,
-    next: usize,
-    verdict: Option<Check>,
-}
-
-impl Probe {
-    fn answer(&mut self, choice: &Choice) -> Option<ChoiceOption> {
-        if self.verdict.is_some() {
-            return None;
-        }
-        if let Some(record) = self.tail.pop_front() {
-            let option = (record.player == choice.player)
-                .then(|| choice.option(&record.chosen).cloned())
-                .flatten();
-            if option.is_none() {
-                self.verdict = Some(Check::Unknown);
-            }
-            return option;
-        }
-        // From here on the copy asks what the live game asks next: the actor is asked as its
-        // seat is, behind its Never cards.
-        let narrowed;
-        let choice = if choice.player == self.actor {
-            match filter(choice, &self.never) {
-                Filtered::Declined { option, .. } => return Some(option),
-                Filtered::Narrowed(choice) => {
-                    narrowed = *choice;
-                    &narrowed
-                }
-                Filtered::Unchanged => choice,
-            }
-        } else {
-            choice
-        };
-        if let Some(pending) = self.pending.take()
-            && (pending.player != choice.player || pending.ids() != choice.ids())
-        {
-            self.verdict = Some(Check::Unknown);
-            return None;
-        }
-        if choice.player != self.actor {
-            // What another seat decides is not known here: the script is fine so far.
-            self.verdict = Some(Check::Plays);
-            return None;
-        }
-        match script_answer(&self.script, self.next, choice, &self.actor) {
-            ScriptAnswer::Answer {
-                option,
-                next,
-                script,
-            } => {
-                self.next = next;
-                if let Some(script) = script {
-                    self.script = script;
-                }
-                Some(option)
-            }
-            ScriptAnswer::Done | ScriptAnswer::Interrupted { .. } => {
-                self.verdict = Some(Check::Plays);
-                None
-            }
-            ScriptAnswer::Mismatch { step, reason } => {
-                self.verdict = Some(Check::Refused { step, reason });
-                None
-            }
-        }
-    }
-}
-
-struct ProbeDecider(Arc<Mutex<Probe>>);
-
-impl Decider for ProbeDecider {
-    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
-        self.0
-            .lock()
-            .expect("probe lock")
-            .answer(choice)
-            .ok_or_else(|| IllegalChoice::DeciderFailed {
-                player: choice.player.clone(),
-                prompt: choice.prompt.clone(),
-                reason: "the check of the script stops here".to_owned(),
-            })
-    }
-
-    fn choose_seeing(
-        &mut self,
-        choice: &Choice,
-        _seen: &SeatObservation<'_>,
-    ) -> Result<ChoiceOption, IllegalChoice> {
-        self.choose(choice)
-    }
-}
-
-/// Plays `script` for `actor` on `game`, a copy of the live game at its last completed step.
-///
-/// The copy first plays `tail` again, the decisions of the live game since that step, and must
-/// then ask `pending`, the choice that the live game waits in. From there the script answers.
-/// The copy has the dice of the live game, so what it plays is what the live game will play,
-/// up to the first decision of another seat. `never` is the Never cards of the actor.
-pub(crate) fn check_script(
-    mut game: Game<'static>,
-    tail: Vec<DecisionRecord>,
-    pending: &Choice,
-    script: &[DraftStep],
-    actor: &PlayerId,
-    never: ti4_host::view::reaction_modes::Modes,
-) -> Check {
-    let probe = Arc::new(Mutex::new(Probe {
-        tail: tail.into(),
-        pending: Some(pending.clone()),
-        actor: actor.clone(),
-        never,
-        script: script.to_vec(),
-        next: 0,
-        verdict: None,
-    }));
-    // The table of the timing resolver stays as the copy has it: the live game leaves it alone
-    // too, and its answers are not in the decision log.
-    game.table = Table::with_default(Box::new(ProbeDecider(probe.clone())));
-    let mut events = game.events.len();
-    for _ in 0..STEP_BOUND {
-        let result = game.step();
-        let mut probe = probe.lock().expect("probe lock");
-        if probe.verdict.is_some() {
-            break;
-        }
-        if result.error.is_some() || probe.pending.is_some() && probe.tail.is_empty() {
-            // The copy failed, or a step ended before the choice of the live game was asked.
-            probe.verdict = Some(Check::Unknown);
-            break;
-        }
-        if probe.pending.is_none() && tactical_complete(&game.events[events..]) {
-            let left = &probe.script[probe.next..];
-            probe.verdict = Some(if needless(left) {
-                Check::Plays
-            } else {
-                Check::Refused {
-                    step: probe.next,
-                    reason: ACTION_OVER.to_owned(),
-                }
-            });
-            break;
-        }
-        if result.finished || probe.next >= probe.script.len() {
-            probe.verdict = Some(Check::Plays);
-            break;
-        }
-        events = game.events.len();
-    }
-    drop(game);
-    let verdict = probe.lock().expect("probe lock").verdict.clone();
-    verdict.unwrap_or(Check::Unknown)
 }
 
 #[cfg(test)]

@@ -122,6 +122,10 @@ impl PlayLoop for CrateLoop {
     fn reaches(&self, asked: u64) -> bool {
         crate::undo_reaches(asked)
     }
+
+    fn script_copy(&self) -> Option<(Game<'static>, usize)> {
+        crate::script_copy()
+    }
 }
 
 fn session() -> std::sync::MutexGuard<'static, Option<HostSession>> {

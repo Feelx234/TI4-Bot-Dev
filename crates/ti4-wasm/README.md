@@ -462,9 +462,15 @@ for the draft, for the live game and for the server.
   (`HostSession::scripted`), and the page is not asked. The runs are the server's
   (`ti4_host::planning::script::ScriptRuns`, one per seat); what differs is
   `OnMismatch::TakeBack` below.
-- All or nothing: a step that the game does not offer takes the whole script back (the run goes
-  back to the checkpoint of the choice the script began at, as a failed `submit_batch` does),
-  and `draft_applied` says it was refused, with nothing applied. A question that is not of the
+- First the script is played on a copy of the game, as on the server
+  (`ti4_host::planning::script::check_script`): the copy is the game at its last finished step
+  (`script_copy` in `lib.rs`, the last checkpoint and the steps since it played again), with
+  the decisions since then played again. A script that the copy refuses is answered at once with
+  `draft_applied` (refused, nothing applied), and the game is not resumed.
+- All or nothing: a step that the game does not offer all the same (the copy stops at a decision
+  of another seat) takes the whole script back (the run goes back to the checkpoint of the choice
+  the script began at, as a failed `submit_batch` does), and `draft_applied` says it was refused,
+  with nothing applied. A question that is not of the
   script (another seat, also another seat played by the page, a reaction window) stops it with
   its earlier steps in the game (`interrupted`), and so does the end of its action or turn.
 - A window that the Never cards of the page decline is declined before the script sees it, so

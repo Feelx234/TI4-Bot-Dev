@@ -944,7 +944,7 @@ impl GameSession {
         expected_version: u64,
         script: &[ti4_host::planning::draft::DraftStep],
     ) -> Result<Option<ti4_host::protocol::server::ScriptStopped>, RejectionReason> {
-        use ti4_host::planning::script::{First, first_answer, refused};
+        use ti4_host::planning::script::{Check, First, check_script, first_answer, refused};
         // The choice is reserved while the copy plays, so no other answer can take it.
         let (choice, copy, tail, never) = {
             let mut lock = self.shared.lock().expect("shared lock");
@@ -998,9 +998,9 @@ impl GameSession {
         let refusal = match &first {
             Ok(_) => match copy.zip(tail) {
                 Some((game, tail)) => {
-                    match script::check_script(game, tail, &choice, script, player, never) {
-                        script::Check::Refused { reason, .. } => Some(reason),
-                        script::Check::Plays | script::Check::Unknown => None,
+                    match check_script(game, tail, &choice, script, player, never) {
+                        Check::Refused { reason, .. } => Some(reason),
+                        Check::Plays | Check::Unknown => None,
                     }
                 }
                 None => None,

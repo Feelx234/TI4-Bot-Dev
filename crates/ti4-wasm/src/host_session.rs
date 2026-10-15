@@ -45,7 +45,8 @@ use ti4_host::journal::{self, EventDraft};
 use ti4_host::map::GalaxyLayout;
 use ti4_host::planning::draft::DraftStep;
 use ti4_host::planning::script::{
-    Ended, First, OnMismatch, ScriptRuns, first_answer, refused, tactical_complete,
+    Check, Ended, First, OnMismatch, ScriptRuns, check_script, first_answer, refused,
+    tactical_complete,
 };
 use ti4_host::planning::steps::PlanStep;
 use ti4_host::planning::undo::{self, Answered};
@@ -103,6 +104,9 @@ pub trait PlayLoop: Send {
     fn decided(&self) -> u64;
     /// Whether an undo through the checkpoints reaches the answer that had the number `asked`.
     fn reaches(&self, asked: u64) -> bool;
+    /// A copy of the game at its last finished step and how many decisions the log had there:
+    /// the check of a script before it is sent ([`check_script`]).
+    fn script_copy(&self) -> Option<(Game<'static>, usize)>;
 }
 
 /// A history change that needs the game to be played again: the host ends the parked run and
@@ -1252,7 +1256,9 @@ impl HostSession {
     }
 
     /// Sends `script` to the game: the pending choice and the choices after it are answered
-    /// from it. A step that the game does not offer takes the script back whole
+    /// from it. A script that the game refuses on a copy ([`check_script`]) is refused before
+    /// anything of it is in the game. A step that the game does not offer all the same (the
+    /// copy cannot see past a decision of another seat) takes the script back whole
     /// ([`Scripted::Rollback`]), so a refused script leaves the game as it was.
     fn apply_script(
         &mut self,
@@ -1262,11 +1268,17 @@ impl HostSession {
     ) -> Option<Resume> {
         self.check_pending(nonce, expected_version, None)?;
         let (choice, _) = self.pending.clone()?;
+        let first = first_answer(&script, &choice, &choice.player).and_then(|first| {
+            match self.precheck(&choice, &script) {
+                Check::Refused { reason, .. } => Err(reason),
+                Check::Plays | Check::Unknown => Ok(first),
+            }
+        });
         let First {
             option,
             next,
             script: ordered,
-        } = match first_answer(&script, &choice, &choice.player) {
+        } = match first {
             Ok(first) => first,
             Err(reason) => {
                 self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
@@ -1286,6 +1298,20 @@ impl HostSession {
         self.tell_scripts(ended);
         self.awaiting = Some(option.id);
         Some(Resume::Answer(index))
+    }
+
+    /// Plays `script` of the seat of `choice` on a copy of the game at its last finished step,
+    /// with the decisions since then played again ([`check_script`]). `Unknown` when there is
+    /// no copy, or the log of the session does not reach the step yet.
+    fn precheck(&self, choice: &Choice, script: &[DraftStep]) -> Check {
+        let Some((game, decisions)) = self.play_loop.script_copy() else {
+            return Check::Unknown;
+        };
+        let Some(tail) = self.decision_log.get(decisions..) else {
+            return Check::Unknown;
+        };
+        let never = self.never.lock().expect("never set lock").clone();
+        check_script(game, tail.to_vec(), choice, script, &choice.player, never)
     }
 
     /// The place in [`Self::own`] of the first answer that one undo takes back: the last
