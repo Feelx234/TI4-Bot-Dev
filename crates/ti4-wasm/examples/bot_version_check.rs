@@ -75,11 +75,8 @@ fn main() -> Result<(), String> {
         failed |= !finished;
 
         let (_, _, save, _) = play(&json!({ "setup": setup }), Some(asks))?;
-        let version = save
-            .pointer("/setup/bot_version")
-            .cloned()
-            .unwrap_or(Value::Null);
-        let (_, _, _, check) = play(&json!({ "setup": save["setup"], "resume": save }), Some(0))?;
+        let version = save.get("bot_version").cloned().unwrap_or(Value::Null);
+        let (_, _, _, check) = play(&json!({ "resume": save }), Some(0))?;
         let ok = check["ok"] == true && version == json!(ti4_rule_bot::tuning::BOT_VERSION);
         println!(
             "seed {seed}: new game saved with bot_version {version}, resumed: {check} -> {}",
@@ -87,27 +84,42 @@ fn main() -> Result<(), String> {
         );
         failed |= !ok;
 
+        // A `local` game (the page's own table) has no `setup` to record the version in: the
+        // save must still carry it.
+        let local = json!({ "local": { "seed": seed, "players": 3, "humans": 1, "rule_seats": 6 } });
+        let (_, _, save, _) = play(&local, Some(asks))?;
+        let version = save.get("bot_version").cloned().unwrap_or(Value::Null);
+        let (_, _, _, check) = play(&json!({ "resume": save }), Some(0))?;
+        let ok = check["ok"] == true && version == json!(ti4_rule_bot::tuning::BOT_VERSION);
+        println!(
+            "seed {seed}: local game saved with bot_version {version}, resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
+        failed |= !ok;
+
         let mut old = setup.clone();
         old["bot_version"] = json!(1);
         let (_, _, mut save, _) = play(&json!({ "setup": old }), Some(asks))?;
-        if let Some(setup) = save.get_mut("setup").and_then(Value::as_object_mut) {
+        let version_1 = save.get("bot_version") == Some(&json!(1));
+        if let Some(object) = save.as_object_mut() {
+            object.remove("bot_version");
+        }
+        if let Some(setup) = save.pointer_mut("/game/setup").and_then(Value::as_object_mut) {
             setup.remove("bot_version");
         }
-        let (_, _, _, check) = play(&json!({ "setup": save["setup"], "resume": save }), Some(0))?;
-        let ok = check["ok"] == true;
+        let (_, _, _, check) = play(&json!({ "resume": save }), Some(0))?;
+        let ok = check["ok"] == true && version_1;
         println!(
-            "seed {seed}: version-1 save without the field, resumed: {check} -> {}",
+            "seed {seed}: version-1 save without the field (recorded as 1: {version_1}), resumed: {check} -> {}",
             if ok { "OK" } else { "FAIL" }
         );
         failed |= !ok;
         // For information: the same save resumed with the current bot (what every old save
         // would do without the field), usually a different game.
         let mut forced = save.clone();
-        forced["setup"]["bot_version"] = json!(ti4_rule_bot::tuning::BOT_VERSION);
-        let outcome = play(
-            &json!({ "setup": forced["setup"], "resume": forced }),
-            Some(0),
-        );
+        forced["bot_version"] = json!(ti4_rule_bot::tuning::BOT_VERSION);
+        forced["game"]["setup"]["bot_version"] = json!(ti4_rule_bot::tuning::BOT_VERSION);
+        let outcome = play(&json!({ "resume": forced }), Some(0));
         let said = match &outcome {
             Ok((_, asks, _, check)) if *asks > 0 => format!("resume_check {check}"),
             Ok(_) => {
