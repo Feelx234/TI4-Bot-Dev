@@ -3,7 +3,7 @@
  * `support_for_throne`, `sabo1`). One lookup shared by the trade items, the staging summary, the
  * Quick deals and the answer prompt, so no raw id reaches the player.
  */
-import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 import { getCardInfo } from "./cardDatabase.ts";
 
 export type TradeCardKind = "note" | "action" | "secret";
@@ -14,7 +14,7 @@ const KIND_TYPE: Record<TradeCardKind, string> = {
   secret: "Secret Objective",
 };
 
-const SECRETS = GENERATED_CONTENT_CATALOG.secretObjectives as unknown as Record<string, { name: string }>;
+const SECRETS = CONTENT.secretObjectives as unknown as Record<string, { name: string }>;
 
 const titleCase = (s: string): string =>
   s

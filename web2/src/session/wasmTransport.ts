@@ -5,7 +5,8 @@
 // commands of the engine (`step`, `switch_seat`, `stepping`). The engine keeps the staged work of
 // each seat in its saved game, as the server keeps it for the seat, and sends a ready draft of a
 // secondary itself. The questions that need no game are exports of their own, asked in the page.
-import type { HostSave as EngineSave, StartConfig } from "@ti4/shared/engine/host.ts";
+import { loadCatalog } from "@ti4/shared/content/catalog.ts";
+import { type HostSave as EngineSave, Host, type StartConfig } from "@ti4/shared/engine/host.ts";
 import { sha256Hex } from "@ti4/shared/engine/identity.ts";
 import { hasJspi } from "@ti4/shared/engine/jspi.ts";
 import { inlinePort, workerPort } from "@ti4/shared/engine/port.ts";
@@ -38,7 +39,6 @@ interface Exports {
   ti4_setup_preview(length: number): number;
   ti4_setup_draw(length: number): number;
   ti4_scenarios(): number;
-  ti4_catalog(): number;
   ti4_space_odds(length: number): number;
   ti4_request_ptr(): number;
   ti4_response_ptr(): number;
@@ -179,9 +179,12 @@ export async function spaceOddsOf(module: WebAssembly.Module, request: SpaceOdds
 export const scenariosOf = (module: WebAssembly.Module) =>
   ask<ScenarioInfo[]>(module, (exports) => exports.ti4_scenarios());
 
-/** Asks the engine for the printed cards. */
-export const catalogOf = (module: WebAssembly.Module) =>
-  ask<Catalog>(module, (exports) => exports.ti4_catalog());
+/**
+ * A question of the engine that needs no game (`ti4_host_query`: `describe`, `catalog`), on an
+ * instance of its own. `loadCatalog({ query: engineQuery(module) })` asks it for the printed cards.
+ */
+export const engineQuery = (module: WebAssembly.Module) => async (request: object) =>
+  (await Host.create(module)).query(request);
 
 /**
  * What a host can choose for the table of the page, with the maps that build for `players`
@@ -217,7 +220,7 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
     module,
     hash: await sha256Hex(bytes),
     scenarios: await scenariosOf(module),
-    catalog: await catalogOf(module),
+    catalog: await loadCatalog({ query: engineQuery(module) }),
   };
 }
 

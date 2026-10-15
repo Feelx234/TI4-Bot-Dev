@@ -121,22 +121,29 @@ The types of what the server and the engine send and take, generated from the Ru
 What is printed on the cards, from `ti4-content` through the engine: `Catalog`
 (`ti4_host::view::components`). A page asks for it once; an update names cards by id only.
 
-- The engine gives it to `{"query":"catalog"}` (and `ti4_catalog`), the server at
-  `GET /api/catalog`: the same JSON. `content` is the digest of the corpus; a page compares it
-  with `content` of a snapshot of the server.
+- The engine gives it to `{"query":"catalog"}`, the server at `GET /api/catalog`: the same
+  JSON. `content` is the digest of the corpus; a page compares it with `content` of a snapshot of
+  the server.
 - `exploration` and `components` are the cards of the sources of a game (Prophecy of Kings):
   web2 reads them.
 - `records` (`ContentRecords`) is every record of the corpus that a page names by id, of every
   source: 15 kinds (strategy cards, secret and public objectives, action cards, technologies,
   explores, planets, attachments, factions, units, leaders, abilities, promissory notes, relics,
   breakthroughs). Each kind is a list in the order of the corpus, each record with its `id`; a
-  field that a record does not print is left out. web's content wrappers read these (step 15 of
-  the plan).
+  field that a record does not print is left out. web's content wrappers read these, as tables by
+  id (`web/src/protocol/catalogStore.ts`).
 - `loadCatalog(source)` (`@ti4/shared/content/catalog.ts`) loads it. With `source.query` (a
   query of the engine that the page has loaded: `EngineLink.query`, or `Host.query`) it asks the
   engine, `{"query":"catalog"}`; without it the server (`source.fetch`, `source.url`, default
   `/api/catalog`). With `source.content` it refuses a catalog of another corpus. It throws a
   `CatalogError` with a `kind` (`engine`, `http`, `invalid`, `digest`): the app shows its own text.
+  - web2 asks its engine when it loads it (`loadEngine` in `wasmTransport.ts`, `engineQuery`).
+  - web loads it before its app renders (`web/src/components/CatalogProvider.tsx`): an online
+    page from the server, an offline page (`/offline`) from its engine in a short-lived Worker;
+    each falls back to the other.
+- `fixtures/catalog/catalog.json` of the repository is the answer of the engine, for the tests of
+  web (`web/src/test/setup.ts` loads it). `cargo wire-web` writes it; `cargo t-web` fails while it
+  is stale (`catalog_fixture::catalog_fixture_is_current`).
 - `content/names.ts` holds the pure helpers about ids, with no text of their own:
   - `humanizeId` (web's fallback name: underscores to spaces, each word in upper case, also after
     a hyphen) and `titleCase` (web2's: upper case after a space or an underscore only). web's
@@ -221,7 +228,8 @@ The single player games of both apps, in one IndexedDB database of the origin. I
   `cd web2 && npm test`.
 - web2's biome lints this dir: `web-shared/biome.json` extends `web2/biome.json`, and web2's
   `npm run lint` runs it here too. Not `src/wire/generated/`.
-- `cargo t-web` checks that `src/wire/generated/` and `fixtures/protocol/` are current.
+- `cargo t-web` checks that `src/wire/generated/`, `fixtures/protocol/` and `fixtures/catalog/`
+  are current.
 - The storage tests (`src/storage/storage.test.ts`) run on `fake-indexeddb`, a fresh
   `IDBFactory` for each test.
 - web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`), without the

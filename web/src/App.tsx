@@ -18,6 +18,7 @@ import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
 import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
+import { CatalogProvider } from "./components/CatalogProvider.tsx";
 import { OfflineRoutes, isOfflinePath } from "./offline/OfflineRoutes.tsx";
 import { useOfflineLauncher } from "./offline/useOfflineLauncher.ts";
 import { registerLocalLauncher } from "./offline/local/register.ts";
@@ -116,7 +117,10 @@ const pathGameId = () =>
     ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1])
     : null;
 
-/** The app, behind the playtest password screen and with the Feedback button on top. */
+/**
+ * The app, behind the playtest password screen and with the Feedback button on top. It renders once
+ * the printed cards are loaded (`CatalogProvider`).
+ */
 export const App: React.FC = () => {
   const accessRequired = useAccessRequired();
   useEffect(() => {
@@ -125,7 +129,9 @@ export const App: React.FC = () => {
   if (accessRequired) return <PasswordScreen />;
   return (
     <>
-      <AppRoutes />
+      <CatalogProvider offline={isOfflinePath(window.location.pathname)}>
+        <AppRoutes />
+      </CatalogProvider>
       <FeedbackLauncher />
     </>
   );

@@ -108,9 +108,9 @@ the meantime is below.
 New code uses data structures that fit the use, with fixed or arena memory, so that it does not
 have to be migrated when the engine changes.
 
-- The exports that need no game (the setup of a table, the scenarios, the catalogue, the odds)
-  use fixed static buffers (`src/buffer.rs`): the result of an export (`RESPONSE_CAPACITY`,
-  512 KiB) and the request of the host (`REQUEST_CAPACITY`, 64 KiB). A game speaks through the
+- The exports that need no game (the setup of a table, the scenarios, the odds) use fixed
+  static buffers (`src/buffer.rs`): the result of an export (`RESPONSE_CAPACITY`,
+  256 KiB) and the request of the host (`REQUEST_CAPACITY`, 64 KiB). A game speaks through the
   input and output of `host_api` (JSON messages, see "The hosted game"), which grow as needed.
   Until 2026-10-14 web2 had exports of its own with a fixed update buffer and a draft buffer;
   they are gone (`web2/plans/2026-10-14-DEDUPLICATE_HOSTS_PLAN.md`, step 5).
@@ -157,7 +157,6 @@ The questions that need no game are exports of their own:
 | `ti4_setup_preview(request_len) -> status` | The board of the table in the request buffer, with a place for each seat and no faction, and `map`: what the table says of its map. |
 | `ti4_setup_draw(request_len) -> status` | What the start draws for the table in the request buffer: `players` (the ids by seat), `order` and `factions`. |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
-| `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `content` (the digest of the corpus, which a page compares with the one of a server before it plays there), `exploration` (the exploration cards and the attachments), `components` (abilities, leaders, technologies, relics, legendary planets) and `records` (every record of the corpus that a page names by id). See "The exploration". |
 | `ti4_space_odds(request_len) -> status` | The odds of a space combat, from the sides alone. |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
 | `ti4_response_ptr()` | The address of the result or the error of the last export. |
@@ -378,8 +377,10 @@ Every update has the field `exploration` (`ti4-host/src/view/exploration.rs`):
 - `explores`: the planets that no player controls, with the decks that they are explored into
   (`ti4_engine::planets::traits_now`). A seat that takes control of one explores it (35.1).
 
-An update names cards and attachments by id. `ti4_catalog` has what is printed on them, in
-`exploration`: the name, the deck, the kind and the text of each exploration card, the cards
+An update names cards and attachments by id. The catalogue (`{"query":"catalog"}` of
+`ti4_host_query`, see "The hosted game") has what is printed on them: `content` (the digest of the
+corpus, which a page compares with the one of a server before it plays there), and in
+`exploration` the name, the deck, the kind and the text of each exploration card, the cards
 that each deck begins with, and for each attachment its name, what it adds to the planet, and
 the text of the card that attaches it. `ti4-content` is compiled into the engine, so this costs
 no bytes.
@@ -401,7 +402,10 @@ card). It is about 250 KiB of the 410 KiB of the catalogue; a list, not a map by
 maps cost 110 KB of wasm (2026-10-15).
 
 The server serves the same JSON at `GET /api/catalog` (`ti4_server::http::content`), so a page
-without an engine reads the same catalogue; `content` is the digest of its corpus.
+without an engine reads the same catalogue; `content` is the digest of its corpus. Both apps load
+it with `loadCatalog` of `web-shared/src/content/catalog.ts`: web2 from its engine, web from the
+server online and from its engine offline. `fixtures/catalog/catalog.json` is the answer of the
+engine, for the tests of web (`cargo wire-web` writes it, `cargo t-web` fails while it is stale).
 
 The relic fragments of a seat are in its player view (`relic_fragments`, by deck), and the
 attachments of a planet in its planet view. The values of a planet (`resources`, `influence`)
@@ -728,7 +732,7 @@ bytes: read both again after every call (the buffer can move).
 | `ti4_host_in(len) -> ptr` | Reserve the input buffer; write `len` bytes of request there. |
 | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
 | `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
-| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}` (the JSON of `ti4_catalog`, and of `GET /api/catalog` of the server). |
+| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}` (the printed cards, the JSON of `GET /api/catalog` of the server; about 410 KiB, in the output of `host_api`). |
 | `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}` (with none of the three, the game of the save). Returns when the game ends or is left; the output is an `end` envelope. |
 | `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
 

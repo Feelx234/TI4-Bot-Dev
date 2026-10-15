@@ -56,6 +56,9 @@ fixtures/mlp-baselines/*
 fixtures/legacy_entropy/*
 !fixtures/legacy_entropy/bounded-v1/
 !fixtures/legacy_entropy/bounded-v1/**
+# The catalogue of the engine for the tests of web, written by `cargo wire-web`.
+!fixtures/catalog/
+!fixtures/catalog/**
 
 # Local git worktrees. Gitlinks to them are meaningless to a clone.
 .worktrees/

@@ -5,7 +5,7 @@ import {
   findSecretObjectiveMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
-import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 
 export interface CardOptionInfo {
   title: string;
@@ -24,7 +24,7 @@ const SECRET_SUBTYPES = new Set(["return_over_secret_hand_limit", "expedition_di
 const NOTE_PICK_SUBTYPE = /_pick_promissory note$/;
 
 type NoteRecord = { name: string; text?: string };
-const NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<string, NoteRecord>;
+const NOTES = CONTENT.promissoryNotes as unknown as Record<string, NoteRecord>;
 
 /** A note id is `alias:Owner faction` (Support for the Throne: `support:Owner`). */
 function describeNote(id: string): CardOptionInfo {

@@ -1,7 +1,5 @@
 import type { ChoiceOption } from "../protocol/types.ts";
-import {
-  GENERATED_CONTENT_CATALOG,
-} from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 import {
   findExplorationCardMeta,
   findTechnologyMeta,
@@ -46,16 +44,16 @@ interface RelicRecord {
   text?: string;
 }
 
-const LEADERS = GENERATED_CONTENT_CATALOG.leaders as unknown as Record<string, LeaderRecord>;
-const ABILITIES = GENERATED_CONTENT_CATALOG.factionAbilities as unknown as Record<
+const LEADERS = CONTENT.leaders as unknown as Record<string, LeaderRecord>;
+const ABILITIES = CONTENT.factionAbilities as unknown as Record<
   string,
   FactionAbilityRecord
 >;
-const NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<
+const NOTES = CONTENT.promissoryNotes as unknown as Record<
   string,
   PromissoryNoteRecord
 >;
-const RELICS = GENERATED_CONTENT_CATALOG.relics as unknown as Record<string, RelicRecord>;
+const RELICS = CONTENT.relics as unknown as Record<string, RelicRecord>;
 
 const norm = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
 

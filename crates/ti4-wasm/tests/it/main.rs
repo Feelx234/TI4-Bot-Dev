@@ -1,6 +1,7 @@
 //! The hosted game, natively: one test crate, so the `slow_` tier is found by module path
 //! (`cargo t-web-slow`). The exports keep one game in statics: every test takes `common::SERIAL`.
 
+mod catalog_fixture;
 mod common;
 mod feedback_offline;
 mod host_batch;

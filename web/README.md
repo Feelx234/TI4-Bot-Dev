@@ -152,3 +152,16 @@ save store, the wire types (generated from Rust) and their checks (`decodeServer
 answers: `wire/decode.ts`) are in `../web-shared/`, which web and web2 share. This app imports it as `@ti4/shared/...` (the alias is in
 `vite.config.ts` and `tsconfig.json`). Read [`../web-shared/AGENTS.md`](../web-shared/AGENTS.md)
 before you change it: some changes there need the agreement of both maintainers.
+
+### The catalog of the printed cards
+
+Every text of a card, technology, unit, faction, leader, objective or planet that web shows comes
+from the engine's catalog (`Catalog.records`): the same JSON from `GET /api/catalog` of the server
+and from the engine's `{"query":"catalog"}`. `CatalogProvider` (`src/components/CatalogProvider.tsx`)
+loads it once, before the app renders: an online page from the server, an offline page
+(`/offline`) from its engine (a short-lived Worker); each falls back to the other, and with neither
+the page says that the cards could not be loaded and offers Retry. It fills the tables of
+`src/protocol/catalogStore.ts`, which the content wrappers (`contentCatalog.ts`, `factionInfo.ts`,
+`technologyData.ts`, `unitStats.ts`, `cardDatabase.ts`, ...) read. The unit tests fill them from
+`../fixtures/catalog/catalog.json` (`src/test/setup.ts`), the engine's answer written by
+`cargo wire-web`.

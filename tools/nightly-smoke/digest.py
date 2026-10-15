@@ -35,14 +35,15 @@ MECATOL_PLANETS = ("mr", "mrte")
 
 
 def content_names():
-    """id -> display name for cards, technologies, objectives and planets (from the web manifest)."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "web", "src",
-                        "protocol", "generatedContentManifest.ts")
+    """id -> display name for every record of the catalogue (`fixtures/catalog/catalog.json`)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "fixtures",
+                        "catalog", "catalog.json")
     try:
-        text = open(path).read()
-    except OSError:
+        with open(path) as handle:
+            records = json.load(handle)["records"]
+    except (OSError, ValueError, KeyError):
         return {}
-    return dict(re.findall(r'id: "([^"]+)",\s*name: "([^"]+)"', text))
+    return {record["id"]: record["name"] for kind in records.values() for record in kind}
 
 
 NAMES = content_names()

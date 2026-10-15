@@ -1,5 +1,5 @@
 import { humanizeId } from "@ti4/shared/content/names.ts";
-import { GENERATED_CONTENT_CATALOG } from "./generatedContentManifest.ts";
+import { CONTENT, catalogContent } from "./catalogStore.ts";
 
 export { humanizeId };
 
@@ -28,14 +28,14 @@ export interface CardMeta {
   description: string;
 }
 
-export const STRATEGY_CARDS = GENERATED_CONTENT_CATALOG.strategyCards;
-export const SECRET_OBJECTIVES = GENERATED_CONTENT_CATALOG.secretObjectives;
-export const PUBLIC_OBJECTIVES = GENERATED_CONTENT_CATALOG.publicObjectives;
-export const ACTION_CARDS = GENERATED_CONTENT_CATALOG.actionCards;
-export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
-export const EXPLORATION_CARDS = GENERATED_CONTENT_CATALOG.explorationCards;
-export const PLANETS = GENERATED_CONTENT_CATALOG.planets;
-export const ATTACHMENTS = GENERATED_CONTENT_CATALOG.attachments;
+export const STRATEGY_CARDS = CONTENT.strategyCards;
+export const SECRET_OBJECTIVES = CONTENT.secretObjectives;
+export const PUBLIC_OBJECTIVES = CONTENT.publicObjectives;
+export const ACTION_CARDS = CONTENT.actionCards;
+export const TECHNOLOGIES = CONTENT.technologies;
+export const EXPLORATION_CARDS = CONTENT.explorationCards;
+export const PLANETS = CONTENT.planets;
+export const ATTACHMENTS = CONTENT.attachments;
 
 function exactLookup<T>(catalog: Record<string, T>, id: string): T | undefined {
   return catalog[id];
@@ -93,19 +93,23 @@ export function findActionCardMeta(id: string): CardMeta | undefined {
   return exactLookup(ACTION_CARDS, id);
 }
 
-let actionCardsByName: Map<string, CardMeta> | undefined;
+/** The action cards by printed name, of the catalog `content`. */
+let actionCardsByName: { content: string | null; cards: Map<string, CardMeta> } | undefined;
 
 /** Looks an action card up by its printed name, for decisions that only carry the label. */
 export function findActionCardByName(name: string): CardMeta | undefined {
-  if (!actionCardsByName) {
-    actionCardsByName = new Map(
-      Object.values(ACTION_CARDS as Record<string, CardMeta>).map((card) => [
-        card.name.toLowerCase(),
-        card,
-      ]),
-    );
+  if (actionCardsByName?.content !== catalogContent()) {
+    actionCardsByName = {
+      content: catalogContent(),
+      cards: new Map(
+        Object.values(ACTION_CARDS as Record<string, CardMeta>).map((card) => [
+          card.name.toLowerCase(),
+          card,
+        ]),
+      ),
+    };
   }
-  return actionCardsByName.get(name.trim().toLowerCase());
+  return actionCardsByName.cards.get(name.trim().toLowerCase());
 }
 
 export function getActionCardMeta(id: string): CardMeta {
@@ -219,7 +223,7 @@ export interface BreakthroughMeta {
   text?: string;
 }
 
-export const BREAKTHROUGHS = GENERATED_CONTENT_CATALOG.breakthroughs as unknown as Record<
+export const BREAKTHROUGHS = CONTENT.breakthroughs as unknown as Record<
   string,
   BreakthroughMeta
 >;
@@ -240,7 +244,7 @@ export function findBreakthroughForFaction(faction: string | null | undefined): 
   if (byId) return byId;
   const wanted = squash(faction);
   const record = Object.values(
-    GENERATED_CONTENT_CATALOG.factions as unknown as Record<string, { id: string; name: string }>,
+    CONTENT.factions as unknown as Record<string, { id: string; name: string }>,
   ).find((f) => squash(f.id) === wanted || squash(f.name) === wanted);
   return record ? cards.find((card) => card.faction === record.id) : undefined;
 }

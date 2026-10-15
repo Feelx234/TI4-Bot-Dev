@@ -5,7 +5,7 @@ import type {
   PendingChoiceDto,
 } from "../protocol/types.ts";
 import { decodeDecisionTrigger } from "@ti4/shared/wire/decode.ts";
-import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 import {
   findActionCardByName,
   findActionCardMeta,
@@ -455,9 +455,9 @@ interface CatalogNamed {
   ability?: string;
 }
 
-const CATALOG_NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<string, CatalogNamed>;
-const CATALOG_UNITS = GENERATED_CONTENT_CATALOG.units as unknown as Record<string, CatalogNamed>;
-const CATALOG_LEADERS = GENERATED_CONTENT_CATALOG.leaders as unknown as Record<string, CatalogNamed>;
+const CATALOG_NOTES = CONTENT.promissoryNotes as unknown as Record<string, CatalogNamed>;
+const CATALOG_UNITS = CONTENT.units as unknown as Record<string, CatalogNamed>;
+const CATALOG_LEADERS = CONTENT.leaders as unknown as Record<string, CatalogNamed>;
 
 /**
  * Non-card abilities (`technology:<faction>:<id>:<EVENT>:<rel>`, `leader:...`, and the faction's

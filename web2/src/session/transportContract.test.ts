@@ -3,11 +3,12 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadCatalog } from "@ti4/shared/content/catalog.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { canMove, setLoad, setShip, shipId } from "./movementDraft";
 import { type PlanStep, stepsOf } from "./movementPlan";
 import type { Transport, TransportEvent } from "./transport";
-import { type Engine, catalogOf, createWasmTransport } from "./wasmTransport";
+import { type Engine, createWasmTransport, engineQuery } from "./wasmTransport";
 import type {
   ActivationFacts,
   DraftOutcome,
@@ -410,7 +411,7 @@ describe.skipIf(!existsSync(WASM))("the engine in this page", () => {
   let engine: Engine;
   beforeAll(async () => {
     const module = await WebAssembly.compile(readFileSync(WASM));
-    engine = { module, hash: "test", scenarios: [], catalog: await catalogOf(module) };
+    engine = { module, hash: "test", scenarios: [], catalog: await loadCatalog({ query: engineQuery(module) }) };
   });
   contract(async () => side(createWasmTransport(engine, { seed: 3, players: 8, humans: 1 })));
 });
@@ -424,7 +425,7 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
     // The printed cards are those of the engine of this page, as in the browser: the transport
     // plays only when the server has the same corpus. The odds are of that engine too.
     const module = await WebAssembly.compile(readFileSync(WASM));
-    engine = { catalog: await catalogOf(module), module };
+    engine = { catalog: await loadCatalog({ query: engineQuery(module) }), module };
     server = spawn(SERVER, [], {
       env: {
         ...process.env,

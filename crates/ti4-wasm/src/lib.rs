@@ -3,7 +3,7 @@
 //!
 //! The boundary is the plain C ABI rather than `wasm-bindgen`. A game is played through one
 //! host, [`host_api`]: `ClientMessage` in, `ServerMessage` out, as on the server. The questions
-//! that need no game (the setup of a table, the scenarios, the catalogue, the odds of a combat)
+//! that need no game (the setup of a table, the scenarios, the odds of a combat)
 //! are exports of their own: such an export returns a status, zero or more is the length of a
 //! JSON result, less than zero is the negated length of an error text. Either is read from the
 //! response buffer, whose address never changes ([`ti4_response_ptr`]).
@@ -40,7 +40,6 @@ use ti4_host::projection::project_game_view_full;
 use ti4_host::protocol::status::ViewerRole;
 use ti4_host::protocol::view::{BoardTileView, GameView};
 use ti4_host::setup;
-use ti4_host::view::components::catalog;
 use ti4_host::view::reaction_modes::{NeverOffer, NeverSet};
 use ti4_host::view::secondary::SecondaryWatch;
 use ti4_model::content_types::POK;
@@ -1405,17 +1404,6 @@ pub extern "C" fn ti4_scenarios() -> i32 {
     status(respond(
         "the list of scenarios",
         &ti4_host::view::scenario::SCENARIOS,
-    ))
-}
-
-/// The printed cards as JSON in the response buffer: the exploration cards and the attachments,
-/// the cards of the play areas (abilities, leaders, technologies, relics), and the records of the
-/// corpus that a page names by id. A host asks once: an update names cards by id only.
-#[unsafe(no_mangle)]
-pub extern "C" fn ti4_catalog() -> i32 {
-    status(respond(
-        "the catalogue of printed cards",
-        &catalog(ContentStore::embedded(), POK),
     ))
 }
 

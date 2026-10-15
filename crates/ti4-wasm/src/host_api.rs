@@ -279,8 +279,7 @@ pub fn put_input(text: &str) -> usize {
 ///   presets, scenarios (`host_setup::describe`).
 /// - `{"query":"map_preview","choice":{"kind":"template","alias":"..."}|{"kind":"random"},
 ///   "player_count":4,"variant":0}`: a pictured map (`MapPreview` of the server).
-/// - `{"query":"catalog"}`: the printed cards (as `ti4_catalog`, and `GET /api/catalog` of the
-///   server).
+/// - `{"query":"catalog"}`: the printed cards (as `GET /api/catalog` of the server).
 pub fn query(len: usize) -> i32 {
     #[derive(serde::Deserialize)]
     #[serde(tag = "query", rename_all = "snake_case")]
@@ -310,8 +309,8 @@ pub fn query(len: usize) -> i32 {
             variant,
         } => crate::host_setup::map_preview(&choice, player_count, variant),
         Query::Catalog => {
-            // Written as `ti4_catalog` writes it, through `dyn Write`: one copy of the
-            // serializer of every printed record, not a second one into a `Value`.
+            // Written through `dyn Write`, not into a `Value`: a copy into a `Value` costs about
+            // 45 KB of wasm.
             let mut out = OUT.lock().expect("out lock");
             out.clear();
             let writer: &mut dyn std::io::Write = &mut *out;

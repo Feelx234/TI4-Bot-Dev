@@ -47,36 +47,46 @@ async function compile(url: string): Promise<{ module: WebAssembly.Module; wasmS
   return { module: await WebAssembly.compile(bytes), wasmSha256: await hashing };
 }
 
+/**
+ * A question of the engine that needs no game (`{"query": ...}`: `describe`, `catalog`), asked in a
+ * short-lived worker.
+ */
+export async function engineQuery(engine: LoadedEngine, request: object): Promise<unknown> {
+  const port = await workerPort(engine);
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      port.listen((message) => {
+        if (message.t === "reply" && message.id === 1) {
+          if (message.error !== undefined) reject(new Error(message.error));
+          else resolve(message.value);
+        }
+      });
+      port.post({ t: "query", id: 1, request });
+    });
+  } finally {
+    port.terminate();
+  }
+}
+
 const identity = new WeakMap<LoadedEngine, Promise<EngineIdentity>>();
 
 /**
  * What the engine says about itself (`describe`: build and content digest) plus the file hash.
- * Asked once per loaded engine, in a short-lived worker, so it is known before a saved game is
- * replayed.
+ * Asked once per loaded engine, so it is known before a saved game is replayed.
  */
 export function engineIdentity(engine: LoadedEngine): Promise<EngineIdentity> {
   let found = identity.get(engine);
   if (!found) {
     found = (async () => {
-      const port = await workerPort(engine);
-      try {
-        const described = await new Promise<{ engine_build?: string; content_digest?: string }>((resolve, reject) => {
-          port.listen((message) => {
-            if (message.t === "reply" && message.id === 1) {
-              if (message.error !== undefined) reject(new Error(message.error));
-              else resolve((message.value ?? {}) as { engine_build?: string; content_digest?: string });
-            }
-          });
-          port.post({ t: "query", id: 1, request: { query: "describe" } });
-        });
-        return {
-          build: described.engine_build ?? "unknown",
-          contentDigest: described.content_digest ?? "unknown",
-          wasmSha256: engine.wasmSha256,
-        };
-      } finally {
-        port.terminate();
-      }
+      const described = ((await engineQuery(engine, { query: "describe" })) ?? {}) as {
+        engine_build?: string;
+        content_digest?: string;
+      };
+      return {
+        build: described.engine_build ?? "unknown",
+        contentDigest: described.content_digest ?? "unknown",
+        wasmSha256: engine.wasmSha256,
+      };
     })();
     identity.set(engine, found);
     found.catch(() => identity.delete(engine));

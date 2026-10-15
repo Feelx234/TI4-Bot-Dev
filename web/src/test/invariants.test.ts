@@ -10,7 +10,7 @@ import {
   STRATEGY_CARDS,
   SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
-import { CONTENT_PRESENTATION_PROVENANCE } from "../protocol/generatedContentManifest.ts";
+import { CONTENT, catalogContent } from "../protocol/catalogStore.ts";
 import { partialContext } from "./wire.ts";
 
 /**
@@ -241,16 +241,17 @@ describe("Frontend Invariants & Property-based Checks", () => {
     expect(getSecretObjectiveMeta("unknown_secret").name).toBe("Unknown Secret");
   });
 
-  it("uses versioned corpus metadata with exact identifiers only", () => {
-    expect(CONTENT_PRESENTATION_PROVENANCE.generatorVersion).toBe(1);
-    expect(CONTENT_PRESENTATION_PROVENANCE.corpusSchemaVersion).toBe("1.1.0");
-    expect(CONTENT_PRESENTATION_PROVENANCE.corpusUpstreamCommit).toMatch(/^[0-9a-f]{40}$/);
-    expect(CONTENT_PRESENTATION_PROVENANCE.presentationSha256).toMatch(/^[0-9a-f]{64}$/);
-    expect(CONTENT_PRESENTATION_PROVENANCE.recordCounts).toEqual({
+  it("reads the catalog of the engine with exact identifiers only", () => {
+    expect(catalogContent()).toMatch(/^[0-9a-f]{64}$/);
+    const counts = Object.fromEntries(
+      Object.entries(CONTENT).map(([kind, table]) => [kind, Object.keys(table).length]),
+    );
+    expect(counts).toEqual({
       strategyCards: 12,
       secretObjectives: 40,
       publicObjectives: 40,
-      actionCards: 142,
+      // 142 cards, and the 6 automation ids the engine may name a card by.
+      actionCards: 148,
       technologies: 102,
       explorationCards: 80,
       planets: 159,
