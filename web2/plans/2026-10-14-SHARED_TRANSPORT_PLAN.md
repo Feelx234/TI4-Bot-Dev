@@ -1,6 +1,6 @@
 # Shared web module (web-shared/): transport, engine, saves, wire types, content, odds (2026-10-14)
 
-Status: steps 1 to 7 done (2026-10-15).
+Status: steps 1 to 8 done (2026-10-15).
 
 ## Context
 
@@ -231,9 +231,13 @@ tracks are independent of each other, except where a step says otherwise.
    - Export and Import use the shared envelope.
    - The localStorage keys `ti4.single` and `ti4.local.*` are deleted once, at start. The
      `DEFAULT_GAME` fallback in `StartApp.tsx` goes.
-   - The staged slots (movement, draft, secondary, cards) stay in localStorage, because
-     `SeatStore.get` is synchronous and the slots are small.
-     - They are keyed by the save's id: `ti4.save.<id>.<slot>`.
+   - The staged work is in the engine's save (`staged`, step 5). localStorage keeps, next to a
+     save, what the page reads or writes at once, keyed by the save's id:
+     `ti4.save.<id>.<part>`.
+     - `cards` (the reaction modes) and `wait` (the wait of a table).
+     - `left`: the newest save, with what the shown seat staged, when the page is left. A write
+       of IndexedDB that starts at `pagehide` does not end before the page is gone; the next
+       page that opens the store puts it there.
      - Removing a save clears them.
    - web2's start screen lists the saves, by web2's own rules. The list is UI and stays per app.
 9. **web/ on format 2.** `launcher.ts` and `register.ts` resume from `decisions`. The list

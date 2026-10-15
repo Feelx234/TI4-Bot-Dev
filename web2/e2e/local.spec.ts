@@ -34,6 +34,87 @@ async function savedLine(page: Page, start = /^Local game · /) {
   return line;
 }
 
+/** A saved game as the save store keeps it (IndexedDB `ti4-offline`, object store `games`). */
+interface StoredGame {
+  id: string;
+  slot?: string;
+  schema: number;
+  engine: { wasmSha256: string };
+  summary: { answers: number };
+  save: {
+    decisions: string[];
+    answers: string[];
+    game: { table?: { setup: object; seats: { kind: string }[] } };
+    [field: string]: unknown;
+  };
+}
+
+/** The page made the database of the save store (a read before would make another one). */
+const storeReady = (page: Page) =>
+  expect
+    .poll(() =>
+      page.evaluate(
+        async () => (await indexedDB.databases()).find((db) => db.name === "ti4-offline")?.version,
+      ),
+    )
+    .toBe(2);
+
+/** The saved games of the browser of the page. */
+const savedGames = async (page: Page) => {
+  await storeReady(page);
+  return page.evaluate(
+    () =>
+      new Promise<StoredGame[]>((resolve, reject) => {
+        const open = indexedDB.open("ti4-offline");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const all = db.transaction("games").objectStore("games").getAll();
+          all.onerror = () => reject(all.error);
+          all.onsuccess = () => {
+            db.close();
+            resolve(all.result);
+          };
+        };
+      }),
+  );
+};
+
+/** The saved game of a slot, or undefined. */
+const savedGame = async (page: Page, slot: string) =>
+  (await savedGames(page)).find((game) => game.slot === slot);
+
+/** The saved game of a slot, once it is written. */
+async function written(page: Page, slot: string, answers = 0) {
+  await expect
+    .poll(async () => (await savedGame(page, slot))?.summary.answers ?? -1)
+    .toBeGreaterThanOrEqual(answers);
+  return (await savedGame(page, slot))!;
+}
+
+/** Writes a record of the save store as it is, as an older or another page may have left it. */
+const putRecord = async (page: Page, record: object) => {
+  await storeReady(page);
+  await page.evaluate(
+    (row) =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open("ti4-offline");
+        open.onerror = () => reject(open.error);
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("games", "readwrite");
+          tx.objectStore("games").put(row);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+    record,
+  );
+};
+
 /**
  * Answers the open choice: with the first system when it is on the board, with nothing when the
  * main button already has something to send (a movement of no ship), or else with its first row.
@@ -387,10 +468,11 @@ test("an exported game is imported in another browser and opens at the same choi
   const path = await download.path();
 
   const other = await (await browser.newContext()).newPage();
-  // Another game is open: the file says which game it is.
+  // Another game is open: the imported game is a game of its own, at its id.
   await other.goto("/?local=3&players=8&humans=1");
   await expect(send(other)).toBeDisabled();
   await other.getByLabel("Saved game file").setInputFiles(path);
+  await other.waitForURL((url) => url.searchParams.has("save"));
   await expect.poll(() => savedLine(other)).toContain("seed 5");
   await expect.poll(() => savedLine(other)).toContain("6 answers saved");
   await expect(heading(other)).toHaveText(open ?? "");
@@ -400,7 +482,15 @@ test("an exported game is imported in another browser and opens at the same choi
     .getByLabel("Saved game file")
     .setInputFiles({ name: "x.json", mimeType: "application/json", buffer: Buffer.from("{}") });
   await openSettings(other);
-  await expect(settings(other).getByRole("alert")).toContainText("format undefined");
+  await expect(settings(other).getByRole("alert")).toHaveText("The file is not a saved game.");
+  // The start screen lists both games of that browser: the game of the address and the import.
+  await other.goto("/");
+  const imported = other
+    .getByRole("region", { name: "Saved games" })
+    .getByRole("link", { name: /^Imported game/ });
+  await expect(imported).toContainText("6 answers");
+  await imported.click();
+  await expect(heading(other)).toHaveText(open ?? "");
   await other.context().close();
 });
 
@@ -408,11 +498,12 @@ test("a saved game of another engine build is not replayed without a word", asyn
   await page.goto("/?local=3&players=8&humans=1");
   await expect(send(page)).toBeDisabled();
   await answer(page);
-  await page.evaluate(() => {
-    const save = JSON.parse(localStorage.getItem("ti4.local.3.8.1") ?? "");
-    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, engine: "another" }));
-  });
-  await page.reload();
+  // The page is left first: what it saves is written then.
+  await page.goto("/");
+  const saved = await written(page, "local.3.8.1", 1);
+  expect(saved.summary.answers).toBe(1);
+  await putRecord(page, { ...saved, engine: { ...saved.engine, wasmSha256: "another" } });
+  await page.goto("/?local=3&players=8&humans=1");
   await expect(page.getByText("was played by another build of the engine")).toBeVisible();
   await page.getByRole("button", { name: "Replay anyway" }).click();
   await expect(send(page)).toBeDisabled();
@@ -420,31 +511,53 @@ test("a saved game of another engine build is not replayed without a word", asyn
   // The next answer is saved with this engine.
   await answer(page);
   await expect.poll(() => savedLine(page)).toContain("2 answers saved");
+  await page.goto("/");
+  await expect
+    .poll(async () => (await written(page, "local.3.8.1", 2)).engine.wasmSha256)
+    .not.toBe("another");
 
   // A decision that the game does not offer stops the replay and names it.
-  await page.evaluate(() => {
-    const save = JSON.parse(localStorage.getItem("ti4.local.3.8.1") ?? "");
-    const host = { ...save.save, decisions: ["no-such"] };
-    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, save: host }));
-  });
-  await page.reload();
+  const now = await written(page, "local.3.8.1", 2);
+  await putRecord(page, { ...now, save: { ...now.save, decisions: ["no-such"] } });
+  await page.goto("/?local=3&players=8&humans=1");
   await expect(page.getByRole("status")).toContainText(
     'The saved game does not fit this engine: decision 1 of 1 was "no-such"',
   );
 
-  // A save of an older format had the answers of the page only. It is not read, and the page
-  // says so, with the way to a new game.
-  await page.evaluate(() => {
-    const old = { format: 2, engine: "", seed: 3, players: 8, humans: 1, answers: ["sol"] };
-    localStorage.setItem("ti4.local.3.8.1", JSON.stringify(old));
-  });
+  // The start screen deletes it, after a dialog that names it.
+  await page.goto("/");
+  const saves = page.getByRole("region", { name: "Saved games" });
+  await expect(saves.getByRole("link")).toHaveText([/^Local game · seed 3/]);
+  await saves.getByRole("button", { name: "Delete Local game · seed 3" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Delete the saved game?");
+  await page.getByRole("dialog").getByRole("button", { name: "Keep" }).click();
+  await expect(saves.getByRole("link")).toHaveCount(1);
+  await saves.getByRole("button", { name: "Delete Local game · seed 3" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(saves).toHaveCount(0);
+  expect(await savedGames(page)).toEqual([]);
+});
+
+test("a saved game of an older version is not read: the start screen says so and deletes it", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /Single player/ })).toBeVisible();
+  // A record of the save store of before (web/ wrote it, or an older page of this app).
+  await putRecord(page, { id: "old-game", schema: 1, summary: { humanSeat: 1 } });
+  // A save of a page of before the save store, in localStorage.
+  await page.evaluate(() => localStorage.setItem("ti4.single", JSON.stringify({ format: 5 })));
   await page.reload();
-  await expect(page.getByRole("status")).toContainText(
-    "The saved game has format 2; this page reads format 5. It cannot be played again.",
+  const saves = page.getByRole("region", { name: "Saved games" });
+  await expect(saves).toContainText(
+    "1 saved game is of an older version. They cannot be played again.",
   );
-  await page.getByRole("status").getByRole("button", { name: "New game" }).click();
-  await expect(send(page)).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("ti4.local.3.8.1"))).toBeNull();
+  // The save of localStorage is removed at the start: it is not read.
+  expect(await page.evaluate(() => localStorage.getItem("ti4.single"))).toBeNull();
+  await saves.getByRole("button", { name: "Delete the saved games of an older version" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(saves).toHaveCount(0);
+  expect(await savedGames(page)).toEqual([]);
 });
 
 test("a draft of a tactical action is private, is kept, and is applied as one request", async ({
@@ -1553,19 +1666,23 @@ test("single player: a table is set up in the page, started, kept and set up aga
   await panel(page).getByRole("button", { pressed: false }).first().click();
   await send(page).click();
   await expect.poll(() => savedLine(page, /^Single player · /)).toContain("1 answers saved");
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!));
-  expect(saved.format).toBe(5);
+  await page.goto("/");
+  // The game is kept in the save store under the slot of single player, with its table.
+  const saved = await written(page, "single", 1);
+  expect(saved.save.format).toBe(2);
   // The decisions of every seat are kept, in their order: the other seats decided before the page.
   expect(saved.save.decisions.length).toBeGreaterThan(1);
-  expect(saved.table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
-  expect(saved.table.seats.map((seat: { kind: string }) => seat.kind)).toEqual([
-    "human",
-    "smart",
-    "smart",
-    "random",
+  const table = saved.save.game.table!;
+  expect(table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
+  expect(table.seats.map((seat) => seat.kind)).toEqual(["human", "smart", "smart", "random"]);
+  // The start screen lists it.
+  await expect(page.getByRole("region", { name: "Saved games" }).getByRole("link")).toHaveText([
+    /^Single player.*4 seats · Hacan · 1 answers/,
   ]);
-  await page.goto("/");
-  await page.getByRole("link", { name: /Single player/ }).click();
+  await page
+    .getByRole("link", { name: /Single player/ })
+    .first()
+    .click();
   await expect(page).toHaveURL("/?single");
   await expect(send(page)).toBeVisible();
   await expect(
@@ -1576,7 +1693,7 @@ test("single player: a table is set up in the page, started, kept and set up aga
   await openSettings(page);
   await settings(page).getByRole("button", { name: "New game" }).click();
   await expect(lobbyTitle(page)).toHaveText(/^Single player · /);
-  expect(await page.evaluate(() => localStorage.getItem("ti4.single"))).toBeNull();
+  expect(await savedGame(page, "single")).toBeUndefined();
   expect(errors).toEqual([]);
 });
 
@@ -1602,7 +1719,9 @@ test("single player: the other seats take the wait of the table, and the page sa
   await expect(send(page)).toBeVisible();
   await expect(page.locator("header strong").first()).toHaveText("Your decision");
   await expect(heading(page)).toHaveText("Choose a strategy card");
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!).waitMs)).toBe(
-    500,
+  // The wait is kept next to the saved game.
+  const { id } = await written(page, "single");
+  expect(await page.evaluate((key) => localStorage.getItem(key), `ti4.save.${id}.wait`)).toBe(
+    "500",
   );
 });

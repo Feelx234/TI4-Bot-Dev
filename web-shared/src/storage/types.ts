@@ -146,6 +146,11 @@ export interface OfflineSaveStore {
   /** The newest game with this slot, or null. */
   findSlot(slot: string): Promise<SavedGameRecord | null>;
   remove(id: string): Promise<void>;
+  /**
+   * Deletes the records that are not read (`status().unreadable`: an older save format or record
+   * schema, a broken row). Resolves with how many were deleted.
+   */
+  removeUnreadable(): Promise<number>;
 
   /**
    * Stores the save durably (resolves when the transaction committed, or when the in-memory

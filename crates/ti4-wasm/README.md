@@ -544,7 +544,7 @@ one, and the Dev sheet lists them.
 - Found with it: the engine gives Antimass Deflectors no effect
   (`MovementRules::asteroid_fields_open` is only set in a test), so the asteroid field is closed
   in both scenarios. A test pins that, and fails when the engine changes.
-- The save of a scenario is kept under `ti4.local.scenario.<id>.<humans>`, and names the
+- The save of a scenario is kept under the slot `scenario.<id>.<humans>`, and names the
   scenario.
 
 ### The saved game
@@ -554,12 +554,13 @@ A game is not kept as its state. It is kept as what plays it again: the save of 
 decision, of every seat, in order** (`decisions`), the answers of the page among them
 (`answers`), the switches of its seats (`switches`), and the times of its events. The random
 seats and the dice follow the seed. The server keeps a game the same way: an init record and the
-decision log. web2 stores it with the address of the game and the SHA-256 of the engine file
-(`web2/src/session/savedGame.ts`, format 5).
+decision log. The apps keep it in the save store of `web-shared/src/storage/` (IndexedDB
+`ti4-offline`), with the SHA-256 of the engine file.
 
-- Where: `localStorage`, key `ti4.local.<seed>.<players>.<humans>` (a scenario and single
-  player have keys of their own), written whole at each question of the page. The Dev sheet has
-  New game, Export and Import (a JSON file).
+- Where: web2 writes it at each question of the page, under the slot of the address of the game
+  (`local.<seed>.<players>.<humans>`, `scenario.<id>.<humans>`, `single`;
+  `web2/src/session/savedGame.ts`). The Dev sheet has New game, Export and Import (the export
+  file of the store).
 - **Playing it again.** The save is the `resume` of the start request. Every decision is given
   again, whoever the seat is: no seat decides, no bot runs, nothing is projected, no seat waits
   and no card setting is applied. What the host counts is counted as in the game that was never

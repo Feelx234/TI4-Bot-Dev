@@ -124,6 +124,19 @@ describe("games", () => {
     expect(s.status().unreadable).toBe(1);
   });
 
+  it("deletes the records that it does not read, and keeps the others", async () => {
+    const backend = new MemoryBackend();
+    await backend.putGame({ id: "old", schema: 1 } as never);
+    const s = await openOfflineSaveStore({ backend });
+    await s.put("ok", mkSave(1), META);
+    await s.list();
+    expect(s.status().unreadable).toBe(1);
+    expect(await s.removeUnreadable()).toBe(1);
+    expect(s.status().unreadable).toBe(0);
+    expect((await s.list()).map((g) => g.id)).toEqual(["ok"]);
+    expect(await backend.getAllGames()).toHaveLength(1);
+  });
+
   it("rejects a malformed save without touching the stored one", async () => {
     const s = await open();
     await s.put("a", mkSave(2), META);
@@ -332,6 +345,9 @@ describe("export and import", () => {
     expect(rec?.summary.factions).toEqual(META.factions);
     expect(rec?.slot).toBeUndefined();
     expect((await s.list()).length).toBe(2);
+    // The game that is played on stays an imported one.
+    await s.put(out.id, mkSave(4), META);
+    expect((await s.load(out.id))?.imported).toBe(true);
   });
 
   it("reports an engine difference", async () => {

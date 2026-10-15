@@ -71,12 +71,14 @@ interface IndexEntry {
   sizeBytes: number;
   createdAt: number;
   slot?: string;
+  imported: boolean;
 }
 
 const indexEntry = (r: SavedGameRecord): IndexEntry => ({
   sizeBytes: r.sizeBytes,
   createdAt: r.createdAt,
   ...(r.slot !== undefined ? { slot: r.slot } : {}),
+  imported: r.imported,
 });
 
 class SaveStore implements OfflineSaveStore {
@@ -240,7 +242,7 @@ class SaveStore implements OfflineSaveStore {
           slot: meta.slot ?? previous?.slot ?? known?.slot,
           createdAt: known?.createdAt ?? previous?.createdAt ?? meta.createdAt ?? this.now(),
           resumeEstimateMs: meta.resumeEstimateMs ?? previous?.resumeEstimateMs ?? null,
-          imported: imported || (previous?.imported ?? false),
+          imported: imported || (previous?.imported ?? known?.imported ?? false),
         },
         this.now(),
       );
@@ -291,6 +293,34 @@ class SaveStore implements OfflineSaveStore {
       }
       this.emit();
     });
+  }
+
+  async removeUnreadable(): Promise<number> {
+    let rows: unknown[];
+    try {
+      rows = await this.backend.getAllGames();
+    } catch {
+      return 0;
+    }
+    let removed = 0;
+    for (const row of rows) {
+      try {
+        validateRecord(row);
+      } catch {
+        const id = (row as { id?: unknown } | null)?.id;
+        if (typeof id === "string") {
+          try {
+            await this.backend.deleteGame(id);
+            removed++;
+          } catch {
+            this.setWarning("write-failed");
+          }
+        }
+      }
+    }
+    await this.readAll();
+    this.emit();
+    return removed;
   }
 
   // --- export / import ------------------------------------------------------------------

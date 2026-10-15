@@ -12,6 +12,7 @@ import { inlinePort, workerPort } from "@ti4/shared/engine/port.ts";
 import type { HostPort } from "@ti4/shared/engine/protocol.ts";
 import { engineLink } from "@ti4/shared/link/engineLink.ts";
 import type { GameLink } from "@ti4/shared/link/link.ts";
+import type { HostSave as StoredSave } from "@ti4/shared/storage/index.ts";
 import { type MessageCore, messageTransport } from "./messageTransport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
 import { SLOTS, type StagedSlot, sameStaged } from "./seatStore";
@@ -41,17 +42,13 @@ interface Exports {
 }
 
 /**
- * What the engine keeps of a game to play it again (`HostSession::save_state`, format 2): the
- * game, the option id of every decision of every seat, in order (`decisions`), the answers of the
- * page among them, and the seat changes. The rest (the redo list, the times of the events, the
- * hash of the decisions) is given back as it was.
+ * What the engine keeps of a game to play it again (`HostSession::save_state`, format 2, the save
+ * of the save store): the game, the option id of every decision of every seat, in order
+ * (`decisions`), the answers of the page among them, and the seat changes. The rest (the redo
+ * list, the times of the events, the hash of the decisions) is given back as it was.
  */
-export interface HostSave {
-  format: 2;
-  decisions: string[];
-  answers: string[];
+export interface HostSave extends StoredSave {
   switches?: SeatSwitch[];
-  [field: string]: unknown;
 }
 
 /** What a save keeps of the staged work of each seat (`ti4_host::staged::SeatStaged`). */
@@ -59,6 +56,38 @@ type SavedStaged = Record<
   string,
   { revision: number; slots: Partial<Record<StagedSlot, { revision: number; value?: unknown }>> }
 >;
+
+/** The highest revision of the staged work of any seat of a save. */
+const topRevision = (staged: SavedStaged) =>
+  Math.max(0, ...Object.values(staged).map((each) => each.revision));
+
+/**
+ * The save with the values of `slots` staged for `seat`, each with a new revision. A value that
+ * the save has already is left as it is. Null: nothing changed.
+ */
+function stagedInto(
+  save: HostSave,
+  seat: string,
+  slots: Partial<Record<StagedSlot, unknown>>,
+): HostSave | null {
+  const staged = { ...(save.staged as SavedStaged | undefined) };
+  const kept = staged[seat] ?? { revision: 0, slots: {} };
+  let revision = topRevision(staged);
+  const next = { ...kept.slots };
+  let changed = false;
+  for (const slot of SLOTS) {
+    if (!(slot in slots)) {
+      continue;
+    }
+    const value = slots[slot] ?? null;
+    if (!sameStaged(value, next[slot]?.value ?? null)) {
+      changed = true;
+      revision += 1;
+      next[slot] = value === null ? { revision } : { revision, value };
+    }
+  }
+  return changed ? { ...save, staged: { ...staged, [seat]: { revision, slots: next } } } : null;
+}
 
 /** Leaves the game: an instance that plays no game answers every question with it. */
 const LEAVE = -1;
@@ -200,6 +229,14 @@ export interface LocalPlay {
    * The engine saves it, as the server keeps a game: no seat decides a saved decision again.
    */
   onSave?(save: HostSave): void;
+  /**
+   * Told when the page is left (or hidden), with the newest save: with what the seat that the page
+   * is shown as staged since the save before. A write of it (`onSave`) may not end before the page
+   * is gone; this is told so that the app keeps it at once.
+   */
+  onLeave?(save: HostSave): void;
+  /** A new game is kept from its first question on, also with no decision yet (a game that a table started). */
+  keepFirst?: boolean;
   /** The game waits before each decision of a seat that is not played here. */
   stepping?: boolean;
   /** The mode of each reaction that the seats of this page set, by its key. */
@@ -269,18 +306,21 @@ export function createWasmTransport(
     }
   };
 
+  // A save names its game: the engine plays the game of the save.
   const config: StartConfig = {
-    ...(game.table
-      ? { table: game.table }
-      : {
-          local: {
-            seed: game.seed,
-            players: game.players,
-            humans: game.humans,
-            ...(game.scenario === undefined ? {} : { scenario: game.scenario }),
-            rule_seats: play.ruleSeats ?? 0,
-          },
-        }),
+    ...(play.save
+      ? {}
+      : game.table
+        ? { table: game.table }
+        : {
+            local: {
+              seed: game.seed,
+              players: game.players,
+              humans: game.humans,
+              ...(game.scenario === undefined ? {} : { scenario: game.scenario }),
+              rule_seats: play.ruleSeats ?? 0,
+            },
+          }),
     ...(play.save ? { resume: play.save as unknown as EngineSave } : {}),
     modes: { ...play.modes },
     stepping: pauses(),
@@ -329,7 +369,7 @@ export function createWasmTransport(
   };
 
   /** The app was told a save: an undo back to the start is a save too. */
-  let kept = play.save !== undefined;
+  let kept = play.save !== undefined || !!play.keepFirst;
   /** The save that the app was told last. */
   let last: HostSave | null = null;
   /**
@@ -469,30 +509,23 @@ export function createWasmTransport(
 
   /**
    * The page is left: a write of the staged work to the Worker would not come back. What the
-   * seat that the page is shown as staged since the last save is put into that save here.
+   * seat that the page is shown as staged since the last save is put into that save here, and
+   * the app is told the newest save.
    */
   const stay = () => {
-    const store = core?.transport.staged;
-    const viewer = core?.latest()?.update.viewer;
-    if (!last || !store || viewer?.role !== "player") {
+    if (!last) {
       return;
     }
-    const staged = { ...(last.staged as SavedStaged | undefined) };
-    const seat = staged[viewer.seat] ?? { revision: 0, slots: {} };
-    let revision = Math.max(0, ...Object.values(staged).map((each) => each.revision));
-    const slots = { ...seat.slots };
-    let changed = false;
-    for (const slot of SLOTS) {
-      const value = store.get(slot) ?? null;
-      if (!sameStaged(value, slots[slot]?.value ?? null)) {
-        changed = true;
-        revision += 1;
-        slots[slot] = value === null ? { revision } : { revision, value };
+    const store = core?.transport.staged;
+    const viewer = core?.latest()?.update.viewer;
+    if (store && viewer?.role === "player") {
+      const values = Object.fromEntries(SLOTS.map((slot) => [slot, store.get(slot) ?? null]));
+      const left = stagedInto(last, viewer.seat, values);
+      if (left) {
+        keep(left);
       }
     }
-    if (changed) {
-      keep({ ...last, staged: { ...staged, [viewer.seat]: { revision, slots } } });
-    }
+    play.onLeave?.(last);
   };
   const hidden = () => document.visibilityState === "hidden" && stay();
   if (typeof window !== "undefined") {

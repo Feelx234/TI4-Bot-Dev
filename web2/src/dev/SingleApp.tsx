@@ -3,16 +3,11 @@ import { LobbyScreen } from "../game/lobby/LobbyScreen";
 import type { LobbyIntent } from "../model";
 import { localTable } from "../session/localTable";
 import { NICKNAME_KEY, PLAYER_COUNT_KEY } from "../session/onlineKeys";
-import {
-  type LocalGame,
-  SINGLE_KEY,
-  clearSavedGame,
-  parseSavedGame,
-  storeSavedGame,
-} from "../session/savedGame";
+import { type LocalGame, SINGLE_SLOT, gameOfSave } from "../session/savedGame";
+import { saveStore } from "../session/saves";
 import { selectLobby } from "../session/select/lobby";
 import type { Table, TableState } from "../session/table";
-import { type Engine, loadEngine } from "../session/wasmTransport";
+import { type Engine, type HostSave, loadEngine } from "../session/wasmTransport";
 import { DemoApp } from "./DemoApp";
 import { LocalApp, Notice, wasmUrl } from "./LocalApp";
 import { DEFAULT_NICKNAME } from "./onlineStart";
@@ -41,35 +36,13 @@ export function singleStart(params: URLSearchParams): SingleStart {
   };
 }
 
-/**
- * The game of single player as it was kept, or null. A save of an older format is still the game
- * of this browser: its page says that it is not read, with "New game".
- */
-function keptGame(): LocalGame | null {
-  const text = localStorage.getItem(SINGLE_KEY);
-  if (text === null) {
-    return null;
-  }
-  try {
-    const { seed, players, humans, table, waitMs } = parseSavedGame(text);
-    return table ? { seed, players, humans, table, ...(waitMs ? { waitMs } : {}) } : null;
-  } catch {
-    try {
-      const old: Partial<LocalGame> | null = JSON.parse(text);
-      return old?.table ? (old as LocalGame) : null;
-    } catch {
-      return null;
-    }
-  }
-}
-
 /** The setup of a table in the page: the lobby screen over `localTable`. */
 function SingleSetup({
   start,
   onStart,
 }: {
   start: SingleStart;
-  onStart: (game: LocalGame, engine: Engine) => void;
+  onStart: (game: LocalGame) => void;
 }) {
   const [engine, setEngine] = useState<Engine | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
@@ -101,7 +74,7 @@ function SingleSetup({
         start.players ??
         (Number.isInteger(kept) && kept >= 2 && kept <= 8 ? kept : DEFAULT_PLAYERS),
       seed: start.seed ?? crypto.getRandomValues(new Uint32Array(1))[0],
-      onStart: (game) => onStart(game, engine),
+      onStart,
     });
     const stop = made.subscribe((event) => {
       switch (event.kind) {
@@ -182,23 +155,32 @@ function SingleSetup({
 }
 
 /**
- * Single player, at `?single`: the game that this browser kept, or with none the setup of a
- * table in the page. The address names the save, not the setup: a reload of a started game is
+ * Single player, at `?single`: the game that this browser kept (the slot "single" of the save
+ * store), or with none the setup of a table in the page. The address names the save, not the setup: a reload of a started game is
  * that game. "New game" of its Dev sheet drops the game and opens the setup.
  */
 export function SingleApp({ start }: { start: SingleStart }) {
-  const [game, setGame] = useState(keptGame);
-  const started = useCallback((made: LocalGame, engine: Engine) => {
-    // Kept before the first answer: a reload is then this game, not another setup.
-    storeSavedGame(localStorage, { format: 5, engine: engine.hash, ...made });
-    setGame(made);
+  /** The game of single player that this browser kept; undefined while the store is read. */
+  const [game, setGame] = useState<LocalGame | null | undefined>(undefined);
+  useEffect(() => {
+    let stale = false;
+    saveStore()
+      .then((store) => store.findSlot(SINGLE_SLOT))
+      .then(
+        (record) => stale || setGame(record ? gameOfSave(record.save as HostSave) : null),
+        () => stale || setGame(null),
+      );
+    return () => {
+      stale = true;
+    };
   }, []);
-  const again = useCallback(() => {
-    if (game) {
-      clearSavedGame(localStorage, game);
-    }
-    setGame(null);
-  }, [game]);
+  // The game is kept from its first question on (`LocalApp`): a reload is then this game.
+  const started = useCallback((made: LocalGame) => setGame(made), []);
+  // "New game" removed the saved game.
+  const again = useCallback(() => setGame(null), []);
+  if (game === undefined) {
+    return <Notice tone="quiet">Setting up the table…</Notice>;
+  }
   return game ? (
     <LocalApp game={game} onNewGame={again} other={START} />
   ) : (

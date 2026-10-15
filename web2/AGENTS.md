@@ -102,6 +102,6 @@ The rules of each feature are in `docs/agents/`. Before you change a feature, re
 | Movement, invasion, production, the battle table, the space odds (`src/game/steps/`, `src/game/combat/`) | `docs/agents/tactical.md` |
 | Online play, the server transport, undo online, staged work of a seat (`wsTransport.ts`, `seatStore.ts`, `OnlineApp.tsx`; in a local game also `local-play.md`) | `docs/agents/online.md` |
 | The lobby, single player, the setup of a table, the Table sheet (`src/game/lobby/`, `table.ts`, `localTable.ts`) | `docs/agents/lobby.md` |
-| A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game (`src/session/`, `LocalApp.tsx`) | `docs/agents/local-play.md` |
+| A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game and the save list of the start screen (`src/session/`, `LocalApp.tsx`, `StartApp.tsx`) | `docs/agents/local-play.md` |
 | Tests, fixtures, screenshots, Rust builds, the wasm build | `docs/agents/testing.md` |
 | The code shared with web/: the engine driver (`@ti4/shared`, `../web-shared/`) | `../web-shared/AGENTS.md` |

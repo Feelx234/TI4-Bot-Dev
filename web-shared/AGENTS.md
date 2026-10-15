@@ -86,8 +86,16 @@ The single player games of both apps, in one IndexedDB database of the origin. I
   wasmSha256}`: the first two from `save.engine`, the hash of the wasm file that the page loaded.
   A later write keeps `createdAt`, `resumeEstimateMs` and `slot` when it does not give them.
 - `list()` (newest first, no save), `load(id)`, `findSlot(slot)` (the newest game with the slot),
-  `remove(id)`, `exportGame(id)`, `importGame(file, currentEngine?)` (always a fresh id, and no
-  slot; `engineDiffers` says whether the file's engine is another one).
+  `remove(id)`, `removeUnreadable()` (deletes the records that are not read: the saves of an
+  older version), `exportGame(id)`, `importGame(file, currentEngine?)` (always a fresh id, and
+  no slot; `engineDiffers` says whether the file's engine is another one; later writes keep
+  `imported`).
+- `createAutosave` flushes on `pagehide`, but a write of IndexedDB that starts there does not
+  end when the page is gone (a reload, a navigation). An app that must not lose the last save
+  keeps it at once elsewhere: web2 puts it into localStorage and into the store on the next
+  load (the saved game in `web2/docs/agents/local-play.md`).
+- web2 keeps its local games and its single player game here (`web2/src/session/saves.ts`), with
+  the slots below; web/ its offline games.
 - **The record** (`SavedGameRecord`, schema 2): `id`, `slot?`, `nickname`, `createdAt`,
   `updatedAt`, `status`, `summary {playerCount, humans, factions, seed, round, phase, answers}`,
   `engine`, `resumeEstimateMs`, `imported`, `sizeBytes`, `save`.
