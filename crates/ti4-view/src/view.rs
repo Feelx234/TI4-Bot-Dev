@@ -61,6 +61,27 @@ pub struct PlayerView {
     /// holds none, so older clients and saves are unaffected.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub held_foreign_tokens: Vec<PlayerId>,
+    /// The top agendas this seat was shown by Insider Information, top first, while they are
+    /// still the top of the deck. Private: present only in the view of the seat itself, never for
+    /// opponents or spectators, and absent when there is nothing to show, so older clients and
+    /// saves are unaffected.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agenda_peek: Vec<AgendaPeekCard>,
+}
+
+/// One agenda card a seat was shown by Insider Information, as printed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgendaPeekCard {
+    pub id: String,
+    pub name: String,
+    /// "Law" or "Directive".
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// What the vote elects or decides ("For/Against", "Elect Player", ...).
+    pub target: String,
+    pub text1: String,
+    pub text2: String,
 }
 
 /// Redacted view of a planet on the board.

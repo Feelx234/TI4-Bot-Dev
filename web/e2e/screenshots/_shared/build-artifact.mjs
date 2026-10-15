@@ -22,7 +22,27 @@ const inline = (name) => {
 // A shot is either one image (`file`) or a labelled set (`images: [{ label, file }]`, e.g. before and
 // after, desktop and phone), optionally under a group heading (`group`, printed when it changes).
 let lastGroup;
-const figures = manifest.shots
+// Optional `groups`: [{ title, text, cards: [{ name, change, pairs: [{ label, before, after, note? }] }] }].
+// Every pair is a before and an after image side by side (stacked on a narrow screen).
+const image = (file, alt) => `<img alt="${esc(alt)}" loading="lazy" src="${inline(file)}">`;
+const groups = (manifest.groups ?? [])
+  .map(
+    (group) =>
+      `<section class="cardgroup"><h2>${esc(group.title)}</h2>${group.text ? `<p class="lede">${esc(group.text)}</p>` : ""}${group.cards
+        .map(
+          (card) =>
+            `<article class="card"><h3>${esc(card.name)}</h3><p class="change">${esc(card.change)}</p>${card.pairs
+              .map(
+                (pair) =>
+                  `<div class="pair"><p class="pair__label">${esc(pair.label)}</p><div class="pair__row"><figure><figcaption>Before</figcaption>${image(pair.before, `${card.name}, ${pair.label}, before`)}</figure><figure><figcaption>After</figcaption>${image(pair.after, `${card.name}, ${pair.label}, after`)}</figure></div>${pair.note ? `<p class="pair__note">${esc(pair.note)}</p>` : ""}</div>`,
+              )
+              .join("")}</article>`,
+        )
+        .join("")}</section>`,
+  )
+  .join("\n  ");
+
+const figures = (manifest.shots ?? [])
   .map((shot) => {
     const group =
       shot.group && shot.group !== lastGroup ? `<h2 class="group">${esc(shot.group)}</h2>` : "";
@@ -51,7 +71,7 @@ const html = readFileSync(join(here, "artifact.tpl.html"), "utf8")
   .replaceAll("{{TITLE}}", esc(manifest.title))
   .replaceAll("{{DESCRIPTION}}", esc(manifest.description))
   .replaceAll("{{TAG}}", esc(manifest.tag ?? "captured by web/e2e/screenshots"))
-  .replace("{{SHOTS}}", () => intro + figures)
+  .replace("{{SHOTS}}", () => intro + groups + figures)
   .replace("{{NOTES}}", () => notes);
 writeFileSync(join(folder, "index.html"), html);
-console.log(`built ${join(folder, "index.html")} (${Math.round(html.length / 1024)} KB, ${manifest.shots.length} shots)`);
+console.log(`built ${join(folder, "index.html")} (${Math.round(html.length / 1024)} KB, ${(manifest.shots ?? []).length + (manifest.groups ?? []).reduce((n, g) => n + g.cards.reduce((m, c) => m + c.pairs.length * 2, 0), 0)} shots)`);

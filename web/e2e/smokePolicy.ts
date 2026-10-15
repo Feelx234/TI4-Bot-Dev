@@ -230,7 +230,7 @@ export function reactionTextProblem(text: string): string | null {
 
 // Controls that submit something to the server.
 const COMMIT =
-  /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
+  /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn|mover-move/i;
 
 /**
  * Whether a control takes back staging and whether it submits. A turn bar button submits in one

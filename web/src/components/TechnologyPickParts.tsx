@@ -1,6 +1,7 @@
 import React from "react";
 import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
 import { describeTechnologyPickOption, technologyPickStage } from "../presentation/technologyPick.ts";
+import { SeatTag } from "./SeatTag.tsx";
 
 /** Above the options of Divert Funding: which half of the card this is and what it does. */
 export const TechnologyPickPanel: React.FC<{ choice: PendingChoiceDto }> = ({ choice }) => {
@@ -25,6 +26,11 @@ export const TechnologyPickOptionNote: React.FC<{ choice: PendingChoiceDto; opti
   if (!info) return null;
   return (
     <div data-testid="technology-pick-note" style={{ fontSize: 12 }}>
+      {info.owner && (
+        <div className="text-muted" data-testid="technology-pick-owner">
+          Owned by <SeatTag seat={info.owner} /> · you gain it, they keep theirs
+        </div>
+      )}
       <div className="text-muted">
         {info.track && (
           <strong style={{ color: info.accentColor ?? undefined }}>{info.track}</strong>

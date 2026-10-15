@@ -16,6 +16,14 @@ export interface TechnologyPickOption {
   prereqs: PrereqSymbol[];
   /** The printed text, one paragraph per entry. */
   text: string[];
+  /** The seat the technology is taken from (Plagiarize), or null when the pick has no owner. */
+  owner: string | null;
+}
+
+/** Plagiarize offers `<seat>|<technology>`: the owner and the technology the option stands for. */
+export function splitTechnologyOptionId(id: string): { owner: string | null; technology: string } {
+  const at = id.indexOf("|");
+  return at < 0 ? { owner: null, technology: id } : { owner: id.slice(0, at), technology: id.slice(at + 1) };
 }
 
 /** One technology option as the card prints it. `null` for options that are not technologies. */
@@ -24,8 +32,9 @@ export function describeTechnologyPickOption(
   option: Pick<ChoiceOptionDto, "id" | "kind">,
 ): TechnologyPickOption | null {
   if (!isTechnologyPick(choice) || option.kind !== "technology") return null;
-  const tech = hydrateTech(option.id);
-  const trackId = getTechnologyTrack(option.id);
+  const { owner, technology } = splitTechnologyOptionId(option.id);
+  const tech = hydrateTech(technology);
+  const trackId = getTechnologyTrack(technology);
   const track = TECH_TRACKS.find((entry) => entry.id === trackId) ?? null;
   return {
     name: tech.meta.name,
@@ -36,6 +45,7 @@ export function describeTechnologyPickOption(
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0),
+    owner,
   };
 }
 
@@ -54,6 +64,12 @@ export function technologyPickStage(
     return {
       title: "Research another technology",
       text: "Prerequisites still apply. These are the technologies you can research now.",
+    };
+  }
+  if (/which technology to steal/i.test(choice.prompt)) {
+    return {
+      title: "Steal a technology",
+      text: "You have paid 5 influence. Choose a non-faction technology one of your neighbours owns; you gain it and they keep theirs.",
     };
   }
   return null;
