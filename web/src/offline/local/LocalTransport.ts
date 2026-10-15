@@ -27,7 +27,6 @@ import type { HostCommand, LinkEvent } from "@ti4/shared/link/link.ts";
 export const LOCAL_TRANSPORT_CAPABILITIES: TransportCapabilities = {
   splicePreview: false,
   turnRedo: false,
-  advisor: false,
   multiplayer: false,
   feedback: true,
 };
@@ -311,6 +310,13 @@ export class LocalTransport implements GameTransport {
   }
 
   // --- commands ------------------------------------------------------------------------------
+
+  /** A question of the engine of this game (the odds of a combat); it runs in the game's Worker. */
+  queryEngine(request: object): Promise<unknown> {
+    const link = this.link;
+    if (!link) return Promise.reject(new Error(NOT_RUNNING));
+    return link.query(request);
+  }
 
   /** A command to the engine; the messages of its reply reach the reducer before it resolves. */
   private send(request: HostCommand): Promise<Envelope> {

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
+import { OddsEngineContextProvider } from "./OddsEngine.tsx";
 import { galleryBoard, galleryPlayers } from "../dev/galleryBoard.ts";
 import { actor } from "../dev/decisionGalleryCases.ts";
 import { partialContext } from "../test/wire.ts";
@@ -24,11 +25,7 @@ const choice = {
 afterEach(() => vi.unstubAllGlobals());
 
 it("uses the engine's classified defender, all standing guns and legal Harrow in a draft-keyed request", async () => {
-  const fetch = vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ attacker_win_rate: 0.4, simulations: 2000 }),
-  });
-  vi.stubGlobal("fetch", fetch);
+  const query = vi.fn().mockResolvedValue({ attacker_win_rate: 0.4, simulations: 2000 });
   const board = {
     ...galleryBoard,
     invasion: {
@@ -68,23 +65,27 @@ it("uses the engine's classified defender, all standing guns and legal Harrow in
     defender: { ...galleryPlayers[1], id: "defender", faction: "letnev" },
   };
   render(
-    <InvasionLandingTray
-      choice={choice}
-      board={board}
-      players={players}
-      viewerSeat={actor}
-      onSubmit={vi.fn()}
-      onClose={vi.fn()}
-    />,
+    <OddsEngineContextProvider value={{ state: "ready", query }}>
+      <InvasionLandingTray
+        choice={choice}
+        board={board}
+        players={players}
+        viewerSeat={actor}
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />
+    </OddsEngineContextProvider>,
   );
   // The default plan stages the spec ops already on the planet first, then the loose infantry
   // from space; each staging is one odds request keyed to the draft.
-  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
-  const first = JSON.parse(fetch.mock.calls[0][1].body);
+  await waitFor(() => expect(query).toHaveBeenCalledTimes(2));
+  const first = query.mock.calls[0][0];
+  expect(first.query).toBe("ground_odds");
   expect(first.attacker.units).toEqual({ spec_ops: 1 });
+  expect(first.defender.faction).toBe("letnev");
   expect(first.defender.guns).toEqual({ pds: 1 });
   expect(first.harrow).toEqual({ dreadnought: 1 });
-  const staged = JSON.parse(fetch.mock.calls[1][1].body);
+  const staged = query.mock.calls[1][0];
   expect(staged.attacker.units).toEqual({ spec_ops: 1, infantry: 1 });
   expect(staged.defender.guns).toEqual({ pds: 1 });
   expect(staged.harrow).toEqual({ dreadnought: 1 });

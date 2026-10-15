@@ -163,16 +163,22 @@ The odds of a space combat and of a ground combat, from the engine of the page
 `@ti4/shared/engine/odds.ts`.
 
 - `spaceOdds(query, request)` asks `{"query":"space_odds", ...SpaceOddsRequest}` and gives a
-  `BattleResponse` (2000 rollouts from a fixed seed: the same sides give the same numbers).
+  `BattleResponse` (2000 rollouts from a fixed seed: the same sides give the same numbers). The
+  sides name their ships by unit id (`dreadnought2`, `sol_flagship`: the upgraded and faction
+  units are read by their ids; the faction only shifts the rolls). `in_progress: true` is a
+  combat that has begun: no space cannon and no anti-fighter barrage come before its round (web's
+  combat window); without it the combat is about to start (web2's movement).
   `groundOdds(query, request)` asks `{"query":"ground_odds", ...GroundOddsRequest}` and gives a
   `GroundOddsResponse`. Sides that the engine does not read reject with its error (`space odds:
   …`, `ground odds: …`, `query: …`): the app shows its own text.
 - `query` is the engine of the page:
   - while a game runs in a Worker, `EngineLink.query`: the Worker asks the instance of the
-    running game, also while it waits at a question (web2's `wasmTransport.ts`);
+    running game, also while it waits at a question (web2's `wasmTransport.ts`; web's
+    `LocalTransport.queryEngine`);
   - else `pageQuery(module)`: one instance of the module on the main thread, kept for the page
-    and made again after a trap (web2's online game, `wsTransport.ts`). It needs JSPI, as every
-    engine of a page.
+    and made again after a trap (web2's online game, `wsTransport.ts`; web's online game and its
+    catalog, `web/src/protocol/pageEngine.ts`, loaded after the first render). It needs JSPI, as
+    every engine of a page.
 - A query waits while the game in the Worker computes (a bot decides); it is answered when the
   game waits for the page again.
 

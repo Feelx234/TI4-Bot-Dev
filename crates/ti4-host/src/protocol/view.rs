@@ -211,7 +211,7 @@ pub struct InvasionView {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InvasionOddsContext {
     pub opponent: Option<PlayerId>,
-    /// False when a live defense modifier cannot be represented in the advisor request.
+    /// False when a live defense modifier cannot be represented in the ground odds request.
     pub available: bool,
     pub ground_force_types: Vec<String>,
     /// Guns not already carried by the immediate opponent's modeled ground forces.

@@ -1,6 +1,6 @@
 # Shared web module (web-shared/): transport, engine, saves, wire types, content, odds (2026-10-14)
 
-Status: steps 1 to 17 done (2026-10-15).
+Status: steps 1 to 18 done (2026-10-15).
 
 ## Context
 

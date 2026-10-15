@@ -6,4 +6,9 @@ import type { SideInput } from "./SideInput.ts";
  * them: each a side of `ti4_calc::odds::SideInput` with no player. A side of
  * `MovementFacts.battle` is such a side.
  */
-export type SpaceOddsRequest = { attacker: SideInput, defender: SideInput, };
+export type SpaceOddsRequest = { attacker: SideInput, defender: SideInput, 
+/**
+ * The combat has begun: the rollouts start at a combat round, with no space cannon and no
+ * anti-fighter barrage before it (they are behind the combat).
+ */
+in_progress?: boolean, };

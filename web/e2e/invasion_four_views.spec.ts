@@ -49,17 +49,6 @@ test("invasion lands, fights and hands off consistently in four independent view
   const contexts = await Promise.all(Array.from({ length: 4 }, () => browser.newContext()));
   const pages = await Promise.all(contexts.map((ctx) => ctx.newPage()));
   try {
-    const advisorInputs: Array<Record<string, unknown>> = [];
-    await pages[0].route("**/advisor/ground_odds", async (route) => {
-      const input = route.request().postDataJSON() as {
-        attacker: { units: Record<string, number> };
-      };
-      advisorInputs.push(input as unknown as Record<string, unknown>);
-      const count = Object.values(input.attacker.units).reduce((total, n) => total + n, 0);
-      await route.fulfill({
-        json: { attacker_win_rate: Math.min(0.95, count / 10), simulations: 2000 },
-      });
-    });
     await Promise.all(ids.map((id, index) => openPlayerGame(pages[index], game, seats[id])));
     await pages[3].goto(`/games/${game}`);
     await pages[3].getByRole("button", { name: "Watch" }).click();
@@ -118,7 +107,6 @@ test("invasion lands, fights and hands off consistently in four independent view
     await expect
       .poll(async () => pages[0].getByTestId("invasion-odds").textContent())
       .not.toBe(firstOdds);
-    expect(advisorInputs.length).toBeGreaterThanOrEqual(2);
     for (const page of pages.slice(1))
       await expect(page.getByTestId("invasion-odds")).toHaveCount(0);
     await tray.getByRole("button", { name: "Confirm landings" }).click();

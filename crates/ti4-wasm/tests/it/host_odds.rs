@@ -42,6 +42,11 @@ fn space_requests() -> Vec<Value> {
             "attacker": { "faction": "jolnar", "units": { "warsun": 1, "fighter": 3 } },
             "defender": { "faction": "naalu", "units": { "fighter": 6, "cruiser": 2 } },
         }),
+        json!({
+            "attacker": { "faction": "sol", "units": { "destroyer": 2, "carrier": 1 } },
+            "defender": { "faction": "naalu", "units": { "fighter": 4, "cruiser": 1 } },
+            "in_progress": true,
+        }),
     ]
 }
 
@@ -75,6 +80,7 @@ fn space_expected(request: &Value) -> Value {
         &side("defender"),
         SpaceOptions {
             seed: Some(0),
+            in_progress: request["in_progress"].as_bool(),
             ..Default::default()
         },
     )
@@ -116,7 +122,11 @@ fn the_odds_queries_give_the_numbers_of_ti4_calc() {
     // The same sides give the same numbers (a fixed seed).
     assert_eq!(answers, ask_all());
     assert_eq!(answers[0]["attacker_fielded"]["cruiser"], 1);
-    assert_eq!(answers[5]["simulations"], 500);
+    assert_eq!(answers[6]["simulations"], 500);
+    // A combat that has begun fires no barrage before its round: the fighters fare better.
+    let mut begun = space_requests()[3].clone();
+    begun["in_progress"] = json!(false);
+    assert_ne!(answers[3], query(&asked("space_odds", &begun)).unwrap());
 }
 
 #[test]

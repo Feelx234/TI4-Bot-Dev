@@ -1416,6 +1416,11 @@ pub extern "C" fn ti4_scenarios() -> i32 {
 pub(crate) struct SpaceOddsRequest {
     attacker: ti4_calc::odds::SideInput,
     defender: ti4_calc::odds::SideInput,
+    /// The combat has begun: the rollouts start at a combat round, with no space cannon and no
+    /// anti-fighter barrage before it (they are behind the combat).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
+    in_progress: bool,
 }
 
 /// The seed of every space odds query: the same sides give the same numbers.
@@ -1434,6 +1439,7 @@ pub(crate) fn space_odds_of(
         &request.defender,
         ti4_calc::odds::SpaceOptions {
             seed: Some(ODDS_SEED),
+            in_progress: Some(request.in_progress),
             ..Default::default()
         },
     )

@@ -58,7 +58,8 @@ To enable self-service MLP bots from the lobby:
    ```bash
    cargo build -p ti4-bot-agent
    ```
-2. **Start the advisor service** (port 8081):
+2. **Start the advisor service** (port 8081), which the bot agent plays with (the web page does
+   not use it; its combat odds come from the engine, see below):
    ```bash
    export LIBTORCH="$PWD/out/libtorch-2.9.1-cpu-linux"
    export LIBTORCH_BYPASS_VERSION_CHECK=1
@@ -159,9 +160,22 @@ Every text of a card, technology, unit, faction, leader, objective or planet tha
 from the engine's catalog (`Catalog.records`): the same JSON from `GET /api/catalog` of the server
 and from the engine's `{"query":"catalog"}`. `CatalogProvider` (`src/components/CatalogProvider.tsx`)
 loads it once, before the app renders: an online page from the server, an offline page
-(`/offline`) from its engine (a short-lived Worker); each falls back to the other, and with neither
+(`/offline`) from its engine (`src/protocol/pageEngine.ts`); each falls back to the other, and with neither
 the page says that the cards could not be loaded and offers Retry. It fills the tables of
 `src/protocol/catalogStore.ts`, which the content wrappers (`contentCatalog.ts`, `factionInfo.ts`,
 `technologyData.ts`, `unitStats.ts`, `cardDatabase.ts`, ...) read. The unit tests fill them from
 `../fixtures/catalog/catalog.json` (`src/test/setup.ts`), the engine's answer written by
 `cargo wire-web`.
+
+### The odds of a combat
+
+The win odds of a space combat (`SpaceCombatOverlay`) and of a landing (`InvasionLandingTray`)
+come from the engine, online and offline, with no server: `spaceOdds` and `groundOdds` of
+`@ti4/shared/engine/odds.ts` (`{"query":"space_odds"}`, `{"query":"ground_odds"}`, on
+`ti4_calc::odds`). `OddsEngineProvider` (`src/components/OddsEngine.tsx`) gives the game screen
+its engine: in an offline game the engine that plays it (`LocalTransport.queryEngine`, in its
+Worker); online the page's own engine (`src/protocol/pageEngine.ts`: the wasm file fetched and
+compiled once, after the first render, and one instance on the main thread, which also answers
+the catalog). Until it is there the space combat shows a rough fleet estimate ("simulation
+pending") and the landing "Calculating…"; in a browser without WebAssembly JSPI they stay at the
+estimate and "Odds unavailable".

@@ -11,7 +11,7 @@ const baseOrigin = (page: Page) => new URL(page.url() || "http://127.0.0.1").ori
 async function blockServer(context: BrowserContext, origin: string, requests: string[] = []) {
   await context.route("**/*", (route) => {
     const url = new URL(route.request().url());
-    if (url.origin !== origin || /^\/(api|ws|advisor|health)(\/|$)/.test(url.pathname)) return route.abort();
+    if (url.origin !== origin || /^\/(api|ws|health)(\/|$)/.test(url.pathname)) return route.abort();
     requests.push(`${route.request().method()} ${url.pathname}`);
     return route.continue();
   });
@@ -33,7 +33,7 @@ test("plays an offline game with the network blocked and resumes after a refresh
 
   const played = await playUntil(page, gameId, 20);
   expect(played).toBeGreaterThanOrEqual(20);
-  // Hidden offline: turn redo, advisor.
+  // Hidden offline: turn redo.
   await expect(page.getByTestId("turn-redo-btn")).toHaveCount(0);
   const record = await storedRecord(page, gameId);
   expect(record?.wasmSha256).toMatch(/^[0-9a-f]{64}$/);

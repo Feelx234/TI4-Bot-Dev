@@ -9,7 +9,7 @@ page sets `window.__TI4_OFFLINE_MOCK__` or the URL has `?offline-mock`) stands i
 
 1. Implement `OfflineLauncher` and call `registerOfflineLauncher(launcher)` at startup. With nothing
    registered the "Play offline" button is absent and `/offline` shows "not available".
-   - `capabilities`: use `OFFLINE_CAPABILITIES` (splice preview, turn redo, advisor, multiplayer, instant
+   - `capabilities`: use `OFFLINE_CAPABILITIES` (splice preview, turn redo, multiplayer, instant
      feedback all off). T1's transport should report the same flags; the banner and `useCapability`
      read them.
    - `supported()`: false with a reason when JSPI is missing (Chrome/Edge 137+ only in v1).
@@ -28,8 +28,8 @@ page sets `window.__TI4_OFFLINE_MOCK__` or the URL has `?offline-mock`) stands i
    feedback sheet then routes through `routeFeedback`: the report goes to `launcher.feedback.enqueue`
    with `local()` (seed, the human's answers, engine hash, table size, seat) and the sheet says
    "Will be sent". Outside an offline game feedback is unchanged.
-4. Hide degraded features with `useCapability("turnRedo" | "splicePreview" | "advisor" | "multiplayer")`
-   or `<IfCapable name=...>`. The shell does not touch GameShell, the redo hook, the advisor or the map
+4. Hide degraded features with `useCapability("turnRedo" | "splicePreview" | "multiplayer")`
+   or `<IfCapable name=...>`. The shell does not touch GameShell, the redo hook or the map
    picker; T5 wires those flags in.
 5. Server side (built): `/api/feedback` accepts `context.local` (shape `OfflineFeedbackLocal` in types.ts) and an optional `report_id`; a retry with the same id is stored once (`duplicate: true`). Treat 200 as sent.
 
@@ -90,10 +90,14 @@ characters, 200 KiB), 50 waiting reports.
 Tests: `storage/feedbackQueue.test.ts` (the queue, the sender, the engine check); the store's own
 tests run in web2 (`web-shared/AGENTS.md`, "Tests").
 
-Capabilities: `LocalTransport.capabilities` (`splicePreview`, `turnRedo`, `advisor`, `multiplayer` off,
+Capabilities: `LocalTransport.capabilities` (`splicePreview`, `turnRedo`, `multiplayer` off,
 `feedback` on) and the shell's `useCapability` both gate the UI: turn redo (GameShell prop and hook), the
-bluff selector (multiplayer), the advisor requests in `SpaceCombatOverlay` and `InvasionLandingTray`.
-There is no splice preview or map picker in the game screen of this branch, so nothing else needed hiding.
+bluff selector (multiplayer). There is no splice preview or map picker in the game screen of this branch,
+so nothing else needed hiding.
+
+Odds: `LocalTransport.queryEngine` asks the game's engine in its Worker (`EngineLink.query`); the game
+screen hands it to `OddsEngineProvider`, so the odds of `SpaceCombatOverlay` and `InvasionLandingTray`
+are the same online and offline.
 
 Tests: `*.test.ts` in `local/` (fake worker), `contract.test.ts` (LocalTransport and GameSessionClient give the
 same state; the recorded stream runs with `TI4_HOSTED_STREAM`, see `hostedStream.test.ts`), and

@@ -1,20 +1,22 @@
-import { act } from "react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import React, { act } from "react";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import type { EngineQuery } from "@ti4/shared/engine/odds.ts";
 import { SpaceCombatOverlay } from "./SpaceCombatOverlay.tsx";
+import { OddsEngineContextProvider } from "./OddsEngine.tsx";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { PendingChoiceDto, BoardView, PlayerView } from "../protocol/types.ts";
 import { partialCombat, partialContext } from "../test/wire.ts";
 
+/** Renders with `query` as the engine of the odds. */
+const withEngine =
+  (query: EngineQuery) =>
+  ({ children }: { children: React.ReactNode }) => (
+    <OddsEngineContextProvider value={{ state: "ready", query }}>{children}</OddsEngineContextProvider>
+  );
+
 describe("SpaceCombatOverlay", () => {
-  const originalFetch = global.fetch;
-
-  beforeEach(() => {
-    global.fetch = vi.fn().mockImplementation(() => new Promise(() => {}));
-  });
-
   afterEach(() => {
-    global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
@@ -329,7 +331,7 @@ describe("SpaceCombatOverlay", () => {
     expect(screen.queryByTestId("sustain-opt-sustain:cruiser")).not.toBeInTheDocument();
   });
 
-  it("fetches and renders live simulated combat odds from advisor endpoint", async () => {
+  it("asks the engine for the odds of the combat under way and shows them", async () => {
     const mockOdds = {
       simulations: 2000,
       attacker_win_rate: 0.72,
@@ -343,10 +345,7 @@ describe("SpaceCombatOverlay", () => {
       defender_fielded: { cruiser: 1, destroyer: 1 },
     };
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => mockOdds,
-    } as Response);
+    const query = vi.fn().mockResolvedValue(mockOdds);
 
     const sustainChoice: PendingChoiceDto = {
       actor: "seat_1",
@@ -383,6 +382,7 @@ describe("SpaceCombatOverlay", () => {
           onSubmit={vi.fn().mockResolvedValue(undefined)}
           onClose={vi.fn()}
         />,
+        { wrapper: withEngine(query) },
       );
     });
 
@@ -395,17 +395,22 @@ describe("SpaceCombatOverlay", () => {
       "Avg 2.4 rounds • 3% mutual wipe",
     );
 
-    expect(global.fetch).toHaveBeenCalledWith(
-      "/advisor/battle",
-      expect.objectContaining({
-        method: "POST",
-        body: expect.stringContaining('"faction":"sol"'),
-      }),
-    );
+    // The ships by unit id, the damaged ones apart; the combat has begun.
+    expect(query).toHaveBeenCalledWith({
+      query: "space_odds",
+      attacker: {
+        faction: "Federation of Sol",
+        units: { carrier: 1, dreadnought: 1, fighter: 2 },
+        damaged: { carrier: 1 },
+      },
+      defender: { faction: "Barony of Letnev", units: { cruiser: 1, destroyer: 1 } },
+      in_progress: true,
+    });
   });
 
-  it("labels the rough fleet estimate when the advisor fails", async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error("Advisor offline"));
+  it("labels the rough fleet estimate when the engine gives no odds", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const query = vi.fn().mockRejectedValue(new Error("space odds: unknown unit id"));
 
     const sustainChoice: PendingChoiceDto = {
       actor: "seat_1",
@@ -439,21 +444,20 @@ describe("SpaceCombatOverlay", () => {
           onSubmit={vi.fn().mockResolvedValue(undefined)}
           onClose={vi.fn()}
         />,
+        { wrapper: withEngine(query) },
       );
     });
 
     expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
-      "Rough fleet estimate · advisor unavailable",
+      "Rough fleet estimate · simulation unavailable",
     );
     expect(screen.getByTestId("combat-odds-card")).toBeInTheDocument();
     expect(screen.getAllByText(/\d+%/)).toHaveLength(2);
   });
 
   it("never displays late odds after rolls or for another round", async () => {
-    const replies: ((value: Response) => void)[] = [];
-    global.fetch = vi
-      .fn()
-      .mockImplementation(() => new Promise<Response>((resolve) => replies.push(resolve)));
+    const replies: ((value: unknown) => void)[] = [];
+    const query = vi.fn(() => new Promise((resolve) => replies.push(resolve)));
     const combat = partialCombat({
       system_id: "18",
       round: 1,
@@ -472,6 +476,7 @@ describe("SpaceCombatOverlay", () => {
     };
     const { rerender } = render(
       <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat }} />,
+      { wrapper: withEngine(query) },
     );
     expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
       "Rough fleet estimate · simulation pending",
@@ -492,9 +497,7 @@ describe("SpaceCombatOverlay", () => {
       "Rough fleet estimate · simulation pending",
     );
     expect(screen.getByTestId("combat-odds-card")).toHaveTextContent(/\d+%/);
-    await act(async () =>
-      replies[0]({ ok: true, json: async () => ({ attacker_win_rate: 0.9 }) } as Response),
-    );
+    await act(async () => replies[0]({ attacker_win_rate: 0.9 }));
     expect(screen.queryByText("90%")).not.toBeInTheDocument();
   });
 

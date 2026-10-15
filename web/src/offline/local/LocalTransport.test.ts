@@ -40,7 +40,7 @@ describe("LocalTransport", () => {
     expect(state.pendingChoice?.nonce).toBe("n1");
     expect(state.gameVersion).toBe(1);
     expect(saves).toHaveLength(1);
-    expect(transport.capabilities).toMatchObject({ turnRedo: false, advisor: false, multiplayer: false, splicePreview: false });
+    expect(transport.capabilities).toMatchObject({ turnRedo: false, multiplayer: false, splicePreview: false });
     expect(transport.nickname).toBe("Tester");
   });
 

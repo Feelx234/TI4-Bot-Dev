@@ -13,8 +13,6 @@ export interface Capabilities {
   splicePreview: boolean;
   /** Turn redo (undo to the start of the own turn and play it again). */
   turnRedo: boolean;
-  /** The advisor (neural move suggestions from the server). */
-  advisor: boolean;
   /** More than one human: lobby, invite links, presence, takeover. */
   multiplayer: boolean;
   /** Feedback reaches the server at once (offline it is queued and sent later). */

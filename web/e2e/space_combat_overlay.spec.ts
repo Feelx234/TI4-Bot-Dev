@@ -220,6 +220,10 @@ test.describe("Space Combat Overlay", () => {
     await expect(oddsCard).toBeVisible();
     await expect(oddsCard.getByText("Combat Odds · Fleets only")).toBeVisible();
     await expect(oddsCard.locator(".combat-odds-col__pct")).toHaveText([/\d+%/, /\d+%/]);
+    // The page's own engine simulates the combat (no server, no advisor).
+    await expect(page.getByTestId("combat-odds-tag")).toHaveText("Simulated (2,000 rollouts)", {
+      timeout: 30_000,
+    });
 
     // Verify round hits scorecard is visible
     const roundHits = page.getByTestId("combat-round-hits");

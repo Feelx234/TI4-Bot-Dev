@@ -25,6 +25,7 @@ import { registerLocalLauncher } from "./offline/local/register.ts";
 import { useCapability } from "./offline/capabilities.ts";
 import type { GameTransport } from "./protocol/transport.ts";
 import { GameShell } from "./components/GameShell.tsx";
+import { OddsEngineProvider } from "./components/OddsEngine.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
@@ -416,6 +417,7 @@ const GameViewContainer: React.FC<{
     submitBatch,
     previewSecondary,
     queryReach,
+    queryEngine,
     batchResume,
     resumeBatch,
     dismissBatchResume,
@@ -653,6 +655,7 @@ const GameViewContainer: React.FC<{
     setSelectedPlanetId(selection.planetId);
   };
   return (
+    <OddsEngineProvider local={queryEngine}>
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <PublicStateProvider state={snapshot?.state}>
@@ -961,5 +964,6 @@ const GameViewContainer: React.FC<{
     </PublicStateProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>
+    </OddsEngineProvider>
   );
 };

@@ -48,8 +48,8 @@ async function compile(url: string): Promise<{ module: WebAssembly.Module; wasmS
 }
 
 /**
- * A question of the engine that needs no game (`{"query": ...}`: `describe`, `catalog`), asked in a
- * short-lived worker.
+ * A question of the engine that needs no game (`{"query": ...}`: `describe`), asked in a
+ * short-lived worker. The catalog and the odds ask the page's instance (`protocol/pageEngine.ts`).
  */
 export async function engineQuery(engine: LoadedEngine, request: object): Promise<unknown> {
   const port = await workerPort(engine);

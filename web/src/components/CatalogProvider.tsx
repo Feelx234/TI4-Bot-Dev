@@ -1,18 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { CatalogError, loadCatalog } from "@ti4/shared/content/catalog.ts";
-import { hasJspi } from "@ti4/shared/engine/jspi.ts";
 import type { Catalog } from "../protocol/types.ts";
 import { catalogContent, setCatalog } from "../protocol/catalogStore.ts";
-import { hasEngineAsset } from "../offline/local/engineAsset.ts";
+import { pageEngine, pageHasEngine } from "../protocol/pageEngine.ts";
 
-/** The catalog from the engine of this build, in a short-lived worker. */
+/** The catalog from the engine of this page (the instance that also answers the odds). */
 async function fromEngine(): Promise<Catalog> {
-  if (!hasEngineAsset() || !hasJspi()) {
+  if (!pageHasEngine()) {
     throw new CatalogError("engine", "This build or browser has no engine.");
   }
-  const { engineQuery, loadEngine } = await import("../offline/local/session.ts");
-  const engine = await loadEngine();
-  return loadCatalog({ query: (request) => engineQuery(engine, request) });
+  return loadCatalog({ query: await pageEngine() });
 }
 
 /**
