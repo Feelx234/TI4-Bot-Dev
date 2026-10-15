@@ -2223,6 +2223,12 @@ fn assassinate_representative(context: &mut crate::timing::TimingContext<'_>, pl
         .insert(victim, "none|assassin".to_owned());
 }
 
+/// Whether a `faction_marks` key is an Insider Information peek (see [`insider_peek_key`]).
+#[must_use]
+pub fn is_insider_peek_key(key: &str) -> bool {
+    key.starts_with("private:") && key.ends_with(":insider:peek")
+}
+
 /// The `faction_marks` key under which Insider Information leaves what its player saw: a
 /// `private:<player>:` row, which only that seat is ever sent (`ti4_model::view::mark_visible_to`).
 #[must_use]
