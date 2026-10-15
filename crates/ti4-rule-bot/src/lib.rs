@@ -690,7 +690,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
         // Bot version 2: a fight that takes no planet (no troops to land), next to nothing of
         // its own, wins nothing (fb_1791896411); from round 3 the objective layer says the same.
         if contested
-            && tuning::ground_rule()
+            && tuning::empty_fight_rule()
             && taken <= 0.0
             && !board.planet_control.values().any(|owner| owner == me)
             && !home_system(seen, me).is_some_and(|home| {
@@ -2882,11 +2882,31 @@ fn exhausted_influence(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 fn pick_answer(choice: &Choice) -> Option<usize> {
     let accept = choice.options.iter().position(|o| o.id == "accept");
     let refuse = choice.options.iter().position(ChoiceOption::is_decline);
+    // Bot version 2: a Support for the Throne is a victory point to whoever holds it; the bot
+    // never hands one over (the prompt reads "<proposer> gives X for <what we give>").
+    if tuning::sftt_rule()
+        && choice
+            .prompt
+            .split(" for ")
+            .skip(1)
+            .any(|part| part.contains(ti4_engine::promissory::SUPPORT_PREFIX))
+    {
+        return refuse;
+    }
     let net = accept.and_then(|i| payload_f64(&choice.options[i], "net"));
     match (accept, net) {
         (Some(index), Some(net)) if net >= tuning::accept_net() => Some(index),
         _ => refuse,
     }
+}
+
+/// Whether a proposal gives away a Support for the Throne (its label: "give/sell X for Y").
+fn gives_support(option: &ChoiceOption) -> bool {
+    option
+        .label
+        .split(" for ")
+        .next()
+        .is_some_and(|given| given.contains(ti4_engine::promissory::SUPPORT_PREFIX))
 }
 
 /// Propose the offer that gains most for the bot among those that also gain for the other side.
@@ -2896,6 +2916,7 @@ fn pick_proposal(choice: &Choice) -> Option<usize> {
         .iter()
         .enumerate()
         .filter(|(_, o)| o.kind == "offer")
+        .filter(|(_, o)| !(tuning::sftt_rule() && gives_support(o)))
         .filter_map(|(i, o)| {
             let net = payload_f64(o, "net")?;
             let theirs = payload_f64(o, "their_net")?;

@@ -73,7 +73,8 @@ tuning! {
     upgraded_bonus: f64 = crate::faction_plans::UPGRADED_BONUS, "production weight of an upgraded unit";
     vote_rule: bool = false, "v2: agenda votes, Politics' speaker and agenda placement by rule (answers.rs)";
     casualty_rule: bool = false, "v2: sustain damage whenever possible, least valuable casualty first";
-    ground_rule: bool = false, "v2: troops only for free lift; no fight that takes nothing in rounds 1-2";
+    ground_rule: bool = false, "v2: troops only for the free lift of its ships (glut at lift + 2)";
+    empty_fight_rule: bool = false, "v2: rounds 1-2, no fight that takes no planet away from its own systems";
     mecatol_rival_bonus: f64 = 0.0, "v2: extra worth of Mecatol Rex while a rival holds it";
     planner_weight: f64 = 0.0, "v2: production weight per point of an objective within planner_gap that more of a unit meets";
     planner_gap: f64 = 3.0, "v2: steps short within which the planner weighs an objective";
@@ -82,6 +83,7 @@ tuning! {
     home_guard: bool = false, "v2: no warship leaves home when the rest could not hold it against a fleet a rival can bring";
     plans_v2: bool = false, "v2: reworked plans of the weakest factions (yssaril, l1z1x, nekro, hacan, arborec)";
     rift_caution: bool = false, "v2: outside a fight, no move that exits a gravity rift (a 30% loss per rift)";
+    sftt_rule: bool = false, "v2: never give away a Support for the Throne (a victory point) in a trade";
     misc_rule: bool = false, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
 }
 
@@ -102,6 +104,7 @@ pub fn for_version(version: u32) -> Tuning {
         casualty_rule: false,
         misc_rule: false,
         ground_rule: false,
+        empty_fight_rule: false,
         mecatol_rival_bonus: 0.0,
         planner_weight: 0.0,
         planner_gap: 3.0,
@@ -110,6 +113,7 @@ pub fn for_version(version: u32) -> Tuning {
         home_guard: false,
         plans_v2: false,
         rift_caution: false,
+        sftt_rule: false,
         ..current
     }
 }
