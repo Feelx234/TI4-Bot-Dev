@@ -47,6 +47,8 @@ export const InvasionLandingTray: React.FC<{
   draft?: Landing[];
   onDraftChange?: (draft: Landing[]) => void;
   embedded?: boolean;
+  /** The live decision is not this landing offer (the tray keeps the last one while hidden). */
+  interrupted?: boolean;
 }> = ({
   choice,
   board,
@@ -58,6 +60,7 @@ export const InvasionLandingTray: React.FC<{
   draft: controlledDraft,
   onDraftChange,
   embedded = false,
+  interrupted = false,
 }) => {
   const present = useParticipantText();
   const oddsEngine = useOddsEngine();
@@ -246,9 +249,11 @@ export const InvasionLandingTray: React.FC<{
   }, [previewKey, choice.actor, viewerSeat, oddsQuery, oddsPending]);
 
   useEffect(() => {
-    if (!running || submitting.current || submittedNonce.current === choice.nonce || !draft.length)
-      return;
+    if (!running || submitting.current || !draft.length) return;
+    // A hidden tray still holds the last landing offer, whose nonce was answered: check the
+    // interruption before the nonce, or the draft resumes on the next offer instead of pausing.
     if (
+      interrupted ||
       choice.actor !== origin.current.actor ||
       system !== origin.current.system ||
       choice.context?.subtype !== "commit_ground_forces"
@@ -259,6 +264,7 @@ export const InvasionLandingTray: React.FC<{
       );
       return;
     }
+    if (submittedNonce.current === choice.nonce) return;
     const next = draft[0];
     const offered = options.find(({ landing }) => same(landing, next));
     if (!offered) {
@@ -281,7 +287,7 @@ export const InvasionLandingTray: React.FC<{
       .finally(() => {
         submitting.current = false;
       });
-  }, [running, draft, choice.nonce, choice.actor, choice.context?.subtype, system]);
+  }, [running, draft, interrupted, choice.nonce, choice.actor, choice.context?.subtype, system]);
 
   useEffect(() => {
     if (running && draft.length === 0) setRunning(false);

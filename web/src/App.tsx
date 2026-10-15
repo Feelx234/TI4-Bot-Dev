@@ -901,6 +901,9 @@ const GameViewContainer: React.FC<{
             ? {
                 phase: snapshot.view.phase,
                 activePlayer: snapshot.view.active_player ?? null,
+                othersDeciding:
+                  turnStatus?.kind === "waiting_for_reactions" ||
+                  (turnStatus?.kind === "waiting_for_decision" && turnStatus.seat !== userSeat),
               }
             : undefined
         }

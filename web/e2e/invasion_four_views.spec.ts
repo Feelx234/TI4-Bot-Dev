@@ -53,15 +53,22 @@ test("invasion lands, fights and hands off consistently in four independent view
     await pages[3].goto(`/games/${game}`);
     await pages[3].getByRole("button", { name: "Watch" }).click();
 
+    // The four views of one game version: the game can move on (an answer of a page) between
+    // two of the reads, so read again until they agree on the version.
     const samePublic = async () => {
-      const views = await Promise.all(
-        pages.map((_, i) => snapshot(request, game, i < 3 ? seats[ids[i]] : undefined)),
-      );
+      let views: InitialSnapshotMsg[] = [];
+      await expect
+        .poll(async () => {
+          views = await Promise.all(
+            pages.map((_, i) => snapshot(request, game, i < 3 ? seats[ids[i]] : undefined)),
+          );
+          return views.every((view) => view.game_version === views[0].game_version);
+        })
+        .toBe(true);
+      const system = views[0].view.board.invasion?.system_id;
       for (const view of views.slice(1)) {
         expect(view.view.board.invasion).toEqual(views[0].view.board.invasion);
-        expect(view.view.board.systems[views[0].view.board.invasion!.system_id]).toEqual(
-          views[0].view.board.systems[views[0].view.board.invasion!.system_id],
-        );
+        if (system) expect(view.view.board.systems[system]).toEqual(views[0].view.board.systems[system]);
       }
       return views;
     };
@@ -120,7 +127,12 @@ test("invasion lands, fights and hands off consistently in four independent view
       .toBe(2);
     views = await samePublic();
     await expect(tray.getByText("Submitting landings one at a time…")).toHaveCount(0);
+    const landed = await snapshot(request, game, seats[invader]);
     await tray.getByRole("button", { name: "Done committing" }).click();
+    // Read the game only after the server took the answer, not the landing offer it answered.
+    await expect
+      .poll(async () => (await snapshot(request, game, seats[invader])).game_version)
+      .toBeGreaterThan(landed.game_version);
 
     let sawRound = false;
     for (let step = 0; step < 40; step++) {
@@ -133,6 +145,8 @@ test("invasion lands, fights and hands off consistently in four independent view
       if (state.view.board.invasion.last_step?.kind === "ground_round") {
         sawRound = true;
         const publicViews = await samePublic();
+        // The round can end the invasion between the read of `state` and these four.
+        if (!publicViews[0].view.board.invasion) continue;
         expect(publicViews[3].view.board.invasion?.last_step?.planet).toBe(planet);
         for (const page of pages) await expect(page.getByTestId("invasion-step")).toBeVisible();
       }
@@ -248,6 +262,8 @@ test("Parley interrupts a non-atomic landing pipeline and preserves the remainin
       .toBeGreaterThan(paused.game_version);
     await expect(tray).toBeVisible();
     await expect(tray).toContainText("Remaining draft: infantry");
+    // The tray paused: it does not land the rest of the draft on the next offer by itself.
+    await expect(tray).toContainText("Landing paused: another decision intervened");
     await expect
       .poll(
         async () =>
@@ -334,7 +350,13 @@ test("a separate two-planet invasion keeps ground-round evidence scoped to each 
         );
       })
       .toEqual([3, 3]);
+    await expect(tray.getByText("Submitting landings one at a time…")).toHaveCount(0);
+    const landed = await snapshot(request, game, seats[invader]);
     await tray.getByRole("button", { name: "Done committing" }).click();
+    // Read the game only after the server took the answer, not the landing offer it answered.
+    await expect
+      .poll(async () => (await snapshot(request, game, seats[invader])).game_version)
+      .toBeGreaterThan(landed.game_version);
     const seen = new Set<string>();
     const fought = new Set<string>();
     for (let step = 0; step < 30; step++) {
