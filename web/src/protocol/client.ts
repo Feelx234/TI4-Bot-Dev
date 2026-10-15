@@ -30,6 +30,7 @@ import {
 import { readDeclaredTriggers, writeDeclaredTriggers } from "./bluffTriggers.ts";
 import {
   decodeDecisionTrigger,
+  decodeEffectPreviews,
   decodeInitialSnapshot,
   decodeServerMessage,
   isStaleServerMessage,
@@ -345,8 +346,12 @@ function pendingChoice(
     options: envelope.choice.options,
     // The trigger is display data: keep a well-formed one, drop a damaged one.
     context:
-      context && "trigger" in context
-        ? { ...context, trigger: decodeDecisionTrigger(context.trigger) }
+      context && ("trigger" in context || "previews" in context)
+        ? {
+            ...context,
+            ...("trigger" in context ? { trigger: decodeDecisionTrigger(context.trigger) } : {}),
+            ...("previews" in context ? { previews: decodeEffectPreviews(context.previews) } : {}),
+          }
         : context,
     ...(envelope.choice.details ? { details: envelope.choice.details } : {}),
   };

@@ -1484,6 +1484,11 @@ fn state_checksum(state: &GameState) -> Result<String, StorageError> {
         record.gains.clear();
         record.placed.clear();
     }
+    // What Insider Information shows its player is a private mark (added 2026-10-15). A snapshot
+    // written before then has none for a game that already played the card, the replay now does.
+    state
+        .faction_marks
+        .retain(|key, _| !ti4_engine::action_cards::is_insider_peek_key(key));
     Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(&state)?)))
 }
 
@@ -1591,6 +1596,30 @@ mod player_record_tests {
         store.save_player_lobby(&lobby).unwrap();
         assert!(store.load_player_lobby(id).unwrap().is_some());
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A snapshot written before Insider Information left a private mark must still match the replay
+    /// of the same decisions, which now carries it.
+    #[test]
+    fn state_checksum_ignores_the_insider_peek_mark() {
+        let state = GameState::new(&[PlayerId::new("a")], &[], BTreeMap::new(), None, 1);
+        let mut marked = state.clone();
+        let player = PlayerId::new("a");
+        marked.faction_marks.insert(
+            ti4_engine::action_cards::insider_peek_key(&player),
+            "one,two,three".to_owned(),
+        );
+        assert_eq!(
+            state_checksum(&state).unwrap(),
+            state_checksum(&marked).unwrap()
+        );
+        marked
+            .faction_marks
+            .insert("other:mark".to_owned(), "x".to_owned());
+        assert_ne!(
+            state_checksum(&state).unwrap(),
+            state_checksum(&marked).unwrap()
+        );
     }
 
     #[test]

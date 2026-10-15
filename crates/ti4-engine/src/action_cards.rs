@@ -1054,6 +1054,9 @@ fn public_disgrace(context: &mut crate::timing::TimingContext<'_>, player: &Play
         "choose a different strategy card",
         alternatives,
     )
+    // Display only: the card that was taken away, and who played Public Disgrace.
+    .detailed("first", first.as_str())
+    .detailed("played_by", player.as_str())
     .contextualized(DecisionContext::new(
         picker.clone(),
         played_card_source("disgrace"),
@@ -2220,14 +2223,68 @@ fn assassinate_representative(context: &mut crate::timing::TimingContext<'_>, pl
         .insert(victim, "none|assassin".to_owned());
 }
 
+/// Whether a `faction_marks` key is an Insider Information peek (see [`insider_peek_key`]).
+#[must_use]
+pub fn is_insider_peek_key(key: &str) -> bool {
+    key.starts_with("private:") && key.ends_with(":insider:peek")
+}
+
+/// The `faction_marks` key under which Insider Information leaves what its player saw: a
+/// `private:<player>:` row, which only that seat is ever sent (`ti4_model::view::mark_visible_to`).
+#[must_use]
+pub fn insider_peek_key(player: &PlayerId) -> String {
+    format!("private:{player}:insider:peek")
+}
+
+/// What `player` was shown by Insider Information and may still see: the agenda ids they looked
+/// at (up to 3, top first) while they are still the top cards of the deck in that order.
+///
+/// A peek goes stale the moment the top of the deck moves (an agenda is revealed, Politics places
+/// one), so it is checked against the deck on every read instead of being cleared in a dozen
+/// places: a mark that is no longer a prefix of the deck shows nothing.
+#[must_use]
+pub fn insider_peek(state: &GameState, player: &PlayerId) -> Vec<String> {
+    let Some(mark) = state.faction_marks.get(&insider_peek_key(player)) else {
+        return Vec::new();
+    };
+    let seen: Vec<&str> = mark.split(',').filter(|id| !id.is_empty()).collect();
+    let still_on_top = !seen.is_empty()
+        && seen.len() <= state.agenda_deck.len()
+        && seen
+            .iter()
+            .zip(&state.agenda_deck)
+            .all(|(seen, card)| *seen == card.as_str());
+    if still_on_top {
+        seen.into_iter().map(str::to_owned).collect()
+    } else {
+        Vec::new()
+    }
+}
+
 /// Insider Information: "Look at the top 3 cards of the agenda deck."
 ///
-/// A pure peek, and this engine's deciders see the whole state through
-/// `Table::ask_seeing`, so there is no hidden top of the deck to reveal: the card changes no
-/// state, the deck order is untouched, and the information it would add is already held by any
-/// decider answering for the player. It is registered rather than left unimplemented because it
-/// is not an unmodelled gap, it is a complete effect with no mechanical half.
-fn insider_information(_: &mut crate::timing::TimingContext<'_>, _: &PlayerId) {}
+/// A peek: the deck, its order and every decision are untouched. The engine's deciders see the
+/// whole state, so what the card adds is for a person at a client, which only sees what it is
+/// sent: the three agendas are recorded as a private mark of the player ([`insider_peek_key`]),
+/// which no other seat is sent, and projected into that player's own view only. Recording asks
+/// nothing and so adds no decision to a game's log: games saved before this effect replay
+/// decision for decision.
+fn insider_information(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    let top: Vec<&str> = context
+        .state
+        .agenda_deck
+        .iter()
+        .take(3)
+        .map(String::as_str)
+        .collect();
+    let key = insider_peek_key(player);
+    if top.is_empty() {
+        context.state.faction_marks.remove(&key);
+    } else {
+        let seen = top.join(",");
+        context.state.faction_marks.insert(key, seen);
+    }
+}
 
 /// Ancient Burial Sites: "Choose 1 player. Exhaust each cultural planet owned by that player."
 fn ancient_burial_sites(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
@@ -2945,11 +3002,18 @@ fn ghost_squad_moves(
                     .iter()
                     .filter(|u| u.type_id.as_str() == kind)
                     .count();
-                options.push(crate::choice::ChoiceOption::labelled(
-                    format!("move|{from}|{to}|{kind}"),
-                    "move",
-                    format!("move {count} {kind} from {from} to {to}"),
-                ));
+                // The payload is display only: ids, order and kinds are what a replay binds.
+                options.push(
+                    crate::choice::ChoiceOption::labelled(
+                        format!("move|{from}|{to}|{kind}"),
+                        "move",
+                        format!("move {count} {kind} from {from} to {to}"),
+                    )
+                    .with("from", from.as_str())
+                    .with("to", to.as_str())
+                    .with("unit", kind)
+                    .with("count", count),
+                );
             }
         }
     }
@@ -3315,12 +3379,31 @@ fn upgrade_ship(context: &mut crate::timing::TimingContext<'_>, player: &PlayerI
     if options.is_empty() {
         return; // no cruiser of the player's in the system (22.3)
     }
-    let Some(chosen) = pick(
+    // Display only: each cruiser on offer (the ids are indexes into the active system).
+    let cruisers: serde_json::Map<String, serde_json::Value> = options
+        .iter()
+        .filter_map(|(id, _)| {
+            let unit = units.get(id.parse::<usize>().ok()?)?;
+            Some((
+                id.clone(),
+                serde_json::json!({
+                    "system": system.as_str(),
+                    "planet": serde_json::Value::Null,
+                    "unit": unit.type_id.as_str(),
+                    "owner": unit.owner.as_str(),
+                    "damaged": unit.sustained_damage,
+                    "cost": types.get(unit.type_id.as_str()).map_or(0.0, |kind| kind.cost()),
+                }),
+            ))
+        })
+        .collect();
+    let Some(chosen) = pick_detailed(
         context,
         player,
         "Upgrade: which cruiser becomes a dreadnought",
         "cruiser",
         &options,
+        &[("units", serde_json::Value::Object(cruisers))],
     ) else {
         return;
     };
@@ -4114,6 +4197,7 @@ fn unit_pick_details(
                         "system": parts.first(),
                         "planet": planet,
                         "unit": unit.type_id.as_str(),
+                        "owner": unit.owner.as_str(),
                         "damaged": unit.sustained_damage,
                         "cost": cost_of(unit.type_id.as_str()),
                     }),
@@ -4901,6 +4985,8 @@ fn perform_strategy_card(
     ability: StrategyAbility,
 ) {
     let mut options: Vec<(String, String)> = Vec::new();
+    // Display only: which seat holds each card on offer (`null` for an unchosen one).
+    let mut holders = serde_json::Map::new();
     for other in &context.state.seating_order {
         if other == player {
             continue;
@@ -4912,6 +4998,7 @@ fn perform_strategy_card(
             if seat.exhausted_strategy_cards.contains(card) {
                 continue; // an exhausted card cannot be performed
             }
+            holders.insert(card.to_string(), serde_json::json!(other.as_str()));
             options.push((
                 card.to_string(),
                 format!(
@@ -4924,6 +5011,7 @@ fn perform_strategy_card(
         }
     }
     for card in &context.state.unclaimed_strategy_cards {
+        holders.insert(card.to_string(), serde_json::Value::Null);
         options.push((
             card.to_string(),
             crate::strategy_cards::card_name(context.content, card.as_str())
@@ -4933,7 +5021,14 @@ fn perform_strategy_card(
     if options.is_empty() {
         return;
     }
-    let Some(alias) = pick(context, player, prompt, "strategy card", &options) else {
+    let Some(alias) = pick_detailed(
+        context,
+        player,
+        prompt,
+        "strategy card",
+        &options,
+        &[("holders", serde_json::Value::Object(holders))],
+    ) else {
         return;
     };
     let result = ability(
@@ -5020,6 +5115,12 @@ fn pick_detailed(
                     .map(|(id, label)| {
                         let option =
                             crate::choice::ChoiceOption::labelled(id.clone(), kind, label.clone());
+                        // Display only: the system an option stands in, so a client can mark it
+                        // on the map. Ids, kinds and order are untouched.
+                        let option = match option_system(kind, id, details) {
+                            Some(system) => option.with("system", system),
+                            None => option,
+                        };
                         if kind == "planet" {
                             locate_planet_option(
                                 context.state,
@@ -5055,6 +5156,21 @@ fn pick_detailed(
             context.ask_seeing(&choice).ok().map(|answer| answer.id)
         }
     }
+}
+
+/// The system a unit or system option of [`pick_detailed`] stands in, if it can say: a unit's
+/// `details.units` entry names it, and a system-valued kind is its own id.
+fn option_system(kind: &str, id: &str, details: &[(&str, serde_json::Value)]) -> Option<String> {
+    if matches!(kind, "rescue_from" | "space dock") {
+        return Some(id.to_owned());
+    }
+    details
+        .iter()
+        .find(|(key, _)| *key == "units")
+        .and_then(|(_, units)| units.get(id))
+        .and_then(|unit| unit.get("system"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
 }
 
 /// A `planet` option of [`pick`] with the `planet`/`system` payload a map UI locates it by. Its
@@ -5833,12 +5949,13 @@ fn lie_in_wait(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId
         if hand.is_empty() {
             continue;
         }
-        let Some(taken) = pick(
+        let Some(taken) = pick_detailed(
             context,
             player,
             "Lie in Wait: take which action card",
             "action_card",
             &hand,
+            &[("from", serde_json::json!(victim.as_str()))],
         ) else {
             continue;
         };
@@ -5952,7 +6069,24 @@ fn repeal_law(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
         .into_iter()
         .map(|alias| (alias.clone(), alias))
         .collect();
-    let Some(chosen) = pick(context, player, "repeal which law", "repeal", &laws) else {
+    // Display only: each law as printed, with the outcome that passed it.
+    let printed: serde_json::Map<String, serde_json::Value> = laws
+        .iter()
+        .map(|(alias, _)| {
+            let mut card = crate::strategy_cards::agenda_details(context.content, alias);
+            let outcome = context.state.laws.get(alias);
+            card["outcome"] = serde_json::json!(outcome);
+            (alias.clone(), card)
+        })
+        .collect();
+    let Some(chosen) = pick_detailed(
+        context,
+        player,
+        "repeal which law",
+        "repeal",
+        &laws,
+        &[("laws", serde_json::Value::Object(printed))],
+    ) else {
         return;
     };
     crate::laws::repeal(context.state, &chosen);
@@ -6558,6 +6692,7 @@ fn signal_jamming(context: &mut crate::timing::TimingContext<'_>, player: &Playe
 fn lucky_shot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let types = ti4_content::units::catalogue(context.content, context.sources);
     let mut targets: Vec<(String, String)> = Vec::new();
+    let mut found: Vec<(String, String, ti4_model::units::Unit)> = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for (system, board) in &context.state.board {
         if !board.controls_a_planet(player) {
@@ -6588,14 +6723,18 @@ fn lucky_shot(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
                 format!("{system}|{index}"),
                 format!("destroy {}'s {} in {system}", unit.owner, unit.type_id),
             ));
+            found.push((format!("{system}|{index}"), String::new(), unit.clone()));
         }
     }
-    let Some(chosen) = pick(
+    // Display only: what each target is, whose it is and where (see `unit_pick_details`).
+    let units = unit_pick_details(&found, &|id| types.get(id).map_or(0.0, |kind| kind.cost()));
+    let Some(chosen) = pick_detailed(
         context,
         player,
         "Lucky Shot: destroy which ship",
         "ship",
         &targets,
+        &[("units", units)],
     ) else {
         return;
     };
@@ -7849,18 +7988,50 @@ mod tests {
     }
 
     #[test]
-    fn insider_information_changes_nothing_and_the_deck_order_is_untouched() {
-        // A peek is not a state change: the deck, in the order it was dealt, is as found.
+    fn insider_information_changes_no_card_and_leaves_a_private_peek_of_the_top_three() {
+        // A peek is not a state change to the game: the deck, in the order it was dealt, is as found.
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a"]);
+        state.agenda_deck = vec!["one".into(), "two".into(), "three".into(), "four".into()];
+
+        let asked = resolve_card_capturing(&mut state, "insider", &player, &[]);
+
+        // Nobody is asked anything, so no decision is added to a game's log: a game saved before
+        // the card showed anything replays decision for decision.
+        assert!(asked.borrow().is_empty());
+        assert_eq!(
+            state.agenda_deck,
+            vec![
+                "one".to_owned(),
+                "two".to_owned(),
+                "three".to_owned(),
+                "four".to_owned()
+            ]
+        );
+        assert_eq!(insider_peek(&state, &player), vec!["one", "two", "three"]);
+        // Only a private row of that seat: nobody else is sent it.
+        let key = insider_peek_key(&player);
+        assert!(ti4_model::view::mark_visible_to(&key, &player));
+        assert!(!ti4_model::view::mark_visible_to(&key, &PlayerId::new("b")));
+    }
+
+    #[test]
+    fn an_insider_peek_goes_stale_when_the_top_of_the_deck_moves() {
         let player = PlayerId::new("a");
         let mut state = crate::fixtures::game(&["a"]);
         state.agenda_deck = vec!["one".into(), "two".into(), "three".into()];
-
         resolve_card(&mut state, "insider", &player, &[]);
+        assert_eq!(insider_peek(&state, &player).len(), 3);
 
-        assert_eq!(
-            state.agenda_deck,
-            vec!["one".to_owned(), "two".to_owned(), "three".to_owned()]
-        );
+        state.agenda_deck.remove(0); // an agenda was revealed
+        assert!(insider_peek(&state, &player).is_empty());
+
+        // A deck with fewer than three cards shows what is there.
+        state.agenda_deck = vec!["only".into()];
+        resolve_card(&mut state, "insider", &player, &[]);
+        assert_eq!(insider_peek(&state, &player), vec!["only"]);
+        state.agenda_deck.clear();
+        assert!(insider_peek(&state, &player).is_empty());
     }
 
     #[test]
@@ -9588,6 +9759,72 @@ mod tests {
 
         assert!(!state.laws.contains_key("sanctions"));
         assert!(state.laws.contains_key("regulations"), "and only that one");
+    }
+
+    #[test]
+    fn repeal_law_question_carries_each_law_as_printed_with_its_outcome() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a"]);
+        state.enact_law("regulations", "for");
+        state.enact_law("sanctions", "for");
+
+        let seen = resolve_card_capturing(&mut state, "repeal", &player, &["sanctions"]);
+
+        let ask = seen.borrow()[0].clone();
+        let printed = ContentStore::embedded()
+            .get(ti4_model::content_types::ContentType::Agendas, "sanctions")
+            .expect("the agenda")
+            .text("name")
+            .expect("its name")
+            .to_owned();
+        assert_eq!(ask.details["laws"]["sanctions"]["name"], printed);
+        assert_eq!(ask.details["laws"]["sanctions"]["outcome"], "for");
+        assert_eq!(ask.options.len(), 2, "ids and order are as they were");
+    }
+
+    #[test]
+    fn lucky_shot_question_names_each_target_and_its_owner() {
+        let player = PlayerId::new("a");
+        let rival = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state
+            .system_mut(&system)
+            .set_control(planet, player.clone());
+        crate::fixtures::put(&mut state, &system, "cruiser", &rival, 1);
+        crate::fixtures::put(&mut state, &system, "dreadnought", &rival, 1);
+
+        let seen = resolve_card_capturing(&mut state, "lucky", &player, &[]);
+
+        let ask = seen.borrow()[0].clone();
+        assert_eq!(ask.options.len(), 2);
+        let first = &ask.options[0].id;
+        assert_eq!(ask.details["units"][first]["owner"], "b");
+        assert_eq!(ask.details["units"][first]["system"], system.as_str());
+        assert!(ask.details["units"][first]["unit"].is_string());
+    }
+
+    #[test]
+    fn overrule_question_says_who_holds_each_card() {
+        let me = PlayerId::new("a");
+        let other = PlayerId::new("b");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.seating_order = vec![me.clone(), other.clone()];
+        state.unclaimed_strategy_cards.clear();
+        state
+            .player_mut(&other)
+            .unwrap()
+            .strategy_cards
+            .push(ti4_model::StrategyCardId::new("pok5trade"));
+        state
+            .unclaimed_strategy_cards
+            .push(ti4_model::StrategyCardId::new("pok6warfare"));
+
+        let seen = resolve_card_capturing(&mut state, "overrule", &me, &["pok5trade"]);
+
+        let ask = seen.borrow()[0].clone();
+        assert_eq!(ask.details["holders"]["pok5trade"], "b");
+        assert!(ask.details["holders"]["pok6warfare"].is_null());
     }
 
     #[test]

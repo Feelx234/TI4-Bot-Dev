@@ -210,6 +210,14 @@ export function isUnstage(desc: string): boolean {
 // reaction dialog's card-text, compact and map controls are all `reaction-inspect-*`.
 // The info buttons (unit and faction cards, hover popovers) only show text; "prepare" and the
 // secondary-prep chip/banner record a local plan instead of answering the real question.
+/**
+ * The test ids of the overlays a player closes to get back to the question (the sweep driver clicks
+ * them when nothing else is clickable): the system inspector, a turn bar menu and Insider
+ * Information's agenda preview, a corner card that stays until it is closed and covers the turn bar
+ * on a phone. None of them is ever chosen by random play (see EXCLUDED_CONTROLS: "close").
+ */
+export const OVERLAY_CLOSE_IDS = ["close-inspector-button", "turn-bar-menu-close", "agenda-peek-close"] as const;
+
 export const EXCLUDED_CONTROLS =
   /minimi[sz]e|close|cancel|undo|redo|history|search-input|trade-tab|pin-reaction|inspect|paused-plan-dismiss|ask[- ]each[- ](payment|build)|^(unit|faction)-info|: (unit|faction) details|^planet-effect-info|^(secondary-prep|prepare-|prep-|detail-panel-fold)|^top-menu|^ready-bar-(collapse|clear)|^agenda-strip/i;
 
@@ -230,7 +238,7 @@ export function reactionTextProblem(text: string): string | null {
 
 // Controls that submit something to the server.
 const COMMIT =
-  /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn/i;
+  /submit|confirm|commit|done|finish|pass|paused-plan-continue|decline|abstain|propose|play-reaction|answer-opt|tiebreak-opt|sustain-opt|casualty-opt|retreat-opt|follow-up|vote-outcome|end turn|mover-move/i;
 
 /**
  * Whether a control takes back staging and whether it submits. A turn bar button submits in one

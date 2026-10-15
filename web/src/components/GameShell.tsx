@@ -32,6 +32,7 @@ import { SpaceCombatOverlay } from "./CombatResolutionModal.tsx";
 import { TradeDeskModal } from "./TradeDeskModal.tsx";
 import { AgendaBallotModal } from "./AgendaBallotModal.tsx";
 import { AgendaPillProvider, AgendaStrip, useAgendaPill } from "./AgendaStrip.tsx";
+import { ActiveEffectsStrip } from "./ActiveEffectsStrip.tsx";
 import type { AgendaStrip as AgendaStripModel } from "../presentation/agendaStrip.ts";
 import { ReactionStatusBar } from "./ReactionStatusBar.tsx";
 import { ProductionBuilderDrawer } from "./ProductionBuilderDrawer.tsx";
@@ -103,6 +104,8 @@ export interface GameShellProps {
   choice: PendingChoiceDto | null;
   /** The agenda being decided, for the strip under the top bar and the minimized pill; null outside the agenda phase. */
   agenda?: AgendaStripModel | null;
+  /** Lingering action card effects in force now (`GameView.active_effects`), for the strip under the top bar. */
+  activeEffects?: import("../protocol/types.ts").ActiveEffectDto[];
   /** What the minimized decision pill says about the agenda ("Voting: Minister of Peace — For/Against"). */
   agendaPill?: string | null;
   onSubmitChoice: (optionId: string) => Promise<void>;
@@ -1024,6 +1027,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   turnRedo,
   choice,
   agenda,
+  activeEffects,
   agendaPill,
   onSubmitChoice,
   onSubmitMovementBatch,
@@ -1382,6 +1386,7 @@ export const GameShell: React.FC<GameShellProps> = ({
       <div className="app-shell__header">
         {header}
         {agenda && <AgendaStrip strip={agenda} />}
+        <ActiveEffectsStrip effects={activeEffects} viewerSeat={viewerSeat} />
       </div>
       <div className="app-shell__content">
         <main className="app-shell__board">

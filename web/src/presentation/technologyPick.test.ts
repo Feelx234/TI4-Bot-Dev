@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeTechnologyPickOption, isTechnologyPick, technologyPickStage } from "./technologyPick.ts";
+import {
+  describeTechnologyPickOption,
+  isTechnologyPick,
+  splitTechnologyOptionId,
+  technologyPickStage,
+} from "./technologyPick.ts";
 
 const divert = {
   context: { subtype: "divert_funding_pick_technology" } as never,
@@ -31,6 +36,21 @@ describe("technology picks (Divert Funding, Plagiarize, ...)", () => {
     expect(
       technologyPickStage({ ...divert, prompt: "Divert Funding: what to research with the funding" })?.title,
     ).toBe("Research another technology");
-    expect(technologyPickStage({ ...divert, prompt: "Plagiarize: which technology to steal" })).toBeNull();
+    expect(technologyPickStage({ ...divert, prompt: "Plagiarize: which technology to steal" })?.title).toBe(
+      "Steal a technology",
+    );
+  });
+
+  it("reads Plagiarize's seat|technology ids as the technology and its owner", () => {
+    const plagiarize = {
+      context: { subtype: "plagiarize_pick_technology" } as never,
+      prompt: "Plagiarize: which technology to steal",
+    };
+    const view = describeTechnologyPickOption(plagiarize, { id: "player_ab12|det", kind: "technology" });
+    expect(view?.name).toBe("Dark Energy Tap");
+    expect(view?.owner).toBe("player_ab12");
+    expect(view?.track).toBe("Propulsion");
+    expect(splitTechnologyOptionId("player_ab12|md_base")).toEqual({ owner: "player_ab12", technology: "md_base" });
+    expect(splitTechnologyOptionId("pa")).toEqual({ owner: null, technology: "pa" });
   });
 });
