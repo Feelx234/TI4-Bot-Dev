@@ -101,6 +101,15 @@ pub fn estimate(values: &[f64]) -> Estimate {
     }
 }
 
+/// The paired effect of the candidate on one slice (a faction, a map).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SliceEffect {
+    /// Win share: faction slices: win of the seat as candidate minus as baseline; map slices:
+    /// share of the pair's games won by candidate seats minus 50%.
+    pub win: Estimate,
+    pub vp: Estimate,
+}
+
 /// The result of an A/B run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Comparison {
@@ -124,6 +133,14 @@ pub struct Comparison {
     pub wall_ms_diff: Estimate,
     pub finished_rate_baseline: f64,
     pub finished_rate_candidate: f64,
+    /// Mixed mode: per faction, the paired effect of the candidate on the seats of that faction
+    /// (wins and points of the faction's seat when it plays the candidate minus when it plays
+    /// the baseline; the other seats vary with the mask, so this is noisy).
+    #[serde(default)]
+    pub by_faction: std::collections::BTreeMap<String, SliceEffect>,
+    /// Mixed mode: per map and per table size, the win share advantage of the candidate seats.
+    #[serde(default)]
+    pub by_map: std::collections::BTreeMap<String, SliceEffect>,
     /// `candidate` stronger / weaker / not distinguishable at 95%.
     pub verdict: String,
     pub wall_s: f64,
@@ -186,6 +203,8 @@ pub fn compare(
         (vec![], vec![], vec![], vec![], vec![]);
     let (mut excluded, mut cand_games, mut cand_wins) = (0usize, 0usize, 0usize);
     let (mut base_done, mut cand_done) = (0usize, 0usize);
+    type Series = std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>)>;
+    let (mut fac, mut maps): (Series, Series) = (Series::new(), Series::new());
     for pair in results.chunks(2) {
         let (a, b) = (&pair[0], &pair[1]);
         let ok = |g: &GameResult| g.termination == "victory";
@@ -225,6 +244,19 @@ pub fn compare(
             }
             win_share.push(wins / 2.0 - 0.5);
             vp_adv.push(vp / 2.0);
+            let entry = maps.entry(format!("{}-{}", a.spec.players, a.spec.map)).or_default();
+            entry.0.push(wins / 2.0 - 0.5);
+            entry.1.push(vp / 2.0);
+            let (ma, mb) = (a.candidate_seats.as_ref(), b.candidate_seats.as_ref());
+            if let (Some(ma), Some(_mb)) = (ma, mb) {
+                for (s, f) in a.spec.factions.iter().enumerate() {
+                    let (cand, base) = if ma[s] { (a, b) } else { (b, a) };
+                    let won = |g: &GameResult| f64::from(u8::from(g.winner == Some(s)));
+                    let e = fac.entry(f.clone()).or_default();
+                    e.0.push(won(cand) - won(base));
+                    e.1.push(f64::from(cand.vp[s]) - f64::from(base.vp[s]));
+                }
+            }
         }
     }
     let n = specs.len();
@@ -268,6 +300,14 @@ pub fn compare(
         } else {
             cand_done as f64 / n.max(1) as f64
         },
+        by_faction: fac
+            .into_iter()
+            .map(|(k, (w, v))| (k, SliceEffect { win: estimate(&w), vp: estimate(&v) }))
+            .collect(),
+        by_map: maps
+            .into_iter()
+            .map(|(k, (w, v))| (k, SliceEffect { win: estimate(&w), vp: estimate(&v) }))
+            .collect(),
         verdict,
         wall_s: started.elapsed().as_secs_f64(),
     };
@@ -364,5 +404,22 @@ pub fn render_comparison(c: &Comparison) -> String {
         " ms",
     );
     let _ = writeln!(out, "verdict: {}", c.verdict);
+    if !c.by_faction.is_empty() {
+        let _ = writeln!(out, "per faction (seat as candidate minus as baseline; win pp, VP):");
+        for (name, e) in &c.by_faction {
+            let _ = writeln!(
+                out,
+                "  {:<12} n={:<4} win {:+6.1} [{:+6.1}, {:+6.1}]  vp {:+.2} [{:+.2}, {:+.2}]",
+                name,
+                e.win.n,
+                100.0 * e.win.mean,
+                100.0 * e.win.ci95[0],
+                100.0 * e.win.ci95[1],
+                e.vp.mean,
+                e.vp.ci95[0],
+                e.vp.ci95[1]
+            );
+        }
+    }
     out
 }

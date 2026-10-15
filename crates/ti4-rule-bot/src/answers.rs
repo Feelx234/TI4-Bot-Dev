@@ -40,8 +40,62 @@ pub fn pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize
         "trade_choose_replenish" if tuning::misc_rule() => {
             choice.options.iter().position(|o| o.id == "done")
         }
+        "assimilate" if tuning::tech_pick_rule() => assimilate(choice, seen, me),
+        sub if tuning::tech_pick_rule()
+            && (sub.ends_with("_pick_technology")
+                || sub.ends_with("_choose_technology")
+                || sub == "flayesh_technology") =>
+        {
+            let candidates: Vec<(usize, &str)> = choice
+                .options
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| !o.is_decline())
+                .map(|(i, o)| (i, o.id.rsplit('|').next().unwrap_or(&o.id)))
+                .collect();
+            crate::faction_plans::best_technology(seen, me, &candidates)
+        }
+        sub if tuning::empyrean_rule()
+            && sub.starts_with("reaction_after_SYSTEM_ACTIVATED")
+            && choice
+                .options
+                .iter()
+                .any(|o| o.id.starts_with("ability:empyrean:aetherpassage")) =>
+        {
+            // Only for itself: a rival's ships through its fleets are no gift to hand out.
+            let own = seen.active_player().is_some_and(|p| p == me);
+            let ability = choice
+                .options
+                .iter()
+                .position(|o| o.id.starts_with("ability:empyrean:aetherpassage"));
+            if own {
+                ability
+            } else {
+                choice.options.iter().position(ChoiceOption::is_decline)
+            }
+        }
+        sub if tuning::tech_pick_rule() && sub.starts_with("reaction_") => choice
+            .options
+            .iter()
+            .position(|o| o.id.starts_with("ability:nekro:technological_singularity")),
         _ => None,
     }
+}
+
+/// Technological Singularity's gain (bot version 3): the best technology by the seat's order;
+/// the Valefar and Z-token choices keep the random pick when no technology can be gained.
+fn assimilate(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let candidates: Vec<(usize, &str)> = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter_map(|(i, o)| {
+            let mut parts = o.id.splitn(3, '|');
+            (parts.next()? == "gain").then_some(())?;
+            Some((i, parts.nth(1)?))
+        })
+        .collect();
+    crate::faction_plans::best_technology(seen, me, &candidates)
 }
 
 // -- agenda phase ---------------------------------------------------------------------------------

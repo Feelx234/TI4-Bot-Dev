@@ -94,22 +94,59 @@ tuning! {
     end_turn_rule: bool = false, "v2: end the turn when nothing else is wanted; always use a legendary planet's end-of-turn ability";
     secondary_rule: bool = false, "v2: from round 3, Diplomacy/Trade/Construction/Politics secondaries only with a spare token and where they pay";
     misc_rule: bool = true, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
+    r1_trade: bool = false, "v3: round 1 Trade for the factions whose guides open with it (nekro, ghost, cabal, empyrean, titans)";
+    r1_tech: bool = false, "v3: round 1 Technology first for arborec, naalu, l1z1x";
+    r1_leadership: bool = false, "v3: round 1 Leadership high for muaat, mahact, cabal";
+    r1_diplomacy: bool = false, "v3: round 1 Diplomacy high for xxcha";
+    winnu_mecatol: bool = false, "v3: the Winnu take Mecatol Rex without the six influence (Blood Ties), worth more (Reclamation)";
+    letnev_armada: bool = false, "v3: the Letnev keep two fewer fleet tokens (Armada of Fire)";
+    lift_rule: f64 = 0.0, "v3: weight slope for transports while more ground forces idle at docks than ships can lift";
+    adjacent_bonus: f64 = 0.0, "v3: worth per own system next to a system whose planets it can take";
+    tech_hunt: f64 = 0.0, "v3: the Nekro: worth per rival technology it lacks in a fight it takes (Technological Singularity)";
+    tech_pick_rule: bool = false, "v3: a stolen or copied technology by the seat's order; the Nekro always use Technological Singularity";
+    nekro_tech: bool = false, "v3: the Nekro draft Technology first in every round (its research is three command tokens)";
+    plan_off: i64 = 0, "v3: 1 = no faction plan for ghost, hacan, empyrean, naaz, winnu (they win least in self-play)";
+    empyrean_rule: bool = false, "v3: the Empyrean allow Aetherpassage only to themselves";
+    home_last_ship: bool = false, "v3: from round 3 the last warship does not leave home while a rival fleet could reach it";
+    r1_tech2: bool = false, "v3: round 1 Technology first for winnu, sardakk, argent (no starting technology in this engine)";
+    early_margin: f64 = 0.0, "v3: extra matchup needed for a fight in rounds 1-2";
+    mecatol_early: f64 = 0.0, "v3: extra worth of Mecatol Rex in rounds 2-3 while the custodians token is on it";
+    ground_margin: f64 = 0.0, "v3: extra ground forces for an invasion, as a share of the defenders' hit points";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
-/// `v2:` knobs; a saved offline game records the version it was played with
-/// (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
+/// `v2:` knobs, version 2 the bot before the `v3:` knobs; a saved offline game records the
+/// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
 pub const BOT_VERSION: u32 = 2;
 
 /// The tuning of bot version `version` (1 or 2; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
-/// with a changed default: the compiler asks for its version-1 value.
+/// with a changed default: the compiler asks for its version-1 value. Version 2 is version 1 plus
+/// the `v2:` knobs, again named field by field; it takes every `v3:` knob from version 1 (off).
 #[must_use]
 pub fn for_version(version: u32) -> Tuning {
-    if version != 1 {
-        return Tuning::default();
+    match version {
+        1 => v1(),
+        2 => v2(),
+        _ => Tuning::default(),
     }
+}
+
+fn v2() -> Tuning {
+    Tuning {
+        deny_within: 4,
+        vote_rule: true,
+        casualty_rule: true,
+        mecatol_rival_bonus: 4.0,
+        planner_weight: 1.0,
+        plans_v2: true,
+        misc_rule: true,
+        ..v1()
+    }
+}
+
+fn v1() -> Tuning {
     Tuning {
         win_margin: crate::WIN_MARGIN,
         retreat_margin: crate::RETREAT_MARGIN,
@@ -148,6 +185,24 @@ pub fn for_version(version: u32) -> Tuning {
         end_turn_rule: false,
         secondary_rule: false,
         misc_rule: false,
+        r1_trade: false,
+        r1_tech: false,
+        r1_leadership: false,
+        r1_diplomacy: false,
+        winnu_mecatol: false,
+        letnev_armada: false,
+        lift_rule: 0.0,
+        adjacent_bonus: 0.0,
+        tech_hunt: 0.0,
+        tech_pick_rule: false,
+        nekro_tech: false,
+        plan_off: 0,
+        empyrean_rule: false,
+        home_last_ship: false,
+        r1_tech2: false,
+        early_margin: 0.0,
+        mecatol_early: 0.0,
+        ground_margin: 0.0,
     }
 }
 
@@ -196,5 +251,6 @@ mod tests {
         assert_eq!(t, for_version(1));
         assert_eq!(for_version(BOT_VERSION), Tuning::default());
         assert!(!for_version(1).vote_rule && !for_version(1).casualty_rule);
+        assert!(for_version(2).vote_rule && !for_version(2).r1_trade);
     }
 }
