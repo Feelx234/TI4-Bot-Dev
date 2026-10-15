@@ -75,6 +75,10 @@ pub struct GameResult {
     pub scored: Vec<Vec<String>>,
     /// Victory points by source (the engine's ledger), summed over seats.
     pub vp_sources: BTreeMap<String, i32>,
+    /// Units at the end, summed over seats: `ground` (infantry and mechs), `home_ground` (in the
+    /// seat's home system), `ships` (non-fighter ships). A diagnostic (ground forces piling up).
+    #[serde(default)]
+    pub end_counts: BTreeMap<String, i32>,
     /// A/B: the seats that played the candidate bot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_seats: Option<Vec<bool>>,
@@ -317,6 +321,7 @@ fn empty_result(
         usage: BTreeMap::new(),
         scored: vec![Vec::new(); spec.players],
         vp_sources: BTreeMap::new(),
+        end_counts: BTreeMap::new(),
         candidate_seats: options.candidate_seats.clone(),
     }
 }
@@ -434,6 +439,33 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
     for (_, delta, reason) in &state.vp_ledger {
         *vp_sources.entry(source_of(reason)).or_default() += delta;
     }
+    let mut end_counts: BTreeMap<String, i32> = BTreeMap::new();
+    for seat in &state.players {
+        for (id, system) in &state.board {
+            let home = seat.home_system.as_ref() == Some(id);
+            for unit in system
+                .units
+                .iter()
+                .chain(system.planet_units.values().flatten())
+            {
+                if unit.owner != seat.id {
+                    continue;
+                }
+                let t = unit.type_id.as_str();
+                let key = if t.contains("infantry") || t.contains("mech") {
+                    if home {
+                        *end_counts.entry("home_ground".to_owned()).or_default() += 1;
+                    }
+                    "ground"
+                } else if t.contains("fighter") || t.contains("pds") || t.contains("dock") {
+                    continue;
+                } else {
+                    "ships"
+                };
+                *end_counts.entry(key.to_owned()).or_default() += 1;
+            }
+        }
+    }
     let records = &game.table.log.records;
     let hash = ti4_wasm::host_session::decisions_hash(records);
     let sh = shared.borrow();
@@ -493,6 +525,7 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
         usage: sh.usage.clone(),
         scored,
         vp_sources,
+        end_counts,
         candidate_seats: options.candidate_seats.clone(),
     };
     (result, trace)

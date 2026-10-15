@@ -64,8 +64,14 @@
 //!   worth a token to build at until the plan's fleet size. A strategy card the rules above
 //!   leave open goes to the plan's preferred card.
 //!
-//! Other technology choices, agendas, action cards, the other secondaries and every other window
-//! stay random.
+//! - **Bot version 2** ([`tuning::BOT_VERSION`]; version 1 is [`tuning::for_version`]`(1)`):
+//!   agenda votes, Politics' speaker and agenda placement, sustain damage and casualties, readying
+//!   planets, retreat destinations and Trade's free replenish ([`answers`]); production weights for
+//!   objectives within reach ([`planner`]); Mecatol Rex held by a rival worth more; rivals denied
+//!   from six points; reworked plans for the weakest factions ([`faction_plans::PLANS_V2`]).
+//!
+//! Other technology choices, action cards, the other secondaries and every other window stay
+//! random.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,7 +91,9 @@ pub mod objectives;
 // Agent layer (when to use a faction agent).
 pub mod agents;
 
+pub mod answers;
 pub mod faction_plans;
+pub mod planner;
 pub mod random;
 pub mod tuning;
 
@@ -175,6 +183,24 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     {
         return Some(index);
     }
+    // -- movement filters (bot version 2): no gravity-rift gamble outside a fight; never strip
+    // the home system bare before a rival fleet --
+    if subtype == Some("movement_step")
+        && let Some(keep) =
+            rift_keep(choice, observed, &me).or_else(|| home_guard_keep(choice, observed, &me))
+    {
+        let mut narrowed = choice.clone();
+        narrowed.options = keep.iter().map(|&i| choice.options[i].clone()).collect();
+        return pick(&narrowed, seen, rng)
+            .and_then(|i| keep.get(i).copied())
+            .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
+    }
+    // -- answers to formerly random questions (answers.rs, bot version 2) --
+    if subtype != Some("ready_planet")
+        && let Some(index) = answers::pick(choice, observed, &me)
+    {
+        return Some(index);
+    }
     // -- objective layer hook (objectives.rs) --
     if let Some(index) = objectives::pick(choice, seen, &me, rng) {
         return Some(index);
@@ -217,7 +243,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             let warfare = subtype == Some("warfare_redistribute_tokens");
             return pick_redistribution(choice, observed, &me, warfare);
         }
-        Some("ready_planet") => return pick_ready_planet(choice, observed, &me),
+        Some("ready_planet") => {
+            return pick_ready_planet(choice, observed, &me)
+                .or_else(|| answers::pick(choice, observed, &me));
+        }
         // Round 1's trade goods pay for transports, not an action card.
         Some("functioning_base_choose_reward") if expanding(observed) => {
             return choice.options.iter().position(|o| o.id == "gain");
@@ -264,7 +293,7 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         return Some(index);
     }
     if choice.options.iter().any(|o| o.kind == "produce") {
-        return pick_produce(choice, observed, &me);
+        return pick_produce_biased(choice, observed, &me, &planner::Bias::of(seen, &me));
     }
     if choice.options.iter().all(|o| o.kind == "pay") {
         return pick_pay(choice, observed, &me);
@@ -273,6 +302,17 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         && choice.options.iter().all(|o| o.kind == "remove")
     {
         return pick_cheapest_removal(choice, observed);
+    }
+    // Bot version 2: nothing else wanted at the end of a turn, end it (a random free option
+    // spends an agent or opens a trade for nothing); a legendary planet's ability is always used.
+    if tuning::end_turn_rule() {
+        match subtype {
+            Some("end_turn") => return choice.options.iter().position(|o| o.id == "end_turn"),
+            Some("legendary_end_of_turn") => {
+                return choice.options.iter().position(|o| !o.is_decline());
+            }
+            _ => {}
+        }
     }
     None
 }
@@ -508,7 +548,11 @@ fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(Planet
                     || seen.available_spend(me, Spend::Influence) >= 6
             })
             .map(|planet| {
-                let worth = planet_worth(seen, planet.as_str());
+                let mut worth = planet_worth(seen, planet.as_str());
+                // Bot version 2: Mecatol Rex in a rival's hands scores them Imperial's point.
+                if planet.as_str() == MECATOL && board.planet_control.contains_key(&planet) {
+                    worth += tuning::mecatol_rival_bonus();
+                }
                 let need = ground_needed(seen, me, system, &planet);
                 (planet, worth, need)
             })
@@ -628,7 +672,7 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     let contested = has_hostile_ships(seen, me, system);
     let mut value = 0.0;
     if contested {
-        if movable.is_empty() || matchup(&own, &enemy) < tuning::win_margin() {
+        if movable.is_empty() || matchup(&own, &enemy) < fight_margin(seen, system) {
             return -10.0;
         }
         value += 1.0 + 0.5 * enemy.cost;
@@ -659,7 +703,25 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     let ground = loadable_ground.min(usize::try_from(capacity).unwrap_or(0)) + already_there;
     let planets = targets(seen, me, system);
     if !movable.is_empty() || already_there > 0 {
-        value += takeable_value(&planets, ground);
+        let taken = takeable_value(&planets, ground);
+        // Bot version 2: a fight that takes no planet (no troops to land), next to nothing of
+        // its own, wins nothing (fb_1791896411); from round 3 the objective layer says the same.
+        if contested
+            && tuning::empty_fight_rule()
+            && taken <= 0.0
+            && !board.planet_control.values().any(|owner| owner == me)
+            && !home_system(seen, me).is_some_and(|home| {
+                &home == system
+                    || seen.galaxy().is_some_and(|g| {
+                        g.adjacent(home.as_str())
+                            .iter()
+                            .any(|s| *s == system.as_str())
+                    })
+            })
+        {
+            value = 0.0;
+        }
+        value += taken;
     }
 
     // Production at home when short of units and able to pay, or an empty transport to fetch the
@@ -1700,7 +1762,7 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
     if has_hostile_ships(seen, me, &active) {
         let enemy = hostile_space(seen, me, &active);
         let now = fleet(seen, me, present.iter().copied());
-        if matchup(&now, &enemy) >= tuning::win_margin() + 0.3 {
+        if matchup(&now, &enemy) >= fight_margin(seen, &active) + 0.3 {
             // Already winning: only a carrier for the invasion is still useful.
             return carrier_for_ground(&moves, seen, me, &active).or(Some(done));
         }
@@ -1712,7 +1774,7 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
                 .copied()
                 .chain(seen.movable_into(me, &active).iter().map(|m| &m.unit)),
         );
-        if matchup(&everything, &enemy) < tuning::win_margin() {
+        if matchup(&everything, &enemy) < fight_margin(seen, &active) {
             return Some(done); // a losing fight: stay out
         }
         // Strongest warship first.
@@ -1746,6 +1808,128 @@ fn pick_move(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usiz
         return Some(done);
     }
     None
+}
+
+/// The matchup a fight in `system` must reach: [`tuning::win_margin`], more in a nebula, where the
+/// defender rolls one better (bot version 2, [`tuning::nebula_margin`]).
+fn fight_margin(seen: &Observed<'_>, system: &SystemId) -> f64 {
+    let nebula = tuning::nebula_margin() > 0.0
+        && ti4_content::galaxy::system(seen.content(), system.as_str(), seen.sources())
+            .is_some_and(|s| s.is_nebula());
+    tuning::win_margin() + if nebula { tuning::nebula_margin() } else { 0.0 }
+}
+
+/// Bot version 2 ([`tuning::home_guard`]): the move options to keep when a ship leaving its home
+/// system would leave it to a fleet a rival could bring there now ([`Observed::movable_into`],
+/// which follows the map's anomalies, wormholes and hyperlanes); `None` when nothing is held back.
+fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+    if !tuning::home_guard() || seen.round() < 2 {
+        return None;
+    }
+    let home = home_system(seen, me)?;
+    let active = seen.active_system()?;
+    if active == &home {
+        return None;
+    }
+    let leaving = |o: &ChoiceOption| {
+        o.kind == "move"
+            && payload_str(o, "origin") == Some(home.as_str())
+            && payload_str(o, "unit")
+                .and_then(|u| unit_type(seen, u))
+                .is_some_and(|t| t.is_ship() && !t.is_fighter())
+    };
+    if !choice.options.iter().any(leaving) {
+        return None;
+    }
+    let threat = seen
+        .players()
+        .into_iter()
+        .filter(|p| *p != me)
+        .map(|rival| {
+            let movable = seen.movable_into(rival, &home);
+            fleet(
+                seen,
+                rival,
+                movable.iter().map(|m| &m.unit).filter(|u| is_ship(seen, u)),
+            )
+        })
+        .max_by(|a, b| a.firepower.total_cmp(&b.firepower))?;
+    if threat.firepower <= 0.0 {
+        return None;
+    }
+    let board = seen.system(&home);
+    let ships: Vec<&Unit> = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && is_ship(seen, u))
+        .collect();
+    let mut guard = fleet(seen, me, ships.iter().copied());
+    guard.cannon += hostile_fleet_cannon(seen, me, &home);
+    // Leaving one warship: does the home still hold?
+    let without = |unit: &str| {
+        let mut rest: Vec<&Unit> = ships.clone();
+        if let Some(pos) = rest.iter().position(|u| u.type_id.as_str() == unit) {
+            rest.remove(pos);
+        }
+        let mut d = fleet(seen, me, rest);
+        d.cannon = guard.cannon;
+        matchup(&d, &threat)
+    };
+    if matchup(&guard, &threat) < 0.0 {
+        // Already too weak to hold: staying does not save it.
+        return None;
+    }
+    let keep: Vec<usize> = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !leaving(o) || payload_str(o, "unit").is_some_and(|u| without(u) >= 0.0))
+        .map(|(i, _)| i)
+        .collect();
+    (keep.len() < choice.options.len()).then_some(keep)
+}
+
+/// Bot version 2 ([`tuning::rift_caution`]): outside a fight, the move options that do not
+/// leave a gravity rift (41.2: a ship rolls for each rift it exits, and dies on 1-3 with its
+/// cargo; the engine marks such a move's preview as unresolved); `None` when none is dropped.
+fn rift_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+    if !tuning::rift_caution() {
+        return None;
+    }
+    let active = seen.active_system()?;
+    if has_hostile_ships(seen, me, active) {
+        return None;
+    }
+    let risky = |o: &ChoiceOption| {
+        o.kind == "move"
+            && matches!(
+                o.preview.as_ref().map(|p| &p.outcome),
+                Some(ti4_engine::preview::Outcome::Unknown { reason }) if reason.contains("gravity-rift")
+            )
+    };
+    let keep: Vec<usize> = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !risky(o))
+        .map(|(i, _)| i)
+        .collect();
+    (keep.len() < choice.options.len() && !keep.is_empty()).then_some(keep)
+}
+
+/// Space cannon of the seat's own units on the planets of `system`.
+fn hostile_fleet_cannon(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+    let board = seen.system(system);
+    fleet(
+        seen,
+        me,
+        board
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|u| &u.owner == me),
+    )
+    .cannon
 }
 
 fn strength(kind: UnitType<'_>) -> f64 {
@@ -2056,6 +2240,9 @@ fn pick_retreat(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
 /// Ground forces waiting in systems with own production (where new ones appear), and the
 /// capacity of every own ship that could carry them away.
 fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
+    if tuning::ground_rule() {
+        return idle_ground_and_free_lift(seen, me);
+    }
     let (mut idle, mut lift) = (0, 0);
     for (id, system) in seen.board() {
         let at_dock = has_own_production(seen, me, id);
@@ -2075,6 +2262,41 @@ fn idle_ground_and_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
             } else if at_dock && kind.is_ground_force() {
                 idle += 1;
             }
+        }
+    }
+    (idle, lift)
+}
+
+/// Bot version 2 ([`tuning::ground_rule`]): ground forces at its docks, and the room its ships
+/// still have (capacity less the fighters and ground forces already in their systems' space), so
+/// the docks do not keep filling with troops that no free ship can carry (fb_1791902555,
+/// fb_1792038973).
+fn idle_ground_and_free_lift(seen: &Observed<'_>, me: &PlayerId) -> (usize, i64) {
+    let (mut idle, mut lift) = (0usize, 0i64);
+    for (id, system) in seen.board() {
+        let at_dock = has_own_production(seen, me, id);
+        let (mut room, mut used) = (0i64, 0i64);
+        for unit in &system.units {
+            if &unit.owner != me {
+                continue;
+            }
+            let Some(kind) = unit_type(seen, unit.type_id.as_str()) else {
+                continue;
+            };
+            if kind.is_ship() && !kind.is_fighter() {
+                room += kind.capacity();
+            } else if kind.is_fighter() || kind.is_ground_force() {
+                used += 1;
+            }
+        }
+        lift += (room - used).max(0);
+        if at_dock {
+            idle += system
+                .planet_units
+                .values()
+                .flatten()
+                .filter(|u| &u.owner == me && is_ground(seen, u))
+                .count();
         }
     }
     (idle, lift)
@@ -2144,7 +2366,18 @@ fn opening_production(
 /// Production: the most useful affordable unit per resource (per production slot when resources
 /// are plentiful), within fleet supply and capacity. Ground forces only while fewer are waiting
 /// at its docks than its ships can carry; when nothing useful is left, stop.
+#[cfg(test)]
 fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    pick_produce_biased(choice, seen, me, &planner::Bias::default())
+}
+
+/// [`pick_produce`] with the objective planner's unit weights ([`planner::Bias`]).
+fn pick_produce_biased(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    bias: &planner::Bias,
+) -> Option<usize> {
     let (ships, ground) = own_counts(seen, me);
     let enough_ground = enough_ground(seen, me);
     let carriers = seen
@@ -2158,7 +2391,11 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
     // Ground forces that only fill the production limit, cheapest first.
     let mut filler: Vec<(usize, f64)> = Vec::new();
     let (idle, lift) = idle_ground_and_lift(seen, me);
-    let ground_glut = idle >= usize::try_from(2 * lift.max(tuning::min_idle_ground())).unwrap_or(0);
+    let ground_glut = if tuning::ground_rule() {
+        idle >= usize::try_from(lift.max(tuning::min_idle_ground()) + 2).unwrap_or(0)
+    } else {
+        idle >= usize::try_from(2 * lift.max(tuning::min_idle_ground())).unwrap_or(0)
+    };
     // The opening: transports and troops free to move this round (outside activated systems).
     // Troops first while there are fewer than two per transport, then another transport while
     // there are fewer than three.
@@ -2224,6 +2461,8 @@ fn pick_produce(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<u
         }
         // The faction's plan from round 3 on (1.0 in the opening).
         worth *= faction_plans::unit_weight(seen, me, kind);
+        // Objectives within reach that more of this unit would meet (bot version 2).
+        worth *= bias.weight(kind);
         // With resources to spare, production slots are what runs out: value per slot.
         let rich =
             payload_f64(option, "available_resources").unwrap_or(0.0) >= tuning::rich_resources();
@@ -2575,6 +2814,27 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to draw two action cards") && seen.round() <= 1 {
         return answer(false);
     }
+    // Bot version 2 ([`tuning::secondary_rule`]): from round 3 the other secondaries only with
+    // a spare strategy token, and only where they pay: two exhausted planets worth readying
+    // (Diplomacy), commodities to fill (Trade); a structure (Construction) and two action cards
+    // (Politics) whenever the token is spare.
+    if tuning::secondary_rule() && !expanding(seen) {
+        if prompt.starts_with("spend a strategy token to ready two planets") {
+            return answer(spare_token && best_two_exhausted(seen, me) >= 4);
+        }
+        if prompt.starts_with("spend a strategy token to replenish commodities") {
+            let room = seen
+                .seat(me)
+                .map_or(0, |seat| faction_commodities(seen, me) - seat.commodities);
+            return answer(spare_token && room >= 2);
+        }
+        if prompt.starts_with("spend a strategy token to draw two action cards")
+            || prompt.starts_with("spend a strategy token to place a structure")
+            || prompt.starts_with("spend a strategy token to build a structure")
+        {
+            return answer(spare_token);
+        }
+    }
     if prompt.contains("influence for a command token") {
         // Keep six influence for the custodians only while Mecatol Rex is within reach, and stop
         // once the pools are full enough to use.
@@ -2599,6 +2859,16 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         );
     }
     None
+}
+
+/// The seat's printed commodity limit (0 when unknown).
+fn faction_commodities(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+    let faction = faction(seen, me);
+    seen.content()
+        .get(ti4_model::content_types::ContentType::Factions, &faction)
+        .and_then(|record| record.int("commodities"))
+        .and_then(|n| i32::try_from(n).ok())
+        .unwrap_or(0)
 }
 
 /// Resources on the seat's exhausted planets: what readying them could give back.
@@ -2670,11 +2940,31 @@ fn exhausted_influence(seen: &Observed<'_>, me: &PlayerId) -> i64 {
 fn pick_answer(choice: &Choice) -> Option<usize> {
     let accept = choice.options.iter().position(|o| o.id == "accept");
     let refuse = choice.options.iter().position(ChoiceOption::is_decline);
+    // Bot version 2: a Support for the Throne is a victory point to whoever holds it; the bot
+    // never hands one over (the prompt reads "<proposer> gives X for <what we give>").
+    if tuning::sftt_rule()
+        && choice
+            .prompt
+            .split(" for ")
+            .skip(1)
+            .any(|part| part.contains(ti4_engine::promissory::SUPPORT_PREFIX))
+    {
+        return refuse;
+    }
     let net = accept.and_then(|i| payload_f64(&choice.options[i], "net"));
     match (accept, net) {
         (Some(index), Some(net)) if net >= tuning::accept_net() => Some(index),
         _ => refuse,
     }
+}
+
+/// Whether a proposal gives away a Support for the Throne (its label: "give/sell X for Y").
+fn gives_support(option: &ChoiceOption) -> bool {
+    option
+        .label
+        .split(" for ")
+        .next()
+        .is_some_and(|given| given.contains(ti4_engine::promissory::SUPPORT_PREFIX))
 }
 
 /// Propose the offer that gains most for the bot among those that also gain for the other side.
@@ -2684,6 +2974,7 @@ fn pick_proposal(choice: &Choice) -> Option<usize> {
         .iter()
         .enumerate()
         .filter(|(_, o)| o.kind == "offer")
+        .filter(|(_, o)| !(tuning::sftt_rule() && gives_support(o)))
         .filter_map(|(i, o)| {
             let net = payload_f64(o, "net")?;
             let theirs = payload_f64(o, "their_net")?;
