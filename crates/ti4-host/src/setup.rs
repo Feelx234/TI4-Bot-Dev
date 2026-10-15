@@ -85,6 +85,7 @@ pub use crate::view::seats::{HUMAN_KIND, SeatFact, TableSeats};
 /// How the players of a table get their seats at Start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SeatOrder {
     /// Drawn from the seed of the game ([`seating::lobby_seat_order`]). What a table gets
     /// unless it asks otherwise: no host moves a seat.
@@ -130,6 +131,7 @@ impl SeatOrder {
 /// Who opens a new game as speaker (and so picks the first strategy card).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SpeakerOrder {
     /// A seat drawn from the game seed ([`ti4_engine::seeded_speaker`]): the same seed always
     /// opens with the same speaker. What a table gets unless it asks otherwise.
@@ -179,6 +181,7 @@ fn default_card_set() -> String {
 /// given to [`draw`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TableSetup {
     pub player_count: usize,
     /// The map of the table; a table that names none plays the seeded random board.
@@ -287,6 +290,7 @@ impl TableSetup {
 
 /// One set of strategy cards that a table can play.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CardSetOption {
     pub id: &'static str,
     pub name: &'static str,
@@ -297,6 +301,7 @@ pub struct CardSetOption {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CardOption {
     pub id: String,
     pub name: String,
@@ -305,12 +310,14 @@ pub struct CardOption {
 
 /// The factions of one product, in the order of [`seating::LOBBY_FACTIONS`].
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FactionGroup {
     pub name: &'static str,
     pub factions: Vec<FactionOption>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FactionOption {
     pub id: &'static str,
     pub name: String,
@@ -318,6 +325,7 @@ pub struct FactionOption {
 
 /// One kind of seat that the host plays itself.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BotKindOption {
     pub id: &'static str,
     pub name: &'static str,
@@ -326,6 +334,7 @@ pub struct BotKindOption {
 
 /// What a host can choose for a table. The page writes none of these names.
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SetupOptions {
     pub min_players: usize,
     pub max_players: usize,
@@ -445,6 +454,7 @@ pub fn seat_places(order: SeatOrder, count: usize, seed: u64) -> Vec<usize> {
 
 /// What Start draws for a table: who sits where, and the faction of every seat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Drawn {
     /// For each seat, the place of its player in the order of the join.
     pub order: Vec<usize>,

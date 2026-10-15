@@ -22,6 +22,7 @@ use crate::view::exploration::{ExplorationCatalog, exploration_catalog};
 /// One faction ability as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AbilityCard {
     pub id: String,
     pub name: String,
@@ -35,6 +36,7 @@ pub struct AbilityCard {
 /// One leader as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LeaderCard {
     pub id: String,
     /// `agent`, `commander` or `hero`.
@@ -53,6 +55,7 @@ pub struct LeaderCard {
 /// planet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PrintedCard {
     pub id: String,
     pub name: String,
@@ -65,6 +68,7 @@ pub struct PrintedCard {
 /// One action card as printed. Copies of a card have ids of their own and one name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActionCard {
     pub id: String,
     pub name: String,
@@ -80,6 +84,7 @@ pub struct ActionCard {
 /// One secret objective as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SecretObjective {
     pub id: String,
     pub name: String,
@@ -93,6 +98,7 @@ pub struct SecretObjective {
 /// One public objective as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PublicObjectiveCard {
     pub id: String,
     pub name: String,
@@ -106,6 +112,7 @@ pub struct PublicObjectiveCard {
 /// One agenda as printed. Every agenda is in the deck once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AgendaCard {
     pub id: String,
     pub name: String,
@@ -128,6 +135,7 @@ pub struct AgendaCard {
 /// What a table says of a faction wherever it names a seat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FactionSheet {
     /// The name that a table calls the faction by: "Sol".
     pub name: String,
@@ -153,6 +161,7 @@ pub struct FactionSheet {
 /// "Choose 2 of the following", of a faction sheet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TechnologyChoice {
     pub amount: i64,
     pub options: Vec<String>,
@@ -161,6 +170,7 @@ pub struct TechnologyChoice {
 /// One entry of a starting fleet: so many of a unit, in one place.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StartingUnits {
     /// The unit as the sheet names it: `carrier`, not the unit of the faction (`sol_carrier`).
     pub unit: String,
@@ -173,6 +183,7 @@ pub struct StartingUnits {
 /// One planet of a home system, with its printed values.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HomePlanet {
     pub id: String,
     pub name: String,
@@ -183,6 +194,7 @@ pub struct HomePlanet {
 /// One strategy card as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StrategyCard {
     pub id: String,
     pub name: String,
@@ -192,6 +204,7 @@ pub struct StrategyCard {
 /// The printed cards of the play areas. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ComponentCatalog {
     pub abilities: Vec<AbilityCard>,
     /// The abilities of each faction, in the order of the faction sheet.
@@ -231,6 +244,7 @@ pub struct ComponentCatalog {
 /// Everything printed that a client is handed once.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Catalog {
     /// The digest of the corpus that the texts are of ([`ti4_content::provenance::digest_of`]).
     /// A page compares it with `content` of the snapshot of a server: with another corpus the

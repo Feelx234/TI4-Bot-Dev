@@ -7,6 +7,7 @@ use ti4_model::state::Phase;
 /// Viewer role determining redaction boundary.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(tag = "role", content = "seat", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ViewerRole {
     /// An authenticated player occupying a specific table seat.
     Player(PlayerId),
@@ -40,6 +41,7 @@ impl ViewerRole {
 /// private card identities, private reaction windows, or legal options.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PublicTurnStatus {
     /// Normal active turn in the action phase.
     ActiveTurn {
@@ -69,6 +71,7 @@ pub enum PublicTurnStatus {
 /// Structured explanation when a choice submission is rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum RejectionReason {
     /// State version mismatch between client expectation and server state.
     StaleVersion { expected: u64, current: u64 },
@@ -95,6 +98,7 @@ pub enum RejectionReason {
 /// when it decided, or the game is no longer its own to take back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum UndoBarrier {
     /// Something hidden was shown: a card that was drawn, an exploration, an objective.
     Revealed,

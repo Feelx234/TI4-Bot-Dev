@@ -34,6 +34,7 @@ pub const ACTION_CARD: &str = "action_card";
 /// One thing that a reaction window offers, as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReactionOffer {
     /// The id of the option that uses it. A slot of several action cards has one offer for each
     /// printed name, all with the id of the slot.
@@ -57,6 +58,7 @@ pub struct ReactionOffer {
 /// The reaction window that the viewer is asked in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReactionFacts {
     /// What opened the window. Public: all of it has happened.
     #[serde(default, skip_serializing_if = "Option::is_none")]

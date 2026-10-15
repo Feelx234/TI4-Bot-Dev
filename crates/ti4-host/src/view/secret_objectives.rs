@@ -16,6 +16,7 @@ use ti4_model::state::GameState;
 /// The secret objectives as every player at the table sees them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SecretObjectiveFacts {
     /// How many cards the deck still holds. Which cards is hidden.
     pub deck: usize,

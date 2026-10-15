@@ -13,3 +13,4 @@ mod host_session;
 mod host_setup;
 mod host_staged;
 mod server_parity;
+mod wire_types;

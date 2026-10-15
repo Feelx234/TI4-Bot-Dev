@@ -16,6 +16,8 @@ pub mod buffer;
 pub mod host_api;
 pub mod host_session;
 pub mod host_setup;
+#[cfg(feature = "ts")]
+pub mod wire_ts;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, VecDeque};
@@ -1308,6 +1310,7 @@ pub extern "C" fn ti4_run_seeded(seed: u32, players: u32, max_steps: u32) -> i32
 
 /// What the options of a table are, with the maps of its number of seats.
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct TableOptions {
     #[serde(flatten)]
     options: setup::SetupOptions,
@@ -1318,6 +1321,7 @@ struct TableOptions {
 
 /// What a table looks like before it starts.
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct TablePreview {
     /// What the table says of its map: its name, its author, its size.
     map: ti4_host::maps::MapChoiceView,
@@ -1328,6 +1332,7 @@ struct TablePreview {
 
 /// What Start draws for a table, with the ids of this host.
 #[derive(Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct TableDraw {
     /// The players in the order of their seats: the player who came as number `i` is
     /// [`SEATS`]`[i]`.
@@ -1417,6 +1422,7 @@ pub extern "C" fn ti4_catalog() -> i32 {
 /// The two sides of a space combat, as [`ti4_space_odds`] reads them.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 struct SpaceOddsRequest {
     attacker: ti4_calc::odds::SideInput,
     defender: ti4_calc::odds::SideInput,

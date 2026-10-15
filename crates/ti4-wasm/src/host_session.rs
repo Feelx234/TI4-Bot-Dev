@@ -108,6 +108,7 @@ pub enum Resume {
 /// From the decision with the number `decision` on, the page plays the seats of `humans` (bit 0
 /// is seat `a`). An undo does not go back before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatSwitch {
     pub decision: u64,
     pub humans: u32,
@@ -1859,47 +1860,49 @@ impl HostSession {
         Some(place)
     }
 
-    /// The save of the game as it stands (format [`crate::host_setup::SAVE_FORMAT`]): the game,
-    /// and every decision of every seat in order, so that a resume gives each of them again and
-    /// no seat decides again. An undo cuts `decisions` at the answer that it takes back.
+    /// The save of the game as it stands ([`HostSave`]), as JSON.
     #[must_use]
     pub fn save_state(&self, extra: serde_json::Value) -> serde_json::Value {
-        let mut save = serde_json::json!({
-            "format": crate::host_setup::SAVE_FORMAT,
-            "seed": self.identity.seed,
-            "players": self.identity.players,
-            "game": self.identity.game,
-            "humans": self.identity.humans,
-            "decisions": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
-            // The page's answers among them.
-            "answers": self.answers,
-            "switches": self.switches,
-            "redo": self.redo,
-            "staged": self.staged,
-            // A save names the cards that are never offered; an own-turn card is not kept.
-            "never": self.never.lock().expect("never set lock").iter()
+        let save = HostSave {
+            format: crate::host_setup::SAVE_FORMAT,
+            seed: self.identity.seed,
+            players: self.identity.players,
+            game: self.identity.game.clone(),
+            table: self.identity.table.clone(),
+            scenario: self.identity.scenario.clone(),
+            humans: self.identity.humans,
+            decisions: self
+                .decision_log
+                .iter()
+                .map(|record| record.chosen.clone())
+                .collect(),
+            answers: self.answers.clone(),
+            switches: self.switches.clone(),
+            redo: self.redo.clone(),
+            staged: self.staged.clone(),
+            never: self
+                .never
+                .lock()
+                .expect("never set lock")
+                .iter()
                 .filter(|(_, mode)| **mode == ReactionMode::Never)
-                .map(|(card, _)| card)
-                .collect::<BTreeSet<_>>(),
-            "event_times": self.events.iter().map(|event| event.timestamp.clone()).collect::<Vec<_>>(),
-            "event_versions": self.events.iter().map(|event| event.version).collect::<Vec<_>>(),
-            "version": self.version,
-            "generation": self.generation,
-            "decisions_hash": decisions_hash(&self.decision_log),
-            "finished": self.finished,
-            "round": self.state.round,
-            "phase": self.state.phase,
-            "engine": extra,
-        });
-        if let Some(object) = save.as_object_mut() {
-            if let Some(table) = &self.identity.table {
-                object.insert("table".to_owned(), serde_json::json!(table));
-            }
-            if let Some(scenario) = &self.identity.scenario {
-                object.insert("scenario".to_owned(), scenario.clone().into());
-            }
-        }
-        save
+                .map(|(card, _)| card.clone())
+                .collect(),
+            event_times: self
+                .events
+                .iter()
+                .map(|event| event.timestamp.clone())
+                .collect(),
+            event_versions: self.events.iter().map(|event| event.version).collect(),
+            version: self.version,
+            generation: self.generation,
+            decisions_hash: decisions_hash(&self.decision_log),
+            finished: self.finished,
+            round: self.state.round,
+            phase: self.state.phase,
+            engine: extra,
+        };
+        serde_json::to_value(save).expect("a save is JSON")
     }
 
     /// The turn status the game shows while it waits (for a host that wants to show who plays).
@@ -1915,6 +1918,56 @@ impl HostSession {
             _ => unreachable!("state_update_for builds a StateUpdate"),
         }
     }
+}
+
+/// The save of a game ([`HostSession::save_state`]), format [`crate::host_setup::SAVE_FORMAT`]:
+/// the game, and every decision of every seat in order, so that a resume gives each of them again
+/// and no seat decides again. An undo cuts `decisions` at the answer that it takes back.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSave {
+    /// [`crate::host_setup::SAVE_FORMAT`]: a save of another format is not read.
+    pub format: u64,
+    pub seed: u64,
+    pub players: usize,
+    /// The game as the host was given it, with the choices that were left open filled in (card
+    /// set, map, factions...): a save replays with it.
+    pub game: crate::host_setup::GameRequest,
+    /// The table of `ti4_host::setup` the game was made from; none for a game of a fixed setup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<ti4_host::setup::TableSetup>,
+    /// The scenario the game starts from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
+    /// The seats that the page plays at the start (bit 0 is seat `a`).
+    pub humans: u32,
+    /// The option id of every decision of every seat, in order.
+    pub decisions: Vec<String>,
+    /// The page's answers among them (ids), in order.
+    pub answers: Vec<String>,
+    /// The changes of the seats that the page plays, in order.
+    pub switches: Vec<SeatSwitch>,
+    /// The answers that a redo can bring back, next first.
+    pub redo: Vec<String>,
+    /// What each seat has staged and not sent (`ti4_host::staged`).
+    pub staged: BTreeMap<PlayerId, SeatStaged>,
+    /// The cards that are never offered, by printed name; an own-turn card is not kept.
+    pub never: BTreeSet<String>,
+    /// The time of each event of the game, in order.
+    pub event_times: Vec<String>,
+    /// The game version of each event, in order.
+    pub event_versions: Vec<Option<u64>>,
+    pub version: u64,
+    /// The history generation of the run.
+    pub generation: u64,
+    /// [`decisions_hash`] of the decisions: a replay tells that the engine still decides the same.
+    pub decisions_hash: String,
+    pub finished: bool,
+    pub round: u32,
+    pub phase: Phase,
+    /// The engine that saved: its build and the digest of its content.
+    #[cfg_attr(feature = "ts", ts(type = "{ build: string, content_digest: string }"))]
+    pub engine: serde_json::Value,
 }
 
 /// A short hash of the decisions of a game, to tell on replay that the engine still decides the

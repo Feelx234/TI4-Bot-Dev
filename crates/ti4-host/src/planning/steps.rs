@@ -11,6 +11,7 @@ use ti4_model::id::PlayerId;
 /// One step of a movement, of the landings of an invasion, or of a production.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PlanStep {
     Move {
         origin: String,

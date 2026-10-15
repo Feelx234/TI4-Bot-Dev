@@ -835,6 +835,7 @@ pub fn project_pending_choice(
 /// Submission metadata around the engine's wire-serialized choice.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PendingChoiceEnvelope {
     pub nonce: String,
     pub choice: Choice,
@@ -846,6 +847,7 @@ pub struct PendingChoiceEnvelope {
 /// hands them to its host as they are, so one client reads both.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SessionUpdate {
     pub viewer: ViewerRole,
     pub view: GameView,

@@ -51,6 +51,7 @@ pub struct TemplateTile {
 
 /// Summary of a map template for listing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MapTemplateSummary {
     pub alias: String,
     /// Display name, when the template has one (community layouts do).

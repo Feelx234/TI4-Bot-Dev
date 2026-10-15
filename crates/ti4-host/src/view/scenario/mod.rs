@@ -32,6 +32,7 @@ use ti4_model::units::Unit;
 /// The map that a scenario is played on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ScenarioMap {
     /// The recommended map template for its number of seats.
     Recommended,
@@ -53,6 +54,7 @@ pub type OpeningFn = fn(&Choice, &Opening) -> OpeningAnswer;
 
 /// A prepared game that a host can start.
 #[derive(Debug, Clone, Copy, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Scenario {
     pub id: &'static str,
     pub title: &'static str,

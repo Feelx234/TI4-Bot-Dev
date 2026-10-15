@@ -86,6 +86,8 @@ enumset = "1.1.5"
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 proptest = "1.6"
+# TypeScript types of the wire (`ts` features of ti4-model, ti4-engine, ti4-calc, ti4-host, ti4-wasm).
+ts-rs = { version = "12.0.1", features = ["no-serde-warnings"] }
 eframe = { version = "=0.35.0", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
 # Keep GTK/Wayland defaults off; XDG Portal is the Linux backend and builds on WSL without GTK.
 rfd = { version = "0.17.2", default-features = false, features = ["common-controls-v6", "xdg-portal"] }

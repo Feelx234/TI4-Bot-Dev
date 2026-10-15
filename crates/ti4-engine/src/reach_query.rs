@@ -32,6 +32,7 @@ use ti4_model::state::GameState;
 
 /// One kind of ship in one origin system, with how many of it could arrive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReachShip {
     pub type_id: String,
     pub count: u32,
@@ -45,6 +46,7 @@ pub struct ReachShip {
 
 /// One seat's ships in one system that could reach the queried system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReachOrigin {
     pub owner: String,
     pub origin: String,

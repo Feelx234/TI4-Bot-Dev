@@ -10,6 +10,7 @@ use ti4_model::id::PlayerId;
 /// game, so a page names a seat by its player.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatFact {
     /// The name of the player at the table.
     pub nickname: String,

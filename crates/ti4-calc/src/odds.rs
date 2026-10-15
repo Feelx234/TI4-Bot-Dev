@@ -39,6 +39,7 @@ impl std::error::Error for CalcError {}
 /// Units count input, accepting either `{"unit_id": count}` or `[["unit_id", count]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum UnitCounts {
     Map(BTreeMap<String, usize>),
     List(Vec<(String, usize)>),
@@ -65,6 +66,7 @@ pub enum ParticipantInput {
 /// Fleet configuration for one participant in space combat.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SideInput {
     /// Player ID whose fleet/guns at the combat system should be included.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -85,6 +87,7 @@ pub struct SideInput {
 
 /// Outcome statistics from [`arena`] rollouts.
 #[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BattleResponse {
     pub simulations: usize,
     pub attacker_win_rate: f64,

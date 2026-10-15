@@ -32,6 +32,7 @@ fn local_game_id() -> String {
 
 /// Who plays the seats of the others.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Bots {
     /// The rule bot ([`setup::bot_kind::RULE`]). `"rule"` is its name in the form of `web/`.
     #[default]
@@ -45,6 +46,7 @@ pub enum Bots {
 /// The table of a game. Everything the game's opening state is made from; a save carries it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Setup {
     #[serde(default = "local_game_id")]
     pub game_id: String,
@@ -132,6 +134,7 @@ pub struct Resume {
 /// The game of a request or of a save: one of `setup`, `table` and `local`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GameRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup: Option<Setup>,
@@ -205,6 +208,7 @@ impl Start {
 
 /// Who plays a seat of a table ([`TableRequest`]), by the names of a lobby.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SeatKind {
     /// The page answers the seat.
     #[default]
@@ -232,6 +236,7 @@ impl SeatKind {
 /// One player of a table: who plays the seat, and the faction that was chosen for it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatRequest {
     #[serde(default)]
     pub kind: SeatKind,
@@ -249,6 +254,7 @@ pub struct SeatRequest {
 /// letter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TableRequest {
     pub setup: TableSetup,
     /// Missing entries are seats of the page with no chosen faction.
@@ -370,6 +376,7 @@ impl TableRequest {
 /// [`SEATS`]`[i]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Local {
     #[serde(default)]
     pub seed: u64,

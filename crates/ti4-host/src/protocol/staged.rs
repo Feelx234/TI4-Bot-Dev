@@ -18,6 +18,7 @@ pub const MAX_STAGED_VALUE_BYTES: usize = 48 * 1024;
 /// One kind of staged work of a seat.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum StagedSlot {
     /// The staged movement, landings or production of the open step.
     Movement,
@@ -30,10 +31,12 @@ pub enum StagedSlot {
 /// The value of one slot and the revision of the seat when it was written.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StagedValue {
     pub revision: u64,
     /// `None` when the slot was cleared.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional, type = "unknown"))]
     pub value: Option<serde_json::Value>,
 }
 
@@ -44,6 +47,7 @@ pub struct StagedValue {
 /// `revision`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatStagedMsg {
     pub protocol_version: u16,
     pub game_id: String,

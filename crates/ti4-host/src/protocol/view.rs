@@ -11,6 +11,7 @@ use ti4_model::state::{LeaderStatus, Phase};
 /// Redacted view of a single player at the table.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PlayerView {
     pub id: PlayerId,
     pub faction: FactionId,
@@ -66,6 +67,7 @@ pub struct PlayerView {
 /// Redacted view of a planet on the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PlanetView {
     pub planet_id: PlanetId,
     pub controlled_by: Option<PlayerId>,
@@ -77,6 +79,7 @@ pub struct PlanetView {
 /// Redacted view of a unit placed on the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PlacedUnitView {
     pub unit_type: UnitTypeId,
     pub owner: PlayerId,
@@ -89,6 +92,7 @@ pub struct PlacedUnitView {
 /// Redacted view of a star system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SystemView {
     pub system_id: SystemId,
     pub command_tokens: BTreeSet<PlayerId>,
@@ -99,6 +103,7 @@ pub struct SystemView {
 /// Static metadata of a planet on the board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PlanetMetaView {
     pub id: String,
     pub label: String,
@@ -117,6 +122,7 @@ pub struct PlanetMetaView {
 /// Static geometry and metadata of a star system tile.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BoardTileView {
     pub system_id: String,
     pub label: String,
@@ -139,6 +145,7 @@ pub struct BoardTileView {
 /// A die roll result during combat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CombatDieRoll {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player: Option<PlayerId>,
@@ -151,6 +158,7 @@ pub struct CombatDieRoll {
 /// Publicly observable space combat state in progress.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CombatView {
     pub system_id: SystemId,
     pub round: u32,
@@ -181,6 +189,7 @@ pub struct CombatView {
 /// Public invasion identity and current planet-local progress.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InvasionView {
     pub system_id: SystemId,
     pub invasion_seq: u64,
@@ -199,6 +208,7 @@ pub struct InvasionView {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InvasionOddsContext {
     pub opponent: Option<PlayerId>,
     /// False when a live defense modifier cannot be represented in the advisor request.
@@ -213,6 +223,7 @@ pub struct InvasionOddsContext {
 /// Latest resolved automatic step, scoped to one planet and one ground round.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InvasionStepView {
     pub planet: PlanetId,
     pub kind: String,
@@ -227,6 +238,7 @@ pub struct InvasionStepView {
 /// Redacted view of the galaxy board.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BoardView {
     pub systems: BTreeMap<SystemId, SystemView>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -242,6 +254,7 @@ pub struct BoardView {
 /// Exact progress towards a public objective requirement.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ObjectiveProgressView {
     pub have: u32,
     pub threshold: u32,
@@ -257,6 +270,7 @@ pub struct ObjectiveProgressView {
 /// One neighbour row of a planet-count comparison (Push Boundaries).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct NeighbourProgressView {
     pub player: PlayerId,
     /// Planets the progress owner controls.
@@ -270,6 +284,7 @@ pub struct NeighbourProgressView {
 /// Public table state: objectives, laws, strategy card goods.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TableView {
     pub revealed_objectives: Vec<ObjectiveId>,
     pub scored_objectives: BTreeMap<PlayerId, BTreeSet<ObjectiveId>>,
@@ -287,6 +302,7 @@ pub struct TableView {
 /// Complete redacted view of the game for one viewer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GameView {
     pub round: u32,
     /// The turn of the action phase (LRR 3), counted from 1; zero outside it.

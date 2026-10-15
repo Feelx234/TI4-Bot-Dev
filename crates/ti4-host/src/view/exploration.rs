@@ -19,6 +19,7 @@ use ti4_model::state::{ExplorationRecord, GameState};
 /// The exploration as every player at the table sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ExplorationFacts {
     /// The cards that each deck still holds, sorted by id. The order of a deck is hidden; what
     /// left it was shown to the table.
@@ -33,6 +34,7 @@ pub struct ExplorationFacts {
 /// One exploration card as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ExplorationCard {
     pub id: String,
     pub name: String,
@@ -46,6 +48,7 @@ pub struct ExplorationCard {
 /// One attachment of a planet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AttachmentCard {
     pub id: String,
     pub name: String,
@@ -62,6 +65,7 @@ pub struct AttachmentCard {
 /// The printed side of the exploration. It does not change during a game.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ExplorationCatalog {
     pub cards: Vec<ExplorationCard>,
     /// The cards that each deck begins a game with, sorted by id.

@@ -19,6 +19,7 @@ pub const SECONDARY_ASSUMPTION: &str =
 /// and the audited offers; the gate, script and lifecycle are shared.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PlanScope {
     /// The planner's next tactical action.
     #[default]
@@ -31,6 +32,7 @@ pub enum PlanScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum StopReason {
     Uncertainty,
     UnsupportedOffer,

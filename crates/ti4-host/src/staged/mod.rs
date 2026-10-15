@@ -23,6 +23,7 @@ use crate::protocol::staged::{SeatStagedMsg, StagedSlot, StagedValue};
 /// Every slot of one seat.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatStaged {
     /// The revision of the newest write of any slot (0: never written).
     pub revision: u64,

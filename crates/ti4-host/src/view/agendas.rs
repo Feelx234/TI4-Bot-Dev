@@ -12,6 +12,7 @@ use ti4_model::state::GameState;
 /// The agenda deck as every player at the table sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AgendaFacts {
     /// How many cards the deck still holds. Which cards is hidden.
     pub deck: usize,

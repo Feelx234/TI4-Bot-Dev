@@ -25,6 +25,7 @@ use crate::protocol::status::ViewerRole;
 /// What a follower did of the secondary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum FollowerState {
     /// The seat is still to be asked, or is asked now.
     Waiting,
@@ -36,6 +37,7 @@ pub enum FollowerState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FollowerFact {
     pub seat: PlayerId,
     pub state: FollowerState,
@@ -44,6 +46,7 @@ pub struct FollowerFact {
 /// The strategic action that is resolved now.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SecondaryFacts {
     pub primary: PlayerId,
     pub card: StrategyCardId,

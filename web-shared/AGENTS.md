@@ -64,10 +64,36 @@ src/storage/ types.ts     HostSave (format 2), SavedGameRecord, GameMeta, StoreS
              validate.ts  validateSave, the record and the export file (EXPORT_KIND, EXPORT_VERSION),
                           engineDifferences
              index.ts     the public exports
+src/wire/    index.ts     the wire types: import them from here
+             generated/   one file for each type, and index.ts with every type and PROTOCOL_VERSION; written
+                          from Rust by `cargo wire-web`, never by hand
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
 `web2/src/session/ti4.wasm`).
+
+## Wire types
+
+The types of what the server and the engine send and take, generated from the Rust types with
+`ts-rs` (`crates/ti4-wasm/src/wire_ts.rs`). Import from `@ti4/shared/wire/index.ts`.
+
+- The roots: `ClientMessage` and `ServerMessage` (`ti4_host::protocol`, with the views, the
+  status, the staged work and the planning wire), `Catalog`, the setup of a table
+  (`TableOptions`, `TablePreview`, `TableDraw`, `GameRequest`), the odds of a space combat
+  (`SpaceOddsRequest`, `BattleResponse`) and the save (`HostSave`). Every type that they name is
+  generated with them. `PROTOCOL_VERSION` is generated too.
+- The doc comments are those of the Rust types. A field that Rust leaves out when it is empty
+  is `name?: T`. `u64` is `number`. The engine's `GameState` is `Record<string, unknown>`.
+- A change of a Rust type of the wire: run `cargo wire-web` (it writes `src/wire/generated/`
+  and removes the files of types that are gone) and commit the files. `cargo t-web` fails while
+  they are stale (`wire_types::generated_wire_types_are_current`).
+- The derives are behind the `ts` feature of `ti4-model`, `ti4-engine`, `ti4-calc`, `ti4-host`
+  and `ti4-wasm`. Only the tests enable it (the dev-dependency of `ti4-server` on `ti4-wasm`), so
+  the wasm file and the server binary of a deploy have none of it. A new type that a root names
+  gets `#[cfg_attr(feature = "ts", derive(ts_rs::TS))]`; a field that cannot be typed gets
+  `#[cfg_attr(feature = "ts", ts(type = "..."))]`. Two types with one name fail the generator:
+  rename one with `ts(rename = "...")`.
+- The generated files are not linted or formatted (`biome.json`, `.oxfmtrc.json`).
 
 ## Save store
 
@@ -124,7 +150,8 @@ The single player games of both apps, in one IndexedDB database of the origin. I
 - The tests here (`src/**/*.test.ts`) run in web2's vitest, in its `unit` project (node, no DOM):
   `cd web2 && npm test`.
 - web2's biome lints this dir: `web-shared/biome.json` extends `web2/biome.json`, and web2's
-  `npm run lint` runs it here too.
+  `npm run lint` runs it here too. Not `src/wire/generated/`.
+- `cargo t-web` checks that `src/wire/generated/` is current.
 - The storage tests (`src/storage/storage.test.ts`) run on `fake-indexeddb`, a fresh
   `IDBFactory` for each test.
 - web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`), without the

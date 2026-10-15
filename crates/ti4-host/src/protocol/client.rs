@@ -22,6 +22,7 @@ pub const MAX_PREVIEW_ANSWERS: usize = ti4_engine::secondary_preview::MAX_ANSWER
 /// Messages submitted from a client to the authoritative server.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ClientMessage {
     /// Subscribe to live updates for a game session.
     Subscribe {
@@ -153,6 +154,7 @@ pub enum ClientMessage {
         slot: super::staged::StagedSlot,
         base_revision: u64,
         #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional, type = "unknown"))]
         value: Option<serde_json::Value>,
     },
     /// Keep-alive ping message.
