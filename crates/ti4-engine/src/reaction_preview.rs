@@ -695,7 +695,8 @@ mod tests {
         state.last_action_discarded = Some((b.clone(), ActionCardId::new("unexpected")));
         state.player_mut(&b).unwrap().commodities = 3;
         state.last_reroll_player = Some(b.clone());
-        let cases: &[(&str, &str, &[(&str, serde_json::Value)], &str)] = &[
+        type Case<'a> = (&'a str, &'a str, &'a [(&'a str, serde_json::Value)], &'a str);
+        let cases: &[Case] = &[
             (
                 "sabo1",
                 "ACTION_CARD_PLAYED",
