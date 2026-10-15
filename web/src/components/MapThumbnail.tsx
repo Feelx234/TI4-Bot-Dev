@@ -3,7 +3,8 @@ import type { BoardTileView, MapSeatPreview } from "../protocol/types.ts";
 import { deriveHexGeometry } from "../presentation/boardPresentation.ts";
 import { homeIdSet, mainTiles, tileKind, type TileKind } from "../presentation/mapPicker.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
-import { HyperlaneThumb } from "./hyperlane/HyperlaneArt.tsx";
+import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { getHyperlaneNetwork } from "./hyperlane/hyperlaneNetwork.ts";
 
 export const TILE_FILL: Record<TileKind, string> = {
   home: "#38bdf8",
@@ -28,6 +29,7 @@ export const MapThumbnail: React.FC<{
     tile,
     geometry: deriveHexGeometry(tile.q, tile.r),
   }));
+  const model = getHyperlaneNetwork(main.map((t) => ({ systemId: t.system_id, q: t.q, r: t.r })));
   const xs = placed.map((p) => p.geometry.center.x);
   const ys = placed.map((p) => p.geometry.center.y);
   const pad = 80;
@@ -55,18 +57,23 @@ export const MapThumbnail: React.FC<{
               stroke={seat ? seatStyle(seat).color : "#0b1220"}
               strokeWidth={seat ? 14 : 6}
             />
-            {kind === "hyperlane" && (
-              <HyperlaneThumb
-                systemId={tile.system_id}
-                cx={geometry.center.x}
-                cy={geometry.center.y}
-                weight={1.7}
-                bed={TILE_FILL.hyperlane}
-              />
-            )}
           </g>
         );
       })}
+      {model.connections.length + model.lanePorts.size > 0 && (
+        <HyperlaneNetwork
+          tiles={placed.map(({ tile, geometry }) => ({
+            systemId: tile.system_id,
+            q: tile.q,
+            r: tile.r,
+            cx: geometry.center.x,
+            cy: geometry.center.y,
+          }))}
+          model={model}
+          weight={1.7}
+          bed={TILE_FILL.hyperlane}
+        />
+      )}
     </svg>
   );
 };

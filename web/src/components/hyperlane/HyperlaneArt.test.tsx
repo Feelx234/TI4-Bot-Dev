@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { HyperlaneArt, HyperlaneDiagram, HyperlaneThumb } from "./HyperlaneArt.tsx";
+import { HyperlaneDiagram } from "./HyperlaneArt.tsx";
 import {
   EDGE_RADIUS,
   HYPERLANE_FACES,
@@ -128,36 +128,13 @@ describe("hyperlane edges on the real community maps", () => {
 describe("hyperlane art", () => {
   const wrap = (el: React.ReactNode) => render(<svg>{el}</svg>);
 
-  it.each(corpus.map((s) => s.id))("%s renders lanes with a name and no pointer capture", (id) => {
-    const { unmount } = wrap(<HyperlaneArt systemId={id} cx={0} cy={0} />);
-    const art = screen.getByTestId("hyperlane-art");
-    expect(art).toHaveAttribute("aria-label", expect.stringMatching(/^Hyperlane connecting edges \d-\d/));
-    expect(art).toHaveAttribute("pointer-events", "none");
-    const tile = parseHyperlaneId(id)!;
-    // one outline and one channel per lane; one cap (two circles) per reached edge
-    expect(art.querySelectorAll("path")).toHaveLength(tile.lanes.length * 2);
-    expect(art.querySelectorAll("circle")).toHaveLength(hyperlaneEdges(tile).length * 2);
-    unmount();
-  });
-
-  it("draws nothing for an ordinary system", () => {
-    wrap(<HyperlaneArt systemId="26" cx={0} cy={0} />);
-    expect(screen.queryByTestId("hyperlane-art")).toBeNull();
-  });
-
-  it("offers a stand-alone diagram and a decorative thumbnail form", () => {
-    wrap(
-      <>
-        <HyperlaneThumb systemId="83a60" cx={10} cy={10} />
-        <HyperlaneDiagram systemId="83a60" />
-      </>,
-    );
-    expect(screen.getByTestId("hyperlane-thumb")).toHaveAttribute("aria-hidden", "true");
+  it("offers a stand-alone diagram with an accessible name", () => {
+    wrap(<HyperlaneDiagram systemId="83a60" />);
     expect(screen.getByRole("img", { name: "Hyperlane connecting edges 3-6" })).toBeInTheDocument();
   });
 
-  it("shows lanes on hyperlane hexes of the map picker thumbnail only", () => {
-    render(
+  it("draws one network layer for the thumbnail, once, and none without hyperlanes", () => {
+    const { unmount } = render(
       <MapThumbnail
         label="Test layout"
         seats={[]}
@@ -167,6 +144,9 @@ describe("hyperlane art", () => {
         ]}
       />,
     );
-    expect(screen.getAllByTestId("hyperlane-thumb")).toHaveLength(1);
+    expect(screen.getAllByTestId("hyperlane-network")).toHaveLength(1);
+    unmount();
+    render(<MapThumbnail label="Plain" seats={[]} tiles={[{ system_id: "26", label: "Lodor", q: 0, r: 1 }]} />);
+    expect(screen.queryByTestId("hyperlane-network")).toBeNull();
   });
 });

@@ -10,7 +10,6 @@ import { GroundCombatOverlay } from "./GroundCombatOverlay.tsx";
 import { TechBenefitsOverlay } from "./TechBenefitsOverlay.tsx";
 import { StandardOverlay } from "./StandardOverlay.tsx";
 import { ExplorationMarkers } from "./ExplorationMarkers.tsx";
-import { HyperlaneArt } from "../hyperlane/HyperlaneArt.tsx";
 import { AnomalyArt, AnomalyBadge } from "../anomaly/AnomalyArt.tsx";
 import { COMMAND_TOKEN_RADIUS, COMMAND_TOKEN_STEP, COMMAND_TOKEN_Y } from "./boardLayout.ts";
 
@@ -119,9 +118,6 @@ export const BoardTile: React.FC<BoardTileProps> = ({
 
       {/* Anomaly art: outer-ring texture behind everything else */}
       <AnomalyArt anomalies={tile.anomalies} cx={tile.center.x} cy={tile.center.y} />
-
-      {/* Hyperlane lanes: flat double lines between the edges the tile joins */}
-      {tile.hyperlane && <HyperlaneArt systemId={tile.systemId} cx={tile.center.x} cy={tile.center.y} />}
 
       {/* Candidate target soft glow fill */}
       {tile.isCandidateTarget && isActivationMode && (

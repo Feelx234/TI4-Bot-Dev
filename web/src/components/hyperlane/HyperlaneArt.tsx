@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  EDGE_ANGLES,
   EDGE_RADIUS,
   edgePoint,
   hyperlaneEdges,
@@ -8,6 +9,13 @@ import {
   lanePath,
   parseHyperlaneId,
 } from "./hyperlaneGeometry.ts";
+import {
+  connectionsAt,
+  portPoint,
+  tileKey,
+  type HyperlaneNetworkModel,
+  type NetTileInput,
+} from "./hyperlaneNetwork.ts";
 
 const INK = "var(--hyperlane-ink, #c4b5fd)";
 /** The tile colour, so the inner line of a lane reads as a hollow channel. */
@@ -60,56 +68,156 @@ const Lanes: React.FC<{ systemId: string; weight: number; frame: boolean }> = ({
   );
 };
 
-/** Board art: sits on the hex behind labels and tokens, never takes pointer events. */
-export const HyperlaneArt: React.FC<{
-  systemId: string;
+/** Distance between neighbouring hexes' edges on every board (centres 150 apart, radius 70). */
+const GAP = 150 - 2 * EDGE_RADIUS;
+const LINK = "var(--hyperlane-link, #fde68a)";
+const HOT = "var(--hyperlane-hot, #f59e0b)";
+
+export interface NetworkTile extends NetTileInput {
+  /** Centre in the drawing's coordinates. */
   cx: number;
   cy: number;
-  weight?: number;
-  /** The hex fill, when it is not the board's. */
-  bed?: string;
-}> = ({ systemId, cx, cy, weight = 1, bed }) => {
-  const tile = parseHyperlaneId(systemId);
-  if (!tile) return null;
-  return (
-    <g
-      data-testid="hyperlane-art"
-      data-hyperlane-edges={tile.lanes.map((l) => l.map((e) => e + 1).join("-")).join(",")}
-      transform={`translate(${cx} ${cy})`}
-      opacity={0.85}
-      pointerEvents="none"
-      role="img"
-      aria-label={hyperlaneLabel(tile)}
-      style={bed ? ({ "--hyperlane-bed": bed } as React.CSSProperties) : undefined}
-    >
-      <title>{hyperlaneTitle(tile)}</title>
-      <Lanes systemId={systemId} weight={weight} frame />
-    </g>
-  );
-};
+}
 
 /**
- * The same lanes inside a map picker thumbnail or preview hex. `weight` thickens them for small
- * hexes. Decorative: the parent svg carries the name.
+ * The whole lane network as one drawing, to be placed after every tile fill and before nothing
+ * but overlays. Pass order gives the seamless look: all lane outlines first, then all channels
+ * (so lanes merge across tile edges and at junctions with one consistent double line), then the
+ * dashed route cores of the chosen connections, then ends: a ring dock on the system a lane
+ * reaches (gold dot when a route ends there), a flat bar on an open end, a diamond where three or
+ * more lanes meet. `hot` lights every connection through that tile.
  */
-export const HyperlaneThumb: React.FC<{
-  systemId: string;
-  cx: number;
-  cy: number;
+export const HyperlaneNetwork: React.FC<{
+  tiles: readonly NetworkTile[];
+  model: HyperlaneNetworkModel;
   weight?: number;
-  /** The hex fill, so the inner line of a lane shows it. */
   bed?: string;
-}> = ({ systemId, cx, cy, weight = 1.6, bed = "#312e81" }) => {
-  if (!parseHyperlaneId(systemId)) return null;
+  hot?: string | null;
+}> = ({ tiles, model, weight = 1, bed, hot = null }) => {
+  const lanes = tiles
+    .map((t) => ({ t, key: tileKey(t.q, t.r), tile: parseHyperlaneId(t.systemId) }))
+    .filter((x): x is { t: NetworkTile; key: string; tile: NonNullable<typeof x.tile> } => x.tile !== null);
+  if (lanes.length === 0) return null;
+  const at = (key: string) => lanes.find((l) => l.key === key);
+  const hotSegs = new Set(connectionsAt(model, hot).flatMap((c) => c.segments));
+  const paths = (stroke: string, width: number, pick?: (seg: string) => boolean, extra?: object) =>
+    lanes.map(({ t, key, tile }) => (
+      <g key={key} transform={`translate(${t.cx} ${t.cy})`}>
+        {tile.lanes
+          .filter(([a, b]) => !pick || pick(`${key}:${a}-${b}`))
+          .map((pair) => (
+            <path key={pair.join("-")} d={lanePath(pair)} stroke={stroke} strokeWidth={width} {...extra} />
+          ))}
+      </g>
+    ));
+  const world = (port: string) => {
+    const [key, e] = port.split(":");
+    const l = at(key);
+    return l ? { l, e: Number(e), ...portPoint(l.t.cx, l.t.cy, Number(e)) } : null;
+  };
+  const w = weight;
+  // Hexes sit GAP apart on the board; lanes are extended across it so a lane runs on unbroken
+  // into the next lane tile (half the gap from each side) or all the way to a system's edge.
+  const reach = (port: string) => (model.docks.has(port) ? GAP : model.openEnds.has(port) ? 0 : GAP / 2);
+  const stubPorts = [...model.lanePorts].filter((port) => reach(port) > 0);
+  const stubs = (stroke: string, width: number, pick?: (port: string) => boolean, extra?: object) =>
+    stubPorts
+      .filter((port) => !pick || pick(port))
+      .map((port) => {
+        const p = world(port);
+        if (!p) return null;
+        const q = edgePoint(p.e, EDGE_RADIUS + reach(port));
+        return (
+          <line
+            key={`${stroke}-${port}`}
+            x1={p.x}
+            y1={p.y}
+            x2={p.x - edgePoint(p.e, EDGE_RADIUS).x + q.x}
+            y2={p.y - edgePoint(p.e, EDGE_RADIUS).y + q.y}
+            stroke={stroke}
+            strokeWidth={width}
+            {...extra}
+          />
+        );
+      });
+  const usedPorts = new Set<string>();
+  for (const seg of model.usedSegments) {
+    const [k, ab] = seg.split(":");
+    for (const e of ab.split("-")) usedPorts.add(`${k}:${e}`);
+  }
+  const dash = { strokeDasharray: `${3 * w} ${3.2 * w}`, strokeLinecap: "butt" as const };
+  const hotPorts = new Set<string>();
+  for (const seg of hotSegs) {
+    const [k, ab] = seg.split(":");
+    for (const e of ab.split("-")) hotPorts.add(`${k}:${e}`);
+  }
   return (
     <g
-      data-testid="hyperlane-thumb"
-      transform={`translate(${cx} ${cy})`}
+      data-testid="hyperlane-network"
+      data-hyperlane-routes={model.connections.length}
       pointerEvents="none"
       aria-hidden="true"
-      style={{ "--hyperlane-bed": bed } as React.CSSProperties}
+      style={bed ? ({ "--hyperlane-bed": bed } as React.CSSProperties) : undefined}
     >
-      <Lanes systemId={systemId} weight={weight} frame={false} />
+      <g fill="none" strokeLinecap="round" strokeLinejoin="round">
+        {hotSegs.size > 0 && paths(HOT, 15 * w, (s) => hotSegs.has(s))}
+        {hotSegs.size > 0 && stubs(HOT, 15 * w, (port) => hotPorts.has(port))}
+        {paths(INK, 9 * w)}
+        {stubs(INK, 9 * w)}
+        {paths(BED, 3.6 * w)}
+        {stubs(BED, 3.6 * w)}
+        {paths(LINK, 1.5 * w, (s) => model.usedSegments.has(s), dash)}
+        {stubs(LINK, 1.5 * w, (port) => usedPorts.has(port), dash)}
+      </g>
+      {[...model.docks.keys()].map((port) => {
+        const p = world(port);
+        if (!p) return null;
+        const out = edgePoint(p.e, GAP + 3 * w);
+        const base = edgePoint(p.e, 0);
+        const used = model.usedDocks.has(port);
+        return (
+          <g key={`dock-${port}`} data-testid="hyperlane-dock" data-used={used}>
+            <circle cx={p.x + out.x - base.x} cy={p.y + out.y - base.y} r={7.5 * w} fill={INK} />
+            <circle cx={p.x + out.x - base.x} cy={p.y + out.y - base.y} r={3.2 * w} fill={used ? LINK : BED} />
+          </g>
+        );
+      })}
+      {[...model.openEnds].map((port) => {
+        const p = world(port);
+        if (!p) return null;
+        const a = (EDGE_ANGLES[p.e] * Math.PI) / 180;
+        const tx = -Math.sin(a) * 7.5 * w;
+        const ty = Math.cos(a) * 7.5 * w;
+        return (
+          <line
+            key={`open-${port}`}
+            data-testid="hyperlane-open-end"
+            x1={p.x - tx}
+            y1={p.y - ty}
+            x2={p.x + tx}
+            y2={p.y + ty}
+            stroke={INK}
+            strokeWidth={3 * w}
+            strokeLinecap="butt"
+          />
+        );
+      })}
+      {[...model.junctions].map((port) => {
+        const p = world(port);
+        if (!p) return null;
+        const r = 6.5 * w;
+        const shift = model.openEnds.has(port) ? { x: 0, y: 0 } : edgePoint(p.e, GAP / 2);
+        return (
+          <g
+            key={`junction-${port}`}
+            data-testid="hyperlane-junction"
+            transform={`translate(${p.x + shift.x} ${p.y + shift.y}) rotate(45)`}
+          >
+            <rect x={-r * 0.7} y={-r * 0.7} width={r * 1.4} height={r * 1.4} fill={INK} />
+            <rect x={-r * 0.35} y={-r * 0.35} width={r * 0.7} height={r * 0.7} fill={BED} />
+          </g>
+        );
+      })}
     </g>
   );
 };

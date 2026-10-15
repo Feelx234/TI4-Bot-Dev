@@ -25,6 +25,8 @@ import {
 export type InspectorTab = "details" | "reach";
 
 export interface SystemInspectorProps {
+  /** System ids this system is adjacent to through hyperlane chains. */
+  hyperlaneLinks?: readonly string[];
   system: SelectedSystemDetails | null;
   onClose: () => void;
   onSelectAction?: (optionId: string) => void;
@@ -40,6 +42,7 @@ export interface SystemInspectorProps {
 }
 
 export const SystemInspector: React.FC<SystemInspectorProps> = ({
+  hyperlaneLinks = [],
   system,
   onClose,
   reach,
@@ -120,6 +123,13 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
           </div>
         );
       })()}
+
+      {hyperlaneLinks.length > 0 && (
+        <div data-testid="inspector-hyperlane-links" style={{ fontSize: 12, color: "#fde68a" }}>
+          Connected through hyperlanes to system{hyperlaneLinks.length > 1 ? "s" : ""}{" "}
+          {hyperlaneLinks.join(", ")}
+        </div>
+      )}
 
       {reach && (
         <div role="tablist" aria-label="System overview" style={{ display: "flex", gap: 6 }}>

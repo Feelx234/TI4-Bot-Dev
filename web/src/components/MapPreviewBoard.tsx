@@ -4,7 +4,8 @@ import { deriveHexGeometry } from "../presentation/boardPresentation.ts";
 import { homeIdSet, mainTiles, tileKind } from "../presentation/mapPicker.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
 import { TILE_FILL } from "./MapThumbnail.tsx";
-import { HyperlaneArt } from "./hyperlane/HyperlaneArt.tsx";
+import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { connectionsAt, getHyperlaneNetwork, linkSentence, tileKey } from "./hyperlane/hyperlaneNetwork.ts";
 import { hyperlaneLabel, parseHyperlaneId } from "./hyperlane/hyperlaneGeometry.ts";
 import { PlanetValueGlyph, pairLabel } from "./PlanetValueIcons.tsx";
 
@@ -25,6 +26,10 @@ export const MapPreviewBoard: React.FC<{
     tile,
     geometry: deriveHexGeometry(tile.q, tile.r),
   }));
+  const model = getHyperlaneNetwork(placed.map(({ tile }) => ({ systemId: tile.system_id, q: tile.q, r: tile.r })));
+  // Hover, focus or tap on a linked system (or on a lane tile) lights its routes.
+  const [hot, setHot] = React.useState<string | null>(null);
+  const partnerKeys = new Set(connectionsAt(model, hot).flatMap((c) => [c.fromKey, c.toKey]));
   const xs = placed.map((p) => p.geometry.center.x);
   const ys = placed.map((p) => p.geometry.center.y);
   const pad = 90;
@@ -37,43 +42,44 @@ export const MapPreviewBoard: React.FC<{
       className="map-preview-board"
       viewBox={`${left} ${top} ${width} ${height}`}
       role="img"
-      aria-label={`Map preview with ${placed.length} systems`}
+      aria-label={`Map preview with ${placed.length} systems${model.connections.length ? `, ${model.connections.length} hyperlane connections` : ""}`}
       data-testid="map-preview-board"
     >
       {placed.map(({ tile, geometry }, index) => {
         const kind = tileKind(tile, homes);
         const seat = seatOf.get(tile.system_id);
+        const key = tileKey(tile.q, tile.r);
+        const link = kind === "hyperlane" ? null : linkSentence(model, key);
+        const interactive = model.connections.length > 0 && (link !== null || kind === "hyperlane");
         return (
           <g
             key={`${tile.system_id}-${index}`}
             data-testid={`map-tile-${tile.system_id}`}
             data-kind={kind}
+            data-linked={link ? "true" : undefined}
+            tabIndex={link ? 0 : undefined}
+            onMouseEnter={interactive ? () => setHot(key) : undefined}
+            onMouseLeave={interactive ? () => setHot(null) : undefined}
+            onFocus={link ? () => setHot(key) : undefined}
+            onBlur={link ? () => setHot(null) : undefined}
+            onClick={interactive ? () => setHot((h) => (h === key ? null : key)) : undefined}
           >
             <title>
               {seat
-                ? `Seat ${seat.seat}`
+                ? `Seat ${seat.seat}${link ? `. ${link}` : ""}`
                 : kind === "hyperlane"
                   ? (() => {
                       const lane = parseHyperlaneId(tile.system_id);
                       return lane ? hyperlaneLabel(lane) : tile.label;
                     })()
-                  : `${tile.label}${tile.planets?.length ? ` (${planetLabel(tile)})` : ""}`}
+                  : `${tile.label}${tile.planets?.length ? ` (${planetLabel(tile)})` : ""}${link ? `. ${link}` : ""}`}
             </title>
             <polygon
               points={geometry.points}
               fill={TILE_FILL[kind]}
-              stroke={seat ? seatStyle(seat.seat).color : "#0b1220"}
-              strokeWidth={seat ? 8 : 3}
+              stroke={partnerKeys.has(key) ? "#f59e0b" : seat ? seatStyle(seat.seat).color : "#0b1220"}
+              strokeWidth={partnerKeys.has(key) ? 9 : seat ? 8 : 3}
             />
-            {kind === "hyperlane" && (
-              <HyperlaneArt
-                systemId={tile.system_id}
-                cx={geometry.center.x}
-                cy={geometry.center.y}
-                weight={1.2}
-                bed={TILE_FILL.hyperlane}
-              />
-            )}
             {kind !== "hyperlane" && (
             <text
               x={geometry.center.x}
@@ -109,6 +115,19 @@ export const MapPreviewBoard: React.FC<{
           </g>
         );
       })}
+      <HyperlaneNetwork
+        tiles={placed.map(({ tile, geometry }) => ({
+          systemId: tile.system_id,
+          q: tile.q,
+          r: tile.r,
+          cx: geometry.center.x,
+          cy: geometry.center.y,
+        }))}
+        model={model}
+        weight={1.2}
+        bed={TILE_FILL.hyperlane}
+        hot={hot}
+      />
     </svg>
   );
 };

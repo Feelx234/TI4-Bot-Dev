@@ -1,0 +1,206 @@
+{
+ "title": "Hyperlane network: continuous lanes and every connection",
+ "description": "The lane network is drawn as one continuous picture across tile edges (lanes bridge the gap between hexes, merge at junctions, dock on systems) and shows one shortest route for every pair of systems that a chain of lanes joins. Before shots come from commit 95f9f878 (the earlier DY look), after shots from this branch; same capture scripts. Routes are computed once per layout (memoised, plus a generated table for the catalogue layouts).",
+ "tag": "web/e2e/screenshots/ED-hyperlane-network",
+ "shots": [
+  {
+   "file": "before/4-closeup-chain.png",
+   "heading": "Before: close-up of the five-tile chain, Race for Mecatol (desktop)",
+   "caption": "Each lane tile is its own fragment: the lanes stop at the tile edge and a ring cap sits in the 29 px gap between hexes, so a chain reads as separate pieces."
+  },
+  {
+   "file": "out/4-closeup-chain.png",
+   "heading": "After: close-up of the five-tile chain, Race for Mecatol (desktop)",
+   "caption": "One continuous network: lanes run across the gap into the next lane tile, merge at junctions (diamond) and end in a dock ring on the system they reach. The dashed gold core marks the one chosen route per pair of systems."
+  },
+  {
+   "file": "before/5-closeup-junction.png",
+   "heading": "Before: close-up of a junction, 3 players Hyperlanes",
+   "caption": "Lane ends of neighbouring tiles do not touch; where three lanes meet there is no junction mark."
+  },
+  {
+   "file": "out/5-closeup-junction.png",
+   "heading": "After: close-up of a junction, 3 players Hyperlanes",
+   "caption": "Lanes flow through the shared edge; a diamond marks where three or more lanes meet; every lane end meets a system (dock ring) or another lane."
+  },
+  {
+   "file": "before/6-closeup-ltp.png",
+   "heading": "Before: close-up of Learn to Play (PoK)",
+   "caption": "Short fragments with ring caps."
+  },
+  {
+   "file": "out/6-closeup-ltp.png",
+   "heading": "After: close-up of Learn to Play (PoK)",
+   "caption": "Three lane tiles in a row read as one lane, ending at systems 63 and 80."
+  },
+  {
+   "file": "before/1-preview-5pRaceForMecatol-desktop.png",
+   "heading": "Before: 5pRaceForMecatol large preview, desktop",
+   "caption": "Per-tile lanes only: which systems are linked is not visible."
+  },
+  {
+   "file": "out/1-preview-5pRaceForMecatol-desktop.png",
+   "heading": "After: 5pRaceForMecatol large preview, desktop",
+   "caption": "Whole network with the route of every linked pair; a pair that a chain makes adjacent is always drawn."
+  },
+  {
+   "file": "before/1-preview-3pHyperlanes-desktop.png",
+   "heading": "Before: 3pHyperlanes large preview, desktop",
+   "caption": "Per-tile lanes only: which systems are linked is not visible."
+  },
+  {
+   "file": "out/1-preview-3pHyperlanes-desktop.png",
+   "heading": "After: 3pHyperlanes large preview, desktop",
+   "caption": "Whole network with the route of every linked pair; a pair that a chain makes adjacent is always drawn."
+  },
+  {
+   "file": "before/1-preview-4pHyperlanes-desktop.png",
+   "heading": "Before: 4pHyperlanes large preview, desktop",
+   "caption": "Per-tile lanes only: which systems are linked is not visible."
+  },
+  {
+   "file": "out/1-preview-4pHyperlanes-desktop.png",
+   "heading": "After: 4pHyperlanes large preview, desktop",
+   "caption": "Whole network with the route of every linked pair; a pair that a chain makes adjacent is always drawn."
+  },
+  {
+   "file": "before/1-preview-5pLearnToPlayPoK-desktop.png",
+   "heading": "Before: 5pLearnToPlayPoK large preview, desktop",
+   "caption": "Per-tile lanes only: which systems are linked is not visible."
+  },
+  {
+   "file": "out/1-preview-5pLearnToPlayPoK-desktop.png",
+   "heading": "After: 5pLearnToPlayPoK large preview, desktop",
+   "caption": "Whole network with the route of every linked pair; a pair that a chain makes adjacent is always drawn."
+  },
+  {
+   "file": "before/1-preview-3pHurtsDonut-desktop.png",
+   "heading": "Before: 3pHurtsDonut large preview, desktop",
+   "caption": "Per-tile lanes only."
+  },
+  {
+   "file": "out/1-preview-3pHurtsDonut-desktop.png",
+   "heading": "After: 3pHurtsDonut large preview, desktop",
+   "caption": "Network drawn; short single-tile links."
+  },
+  {
+   "file": "before/2-preview-5pRaceForMecatol-390x844.png",
+   "heading": "Before: 5pRaceForMecatol preview, phone 390x844",
+   "caption": "Fragments, hard to follow at small size."
+  },
+  {
+   "file": "out/2-preview-5pRaceForMecatol-390x844.png",
+   "heading": "After: 5pRaceForMecatol preview, phone 390x844",
+   "caption": "Continuous lanes stay legible at about 15 px per hex."
+  },
+  {
+   "file": "before/2-preview-3pHyperlanes-390x844.png",
+   "heading": "Before: 3pHyperlanes preview, phone 390x844",
+   "caption": "Fragments, hard to follow at small size."
+  },
+  {
+   "file": "out/2-preview-3pHyperlanes-390x844.png",
+   "heading": "After: 3pHyperlanes preview, phone 390x844",
+   "caption": "Continuous lanes stay legible at about 15 px per hex."
+  },
+  {
+   "file": "before/2-preview-4pHyperlanes-390x844.png",
+   "heading": "Before: 4pHyperlanes preview, phone 390x844",
+   "caption": "Fragments, hard to follow at small size."
+  },
+  {
+   "file": "out/2-preview-4pHyperlanes-390x844.png",
+   "heading": "After: 4pHyperlanes preview, phone 390x844",
+   "caption": "Continuous lanes stay legible at about 15 px per hex."
+  },
+  {
+   "file": "before/3-thumbnail-5pRaceForMecatol.png",
+   "heading": "Before: 5pRaceForMecatol picker card thumbnail",
+   "caption": "Small ring-capped fragments."
+  },
+  {
+   "file": "out/3-thumbnail-5pRaceForMecatol.png",
+   "heading": "After: 5pRaceForMecatol picker card thumbnail",
+   "caption": "Same network at thumbnail size, joined across hexes."
+  },
+  {
+   "file": "before/3-thumbnail-3pHyperlanes.png",
+   "heading": "Before: 3pHyperlanes picker card thumbnail",
+   "caption": "Small ring-capped fragments."
+  },
+  {
+   "file": "out/3-thumbnail-3pHyperlanes.png",
+   "heading": "After: 3pHyperlanes picker card thumbnail",
+   "caption": "Same network at thumbnail size, joined across hexes."
+  },
+  {
+   "file": "before/3-thumbnail-4pHyperlanes.png",
+   "heading": "Before: 4pHyperlanes picker card thumbnail",
+   "caption": "Small ring-capped fragments."
+  },
+  {
+   "file": "out/3-thumbnail-4pHyperlanes.png",
+   "heading": "After: 4pHyperlanes picker card thumbnail",
+   "caption": "Same network at thumbnail size, joined across hexes."
+  },
+  {
+   "file": "before/3-thumbnail-5pLearnToPlayPoK.png",
+   "heading": "Before: 5pLearnToPlayPoK picker card thumbnail",
+   "caption": "Small ring-capped fragments."
+  },
+  {
+   "file": "out/3-thumbnail-5pLearnToPlayPoK.png",
+   "heading": "After: 5pLearnToPlayPoK picker card thumbnail",
+   "caption": "Same network at thumbnail size, joined across hexes."
+  },
+  {
+   "file": "out/7-hover-desktop.png",
+   "heading": "Hover a linked system",
+   "caption": "Pointing at a system lights every route it has (amber underlay) and rings the systems at the far ends. The tooltip reads \"Connected through hyperlanes to systems ...\"."
+  },
+  {
+   "file": "out/7-tap-390x844.png",
+   "heading": "Tap a linked system, phone",
+   "caption": "A tap does the same; tap again to clear."
+  },
+  {
+   "file": "before/8-board-desktop.png",
+   "heading": "Before: game board, Learn to Play, desktop",
+   "caption": "Lane art inside each hex only."
+  },
+  {
+   "file": "out/8-board-desktop.png",
+   "heading": "After: game board, Learn to Play, desktop",
+   "caption": "Network drawn once over the tile fills, under nothing but overlays."
+  },
+  {
+   "file": "before/8-board-390x844.png",
+   "heading": "Before: game board, phone",
+   "caption": "Per-tile lanes."
+  },
+  {
+   "file": "out/8-board-390x844.png",
+   "heading": "After: game board, phone",
+   "caption": "Continuous network on the phone board."
+  },
+  {
+   "file": "out/9-board-inspector-desktop.png",
+   "heading": "Inspector lists hyperlane partners",
+   "caption": "Selecting system 63 lights its routes on the board and the inspector says \"Connected through hyperlanes to systems 39, 68, 75, 80\"."
+  }
+ ],
+ "notes": [
+  {
+   "title": "Route choice",
+   "text": "Per pair of systems exactly one route: fewest lane segments, then fewest tiles, then the one sharing most already chosen segments, then lexicographic order of segment keys. Order of input does not matter."
+  },
+  {
+   "title": "Engine",
+   "text": "The engine does not model hyperlane paths (galaxy.rs), so there is no engine adjacency to compare to; the tests check against plain graph reachability on every community map instead."
+  },
+  {
+   "title": "Seams were the gap",
+   "text": "Hexes are drawn 150 apart with radius 70, so neighbouring edges are 29 px apart; the old per-tile art stopped at each edge. Lanes now run half the gap from each side (all the way to a system)."
+  }
+ ]
+}
