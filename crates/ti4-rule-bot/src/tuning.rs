@@ -79,7 +79,7 @@ tuning! {
     short_bonus: f64 = crate::faction_plans::SHORT_BONUS, "production weight of a unit the faction plan is short of";
     upgraded_bonus: f64 = crate::faction_plans::UPGRADED_BONUS, "production weight of an upgraded unit";
     vote_rule: bool = false, "v2: agenda votes, Politics' speaker and agenda placement by rule (answers.rs)";
-    casualty_rule: bool = false, "v2: sustain damage whenever possible, least valuable casualty first";
+    casualty_rule: bool = true, "v2: sustain damage whenever possible, least valuable casualty first";
     ground_rule: bool = false, "v2: troops only for the free lift of its ships (glut at lift + 2)";
     empty_fight_rule: bool = false, "v2: rounds 1-2, no fight that takes no planet away from its own systems";
     mecatol_rival_bonus: f64 = 0.0, "v2: extra worth of Mecatol Rex while a rival holds it";
