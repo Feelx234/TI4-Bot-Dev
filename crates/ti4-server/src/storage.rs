@@ -432,11 +432,13 @@ pub struct GameHistory {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReactionModesRecord {
     /// The card names that a seat set to never offer, as a save of before the modes of
-    /// abilities has them. Read, and not written.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
-    /// The mode of each reaction that a seat set, by its key.
+    /// abilities has them. Read, and not written by a new save (it stays empty), but always
+    /// serialized: a record of an older release carries it, and its checksum was made over it.
     #[serde(default)]
+    pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+    /// The mode of each reaction that a seat set, by its key. Not written while empty: a record
+    /// of an older release has no such key, and its checksum was made over those bytes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub modes: BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>>,
 }
 
@@ -1719,6 +1721,38 @@ mod player_record_tests {
         later.initial_state.action_turn = 3;
         store.save_init(&later).unwrap();
         assert_eq!(store.load_init(id).unwrap().initial_state.action_turn, 3);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `reaction_modes.json` of a release before the modes of abilities holds `never` alone, and
+    /// its checksum was made over exactly that. The record must read and re-serialize to those
+    /// bytes (the same 2026-10-15 alpha recovery regression). Built here from the old shape.
+    #[test]
+    fn reaction_modes_written_before_modes_still_load() {
+        #[derive(Serialize, Clone)]
+        struct OldReactionModes {
+            never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+        }
+        let (store, dir) = store();
+        let id = "game_00000000000000000000000000000003";
+        let game = store.game_dir(id).unwrap();
+        fs::create_dir_all(&game).unwrap();
+        for cards in [vec!["Sabotage".to_owned()], Vec::new()] {
+            let mut never = BTreeMap::new();
+            if !cards.is_empty() {
+                never.insert(PlayerId::new("p1"), cards.into_iter().collect());
+            }
+            let old = persist(&OldReactionModes { never }).unwrap();
+            fs::write(
+                game.join("reaction_modes.json"),
+                serde_json::to_string_pretty(&old).unwrap(),
+            )
+            .unwrap();
+            let loaded = store
+                .load_reaction_modes(id)
+                .expect("old-shape record loads");
+            assert!(loaded.modes.is_empty());
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 
