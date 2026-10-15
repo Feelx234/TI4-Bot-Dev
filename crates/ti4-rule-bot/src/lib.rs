@@ -86,8 +86,8 @@ pub mod objectives;
 pub mod agents;
 
 pub mod answers;
-pub mod planner;
 pub mod faction_plans;
+pub mod planner;
 pub mod random;
 pub mod tuning;
 
@@ -706,9 +706,11 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
             && !board.planet_control.values().any(|owner| owner == me)
             && !home_system(seen, me).is_some_and(|home| {
                 &home == system
-                    || seen
-                        .galaxy()
-                        .is_some_and(|g| g.adjacent(home.as_str()).iter().any(|s| *s == system.as_str()))
+                    || seen.galaxy().is_some_and(|g| {
+                        g.adjacent(home.as_str())
+                            .iter()
+                            .any(|s| *s == system.as_str())
+                    })
             })
         {
             value = 0.0;
@@ -1839,7 +1841,11 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
         .filter(|p| *p != me)
         .map(|rival| {
             let movable = seen.movable_into(rival, &home);
-            fleet(seen, rival, movable.iter().map(|m| &m.unit).filter(|u| is_ship(seen, u)))
+            fleet(
+                seen,
+                rival,
+                movable.iter().map(|m| &m.unit).filter(|u| is_ship(seen, u)),
+            )
         })
         .max_by(|a, b| a.firepower.total_cmp(&b.firepower))?;
     if threat.firepower <= 0.0 {
@@ -1911,7 +1917,11 @@ fn hostile_fleet_cannon(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
     fleet(
         seen,
         me,
-        board.planet_units.values().flatten().filter(|u| &u.owner == me),
+        board
+            .planet_units
+            .values()
+            .flatten()
+            .filter(|u| &u.owner == me),
     )
     .cannon
 }
@@ -2804,14 +2814,12 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     // (Politics) whenever the token is spare.
     if tuning::secondary_rule() && !expanding(seen) {
         if prompt.starts_with("spend a strategy token to ready two planets") {
-            return answer(
-                spare_token && best_two_exhausted(seen, me) >= 4,
-            );
+            return answer(spare_token && best_two_exhausted(seen, me) >= 4);
         }
         if prompt.starts_with("spend a strategy token to replenish commodities") {
-            let room = seen.seat(me).map_or(0, |seat| {
-                faction_commodities(seen, me) - seat.commodities
-            });
+            let room = seen
+                .seat(me)
+                .map_or(0, |seat| faction_commodities(seen, me) - seat.commodities);
             return answer(spare_token && room >= 2);
         }
         if prompt.starts_with("spend a strategy token to draw two action cards")

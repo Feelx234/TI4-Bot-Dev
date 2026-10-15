@@ -634,7 +634,9 @@ pub const PLANS_V2: &[Plan] = &[
 #[must_use]
 pub fn plan_for(faction: &str) -> Option<&'static Plan> {
     if tuning::plans_v2()
-        && let Some(plan) = PLANS_V2.iter().find(|plan| plan.factions.contains(&faction))
+        && let Some(plan) = PLANS_V2
+            .iter()
+            .find(|plan| plan.factions.contains(&faction))
     {
         return Some(plan);
     }

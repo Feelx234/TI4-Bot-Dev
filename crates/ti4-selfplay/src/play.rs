@@ -443,7 +443,11 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
     for seat in &state.players {
         for (id, system) in &state.board {
             let home = seat.home_system.as_ref() == Some(id);
-            for unit in system.units.iter().chain(system.planet_units.values().flatten()) {
+            for unit in system
+                .units
+                .iter()
+                .chain(system.planet_units.values().flatten())
+            {
                 if unit.owner != seat.id {
                     continue;
                 }

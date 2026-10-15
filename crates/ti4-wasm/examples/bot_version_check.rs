@@ -52,22 +52,39 @@ fn play(request: &Value, stop: Option<u32>) -> Result<(bool, u32, Value, Value),
 
 fn main() -> Result<(), String> {
     let mut args = std::env::args().skip(1);
-    let games: u64 = args.next().map_or(Ok(3), |t| t.parse()).map_err(|e| format!("{e}"))?;
-    let players: u64 = args.next().map_or(Ok(4), |t| t.parse()).map_err(|e| format!("{e}"))?;
-    let asks: u32 = args.next().map_or(Ok(120), |t| t.parse()).map_err(|e| format!("{e}"))?;
+    let games: u64 = args
+        .next()
+        .map_or(Ok(3), |t| t.parse())
+        .map_err(|e| format!("{e}"))?;
+    let players: u64 = args
+        .next()
+        .map_or(Ok(4), |t| t.parse())
+        .map_err(|e| format!("{e}"))?;
+    let asks: u32 = args
+        .next()
+        .map_or(Ok(120), |t| t.parse())
+        .map_err(|e| format!("{e}"))?;
     let mut failed = false;
     for seed in 1..=games {
         let setup = json!({ "game_id": format!("check{seed}"), "seed": seed, "players": players });
         let (finished, n, _, _) = play(&json!({ "setup": setup }), None)?;
         let decisions = host_api::with(|s| s.decision_log().len()).unwrap_or(0);
-        println!("seed {seed}: full game finished={finished} after {n} questions of the person, {decisions} decisions");
+        println!(
+            "seed {seed}: full game finished={finished} after {n} questions of the person, {decisions} decisions"
+        );
         failed |= !finished;
 
         let (_, _, save, _) = play(&json!({ "setup": setup }), Some(asks))?;
-        let version = save.pointer("/setup/bot_version").cloned().unwrap_or(Value::Null);
+        let version = save
+            .pointer("/setup/bot_version")
+            .cloned()
+            .unwrap_or(Value::Null);
         let (_, _, _, check) = play(&json!({ "setup": save["setup"], "resume": save }), Some(0))?;
         let ok = check["ok"] == true && version == json!(ti4_rule_bot::tuning::BOT_VERSION);
-        println!("seed {seed}: new game saved with bot_version {version}, resumed: {check} -> {}", if ok { "OK" } else { "FAIL" });
+        println!(
+            "seed {seed}: new game saved with bot_version {version}, resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
         failed |= !ok;
 
         let mut old = setup.clone();
@@ -78,16 +95,24 @@ fn main() -> Result<(), String> {
         }
         let (_, _, _, check) = play(&json!({ "setup": save["setup"], "resume": save }), Some(0))?;
         let ok = check["ok"] == true;
-        println!("seed {seed}: version-1 save without the field, resumed: {check} -> {}", if ok { "OK" } else { "FAIL" });
+        println!(
+            "seed {seed}: version-1 save without the field, resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
         failed |= !ok;
         // For information: the same save resumed with the current bot (what every old save
         // would do without the field), usually a different game.
         let mut forced = save.clone();
         forced["setup"]["bot_version"] = json!(ti4_rule_bot::tuning::BOT_VERSION);
-        let outcome = play(&json!({ "setup": forced["setup"], "resume": forced }), Some(0));
+        let outcome = play(
+            &json!({ "setup": forced["setup"], "resume": forced }),
+            Some(0),
+        );
         let said = match &outcome {
             Ok((_, asks, _, check)) if *asks > 0 => format!("resume_check {check}"),
-            Ok(_) => "the replay asked nothing (the person's saved answers no longer fit)".to_owned(),
+            Ok(_) => {
+                "the replay asked nothing (the person's saved answers no longer fit)".to_owned()
+            }
             Err(error) => error.chars().take(160).collect(),
         };
         println!("seed {seed}: the same save resumed with the current bot: {said}");

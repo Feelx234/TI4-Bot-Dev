@@ -278,7 +278,12 @@ fn sustain(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
         .filter(|(_, o)| !o.is_decline())
         .filter_map(|(i, o)| {
             let unit = payload_str(o, "unit")?;
-            let rank = value_of(seen, unit) + if is_flagship_or_war_sun(unit) { 100.0 } else { 0.0 };
+            let rank = value_of(seen, unit)
+                + if is_flagship_or_war_sun(unit) {
+                    100.0
+                } else {
+                    0.0
+                };
             Some((i, rank))
         })
         .min_by(|a, b| a.1.total_cmp(&b.1).then(a.0.cmp(&b.0)))
@@ -293,7 +298,11 @@ fn casualty(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
         .enumerate()
         .filter_map(|(i, o)| {
             let unit = payload_str(o, "unit")?;
-            let damaged = o.payload.get("damaged").and_then(serde_json::Value::as_bool) == Some(true);
+            let damaged = o
+                .payload
+                .get("damaged")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true);
             let value = value_of(seen, unit) * if damaged { 0.7 } else { 1.0 };
             Some((i, value))
         })
@@ -399,10 +408,16 @@ mod tests {
         };
         crate::tuning::with(on, || {
             assert_eq!(pick(&casualty, &seen(&state), &me), Some(1), "the fighter");
-            assert_eq!(pick(&sustain, &seen(&state), &me), Some(1), "the dreadnought sustains");
+            assert_eq!(
+                pick(&sustain, &seen(&state), &me),
+                Some(1),
+                "the dreadnought sustains"
+            );
         });
         let off = crate::tuning::for_version(1);
-        crate::tuning::with(off, || assert_eq!(pick(&casualty, &seen(&state), &me), None));
+        crate::tuning::with(off, || {
+            assert_eq!(pick(&casualty, &seen(&state), &me), None)
+        });
     }
 
     #[test]

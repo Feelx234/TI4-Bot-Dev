@@ -149,7 +149,13 @@ pub fn pick(
         return Some(index);
     }
     if choice.options.iter().any(|o| o.kind == "produce") {
-        return pick_produce(choice, observed, me, &reserve, &crate::planner::Bias::of(seen, me));
+        return pick_produce(
+            choice,
+            observed,
+            me,
+            &reserve,
+            &crate::planner::Bias::of(seen, me),
+        );
     }
     if !choice.options.is_empty() && choice.options.iter().all(|o| o.kind == "pay") {
         return pick_pay(choice, observed, &reserve);
@@ -268,7 +274,8 @@ pub fn gain(before: &[Goal], after: &[Goal]) -> f64 {
             };
             let extra = (old.points - ready).max(0.0);
             value += tuning::complete_value() * extra.max(0.25 * old.points);
-        } else if new.have > old.have && new.gap() <= tuning::progress_gap() && old.threshold > 0.0 {
+        } else if new.have > old.have && new.gap() <= tuning::progress_gap() && old.threshold > 0.0
+        {
             value += tuning::progress_value() * old.points * (new.have - old.have) / old.threshold;
         }
     }
