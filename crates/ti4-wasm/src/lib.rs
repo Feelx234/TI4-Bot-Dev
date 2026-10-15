@@ -79,7 +79,8 @@ fn failed(error: impl fmt::Display) -> Failure {
 }
 
 /// A seeded game for `players` seats on the recommended map template for that count. With a
-/// scenario, the board of that scenario is set up on it (`ti4_host::view::scenario`).
+/// scenario, the game of that scenario (`ti4_host::view::scenario::start`): its map, and its
+/// seed unless it plays on any seed.
 pub(crate) fn new_game(
     content: &'static ContentStore,
     seed: u64,
@@ -98,7 +99,7 @@ pub(crate) fn new_game(
     let ids: Vec<PlayerId> = seats.iter().map(|name| PlayerId::new(*name)).collect();
     let (state, galaxy) = if let Some(scenario) = scenario {
         // The game of the scenario, as the server starts it for a table ("Start from").
-        ti4_host::view::scenario::start(content, scenario, &ids).map_err(failed)?
+        ti4_host::view::scenario::start(content, scenario, &ids, seed).map_err(failed)?
     } else {
         let loader = TemplateLoader::load().map_err(failed)?;
         let template = default_template_for(content, &loader, players, POK)
@@ -1635,7 +1636,7 @@ mod tests {
                 Err(error) => panic!("{}: {error}", scenario.id),
             }
             assert!(
-                game.table.log.records.len() > 100,
+                game.state.finished || game.table.log.records.len() > 100,
                 "{}: the seats decided",
                 scenario.id
             );

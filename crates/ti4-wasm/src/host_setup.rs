@@ -69,7 +69,8 @@ pub struct Setup {
     /// `"seat"` (the first seat opens) or `"random"`. Left out: random.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<SpeakerOrder>,
-    /// A prepared board of `ti4_host::view::scenario` (its seed and players win).
+    /// A prepared game of `ti4_host::view::scenario` (its players win, and its seed unless it
+    /// plays on any seed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<String>,
     /// Who plays the seats of the others. Left out: the rule bot.
@@ -297,6 +298,10 @@ impl TableRequest {
         let drawn = table.drawn()?;
         let players = drawn.seated(&table.joined());
         let (state, galaxy) = setup::create(content, &table.setup, &players, &drawn)?;
+        let opening = table
+            .setup
+            .scenario()?
+            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
         let seed = table.setup.game_seed();
         let game = Game::with_seeded_random(state, content, seed)
             .with_sources(POK)
@@ -312,6 +317,7 @@ impl TableRequest {
             seats: table.seats(),
             game_id: local_game_id(),
             request: serde_json::json!({ "table": table }),
+            opening,
         })
     }
 }
@@ -346,19 +352,19 @@ impl Local {
     /// # Errors
     /// A message when the scenario is not known, or the count is not one of a game.
     pub fn build(&self) -> Result<Built, String> {
-        let (seed, players) = match &self.scenario {
-            Some(id) => {
-                let scenario = ti4_host::view::scenario::find(id).ok_or_else(|| {
-                    let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
-                        .iter()
-                        .map(|scenario| scenario.id)
-                        .collect();
-                    format!("no scenario '{id}': the scenarios are {}", known.join(", "))
-                })?;
-                (scenario.seed, scenario.players)
-            }
-            None => (self.seed, self.players),
+        let scenario = match &self.scenario {
+            Some(id) => Some(ti4_host::view::scenario::find(id).ok_or_else(|| {
+                let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
+                    .iter()
+                    .map(|scenario| scenario.id)
+                    .collect();
+                format!("no scenario '{id}': the scenarios are {}", known.join(", "))
+            })?),
+            None => None,
         };
+        let (seed, players) = scenario.map_or((self.seed, self.players), |scenario| {
+            (scenario.seed, scenario.players)
+        });
         let game = crate::new_game(
             ContentStore::embedded(),
             seed,
@@ -366,6 +372,9 @@ impl Local {
             self.scenario.as_deref(),
         )
         .map_err(|error| error.to_string())?;
+        let opening = scenario.zip(game.galaxy()).and_then(|(scenario, galaxy)| {
+            ti4_host::view::scenario::opening(scenario, &game.state, galaxy)
+        });
         let all = (1_u32 << players) - 1;
         Ok(Built {
             galaxy: game.galaxy().cloned(),
@@ -378,6 +387,7 @@ impl Local {
             seats: None,
             game_id: local_game_id(),
             request: serde_json::json!({ "local": self }),
+            opening,
         })
     }
 }
@@ -407,6 +417,8 @@ pub struct Built {
     pub game_id: String,
     /// The request with the choices that were left open filled in: a save replays with it.
     pub request: serde_json::Value,
+    /// The opening of the scenario that the game starts from (`ti4_host::view::scenario`).
+    pub opening: Option<ti4_host::view::scenario::Opening>,
 }
 
 impl Setup {
@@ -443,7 +455,7 @@ impl Setup {
         if let Some(id) = &setup.scenario {
             let scenario =
                 ti4_host::view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
-            setup.seed = scenario.seed;
+            setup.seed = scenario.game_seed(setup.seed);
             setup.players = scenario.players;
         }
         setup.table().check()?;
@@ -487,6 +499,9 @@ impl Setup {
         let joined: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
         let drawn = setup::draw(&table, &chosen)?;
         let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)?;
+        let opening = table
+            .scenario()?
+            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
         let rule_seats = if setup.bots == Some(Bots::Random) {
             0
         } else {
@@ -506,6 +521,7 @@ impl Setup {
             seats: None,
             game_id: setup.game_id.clone(),
             request: serde_json::to_value(&setup).map_err(|error| error.to_string())?,
+            opening,
         })
     }
 }

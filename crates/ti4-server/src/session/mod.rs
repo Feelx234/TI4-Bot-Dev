@@ -17,6 +17,7 @@ pub mod worker;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use ti4_engine::choice::DecisionRecord;
 use ti4_engine::fingerprint::CanonicalHash;
@@ -59,6 +60,11 @@ impl SessionSubscription {
     /// Attempts to receive an update without blocking.
     pub fn try_recv(&self) -> Result<ServerMessage, mpsc::TryRecvError> {
         self.receiver.try_recv()
+    }
+
+    /// Receives the next update, waiting at most `timeout`.
+    pub fn recv_timeout(&self, timeout: Duration) -> Result<ServerMessage, mpsc::RecvTimeoutError> {
+        self.receiver.recv_timeout(timeout)
     }
 }
 
@@ -167,6 +173,10 @@ pub struct SessionConfig {
     /// committed batch replaces a session. Checked against `prior_decisions` (prefix property)
     /// and ignored when it does not fit.
     pub resume: Option<Arc<step_snapshot::StepSnapshot>>,
+    /// The opening of the scenario that a new game starts from
+    /// (`ti4_host::view::scenario::Opening`): the worker answers the questions of its seat until
+    /// it stops. Only a game with no decisions plays it.
+    pub opening: Option<ti4_host::view::scenario::Opening>,
 }
 
 impl batch::ReplayBasis for SessionConfig {
@@ -229,6 +239,7 @@ impl SessionConfig {
             step_snapshots: true,
             random_bot_delay_ms: None,
             resume: None,
+            opening: None,
         }
     }
 
@@ -565,6 +576,35 @@ impl GameSession {
             .as_ref()
             .filter(|p| p.submission_state == PendingSubmissionState::AwaitingSubmission)
             .map(|p| (p.seat.clone(), p.nonce.clone(), p.game_version))
+    }
+
+    /// Blocks until the game asks `seat` a question that it may answer, the game ends, or
+    /// `timeout` passes. A new game that starts from a scenario asks its first human seat once
+    /// the opening of the scenario stopped.
+    ///
+    /// # Errors
+    /// The error of a failed game, or a message when `timeout` passes.
+    pub fn wait_until_asked(&self, seat: &PlayerId, timeout: Duration) -> Result<(), String> {
+        let updates = self.subscribe(ViewerRole::Player(seat.clone()));
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self
+                .open_pending_decision()
+                .is_some_and(|(asked, _, _)| asked == *seat)
+                || self.is_finished()
+            {
+                return Ok(());
+            }
+            if let Some(error) = self.error() {
+                return Err(error);
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(format!("the game did not ask {seat} within {timeout:?}"));
+            }
+            // A failure is not told to the subscribers: look again at least every 50 ms.
+            let _ = updates.recv_timeout(left.min(Duration::from_millis(50)));
+        }
     }
 
     /// Returns a clone of the authoritative latest `GameState`.
@@ -1073,6 +1113,8 @@ impl GameSession {
         config.announce_tail = false;
         // A copy of the game belongs to one history; whatever replaces this one gets its own.
         config.resume = None;
+        // The opening of a scenario is played once: its answers are in the decisions now.
+        config.opening = None;
         // A rewind or a batch starts a new worker; what each seat asked for survives it.
         {
             let lock = self.shared.lock().expect("shared lock");

@@ -220,8 +220,13 @@ exports of their own.
   player, each update says who sits where (`seats`).
 - `local`: a game of a fixed setup, `{ "seed", "players", "humans", "scenario"?,
   "rule_seats"? }`: web2's `?local=` and `?scenario=`. The game is on the recommended map
-  template for its count, with the factions of the seats in order; a scenario has its own seed
-  and count.
+  template for its count, with the factions of the seats in order; a scenario has its own seed,
+  count and map (`ti4_host::view::scenario::start`).
+
+A new game of a scenario with an opening (any of the three) plays the opening first: the
+answers of its seat up to the question of the scenario, when the page plays that seat. A game
+that is played again from a save, or a new run after a change of its history, does not: its
+answers are in the save.
 
 `modes` (the mode of each reaction card, by key) and `stepping` are given with the request.
 
@@ -501,10 +506,20 @@ of the rule.
 
 ### Scenarios
 
-A scenario is a board that a game only has after hours of play, for testing the screens
-(`ti4-host/src/view/scenario.rs`). It is not a stored state: it is a function over the state of a new
-game of a fixed seed, so a game that starts from one is saved, played again and taken back like
-any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet lists them.
+A scenario is a board that a game only has after hours of play, or a question that it only
+reaches after several answers, for testing the screens (`ti4-host/src/view/scenario/`, the one
+scenario system of both hosts; the server's `/api/dev/scenarios` lists the same). It is not a
+stored state: it is a function over the state of a new game, so a game that starts from one is
+saved, played again and taken back like any other. `web2/?scenario=<id>&humans=<mask>` plays
+one, and the Dev sheet lists them.
+
+- The scenarios of three seats (`three_seats.rs`: `research_tech_skips`, `tactical_action`, the
+  three productions, `space_combat`, `ongoing_combat`, `ongoing_combat_four_views`, the three
+  invasions, `endgame`, the two scores, `full_game`) are Sol, Hacan and Letnev in round 1 on the
+  seeded random board, and play on the seed of a table (`any_seed`; `?scenario=` plays seed 42).
+  Most have an opening: Sol's answers up to the question of the scenario (the research, the
+  production at Jord, the first retreat of the battle, the first question of the invasion). It
+  is played when the page plays seat `a`; the answers are ordinary decisions of the save.
 
 - `late-game`: round 4, seat `a` (Sol) has the turn with ten fleets, every ship type, every ship
   upgrade and Gravity Drive. Around them are a gravity rift, a nebula, a supernova, an asteroid
@@ -520,7 +535,7 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
   three cultural relic fragments and one hazardous; seat `b` has a Paradise World on Loki and a frontier fragment. These
   nine cards are out of their decks. Planets of each type are free.
 - `late-game-deflectors`: the same, with Light/Wave Deflector and Antimass Deflectors.
-- The tests of `scenario.rs` ask the facts of a tactical action for each case (a move that needs
+- The tests of `scenario/mod.rs` ask the facts of a tactical action for each case (a move that needs
   Gravity Drive, a rift roll, the move of 1 out of the nebula, the way around the supernova, the
   wormhole, a pickup on the way, three places to load, the command token, out of range). A new
   case is added there with its test.
@@ -833,7 +848,10 @@ local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
 redo (`ti4_host::history`, offered only by the server) and bluff holds do not exist; the page is one connection, so the staged work of a seat is
 told to it only while it is shown as that seat; a secondary preview is for the seat the page is
-shown as (the server: the seat of the connection), and it has no rate limit.
+shown as (the server: the seat of the connection), and it has no rate limit. The opening of a
+scenario is played as on the server (`ti4_host::view::scenario::OpeningRun`, asked before the
+page is asked); it answers only in a new game, and only when the page plays the seat of the
+opening.
 
 ### Tests
 
@@ -844,7 +862,8 @@ decisions and the whole event log; `it/host_session.rs` checks every message aga
 web2 (several seats of the page, a change of them, stepping, a save with its log);
 `it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
 secondary that the session sends; `it/host_preview.rs` that each secondary preview equals the
-server's answer at the same position. `node js/host.mjs <wasm>` runs the same
+server's answer at the same position; `it/host_scenario.rs` that each scenario of three seats
+opens at the same question, after the same opening, as the server's launch of it. `node js/host.mjs <wasm>` runs the same
 flow in a real WebAssembly instance (CI does). `node scripts/wasm-size-gate.mjs` checks the size
 against `size-budget.json`.
 

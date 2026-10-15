@@ -1094,9 +1094,13 @@ impl FileGameStore {
         let content = ContentStore::embedded();
         let galaxy = if let Some(scenario) = start_from {
             // A game that started from a scenario is played on the map of the scenario.
-            let (_, g) =
-                ti4_host::view::scenario::start(content, scenario, &init_record.player_ids)
-                    .map_err(StorageError::Map)?;
+            let (_, g) = ti4_host::view::scenario::start(
+                content,
+                scenario,
+                &init_record.player_ids,
+                init_record.seed.unwrap_or_default(),
+            )
+            .map_err(StorageError::Map)?;
             Some(g)
         } else if let Some(seed) = init_record.seed {
             let g = ti4_host::map::rebuild_galaxy(

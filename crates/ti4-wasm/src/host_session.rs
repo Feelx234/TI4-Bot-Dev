@@ -80,6 +80,7 @@ use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
 use ti4_host::view::reaction_modes::{Modes, NeverSet};
+use ti4_host::view::scenario::{Opening, OpeningRun};
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase, ReactionMode};
 
@@ -336,6 +337,9 @@ pub struct HostSession {
     undone: Vec<PlanStep>,
     /// The scripts that are being sent to the game. A refused entry takes the whole script back.
     scripts: ScriptRuns,
+    /// The opening of the scenario that a new game starts from: it answers its seat until it
+    /// stops (`ti4_host::view::scenario::OpeningRun`).
+    opening: OpeningRun,
     /// What each seat has staged and not sent.
     staged: BTreeMap<PlayerId, SeatStaged>,
     /// The page takes part in the staged work (`Start::staged`, or `subscribe` with `staged`).
@@ -421,6 +425,7 @@ impl HostSession {
             auto_resolved: Vec::new(),
             undone: resume.undone.clone(),
             scripts: ScriptRuns::new(OnMismatch::TakeBack),
+            opening: OpeningRun::default(),
             staged: resume.staged.clone(),
             staged_shared: false,
             staged_told: None,
@@ -1636,8 +1641,19 @@ impl HostSession {
         }
     }
 
-    /// What a running script or batch answers to `choice` of the person.
+    /// The game is new and starts from a scenario with this opening: its seat is not asked until
+    /// the opening stops. A game that is played again from a save has no opening: its answers
+    /// are in the save.
+    pub fn open(&mut self, opening: Option<Opening>) {
+        self.opening = OpeningRun::new(opening);
+    }
+
+    /// What the opening of a scenario, a running script or a batch answers to `choice` of the
+    /// person.
     pub fn scripted(&mut self, choice: &Choice) -> Scripted {
+        if let Some(option) = self.opening.answer(choice) {
+            return Scripted::Answer(option);
+        }
         if let Some(answer) = self.script_answer(choice) {
             return answer;
         }

@@ -399,6 +399,11 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         &resume,
     );
     let mut session = session;
+    // The opening of a scenario is played once, in a new game: a save and a new run after a
+    // change of the history (it goes on from a version) have its answers or take them back.
+    if resume.answers.is_empty() && resume.log.is_empty() && resume.version == 0 {
+        session.open(built.opening);
+    }
     if start.staged {
         session.share_staged();
     }

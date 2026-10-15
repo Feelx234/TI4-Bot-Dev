@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::{PublicTurnStatus, ViewerRole};
 use ti4_model::id::PlayerId;
-use ti4_server::dev::execute_launch_scenario;
+use ti4_server::dev::launch_scenario;
 use ti4_server::session::bluff::BluffPolicy;
 use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{GameRegistry, GameSession, MockClient};
@@ -140,7 +140,7 @@ fn event_shape(session: &GameSession) -> String {
 
 fn launch(registry: &Arc<GameRegistry>) -> (Arc<GameSession>, Seats, String) {
     let launch =
-        execute_launch_scenario(registry, "ongoing_combat_four_views", Some(SEED)).expect("launch");
+        launch_scenario(registry, "ongoing_combat_four_views", Some(SEED)).expect("launch");
     let session = registry.get_game(&launch.game_id).expect("game");
     let seats = seats(&session);
     (session, seats, launch.player_session)

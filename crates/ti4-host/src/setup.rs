@@ -245,13 +245,14 @@ impl TableSetup {
         })
     }
 
-    /// The seed of the game that the table starts: a scenario is the game of its own seed.
+    /// The seed of the game that the table starts: a scenario of a fixed board is the game of its
+    /// own seed ([`Scenario::game_seed`]).
     #[must_use]
     pub fn game_seed(&self) -> u64 {
         self.scenario()
             .ok()
             .flatten()
-            .map_or(self.seed, |scenario| scenario.seed)
+            .map_or(self.seed, |scenario| scenario.game_seed(self.seed))
     }
 
     /// Checks the values that a client can give: the number of seats, the set of strategy
@@ -427,7 +428,7 @@ pub fn setup_options(host: &str, default_bot_delay_ms: u64) -> SetupOptions {
 /// A message for an unknown scenario or template, or a map that does not build for the count.
 pub fn preview(setup: &TableSetup) -> Result<MapPreview, String> {
     match setup.scenario()? {
-        Some(scenario) => catalog::scenario_preview(&setup.map, scenario.id),
+        Some(scenario) => catalog::scenario_preview(&setup.map, scenario.id, setup.game_seed()),
         None => catalog::preview(&setup.map, setup.player_count, setup.seed),
     }
 }
@@ -537,7 +538,7 @@ pub fn create(
         return Err("one player id per seat is required".to_owned());
     }
     if let Some(scenario) = setup.scenario()? {
-        return scenario::start(content, scenario.id, players);
+        return scenario::start(content, scenario.id, players, setup.game_seed());
     }
     if drawn.factions.len() != players.len() {
         return Err("one faction per seat is required".to_owned());
@@ -804,11 +805,11 @@ mod tests {
         let (drawn, state) = started(&setup, &chosen);
         assert_eq!(drawn.order, (0..late.players).collect::<Vec<_>>());
         let (expected, _) =
-            scenario::start(ContentStore::embedded(), late.id, &ids(late.players)).unwrap();
+            scenario::start(ContentStore::embedded(), late.id, &ids(late.players), 77).unwrap();
         assert_eq!(state, expected);
         assert_eq!(
             preview(&setup).unwrap(),
-            catalog::scenario_preview(&setup.map, late.id).unwrap()
+            catalog::scenario_preview(&setup.map, late.id, 77).unwrap()
         );
 
         setup.player_count = 3;

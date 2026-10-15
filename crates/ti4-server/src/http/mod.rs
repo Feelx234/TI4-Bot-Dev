@@ -155,10 +155,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
     if !is_public {
         router = router
             .route("/api/dev/scenarios", get(crate::dev::list_scenarios))
-            .route(
-                "/api/dev/scenarios/launch",
-                post(crate::dev::launch_scenario),
-            );
+            .route("/api/dev/scenarios/launch", post(crate::dev::post_launch));
     }
     if serves_web {
         router = router.fallback(spa_fallback);

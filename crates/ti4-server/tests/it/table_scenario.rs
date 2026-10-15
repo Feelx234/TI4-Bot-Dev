@@ -124,7 +124,7 @@ async fn a_table_of_two_people_and_bots_starts_the_late_game_and_recovers_it() {
     assert_eq!(seats[1].as_str(), guest_id);
     // The game is the game that a local game starts from the same scenario.
     let (expected, galaxy) =
-        ti4_host::view::scenario::start(ContentStore::embedded(), LATE_GAME, &seats).unwrap();
+        ti4_host::view::scenario::start(ContentStore::embedded(), LATE_GAME, &seats, 42).unwrap();
     let init = store.load_player_init(&made.game).unwrap();
     assert_eq!(
         serde_json::to_value(&init.initial_state).unwrap(),

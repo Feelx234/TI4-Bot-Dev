@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–9 done (2026-10-15), items 10–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6 done (items 1–6 2026-10-14, items 7–11 2026-10-15).
 
 ## Context
 
@@ -281,25 +281,43 @@ Starts after Step 5 is committed.
    busy unless the game waits for the page (a question or a step). web/ offline does not send it
    (its page keeps its own estimate). Test: `host_preview` (each reply in a game with stepping
    equals the server's `preview::answer` at the same position).
-10. **One scenario system (J).** `ti4_host::view::scenario` is the only one:
-    - `Scenario` gains `humans` (seat places played by people; the rest are rule bots), `any_seed`
-      (a scenario that finds its systems by seat takes the caller's seed), and
-      `opening: Option<fn(&Choice, &Opening) -> OpeningAnswer>` (`Answer(id)` / `Stop`;
-      `Opening` carries what the scenario computed, e.g. the border system).
-    - Each dev builder is ported: `setup_base_3p_game` + `build_*` + the edits in
-      `launch_scenario` → `apply`; the `advance_into_*` / `wait_for_decision_subtype` loops →
-      `opening` (the same picks and stop conditions, without waiting).
-    - Both hosts play the opening in the decider of the scenario's first human seat until `Stop`
-      (server: `worker.rs`; `HostSession`: before `ask`). The answers are ordinary recorded
-      decisions.
-    - `/api/dev/scenarios` lists `SCENARIOS`. `/launch` keeps its request and response
-      (`scenario_id`, `seed`, `game_id`, `player_session`, `player_id`, `test_seats`) and starts a
-      table with the scenario through the lobby start (`setup::draw/create`). Delete
-      `dev/scenarios.rs`, `GameRegistry::launch_dev_scenario`, the `MockClient` polling. web2's
-      `setup_options` lists the ported scenarios.
+10. **One scenario system (J).** (Done.) `ti4_host::view::scenario` (`scenario/mod.rs`,
+    `scenario/three_seats.rs`) is the only one:
+    - `Scenario` has `category`, `humans` (seat places played by people; the rule bot plays the
+      rest), `any_seed` (a scenario that finds its systems by seat plays on the seed of the
+      table; `Scenario::game_seed`, `TableSetup::game_seed`), `map` (`Recommended` template or
+      the seeded `Random` board) and `opening: Option<fn(&Choice, &Opening) -> OpeningAnswer>`
+      (`Answer(id)` / `Stop`). `scenario::opening(scenario, state, galaxy)` gives the `Opening`:
+      the first seat of `humans` and the system the scenario prepared (the border system of a
+      battle, the system of an invasion). `OpeningRun` answers the questions of that seat until
+      the opening stops. `start` and `scenario_preview` take the seed of the table.
+    - The 15 dev scenarios are ported to `three_seats.rs` (Sol, Hacan, Letnev in round 1 on the
+      seeded random board): `setup_base_3p_game` + `build_*` + the edits of `launch_scenario` →
+      `apply`; the `advance_into_*` / `wait_for_decision_subtype` loops → openings with the same
+      picks and stop conditions. `SCENARIOS` lists the two late games first, then these.
+    - Both hosts play the opening in a new game only, for the seat of the opening when a person
+      plays it: the server wraps the decider of that seat in the worker (`OpeningDecider`; only
+      with no prior decisions; `restart_config` drops it); `HostSession::open` (in
+      `host_api::prepare` for a request with no save and version 0) and `HostSession::scripted`
+      answer before `ask`. The answers are ordinary recorded decisions.
+    - `/api/dev/scenarios` lists `SCENARIOS` (as `ScenarioSummary`, the shape of web/'s
+      launcher). `/launch` keeps its request and response (`scenario_id`, `seed`, `game_id`,
+      `player_session`, `player_id`, `test_seats`): it makes a lobby (`dev_<id>_<hex>`) with a
+      person in each seat of `humans` and the rule bot (no wait) in the others, starts it from
+      the scenario through the lobby start (`setup::draw/create`, the opening set on the
+      `SessionConfig`), and returns once the first person is asked
+      (`GameSession::wait_until_asked`). `test_seats` holds the credential of every seat of a
+      person. `dev/scenarios.rs`, `GameRegistry::launch_dev_scenario` and the `MockClient`
+      polling are gone. web2's `setup_options` and `ti4_scenarios` list the ported scenarios.
+    - Tests: one server test per id (`dev_scenarios::*_opens_at_*`: launch → seat and subtype as
+      before on three seeds, and on seed 42 the same opening answers), the dice of the four-view
+      battle on seed 42, `host_scenario` (each scenario of three seats opens at the same
+      question after the same opening in a local game of the page and on the server),
+      `three_seats::tests`.
 11. Docs, with each item: `ti4-host/README.md` (module table: `planning::script`, `staged`,
-    `history`, `preview`; the host API rows for planning; "What the host crate does not do"),
-    `crates/ti4-wasm/README.md` (the list of differences), `web2/AGENTS.md` (local play).
+    `history`, `preview`, `view::scenario`; the host API rows for planning; "What the host crate
+    does not do"), `crates/ti4-wasm/README.md` (the list of differences, the scenarios),
+    `web2/docs/agents/local-play.md` and `lobby.md` (the scenarios and their openings). (Done.)
 
 Stays in the server: `worker`, `registry`, `decider`, `transport`, `mod.rs` (threads, channels,
 lobby, reservations); `bluff`, `bluff_hold` (they hide a hand from remote people); `random_bot`

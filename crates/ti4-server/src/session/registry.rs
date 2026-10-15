@@ -3209,12 +3209,20 @@ impl GameRegistry {
         let (initial_state, galaxy) =
             ti4_host::setup::create(content, &setup, &players, &drawn).map_err(LobbyError::Map)?;
         let map_tiles = ti4_host::map::build_board_tiles(content, &galaxy);
+        // A table that starts from a scenario plays its opening (`ti4_host::view::scenario`).
+        let opening = setup
+            .scenario()
+            .map_err(LobbyError::Map)?
+            .and_then(|scenario| {
+                ti4_host::view::scenario::opening(scenario, &initial_state, &galaxy)
+            });
         let mut config = SessionConfig::new(game_id, initial_state.clone())
             .with_seed(seed)
             .with_player_ids(players.clone())
             .with_galaxy(galaxy, map_tiles.clone());
         // A table with no value waits as the process says, as before.
         config.random_bot_delay_ms = lobby.bot_delay_ms;
+        config.opening = opening;
         config.seats = players
             .iter()
             .map(|p| {
@@ -3877,134 +3885,6 @@ impl GameRegistry {
         Ok(session)
     }
 
-    /// Creates and starts an authoritative dev scenario session with both player and legacy lobby registered.
-    ///
-    /// When persistence is enabled via `self.store`, all three required player records
-    /// (`player_sessions.json`, `init.json`, and `lobby.json`) are durably written before
-    /// starting the session or registering it in memory.
-    ///
-    /// # Failure and retry semantics
-    /// - If the target directory already exists, returns an error immediately to prevent overwriting
-    ///   or deleting an existing game's files on ID collision.
-    /// - Writes proceed in order:
-    ///   1. `player_sessions.json` (authoritative credentials)
-    ///   2. `init.json` (immutable engine initialization and seat controllers)
-    ///   3. `lobby.json` (running lobby record)
-    /// - If any write fails, all artifacts created by this launch are deleted and the session is
-    ///   neither registered in memory nor advertised. Retrying will generate a fresh game ID.
-    pub fn launch_dev_scenario(
-        &self,
-        mut config: SessionConfig,
-        lobby_record: PlayerLobbyRecord,
-    ) -> Result<Arc<GameSession>, String> {
-        lobby_record.validate().map_err(|error| error.to_string())?;
-        crate::storage::validate_game_id(&config.game_id).map_err(|error| error.to_string())?;
-        let mut state = self.state.lock().expect("registry lock");
-        if state.sessions.contains_key(&config.game_id)
-            || state.lobbies.contains_key(&config.game_id)
-            || state.player_lobbies.contains_key(&config.game_id)
-        {
-            return Err(format!("Game session '{}' already exists", config.game_id));
-        }
-
-        let running_lobby = if let Some(store) = &self.store {
-            let dir = store.game_dir(&config.game_id).map_err(|e| e.to_string())?;
-            if dir.exists() {
-                return Err(format!(
-                    "Game directory '{}' already exists",
-                    config.game_id
-                ));
-            }
-            std::fs::create_dir_all(&dir)
-                .map_err(|e| format!("Failed to create scenario directory: {e}"))?;
-
-            config.store.clone_from(&self.store);
-
-            let seed = config.seed.unwrap_or(lobby_record.seed);
-            let sessions_record = PlayerSessionsRecord {
-                schema_version: PLAYER_RECORD_VERSION,
-                game_id: config.game_id.clone(),
-                sessions: lobby_record
-                    .players
-                    .iter()
-                    .map(|(p, m)| (p.clone(), m.session.clone()))
-                    .collect(),
-                nicknames: lobby_record
-                    .players
-                    .iter()
-                    .map(|(id, member)| (id.clone(), member.nickname.clone()))
-                    .collect(),
-            };
-
-            let init_record = PlayerGameInitRecord {
-                schema_version: PLAYER_RECORD_VERSION,
-                game_id: config.game_id.clone(),
-                seed,
-                player_ids: config.player_ids.clone(),
-                initial_state: config.state.clone(),
-                map_tiles: config.map_tiles.clone(),
-                seats: Some(config.seats.clone()),
-                map_template: None,
-                strategy_card_set: None,
-                bot_delay_ms: None,
-                start_from: None,
-            };
-
-            let mut running_lobby = lobby_record.clone();
-            running_lobby.game_id.clone_from(&config.game_id);
-            running_lobby.phase = PersistedLobbyPhase::Running;
-            running_lobby.seed = seed;
-            running_lobby.slots = config
-                .player_ids
-                .iter()
-                .enumerate()
-                .map(|(i, pid)| PlayerLobbySlot {
-                    slot_id: LobbySlotId(format!("slot_{}", i + 1)),
-                    occupant: Some(pid.clone()),
-                })
-                .collect();
-
-            let cleanup = || {
-                let _ = std::fs::remove_file(dir.join("lobby.json"));
-                let _ = std::fs::remove_file(dir.join("init.json"));
-                let _ = std::fs::remove_file(dir.join("player_sessions.json"));
-                let _ = std::fs::remove_dir(&dir);
-            };
-
-            if let Err(e) = store.save_player_sessions(&sessions_record) {
-                cleanup();
-                return Err(format!("Failed to save player sessions: {e}"));
-            }
-
-            if let Err(e) = store.save_player_init(&init_record) {
-                cleanup();
-                return Err(format!("Failed to save player init: {e}"));
-            }
-
-            if let Err(e) = store.save_player_lobby(&running_lobby) {
-                cleanup();
-                return Err(format!("Failed to save player lobby: {e}"));
-            }
-
-            running_lobby
-        } else {
-            lobby_record
-        };
-
-        let legacy_lobby = running_lobby_from_session_config(&config);
-        let session = Arc::new(GameSession::start(config));
-        state
-            .lobbies
-            .insert(legacy_lobby.game_id.clone(), legacy_lobby);
-        state
-            .player_lobbies
-            .insert(running_lobby.game_id.clone(), running_lobby);
-        state
-            .sessions
-            .insert(session.id().to_owned(), session.clone());
-        Ok(session)
-    }
-
     pub fn register_recovered(&self, session: Arc<GameSession>) -> Result<(), String> {
         let mut state = self.state.lock().expect("registry lock");
         if state.sessions.contains_key(session.id()) || state.lobbies.contains_key(session.id()) {
@@ -4273,6 +4153,7 @@ fn running_lobby_from_session(session: &GameSession) -> LobbyState {
         step_snapshots: true,
         random_bot_delay_ms: None,
         resume: None,
+        opening: None,
     })
 }
 
@@ -4392,5 +4273,6 @@ fn legacy_running_lobby(init: &GameInitRecord) -> LobbyState {
         step_snapshots: true,
         random_bot_delay_ms: None,
         resume: None,
+        opening: None,
     })
 }

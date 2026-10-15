@@ -1,14 +1,24 @@
 //! Prepared games for testing a client: a seeded game, then a board that a real game only has
-//! after hours of play.
+//! after hours of play, or a question that a game only reaches after several answers.
 //!
 //! A scenario is not a saved state. It is a function over the state of a new game, so a game
-//! that starts from one is played again from its seed and its answers like any other.
+//! that starts from one is played again from its seed and its answers like any other. A scenario
+//! may also have an opening ([`Opening`]): the answers of its first human seat that take the game
+//! to the question that the scenario is about. A host plays them as ordinary, recorded decisions
+//! of that seat, until the opening stops; the seat is then asked as usual.
+//!
+//! Both hosts start a scenario through the setup of a table ([`crate::setup`], `start_from`):
+//! the server for a lobby and for `/api/dev/scenarios/launch`, the wasm host for the table of a
+//! page.
+
+mod three_seats;
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 use ti4_content::galaxy::Galaxy;
 use ti4_content::{ActionCardTiming, ContentStore};
+use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::objectives::{self, adjust_victory_points};
 use ti4_engine::{phase, promissory, technology};
 use ti4_model::content_types::{ContentType, SourceSet};
@@ -19,37 +29,86 @@ use ti4_model::id::{
 use ti4_model::state::{GameState, LeaderStatus, Phase};
 use ti4_model::units::Unit;
 
-/// A prepared game that a host can start.
+/// The map that a scenario is played on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScenarioMap {
+    /// The recommended map template for its number of seats.
+    Recommended,
+    /// The seeded random board of its seed.
+    Random,
+}
+
+/// What the opening of a scenario does with a question of its seat.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OpeningAnswer {
+    /// The option with this id.
+    Answer(String),
+    /// The opening is over: the seat is asked this question and every later one.
+    Stop,
+}
+
+/// The answer of an opening to a question of its seat ([`Scenario::opening`]).
+pub type OpeningFn = fn(&Choice, &Opening) -> OpeningAnswer;
+
+/// A prepared game that a host can start.
+#[derive(Debug, Clone, Copy, Serialize)]
 pub struct Scenario {
     pub id: &'static str,
     pub title: &'static str,
     pub description: &'static str,
+    /// What the scenario is about, for a list of the scenarios ("Combat", "Strategy", ...).
+    pub category: &'static str,
     /// The game that the scenario is made for: its board is placed on the map of this game.
     pub seed: u64,
     pub players: usize,
+    /// The places of the seats that people play; the rule bot plays the others.
+    pub humans: &'static [usize],
+    /// The scenario finds its systems by the places of the seats, on any board: a table plays
+    /// it on its own seed. `seed` is then the seed of a table that names none.
+    pub any_seed: bool,
+    pub map: ScenarioMap,
+    /// The answers of the first seat of `humans` that take the game to the question of the
+    /// scenario.
+    #[serde(skip)]
+    pub opening: Option<OpeningFn>,
+}
+
+impl Scenario {
+    /// The seed of the game that a table of `seed` starts from this scenario.
+    #[must_use]
+    pub const fn game_seed(&self, seed: u64) -> u64 {
+        if self.any_seed { seed } else { self.seed }
+    }
 }
 
 pub const LATE_GAME: &str = "late-game";
 pub const LATE_GAME_DEFLECTORS: &str = "late-game-deflectors";
 
+const LATE_GAME_SCENARIO: Scenario = Scenario {
+    id: LATE_GAME,
+    title: "Late game",
+    description: "Round 4, seat A (Sol) has the turn. Ten fleets with every ship type and \
+        every ship upgrade, Gravity Drive, cargo on planets and in space on the way. Two \
+        space docks with Space Dock II, and for what they produce: War Sun, Spec Ops II, \
+        Sarween Tools, AI Development Algorithm, 6 trade goods and one exhausted planet. \
+        Around them: a gravity rift, a nebula, a supernova, an asteroid field, a wormhole pair, \
+        fleets of other seats and a system with Sol's command token. Asteroid fields and \
+        the ships of other seats block. Every seat holds seven action cards, 56 different \
+        cards in all, and 17 cards are discarded; the other cards of the deck are in the \
+        hands of \"Late game with deflectors\". Every seat has three secret objectives, of \
+        the action phase and of the other phases: one or two are scored.",
+    category: "Board",
+    seed: 42,
+    players: 8,
+    humans: &[0],
+    any_seed: false,
+    map: ScenarioMap::Recommended,
+    opening: None,
+};
+
 pub const SCENARIOS: &[Scenario] = &[
-    Scenario {
-        id: LATE_GAME,
-        title: "Late game",
-        description: "Round 4, seat A (Sol) has the turn. Ten fleets with every ship type and \
-            every ship upgrade, Gravity Drive, cargo on planets and in space on the way. Two \
-            space docks with Space Dock II, and for what they produce: War Sun, Spec Ops II, \
-            Sarween Tools, AI Development Algorithm, 6 trade goods and one exhausted planet. \
-            Around them: a gravity rift, a nebula, a supernova, an asteroid field, a wormhole pair, \
-            fleets of other seats and a system with Sol's command token. Asteroid fields and \
-            the ships of other seats block. Every seat holds seven action cards, 56 different \
-            cards in all, and 17 cards are discarded; the other cards of the deck are in the \
-            hands of \"Late game with deflectors\". Every seat has three secret objectives, of \
-            the action phase and of the other phases: one or two are scored.",
-        seed: 42,
-        players: 8,
-    },
+    LATE_GAME_SCENARIO,
     Scenario {
         id: LATE_GAME_DEFLECTORS,
         title: "Late game with deflectors",
@@ -57,9 +116,23 @@ pub const SCENARIOS: &[Scenario] = &[
             Deflectors: its ships move through the ships of other seats. The engine does not \
             open asteroid fields for Antimass Deflectors yet. The seats hold the action cards \
             that no seat of \"Late game\" holds, and 23 cards are discarded.",
-        seed: 42,
-        players: 8,
+        ..LATE_GAME_SCENARIO
     },
+    three_seats::RESEARCH,
+    three_seats::TACTICAL,
+    three_seats::PRODUCTION,
+    three_seats::PRODUCTION_PAYMENT,
+    three_seats::PRODUCTION_AUTOSPEND,
+    three_seats::SPACE_COMBAT,
+    three_seats::ONGOING_COMBAT,
+    three_seats::ONGOING_COMBAT_FOUR_VIEWS,
+    three_seats::INVASION_FOUR_VIEWS,
+    three_seats::INVASION_COEXISTENCE,
+    three_seats::INVASION_PARLEY,
+    three_seats::ENDGAME,
+    three_seats::SCORE_STATUS,
+    three_seats::SCORE_IMPERIAL,
+    three_seats::FULL_GAME,
 ];
 
 /// The scenario with this id.
@@ -68,8 +141,13 @@ pub fn find(id: &str) -> Option<&'static Scenario> {
     SCENARIOS.iter().find(|scenario| scenario.id == id)
 }
 
-/// The game that the scenario `id` starts: the game of its seed on the recommended map of its
-/// number of seats, with its board set up. Both hosts start a scenario with this function, so
+fn unknown(id: &str) -> String {
+    let known: Vec<&str> = SCENARIOS.iter().map(|scenario| scenario.id).collect();
+    format!("no scenario '{id}': the scenarios are {}", known.join(", "))
+}
+
+/// The game that the scenario `id` starts: the game of its seed ([`Scenario::game_seed`] of
+/// `seed`) on its map, with its board set up. Both hosts start a scenario with this function, so
 /// the game is the same in the page and on the server. `player_ids` are the seats in their
 /// order; a scenario places its board by the place of a seat, not by its id.
 ///
@@ -79,11 +157,9 @@ pub fn start(
     content: &ContentStore,
     id: &str,
     player_ids: &[PlayerId],
+    seed: u64,
 ) -> Result<(GameState, Galaxy), String> {
-    let scenario = find(id).ok_or_else(|| {
-        let known: Vec<&str> = SCENARIOS.iter().map(|scenario| scenario.id).collect();
-        format!("no scenario '{id}': the scenarios are {}", known.join(", "))
-    })?;
+    let scenario = find(id).ok_or_else(|| unknown(id))?;
     if player_ids.len() != scenario.players {
         return Err(format!(
             "the scenario '{id}' is made for {} seats, the game has {}",
@@ -92,12 +168,24 @@ pub fn start(
         ));
     }
     let sources = ti4_model::content_types::POK;
-    let loader = crate::maps::TemplateLoader::load()?;
-    let template =
-        crate::maps::default_template_for(content, &loader, scenario.players, sources)
-            .ok_or_else(|| format!("no map template builds for {} players", scenario.players))?;
-    let (mut state, mut galaxy) =
-        crate::map::create_game_with_template(content, player_ids, scenario.seed, Some(&template))?;
+    let template = match scenario.map {
+        ScenarioMap::Recommended => {
+            let loader = crate::maps::TemplateLoader::load()?;
+            Some(
+                crate::maps::default_template_for(content, &loader, scenario.players, sources)
+                    .ok_or_else(|| {
+                        format!("no map template builds for {} players", scenario.players)
+                    })?,
+            )
+        }
+        ScenarioMap::Random => None,
+    };
+    let (mut state, mut galaxy) = crate::map::create_game_with_template(
+        content,
+        player_ids,
+        scenario.game_seed(seed),
+        template.as_deref(),
+    )?;
     apply(id, &mut state, &mut galaxy, content, sources)?;
     Ok((state, galaxy))
 }
@@ -111,10 +199,7 @@ pub fn apply(
     content: &ContentStore,
     sources: SourceSet,
 ) -> Result<(), String> {
-    let scenario = find(id).ok_or_else(|| {
-        let known: Vec<&str> = SCENARIOS.iter().map(|scenario| scenario.id).collect();
-        format!("no scenario '{id}': the scenarios are {}", known.join(", "))
-    })?;
+    let scenario = find(id).ok_or_else(|| unknown(id))?;
     if state.players.len() != scenario.players {
         return Err(format!(
             "the scenario '{id}' is made for {} seats, the game has {}",
@@ -122,7 +207,69 @@ pub fn apply(
             state.players.len()
         ));
     }
-    late_game(state, galaxy, content, sources, id == LATE_GAME_DEFLECTORS)
+    match id {
+        LATE_GAME | LATE_GAME_DEFLECTORS => {
+            late_game(state, galaxy, content, sources, id == LATE_GAME_DEFLECTORS)
+        }
+        _ => three_seats::apply(id, state, galaxy, content),
+    }
+}
+
+/// What the opening of a scenario plays by: its seat and what the scenario prepared.
+#[derive(Debug, Clone)]
+pub struct Opening {
+    /// The seat whose questions the opening answers: the first seat of [`Scenario::humans`].
+    pub seat: PlayerId,
+    /// The system that the scenario prepared: the system of a battle or of an invasion.
+    pub system: Option<String>,
+    answer: OpeningFn,
+}
+
+/// The opening of a game that starts from `scenario`, at its opening `state` on `galaxy`. None
+/// for a scenario without one.
+#[must_use]
+pub fn opening(scenario: &Scenario, state: &GameState, galaxy: &Galaxy) -> Option<Opening> {
+    let answer = scenario.opening?;
+    let seat = state.players.get(*scenario.humans.first()?)?.id.clone();
+    Some(Opening {
+        seat,
+        system: three_seats::prepared_system(scenario.id, galaxy, ContentStore::embedded()),
+        answer,
+    })
+}
+
+/// An opening while a host plays it. A host asks it before it asks the seat of the opening; the
+/// answers are decisions of that seat like any other. Once the opening stops, it answers nothing.
+#[derive(Debug, Clone, Default)]
+pub struct OpeningRun(Option<Opening>);
+
+impl OpeningRun {
+    #[must_use]
+    pub const fn new(opening: Option<Opening>) -> Self {
+        Self(opening)
+    }
+
+    /// Whether the opening still answers.
+    #[must_use]
+    pub const fn running(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// The answer of the opening to `choice`, or None when the seat is asked: a question of
+    /// another seat, or the opening stopped (here, or with an option that `choice` does not have).
+    pub fn answer(&mut self, choice: &Choice) -> Option<ChoiceOption> {
+        let opening = self.0.as_ref()?;
+        if choice.player != opening.seat {
+            return None;
+        }
+        if let OpeningAnswer::Answer(id) = (opening.answer)(choice, opening)
+            && let Some(option) = choice.option(&id)
+        {
+            return Some(option.clone());
+        }
+        self.0 = None;
+        None
+    }
 }
 
 /// The systems of the late game, on the map of eight seats. Seat A (Sol) is at home in `HOME`.

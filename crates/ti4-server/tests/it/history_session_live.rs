@@ -12,7 +12,7 @@ use ti4_host::protocol::server::ServerMessage;
 use ti4_host::protocol::status::ViewerRole;
 use ti4_model::POK;
 use ti4_model::id::PlayerId;
-use ti4_server::dev::execute_launch_scenario;
+use ti4_server::dev::launch_scenario;
 use ti4_server::session::bluff::BluffPolicy;
 use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{GameRegistry, GameSession, MockClient, SeatController, SessionConfig};
@@ -216,8 +216,8 @@ fn after_an_undo_a_declared_bluff_holds_the_game_as_in_a_fresh_one() {
         ..BluffPolicy::default()
     };
     let registry = Arc::new(GameRegistry::new());
-    let launch = execute_launch_scenario(&registry, "ongoing_combat_four_views", Some(SEED))
-        .expect("launch");
+    let launch =
+        launch_scenario(&registry, "ongoing_combat_four_views", Some(SEED)).expect("launch");
     let session = registry.get_game(&launch.game_id).expect("game");
     wait_ready(&session);
     let version = session.game_version();

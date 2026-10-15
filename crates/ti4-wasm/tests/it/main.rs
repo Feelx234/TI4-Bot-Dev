@@ -7,6 +7,7 @@ mod host_batch;
 mod host_history;
 mod host_local;
 mod host_preview;
+mod host_scenario;
 mod host_script;
 mod host_session;
 mod host_setup;

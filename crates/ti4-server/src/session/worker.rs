@@ -23,6 +23,7 @@ use ti4_host::protocol::server::{
 use ti4_host::protocol::status::ViewerRole;
 use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 use ti4_host::view::reaction_modes::NeverOffer;
+use ti4_host::view::scenario::OpeningRun;
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, ReactionMode};
 
@@ -845,6 +846,33 @@ impl Drop for CloseBasisOnExit {
     }
 }
 
+/// The seat of the opening of a scenario: the opening answers until it stops, then the seat is
+/// asked. Its answers are decisions of the seat like any other.
+struct OpeningDecider {
+    inner: Box<dyn Decider>,
+    run: OpeningRun,
+}
+
+impl Decider for OpeningDecider {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        match self.run.answer(choice) {
+            Some(option) => Ok(option),
+            None => self.inner.choose(choice),
+        }
+    }
+
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        match self.run.answer(choice) {
+            Some(option) => Ok(option),
+            None => self.inner.choose_seeing(choice, seen),
+        }
+    }
+}
+
 /// Capture the actual offer for decisions made by either a human or a bot. Replay
 /// decisions bypass this wrapper and already have their historical events.
 struct ObservedDecider {
@@ -1165,6 +1193,17 @@ pub fn spawn_session_worker(
                             cards,
                         );
                     }))
+                }
+                _ => inner,
+            };
+
+            // The opening of a scenario answers its seat in a new game, before the seat is asked.
+            let inner: Box<dyn Decider> = match &config.opening {
+                Some(opening) if inner_human && prior_count == 0 && opening.seat == seat => {
+                    Box::new(OpeningDecider {
+                        inner,
+                        run: OpeningRun::new(Some(opening.clone())),
+                    })
                 }
                 _ => inner,
             };
