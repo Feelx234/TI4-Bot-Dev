@@ -2,7 +2,8 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * A real ti4-server on a free loopback port with its own temp data directory, so the offline
@@ -29,7 +30,7 @@ const freePort = (): Promise<number> =>
 
 function serverBinary(): string {
   if (process.env.TI4_E2E_SERVER_BIN) return process.env.TI4_E2E_SERVER_BIN;
-  const target = process.env.CARGO_TARGET_DIR ?? resolve(__dirname, "../../target");
+  const target = process.env.CARGO_TARGET_DIR ?? resolve(dirname(fileURLToPath(import.meta.url)), "../../target");
   for (const profile of ["debug", "release"]) {
     const candidate = join(target, profile, "server");
     if (existsSync(candidate)) return candidate;
