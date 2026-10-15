@@ -144,6 +144,61 @@ describe("HostRunner", () => {
     expect(out.filter((m) => m.t === "ask")).toHaveLength(2);
   });
 
+  it("restarts a game of a table or a local game as it was started, with the settings changed since", async () => {
+    const out: FromWorker[] = [];
+    const hosts: FakeHost[] = [];
+    const restart = { answers: [], redo: [], generation: 1, version: 7, log: ["a"] };
+    const make = () => {
+      const host = new FakeHost(`h${hosts.length}`, (h, request) => {
+        if (request.type === "save_state") {
+          return envelope("command", { save: { ...save(["a"]), setup: { local: { seed: 3 } } } });
+        }
+        if (request.type === "undo") {
+          queueMicrotask(() =>
+            h.end(
+              envelope("end", {
+                end: { finished: false, left: true, error: null, decisions: 0, answers: 0 },
+              }),
+            ),
+          );
+          return envelope("command", { resume: -1, restart });
+        }
+        return envelope("command", {});
+      });
+      hosts.push(host);
+      return host;
+    };
+    const runner = new HostRunner(
+      (m) => out.push(m),
+      async () => make() as unknown as Host,
+    );
+    await runner.handle({ t: "init", module: {} as WebAssembly.Module });
+    const local = { seed: 3, players: 8, humans: 1, rule_seats: 0 };
+    void runner.handle({
+      t: "start",
+      config: { local, modes: { Sabotage: "never" }, stepping: 0, staged: true },
+    });
+    await tick();
+    hosts[0].ask(envelope("ask"));
+    await runner.handle({ t: "command", id: 1, request: { type: "stepping", mode: 1 } });
+    await runner.handle({
+      t: "command",
+      id: 2,
+      request: { type: "set_reaction_mode", card: "Shields", mode: "own_turn" },
+    });
+    await runner.handle({ t: "command", id: 3, request: { type: "undo" } });
+    await tick();
+    await tick();
+    expect(hosts).toHaveLength(2);
+    expect(hosts[1].started).toEqual({
+      local,
+      modes: { Sabotage: "never", Shields: "own_turn" },
+      stepping: 1,
+      staged: true,
+      resume: { ...restart, never: [] },
+    });
+  });
+
   it("answers a command with an error when no game runs, and reports a trap as a crash", async () => {
     const out: FromWorker[] = [];
     const runner = new HostRunner(

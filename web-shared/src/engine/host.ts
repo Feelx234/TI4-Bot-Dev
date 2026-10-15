@@ -36,6 +36,10 @@ export interface HostRestart {
   redo: string[];
   generation: number;
   version: number;
+  /** Every decision to give again, of every seat (an undo of web2's local play). */
+  log?: string[];
+  switches?: unknown[];
+  undone?: unknown[];
 }
 
 /** The save of a game (`save_state`); self-contained, plays again with `resume`. */
@@ -59,6 +63,13 @@ export interface HostSave {
   round: number | null;
   phase: string | null;
   engine: { build: string; content_digest: string };
+  /** Every decision of the game, of every seat, in order. */
+  log?: string[];
+  /** The seats that the page plays, as a mask, and its changes during the game. */
+  humans?: number;
+  switches?: unknown[];
+  /** What each seat staged and did not send (`ti4_host::staged`). */
+  staged?: Record<string, unknown>;
 }
 
 export interface HostEnd {
@@ -67,6 +78,8 @@ export interface HostEnd {
   error: string | null;
   decisions: number;
   answers: number;
+  /** Why a saved game did not play again: the decision of its log that the game does not offer. */
+  diverged?: string | null;
 }
 
 export interface HostResumeCheck {
@@ -79,6 +92,8 @@ export interface Envelope {
   kind: "ask" | "progress" | "end" | "command" | "query";
   messages: unknown[];
   progress?: HostProgress;
+  /** An `ask` with no question of the page: the game waits before a decision of this seat (`step`). */
+  waiting?: string;
   resume?: number;
   restart?: HostRestart;
   batch?: HostBatchResult;
@@ -87,10 +102,19 @@ export interface Envelope {
   end?: HostEnd;
 }
 
-/** `ti4_host_start`'s input. `setup` is the engine's `Setup`; `resume` a save or a restart. */
+/**
+ * `ti4_host_start`'s input: one of `setup` (the engine's `Setup`), `table` and `local`, and
+ * `resume`, a save or a restart. `modes`, `stepping` and `staged` are the settings of the page
+ * (`Start` in `crates/ti4-wasm/src/host_setup.rs`).
+ */
 export interface StartConfig {
-  setup: Record<string, unknown>;
+  setup?: Record<string, unknown>;
+  table?: unknown;
+  local?: unknown;
   resume?: Partial<HostSave> | HostRestart;
+  modes?: Record<string, string>;
+  stepping?: number;
+  staged?: boolean;
 }
 
 interface Exports {

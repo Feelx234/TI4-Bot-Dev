@@ -18,12 +18,18 @@ export interface SocketLinkOptions {
   lost?(event: { code?: number; opened: boolean }): { wait?: number; quiet?: boolean } | undefined;
 }
 
+/** A link to a server: it can drop its socket and open one at once, to be told the game again. */
+export interface SocketLink extends GameLink {
+  /** Drops the socket and opens one now: the subscription of the new socket tells the game. */
+  again(): void;
+}
+
 /**
  * The game on a server: one socket of `open` at a time, opened again when it is lost. Each socket
  * that opens is subscribed and then told as `opened`; its messages are parsed from JSON. The wait
  * between tries grows until a socket delivers a message.
  */
-export function socketLink(open: () => Socket, options: SocketLinkOptions): GameLink {
+export function socketLink(open: () => Socket, options: SocketLinkOptions): SocketLink {
   const all = listeners();
   const retryAfter = options.retryAfter ?? backoff;
   let attempt = 0;
@@ -77,5 +83,6 @@ export function socketLink(open: () => Socket, options: SocketLinkOptions): Game
     send,
     subscribe: all.add,
     close,
+    again: () => connection.again(),
   };
 }

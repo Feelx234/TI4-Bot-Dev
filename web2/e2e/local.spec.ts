@@ -541,6 +541,8 @@ test("a draft goes on to the landings and the production, and ends at a draw", a
   await expect(row("Take a tactical action")).toBeVisible();
   const saved = await savedLine(page);
   await workspace("Draft").click();
+  // The systems are the choice once the engine answered the draft.
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
 
   // The carrier of the north takes two infantry to the system with two free planets.
   await system("38").click();
@@ -597,6 +599,7 @@ test("a draft goes on to the landings and the production, and ends at a draw", a
   await page.getByRole("button", { name: "More draft actions" }).click();
   await page.getByRole("menuitem", { name: "Start over" }).click();
   await expect(heading(page)).toHaveText("Activation");
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
   await system("72").click();
   await page.keyboard.press("Enter");
   await expect(send(page)).toHaveText(/Move nothing/);

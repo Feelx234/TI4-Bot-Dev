@@ -65,9 +65,19 @@ async function open({ memory = false } = {}) {
   const submitChoice = vi.spyOn(transport, "submitChoice");
   /** The strategic action of the last update of the game. */
   let last: SessionUpdate | null = null;
+  /** The last draft that the page asked for, and the last one that the game answered. */
+  let asked: unknown = null;
+  let answered: unknown = null;
+  const draft = transport.draft.bind(transport);
+  transport.draft = (script, scope) => {
+    asked = script;
+    draft(script, scope);
+  };
   transport.subscribe((event) => {
     if (event.kind === "update") {
       last = event.update;
+    } else if (event.kind === "draft") {
+      answered = event.script;
     }
   });
   const { result } = renderHook(() => useLiveSession(transport, drafts));
@@ -93,14 +103,19 @@ async function open({ memory = false } = {}) {
     await dispatch({ type: "chooseOption", option });
     await dispatch({ type: "flow", action: "resolve" });
   };
-  /** Lets the other seats decide, one step at a time, until `reached`. */
+  /**
+   * Lets the other seats decide, one step at a time, until `reached`. The engine answers in its
+   * Worker: each step waits for the update after it, and for the answer to the draft of the page.
+   */
   const stepUntil = async (reached: () => boolean) => {
     for (let steps = 0; steps < 400; steps += 1) {
-      await waitFor(() => expect(reached() || !!button("Step")).toBe(true));
+      await waitFor(() => expect(answered === asked && (reached() || !!button("Step"))).toBe(true));
       if (reached()) {
         return;
       }
+      const before = last;
       await dispatch({ type: "simulate" });
+      await waitFor(() => expect(last).not.toBe(before));
     }
     throw new Error("the game did not come there");
   };
@@ -168,7 +183,11 @@ it.skipIf(!built)(
 
     // An answer is recorded, not sent: the game is asked again, and the secondary is over.
     await dispatch({ type: "flow", action: "resolve" });
-    await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
+    await waitFor(() => {
+      // The button is there once the game answered the draft.
+      expect(button("Mark draft ready")).toBeDefined();
+      expect(button("Mark draft ready")?.disabled).toBeFalsy();
+    });
     expect(mine()).toMatchObject({ status: { label: "Private draft" }, text: "Decline" });
     expect(game.submitChoice).toHaveBeenCalledTimes(1);
 
@@ -177,11 +196,17 @@ it.skipIf(!built)(
     await waitFor(() => expect(menu(mine()?.open)).toHaveLength(2));
     await dispatch(options[0].intent);
     await dispatch({ type: "flow", action: "resolve" });
-    await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
+    await waitFor(() => {
+      // The button is there once the game answered the draft.
+      expect(button("Mark draft ready")).toBeDefined();
+      expect(button("Mark draft ready")?.disabled).toBeFalsy();
+    });
 
     // A ready draft is closed and says what it will do. The engine keeps it in the saved game.
     await dispatch({ type: "flow", action: "ready" });
-    expect(mine()).toMatchObject({ status: { sign: "✎", label: "Draft ready" } });
+    await waitFor(() =>
+      expect(mine()).toMatchObject({ status: { sign: "✎", label: "Draft ready" } }),
+    );
     expect(mine()?.text).toMatch(/^Decline · not sent, resolves after /);
     expect(mine()?.open).toBeUndefined();
     await dispatch({ type: "flow", action: "change" });
@@ -223,7 +248,11 @@ it.skipIf(!built)(
     // The draw is hidden: the draft ends there, and the game goes on from there in Live.
     await dispatch(menu(mine()?.open)[1].intent);
     await dispatch({ type: "flow", action: "resolve" });
-    await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
+    await waitFor(() => {
+      // The button is there once the game answered the draft.
+      expect(button("Mark draft ready")).toBeDefined();
+      expect(button("Mark draft ready")?.disabled).toBeFalsy();
+    });
     expect(mine()?.open).toEqual([
       {
         kind: "note",
@@ -276,7 +305,7 @@ it.skipIf(!built)(
     // The other tab starts over: the row is the draft again, with nothing answered.
     await emit("secondary", null);
     await waitFor(() => expect(mine()?.status.label).toBe("Private draft"));
-    expect(menu(mine()?.open)).toHaveLength(2);
+    await waitFor(() => expect(menu(mine()?.open)).toHaveLength(2));
     expect(drafts.set).not.toHaveBeenCalled();
     game.transport.close();
   },
@@ -291,7 +320,11 @@ it.skipIf(!built)(
     await stepUntil(() => flow().heading === "Politics" && !!mine()?.open);
     await dispatch(menu(mine()?.open)[0].intent);
     await dispatch({ type: "flow", action: "resolve" });
-    await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
+    await waitFor(() => {
+      // The button is there once the game answered the draft.
+      expect(button("Mark draft ready")).toBeDefined();
+      expect(button("Mark draft ready")?.disabled).toBeFalsy();
+    });
     await dispatch({ type: "flow", action: "ready" });
     expect(mine()?.status.label).toBe("Draft ready");
     const ready = game.drafts.get("secondary") as { ready: boolean };

@@ -482,6 +482,8 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   await expect(row("Take a tactical action")).toBeVisible();
   await draft().click();
   await pane("Map").click();
+  // The systems are the choice once the engine answered the draft.
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
 
   // The system of the two space docks. Nothing moves, and AI Development Algorithm is kept.
   await system("72").click();
@@ -522,6 +524,7 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   // Another action: a carrier lands infantry, and the draft ends where the landing draws a card.
   await page.getByRole("button", { name: "Reference and more" }).click();
   await page.getByRole("menuitem", { name: "Start over" }).click();
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
   await system("38").click();
   await send.click();
   await system("63").click();

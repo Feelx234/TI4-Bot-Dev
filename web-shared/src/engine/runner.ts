@@ -14,6 +14,11 @@ export class HostRunner {
   private run = 0;
   private save: HostSave | null = null;
   private restart: HostRestart | null = null;
+  /**
+   * What the game was started with, and the settings that the page changed since (`stepping`,
+   * `set_reaction_mode`): a restart starts with them.
+   */
+  private config: StartConfig | null = null;
 
   constructor(
     private readonly post: (message: FromWorker) => void,
@@ -57,6 +62,9 @@ export class HostRunner {
 
   private async begin(config: StartConfig): Promise<void> {
     const run = ++this.run;
+    this.config = config;
+    // A command waits for the new run: the old one has left.
+    this.host = null;
     let host: Host;
     try {
       host = await this.instance();
@@ -85,10 +93,7 @@ export class HostRunner {
       const save = this.lastSave();
       if (restart && save) {
         // The history change left the parked run; play it again with the new answers.
-        await this.begin({
-          setup: save.setup,
-          resume: { ...restart, never: save.never } as StartConfig["resume"],
-        });
+        await this.begin(this.restarted(save, restart));
         return;
       }
       this.post({ t: "end", envelope: end, save: end.end?.finished ? this.snapshot(host) : null });
@@ -96,6 +101,34 @@ export class HostRunner {
       if (run === this.run) {
         this.post({ t: "crash", message: text(error) });
       }
+    }
+  }
+
+  /** The start of the run after a history change: the game as it was started, from the restart. */
+  private restarted(save: HostSave, restart: HostRestart): StartConfig {
+    const { resume: _, ...base } = this.config ?? {};
+    return {
+      ...base,
+      // A setup with the choices that were left open filled in.
+      ...(base.setup || !(base.table || base.local) ? { setup: save.setup } : {}),
+      resume: { ...restart, never: save.never } as StartConfig["resume"],
+    };
+  }
+
+  /** Keeps a setting of the page for the next restart. */
+  private remember(request: { type?: string; mode?: unknown; card?: unknown }): void {
+    const config = this.config;
+    if (!config) {
+      return;
+    }
+    if (request.type === "stepping" && typeof request.mode === "number") {
+      this.config = { ...config, stepping: request.mode };
+    } else if (
+      request.type === "set_reaction_mode" &&
+      typeof request.card === "string" &&
+      typeof request.mode === "string"
+    ) {
+      this.config = { ...config, modes: { ...config.modes, [request.card]: request.mode } };
     }
   }
 
@@ -112,6 +145,7 @@ export class HostRunner {
   }
 
   private command(id: number, request: object): void {
+    this.remember(request);
     const host = this.host;
     if (!host) {
       this.post({ t: "reply", id, error: "There is no game running" });
@@ -133,10 +167,7 @@ export class HostRunner {
       if (this.restart && !host.isParked && save) {
         const restart = this.restart;
         this.restart = null;
-        void this.begin({
-          setup: save.setup,
-          resume: { ...restart, never: save.never } as StartConfig["resume"],
-        });
+        void this.begin(this.restarted(save, restart));
       }
     } catch (error) {
       this.post({ t: "reply", id, error: text(error) });

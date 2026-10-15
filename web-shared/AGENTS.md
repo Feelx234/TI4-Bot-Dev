@@ -41,15 +41,19 @@ is `web2/plans/2026-10-14-SHARED_TRANSPORT_PLAN.md`.
 ```
 src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelope, HostSave, StartConfig
              jspi.ts      hasJspi(), on its own so that a page checks it without loading the host
-             runner.ts    HostRunner: one game at a time in the Worker, a save at each question
+             runner.ts    HostRunner: one game at a time in the Worker, a save at each question; a restart
+                          starts as the game was started, with the stepping and the modes changed since
              worker.ts    the Worker entry; it gets a compiled WebAssembly.Module, not the file
              protocol.ts  ToWorker, FromWorker, HostPort (the Worker or a fake)
+             port.ts      workerPort (a HostPort on a Worker that the app made), inlinePort (the engine in
+                          this thread, for Node and the tests)
              identity.ts  sha256Hex/sha256 of the engine file, EngineIdentity {build, contentDigest, wasmSha256}
 src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
 src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent; a game at the level of its messages
-             socketLink.ts socketLink: the server over `connect` (subscription on each open, heartbeat, backoff)
+             socketLink.ts socketLink: the server over `connect` (subscription on each open, heartbeat, backoff,
+                           `again`); web2's `wsTransport` runs on it
              engineLink.ts engineLink: the engine over a HostPort (start, replies, the next question, a gate, saves);
-                           web's `LocalTransport` runs on it
+                           web's `LocalTransport` and web2's local game (`wasmTransport`) run on it
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
@@ -63,4 +67,6 @@ The engine file stays where each app keeps it (`web/src/offline/local/engineAsse
   `npm run lint` runs it here too.
 - web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`); its vitest does not
   run the tests here.
-- web's `npm run test:e2e:offline` plays a game through the Worker of `src/engine/`.
+- web's `npm run test:e2e:offline` and web2's `npm run e2e` play games through the Worker of
+  `src/engine/`. web2's `transportContract.test.ts` checks its transport over both links (the
+  engine on `inlinePort`, and a real server).

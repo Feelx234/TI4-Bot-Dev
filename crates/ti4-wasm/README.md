@@ -259,7 +259,9 @@ played in the page.
 - `web2/scripts/build-wasm.sh` builds the file and copies it to `web2/src/session/ti4.wasm`
   (not in the repository).
 - `web2/src/session/` is the client side: `Transport` (updates in, `submitChoice` out),
-  `wasmTransport.ts` (the JSPI glue around the hosted exports), `wsTransport.ts` (the server),
+  `messageTransport.ts` (the `ServerMessage`s of a link as the events of the page),
+  `wasmTransport.ts` (the game in a Web Worker over `engineLink` of `web-shared/src/link/`, and
+  the questions that need no game), `wsTransport.ts` (the server over `socketLink`),
   `serverMessages.ts` (what both read of a `ServerMessage`), the selectors from an update to the
   view models of web2, and `useLiveSession`.
 - The activation, the movement and the landings of a tactical action have their screens (see
@@ -650,8 +652,8 @@ with a copy of the random seats' stream:
 
 Limits:
 
-- The random seats play on the main thread between two choices, and the page does not respond
-  in that time (see the table).
+- The random seats play in the Worker between two choices. The page responds in that time, but
+  its next question waits for them (see the table).
 - A reload late in a game takes as long as the game took the engine so far. So does an undo
   of an answer older than the 32 checkpoints, or after the game is over.
 - With `humans` naming more than one seat, the page shows the hand of the asked seat at once.
@@ -694,8 +696,10 @@ content does not have.
 ## The hosted game (`web/` offline play, `web2/` local play)
 
 A game in a page, speaking the protocol of the server: the offline game of `web/` (one person
-against rule bots, in a Web Worker) and the local play of `web2/` (one seat or several, in the
-page; see "The seats of the page" and "The game of a request"). The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
+against rule bots) and the local play of `web2/` (one seat or several; see "The seats of the
+page" and "The game of a request"). Both run it in a Web Worker with the driver of
+`web-shared/src/engine/` (`Host`, `HostRunner`), and read it through `engineLink`
+(`web-shared/src/link/`). The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
 (`HostSession`: what the server's `SessionShared` does around the engine), `src/host_setup.rs`
 (the request of a table → `ti4_host::setup::TableSetup`, the form's data). `js/host.mjs` is a working reference host and a smoke test.
 Chrome and Edge 137 and later only (JSPI); Node 24 has it too.
