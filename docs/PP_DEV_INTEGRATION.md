@@ -73,3 +73,28 @@ merge commit, so later pushes of `dev` merge again without redoing this.
 4. Five `turn_redo` tests are `#[ignore]` upstream (pinned decision positions moved); re-pin them.
 5. Bot v2 (`rulebot-opt1`) merges into the same line: `ti4-wasm`, `ti4-host/setup.rs` (`bots?`
    `smart` default) and the server `random_bot` files are the likely overlap.
+
+## Follow-up: ProbablyPlayable `main` (ded0b4d5), branch `pp-main-integration`
+
+Plan and analysis: `docs/PP_MAIN_INTEGRATION_PLAN.md`. Decisions taken (Felix, 2026-10-15): old offline
+browser saves are dropped without migration (save format 2, the page offers deletion; tester note in
+`docs/OFFLINE_SAVE_RESET_NOTE.md`); PP's seat-place bot seeding is accepted and the rule-bot golden set
+was re-baselined; the two-maintainer rule of `web-shared/AGENTS.md` is accepted; web2 is not served and no
+web2 features were ported into web.
+
+What was finished on top of the trial merge:
+- `bot_version` is carried by the session identity, so `table`/`local` games record it in `HostSave`
+  (`crates/ti4-wasm/examples/bot_version_check.rs` covers setup, local and version-1 saves).
+- Offline map select runs on the shared Worker `query` protocol; the map lives in `game.setup.map` of the
+  format-2 save (the engine always fills it in). The e2e helper `storedSetup` reads `save.game.setup`.
+- Test fixtures conform to the generated wire types (`web/src/test/wire.ts` helpers); `fake-indexeddb` runs.
+- `docs/OFFLINE.md` describes save format 2.
+
+Bot re-baseline (`tools/rulebot/baseline.json`, golden set of 200 games): every game hash differs (the RNG
+stream follows the seat place now, not the seat id), as expected. Aggregates: 200/200 victories before and
+after, no cutoffs, mean rounds 6.805 -> 6.885, mean decisions 2255.8 -> 2262.9, tied at top 1 -> 6 games,
+seat-a win rate 0.200 -> 0.235 (within noise at n=200).
+
+Alpha data: `deploy.sh --preflight-only` finds 8 of 22 saved games recoverable and 14 failing with
+"Persistence checksum mismatch" (init.json) for BOTH this branch and the current line c3605f1b, so the
+failures are not caused by this merge; they need their own decision before any deploy (`--allow-failed`).
