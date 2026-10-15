@@ -13,6 +13,12 @@
   width: min(280px, calc(100vw - 24px));
 }
 
+/* With a max-height (a control near the top, see CornerToastLayer) the oldest toasts are cut off at
+   the top; a toast never shrinks into its neighbour. */
+.auto-resolve-toast-container > * {
+  flex-shrink: 0;
+}
+
 /* Below the overlay layer (turn bar and its menus, dialogs): a toast never covers a control. */
 .auto-resolve-toast-container--under {
   z-index: calc(var(--layer-modal) - 1);
