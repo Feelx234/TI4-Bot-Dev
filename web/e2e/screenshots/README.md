@@ -126,3 +126,15 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 
 `EA-action-card-pickers` shows every action-card picker that changed (Plagiarize, Lucky Shot, Public Disgrace, Overrule, Strategize, Repeal Law, Fire Team, Upgrade, Rescue, Plague, the player-pick facts, Insider Information, Ghost Squad, Lie in Wait, Seize Artifact, Bribery) as the same mocked decision before and after, on a desktop and a 390x844 phone. `scene.ts` holds the decisions: with `TI4_SHOT_PREFIX=before` it uses the shape the engine sent before the change (no `details`, no option payloads), otherwise the current shape. The `before-*` PNGs in `before/` were taken on the audit branch commit (copy the folder there and run `TI4_SHOT_PREFIX=before npm run screenshots -- EA`); `npm run screenshots -- EA` regenerates the `after-*` PNGs and builds a page that pairs them per card (the manifest's `groups`, an optional addition to `build-artifact.mjs`). The decisions are taken from real nightly traces, with the ids the engine writes (`player_` plus 64 hex characters), so the labels carry the raw ids as they do in play.
 
+
+## Hyperlane art and network (DY-hyperlane-art, ED-hyperlane-network)
+
+`DY-hyperlane-art` is the first hyperlane tile art (flat double-line lanes per tile, picker and inspector); `ED-hyperlane-network` replaces it with one continuous lane network across tile edges (the `hyperlane-network` test id), with the before shots taken on the DY art. Both folders are kept; DY's captures assert on the network element now.
+
+## Offline map select, anomaly art, notification log (DQ, DX, EC)
+
+`DQ-offline-map-select` shows the map selection in the offline setup form; `DX-anomaly-art` the per-anomaly SVG silhouettes; `EC-sp-notification-log` the single-player notification log, toast swipe, undo button and Back undo (real seeded engine games; `before/` taken with `TI4_SHOT_PREFIX=before`).
+
+## Agenda preview chip (EE-agenda-peek-chip)
+
+`EE-agenda-peek-chip` shows the Insider Information preview on a 390x844 phone and on a desktop, with the turn menu open: before it was a fixed card up to 60% of the screen high over the turn bar (`before/` PNGs from the merged head without the change); now it is a 54 px chip above the bar that opens to the cards on a tap. `npm run screenshots -- EE` asserts the chip height, that no turn bar button is covered, the half-screen cap and that Escape closes the open card.
