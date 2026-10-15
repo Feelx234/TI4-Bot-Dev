@@ -2798,6 +2798,29 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
     if prompt.starts_with("spend a strategy token to draw two action cards") && seen.round() <= 1 {
         return answer(false);
     }
+    // Bot version 2 ([`tuning::secondary_rule`]): from round 3 the other secondaries only with
+    // a spare strategy token, and only where they pay: two exhausted planets worth readying
+    // (Diplomacy), commodities to fill (Trade); a structure (Construction) and two action cards
+    // (Politics) whenever the token is spare.
+    if tuning::secondary_rule() && !expanding(seen) {
+        if prompt.starts_with("spend a strategy token to ready two planets") {
+            return answer(
+                spare_token && best_two_exhausted(seen, me) >= 4,
+            );
+        }
+        if prompt.starts_with("spend a strategy token to replenish commodities") {
+            let room = seen.seat(me).map_or(0, |seat| {
+                faction_commodities(seen, me) - seat.commodities
+            });
+            return answer(spare_token && room >= 2);
+        }
+        if prompt.starts_with("spend a strategy token to draw two action cards")
+            || prompt.starts_with("spend a strategy token to place a structure")
+            || prompt.starts_with("spend a strategy token to build a structure")
+        {
+            return answer(spare_token);
+        }
+    }
     if prompt.contains("influence for a command token") {
         // Keep six influence for the custodians only while Mecatol Rex is within reach, and stop
         // once the pools are full enough to use.
@@ -2822,6 +2845,16 @@ fn pick_secondary(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option
         );
     }
     None
+}
+
+/// The seat's printed commodity limit (0 when unknown).
+fn faction_commodities(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+    let faction = faction(seen, me);
+    seen.content()
+        .get(ti4_model::content_types::ContentType::Factions, &faction)
+        .and_then(|record| record.int("commodities"))
+        .and_then(|n| i32::try_from(n).ok())
+        .unwrap_or(0)
 }
 
 /// Resources on the seat's exhausted planets: what readying them could give back.
