@@ -6,7 +6,7 @@ use std::time::Instant;
 use ti4_rule_bot::tuning::Tuning;
 
 use crate::play::{GameResult, PlayOptions, TraceLine};
-use crate::run::{Job, OnDone, run_jobs};
+use crate::run::{Job, OnDone, run_jobs_cached};
 use crate::spec::{GameSpec, Matrix};
 use crate::stats::{GameLine, Meta, Summary, aggregate, problems};
 
@@ -79,11 +79,12 @@ pub fn run_matrix(
                 tunings: vec![tuning],
                 candidate_seats: None,
                 trace,
+                timeline: true,
             },
         })
         .collect();
     let started = Instant::now();
-    let results = run_jobs(&jobs, workers, progress, on_done);
+    let results = run_jobs_cached(&jobs, workers, progress, on_done);
     let wall = started.elapsed().as_secs_f64();
     Ok((summarise(matrix, &results, skipped, workers, wall), results))
 }

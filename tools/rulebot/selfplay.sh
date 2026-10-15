@@ -19,6 +19,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 export CARGO_TARGET_DIR="${SELFPLAY_TARGET:-${CARGO_TARGET_DIR:-$repo/target}}"
 out="${SELFPLAY_OUT:-$CARGO_TARGET_DIR/selfplay-out}"
+# Every run/compare keeps its games (with per-round timelines) here and is never played twice;
+# see tools/rulebot/README.md. SELFPLAY_RESULTS=off disables.
+export SELFPLAY_RESULTS="${SELFPLAY_RESULTS:-$repo/tools/rulebot/results}"
 mkdir -p "$out"
 bin="$CARGO_TARGET_DIR/release/selfplay"
 workers=()
@@ -40,7 +43,7 @@ case "$cmd" in
     build
     # Hashes of the shipped bot on the golden seeds: a difference means the engine or the bot
     # decides differently from the recorded baseline (expected only after a deliberate change).
-    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$out/bench.json" \
+    "$bin" run --config "$here/golden.json" --no-cache "${workers[@]}" --out "$out/bench.json" \
       --verify "$here/baseline.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench: hashes differ from baseline.json (see above)"; exit $rc; }
     ;;
   ab)
@@ -71,7 +74,7 @@ case "$cmd" in
     ;;
   baseline)
     build
-    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$here/baseline.json" --quiet "$@"
+    "$bin" run --config "$here/golden.json" --no-cache "${workers[@]}" --out "$here/baseline.json" --quiet "$@"
     ;;
   *)
     sed -n '2,16p' "${BASH_SOURCE[0]}"

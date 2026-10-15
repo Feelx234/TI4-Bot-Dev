@@ -19,6 +19,29 @@ pub struct Job {
 /// Called on the worker thread when a game is done (to write a trace, for instance).
 pub type OnDone<'a> = &'a (dyn Fn(&GameResult, Option<&[TraceLine]>) + Sync);
 
+/// [`run_jobs`], reading the stored run when it exists and storing the result otherwise
+/// ([`crate::store`]). `on_done` is called for stored games too (without a trace).
+pub fn run_jobs_cached(
+    jobs: &[Job],
+    workers: usize,
+    progress: bool,
+    on_done: Option<OnDone<'_>>,
+) -> Vec<GameResult> {
+    if let Some(results) = crate::store::load(jobs) {
+        eprintln!("stored run found: {} games read, not played", results.len());
+        if let Some(f) = on_done {
+            for r in &results {
+                f(r, None);
+            }
+        }
+        return results;
+    }
+    let started = Instant::now();
+    let results = run_jobs(jobs, workers, progress, on_done);
+    crate::store::save(jobs, &results, started.elapsed().as_secs_f64());
+    results
+}
+
 /// Play `jobs` on `workers` threads. Results come back in job order, whatever the order of
 /// completion, so a run is the same list on any number of workers.
 pub fn run_jobs(
@@ -141,9 +164,44 @@ pub struct Comparison {
     /// Mixed mode: per map and per table size, the win share advantage of the candidate seats.
     #[serde(default)]
     pub by_map: std::collections::BTreeMap<String, SliceEffect>,
+    /// VP per round played (final points over rounds), paired by table: mixed mode, the
+    /// candidate seats' mean minus the baseline seats'; separate mode, the all-candidate game's
+    /// mean seat minus the all-baseline game's (an absolute strength measure).
+    #[serde(default)]
+    pub vp_per_round: Estimate,
+    /// The same for the points held at the end of round 3, 4 and 5 (the final points when the
+    /// game ended sooner).
+    #[serde(default)]
+    pub vp_r3: Estimate,
+    #[serde(default)]
+    pub vp_r4: Estimate,
+    #[serde(default)]
+    pub vp_r5: Estimate,
     /// `candidate` stronger / weaker / not distinguishable at 95%.
     pub verdict: String,
     pub wall_s: f64,
+}
+
+/// Points of `seat` at the end of `round` (the final points if the game ended before).
+fn vp_at(g: &GameResult, seat: usize, round: usize) -> f64 {
+    f64::from(g.vp_by_round.get(round - 1).map_or(g.vp[seat], |v| v[seat]))
+}
+
+/// A game's seat metric: `which` 0 = VP per round, 3..=5 = points after that round.
+fn seat_metric(g: &GameResult, seat: usize, which: usize) -> f64 {
+    if which == 0 {
+        f64::from(g.vp[seat]) / f64::from(g.rounds.max(1))
+    } else {
+        vp_at(g, seat, which)
+    }
+}
+
+/// Mean over the seats selected by `want` (`None`: all seats).
+fn mean_metric(g: &GameResult, want: Option<(&[bool], bool)>, which: usize) -> f64 {
+    let seats: Vec<usize> = (0..g.vp.len())
+        .filter(|&s| want.is_none_or(|(mask, w)| mask[s] == w))
+        .collect();
+    seats.iter().map(|&s| seat_metric(g, s, which)).sum::<f64>() / seats.len().max(1) as f64
 }
 
 fn seats_mask(n: usize, shift: usize) -> Vec<bool> {
@@ -194,13 +252,27 @@ pub fn compare(
                     tunings,
                     candidate_seats: mask,
                     trace: false,
+                    timeline: true,
                 },
             });
         }
     }
-    let results = run_jobs(&jobs, workers, progress, None);
+    let results = run_jobs_cached(&jobs, workers, progress, None);
+    comparison_from(results, baseline, candidate, mixed, started)
+}
+
+/// The A/B metrics of a played (or stored) run: `results` are the games of [`compare`] in job
+/// order, two per table.
+pub fn comparison_from(
+    results: Vec<GameResult>,
+    baseline: Tuning,
+    candidate: Tuning,
+    mixed: bool,
+    started: Instant,
+) -> (Comparison, Vec<GameResult>) {
     let (mut win_share, mut vp_adv, mut rounds, mut decisions, mut wall) =
         (vec![], vec![], vec![], vec![], vec![]);
+    let mut metric: [Vec<f64>; 4] = Default::default();
     let (mut excluded, mut cand_games, mut cand_wins) = (0usize, 0usize, 0usize);
     let (mut base_done, mut cand_done) = (0usize, 0usize);
     type Series = std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>)>;
@@ -215,6 +287,22 @@ pub fn compare(
         if !(ok(a) && ok(b)) {
             excluded += 1;
             continue;
+        }
+        for (slot, which) in [0usize, 3, 4, 5].into_iter().enumerate() {
+            let diff = if mixed {
+                [a, b]
+                    .iter()
+                    .map(|g| {
+                        let mask = g.candidate_seats.as_deref().expect("mask");
+                        mean_metric(g, Some((mask, true)), which)
+                            - mean_metric(g, Some((mask, false)), which)
+                    })
+                    .sum::<f64>()
+                    / 2.0
+            } else {
+                mean_metric(b, None, which) - mean_metric(a, None, which)
+            };
+            metric[slot].push(diff);
         }
         rounds.push(f64::from(b.rounds) - f64::from(a.rounds));
         decisions.push(b.decisions as f64 - a.decisions as f64);
@@ -259,7 +347,7 @@ pub fn compare(
             }
         }
     }
-    let n = specs.len();
+    let n = results.len() / 2;
     let (lo, hi) = crate::stats::wilson(cand_wins, cand_games);
     let adv = estimate(&win_share);
     let verdict = if !mixed {
@@ -308,6 +396,10 @@ pub fn compare(
             .into_iter()
             .map(|(k, (w, v))| (k, SliceEffect { win: estimate(&w), vp: estimate(&v) }))
             .collect(),
+        vp_per_round: estimate(&metric[0]),
+        vp_r3: estimate(&metric[1]),
+        vp_r4: estimate(&metric[2]),
+        vp_r5: estimate(&metric[3]),
         verdict,
         wall_s: started.elapsed().as_secs_f64(),
     };
@@ -382,6 +474,10 @@ pub fn render_comparison(c: &Comparison) -> String {
             100.0 * c.finished_rate_candidate
         );
     }
+    row(&mut out, "VP per round (paired)", &c.vp_per_round, 1.0, "");
+    row(&mut out, "VP after round 3", &c.vp_r3, 1.0, "");
+    row(&mut out, "VP after round 4", &c.vp_r4, 1.0, "");
+    row(&mut out, "VP after round 5", &c.vp_r5, 1.0, "");
     row(
         &mut out,
         "rounds, candidate - baseline",

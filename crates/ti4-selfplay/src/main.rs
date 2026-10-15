@@ -47,7 +47,7 @@ struct Args {
 
 impl Args {
     fn parse(raw: &[String]) -> Result<Self, String> {
-        const SWITCHES: &[&str] = &["quiet", "no-table", "text", "help"];
+        const SWITCHES: &[&str] = &["quiet", "no-table", "text", "help", "no-cache"];
         let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut positional = Vec::new();
         let mut it = raw.iter();
@@ -378,6 +378,32 @@ fn cmd_compare(args: &Args) -> Result<ExitCode, String> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `selfplay metrics FILE`: the A/B metrics of a stored `compare` run, without playing.
+fn cmd_metrics(args: &Args) -> Result<ExitCode, String> {
+    let path = args
+        .positional
+        .first()
+        .ok_or("usage: selfplay metrics FILE.jsonl (a stored run, see docs)")?;
+    let results = ti4_selfplay::store::read_file(std::path::Path::new(path))?;
+    let mixed = results.iter().any(|g| {
+        g.candidate_seats
+            .as_ref()
+            .is_some_and(|m| m.iter().any(|x| *x) && m.iter().any(|x| !*x))
+    });
+    let (c, _) = ti4_selfplay::run::comparison_from(
+        results,
+        ti4_rule_bot::tuning::Tuning::default(),
+        ti4_rule_bot::tuning::Tuning::default(),
+        mixed,
+        std::time::Instant::now(),
+    );
+    print!("{}", render_comparison(&c));
+    if let Some(out) = args.get("out") {
+        write_json(out, &c)?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 fn cmd_replay(args: &Args) -> Result<ExitCode, String> {
     let spec: GameSpec = if let Some(text) = args.get("spec") {
         serde_json::from_str(text).map_err(|e| format!("--spec: {e}"))?
@@ -431,6 +457,7 @@ fn cmd_replay(args: &Args) -> Result<ExitCode, String> {
         tunings: vec![tuning_from(&bot)?],
         candidate_seats: None,
         trace: true,
+        timeline: false,
     };
     ti4_selfplay::play::install_panic_capture();
     println!("game: selfplay replay {}", spec.command_line());
@@ -513,6 +540,16 @@ fn main() -> ExitCode {
         _ => ("run", raw.clone()),
     };
     let result = Args::parse(&rest).and_then(|args| {
+        ti4_selfplay::store::configure(if args.has("no-cache") {
+            None
+        } else {
+            args.get("results").map(std::path::PathBuf::from).or_else(|| {
+                std::env::var("SELFPLAY_RESULTS").map_or_else(
+                    |_| Some(std::path::PathBuf::from("selfplay-results")),
+                    |v| (!v.is_empty() && v != "off").then(|| std::path::PathBuf::from(v)),
+                )
+            })
+        });
         if args.has("help") || cmd == "help" {
             print!("{HELP}");
             return Ok(ExitCode::SUCCESS);
@@ -522,6 +559,7 @@ fn main() -> ExitCode {
             "run" => cmd_run(&args),
             "compare" => cmd_compare(&args),
             "replay" => cmd_replay(&args),
+            "metrics" => cmd_metrics(&args),
             "knobs" => {
                 cmd_knobs();
                 Ok(ExitCode::SUCCESS)
