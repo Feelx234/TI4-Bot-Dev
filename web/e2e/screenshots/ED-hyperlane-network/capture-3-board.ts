@@ -32,10 +32,3 @@ for (const [name, size] of Object.entries(SIZES)) {
   });
 }
 
-test("game board: select a linked system, inspector lists its hyperlane partners", async ({ page }, testInfo) => {
-  await open(page, SIZES.desktop);
-  // 63 and 80 are joined through three lane tiles in this layout.
-  await page.getByTestId("system-hex-63").click();
-  await expect(page.getByTestId("inspector-hyperlane-links")).toContainText("80");
-  await shot(page, testInfo, "9-board-inspector-desktop");
-});

@@ -1,18 +1,22 @@
 /**
  * The hyperlane network of a map: which systems the lanes link, and the one route drawn for each link.
  *
- * Rules matched (TI4 "Hyperlanes"): hyperlane tiles are not systems; the lanes printed on them
- * join hex edges, a lane continues into the neighbouring hyperlane tile only when that tile has a
- * lane end on the shared edge, and two systems that a chain of lanes joins are adjacent. The engine
- * does not model this yet (`crates/ti4-content/src/galaxy.rs`: "Hyperlane paths are not modelled"),
- * so this module is draw-only and there is no engine adjacency to compare with; the tests instead
- * compare against plain graph reachability on every real community map.
+ * Rules matched (TI4 "Hyperlanes", as the TTPG mod traces them in `adjacency-hyperlane.js`): hyperlane
+ * tiles are not systems; a ship that enters a tile through an edge leaves it only through the other
+ * end of a printed lane that starts on that edge (lanes that share an end point, as on the
+ * three-lane tiles, are separate lanes: entering by one branch does not lead out by another
+ * branch); it then enters the neighbour across the exit edge, which carries it on only if that
+ * tile has a lane end on the shared edge. Two systems that such a chain joins are adjacent. The
+ * lane table (`hyperlaneGeometry.ts`) was cross-checked with TTPG's `system.data.js` (tile faces
+ * 83-91, A = face up, B = face down; TTPG side i is engine edge -i mod 6, a turn of t adds t) and
+ * against all 208 shared edges of the community layouts. The engine does not model hyperlane paths
+ * (`crates/ti4-content/src/galaxy.rs`), so there is no engine adjacency to compare with.
  *
  * Algorithm
  *  1. Ports. Every hyperlane tile has up to six ports, one per edge (`q,r:edge`). A printed lane
  *     joins two ports of the same tile. Two ports on either side of a shared edge are joined
  *     (neighbour in the ring-1 direction of the edge, opposite edge `(e + 3) % 6`) when both tiles
- *     have a lane end there. Lanes that share a port continue into each other (junction).
+ *     have a lane end there. Within a tile a path takes one lane only (no turning at a shared end).
  *  2. Starts. For each ordinary system S and edge e whose neighbour is a hyperlane tile with a lane
  *     end on the opposite edge, a depth-first search walks simple port paths (no port twice, so
  *     loops terminate) until a path leaves a hyperlane tile into an ordinary system T. Paths that
@@ -231,10 +235,6 @@ export function analyzeHyperlanes(
             } else if (byKey.has(n) && portEdges(n).has((out + 3) % 6)) {
               walk(n, (out + 3) % 6);
             }
-            // Junction: carry on along another lane of the same tile from `out`.
-            seen.delete(portKey(k, out));
-            walk(k, out);
-            seen.add(portKey(k, out));
             seen.delete(portKey(k, out));
             segs.pop();
           }

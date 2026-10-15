@@ -22,8 +22,8 @@ import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { useBoardChromeOffset } from "../hooks/useBoardChromeOffset.ts";
-import { HyperlaneLinks, HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
-import { connectionsAt, getHyperlaneNetwork, tileKey } from "./hyperlane/hyperlaneNetwork.ts";
+import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { getHyperlaneNetwork } from "./hyperlane/hyperlaneNetwork.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
@@ -132,17 +132,6 @@ export const Board: React.FC<BoardProps> = ({
     .filter((t) => !t.specialArea)
     .map((t) => ({ systemId: t.systemId, q: t.q, r: t.r, cx: t.center.x, cy: t.center.y }));
   const hyperlaneModel = getHyperlaneNetwork(hyperlaneTiles);
-  const hotLaneKey = (() => {
-    const id = selectedSystemId ?? hoveredTile?.systemId ?? null;
-    const t = id ? hyperlaneTiles.find((x) => x.systemId === id) : undefined;
-    return t ? tileKey(t.q, t.r) : null;
-  })();
-  const selectedLaneTile = selectedSystemId
-    ? hyperlaneTiles.find((x) => x.systemId === selectedSystemId)
-    : undefined;
-  const hyperlaneLinks = selectedLaneTile
-    ? (hyperlaneModel.partners.get(tileKey(selectedLaneTile.q, selectedLaneTile.r)) ?? []).map((p) => p.systemId)
-    : [];
 
   // "Who can go here": the inspector's second tab asks the engine and draws the answer as arrows.
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("details");
@@ -474,16 +463,7 @@ export const Board: React.FC<BoardProps> = ({
             <HyperlaneNetwork
               tiles={hyperlaneTiles}
               model={hyperlaneModel}
-              hot={hotLaneKey}
               bed={presentation.tiles.find((t) => t.hyperlane)?.fillColor}
-            />
-          )}
-          {hyperlaneTiles.length > 0 && hotLaneKey && (
-            <HyperlaneLinks
-              tiles={hyperlaneTiles}
-              model={hyperlaneModel}
-              only={connectionsAt(hyperlaneModel, hotLaneKey)}
-              hot={connectionsAt(hyperlaneModel, hotLaneKey)}
             />
           )}
 
@@ -498,7 +478,6 @@ export const Board: React.FC<BoardProps> = ({
       {presentation.selectedSystem && (
         <SystemInspector
           system={presentation.selectedSystem}
-          hyperlaneLinks={hyperlaneLinks}
           onClose={() => setSelectedSystemId(null)}
           viewerSeat={viewerSeat}
           seatingOrder={seatingOrder}

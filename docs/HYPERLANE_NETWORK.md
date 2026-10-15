@@ -12,21 +12,19 @@ Code: `web/src/components/hyperlane/` (`hyperlaneNetwork.ts` analysis, `Hyperlan
   independent of input order. The drawing is the union of the routes.
 - Drawing: one layer after all tile fills (board, preview, thumbnails). Hexes are 29 px apart, so
   lanes are extended half the gap into a neighbouring lane tile, or all the way to a system, which
-  makes the network continuous. Dock ring on systems (gold dot when a route ends there), flat bar on
-  open ends, diamond at junctions, dashed gold core on routes, hover/tap/focus lights a system's routes.
+  makes the network continuous. Dock ring on systems, flat bar on
+  open ends, diamond at junctions.
 - Computed once: `getHyperlaneNetwork` memoises per layout (module cache, shared by board, preview,
   thumbnails, inspector). Catalogue layouts are in `hyperlaneRoutes.generated.json` (keyed by a hash
   of hyperlane tile ids and places plus which other places hold a system). A test fails when the
   table is stale; refresh with `cd web && npm run hyperlane:table`. Random or custom maps are
   computed on first draw and cached; nothing is stored in game state or save formats.
 
-## Every pair visible
+## Rule and verification
 
-Routes share lane segments, so the lanes alone cannot show each pair. The preview therefore also
-draws one thin arc per linked pair between the two systems (`HyperlaneLinks`) and lists all pairs
-under the board (hover, focus or tap a pair to light its route and arc). The game board draws the
-arcs of the hovered or selected system. Test `hyperlanePairs.test.tsx` renders the preview of
-every community layout with hyperlanes and checks arcs and list entries against a second oracle
-(physical-edge union-find): expected = drawn = listed on all 14 layouts.
-Assumption not verifiable offline: lanes that share a port continue into each other (a ship may
-turn at a junction); lane tables come from the earlier DY work, the engine has none.
+- Rule (same as the TTPG mod's `adjacency-hyperlane.js`): enter a lane tile through an edge, leave
+  by the other end of a printed lane that starts there, cross into the neighbour, repeat. No turning
+  at a shared lane end (three-lane tiles). Lane table cross-checked with TTPG `system.data.js`
+  (side i is engine edge -i mod 6) and with all 208 shared edges of the community layouts.
+- `hyperlaneTrace.test.tsx` reads the drawn SVG back and walks the strokes as a ship would, per
+  layout, in preview and thumbnail, and compares with an independent TTPG-style oracle.

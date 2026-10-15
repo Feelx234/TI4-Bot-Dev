@@ -4,8 +4,8 @@ import { deriveHexGeometry } from "../presentation/boardPresentation.ts";
 import { homeIdSet, mainTiles, tileKind } from "../presentation/mapPicker.ts";
 import { seatStyle } from "../presentation/playerDisplay.ts";
 import { TILE_FILL } from "./MapThumbnail.tsx";
-import { HyperlaneLinks, HyperlaneNetwork, connectionId } from "./hyperlane/HyperlaneArt.tsx";
-import { connectionsAt, getHyperlaneNetwork, linkSentence, tileKey } from "./hyperlane/hyperlaneNetwork.ts";
+import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { getHyperlaneNetwork } from "./hyperlane/hyperlaneNetwork.ts";
 import { hyperlaneLabel, parseHyperlaneId } from "./hyperlane/hyperlaneGeometry.ts";
 import { PlanetValueGlyph, pairLabel } from "./PlanetValueIcons.tsx";
 
@@ -27,20 +27,6 @@ export const MapPreviewBoard: React.FC<{
     geometry: deriveHexGeometry(tile.q, tile.r),
   }));
   const model = getHyperlaneNetwork(placed.map(({ tile }) => ({ systemId: tile.system_id, q: tile.q, r: tile.r })));
-  const netTiles = placed.map(({ tile, geometry }) => ({
-    systemId: tile.system_id,
-    q: tile.q,
-    r: tile.r,
-    cx: geometry.center.x,
-    cy: geometry.center.y,
-  }));
-  // Hover, focus or tap on a linked system (or on a lane tile) lights its routes.
-  const [hot, setHot] = React.useState<string | null>(null);
-  const [hotPair, setHotPair] = React.useState<string | null>(null);
-  const hotList = hotPair
-    ? model.connections.filter((c) => connectionId(c) === hotPair)
-    : connectionsAt(model, hot);
-  const partnerKeys = new Set(hotList.flatMap((c) => [c.fromKey, c.toKey]));
   const xs = placed.map((p) => p.geometry.center.x);
   const ys = placed.map((p) => p.geometry.center.y);
   const pad = 90;
@@ -49,48 +35,37 @@ export const MapPreviewBoard: React.FC<{
   const width = Math.max(...xs, 0) + pad - left;
   const height = Math.max(...ys, 0) + pad - top;
   return (
-    <>
     <svg
       className="map-preview-board"
       viewBox={`${left} ${top} ${width} ${height}`}
       role="img"
-      aria-label={`Map preview with ${placed.length} systems${model.connections.length ? `, ${model.connections.length} hyperlane connections` : ""}`}
+      aria-label={`Map preview with ${placed.length} systems`}
       data-testid="map-preview-board"
     >
       {placed.map(({ tile, geometry }, index) => {
         const kind = tileKind(tile, homes);
         const seat = seatOf.get(tile.system_id);
-        const key = tileKey(tile.q, tile.r);
-        const link = kind === "hyperlane" ? null : linkSentence(model, key);
-        const interactive = model.connections.length > 0 && (link !== null || kind === "hyperlane");
         return (
           <g
             key={`${tile.system_id}-${index}`}
             data-testid={`map-tile-${tile.system_id}`}
             data-kind={kind}
-            data-linked={link ? "true" : undefined}
-            tabIndex={link ? 0 : undefined}
-            onMouseEnter={interactive ? () => setHot(key) : undefined}
-            onMouseLeave={interactive ? () => setHot(null) : undefined}
-            onFocus={link ? () => setHot(key) : undefined}
-            onBlur={link ? () => setHot(null) : undefined}
-            onClick={interactive ? () => setHot((h) => (h === key ? null : key)) : undefined}
           >
             <title>
               {seat
-                ? `Seat ${seat.seat}${link ? `. ${link}` : ""}`
+                ? `Seat ${seat.seat}`
                 : kind === "hyperlane"
                   ? (() => {
                       const lane = parseHyperlaneId(tile.system_id);
                       return lane ? hyperlaneLabel(lane) : tile.label;
                     })()
-                  : `${tile.label}${tile.planets?.length ? ` (${planetLabel(tile)})` : ""}${link ? `. ${link}` : ""}`}
+                  : `${tile.label}${tile.planets?.length ? ` (${planetLabel(tile)})` : ""}`}
             </title>
             <polygon
               points={geometry.points}
               fill={TILE_FILL[kind]}
-              stroke={partnerKeys.has(key) ? "#f59e0b" : seat ? seatStyle(seat.seat).color : "#0b1220"}
-              strokeWidth={partnerKeys.has(key) ? 9 : seat ? 8 : 3}
+              stroke={seat ? seatStyle(seat.seat).color : "#0b1220"}
+              strokeWidth={seat ? 8 : 3}
             />
             {kind !== "hyperlane" && (
             <text
@@ -128,80 +103,17 @@ export const MapPreviewBoard: React.FC<{
         );
       })}
       <HyperlaneNetwork
-        tiles={netTiles}
+        tiles={placed.map(({ tile, geometry }) => ({
+          systemId: tile.system_id,
+          q: tile.q,
+          r: tile.r,
+          cx: geometry.center.x,
+          cy: geometry.center.y,
+        }))}
         model={model}
         weight={1.2}
         bed={TILE_FILL.hyperlane}
-        hotConnections={hotList}
-      />
-      <HyperlaneLinks
-        tiles={netTiles}
-        model={model}
-        weight={1.2}
-        hot={hotList}
       />
     </svg>
-    {model.connections.length > 0 && (
-      <div className="map-preview-links" data-testid="hyperlane-link-legend" style={{ fontSize: 12, color: "var(--color-text-muted, #94a3b8)" }}>
-        <p style={{ margin: "0 0 4px", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <span aria-hidden="true">
-            <svg width="26" height="10" viewBox="0 0 26 10" style={{ verticalAlign: "middle" }}>
-              <line x1="1" y1="5" x2="25" y2="5" stroke="#c4b5fd" strokeWidth="7" strokeLinecap="round" />
-              <line x1="1" y1="5" x2="25" y2="5" stroke="#1e1b4b" strokeWidth="3" strokeLinecap="round" />
-              <line x1="3" y1="5" x2="23" y2="5" stroke="#fde68a" strokeWidth="1.5" strokeDasharray="3 3" />
-            </svg>{" "}
-            Lane route
-          </span>
-          <span aria-hidden="true">
-            <svg width="26" height="10" viewBox="0 0 26 10" style={{ verticalAlign: "middle" }}>
-              <path d="M3 8Q13 -2 23 8" stroke="#fde68a" strokeWidth="1.5" fill="none" />
-              <circle cx="3" cy="8" r="2.5" fill="#fde68a" />
-              <circle cx="23" cy="8" r="2.5" fill="#fde68a" />
-            </svg>{" "}
-            Linked pair
-          </span>
-          <span>Point at a system, or a pair below, to light its route.</span>
-        </p>
-        <details>
-          <summary>
-            {model.connections.length} linked pairs
-          </summary>
-          <ul style={{ listStyle: "none", margin: "6px 0 0", padding: 0, display: "flex", flexWrap: "wrap", gap: 4 }}>
-            {model.connections.map((c) => {
-              const id = connectionId(c);
-              return (
-                <li key={id}>
-                  <button
-                    type="button"
-                    data-testid="hyperlane-pair"
-                    data-pair={id}
-                    aria-pressed={hotPair === id}
-                    aria-label={`Systems ${c.fromId} and ${c.toId}, linked through ${c.tiles.length} lane tile${c.tiles.length === 1 ? "" : "s"}`}
-                    onMouseEnter={() => setHotPair(id)}
-                    onMouseLeave={() => setHotPair(null)}
-                    onFocus={() => setHotPair(id)}
-                    onBlur={() => setHotPair(null)}
-                    onClick={() => setHotPair((h) => (h === id ? null : id))}
-                    style={{
-                      font: "inherit",
-                      padding: "6px 8px",
-                      minHeight: 32,
-                      borderRadius: 6,
-                      border: `1px solid ${hotPair === id ? "#f59e0b" : "var(--color-border-muted, #334155)"}`,
-                      background: "transparent",
-                      color: "inherit",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {c.fromId} – {c.toId}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </details>
-      </div>
-    )}
-    </>
   );
 };

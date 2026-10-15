@@ -2,7 +2,6 @@ import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  EDGE_DIRS,
   analyzeHyperlanes,
   clearHyperlaneCache,
   getHyperlaneNetwork,
@@ -40,15 +39,20 @@ describe("hyperlane routes on synthetic layouts", () => {
     expect(bad.openEnds.size).toBeGreaterThan(0);
   });
 
-  it("treats a lane end on a shared edge as one junction and links every pair around it", () => {
-    // 88a lanes 1-5, 2-5, 3-5 (0-based 0-4, 1-4, 2-4) meet at the NW edge.
+  it("does not turn at a shared lane end: branches of a three-lane tile join the trunk, not each other", () => {
+    // 88a lanes 1-5, 2-5, 3-5 (0-based 0-4, 1-4, 2-4) share the NW end.
     const m = analyzeHyperlanes([t("88a", 0, 0), t("X", 0, -1), t("A", -1, 1), t("B", 0, 1), t("C", 1, 0)]);
-    expect(ids(m)).toEqual(["A-B", "A-C", "A-X", "B-C", "B-X", "C-X"]);
+    expect(ids(m)).toEqual(["A-X", "B-X", "C-X"]);
     expect(m.junctions.size).toBe(1);
-    // A-B goes through the junction in one tile: two segments
-    const ab = m.connections.find((c) => [c.fromId, c.toId].sort().join("-") === "A-B")!;
-    expect(ab.segments).toHaveLength(2);
-    expect(ab.tiles).toEqual(["0,0"]);
+    for (const c of m.connections) expect(c.segments).toHaveLength(1);
+  });
+
+  it("Learn to Play: 39 reaches 41, 41 and 80 reach 75, and 39 and 80 are not joined", () => {
+    const m = analyzeHyperlanes([
+      t("39", 0, -1), t("85a", 1, -1), t("88a", 2, -1), t("80", 3, -1),
+      t("41", 1, 0), t("75", 2, -2),
+    ]);
+    expect(ids(m)).toEqual(["39-41", "41-75", "75-80"]);
   });
 
   it("terminates on a loop and keeps the direct lane", () => {
@@ -102,56 +106,14 @@ describe("hyperlane routes on the real community maps", () => {
     expect(layouts.length).toBeGreaterThan(5);
   });
 
-  it("draws exactly the pairs that plain graph reachability says are linked, once each", () => {
+  it("every chosen route is a real chain of printed lanes, one route per pair", () => {
     for (const { name, tiles } of layouts) {
       const model = analyzeHyperlanes(tiles);
-      // Independent oracle: union-find over (tile, edge) ports.
       const byKey = new Map(tiles.map((x) => [tileKey(x.q, x.r), x]));
-      const parent = new Map<string, string>();
-      const find = (a: string): string => {
-        if (!parent.has(a)) parent.set(a, a);
-        const p = parent.get(a)!;
-        if (p === a) return a;
-        const root = find(p);
-        parent.set(a, root);
-        return root;
-      };
-      const union = (a: string, b: string) => parent.set(find(a), find(b));
-      for (const x of tiles) {
-        const lane = parseHyperlaneId(x.systemId);
-        if (!lane) continue;
-        const k = tileKey(x.q, x.r);
-        for (const [a, b] of lane.lanes) union(`${k}:${a}`, `${k}:${b}`);
-        for (let e = 0; e < 6; e++) {
-          const [dq, dr] = EDGE_DIRS[e];
-          const n = byKey.get(tileKey(x.q + dq, x.r + dr));
-          const nl = n && parseHyperlaneId(n.systemId);
-          if (nl && nl.lanes.some((l) => l.includes((e + 3) % 6)) && lane.lanes.some((l) => l.includes(e))) {
-            union(`${k}:${e}`, `${tileKey(n.q, n.r)}:${(e + 3) % 6}`);
-          }
-        }
-      }
-      const ends: { key: string; root: string }[] = [];
-      for (const x of tiles) {
-        if (parseHyperlaneId(x.systemId)) continue;
-        const k = tileKey(x.q, x.r);
-        for (let e = 0; e < 6; e++) {
-          const [dq, dr] = EDGE_DIRS[e];
-          const n = byKey.get(tileKey(x.q + dq, x.r + dr));
-          const nl = n && parseHyperlaneId(n.systemId);
-          if (nl && nl.lanes.some((l) => l.includes((e + 3) % 6))) {
-            ends.push({ key: k, root: find(`${tileKey(n.q, n.r)}:${(e + 3) % 6}`) });
-          }
-        }
-      }
-      const expected = new Set<string>();
-      for (const a of ends) for (const b of ends) if (a.key < b.key && a.root === b.root) expected.add(`${a.key}|${b.key}`);
       const drawn = model.connections.map((c) => [c.fromKey, c.toKey].sort().join("|"));
       expect(new Set(drawn).size, `${name}: one route per pair`).toBe(drawn.length);
-      expect(new Set(drawn), name).toEqual(expected);
       for (const c of model.connections) {
         expect(c.segments.length, name).toBeGreaterThan(0);
-        // every segment is a real lane, and consecutive segments touch
         for (const s of c.segments) {
           const [k, ab] = s.split(":");
           const [a, b] = ab.split("-").map(Number);

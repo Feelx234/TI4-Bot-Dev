@@ -10,10 +10,8 @@ import {
   parseHyperlaneId,
 } from "./hyperlaneGeometry.ts";
 import {
-  connectionsAt,
   portPoint,
   tileKey,
-  type HyperlaneConnection,
   type HyperlaneNetworkModel,
   type NetTileInput,
 } from "./hyperlaneNetwork.ts";
@@ -71,8 +69,6 @@ const Lanes: React.FC<{ systemId: string; weight: number; frame: boolean }> = ({
 
 /** Distance between neighbouring hexes' edges on every board (centres 150 apart, radius 70). */
 const GAP = 150 - 2 * EDGE_RADIUS;
-const LINK = "var(--hyperlane-link, #fde68a)";
-const HOT = "var(--hyperlane-hot, #f59e0b)";
 
 export interface NetworkTile extends NetTileInput {
   /** Centre in the drawing's coordinates. */
@@ -84,25 +80,20 @@ export interface NetworkTile extends NetTileInput {
  * The whole lane network as one drawing, to be placed after every tile fill and before nothing
  * but overlays. Pass order gives the seamless look: all lane outlines first, then all channels
  * (so lanes merge across tile edges and at junctions with one consistent double line), then the
- * dashed route cores of the chosen connections, then ends: a ring dock on the system a lane
- * reaches (gold dot when a route ends there), a flat bar on an open end, a diamond where three or
- * more lanes meet. `hot` lights every connection through that tile.
+ * ends: a ring dock on the system a lane reaches, a flat bar on an open end, a diamond where three
+ * or more lanes meet. Every lane is drawn, so every chosen route is traceable along drawn lanes.
  */
 export const HyperlaneNetwork: React.FC<{
   tiles: readonly NetworkTile[];
   model: HyperlaneNetworkModel;
   weight?: number;
   bed?: string;
-  hot?: string | null;
-  /** Lights exactly these routes instead of those through `hot`. */
-  hotConnections?: readonly HyperlaneConnection[];
-}> = ({ tiles, model, weight = 1, bed, hot = null, hotConnections }) => {
+}> = ({ tiles, model, weight = 1, bed }) => {
   const lanes = tiles
     .map((t) => ({ t, key: tileKey(t.q, t.r), tile: parseHyperlaneId(t.systemId) }))
     .filter((x): x is { t: NetworkTile; key: string; tile: NonNullable<typeof x.tile> } => x.tile !== null);
   if (lanes.length === 0) return null;
   const at = (key: string) => lanes.find((l) => l.key === key);
-  const hotSegs = new Set((hotConnections ?? connectionsAt(model, hot)).flatMap((c) => c.segments));
   const paths = (stroke: string, width: number, pick?: (seg: string) => boolean, extra?: object) =>
     lanes.map(({ t, key, tile }) => (
       <g key={key} transform={`translate(${t.cx} ${t.cy})`}>
@@ -143,17 +134,6 @@ export const HyperlaneNetwork: React.FC<{
           />
         );
       });
-  const usedPorts = new Set<string>();
-  for (const seg of model.usedSegments) {
-    const [k, ab] = seg.split(":");
-    for (const e of ab.split("-")) usedPorts.add(`${k}:${e}`);
-  }
-  const dash = { strokeDasharray: `${3 * w} ${3.2 * w}`, strokeLinecap: "butt" as const };
-  const hotPorts = new Set<string>();
-  for (const seg of hotSegs) {
-    const [k, ab] = seg.split(":");
-    for (const e of ab.split("-")) hotPorts.add(`${k}:${e}`);
-  }
   return (
     <g
       data-testid="hyperlane-network"
@@ -163,14 +143,10 @@ export const HyperlaneNetwork: React.FC<{
       style={bed ? ({ "--hyperlane-bed": bed } as React.CSSProperties) : undefined}
     >
       <g fill="none" strokeLinecap="round" strokeLinejoin="round">
-        {hotSegs.size > 0 && paths(HOT, 15 * w, (s) => hotSegs.has(s))}
-        {hotSegs.size > 0 && stubs(HOT, 15 * w, (port) => hotPorts.has(port))}
         {paths(INK, 9 * w)}
         {stubs(INK, 9 * w)}
         {paths(BED, 3.6 * w)}
         {stubs(BED, 3.6 * w)}
-        {paths(LINK, 1.5 * w, (s) => model.usedSegments.has(s), dash)}
-        {stubs(LINK, 1.5 * w, (port) => usedPorts.has(port), dash)}
       </g>
       {[...model.docks.keys()].map((port) => {
         const p = world(port);
@@ -181,7 +157,7 @@ export const HyperlaneNetwork: React.FC<{
         return (
           <g key={`dock-${port}`} data-testid="hyperlane-dock" data-used={used}>
             <circle cx={p.x + out.x - base.x} cy={p.y + out.y - base.y} r={7.5 * w} fill={INK} />
-            <circle cx={p.x + out.x - base.x} cy={p.y + out.y - base.y} r={3.2 * w} fill={used ? LINK : BED} />
+            <circle cx={p.x + out.x - base.x} cy={p.y + out.y - base.y} r={3.2 * w} fill={BED} />
           </g>
         );
       })}
@@ -218,63 +194,6 @@ export const HyperlaneNetwork: React.FC<{
           >
             <rect x={-r * 0.7} y={-r * 0.7} width={r * 1.4} height={r * 1.4} fill={INK} />
             <rect x={-r * 0.35} y={-r * 0.35} width={r * 0.7} height={r * 0.7} fill={BED} />
-          </g>
-        );
-      })}
-    </g>
-  );
-};
-
-/** Id of a linked pair, as in `data-pair`. */
-export const connectionId = (c: HyperlaneConnection) => `${c.fromKey}|${c.toKey}`;
-
-/**
- * One thin arc between the two systems of every linked pair, so each pair is individually
- * visible even where routes share lanes. Arcs bow to the left of from-to (canonical order), so
- * the two directions of a crowded corridor never lie on each other. `only` draws just those pairs
- * (the game board shows the arcs of the hovered or selected system); `hot` thickens some.
- */
-export const HyperlaneLinks: React.FC<{
-  tiles: readonly NetworkTile[];
-  model: HyperlaneNetworkModel;
-  weight?: number;
-  bed?: string;
-  only?: readonly HyperlaneConnection[];
-  hot?: readonly HyperlaneConnection[];
-}> = ({ tiles, model, weight = 1, bed = "#0b1220", only, hot = [] }) => {
-  const centre = new Map(tiles.map((t) => [tileKey(t.q, t.r), t]));
-  const hotIds = new Set(hot.map(connectionId));
-  const dim = hotIds.size > 0;
-  const list = only ?? model.connections;
-  if (list.length === 0) return null;
-  return (
-    <g data-testid="hyperlane-links" pointerEvents="none" aria-hidden="true" fill="none" strokeLinecap="round">
-      {list.map((c) => {
-        const a = centre.get(c.fromKey);
-        const b = centre.get(c.toKey);
-        if (!a || !b) return null;
-        const dx = b.cx - a.cx;
-        const dy = b.cy - a.cy;
-        const len = Math.hypot(dx, dy) || 1;
-        const ux = dx / len;
-        const uy = dy / len;
-        const trim = Math.min(30, len / 3);
-        const x1 = a.cx + ux * trim;
-        const y1 = a.cy + uy * trim;
-        const x2 = b.cx - ux * trim;
-        const y2 = b.cy - uy * trim;
-        const bow = len * 0.16;
-        const qx = (a.cx + b.cx) / 2 + uy * bow;
-        const qy = (a.cy + b.cy) / 2 - ux * bow;
-        const d = `M${x1.toFixed(1)} ${y1.toFixed(1)}Q${qx.toFixed(1)} ${qy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`;
-        const id = connectionId(c);
-        const isHot = hotIds.has(id);
-        return (
-          <g key={id} data-testid="hyperlane-link" data-pair={id} data-hot={isHot || undefined} opacity={dim && !isHot ? 0.12 : isHot ? 1 : 0.55}>
-            <path d={d} stroke={bed} strokeWidth={(isHot ? 6 : 2.8) * weight} opacity={0.6} />
-            <path d={d} stroke={LINK} strokeWidth={(isHot ? 3 : 1.2) * weight} />
-            <circle cx={x1} cy={y1} r={(isHot ? 4 : 2.6) * weight} fill={LINK} />
-            <circle cx={x2} cy={y2} r={(isHot ? 4 : 2.6) * weight} fill={LINK} />
           </g>
         );
       })}
