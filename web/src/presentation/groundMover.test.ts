@@ -25,9 +25,9 @@ const choice = {
   context: { subtype: "ghost_squad_move" } as never,
   options: [
     { id: "move|mellon|zohbat|infantry", kind: "move", label: "move 3 infantry from mellon to zohbat", payload: { from: "mellon", to: "zohbat", unit: "infantry", count: 3 } },
-    { id: "move|mellon|zohbat|mech", kind: "move", label: "move 1 mech from mellon to zohbat" },
-    { id: "move|zohbat|mellon|infantry", kind: "move", label: "move 1 infantry from zohbat to mellon" },
-    { id: "decline", kind: "decline", label: "Decline" },
+    { id: "move|mellon|zohbat|mech", kind: "move", label: "move 1 mech from mellon to zohbat", payload: {} },
+    { id: "move|zohbat|mellon|infantry", kind: "move", label: "move 1 infantry from zohbat to mellon", payload: {} },
+    { id: "decline", kind: "decline", label: "Decline", payload: {} },
   ],
 };
 
@@ -56,6 +56,6 @@ describe("Ghost Squad's ground-force mover", () => {
 
   it("is nothing for another decision or an option it cannot read", () => {
     expect(describeGroundMover({ ...choice, context: { subtype: "other" } as never }, board)).toBeNull();
-    expect(describeGroundMover({ ...choice, options: [{ id: "weird", kind: "move", label: "?" }] }, board)).toBeNull();
+    expect(describeGroundMover({ ...choice, options: [{ id: "weird", kind: "move", label: "?", payload: {} }] }, board)).toBeNull();
   });
 });

@@ -15,8 +15,8 @@ describe("turn bar submissions name their question", () => {
       prompt: "action phase",
       context: { subtype: "prompt:action phase" } as PendingChoiceDto["context"],
       options: [
-        { id: "strategic", kind: "action", label: "take your strategic action" },
-        { id: "tactical", kind: "action", label: "take a tactical action" },
+        { id: "strategic", kind: "action", label: "take your strategic action", payload: {} },
+        { id: "tactical", kind: "action", label: "take a tactical action", payload: {} },
       ],
       details: {
         kind: "turn_menu",

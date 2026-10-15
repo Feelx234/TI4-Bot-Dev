@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { describeNumberStepper } from "./numberStepper.ts";
 
 const counts = (n: number) =>
-  Array.from({ length: n + 1 }, (_, i) => ({ id: String(i), kind: "count", label: `spend ${i} trade goods` }));
+  Array.from({ length: n + 1 }, (_, i) => ({ id: String(i), kind: "count", label: `spend ${i} trade goods`, payload: {} }));
 const bribery = (n: number) => ({
   context: { subtype: "bribery_pick_count", source: { ActionCard: "bribery" } } as never,
   options: counts(n),

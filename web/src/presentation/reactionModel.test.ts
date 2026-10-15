@@ -351,7 +351,7 @@ describe("Engine effect previews", () => {
     actor: "p1",
     nonce: "1",
     prompt: "when ACTION_CARD_PLAYED",
-    context: {
+    context: partialContext({
       subtype: "reaction_when_ACTION_CARD_PLAYED",
       optional: true,
       trigger: {
@@ -363,7 +363,7 @@ describe("Engine effect previews", () => {
         card: "fs1",
       },
       previews: previews as never,
-    },
+    }),
     options: [
       {
         id: "reaction:Sol:ACTION_CARD_PLAYED:when",
@@ -371,7 +371,7 @@ describe("Engine effect previews", () => {
         label: "Play Sabotage",
         payload: { card: "sabo1", card_name: "Sabotage" },
       },
-      { id: "decline", kind: "decline", label: "Pass" },
+      { id: "decline", kind: "decline", label: "Pass", payload: {} },
     ],
   });
 

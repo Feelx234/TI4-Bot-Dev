@@ -280,14 +280,14 @@ describe("Board Component", () => {
       nonce: "nonce_act",
       actor: "p1",
       prompt: "activate a system",
-      context: { subtype: "activate_system" },
+      context: partialContext({ subtype: "activate_system" }),
       options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
     };
     const next = {
       nonce: "nonce_move",
       actor: "p1",
       prompt: "movement",
-      options: [{ id: "done_moving", kind: "decline", label: "finish movement" }],
+      options: [{ id: "done_moving", kind: "decline", label: "finish movement", payload: {} }],
     };
     const { rerender } = render(
       <Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={activation} viewerSeat="p1" />,

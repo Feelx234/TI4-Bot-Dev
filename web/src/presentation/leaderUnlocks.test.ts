@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import type { PlayerView } from "../protocol/types.ts";
+import { partialLeaders, type Loose } from "../test/wire.ts";
 import { leaderUnlockToasts, readLeaderStatuses } from "./leaderUnlocks.ts";
 
-const seat = (leaders: Record<string, string>) => [{ id: "d", leaders }];
+const seat = (leaders: Loose<PlayerView["leaders"]>) => [{ id: "d", leaders: partialLeaders(leaders) }];
 
 describe("leader unlock toasts (fb_1792039768)", () => {
   it("announces an unlocked commander with its printed ability", () => {

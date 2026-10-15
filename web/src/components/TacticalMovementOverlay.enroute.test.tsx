@@ -134,8 +134,8 @@ describe("TacticalMovementOverlay en-route pickups (95.1)", () => {
   // offers one load per system, so a load without its pickup system was "ambiguous".
   it("names the pickup system of an origin load when the active system holds the same unit", async () => {
     const b = board(sys("30", []));
-    b.systems["24"].units.push({ owner: "p1", unit_type: "infantry", damaged: false });
-    b.systems["18"].units.push({ owner: "p1", unit_type: "infantry", damaged: false });
+    b.systems["24"].units.push({ owner: "p1", unit_type: "infantry", planet: null, damaged: false, galvanized: false });
+    b.systems["18"].units.push({ owner: "p1", unit_type: "infantry", planet: null, damaged: false, galvanized: false });
     const onSubmitBatch = renderOverlay(b);
     fireEvent.click(screen.getByTestId("rally-inc-24-carrier"));
     fireEvent.click(screen.getByTestId("rally-inc-cargo-24-infantry-space"));

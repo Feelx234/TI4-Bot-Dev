@@ -5,7 +5,7 @@ import { describeRerollDice } from "../presentation/rerollDice.ts";
 
 const view = describeRerollDice({
   context: { subtype: "fire_team_reroll", source: { ActionCard: "fire_team" } } as never,
-  options: [{ id: "reroll|0:0", kind: "reroll_die", label: "" }],
+  options: [{ id: "reroll|0:0", kind: "reroll_die", label: "", payload: {} }],
   details: {
     current: 1,
     dice: [

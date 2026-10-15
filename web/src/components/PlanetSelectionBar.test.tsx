@@ -314,7 +314,7 @@ describe("PlanetSelectionBar", () => {
       nonce: "pl1",
       actor: "p1",
       prompt: "Plague: which planet",
-      context: { subtype: "plague_pick_planet", source: { ActionCard: "plague" } },
+      context: partialContext({ subtype: "plague_pick_planet", source: { ActionCard: "plague" } }),
       options: [
         { id: "26|lodor", kind: "planet", label: "Lodor", payload: { planet: "lodor", system: "26" } },
         { id: "30|gral", kind: "planet", label: "Gral", payload: { planet: "gral", system: "30" } },

@@ -35,8 +35,8 @@ describe("Plagiarize", () => {
       prompt: "Plagiarize: which technology to steal",
       context: { subtype: "plagiarize_pick_technology", source: { ActionCard: "plagiarize" } } as never,
       options: [
-        { id: `${RIVAL}|det`, kind: "technology", label: `${RIVAL}'s Dark Energy Tap` },
-        { id: `${RIVAL}|md_base`, kind: "technology", label: `${RIVAL}'s Magen Defense Grid` },
+        { id: `${RIVAL}|det`, kind: "technology", label: `${RIVAL}'s Dark Energy Tap`, payload: {} },
+        { id: `${RIVAL}|md_base`, kind: "technology", label: `${RIVAL}'s Magen Defense Grid`, payload: {} },
       ],
     });
     const rows = screen.getAllByTestId("choice-option");
@@ -84,8 +84,8 @@ describe("Public Disgrace, Overrule and Strategize", () => {
       prompt: "Overrule: which card's primary ability to perform",
       context: { subtype: "overrule_pick_strategy card", source: { ActionCard: "overrule" } } as never,
       options: [
-        { id: "te4construction", kind: "strategy card", label: `${RIVAL}'s Construction` },
-        { id: "pok8imperial", kind: "strategy card", label: "Imperial" },
+        { id: "te4construction", kind: "strategy card", label: `${RIVAL}'s Construction`, payload: {} },
+        { id: "pok8imperial", kind: "strategy card", label: "Imperial", payload: {} },
       ],
       details: { holders: { te4construction: RIVAL, pok8imperial: null } },
     });
@@ -107,8 +107,8 @@ describe("Public Disgrace, Overrule and Strategize", () => {
       prompt: "choose a different strategy card",
       context: { subtype: "public_disgrace_choose_card", source: { ActionCard: "public_disgrace" } } as never,
       options: [
-        { id: "pok3politics", kind: "strategy_card", label: "3. Politics" },
-        { id: "pok4construction", kind: "strategy_card", label: "4. Construction" },
+        { id: "pok3politics", kind: "strategy_card", label: "3. Politics", payload: {} },
+        { id: "pok4construction", kind: "strategy_card", label: "4. Construction", payload: {} },
       ],
       details: { first: "pok5trade", played_by: RIVAL },
     });
@@ -126,8 +126,8 @@ describe("Repeal Law", () => {
       prompt: "repeal which law",
       context: { subtype: "repeal_pick_repeal", source: { ActionCard: "repeal" } } as never,
       options: [
-        { id: "checks", kind: "repeal", label: "checks" },
-        { id: "minister_commerce", kind: "repeal", label: "minister_commerce" },
+        { id: "checks", kind: "repeal", label: "checks", payload: {} },
+        { id: "minister_commerce", kind: "repeal", label: "minister_commerce", payload: {} },
       ],
       details: {
         laws: {
@@ -152,8 +152,8 @@ describe("Fire Team", () => {
     prompt: "reroll die 1 of infantry",
     context: { subtype: "fire_team_reroll", source: { ActionCard: "fire_team" } } as never,
     options: [
-      { id: `reroll|0:${current}`, kind: "reroll_die", label: "reroll" },
-      { id: "decline", kind: "decline", label: "Decline" },
+      { id: `reroll|0:${current}`, kind: "reroll_die", label: "reroll", payload: {} },
+      { id: "decline", kind: "decline", label: "Decline", payload: {} },
     ],
     details: {
       current,
@@ -182,7 +182,7 @@ describe("Ghost Squad", () => {
         context: { subtype: "ghost_squad_move", source: { ActionCard: "ghost_squad" } } as never,
         options: [
           { id: "move|mellon|zohbat|infantry", kind: "move", label: "move 1 infantry from mellon to zohbat", payload: { from: "mellon", to: "zohbat", unit: "infantry", count: 1 } },
-          { id: "decline", kind: "decline", label: "Decline" },
+          { id: "decline", kind: "decline", label: "Decline", payload: {} },
         ],
       },
       {
@@ -191,7 +191,7 @@ describe("Ghost Squad", () => {
             system_id: "30",
             command_tokens: [],
             planets: {},
-            units: [{ unit_type: "infantry", owner: ME, planet: "mellon", damaged: false }],
+            units: [{ unit_type: "infantry", owner: ME, planet: "mellon", damaged: false, galvanized: false }],
           },
         },
       },
@@ -209,7 +209,7 @@ describe("Bribery", () => {
       ...base,
       prompt: "Bribery: how many trade goods to spend?",
       context: { subtype: "bribery_pick_count", source: { ActionCard: "bribery" } } as never,
-      options: [0, 1, 2].map((n) => ({ id: String(n), kind: "count", label: `spend ${n} trade goods` })),
+      options: [0, 1, 2].map((n) => ({ id: String(n), kind: "count", label: `spend ${n} trade goods`, payload: {} })),
     });
     expect(screen.getByTestId("number-stepper")).toBeInTheDocument();
     expect(screen.queryByTestId("choice-option")).toBeNull();
@@ -223,8 +223,8 @@ describe("Lie in Wait and Seize Artifact", () => {
       prompt: "Lie in Wait: take which action card",
       context: { subtype: "lieinwait_pick_action_card", source: { ActionCard: "lieinwait" } } as never,
       options: [
-        { id: "spy", kind: "action_card", label: `take spy from ${RIVAL}` },
-        { id: "bribery", kind: "action_card", label: `take bribery from ${RIVAL}` },
+        { id: "spy", kind: "action_card", label: `take spy from ${RIVAL}`, payload: {} },
+        { id: "bribery", kind: "action_card", label: `take bribery from ${RIVAL}`, payload: {} },
       ],
       details: { from: RIVAL },
     });

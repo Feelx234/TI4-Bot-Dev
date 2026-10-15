@@ -5,7 +5,7 @@ import { describeNumberStepper } from "../presentation/numberStepper.ts";
 
 const view = describeNumberStepper({
   context: { subtype: "bribery_pick_count", source: { ActionCard: "bribery" } } as never,
-  options: [0, 1, 2, 3].map((i) => ({ id: String(i), kind: "count", label: `spend ${i}` })),
+  options: [0, 1, 2, 3].map((i) => ({ id: String(i), kind: "count", label: `spend ${i}`, payload: {} })),
 })!;
 
 describe("NumberStepperPanel", () => {

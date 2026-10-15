@@ -9,8 +9,8 @@ const dice = [
 const choice = (current: number) => ({
   context: { subtype: "fire_team_reroll", source: { ActionCard: "fire_team" } } as never,
   options: [
-    { id: `reroll|0:${current}`, kind: "reroll_die", label: "reroll" },
-    { id: "decline", kind: "decline", label: "Decline" },
+    { id: `reroll|0:${current}`, kind: "reroll_die", label: "reroll", payload: {} },
+    { id: "decline", kind: "decline", label: "Decline", payload: {} },
   ],
   details: { dice, current },
 });
@@ -41,7 +41,7 @@ describe("reroll dice (Fire Team and the other roll cards)", () => {
   });
 
   it("is nothing for any other decision, or without the dice", () => {
-    expect(describeRerollDice({ ...choice(0), options: [{ id: "decline", kind: "decline", label: "x" }] })).toBeNull();
+    expect(describeRerollDice({ ...choice(0), options: [{ id: "decline", kind: "decline", label: "x", payload: {} }] })).toBeNull();
     expect(describeRerollDice({ ...choice(0), details: undefined })).toBeNull();
   });
 
@@ -58,8 +58,8 @@ describe("reroll dice (Fire Team and the other roll cards)", () => {
     const view = describeRerollDice(choice(0))!;
     const intents = rerollIntents(view, new Set([1]));
     const asked = (index: number) => [
-      { id: view.dice[index].optionId, kind: "reroll_die", label: "" },
-      { id: "decline", kind: "decline", label: "" },
+      { id: view.dice[index].optionId, kind: "reroll_die", label: "", payload: {} },
+      { id: "decline", kind: "decline", label: "", payload: {} },
     ];
     expect(intents).toHaveLength(3);
     expect(asked(0).filter(intents[0]).map((o) => o.id)).toEqual(["decline"]);
