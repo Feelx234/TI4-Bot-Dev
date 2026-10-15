@@ -56,7 +56,7 @@ const zoom = async (page: Page, title: "Zoom In" | "Zoom Out", n: number) => {
 test("every hyperlane tile face", async ({ page }, testInfo) => {
   for (const [name, size] of Object.entries(SIZES)) {
     await open(page, boardOf(grid(FACES, 6)), size, "system-hex-83a");
-    await expect(page.getByTestId("hyperlane-art")).toHaveCount(FACES.length);
+    await expect(page.getByTestId("hyperlane-network")).toHaveCount(1);
     await shot(page, testInfo, `1-faces-${name}`);
   }
 });

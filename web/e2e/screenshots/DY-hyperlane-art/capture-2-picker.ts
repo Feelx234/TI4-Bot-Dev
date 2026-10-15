@@ -7,7 +7,7 @@ test("map picker: a hyperlane map, desktop", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const card = await openPickerOn(page, 5, "5pRaceForMecatol", "Race for Mecatol");
   await expect(card).toContainText("Hyperlanes");
-  await expect(page.getByTestId("map-preview-board").getByTestId("hyperlane-art").first()).toBeVisible();
+  await expect(page.getByTestId("map-preview-board").getByTestId("hyperlane-network").first()).toBeVisible();
   await shot(page, testInfo, "7-picker-desktop");
 });
 
