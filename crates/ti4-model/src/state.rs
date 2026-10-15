@@ -83,8 +83,9 @@ impl TokenPool {
     pub const ALL: [Self; 3] = [Self::Tactic, Self::Fleet, Self::Strategic];
 }
 
-/// How a player wants to handle a specific reaction card during a game (M06-016).
-/// Resets at the start of each new game.
+/// How a player wants to handle a specific reaction card during a game (M06-016): offered
+/// always, never, or only in the turns of the seat (of the action phase). Resets at the start
+/// of each new game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

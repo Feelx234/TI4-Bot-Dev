@@ -6,9 +6,9 @@
 //! writes, and `cargo wire-web` writes them again.
 //!
 //! The roots are what a page sends and reads: `ClientMessage` and `ServerMessage` of
-//! `ti4_host::protocol`, the catalogue, the setup of a table (its options, preview and draw, and
-//! the game request of a start), the odds of a space combat, and the save of a game. Every type
-//! that they name is written with them.
+//! `ti4_host::protocol`, the catalogue, the setup of a table (its options and preview as the
+//! server and the engine give them, its draw, and the game request of a start), the odds of a
+//! space combat, and the save of a game. Every type that they name is written with them.
 
 use std::any::TypeId;
 use std::collections::{BTreeMap, HashSet};
@@ -48,7 +48,9 @@ pub fn files() -> BTreeMap<String, String> {
     collect.visit::<ti4_host::protocol::ClientMessage>();
     collect.visit::<ti4_host::protocol::ServerMessage>();
     collect.visit::<ti4_host::view::components::Catalog>();
+    collect.visit::<ti4_host::setup::SetupOptions>();
     collect.visit::<crate::TableOptions>();
+    collect.visit::<ti4_host::maps::MapPreview>();
     collect.visit::<crate::TablePreview>();
     collect.visit::<crate::TableDraw>();
     collect.visit::<crate::host_setup::GameRequest>();

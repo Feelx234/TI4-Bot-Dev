@@ -14,7 +14,7 @@ import {
 import { type PlanStep, stepOf } from "./movementPlan";
 import type { LocalState } from "./select/action";
 import { selectShell } from "./select/shell";
-import type { InvasionFacts, SessionUpdate } from "./wire";
+import type { InvasionFacts, SessionUpdate, TacticalFacts } from "./wire";
 
 // An update of a real game, written by the engine: seat a (Sol) moved a carrier with two
 // infantry to the system next to its home, which has one planet that nobody holds.
@@ -24,7 +24,7 @@ const real = update.tactical as InvasionFacts;
 const choice = update.pending_choice!.choice;
 
 /** Two infantry and a mech in space, and a damaged mech on a planet next door; three planets. */
-const facts: InvasionFacts = {
+const facts: Extract<TacticalFacts, { kind: "invasion" }> = {
   kind: "invasion",
   active: "38",
   forces: [

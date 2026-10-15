@@ -79,11 +79,17 @@ The types of what the server and the engine send and take, generated from the Ru
 
 - The roots: `ClientMessage` and `ServerMessage` (`ti4_host::protocol`, with the views, the
   status, the staged work and the planning wire), `Catalog`, the setup of a table
-  (`TableOptions`, `TablePreview`, `TableDraw`, `GameRequest`), the odds of a space combat
-  (`SpaceOddsRequest`, `BattleResponse`) and the save (`HostSave`). Every type that they name is
-  generated with them. `PROTOCOL_VERSION` is generated too.
-- The doc comments are those of the Rust types. A field that Rust leaves out when it is empty
-  is `name?: T`. `u64` is `number`. The engine's `GameState` is `Record<string, unknown>`.
+  (`SetupOptions` and `MapPreview` as the server gives them, `TableOptions`, `TablePreview`,
+  `TableDraw`, `GameRequest`), the odds of a space combat (`SpaceOddsRequest`, `BattleResponse`)
+  and the save (`HostSave`). Every type that they name is generated with them.
+  `PROTOCOL_VERSION` is generated too. The types of `ti4-server` (the lobby of a table) are not.
+- The doc comments are those of the Rust types: a comment for a page is written there. A field
+  that Rust leaves out when it is empty is `name?: T`. A field that a page may leave out of what
+  it sends (serde `default`) is `name?: T` with `#[cfg_attr(feature = "ts", ts(optional))]` on an
+  `Option`, and `ts(optional = nullable)` on another type (`TableSetup`, `SeatRequest`, `scope`
+  of `run_draft`). `u64` is `number`. The engine's `GameState` is `Record<string, unknown>`.
+- web2 imports them through `web2/src/session/wire.ts`, which re-exports them and adds only what
+  web2 narrows. web has its own types (`web/src/protocol/types.ts`).
 - A change of a Rust type of the wire: run `cargo wire-web` (it writes `src/wire/generated/`
   and removes the files of types that are gone) and commit the files. `cargo t-web` fails while
   they are stale (`wire_types::generated_wire_types_are_current`).

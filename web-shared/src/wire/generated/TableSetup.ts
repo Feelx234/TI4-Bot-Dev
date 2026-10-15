@@ -5,22 +5,31 @@ import type { SpeakerOrder } from "./SpeakerOrder.ts";
 
 /**
  * What a host chose for a table. The players and their factions are not a part of it: they are
- * given to [`draw`].
+ * given to [`draw`]. Both hosts start a table from it, so a table of a seed is the same game in
+ * the page and on the server.
  */
 export type TableSetup = { player_count: number, 
 /**
  * The map of the table; a table that names none plays the seeded random board.
  */
-map: MapChoice, 
+map?: MapChoice, 
 /**
  * One of the sets of the content (a table offers [`card_set::OFFERED`]).
  */
-strategy_cards: string, seat_order: SeatOrder, speaker_order: SpeakerOrder, 
+strategy_cards?: string, 
+/**
+ * Left out: `random`, drawn from the seed.
+ */
+seat_order?: SeatOrder, 
+/**
+ * Left out: `random`, drawn from the seed. `seat` is the first seat.
+ */
+speaker_order?: SpeakerOrder, 
 /**
  * The id of a scenario of [`crate::view::scenario`]: the table starts that game, with its seed,
  * its seats, its map, its cards and its factions. `None` is round 1.
  */
-start_from: string | null, 
+start_from?: string, 
 /**
  * A start preset of [`crate::preset`] (a test table): it seats its own factions in the order
  * of the join and sets its cases on the opening state. A scenario wins over it.

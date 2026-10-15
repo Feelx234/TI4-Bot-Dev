@@ -85,7 +85,8 @@ pub struct SideInput {
     pub guns: Option<UnitCounts>,
 }
 
-/// Outcome statistics from [`arena`] rollouts.
+/// Outcome statistics from [`arena`] rollouts. The rates are fractions of the rollouts, the
+/// survivors and the fielded units are by unit id.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BattleResponse {
@@ -93,6 +94,7 @@ pub struct BattleResponse {
     pub attacker_win_rate: f64,
     pub defender_win_rate: f64,
     pub mutual_destruction_rate: f64,
+    /// The rollouts that did not end.
     pub unresolved_rate: f64,
     pub average_rounds: f64,
     pub attacker_expected_survivors: BTreeMap<String, f64>,

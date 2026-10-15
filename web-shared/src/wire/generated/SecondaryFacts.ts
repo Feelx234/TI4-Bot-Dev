@@ -4,7 +4,8 @@ import type { PlayerId } from "./PlayerId.ts";
 import type { StrategyCardId } from "./StrategyCardId.ts";
 
 /**
- * The strategic action that is resolved now.
+ * The strategic action that is resolved now: who played which strategy card, and what each
+ * follower did.
  */
 export type SecondaryFacts = { primary: PlayerId, card: StrategyCardId, 
 /**

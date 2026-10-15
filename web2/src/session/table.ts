@@ -6,7 +6,7 @@ import {
   type LobbyState,
   type MapChoice,
   type MapPreview,
-  type MapSummary,
+  type MapTemplateSummary,
   PROTOCOL_VERSION,
   type SetupOptions,
   type TableServerMessage,
@@ -89,7 +89,7 @@ export interface Table {
    */
   setFaction(playerId: string, faction: string | null): void;
   /** The maps that a table of `players` seats can play. */
-  maps(players: number): Promise<MapSummary[]>;
+  maps(players: number): Promise<MapTemplateSummary[]>;
   /** Chooses the map. Host only. A map is for one number of seats. */
   setMap(map: MapChoice): void;
   /** Starts the game. Host only, with every seat filled. */

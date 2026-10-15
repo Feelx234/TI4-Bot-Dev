@@ -168,10 +168,13 @@ pub struct MovementFacts {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CombatSide {
     pub faction: String,
+    /// The ships of the side in the active system.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub units: BTreeMap<String, usize>,
+    /// How many of them are damaged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub damaged: BTreeMap<String, usize>,
+    /// The units of the side that fire SPACE CANNON in the active system before the combat.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub guns: BTreeMap<String, usize>,
 }
@@ -182,7 +185,9 @@ pub struct CombatSide {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BattleFacts {
+    /// The seat that defends.
     pub defender: String,
+    /// The seat that moves, with what it has there already.
     pub attacker: CombatSide,
     pub defender_side: CombatSide,
 }
@@ -224,7 +229,7 @@ pub struct InvasionFacts {
     pub planets: Vec<LandingPlanet>,
 }
 
-/// One kind of unit that the seat can produce now.
+/// One kind of unit of a production, also one that the seat cannot produce now (`unavailable`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

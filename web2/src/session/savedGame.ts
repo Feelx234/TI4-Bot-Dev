@@ -32,17 +32,6 @@ export interface LocalGame {
   waitMs?: number;
 }
 
-/** The seats that are played here changed during the game (Dev, "Play as"). */
-export interface SeatSwitch {
-  /** The number of the decision of the game from which the mask holds: how many decisions the seats made before it. */
-  decision: number;
-  /**
-   * The seats that are played here from then on, as `LocalGame.humans`. An undo does not go back
-   * before the change.
-   */
-  humans: number;
-}
-
 /** The part of `Storage` that is used, so a test can pass a map. */
 export type SaveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 

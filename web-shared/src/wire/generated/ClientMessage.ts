@@ -17,7 +17,7 @@ staged?: boolean, } | { "type": "submit_choice", protocol_version: number, game_
 /**
  * Left out: the next tactical action.
  */
-scope: PlanScope, } | { "type": "apply_draft", protocol_version: number, game_id: string, nonce: string, expected_version: number, script: Array<DraftStep>, } | { "type": "undo", protocol_version: number, game_id: string, expected_version: number, } | { "type": "set_reaction_intent", protocol_version: number, game_id: string, triggers: Array<string>, } | { "type": "pass_reaction_hold", protocol_version: number, game_id: string, } | { "type": "preview_secondary", protocol_version: number, game_id: string, 
+scope?: PlanScope, } | { "type": "apply_draft", protocol_version: number, game_id: string, nonce: string, expected_version: number, script: Array<DraftStep>, } | { "type": "undo", protocol_version: number, game_id: string, expected_version: number, } | { "type": "set_reaction_intent", protocol_version: number, game_id: string, triggers: Array<string>, } | { "type": "pass_reaction_hold", protocol_version: number, game_id: string, } | { "type": "preview_secondary", protocol_version: number, game_id: string, 
 /**
  * Echoed in the answer so a client can match replies to requests.
  */

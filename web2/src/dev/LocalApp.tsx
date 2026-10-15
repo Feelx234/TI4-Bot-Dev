@@ -15,7 +15,6 @@ import { GameTable } from "./GameTable";
 import { DEFAULT_NICKNAME, onlineAddress } from "./onlineStart";
 import {
   type LocalGame,
-  type SeatSwitch,
   STEPPING_KEY,
   clearLeft,
   gameAddress,
@@ -43,7 +42,7 @@ import {
   takeLeft,
 } from "../session/saves";
 import type { Transport } from "../session/transport";
-import type { ReactionModes, SessionUpdate } from "../session/wire";
+import type { ReactionModes, SeatSwitch, SessionUpdate } from "../session/wire";
 import { useLiveSession } from "../session/useLiveSession";
 import {
   type Engine,

@@ -8,15 +8,15 @@ import { type LegacyStaged, seatSync } from "./seatStore";
 import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
 import type { Capabilities, PlanStopped, Transport, TransportEvent } from "./transport";
 import {
+  type BattleResponse,
   type Catalog,
   type ClientRequest,
-  type DraftScope,
   type DraftStep,
+  type PlanScope,
   PROTOCOL_VERSION,
   type ReactionModes,
   type ServerMessage,
   type SpaceOddsRequest,
-  type SpaceOddsResponse,
   type StateMsg,
 } from "./wire";
 
@@ -28,7 +28,7 @@ export interface MessagePlay {
   gameId: string;
   /** The printed cards of the engine of this page. A snapshot of other cards is refused. */
   catalog: Catalog | null;
-  odds(request: SpaceOddsRequest): Promise<SpaceOddsResponse>;
+  odds(request: SpaceOddsRequest): Promise<BattleResponse>;
   capabilities?: Capabilities;
   /** The side plays a seat, and has staged work. A spectator has none. */
   player: boolean;
@@ -106,7 +106,7 @@ export function messageTransport(link: GameLink, play: MessagePlay): MessageCore
   const unsent = new Set<string>();
   let resync: ReturnType<typeof setTimeout> | null = null;
   /** The newest draft that was asked. An answer for another request is late. */
-  let asked: { id: string; script: DraftStep[]; scope?: DraftScope } | null = null;
+  let asked: { id: string; script: DraftStep[]; scope?: PlanScope } | null = null;
   /** Why the engine did not play the draft that is asked. */
   let refusal: string | null = null;
   let requests = 0;

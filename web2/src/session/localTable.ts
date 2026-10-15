@@ -7,11 +7,11 @@ import { setupDrawOf, setupOptionsOf, setupPreviewOf } from "./wasmTransport";
 import type {
   LobbyState,
   MapChoice,
-  MapSummary,
+  MapTemplateSummary,
+  SeatRequest,
   TableOptions,
   TablePreview,
   TableRequest,
-  TableSeat,
 } from "./wire";
 
 /** The ids of the players, in the order in which they came (`ti4-wasm`, `SEATS`). */
@@ -33,7 +33,7 @@ export interface LocalTablePlay {
 }
 
 /** Who plays a seat. Null: the seat is open. */
-type Kind = TableSeat["kind"] | null;
+type Kind = SeatRequest["kind"] | null;
 
 /** What the host chose. Everything that the table shows is made from it. */
 interface Chosen {
@@ -238,7 +238,7 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
           throw new Refused("No seat is open.");
         }
         for (const seat of fill ? open : open.slice(0, 1)) {
-          seat.kind = kind as TableSeat["kind"];
+          seat.kind = kind as SeatRequest["kind"];
         }
       });
     },
@@ -303,7 +303,7 @@ export function localTable(module: WebAssembly.Module, play: LocalTablePlay): Ta
         next.seats[place].faction = faction;
       });
     },
-    async maps(players): Promise<MapSummary[]> {
+    async maps(players): Promise<MapTemplateSummary[]> {
       return (await optionsOf(players)).maps;
     },
     setMap(map) {
@@ -490,7 +490,7 @@ export function localGameTable(
     },
     rename() {},
     setFaction: () => refuse(RUNNING),
-    async maps(players): Promise<MapSummary[]> {
+    async maps(players): Promise<MapTemplateSummary[]> {
       return (await setupOptionsOf(module, players)).maps;
     },
     setMap: () => refuse(RUNNING),

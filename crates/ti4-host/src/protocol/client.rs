@@ -69,6 +69,7 @@ pub enum ClientMessage {
         script: Vec<crate::planning::draft::DraftStep>,
         /// Left out: the next tactical action.
         #[serde(default)]
+        #[cfg_attr(feature = "ts", ts(optional = nullable))]
         scope: crate::planning::audit::PlanScope,
     },
     /// Answer the pending choice of this connection's seat, and the choices after it, with

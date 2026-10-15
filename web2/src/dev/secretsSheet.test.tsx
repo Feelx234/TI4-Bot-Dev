@@ -16,10 +16,17 @@ const secret = (id: string, name: string, phase: string, group: string) => ({
   text: `The text of ${name}.`,
 });
 const catalog = {
+  content: "",
   exploration: { cards: [], decks: {}, attachments: [] },
   components: {
     abilities: [],
     factions: {},
+    faction_sheets: {},
+    strategy_cards: [],
+    public_objectives: [],
+    public_objective_groups: [],
+    agendas: [],
+    agenda_groups: [],
     leaders: [],
     technologies: [],
     relics: [],

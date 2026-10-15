@@ -17,7 +17,7 @@ function units(id: string, count: number): string {
 /** The sheet of the faction `id`. Null without the catalogue, or for a faction that it does not have. */
 export function factionSheet(id: string, catalog: Catalog | null): FactionSheetView | null {
   const printed = catalog?.components;
-  const sheet = printed?.faction_sheets?.[id];
+  const sheet = printed?.faction_sheets[id];
   if (!printed || !sheet) {
     return null;
   }

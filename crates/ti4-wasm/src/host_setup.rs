@@ -238,13 +238,17 @@ impl SeatKind {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatRequest {
+    /// `human` is played by the page, `smart` by the rule bot, `random` at random.
     #[serde(default)]
     pub kind: SeatKind,
+    /// The faction that was chosen for the player. Left out: drawn from the seed.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub faction: Option<String>,
     /// The name of the player at the table. With a name for every player, the updates of the
     /// game say who sits in each seat.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
 }
 

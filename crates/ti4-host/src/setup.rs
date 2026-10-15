@@ -178,7 +178,8 @@ fn default_card_set() -> String {
 }
 
 /// What a host chose for a table. The players and their factions are not a part of it: they are
-/// given to [`draw`].
+/// given to [`draw`]. Both hosts start a table from it, so a table of a seed is the same game in
+/// the page and on the server.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
@@ -186,17 +187,24 @@ pub struct TableSetup {
     pub player_count: usize,
     /// The map of the table; a table that names none plays the seeded random board.
     #[serde(default = "random_map")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub map: MapChoice,
     /// One of the sets of the content (a table offers [`card_set::OFFERED`]).
     #[serde(default = "default_card_set")]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub strategy_cards: String,
+    /// Left out: `random`, drawn from the seed.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub seat_order: SeatOrder,
+    /// Left out: `random`, drawn from the seed. `seat` is the first seat.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional = nullable))]
     pub speaker_order: SpeakerOrder,
     /// The id of a scenario of [`crate::view::scenario`]: the table starts that game, with its seed,
     /// its seats, its map, its cards and its factions. `None` is round 1.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub start_from: Option<String>,
     /// A start preset of [`crate::preset`] (a test table): it seats its own factions in the order
     /// of the join and sets its cases on the opening state. A scenario wins over it.

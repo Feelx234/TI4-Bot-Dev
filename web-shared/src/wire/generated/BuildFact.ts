@@ -3,7 +3,7 @@ import type { CombatFact } from "./CombatFact.ts";
 import type { Unavailable } from "./Unavailable.ts";
 
 /**
- * One kind of unit that the seat can produce now.
+ * One kind of unit of a production, also one that the seat cannot produce now (`unavailable`).
  */
 export type BuildFact = { unit: string, 
 /**

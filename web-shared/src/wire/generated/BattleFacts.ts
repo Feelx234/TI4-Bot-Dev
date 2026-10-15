@@ -5,4 +5,12 @@ import type { CombatSide } from "./CombatSide.ts";
  * The space combat in the active system: the seat that defends, and both sides. The attacker
  * is the seat that moves; the ships it moves in are added by the client.
  */
-export type BattleFacts = { defender: string, attacker: CombatSide, defender_side: CombatSide, };
+export type BattleFacts = { 
+/**
+ * The seat that defends.
+ */
+defender: string, 
+/**
+ * The seat that moves, with what it has there already.
+ */
+attacker: CombatSide, defender_side: CombatSide, };

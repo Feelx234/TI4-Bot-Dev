@@ -11,9 +11,9 @@ import { type Engine, catalogOf, createWasmTransport } from "./wasmTransport";
 import type {
   ActivationFacts,
   DraftOutcome,
-  DraftScope,
   DraftStep,
   MovementFacts,
+  PlanScope,
   ReactionModes,
   SessionUpdate,
 } from "./wire";
@@ -37,7 +37,7 @@ interface Side {
   transport: Transport;
   /** The next event that is an update and that `wanted` holds for. Updates before it are passed. */
   until(wanted: (event: Update) => boolean): Promise<Update>;
-  draft(script: DraftStep[], scope?: DraftScope): Promise<DraftOutcome | null>;
+  draft(script: DraftStep[], scope?: PlanScope): Promise<DraftOutcome | null>;
   never(): string[];
   modes(): ReactionModes;
   /** Waits until the transport told this mode of a reaction. */
@@ -296,7 +296,7 @@ function contract(start: () => Promise<Side>) {
     expect(action.followers.find((follower) => follower.seat === me)?.state).toBe("waiting");
 
     // The draft asks what the game asks, on a copy.
-    const scope: DraftScope = { kind: "secondary", primary: action.primary, card: action.card };
+    const scope: PlanScope = { kind: "secondary", primary: action.primary, card: action.card };
     const open = await game.draft([], scope);
     expect(open?.stop).toEqual({ kind: "open" });
     expect(open?.update.pending_choice?.choice.options.map((option) => option.id)).toEqual(

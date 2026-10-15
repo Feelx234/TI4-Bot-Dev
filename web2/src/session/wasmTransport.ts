@@ -14,14 +14,16 @@ import { engineLink } from "@ti4/shared/link/engineLink.ts";
 import type { GameLink } from "@ti4/shared/link/link.ts";
 import type { HostSave as StoredSave } from "@ti4/shared/storage/index.ts";
 import { type MessageCore, messageTransport } from "./messageTransport";
-import type { LocalGame, SeatSwitch } from "./savedGame";
+import type { LocalGame } from "./savedGame";
 import { SLOTS, type StagedSlot, sameStaged } from "./seatStore";
 import type { Capabilities, Transport } from "./transport";
 import type {
+  BattleResponse,
   Catalog,
   ReactionModes,
+  SeatStaged,
+  SeatSwitch,
   SpaceOddsRequest,
-  SpaceOddsResponse,
   TableDraw,
   TableOptions,
   TablePreview,
@@ -51,11 +53,8 @@ export interface HostSave extends StoredSave {
   switches?: SeatSwitch[];
 }
 
-/** What a save keeps of the staged work of each seat (`ti4_host::staged::SeatStaged`). */
-type SavedStaged = Record<
-  string,
-  { revision: number; slots: Partial<Record<StagedSlot, { revision: number; value?: unknown }>> }
->;
+/** What a save keeps of the staged work of each seat. */
+type SavedStaged = Record<string, SeatStaged>;
 
 /** The highest revision of the staged work of any seat of a save. */
 const topRevision = (staged: SavedStaged) =>
@@ -165,7 +164,7 @@ function keptOf(module: WebAssembly.Module) {
 export async function spaceOddsOf(module: WebAssembly.Module, request: SpaceOddsRequest) {
   const exports = await keptOf(module);
   try {
-    return askOn<SpaceOddsResponse>(exports, (on, length) => on.ti4_space_odds(length), request);
+    return askOn<BattleResponse>(exports, (on, length) => on.ti4_space_odds(length), request);
   } catch (error) {
     // A trap may leave the instance broken: the next question makes a new one.
     if (error instanceof WebAssembly.RuntimeError) {

@@ -30,7 +30,7 @@ export const titleCase = (text: string) =>
  * catalogue it is the id.
  */
 export const factionName = (id: string, catalog: Catalog | null) =>
-  catalog?.components.faction_sheets?.[id]?.name ?? titleCase(id);
+  catalog?.components.faction_sheets[id]?.name ?? titleCase(id);
 /**
  * Who a seat is, where the page says who the game waits for: the name of its player, as the
  * table says it, and in a game with no table the faction.
@@ -40,7 +40,7 @@ export const seatLabel = (update: SessionUpdate, seat: string, catalog: Catalog 
   factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, catalog);
 /** The commodity value of the faction sheet. Null without the catalogue. */
 export const commodityValue = (id: string, catalog: Catalog | null): number | null =>
-  catalog?.components.faction_sheets?.[id]?.commodities ?? null;
+  catalog?.components.faction_sheets[id]?.commodities ?? null;
 
 /**
  * The initiative and the name of a strategy card, from the catalogue. Without the catalogue
@@ -50,7 +50,7 @@ export function strategyCard(
   id: string,
   catalog: Catalog | null,
 ): { number: number; name: string } {
-  const card = catalog?.components.strategy_cards?.find((item) => item.id === id);
+  const card = catalog?.components.strategy_cards.find((item) => item.id === id);
   if (card) {
     return { number: card.initiative, name: card.name };
   }

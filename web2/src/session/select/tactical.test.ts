@@ -3,7 +3,7 @@ import activationUpdate from "../fixtures/update-activation.json";
 import loadUpdate from "../fixtures/update-load.json";
 import movementUpdate from "../fixtures/update-movement.json";
 import { setLoad, setShip } from "../movementDraft";
-import type { MovementFacts, SessionUpdate } from "../wire";
+import type { SessionUpdate, TacticalFacts } from "../wire";
 import type { LocalState } from "./action";
 import { selectShell } from "./shell";
 
@@ -12,7 +12,7 @@ import { selectShell } from "./shell";
 //   cargo run -p ti4-wasm --example record -- 3 8 1 4 pok8imperial no tactical > web2/src/session/fixtures/update-activation.json
 const activation = activationUpdate as unknown as SessionUpdate;
 const movement = movementUpdate as unknown as SessionUpdate;
-const facts = movement.tactical as MovementFacts;
+const facts = movement.tactical as Extract<TacticalFacts, { kind: "movement" }>;
 const local = (change: Partial<LocalState> = {}): LocalState => ({
   inspected: null,
   staged: null,

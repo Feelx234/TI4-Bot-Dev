@@ -7,7 +7,7 @@ import { type MovementDraft, setLoad, setShip } from "./movementDraft";
 import { type KeptOdds, oddsRequest } from "./movementOdds";
 import { percentages, selectArrival, selectMovement } from "./select/movement";
 import { spaceOddsOf } from "./wasmTransport";
-import type { MovementFacts, SessionUpdate, SpaceOddsResponse } from "./wire";
+import type { BattleResponse, MovementFacts, SessionUpdate } from "./wire";
 
 // An update of a real game, written by the engine: in the late game, seat a (Sol) moves into
 // the system of seat c (Letnev), which has two cruisers, a destroyer and a PDS there:
@@ -26,7 +26,7 @@ const load = (id: string, pool: number, count: number) => (draft: MovementDraft)
   setLoad(facts, draft, id, pool, count);
 
 /** An answer of the engine, as it could be: Sol wins mostly, and keeps most of its ships. */
-const RESPONSE: SpaceOddsResponse = {
+const RESPONSE: BattleResponse = {
   simulations: 2000,
   attacker_win_rate: 0.7234,
   defender_win_rate: 0.2496,

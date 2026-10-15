@@ -272,7 +272,7 @@ function factionGroups(
       name: group.name,
       factions: group.factions.map((faction) => ({
         id: faction.id,
-        name: catalog?.components.faction_sheets?.[faction.id]?.name ?? faction.name,
+        name: catalog?.components.faction_sheets[faction.id]?.name ?? faction.name,
       })),
     }));
   }

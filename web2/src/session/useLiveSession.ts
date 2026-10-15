@@ -79,7 +79,7 @@ import { systemLabel } from "./select/movement";
 import { selectShell } from "./select/shell";
 import { tacticalFacts } from "./select/tactical";
 import type { Transport } from "./transport";
-import type { DraftOutcome, DraftScope, DraftStep, ReactionModes, SessionUpdate } from "./wire";
+import type { DraftOutcome, DraftStep, PlanScope, ReactionModes, SessionUpdate } from "./wire";
 
 const NOTHING: LocalState = {
   inspected: null,
@@ -110,7 +110,7 @@ const sameSystem = (query: string, id: string) =>
 /** A script that the game is asked to play, and what it is of. No scope: a tactical action. */
 interface Wanted {
   script: DraftStep[];
-  scope?: DraftScope;
+  scope?: PlanScope;
 }
 
 /** What the game made of a draft script, and the update of the game that it was asked on. */

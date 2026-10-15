@@ -86,7 +86,17 @@ const OPTIONS: SetupOptions = {
   max_bot_delay_ms: 30_000,
   default_bot_delay_ms: 600,
   scenarios: [
-    { id: "late-game", title: "Late game", description: "Round 4.", seed: 42, players: 8 },
+    {
+      id: "late-game",
+      title: "Late game",
+      description: "Round 4.",
+      category: "Strategy",
+      seed: 42,
+      players: 8,
+      humans: [0],
+      any_seed: false,
+      map: "recommended",
+    },
   ],
 };
 const of = (
@@ -429,6 +439,7 @@ it("the board is the tiles of the preview, and a home is the place of a seat", (
   const state: TableState = {
     ...table("ada"),
     preview: {
+      choice: { kind: "random" },
       player_count: 2,
       tiles: [
         tile("18", 0, {

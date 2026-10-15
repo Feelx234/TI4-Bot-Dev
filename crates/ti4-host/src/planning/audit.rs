@@ -15,8 +15,9 @@ pub const ASSUMPTION: &str = "Other players take no optional reactions in this h
 pub const SECONDARY_ASSUMPTION: &str =
     "The primary ability and earlier players' secondaries may not have resolved yet.";
 
-/// What a disposable attempt previews. The scope picks the engine preparation
-/// and the audited offers; the gate, script and lifecycle are shared.
+/// What a disposable attempt previews: the next tactical action of the seat, or its secondary
+/// of the strategic action that is resolved (`secondary` of an update). The scope picks the
+/// engine preparation and the audited offers; the gate, script and lifecycle are shared.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]

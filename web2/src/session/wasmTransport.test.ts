@@ -36,7 +36,7 @@ import { selectSecrets } from "./select/secrets";
 import { factionSheet } from "./select/factionSheet";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
-import type { LocalGame, SeatSwitch } from "./savedGame";
+import type { LocalGame } from "./savedGame";
 import {
   type Engine,
   type HostSave,
@@ -49,12 +49,13 @@ import {
 } from "./wasmTransport";
 import type {
   DraftOutcome,
-  DraftScope,
   DraftStep,
   InvasionFacts,
   MovementFacts,
+  PlanScope,
   ProductionFacts,
   ReactionModes,
+  SeatSwitch,
   SessionUpdate,
   TableRequest,
 } from "./wire";
@@ -126,7 +127,7 @@ async function play(
     }
   });
   /** Asks for a draft and waits for its answer: the script comes back with it. */
-  const draft = (script: DraftStep[], scope?: DraftScope) =>
+  const draft = (script: DraftStep[], scope?: PlanScope) =>
     new Promise<DraftOutcome | null>((answer) => {
       drafts.set(script, answer);
       transport.draft(script, scope);
@@ -595,8 +596,8 @@ it.skipIf(!built)(
     }
     const open = await next();
     expect(subtype(open)).toBe("produce_unit");
+    expect(open.update.tactical?.kind).toBe("production");
     const facts = open.update.tactical as ProductionFacts;
-    expect(facts.kind).toBe("production");
     const unit = (id: string) => facts.units.findIndex((item) => item.unit === id);
     // The printed side of a unit, in the shape that the card reads. A failure here with an
     // engine that is older than `ti4-host/src/view`: run scripts/build-wasm.sh.
@@ -1383,7 +1384,7 @@ it.skipIf(!built)(
     const choose = (option_id: string): DraftStep => ({ kind: "choose", option_id });
     // Seat a takes the last card, so that another seat plays a strategy card before its turn.
     let event = await next();
-    let drafted: { scope: DraftScope; pass: string } | null = null;
+    let drafted: { scope: PlanScope; pass: string } | null = null;
     for (let turns = 0; turns < 600 && !drafted; turns += 1) {
       const action = event.update.secondary;
       if (event.update.pending_choice) {
@@ -1397,7 +1398,7 @@ it.skipIf(!built)(
         // was before the card was played.
         expect(action.primary).not.toBe("a");
         expect(action.followers.find((follower) => follower.seat === "a")?.state).toBe("waiting");
-        const scope: DraftScope = { kind: "secondary", primary: action.primary, card: action.card };
+        const scope: PlanScope = { kind: "secondary", primary: action.primary, card: action.card };
         const asked = await draft([], scope);
         if (asked?.stop.kind === "complete") {
           // A secondary that the seat cannot use asks nothing (Leadership with no influence).

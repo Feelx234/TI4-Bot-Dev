@@ -43,7 +43,8 @@ pub struct FollowerFact {
     pub state: FollowerState,
 }
 
-/// The strategic action that is resolved now.
+/// The strategic action that is resolved now: who played which strategy card, and what each
+/// follower did.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
