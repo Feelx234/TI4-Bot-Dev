@@ -902,6 +902,11 @@ struct TacticalWindow {
     notes_at_start: crate::combat::NoteHoldings,
 }
 
+/// Experiment switch: trade goods every seat gains at the start of each status phase. Zero, the
+/// default, is the game as printed; a trainer sets it for a whole process when asked to.
+pub static STATUS_INCOME_TRADE_GOODS: std::sync::atomic::AtomicI32 =
+    std::sync::atomic::AtomicI32::new(0);
+
 /// Observes the automatic handoff after movement.
 type AftermathObserver = std::sync::Arc<dyn Fn(&GameState, &ContentStore, SourceSet) + Send + Sync>;
 /// Told which card a strategic action will resolve.
@@ -995,6 +1000,11 @@ pub struct Game<'a> {
     /// Turn sequence whose free start-of-turn technology choices have been resolved.
     prepared_turn_seq: Option<u32>,
     blocked: Option<GameError>,
+    /// Experiment only: trade goods every seat receives as each later round begins. Zero, the
+    /// default, is the game as printed. See [`Game::with_round_income`].
+    round_income_trade_goods: i32,
+    /// Experiment only: when set, only this seat receives the round income.
+    round_income_seat: Option<PlayerId>,
     /// Observe the automatic handoff after movement, before it runs any rules.
     aftermath_observer: Option<AftermathObserver>,
     /// Told which card a strategic action will resolve, before its primary runs.
@@ -1048,6 +1058,8 @@ pub struct GameSnapshot<'a> {
     actions_this_turn: u8,
     prepared_turn_seq: Option<u32>,
     blocked: Option<GameError>,
+    round_income_trade_goods: i32,
+    round_income_seat: Option<PlayerId>,
 }
 
 /// A copy of `state` for a fork or snapshot. A plain `clone` shares the turn-redo deck reserve's
@@ -1104,6 +1116,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         } = self;
         Game {
             state: detached_state(state),
@@ -1140,6 +1154,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn: *actions_this_turn,
             prepared_turn_seq: *prepared_turn_seq,
             blocked: blocked.clone(),
+            round_income_trade_goods: *round_income_trade_goods,
+            round_income_seat: round_income_seat.clone(),
             aftermath_observer: None,
             strategic_observer: None,
         }
@@ -1183,6 +1199,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
         } = self;
         Game {
             state,
@@ -1219,6 +1237,8 @@ impl<'a> GameSnapshot<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
         }
@@ -1305,6 +1325,8 @@ impl<'a> Game<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
             // Input wiring, chosen by whoever drives the copy: never copied.
             aftermath_observer: _,
             strategic_observer: _,
@@ -1352,6 +1374,8 @@ impl<'a> Game<'a> {
             actions_this_turn: *actions_this_turn,
             prepared_turn_seq: *prepared_turn_seq,
             blocked: blocked.clone(),
+            round_income_trade_goods: *round_income_trade_goods,
+            round_income_seat: round_income_seat.clone(),
         }
     }
 
@@ -1499,6 +1523,8 @@ impl<'a> Game<'a> {
             actions_this_turn: 0,
             prepared_turn_seq: None,
             blocked: None,
+            round_income_trade_goods: 0,
+            round_income_seat: None,
             aftermath_observer: None,
             strategic_observer: None,
         }
@@ -1596,6 +1622,8 @@ impl<'a> Game<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
             aftermath_observer: _,
             strategic_observer: _,
         } = self.fork();
@@ -1635,6 +1663,8 @@ impl<'a> Game<'a> {
             actions_this_turn,
             prepared_turn_seq,
             blocked,
+            round_income_trade_goods,
+            round_income_seat,
             aftermath_observer: None,
             strategic_observer: None,
         }
@@ -1812,6 +1842,22 @@ impl<'a> Game<'a> {
         }
         self.sync_timing_context();
         Ok(())
+    }
+
+    /// Experiment only, not a rule: every seat gains `trade_goods` as each round after the first
+    /// begins. The first round's income is the caller's to grant before play, since this game may
+    /// already be inside round one when it is built.
+    #[must_use]
+    pub const fn with_round_income(mut self, trade_goods: i32) -> Self {
+        self.round_income_trade_goods = trade_goods;
+        self
+    }
+
+    /// Experiment only: restrict [`Game::with_round_income`] to one seat (`None`: every seat).
+    #[must_use]
+    pub fn with_round_income_seat(mut self, seat: Option<PlayerId>) -> Self {
+        self.round_income_seat = seat;
+        self
     }
 
     /// The map this game is played on, when it has one.
@@ -1995,6 +2041,8 @@ impl<'a> Game<'a> {
         reason = "the driver keeps the ordered window/phase precedence visible in one place"
     )]
     pub fn step(&mut self) -> StepResult {
+        // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
+        self.table.begin_step();
         // Rolls are stamped with the system in play, for the public roll feed only.
         let scene = self
             .state
@@ -6651,6 +6699,14 @@ impl<'a> Game<'a> {
             PhaseOutcome::ActionBegan(_) => self.emit("ACTION_PHASE_BEGAN"),
             PhaseOutcome::StatusBegan => {
                 self.emit("STATUS_PHASE_BEGAN");
+                // Experiment only: every seat gains this many trade goods as the status phase
+                // begins. Zero, the default, is the game as printed.
+                let income = STATUS_INCOME_TRADE_GOODS.load(std::sync::atomic::Ordering::Relaxed);
+                if income != 0 {
+                    for player in &mut self.state.players {
+                        player.trade_goods += income;
+                    }
+                }
                 // "At the start of the status phase" (Mitosis). Typed for faction modules; no
                 // reaction card maps a status-phase window. The resolver learns the new phase
                 // first, so per-phase limits count in the status phase.
@@ -6668,6 +6724,17 @@ impl<'a> Game<'a> {
             }
             PhaseOutcome::RoundEnded => {
                 begin_next_round(&mut self.state, self.strategy_cards.clone());
+                if self.round_income_trade_goods != 0 {
+                    for player in &mut self.state.players {
+                        if self
+                            .round_income_seat
+                            .as_ref()
+                            .is_none_or(|only| *only == player.id)
+                        {
+                            player.trade_goods += self.round_income_trade_goods;
+                        }
+                    }
+                }
                 self.status_resolved = false;
                 self.agenda_resolved = false;
                 self.emit("ROUND_BEGAN");
@@ -16167,6 +16234,24 @@ mod tests {
             "same two-to-one tally in the ordinary order; log {events:?}"
         );
         let _ = state;
+    }
+
+    #[test]
+    fn each_step_starts_the_identical_ask_count_afresh() {
+        let players = [PlayerId::new("a"), PlayerId::new("b"), PlayerId::new("c")];
+        let state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        let mut game = Game::new(state, ContentStore::embedded());
+
+        // Use the whole allowance for the very choice the next step will put.
+        let choice = game.legal_options().expect("the game opens on a choice");
+        for _ in 0..crate::choice::MAX_IDENTICAL_ASKS_PER_STEP {
+            game.table.ask(&choice).unwrap();
+        }
+        // Without a per-step reset the step's own ask would be the 501st.
+        for _ in 0..3 {
+            let result = game.step();
+            assert!(result.error.is_none(), "{:?}", result.error);
+        }
     }
 
     #[test]
