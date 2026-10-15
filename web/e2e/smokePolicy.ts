@@ -377,7 +377,7 @@ export const CHAOS_FREE_OFFERS = 3;
 const OPTION = /^choice-option\b/;
 // Transit Diodes has its own panel: a planet target, unit rows and a "Finish redeployment" button.
 const DECLINE_OPTION =
-  /^(choice-option\b.*\b(decline|finish redeployment)\b|decline-planet-btn\b)/i;
+  /^(choice-option\b.*\b(decline|finish redeployment)\b|decline-planet-btn\b|transit-decline\b)/i;
 
 export function preferTechWindowUse<T extends PolicyCandidate>(
   subtype: string,
@@ -393,7 +393,7 @@ export function preferTechWindowUse<T extends PolicyCandidate>(
     case "transit_diodes_redeploy":
       return /\(4 left\)/.test(prompt)
         ? withoutDecline
-        : candidates.filter((c) => DECLINE_OPTION.test(c.desc) || /^submit-choice-button\b/.test(c.desc));
+        : candidates.filter((c) => DECLINE_OPTION.test(c.desc) || /^(submit-choice-button|transit-confirm)\b/.test(c.desc));
     case "psychoarchaeology_exhaust_specialty":
     case "bio_stims_ready":
       return withoutDecline.some((c) => OPTION.test(c.desc)) ? withoutDecline : candidates;

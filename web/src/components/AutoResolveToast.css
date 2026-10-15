@@ -139,6 +139,14 @@
   }
 }
 
+/* A phone's open turn menu is a sheet over the whole board: toasts on top would cover its entries
+   and its Close button. They wait in the notification history meanwhile. */
+@media (max-width: 720px) {
+  :root:has(.turn-bar__menu) .auto-resolve-toast-container {
+    visibility: hidden;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .auto-resolve-toast,
   .auto-resolve-toast.dismissing {
