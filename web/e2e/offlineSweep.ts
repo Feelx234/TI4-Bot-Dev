@@ -7,6 +7,7 @@ import {
   ERROR_BANNERS,
   activationWeights,
   collectCandidates,
+  escapePaymentDeadEnd,
   mulberry32,
   pick,
   visibleErrors,
@@ -693,6 +694,12 @@ export async function playOfflineGame(
           continue;
         }
         emptyPolls = 0;
+        if (clicks > 0 && clicks % 10 === 0 && (await escapePaymentDeadEnd(page))) {
+          log(`#${report.decisions} ${subtype} escape: the payment plan cannot be paid; asked for each build`);
+          clicks++;
+          report.clicks++;
+          continue;
+        }
         const chosen = pick(
           preferTechWindowUse(subtype, current.prompt, candidates, 0, true),
           clicks,

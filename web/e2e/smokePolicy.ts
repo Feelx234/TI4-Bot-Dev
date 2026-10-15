@@ -443,3 +443,14 @@ export async function settledGameOverBanner(
     await new Promise((resolve) => setTimeout(resolve, stepMs));
   }
 }
+
+/**
+ * A production payment drawer that can never be confirmed: the plan's total is more than every
+ * offered planet and trade good together ("Not enough: all offered planets and trade goods cover
+ * only 9 of 10 resources"). A player then presses "Ask for each build" and pays the build the
+ * engine asks for; the harness otherwise excludes that button (offline run o3-210-0240 clicked
+ * Auto-pay 109 times).
+ */
+export function isPaymentDeadEnd(problem: string | null | undefined): boolean {
+  return /Not enough: all offered .* cover only/i.test(problem ?? "");
+}

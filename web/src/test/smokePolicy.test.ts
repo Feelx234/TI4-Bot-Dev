@@ -12,6 +12,7 @@ import {
   classifyControl,
   serverProgressed,
   settledGameOverBanner,
+  isPaymentDeadEnd,
   classifyCandidate,
   turnBarPool,
   isBarControl,
@@ -641,5 +642,18 @@ describe("settledGameOverBanner", () => {
   it("gives up with the last text when the banner never changes", async () => {
     const text = await settledGameOverBanner(async () => "YOUR TURN", 30, 5);
     expect(text).toBe("YOUR TURN");
+  });
+});
+
+describe("isPaymentDeadEnd", () => {
+  // Offline run o3-210-0240: a 3-build plan owed 10 while planets and trade goods covered 9; the
+  // only way on, "Ask for each build", is excluded from random clicks, so 80 clicks never paid.
+  it("recognises a plan that nothing offered can pay", () => {
+    expect(isPaymentDeadEnd("Not enough: all offered planets and trade goods cover only 9 of 10 resources.")).toBe(true);
+    expect(isPaymentDeadEnd("Not enough: all offered planets cover only 2 of 3 influence.")).toBe(true);
+  });
+  it("leaves a bill that can still be staged alone", () => {
+    expect(isPaymentDeadEnd("Stage 2 more to pay")).toBe(false);
+    expect(isPaymentDeadEnd(null)).toBe(false);
   });
 });
