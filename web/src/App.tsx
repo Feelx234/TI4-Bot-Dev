@@ -884,6 +884,7 @@ const GameViewContainer: React.FC<{
         }
         choice={pendingChoice}
         agenda={agendaStrip}
+        activeEffects={snapshot?.view.active_effects}
         agendaPill={agendaPill}
         viewerSeat={userSeat}
         players={snapshot?.view.players}

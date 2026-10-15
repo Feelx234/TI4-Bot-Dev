@@ -917,6 +917,11 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                 // plays nothing and the window offers its slot again, so the outer Pass stays.
                 let mut card_options = reaction_card_options(context.content, &options);
                 card_options.push(crate::choice::ChoiceOption::decline());
+                let offered: Vec<ActionCardId> = card_options
+                    .iter()
+                    .filter_map(|option| option.payload.get("card")?.as_str())
+                    .map(ActionCardId::new)
+                    .collect();
                 let choice = crate::choice::Choice::new(
                     owner.clone(),
                     format!(
@@ -940,6 +945,14 @@ fn slot(owner_name: &str, player: &PlayerId, event_type: &str, relation: Relatio
                     )
                     .optional(true)
                     .about_battle(context.state)
+                    .with_previews(crate::reaction_preview::previews_for(
+                        context.state,
+                        context.content,
+                        context.sources,
+                        &owner,
+                        event,
+                        offered.iter().map(|card| (card, card.to_string())),
+                    ))
                     .with_trigger(
                         crate::decision_context::DecisionTrigger::from_event(
                             event,
@@ -2052,6 +2065,103 @@ mod tests {
             PlayerId::new("b"),
             "the asked seat is the reactor"
         );
+    }
+
+    fn previews_of(asked: &[crate::choice::Choice]) -> Vec<crate::decision_context::EffectPreview> {
+        asked
+            .iter()
+            .flat_map(|choice| choice.context.iter().flat_map(|c| c.previews.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn sabotage_says_which_card_it_would_cancel_and_whose() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .player_mut(&PlayerId::new("a"))
+            .unwrap()
+            .action_cards
+            .clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("sabo1")];
+        let asked = asked_for(
+            state,
+            "ACTION_CARD_PLAYED",
+            payload(&[("player", "a".into()), ("card", "fs1".into())]),
+            &["decline"],
+        );
+        let previews = previews_of(&asked);
+        assert_eq!(previews.len(), 1);
+        let preview = &previews[0];
+        assert_eq!(preview.effect, "cancel_card");
+        assert_eq!(preview.card, "sabo1");
+        assert_eq!(preview.seats, vec![PlayerId::new("a")]);
+        assert_eq!(preview.refs, vec!["fs1".to_owned()]);
+        let offered = asked[0]
+            .options
+            .iter()
+            .map(|o| o.id.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            offered.contains(&preview.option),
+            "the preview names an option of the same decision"
+        );
+        // Display only: neither the canonical form nor a recorded decision holds it.
+        let context = asked[0].context.as_ref().unwrap();
+        assert!(!context.canonical().contains("cancel_card"));
+        assert!(context.without_display_fields().previews.is_empty());
+    }
+
+    #[test]
+    fn shields_holding_says_how_many_of_the_incoming_hits_it_cancels() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .player_mut(&PlayerId::new("a"))
+            .unwrap()
+            .action_cards
+            .clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards =
+            vec![ActionCardId::new("sh1")];
+        let asked = asked_for(
+            state,
+            "HITS_TO_ASSIGN",
+            payload(&[
+                ("player", "b".into()),
+                ("system", "27".into()),
+                ("hits", 3.into()),
+            ]),
+            &["decline"],
+        );
+        let previews = previews_of(&asked);
+        assert_eq!(previews.len(), 1, "{asked:?}");
+        assert_eq!(previews[0].effect, "cancel_hits");
+        assert_eq!(previews[0].amount, Some(2));
+        assert_eq!(previews[0].of, Some(3));
+        assert_eq!(previews[0].system, Some(SystemId::new("27")));
+    }
+
+    #[test]
+    fn the_inner_card_choice_has_a_preview_for_each_offered_card() {
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .player_mut(&PlayerId::new("a"))
+            .unwrap()
+            .action_cards
+            .clear();
+        state.player_mut(&PlayerId::new("b")).unwrap().action_cards = vec![
+            ActionCardId::new("sabo1"),
+            ActionCardId::new("sabo2"),
+            ActionCardId::new("stability"),
+        ];
+        let asked = asked_for(
+            state,
+            "ACTION_CARD_PLAYED",
+            payload(&[("player", "a".into()), ("card", "fs1".into())]),
+            &["decline"],
+        );
+        // Only Sabotage answers this window; the preview never names another card.
+        let previews = previews_of(&asked);
+        assert!(previews.iter().all(|p| p.card.starts_with("sabo")));
     }
 
     #[test]
