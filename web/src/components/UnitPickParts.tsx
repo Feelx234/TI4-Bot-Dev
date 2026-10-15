@@ -34,8 +34,7 @@ export const UnitPickOptionNote: React.FC<{
   if (!info) return null;
   return (
     <div className="text-muted" data-testid="unit-pick-note" style={{ fontSize: 12 }}>
-      <UnitIcon type={info.iconType} size={16} /> <strong>{info.title}</strong>{" "}
-      <UnitInfoButton unit={info.iconType} name={info.title} />
+      <UnitIcon type={info.iconType} size={16} /> <UnitInfoButton unit={info.iconType} name={info.title} />
       {info.owner && (
         <>
           {" "}

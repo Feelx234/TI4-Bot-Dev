@@ -330,3 +330,11 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+
+.plague-note {
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+}
+.law-note .politics-panel__tag {
+  margin-left: 0;
+}

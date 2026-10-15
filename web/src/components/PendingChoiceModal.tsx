@@ -258,6 +258,8 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   const mover = hasOwnPanel ? null : describeGroundMover(choice, boardView);
   const stepper = hasOwnPanel ? null : describeNumberStepper(choice);
   const cardPicker = reroll ?? mover ?? stepper;
+  // The engine asks about one die at a time; the panel covers the whole roll.
+  const rerollTitle = `${reroll?.source ?? "Reroll"}: reroll any number of your dice`;
   const strategyPick = describeStrategyCardPick(choice);
   // Overrule and Strategize leave the card where it is: trade goods on it are not collected.
   const showGoods = !strategyPick || strategyPick.kind === "disgrace";
@@ -330,11 +332,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           }}
         >
           <Dialog.Title as="h2" className="visually-hidden">
-            {gainTokensPrompt(choice)}
+            {reroll ? rerollTitle : gainTokensPrompt(choice)}
           </Dialog.Title>
           <DecisionHeader
             actor={choice.actor}
-            title={gainTokensPrompt(choice)}
+            title={reroll ? rerollTitle : gainTokensPrompt(choice)}
             progress={present(handDecisionNote(choice) ?? "") || undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}

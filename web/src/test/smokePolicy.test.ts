@@ -309,6 +309,12 @@ describe("choice rows (smoke harness)", () => {
     expect(classifyControl("choice-option | Decline").commit).toBe(false);
     expect(classifyControl("choice-option | Pass").commit).toBe(false);
     expect(classifyControl("submit-choice | Confirm").commit).toBe(true);
+    // The action-card pickers: a Ghost Squad move answers at once, dice and stepper buttons only stage.
+    expect(classifyControl("mover-move | Move 1 Infantry from Jord to Lodor: Jord 1 to 0, Lodor 0 to 1").commit).toBe(true);
+    expect(classifyControl("reroll-die | Combat Value 8 die 1: shows 3, needs 8 or more, miss, kept | 3 Miss keep").commit).toBe(false);
+    expect(classifyControl("reroll-confirm | Reroll 1 die").commit).toBe(true);
+    expect(classifyControl("stepper-plus | One more | +").commit).toBe(false);
+    expect(classifyControl("stepper-confirm | Spend 2").commit).toBe(true);
   });
 });
 

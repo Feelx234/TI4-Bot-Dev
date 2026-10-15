@@ -1,3 +1,4 @@
+import { PlagueTargetNote } from "./PlagueTargetNote.tsx";
 import React, { useState } from "react";
 import { ValueText } from "./PlanetValueIcons.tsx";
 import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
@@ -304,6 +305,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
         ) : null}
 
         {activeOption && <UnitAbilityOptionNote choice={choice} option={activeOption} board={boardView} />}
+        {activePlanetId && <PlagueTargetNote choice={choice} planetId={activePlanetId} board={boardView} />}
 
         {choice.context?.subtype === "place_structure" && activePlanetId && (
           <StructureInfo planetId={activePlanetId} board={boardView} />
