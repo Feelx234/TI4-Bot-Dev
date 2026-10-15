@@ -22,6 +22,8 @@ import { MapOverlayMode } from "../presentation/mapOverlays.ts";
 import { MapOverlayToolbar } from "./MapOverlayToolbar.tsx";
 import { useBoardPrepSlot } from "../presentation/BoardPrepSlot.tsx";
 import { useBoardChromeOffset } from "../hooks/useBoardChromeOffset.ts";
+import { HyperlaneNetwork } from "./hyperlane/HyperlaneArt.tsx";
+import { getHyperlaneNetwork } from "./hyperlane/hyperlaneNetwork.ts";
 import { BoardTile } from "./board/BoardTile.tsx";
 import { BoardTooltip, HoveredTileInfo } from "./board/BoardTooltip.tsx";
 import { MovementVectorsOverlay } from "./board/MovementVectorsOverlay.tsx";
@@ -143,6 +145,12 @@ export const Board: React.FC<BoardProps> = ({
     // Only a new decision closes it; the selection is read as it is then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingNonce]);
+
+  // Hyperlane network of the main map, computed once per layout (shared cache).
+  const hyperlaneTiles = presentation.tiles
+    .filter((t) => !t.specialArea)
+    .map((t) => ({ systemId: t.systemId, q: t.q, r: t.r, cx: t.center.x, cy: t.center.y }));
+  const hyperlaneModel = getHyperlaneNetwork(hyperlaneTiles);
 
   // "Who can go here": the inspector's second tab asks the engine and draws the answer as arrows.
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>("details");
@@ -468,6 +476,15 @@ export const Board: React.FC<BoardProps> = ({
               onMouseLeave={() => setHoveredTile(null)}
             />
           ))}
+
+          {/* Hyperlane network: one continuous drawing over the tile fills */}
+          {hyperlaneTiles.length > 0 && (
+            <HyperlaneNetwork
+              tiles={hyperlaneTiles}
+              model={hyperlaneModel}
+              bed={presentation.tiles.find((t) => t.hyperlane)?.fillColor}
+            />
+          )}
 
           {/* Movement Vector Overlays */}
           <MovementVectorsOverlay vectors={presentation.targets.movementVectors} />
