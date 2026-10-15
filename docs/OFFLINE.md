@@ -54,16 +54,25 @@ COOP/COEP, no SharedArrayBuffer).
 
 ## Saves, export and import
 
-* A save is the host's `save_state` object (seed, setup, the human's answers, redo list, the
-  decisions hash, engine build and content digest), not a board snapshot, plus the sha-256 of the
-  wasm file that played it. Size is small (about 60 KiB at 5000 answers). Limits: 8 MiB per game,
-  100 games, 128 MiB in all.
-* The chosen map is `setup.map` of the save (a template alias, or `"random"`; absent = the
-  recommended layout). It was already part of the engine's `Setup`, so no engine, wasm or save
-  format change was needed: old saves have no `map` and replay as before, new ones replay the same
-  board because the alias is part of what the seed and the answers are applied to. Export, import
-  and feedback carry it with the save.
-* **Export** writes a JSON file (`kind: "ti4-offline-game"`, `version: 1`) with that save. Keep it
+* A save is the host's `HostSave` (`SAVE_FORMAT = 2`, shared with `web2/` through
+  `web-shared/src/storage`): the game as the engine was given it (`game`: one of `setup`, `table`,
+  `local`, with every open choice filled in), the seed, the number of players, the option id of
+  **every decision of every seat** (`decisions`, so a replay asks no bot again), the person's
+  answers, the seat switches, the redo list, per-seat staged plans, the decisions hash, the rule
+  bot version (`bot_version`, also for `table`/`local` games, which have no `setup` to hold it),
+  engine build and content digest, plus the sha-256 of the wasm file that played it. Size is small
+  (about 60 KiB at 5000 answers, more with the decisions of all seats). Limits: 8 MiB per game,
+  100 games, 128 MiB in all. One IndexedDB (`ti4-offline`, version 2) serves both apps.
+* **Format 2 replaces format 1.** Saves of format 1 (the old `web/` store, and web2's formats 1 to 3)
+  are not read and not migrated: the page lists them as "older version" and offers to delete them.
+  Exported files changed too (an export of the old format is refused on import). Testers lose their
+  offline games once; see `docs/OFFLINE_SAVE_RESET_NOTE.md` for the notice.
+* The chosen map is `game.setup.map` of the save (a template alias, or `"random"`). The engine
+  fills it in when the person left it open, so a game always stores its layout, and the same
+  board replays because the alias is part of what the seed and the answers are applied to. The
+  picker asks the shared Worker (`query`: `describe`, `map_preview`) for layouts and pictures.
+  Export, import and feedback carry it with the save.
+* **Export** writes a JSON file (`kind: "ti4-offline-game"`, `version: 2`) with that save. Keep it
   as a backup or move a game to another browser.
 * **Import** ("Import a game" next to "My offline games") checks the file (shape, version, size)
   and adds it under a new id. If its engine differs from the one in this page, it asks what to

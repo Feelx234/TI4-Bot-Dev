@@ -70,7 +70,7 @@ export async function storedRecord(page: Page, gameId: string): Promise<StoredRe
   );
 }
 
-/** `save.setup` of a stored game (the table the engine was started with), or null. */
+/** `save.game.setup` of a stored game (the table the engine was started with), or null. */
 export async function storedSetup(page: Page, gameId: string): Promise<Record<string, unknown> | null> {
   return page.evaluate(
     (id) =>
@@ -82,7 +82,7 @@ export async function storedSetup(page: Page, gameId: string): Promise<Record<st
           const get = db.transaction("games").objectStore("games").get(id);
           get.onsuccess = () => {
             db.close();
-            resolve(get.result?.save?.setup ?? null);
+            resolve(get.result?.save?.game?.setup ?? null);
           };
           get.onerror = () => {
             db.close();

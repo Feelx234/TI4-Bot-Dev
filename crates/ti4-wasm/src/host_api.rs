@@ -398,8 +398,6 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
     }
     let mut start: Start = serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
     let bot_version = start.settle_bot_version()?;
-    // TRIAL: a `table`/`local` game has no `setup`, so the version is not recorded in its request;
-    // the session must carry it itself (see docs/PP_MAIN_INTEGRATION_PLAN.md).
     let built = start.build()?;
     // The rule seats of this game play the bot version it was made with (one game per host).
     ti4_rule_bot::tuning::set(ti4_rule_bot::tuning::for_version(bot_version));
@@ -418,6 +416,7 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         table: built.setup.clone(),
         scenario: built.scenario.clone(),
         seats: built.seats.clone(),
+        bot_version,
     };
     let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
         ti4_host::map::build_board_tiles(ti4_content::ContentStore::embedded(), galaxy)

@@ -296,6 +296,9 @@ pub struct Identity {
     /// Who sits in each seat, told with every update: the game of a table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seats: Option<TableSeats>,
+    /// The rule bot version the game is played with. A `table` or `local` game has no `setup`
+    /// to record it in, so the session carries it ([`crate::host_setup::Start::settle_bot_version`]).
+    pub bot_version: u32,
 }
 
 /// The session of one game.
@@ -1596,7 +1599,7 @@ impl HostSession {
 
     /// The rule bot version of this game, as its setup records it.
     fn bot_version(&self) -> Option<u32> {
-        self.identity.game.setup.as_ref().and_then(|setup| setup.bot_version)
+        Some(self.identity.bot_version)
     }
 
     /// A staged plan of the page (`BatchPlan` of `web/`) sent as one request: the person's

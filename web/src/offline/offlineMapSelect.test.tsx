@@ -8,7 +8,7 @@ import { createMockLauncher, MOCK_FACTIONS } from "./mockLauncher.ts";
 import { aliasPlayers, buildSetup, DEFAULT_DRAFT, mapForPlayers } from "./setup.ts";
 import { engineSetup } from "./local/launcher.ts";
 import { createMapSource } from "./local/mapSource.ts";
-import type { FromWorker, HostPort, ToWorker } from "./local/hostProtocol.ts";
+import type { FromWorker, HostPort, ToWorker } from "@ti4/shared/engine/protocol.ts";
 import type { LoadedEngine } from "./local/session.ts";
 import type { OfflineSetup } from "./types.ts";
 
