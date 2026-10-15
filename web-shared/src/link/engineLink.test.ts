@@ -184,6 +184,20 @@ describe("engineLink", () => {
     expect(events.map((e) => e.kind)).toEqual(["message", "save", "opened", "progress"]);
   });
 
+  it("tells a question at once when its gate returns nothing, and a throwing gate as fatal", () => {
+    const seen: Envelope[] = [];
+    const { port, events } = open((e) => void seen.push(e));
+    port.emit({ t: "ask", envelope: envelope("ask"), save: save() });
+    expect(seen).toHaveLength(1);
+    expect(events.map((e) => e.kind)).toEqual(["save", "opened"]);
+
+    const refused = open(() => {
+      throw new Error("no");
+    });
+    refused.port.emit({ t: "ask", envelope: envelope("ask"), save: save() });
+    expect(refused.events).toEqual([{ kind: "fatal", message: "no" }]);
+  });
+
   it("tells a refused gate as fatal", async () => {
     const { port, events } = open(() => Promise.reject(new Error("deleted")));
     port.emit({ t: "ask", envelope: envelope("ask"), save: save() });

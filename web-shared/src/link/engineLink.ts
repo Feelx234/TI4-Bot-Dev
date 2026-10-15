@@ -5,8 +5,9 @@ import { type GameLink, listeners } from "./link.ts";
 export interface EngineLinkOptions {
   /**
    * Called with each question of the engine before anything of it is told (the replay of a save
-   * that did not play back to where it was: `resume_check`). The link waits for it; what the
-   * engine sends meanwhile waits too. A rejection is told as `fatal`.
+   * that did not play back to where it was: `resume_check`). When it returns a promise the link
+   * waits for it, and what the engine sends meanwhile waits too; when it returns nothing the
+   * question is told at once. A throw or a rejection is told as `fatal`.
    */
   gate?(envelope: Envelope): void | Promise<void>;
 }
@@ -123,21 +124,25 @@ export function engineLink(port: HostPort, config: StartConfig, options: EngineL
         return;
       }
       case "ask": {
-        const gate = options.gate;
-        if (!gate) {
+        let held: unknown;
+        try {
+          held = options.gate?.(message.envelope);
+        } catch (error) {
+          fail(text(error));
+          return;
+        }
+        if (!(held instanceof Promise)) {
           ask(message.envelope, message.save);
           return;
         }
-        return Promise.resolve()
-          .then(() => gate(message.envelope))
-          .then(
-            () => {
-              if (!ended) {
-                ask(message.envelope, message.save);
-              }
-            },
-            (error: unknown) => fail(error instanceof Error ? error.message : String(error)),
-          );
+        return held.then(
+          () => {
+            if (!ended) {
+              ask(message.envelope, message.save);
+            }
+          },
+          (error: unknown) => fail(text(error)),
+        );
       }
       case "end": {
         if (message.save) {
@@ -209,3 +214,5 @@ export function engineLink(port: HostPort, config: StartConfig, options: EngineL
     },
   };
 }
+
+const text = (error: unknown): string => (error instanceof Error ? error.message : String(error));

@@ -48,7 +48,8 @@ src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelop
 src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
 src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent; a game at the level of its messages
              socketLink.ts socketLink: the server over `connect` (subscription on each open, heartbeat, backoff)
-             engineLink.ts engineLink: the engine over a HostPort (start, replies, the next question, a gate, saves)
+             engineLink.ts engineLink: the engine over a HostPort (start, replies, the next question, a gate, saves);
+                           web's `LocalTransport` runs on it
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
