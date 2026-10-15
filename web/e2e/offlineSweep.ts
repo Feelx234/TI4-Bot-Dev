@@ -13,7 +13,7 @@ import {
 } from "./smokePlaythrough";
 import { isReactionSubtype, OVERLAY_CLOSE_IDS, reactionTextProblem } from "./smokePolicy";
 import { storedRecord } from "./offlineDriver";
-import { preferTechWindowUse } from "./smokePolicy";
+import { preferTechWindowUse, settledGameOverBanner } from "./smokePolicy";
 
 /**
  * One full offline game (setup form to game over) driven through the real UI, for the nightly
@@ -754,10 +754,9 @@ export async function playOfflineGame(
 
   // --- the end -----------------------------------------------------------------------------
   if (outcome === "finished") {
-    const banner = await page
-      .getByTestId("turn-status-banner")
-      .textContent({ timeout: 10_000 })
-      .catch(() => "");
+    const banner = await settledGameOverBanner(() =>
+      page.getByTestId("turn-status-banner").textContent({ timeout: 2_000 }),
+    );
     if (!/Game Over/i.test(banner ?? "")) {
       const name = await shot("no-game-over-banner");
       finding(`the engine ended the game but the status banner says "${(banner ?? "").slice(0, 80)}"${name ? `; screenshot shots/${name}` : ""}`);

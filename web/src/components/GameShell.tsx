@@ -176,6 +176,8 @@ export interface TurnRedoShellProps {
 export interface TurnInfo {
   phase: string;
   activePlayer: string | null;
+  /** The game has ended: no turn bar, not even the read-only one. */
+  over?: boolean;
 }
 
 export interface ChoiceRendererDispatcherProps {
@@ -820,7 +822,7 @@ export const ChoiceRendererDispatcher: React.FC<
   // Not your turn in the action phase: the same bar, read-only, with the reason on every button.
   const viewer = viewerSeat ? players?.[viewerSeat] : undefined;
   const readOnlyBar =
-    viewer && turn?.phase === "action" && !isCombatWorkflow ? (
+    viewer && turn?.phase === "action" && !turn.over && !isCombatWorkflow ? (
       <TurnActionBar
         model={deriveReadOnlyTurnBar(viewer, turn.activePlayer)}
         onSubmit={onSubmit}

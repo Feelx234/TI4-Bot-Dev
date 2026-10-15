@@ -11,6 +11,7 @@ import {
   isUnstage,
   classifyControl,
   serverProgressed,
+  settledGameOverBanner,
   classifyCandidate,
   turnBarPool,
   isBarControl,
@@ -624,5 +625,21 @@ describe("overlays the sweep driver closes (smoke harness)", () => {
     const stepper = ["stepper-minus | Fewer | −", "stepper-max | All (3)", "stepper-confirm | Spend nothing"].map((d) => classifyControl(d));
     expect(stepper.map((x) => x.commit)).toEqual([false, false, true]);
     expect(stepper.some((x) => x.unstage)).toBe(false);
+  });
+});
+
+describe("settledGameOverBanner", () => {
+  // Offline runs o3-39-2142 and o2-186-0210: one read right at the engine's end still saw the last
+  // "YOUR TURN" although the page showed "Game Over!" a moment later.
+  it("waits for the page to draw the end instead of reading once", async () => {
+    const texts = ["YOUR TURN: Awaiting your choice (Waiting for player)", "Game Over! Winner: Bot 2"];
+    let reads = 0;
+    const text = await settledGameOverBanner(async () => texts[Math.min(reads++, 1)], 1_000, 5);
+    expect(text).toBe("Game Over! Winner: Bot 2");
+  });
+
+  it("gives up with the last text when the banner never changes", async () => {
+    const text = await settledGameOverBanner(async () => "YOUR TURN", 30, 5);
+    expect(text).toBe("YOUR TURN");
   });
 });
