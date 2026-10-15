@@ -230,8 +230,10 @@ export const StandardOverlay: React.FC<StandardOverlayProps> = ({
               textAnchor="middle"
               fill="#f8fafc"
               stroke="#0b1220"
-              strokeWidth="2.5"
+              strokeWidth="1.6"
+              strokeLinejoin="round"
               paintOrder="stroke"
+              letterSpacing="1"
               fontSize={planetRadius >= 21 ? "11.5" : "10"}
               fontWeight="bold"
               pointerEvents="none"

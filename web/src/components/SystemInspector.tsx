@@ -8,6 +8,8 @@ import { PlanetValuePair } from "./PlanetValueIcons.tsx";
 import { PlanetStructures } from "./PlanetStructures.tsx";
 import { splitStructures } from "../presentation/planetStructures.ts";
 import { UnitStatsTip } from "./UnitInfo.tsx";
+import { AnomalyIconInline } from "./anomaly/AnomalyArt.tsx";
+import { anomalyKind } from "./anomaly/anomalyKind.ts";
 import { describeAnomaly } from "../presentation/anomalyRules.ts";
 import { findPlanetMeta } from "../protocol/contentCatalog.ts";
 import { attachmentLabels, explorationsInSystem } from "../presentation/explorationMarks.ts";
@@ -157,6 +159,10 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                 border: "1px solid #d97706",
               }}
             >
+              {(() => {
+                const k = anomalyKind(a);
+                return k ? <AnomalyIconInline kind={k} size={14} /> : null;
+              })()}{" "}
               {a.toUpperCase()}
             </span>
           ))}
