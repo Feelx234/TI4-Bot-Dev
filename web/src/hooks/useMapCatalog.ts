@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { lobbyPath, mapsPath } from "@ti4/shared/net/api.ts";
 import { decodeMapList, decodeMapPreview } from "@ti4/shared/wire/decode.ts";
 import type { MapChoice, MapPreview, MapTemplateSummary } from "../protocol/types.ts";
 
@@ -27,7 +28,7 @@ export function useMapCatalog(playerCount: number): {
     }
     let active = true;
     setState({ status: "loading" });
-    getJson(`/api/maps?player_count=${playerCount}`)
+    getJson(mapsPath(playerCount))
       .then((json) => active && setState({ status: "ready", value: decodeMapList(json) }))
       .catch((cause) => active && setState({ status: "error", message: String(cause) }));
     return () => {
@@ -43,7 +44,7 @@ export type MapPreviewSource =
 
 export function previewUrl(source: MapPreviewSource): string {
   if (source.kind === "lobby")
-    return `/api/games/${encodeURIComponent(source.gameId)}/lobby/map-preview`;
+    return lobbyPath(source.gameId, "map-preview");
   const variant = source.variant ?? 0;
   const alias =
     source.choice.kind === "random" ? "random" : encodeURIComponent(source.choice.alias);

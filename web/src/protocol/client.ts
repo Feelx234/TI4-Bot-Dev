@@ -32,6 +32,7 @@ import {
   decodeServerMessage,
   isStaleServerMessage,
 } from "@ti4/shared/wire/decode.ts";
+import { gamePath, sessionHeaders } from "@ti4/shared/net/api.ts";
 import { SERVER_CAPABILITIES } from "./capabilities.ts";
 import type { GameTransport } from "./transport.ts";
 import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
@@ -1587,10 +1588,10 @@ export class GameSessionClient implements GameTransport {
 
   private snapshotUrl(): string {
     if (!this.options.serverUrl)
-      return `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
+      return `${gamePath(this.options.gameId)}/snapshot`;
     const url = new URL(this.options.serverUrl, window.location.href);
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-    url.pathname = `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
+    url.pathname = `${gamePath(this.options.gameId)}/snapshot`;
     url.search = "";
     return url.toString();
   }
@@ -1598,7 +1599,7 @@ export class GameSessionClient implements GameTransport {
   private snapshotHeaders(): HeadersInit {
     return this.options.viewer.role === "player" &&
       this.options.viewer.playerSession
-      ? { "x-ti4-player-session": this.options.viewer.playerSession }
+      ? sessionHeaders(this.options.viewer.playerSession)
       : {};
   }
 }

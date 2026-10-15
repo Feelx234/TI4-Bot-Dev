@@ -54,6 +54,8 @@ src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelop
              odds.ts      spaceOdds, groundOdds (queries of the engine of the page), pageQuery (an engine on the
                           main thread)
 src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
+             api.ts       the HTTP API of the server: the paths, PLAYER_SESSION_HEADER, postJson, lobbyPost,
+                          joinLobby, playerOf, createTable (ApiError), isGone/gameGone
 src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent, HostCommand; a game at the level of
                            its messages: `ClientMessage` (or a command of the host) in, `ServerMessage` out
              socketLink.ts socketLink: the server over `connect` (subscription on each open, heartbeat, backoff,
@@ -181,6 +183,30 @@ The odds of a space combat and of a ground combat, from the engine of the page
     every engine of a page.
 - A query waits while the game in the Worker computes (a bot decides); it is answered when the
   game waits for the page again.
+
+## Server API
+
+The HTTP calls of the server that both apps make, from `@ti4/shared/net/api.ts`. Each call takes
+the `fetch` to use as its last argument (default: the page's), so a test gives its own.
+
+- The paths: `GAMES_PATH`, `gamePath(id)`, `lobbyPath(id, route?)`, `mapsPath(players)`,
+  `SETUP_OPTIONS_PATH`, `tableSocketPath(id)` (`/ws/tables/<id>`).
+- `PLAYER_SESSION_HEADER` (`x-ti4-player-session`) and `sessionHeaders(session)`. `postJson(url,
+  body, {session, signal})` posts JSON, or no body and no content type when `body` is undefined;
+  `lobbyPost(id, route, …)` is a call of the lobby, `joinLobby(id, request, …)` its join (a new
+  player or a takeover with no session; with a session, who that player is: `playerOf`).
+- `createTable(request)` posts `/api/games` and gives the answer (`Admission`: `game_id`,
+  `player_session`, `player.id`, and the lobby, untyped here). A refusal throws an `ApiError`
+  with the status and the text of the answer; the app words it (web reads the list of a 429
+  `too_many_games` from it).
+- `isGone(response)` / `gameGone(id)`: the server no longer has the game when it answers 404,
+  not when it cannot be reached.
+- The lobby types of the server (`LobbyState`, `TableServerMessage`, the join answer) are not
+  generated: each app keeps its own, and the answers here are typed only on the fields read here.
+- The way an app follows a lobby stays its own: web polls (`useLobbySession`, a join with the
+  session each 2 s), web2 has the socket of the table (`web2/src/session/table.ts`).
+- The calls of a game (`/snapshot`, `turn-redo`, history, splice) stay in web's
+  `GameSessionClient`; they use the paths and the header from here.
 
 ## Protocol fixtures
 
