@@ -19,5 +19,5 @@ export {
   type EngineMismatchChoice,
   type EngineMismatchPrompt,
 } from "./engineCheck.ts";
-export { listSummaries, offlineSummary, shellStatus, storageWarning, firstHumanSeat } from "./shell.ts";
+export { listSummaries, offlineSummary, shellStatus, storageWarning, firstHumanSeat, humanSeatsOf, NOT_PLAYABLE_HERE } from "./shell.ts";
 export { ImportGameButton } from "./ImportGameButton.tsx";

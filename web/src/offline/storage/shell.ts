@@ -17,22 +17,37 @@ const WARNINGS: Record<NonNullable<StoreStatus["warningKind"]>, string> = {
 export const storageWarning = (status: StoreStatus): string | null =>
   status.warningKind ? WARNINGS[status.warningKind] : null;
 
+/** Why a listed game does not open here: the game screen shows one seat. */
+export const NOT_PLAYABLE_HERE = "Several people play this game at one screen; it cannot be opened here.";
+
 /** The first seat of a humans mask, 1-based. */
 export const firstHumanSeat = (humans: number): number => 32 - Math.clz32(humans & -humans);
 
-/** A stored game in the shape the shell's list shows. */
+/** The seats of a humans mask, 1-based. */
+export const humanSeatsOf = (humans: number, players: number): number[] =>
+  Array.from({ length: players }, (_, i) => i + 1).filter((seat) => (humans >> (seat - 1)) & 1);
+
+/**
+ * A stored game in the shape the shell's list shows. The store keeps milliseconds; the shell
+ * shows unix seconds. A game that several people play at one screen is listed but not played
+ * here: the game screen shows one seat.
+ */
 export function offlineSummary(r: SavedGameSummary): OfflineGameSummary {
   const humanSeat = firstHumanSeat(r.summary.humans);
+  const humanSeats = humanSeatsOf(r.summary.humans, r.summary.playerCount);
   return {
     gameId: r.id,
     playerCount: r.summary.playerCount,
     humanFaction: r.summary.factions[humanSeat - 1] ?? null,
     humanSeat,
+    humanSeats,
+    factions: r.summary.factions,
+    playable: humanSeats.length === 1,
     round: r.summary.round,
     phase: r.summary.phase,
     answers: r.summary.answers,
-    createdAt: r.createdAt,
-    updatedAt: r.updatedAt,
+    createdAt: Math.floor(r.createdAt / 1000),
+    updatedAt: Math.floor(r.updatedAt / 1000),
     status: r.status,
     resumeEstimateMs: r.resumeEstimateMs,
   };
@@ -45,5 +60,10 @@ export const listSummaries = async (store: OfflineSaveStore): Promise<OfflineGam
 /** The status the shell's `OfflineStorage` shows, with the warning's text. */
 export const shellStatus = (store: OfflineSaveStore) => {
   const status = store.status();
-  return { persistence: status.persistence, warning: storageWarning(status), persisted: status.persisted };
+  return {
+    persistence: status.persistence,
+    warning: storageWarning(status),
+    persisted: status.persisted,
+    unreadable: status.unreadable,
+  };
 };

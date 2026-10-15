@@ -133,6 +133,15 @@ export class LocalTransport implements GameTransport {
     return typeof player?.faction === "string" ? player.faction : null;
   }
 
+  /** The faction of each seat (seat `a` first), as the board shows it; null where it is not known. */
+  factions(players: number): Array<string | null> {
+    const view = this.store.get().snapshot?.view;
+    return Array.from({ length: players }, (_, place) => {
+      const faction = view?.players.find((p) => p.id === String.fromCharCode(97 + place))?.faction;
+      return typeof faction === "string" ? faction : null;
+    });
+  }
+
   get viewOnly(): boolean {
     return this.readOnly;
   }
@@ -283,7 +292,7 @@ export class LocalTransport implements GameTransport {
     const type = (value as { type?: unknown } | null)?.type;
     if (typeof type === "string" && IGNORED.has(type)) return;
     try {
-      const message = decodeServerMessage(value, this.options.gameId);
+      const message = decodeServerMessage(this.relabel(value), this.options.gameId);
       if (message.type !== "reach_into" && message.type !== "secondary_preview") this.store.ingest(message);
     } catch (error) {
       this.store.set({ ...this.store.get(), lastError: `Invalid engine message: ${String(error)}` });
@@ -523,12 +532,22 @@ export class LocalTransport implements GameTransport {
     throw new PreviewUnsupportedError("The offline engine cannot preview a secondary");
   }
 
+  /**
+   * The engine names the game as it was set up (`"local"`, or the id of the page that started it);
+   * the store's id names it here. An imported game and a game of web2 have another id than their
+   * engine's, so the messages take the store's id before they are decoded.
+   */
+  private relabel(value: unknown): unknown {
+    if (value === null || typeof value !== "object" || !("game_id" in value)) return value;
+    return { ...value, game_id: this.options.gameId };
+  }
+
   /** The messages of a reply, decoded again (the reducer has had them, and any error in them). */
   private decodeAll(raw: readonly unknown[]): ServerMessage[] {
     const decoded: ServerMessage[] = [];
     for (const value of raw) {
       try {
-        decoded.push(decodeServerMessage(value, this.options.gameId));
+        decoded.push(decodeServerMessage(this.relabel(value), this.options.gameId));
       } catch {
         // Told as lastError when the reply came in.
       }

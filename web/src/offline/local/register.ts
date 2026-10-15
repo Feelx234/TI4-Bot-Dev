@@ -37,6 +37,7 @@ export function createLazyLauncher(store: OfflineSaveStore, feedback: OfflineFee
     storage: {
       status: () => shellStatus(store),
       subscribe: (listener) => store.subscribe(listener),
+      removeUnreadable: () => store.removeUnreadable(),
       importGame: async (file) => {
         const outcome = await store.importGame(file);
         return { id: outcome.id, engineDiffers: outcome.engineDiffers };

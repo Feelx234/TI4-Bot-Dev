@@ -41,12 +41,24 @@ export interface OfflineGameSummary {
   gameId: string;
   playerCount: number;
   humanFaction: string | null;
+  /** The first of `humanSeats`. */
   humanSeat: number;
+  /** The seats that people play, 1-based. */
+  humanSeats: number[];
+  /** The faction of each seat (seat 1 first), null while it is not known. */
+  factions: Array<string | null>;
+  /**
+   * False when this app cannot show the game: several people play it at one screen (a game
+   * started in the other app). It can still be exported and deleted.
+   */
+  playable: boolean;
   round: number | null;
   phase: string | null;
   /** Number of the human's answers stored (the replay length). */
   answers: number;
+  /** Unix seconds. */
   createdAt: number;
+  /** Unix seconds. */
   updatedAt: number;
   status: "in_progress" | "finished";
   /** Rough resume time in ms from the last measured replay; null when unknown. */
@@ -117,8 +129,12 @@ export interface OfflineStorage {
     /** Text of a visible notice; null when all is well. */
     warning: string | null;
     persisted: boolean | null;
+    /** Saved games of an older version: not read, not listed, only deleted. */
+    unreadable: number;
   };
   subscribe(listener: () => void): () => void;
+  /** Deletes the saved games of an older version; resolves with how many. */
+  removeUnreadable(): Promise<number>;
   /** Reads a game file exported earlier into the list. Throws with a message fit to show. */
   importGame(file: Blob): Promise<{ id: string; engineDiffers: boolean }>;
 }

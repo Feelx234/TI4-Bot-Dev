@@ -67,8 +67,19 @@ parts:
 | `feedbackQueue.ts` | the durable feedback queue (`createDurableFeedbackQueue`, `httpFeedbackSender`) on the store's `feedbackBackend` |
 | `ImportGameButton.tsx` | the "Import a game" button |
 
-The launcher writes the faction of the person's seat only; the other seats are null in
-`summary.factions`.
+The launcher writes the faction of every seat that the board has shown (null before the first
+question); a faction once known stays. The store keeps milliseconds; `offlineSummary` gives the
+shell unix seconds.
+
+The list ("My offline games", `OfflineGamesList.tsx`) is the one save list of the origin: it shows
+the games of web2 too, and web2 shows these. A game resumes from its save (`{resume: save}`): the
+engine plays every seat's `decisions` again, so no bot decides again. Each row names the faction of
+every seat and marks the person's seats. A game that several people play at one screen (web2's
+local game, `summary.humans` with more than one seat) is listed with `playable: false`: export and
+delete only, since the game screen shows one seat; `resume` refuses it (`NOT_PLAYABLE_HERE`). Games
+of 2, 7 and 8 players resume like the others. The engine names a game by the id it was set up
+with; `LocalTransport` gives its messages the store's id, so an imported game and a game of web2 open. Saves of an older version are not read: the list
+counts them (`storage.status().unreadable`) and offers to delete them (`storage.removeUnreadable`).
 
 Feedback queue: every report gets a `reportId` at enqueue, sent as `report_id` with every attempt,
 so the server stores a re-sent report once (`duplicate: true` counts as sent). Backoff from 30 s,
@@ -86,4 +97,5 @@ There is no splice preview or map picker in the game screen of this branch, so n
 
 Tests: `*.test.ts` in `local/` (fake worker), `contract.test.ts` (LocalTransport and GameSessionClient give the
 same state; the recorded stream runs with `TI4_HOSTED_STREAM`, see `hostedStream.test.ts`), and
-`npm run test:e2e:offline` (production build only, network blocked, about 20 decisions, refresh mid-game).
+`npm run test:e2e:offline` (production build only, network blocked, about 20 decisions, refresh mid-game,
+resume from the list, export and import, a save of an older version).

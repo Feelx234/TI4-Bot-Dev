@@ -24,7 +24,8 @@ afterEach(() => {
 
 const draft = { ...DEFAULT_DRAFT, nickname: "Ada" };
 const game = (over: Partial<OfflineGameSummary> = {}): OfflineGameSummary => ({
-  gameId: "off_1", playerCount: 4, humanFaction: "sol", humanSeat: 2, round: 3, phase: "action",
+  gameId: "off_1", playerCount: 4, humanFaction: "sol", humanSeat: 2, humanSeats: [2], factions: [null, "sol", null, null],
+  playable: true, round: 3, phase: "action",
   answers: 100, createdAt: 1, updatedAt: Date.now() / 1000, status: "in_progress", resumeEstimateMs: 9000, ...over,
 });
 
@@ -120,6 +121,23 @@ describe("games list", () => {
     expect(onDelete).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId("offline-delete-confirm"));
     await waitFor(() => expect(onDelete).toHaveBeenCalledWith("off_1"));
+  });
+  it("names the faction of every seat and marks the person's", () => {
+    render(<OfflineGamesList games={[game({ factions: ["hacan", "sol", null, "xxcha"] })]} onResume={vi.fn()} onDelete={vi.fn()} onExport={vi.fn()} />);
+    expect(screen.getByTestId("offline-game-factions").textContent).toBe("Emirates of Hacan, Federation of Sol (you), ?, Xxcha Kingdom");
+  });
+  it("a game of several people at one screen is listed, but cannot be resumed here", () => {
+    render(
+      <OfflineGamesList
+        games={[game({ humanSeats: [1, 3], playable: false, factions: ["hacan", "sol", "xxcha", null] })]}
+        onResume={vi.fn()} onDelete={vi.fn()} onExport={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("offline-game-row").textContent).toMatch(/seats 1, 3/);
+    expect(screen.getByTestId("offline-game-factions").textContent).toMatch(/Emirates of Hacan \(you\).*Xxcha Kingdom \(you\)/);
+    expect(screen.getByTestId("offline-game-not-playable")).toBeTruthy();
+    expect(screen.queryByTestId("offline-resume")).toBeNull();
+    expect(screen.getByTestId("offline-export")).toBeTruthy();
   });
   it("a finished game says View", () => {
     render(<OfflineGamesList games={[game({ status: "finished" })]} onResume={vi.fn()} onDelete={vi.fn()} onExport={vi.fn()} />);
@@ -231,6 +249,23 @@ describe("home screen", () => {
     fireEvent.click(await screen.findByTestId("offline-delete"));
     fireEvent.click(screen.getByTestId("offline-delete-confirm"));
     await screen.findByTestId("offline-games-empty");
+  });
+});
+
+describe("saves of an older version", () => {
+  it("are counted, and deleted after a second click", async () => {
+    const launcher = createMockLauncher({ games: [game()], unreadable: 2 });
+    render(<OfflineHome launcher={launcher} onEnter={vi.fn()} onBack={vi.fn()} />);
+    expect((await screen.findByTestId("offline-older-saves")).textContent).toMatch(/2 saved games from an older version/);
+    fireEvent.click(screen.getByTestId("offline-older-delete"));
+    fireEvent.click(screen.getByTestId("offline-older-delete-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("offline-older-saves")).toBeNull());
+    expect(screen.getAllByTestId("offline-game-row")).toHaveLength(1);
+  });
+  it("show nothing when there are none", async () => {
+    render(<OfflineHome launcher={createMockLauncher({ games: [game()] })} onEnter={vi.fn()} onBack={vi.fn()} />);
+    await screen.findByTestId("offline-game-row");
+    expect(screen.queryByTestId("offline-older-saves")).toBeNull();
   });
 });
 

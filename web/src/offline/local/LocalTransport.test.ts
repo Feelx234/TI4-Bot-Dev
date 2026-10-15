@@ -44,6 +44,25 @@ describe("LocalTransport", () => {
     expect(transport.nickname).toBe("Tester");
   });
 
+  it("shows a game whose engine names it otherwise (an imported game, a game of web2)", async () => {
+    const ports: FakePort[] = [];
+    const transport = new LocalTransport({
+      gameId: "off_imported",
+      nickname: "Tester",
+      config,
+      createPort: async () => {
+        const port = new FakePort();
+        ports.push(port);
+        return port;
+      },
+    });
+    await transport.begin();
+    ports[0].emit({ t: "ask", envelope: envelope("ask", { messages: [snapshot(1, "n1")] }), save: save([]) });
+    await transport.ready;
+    expect(transport.getState().lastError).toBeNull();
+    expect(transport.getState().pendingChoice?.nonce).toBe("n1");
+  });
+
   it("answers a choice with the nonce and version and settles at the next question", async () => {
     const { transport, port } = await open();
     port.onCommand = (request, id) => ({

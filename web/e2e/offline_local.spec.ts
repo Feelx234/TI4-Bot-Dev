@@ -94,6 +94,84 @@ test("closing the tab and opening the game later (same IndexedDB) resumes the sa
   await second.close();
 });
 
+test("exports a game, imports the file as a second game, and resumes the copy at the same position", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  const gameId = await startOfflineGame(page, 3);
+  await playUntil(page, gameId, 6);
+  await page.waitForTimeout(400);
+  const saved = (await storedRecord(page, gameId))!;
+
+  await page.goto("/offline");
+  const rows = page.getByTestId("offline-game-row");
+  await expect(rows).toHaveCount(1);
+  // The list names the faction of every seat, and marks the person's.
+  await expect(rows.getByTestId("offline-game-factions")).toContainText("(you)");
+  await expect(rows.getByTestId("offline-game-factions")).not.toContainText("?");
+
+  const download = page.waitForEvent("download");
+  await rows.getByTestId("offline-export").click();
+  const file = await (await download).path();
+  await page.getByTestId("import-game-file").setInputFiles(file);
+  await expect(page.getByTestId("offline-notice")).toHaveText("Game imported.");
+  await expect(rows).toHaveCount(2);
+
+  // The copy is the newest game: it opens under its own id, at the position of the file.
+  await rows.first().getByTestId("offline-resume").click();
+  await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 });
+  const copyId = /\/offline\/games\/([^/?#]+)/.exec(page.url())![1];
+  expect(copyId).not.toBe(gameId);
+  expect(await storedRecord(page, copyId)).toMatchObject({ answers: saved.answers, decisionsHash: saved.decisionsHash });
+  // It plays on, and the original stays as it was.
+  await playUntil(page, copyId, saved.answers + 2);
+  expect(await storedRecord(page, gameId)).toMatchObject({ answers: saved.answers, decisionsHash: saved.decisionsHash });
+});
+
+test("a save of an older version is not opened: the list offers to delete it", async ({ page, context, baseURL }) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  await page.goto("/offline");
+  await expect(page.getByTestId("offline-games-empty")).toBeVisible();
+  // A record of the format before (record schema 1, save format 1).
+  await page.evaluate(
+    () =>
+      new Promise<void>((done, fail) => {
+        const open = indexedDB.open("ti4-offline");
+        open.onerror = () => fail(new Error("open"));
+        open.onsuccess = () => {
+          const db = open.result;
+          const tx = db.transaction("games", "readwrite");
+          tx.objectStore("games").put({
+            schema: 1,
+            id: "off_old",
+            nickname: "Tester",
+            createdAt: 1,
+            updatedAt: 1,
+            status: "in_progress",
+            save: { format: 1, seed: 7, answers: ["o1"] },
+          });
+          tx.oncomplete = () => {
+            db.close();
+            done();
+          };
+          tx.onerror = () => fail(new Error("write"));
+        };
+      }),
+  );
+  await page.reload();
+  const older = page.getByTestId("offline-older-saves");
+  await expect(older).toContainText("1 saved game from an older version");
+  await expect(page.getByTestId("offline-game-row")).toHaveCount(0);
+  await older.getByTestId("offline-older-delete").click();
+  await older.getByTestId("offline-older-delete-confirm").click();
+  await expect(older).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByTestId("offline-games-empty")).toBeVisible();
+  await expect(page.getByTestId("offline-older-saves")).toHaveCount(0);
+});
+
 test("a game saved with another engine file asks first: view only keeps it untouched, delete removes it", async ({
   page,
   context,
