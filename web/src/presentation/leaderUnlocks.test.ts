@@ -11,7 +11,7 @@ describe("leader unlock toasts (fb_1792039768)", () => {
     expect(toasts).toHaveLength(1);
     expect(toasts[0].actor).toBe("d");
     expect(toasts[0].parts[0]).toBe(
-      "unlocked their commander Claire Gibson: At the start of a ground combat on a planet you control: You may place 1 infantry from your reinforcements on that planet.",
+      "unlocked the commander Claire Gibson: At the start of a ground combat on a planet you control: You may place 1 infantry from your reinforcements on that planet.",
     );
   });
 

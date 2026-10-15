@@ -52,7 +52,7 @@ describe("useCornerToasts", () => {
     expect(result.current.notifications).toHaveLength(0);
     rerender({ ...base, players: sol("unlocked") });
     const texts = result.current.notifications.map((t) => t.text);
-    expect(texts).toContainEqual(expect.stringMatching(/unlocked their commander Claire Gibson: At the start of a ground combat/));
+    expect(texts).toContainEqual(expect.stringMatching(/unlocked the commander Claire Gibson: At the start of a ground combat/));
   });
 
   it("does not toast what was already in the log when the game loaded", () => {

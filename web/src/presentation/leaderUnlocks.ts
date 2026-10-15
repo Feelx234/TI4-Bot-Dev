@@ -54,7 +54,7 @@ export function leaderUnlockToasts(
         id: `leader-unlocked:${seat}:${leaderId}`,
         actor: seat,
         category: "breakthrough",
-        parts: [`unlocked their ${line.kind} ${line.name}${line.text ? `: ${line.text}` : ""}`],
+        parts: [`unlocked the ${line.kind} ${line.name}${line.text ? `: ${line.text}` : ""}`],
         count: 1,
       });
     }
