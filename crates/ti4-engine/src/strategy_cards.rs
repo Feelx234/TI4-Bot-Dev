@@ -1421,9 +1421,11 @@ fn paid_research(
             Ok(())
         }
         Ok(false) => {
-            if let Some((before, log)) = adjustment.rollback {
+            // No technology: the provisional modifier (a borrowed Sucaban's exhaust and traded
+            // infantry) is undone, but every question answered on the way stays in the log, or a
+            // replay would give those questions the next recorded answers.
+            if let Some((before, _log)) = adjustment.rollback {
                 *state = before;
-                table.log = log;
             }
             Ok(())
         }
@@ -4052,6 +4054,75 @@ mod tests {
                 .get(&ti4_model::id::LeaderId::new("jolnaragent")),
             Some(&ti4_model::state::LeaderStatus::Exhausted),
             "the copied agent was already exhausted and is left alone"
+        );
+    }
+
+    /// Same class as nightly 2026-10-14 #6/#7 (o1-232-0312, s1-47-0520): a copied agent's use
+    /// that is rolled back must not take answered decisions out of the log, or a replay of the
+    /// game gives those questions the next recorded answers. Here Ssruu copies Doctor Sucaban,
+    /// trades infantry, and then the research is declined: the copy is undone, the answers stay.
+    #[test]
+    fn a_declined_research_after_a_copied_sucaban_keeps_every_answer_in_the_log() {
+        struct CopyThenDecline(std::rc::Rc<std::cell::Cell<usize>>);
+        impl crate::choice::Decider for CopyThenDecline {
+            fn choose(
+                &mut self,
+                choice: &crate::choice::Choice,
+            ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+                self.0.set(self.0.get() + 1);
+                let decline = choice.options.iter().find(|option| option.is_decline());
+                let researching = choice
+                    .context
+                    .as_ref()
+                    .is_some_and(|context| context.subtype.contains("research"));
+                Ok(match (researching, decline) {
+                    (true, Some(decline)) => decline.clone(),
+                    _ => choice.options.first().cloned().expect("an option"),
+                })
+            }
+        }
+        let content = ContentStore::embedded();
+        let sources = ti4_model::content_types::DEFAULT;
+        let (researcher, owner) = (PlayerId::new("a"), PlayerId::new("b"));
+        let mut state = game(&["a", "b"]);
+        let system = SystemId::new(crate::fixtures::plain_systems(1)[0].clone());
+        state.board.entry(system.clone()).or_default();
+        crate::fixtures::put(&mut state, &system, "infantry", &researcher, 4);
+        if let Some(seat) = state.player_mut(&researcher) {
+            seat.trade_goods = 0;
+            seat.leaders.insert(
+                ti4_model::id::LeaderId::new("yssarilagent"),
+                ti4_model::state::LeaderStatus::Readied,
+            );
+        }
+        if let Some(seat) = state.player_mut(&owner) {
+            seat.leaders.insert(
+                ti4_model::id::LeaderId::new("jolnaragent"),
+                ti4_model::state::LeaderStatus::Exhausted,
+            );
+        }
+        let asked = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut table = Table::with_default(Box::new(CopyThenDecline(asked.clone())));
+        let _ = secondary(
+            &mut state,
+            content,
+            sources,
+            None,
+            &mut table,
+            &researcher,
+            &card("Technology"),
+        );
+        let recorded: Vec<_> = table
+            .log
+            .records
+            .iter()
+            .map(|record| format!("{}: {}", record.prompt, record.chosen))
+            .collect();
+        assert!(asked.get() > 1, "the copy and the research were asked: {recorded:?}");
+        assert_eq!(
+            recorded.len(),
+            asked.get(),
+            "every answered question stays in the log: {recorded:?}"
         );
     }
 
