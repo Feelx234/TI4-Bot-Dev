@@ -42,32 +42,49 @@ export interface HostRestart {
   undone?: unknown[];
 }
 
-/** The save of a game (`save_state`); self-contained, plays again with `resume`. */
+/**
+ * The game of a request or a save: one of `setup` (the engine's `Setup`), `table` and `local`
+ * (`GameRequest` in `crates/ti4-wasm/src/host_setup.rs`).
+ */
+export interface HostGame {
+  setup?: Record<string, unknown>;
+  table?: unknown;
+  local?: unknown;
+}
+
+/**
+ * The save of a game (`save_state`, format 2); self-contained: `{resume: save}` plays it again
+ * (README of `crates/ti4-wasm`, "Save and resume"). Another format is not read.
+ */
 export interface HostSave {
-  format: number;
-  game_id: string;
+  format: 2;
   seed: number;
+  /** `setup::PLAYER_COUNTS`, 2 to 8. */
   players: number;
-  human_seat: number;
-  setup: Record<string, unknown>;
+  /** The game, with the choices that were left open filled in. */
+  game: HostGame;
+  /** The table (`TableSetup`) the game was made from; none for a game of a fixed setup (`local`). */
+  table?: Record<string, unknown>;
+  scenario?: string;
+  /** The seats that the page plays at the start, as a mask (bit 0 is seat `a`). */
+  humans: number;
+  /** Every decision of the game, of every seat, in order. An undo cuts it. */
+  decisions: string[];
+  /** The page's answers among them. */
   answers: string[];
+  /** The changes of the seats that the page plays: a decision index and a humans mask each. */
+  switches: unknown[];
   redo: string[];
   never: string[];
   event_times: unknown[];
   event_versions: unknown[];
   version: number;
   generation: number;
-  decisions: number;
   decisions_hash: string;
   finished: boolean;
   round: number | null;
   phase: string | null;
   engine: { build: string; content_digest: string };
-  /** Every decision of the game, of every seat, in order. */
-  log?: string[];
-  /** The seats that the page plays, as a mask, and its changes during the game. */
-  humans?: number;
-  switches?: unknown[];
   /** What each seat staged and did not send (`ti4_host::staged`). */
   staged?: Record<string, unknown>;
 }
@@ -103,14 +120,11 @@ export interface Envelope {
 }
 
 /**
- * `ti4_host_start`'s input: one of `setup` (the engine's `Setup`), `table` and `local`, and
- * `resume`, a save or a restart. `modes`, `stepping` and `staged` are the settings of the page
- * (`Start` in `crates/ti4-wasm/src/host_setup.rs`).
+ * `ti4_host_start`'s input: one of `setup` (the engine's `Setup`), `table` and `local` (none: the
+ * game of the save), and `resume`, a save or a restart. `modes`, `stepping` and `staged` are the
+ * settings of the page (`Start` in `crates/ti4-wasm/src/host_setup.rs`).
  */
-export interface StartConfig {
-  setup?: Record<string, unknown>;
-  table?: unknown;
-  local?: unknown;
+export interface StartConfig extends HostGame {
   resume?: Partial<HostSave> | HostRestart;
   modes?: Record<string, string>;
   stepping?: number;

@@ -347,7 +347,18 @@ pub struct Prepared {
 /// Read the request of `ti4_host_start` and make the session and the game.
 pub fn prepare(len: usize) -> Result<Prepared, String> {
     let text = input(len)?;
-    let start: Start = serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
+    let start: serde_json::Value =
+        serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
+    // A save of another format is not read (a `restart` has no format).
+    if let Some(format) = start.pointer("/resume/format")
+        && format.as_u64() != Some(crate::host_setup::SAVE_FORMAT)
+    {
+        return Err(format!(
+            "the save has format {format}; this engine reads format {}",
+            crate::host_setup::SAVE_FORMAT
+        ));
+    }
+    let start: Start = serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
     let built = start.build()?;
     let mut resume: SavedGame = start.resume.unwrap_or_default();
     if !resume.log.is_empty() {
@@ -360,7 +371,9 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         players: built.players,
         human_seat: built.humans.trailing_zeros().min(built.players as u32 - 1) as usize,
         humans: built.humans,
-        setup: built.request.clone(),
+        game: built.request.clone(),
+        table: built.setup.clone(),
+        scenario: built.scenario.clone(),
         seats: built.seats.clone(),
     };
     let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
@@ -409,10 +422,11 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
     }
     *session_lock() = Some(session);
     let replayed = resume.answers.len().max(resume.log.len());
+    let decisions = resume.decisions_hash.as_ref().map(|_| resume.log.len());
     *REPLAY.lock().expect("replay lock") = Some(Replay {
         total: replayed as u64,
         log: std::mem::take(&mut resume.log),
-        decisions: resume.decisions,
+        decisions,
         hash: resume.decisions_hash.clone(),
         modes: if deferred { modes } else { Vec::new() },
         checked: replayed == 0,

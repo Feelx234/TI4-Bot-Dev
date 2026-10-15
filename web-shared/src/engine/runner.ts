@@ -106,11 +106,11 @@ export class HostRunner {
 
   /** The start of the run after a history change: the game as it was started, from the restart. */
   private restarted(save: HostSave, restart: HostRestart): StartConfig {
-    const { resume: _, ...base } = this.config ?? {};
+    const { resume: _, setup: _setup, table: _table, local: _local, ...base } = this.config ?? {};
     return {
       ...base,
-      // A setup with the choices that were left open filled in.
-      ...(base.setup || !(base.table || base.local) ? { setup: save.setup } : {}),
+      // The game with the choices that were left open filled in.
+      ...save.game,
       resume: { ...restart, never: save.never } as StartConfig["resume"],
     };
   }

@@ -279,8 +279,15 @@ pub struct Identity {
     /// The seats that the page plays at the start (bit 0 is seat `a`).
     #[serde(default)]
     pub humans: u32,
-    /// The setup as the host was given it (card set, map, factions...): a save replays with it.
-    pub setup: serde_json::Value,
+    /// The game as the host was given it, with the choices that were left open filled in (card
+    /// set, map, factions...): a save replays with it.
+    pub game: crate::host_setup::GameRequest,
+    /// The table of `ti4_host::setup` the game was made from; none for a game of a fixed setup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<ti4_host::setup::TableSetup>,
+    /// The scenario the game starts from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
     /// Who sits in each seat, told with every update: the game of a table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seats: Option<TableSeats>,
@@ -1852,19 +1859,20 @@ impl HostSession {
         Some(place)
     }
 
-    /// The save of the game as it stands.
+    /// The save of the game as it stands (format [`crate::host_setup::SAVE_FORMAT`]): the game,
+    /// and every decision of every seat in order, so that a resume gives each of them again and
+    /// no seat decides again. An undo cuts `decisions` at the answer that it takes back.
     #[must_use]
     pub fn save_state(&self, extra: serde_json::Value) -> serde_json::Value {
-        serde_json::json!({
-            "format": 1,
-            "game_id": self.identity.game_id,
+        let mut save = serde_json::json!({
+            "format": crate::host_setup::SAVE_FORMAT,
             "seed": self.identity.seed,
             "players": self.identity.players,
-            "human_seat": self.identity.human_seat,
+            "game": self.identity.game,
             "humans": self.identity.humans,
-            "setup": self.identity.setup,
+            "decisions": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
+            // The page's answers among them.
             "answers": self.answers,
-            "log": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
             "switches": self.switches,
             "redo": self.redo,
             "staged": self.staged,
@@ -1877,13 +1885,21 @@ impl HostSession {
             "event_versions": self.events.iter().map(|event| event.version).collect::<Vec<_>>(),
             "version": self.version,
             "generation": self.generation,
-            "decisions": self.decision_log.len(),
             "decisions_hash": decisions_hash(&self.decision_log),
             "finished": self.finished,
             "round": self.state.round,
             "phase": self.state.phase,
             "engine": extra,
-        })
+        });
+        if let Some(object) = save.as_object_mut() {
+            if let Some(table) = &self.identity.table {
+                object.insert("table".to_owned(), serde_json::json!(table));
+            }
+            if let Some(scenario) = &self.identity.scenario {
+                object.insert("scenario".to_owned(), scenario.clone().into());
+            }
+        }
+        save
     }
 
     /// The turn status the game shows while it waits (for a host that wants to show who plays).

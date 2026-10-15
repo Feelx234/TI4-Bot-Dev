@@ -14,6 +14,8 @@ export const LIMITS = {
   /** All games together. */
   maxTotalBytes: 128 * 1024 * 1024,
   maxAnswers: 20000,
+  /** The decisions of every seat: about nine for each answer of the person in a game of eight. */
+  maxDecisions: 200000,
   maxAnswerChars: 200,
   maxNicknameChars: 40,
   maxIdChars: 80,
@@ -30,16 +32,19 @@ export interface EngineIdentity {
   wasmSha256: string;
 }
 
-/** The T4 `save` object (crates/ti4-wasm/README.md, "Save and resume"). Extra fields are kept untouched. */
+/** The engine's `save` object, format 2 (crates/ti4-wasm/README.md, "Save and resume"). Extra fields are kept untouched. */
 export interface HostSave {
-  format: 1;
-  game_id: string;
+  format: 2;
   seed: number;
+  /** 2 to 8. */
   players: number;
-  /** 0-based. */
-  human_seat: number;
-  setup: Record<string, unknown>;
-  /** The human's option ids so far. */
+  /** The game that the save plays: `{setup}`, `{table}` or `{local}`. */
+  game: { setup?: Record<string, unknown>; table?: unknown; local?: unknown };
+  /** The seats that the person plays at the start, as a mask (bit 0 is seat `a`). */
+  humans: number;
+  /** Every decision of the game, of every seat, in order. */
+  decisions: string[];
+  /** The human's option ids so far (among `decisions`). */
   answers: string[];
   finished: boolean;
   round?: number | null;

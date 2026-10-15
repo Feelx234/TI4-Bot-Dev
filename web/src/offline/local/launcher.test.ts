@@ -69,8 +69,8 @@ function fakeSession(
 
 const stored = (answers: string[]) => ({
   ...save(answers),
-  human_seat: 1,
-  setup: { game_id: "ignored", seed: 7, players: 4, human_faction: "hacan" },
+  humans: 0b10,
+  game: { setup: { game_id: "ignored", seed: 7, players: 4, human_seat: 1, human_faction: "hacan" } },
 });
 
 /** A save store on its own IndexedDB; opening another on the same factory is a page reload. */

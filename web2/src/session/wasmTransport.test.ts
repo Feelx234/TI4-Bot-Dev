@@ -148,7 +148,7 @@ async function play(
     never: () => never,
     modes: () => modes,
     save: () => save!,
-    decisions: (): readonly string[] => save?.log ?? [],
+    decisions: (): readonly string[] => save?.decisions ?? [],
     answers: (): readonly string[] => save?.answers ?? [],
     switches: (): readonly SeatSwitch[] => save?.switches ?? [],
   };

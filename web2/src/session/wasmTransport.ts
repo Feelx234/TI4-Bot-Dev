@@ -41,13 +41,14 @@ interface Exports {
 }
 
 /**
- * What the engine keeps of a game to play it again (`HostSession::save_state`): the option id
- * of every decision of every seat, in order (`log`), the answers of the page among them, and the
- * seat changes. The rest (the redo list, the times of the events, the hash of the decisions) is
- * given back as it was.
+ * What the engine keeps of a game to play it again (`HostSession::save_state`, format 2): the
+ * game, the option id of every decision of every seat, in order (`decisions`), the answers of the
+ * page among them, and the seat changes. The rest (the redo list, the times of the events, the
+ * hash of the decisions) is given back as it was.
  */
 export interface HostSave {
-  log: string[];
+  format: 2;
+  decisions: string[];
   answers: string[];
   switches?: SeatSwitch[];
   [field: string]: unknown;
@@ -339,7 +340,7 @@ export function createWasmTransport(
     last = save;
     const staged = save.staged;
     const hasStaged = !!staged && typeof staged === "object" && Object.keys(staged).length > 0;
-    if (save.log.length > 0 || kept || hasStaged) {
+    if (save.decisions.length > 0 || kept || hasStaged) {
       kept = true;
       play.onSave?.(save);
     }

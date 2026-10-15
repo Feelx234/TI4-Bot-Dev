@@ -41,16 +41,16 @@ export interface SeatSwitch {
 export interface SavedGame extends LocalGame {
   /**
    * Formats 1 and 2 had the answers of the page only, and the other seats decided again when
-   * the game was played again. Format 3 had the decisions in a list of the page. They are not
-   * read.
+   * the game was played again. Format 3 had the decisions in a list of the page. Format 4 had
+   * the save of format 1 of the engine. They are not read.
    */
-  format: 4;
+  format: 5;
   /** SHA-256 of the engine file that played it. Another engine may offer other options. */
   engine: string;
   /**
-   * What the engine saved of the game (`HostSession::save_state`): the option id of every
-   * decision of the game, of every seat, in order (`log`), the answers of the page among them,
-   * and the seat changes (`switches`). Left out before the first question.
+   * What the engine saved of the game (`HostSession::save_state`, format 2): the option id of
+   * every decision of the game, of every seat, in order (`decisions`), the answers of the page
+   * among them, and the seat changes (`switches`). Left out before the first question.
    */
   save?: HostSave;
 }
@@ -104,9 +104,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value !== "object" || value === null) {
     throw new Error("The saved game is not a JSON object.");
   }
-  if (value.format !== 4) {
+  if (value.format !== 5) {
     throw new Error(
-      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 4.`,
+      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 5.`,
     );
   }
   for (const field of ["seed", "players", "humans"] as const) {
@@ -144,7 +144,12 @@ export function parseSavedGame(text: string): SavedGame {
     if (typeof save !== "object" || save === null) {
       throw new Error('The saved game has no object in "save".');
     }
-    if (!ids(save.log) || !ids(save.answers)) {
+    if (save.format !== 2) {
+      throw new Error(
+        `The engine's save has format ${JSON.stringify(save.format)}; this page reads format 2.`,
+      );
+    }
+    if (!ids(save.decisions) || !ids(save.answers)) {
       throw new Error('The saved game has no lists of option ids in "save".');
     }
     const { switches } = save;
@@ -165,7 +170,7 @@ export function parseSavedGame(text: string): SavedGame {
     }
   }
   return {
-    format: 4,
+    format: 5,
     engine: value.engine,
     seed: value.seed as number,
     players: value.players as number,

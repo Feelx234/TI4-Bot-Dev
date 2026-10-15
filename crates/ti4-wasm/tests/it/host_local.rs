@@ -146,10 +146,10 @@ fn the_page_plays_several_seats_and_changes_them_and_a_save_plays_the_same_game(
         "{}",
         saved["switches"]
     );
-    assert_eq!(
-        saved["log"].as_array().unwrap().len(),
-        saved["decisions"].as_u64().unwrap() as usize
-    );
+    assert_eq!(saved["format"], 2);
+    assert_eq!(saved["game"]["local"]["humans"], 0b101);
+    assert_eq!(saved["humans"], 0b101);
+    assert!(saved.get("table").is_none(), "a local game is no table");
 
     // The save gives every decision again, and the seat changes: the game asks the question
     // that was open, of the same seat, with the same number, and its decisions are the same.
@@ -159,7 +159,7 @@ fn the_page_plays_several_seats_and_changes_them_and_a_save_plays_the_same_game(
     let last = seen.last().unwrap();
     assert_eq!(again[0].asked, last.asked);
     assert_eq!(again[0].nonce, last.nonce);
-    assert_eq!(save()["log"], saved["log"]);
+    assert_eq!(save()["decisions"], saved["decisions"]);
     ti4_wasm::set_round_limit_native(None);
 }
 
@@ -225,7 +225,7 @@ fn the_other_seats_wait_for_a_step_and_play_the_same_game() {
                 (*answers <= 6).then(answer)
             }),
         );
-        (seen, save()["log"].clone())
+        (seen, save()["decisions"].clone())
     };
     let (run, played) = game(0);
     let (stepped, again) = game(1);
@@ -247,7 +247,7 @@ fn a_saved_decision_that_the_game_does_not_offer_ends_the_run_and_says_where() {
     let _serial = serial();
     let request = json!({
         "local": { "seed": 3, "players": 8, "humans": 1 },
-        "resume": { "log": ["no-such"] },
+        "resume": { "decisions": ["no-such"] },
     });
     let (seen, end) = play(&request, Box::new(|_, _| None));
     assert!(seen.is_empty(), "the page is not asked: {seen:?}");

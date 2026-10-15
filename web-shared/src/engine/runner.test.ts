@@ -10,20 +10,20 @@ const envelope = (kind: Envelope["kind"], fields: Partial<Envelope> = {}): Envel
 });
 
 const save = (answers: string[] = []): HostSave => ({
-  format: 1,
-  game_id: "off_test",
+  format: 2,
   seed: 7,
   players: 3,
-  human_seat: 0,
-  setup: { game_id: "off_test", seed: 7, players: 3 },
+  game: { setup: { game_id: "off_test", seed: 7, players: 3, human_seat: 0 } },
+  humans: 1,
+  decisions: answers,
   answers,
+  switches: [],
   redo: [],
   never: [],
   event_times: [],
   event_versions: [],
   version: 1,
   generation: 0,
-  decisions: answers.length,
   decisions_hash: "h",
   finished: false,
   round: 1,
@@ -96,7 +96,7 @@ describe("HostRunner", () => {
     expect(out.at(-1)).toMatchObject({ t: "end", save: { answers: ["x"] } });
   });
 
-  it("runs a restart in a new instance with the save's setup and the restart as the save", async () => {
+  it("runs a restart in a new instance with the save's game and the restart as the save", async () => {
     const out: FromWorker[] = [];
     const hosts: FakeHost[] = [];
     const restart = { answers: ["a", "b"], redo: ["c"], generation: 1, version: 7 };
@@ -104,7 +104,7 @@ describe("HostRunner", () => {
       const host = new FakeHost(`h${hosts.length}`, (h, request) => {
         if (request.type === "save_state") {
           return envelope("command", {
-            save: { ...save(["a", "b", "c"]), never: ["Shields"], setup: { seed: 7 } },
+            save: { ...save(["a", "b", "c"]), never: ["Shields"], game: { setup: { seed: 7 } } },
           });
         }
         if (request.type === "history") {
@@ -148,10 +148,11 @@ describe("HostRunner", () => {
     const out: FromWorker[] = [];
     const hosts: FakeHost[] = [];
     const restart = { answers: [], redo: [], generation: 1, version: 7, log: ["a"] };
+    const local = { seed: 3, players: 8, humans: 1, rule_seats: 0 };
     const make = () => {
       const host = new FakeHost(`h${hosts.length}`, (h, request) => {
         if (request.type === "save_state") {
-          return envelope("command", { save: { ...save(["a"]), setup: { local: { seed: 3 } } } });
+          return envelope("command", { save: { ...save(["a"]), game: { local } } });
         }
         if (request.type === "undo") {
           queueMicrotask(() =>
@@ -173,7 +174,6 @@ describe("HostRunner", () => {
       async () => make() as unknown as Host,
     );
     await runner.handle({ t: "init", module: {} as WebAssembly.Module });
-    const local = { seed: 3, players: 8, humans: 1, rule_seats: 0 };
     void runner.handle({
       t: "start",
       config: { local, modes: { Sabotage: "never" }, stepping: 0, staged: true },

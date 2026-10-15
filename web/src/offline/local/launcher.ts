@@ -89,7 +89,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
     const run = async () => {
       await store.put(entry.id, save as never, {
         nickname: entry.nickname,
-        humanFaction: (save.setup.human_faction as string | undefined) ?? entry.humanFaction,
+        humanFaction: (save.game.setup?.human_faction as string | undefined) ?? entry.humanFaction,
         engine: {
           build: save.engine?.build ?? "unknown",
           contentDigest: save.engine?.content_digest ?? "unknown",
@@ -117,7 +117,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
     current: EngineIdentity,
     saved: EngineIdentity | null,
   ): Promise<OfflineGameHandle> {
-    const total = replaying ? (config.resume?.answers?.length ?? null) : null;
+    const total = replaying ? ((config.resume as Partial<HostSave> | undefined)?.decisions?.length ?? null) : null;
     onProgress({ phase: replaying ? "replaying" : "starting", done: 0, total });
     const started = performance.now();
     const transport = session.openTransport(engine, {
@@ -248,9 +248,10 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
         entry.viewOnly = choice === "view-only";
       }
       const save = record.save as unknown as HostSave;
-      const config: StartConfig = { setup: save.setup, resume: save };
+      // The save names its game.
+      const config: StartConfig = { resume: save };
       void store.requestPersistence();
-      return open(entry, config, onProgress, signal, save.answers.length > 0, engine, session, resumeOptions?.decide, current, record.engine);
+      return open(entry, config, onProgress, signal, save.decisions.length > 0, engine, session, resumeOptions?.decide, current, record.engine);
     },
     async remove(gameId) {
       live.get(gameId)?.close();

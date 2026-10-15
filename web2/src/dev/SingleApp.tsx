@@ -190,7 +190,7 @@ export function SingleApp({ start }: { start: SingleStart }) {
   const [game, setGame] = useState(keptGame);
   const started = useCallback((made: LocalGame, engine: Engine) => {
     // Kept before the first answer: a reload is then this game, not another setup.
-    storeSavedGame(localStorage, { format: 4, engine: engine.hash, ...made });
+    storeSavedGame(localStorage, { format: 5, engine: engine.hash, ...made });
     setGame(made);
   }, []);
   const again = useCallback(() => {

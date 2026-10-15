@@ -206,7 +206,7 @@ fn a_ready_secondary_is_sent_when_the_game_asks_the_seat() {
     assert!(end["end"]["error"].is_null(), "{end}");
 
     let (saved, declined) = save.lock().unwrap().clone();
-    let decided = saved["log"].as_array().unwrap().len();
+    let decided = saved["decisions"].as_array().unwrap().len();
     let after = Arc::new(Mutex::new(Value::Null));
     let after_in = after.clone();
     let again = Arc::new(Mutex::new(Page {
@@ -225,7 +225,11 @@ fn a_ready_secondary_is_sent_when_the_game_asks_the_seat() {
     // The game asked the seat its secondary again, and the draft answered it: the page was
     // asked the next question, with the slot cleared by the session.
     let after = after.lock().unwrap().clone();
-    assert_eq!(after["log"][decided], declined, "{}", after["log"]);
+    assert_eq!(
+        after["decisions"][decided], declined,
+        "{}",
+        after["decisions"]
+    );
     assert!(
         after["staged"]["a"]["slots"]["secondary"]["value"].is_null(),
         "{after}"

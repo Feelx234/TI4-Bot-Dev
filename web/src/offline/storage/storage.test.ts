@@ -21,12 +21,12 @@ const META = { nickname: "Ada", humanFaction: "arborec", engine: ENGINE };
 
 function mkSave(n: number, over: Partial<HostSave> = {}): HostSave {
   return {
-    format: 1,
-    game_id: "g",
+    format: 2,
     seed: 42,
     players: 4,
-    human_seat: 1,
-    setup: { seed: 42, players: 4 },
+    game: { setup: { seed: 42, players: 4, human_seat: 1 } },
+    humans: 0b10,
+    decisions: Array.from({ length: n }, (_, i) => `opt-${i}`),
     answers: Array.from({ length: n }, (_, i) => `opt-${i}`),
     finished: false,
     round: 2,
@@ -280,18 +280,21 @@ describe("export and import", () => {
       return JSON.stringify(f);
     };
     for (const bad of [
-      mutate((g) => (g.save.players = 2)),
+      mutate((g) => (g.save.players = 9)),
       mutate((g) => (g.save.players = "4")),
-      mutate((g) => (g.save.human_seat = 4)),
+      mutate((g) => (g.save.humans = 16)),
+      mutate((g) => (g.save.humans = 0)),
+      mutate((g) => (g.save.decisions = "x")),
+      mutate((g) => (g.save.decisions[0] = 7)),
       mutate((g) => (g.save.seed = -1)),
       mutate((g) => (g.save.seed = 1.5)),
       mutate((g) => (g.save.answers = "x")),
       mutate((g) => (g.save.answers[0] = 7)),
       mutate((g) => (g.save.answers[0] = "y".repeat(500))),
-      mutate((g) => (g.save.format = 2)),
+      mutate((g) => (g.save.format = 1)),
       mutate((g) => (g.engine = { build: 1 })),
       mutate((g) => (g.createdAt = "yesterday")),
-      mutate((g) => (g.save.setup = null)),
+      mutate((g) => (g.save.game = null)),
     ]) {
       await expect(s.importGame(bad)).rejects.toMatchObject({ code: "invalid" });
     }
@@ -398,13 +401,12 @@ describe("autosave", () => {
 
 const LOCAL: OfflineFeedbackLocal = {
   seed: 1,
-  setup: { players: 4 },
   answers: ["x"],
   engine: { build: "0.1.0", content_digest: "dig" },
   wasm_sha256: "ab".repeat(32),
   save: {
-    seed: 1, setup: { players: 4 }, answers: ["x"], redo: [], never: [], event_times: [], event_versions: [],
-    generation: 0, version: 1, decisions: 1, decisions_hash: "h",
+    format: 2, seed: 1, game: { setup: { players: 4 } }, decisions: ["x"], answers: ["x"], redo: [], never: [],
+    event_times: [], event_versions: [], generation: 0, version: 1, decisions_hash: "h",
   },
 };
 

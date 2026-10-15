@@ -140,11 +140,11 @@ describe("progress", () => {
 });
 
 const LOCAL: OfflineFeedbackLocal = {
-  seed: 7, setup: { seed: 7, players: 4 }, answers: ["a", "b"],
+  seed: 7, answers: ["a", "b"],
   engine: { build: "abc", content_digest: "d" }, wasm_sha256: "ff",
   save: {
-    seed: 7, setup: { seed: 7, players: 4 }, answers: ["a", "b"], redo: [], never: [],
-    event_times: [], event_versions: [], generation: 0, version: 3, decisions: 9, decisions_hash: "00ff00ff00ff00ff",
+    format: 2, seed: 7, game: { setup: { seed: 7, players: 4 } }, decisions: ["a", "x", "b"], answers: ["a", "b"],
+    redo: [], never: [], event_times: [], event_versions: [], generation: 0, version: 3, decisions_hash: "00ff00ff00ff00ff",
   },
 };
 

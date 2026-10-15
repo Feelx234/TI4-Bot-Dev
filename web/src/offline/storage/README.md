@@ -33,7 +33,7 @@ T5's placeholder in-memory storage maps like this (the placeholder should keep t
 operations and swap its object for the store):
 
 - `save(gameId, save, meta)` -> `store.put` (or `autosave.schedule` after each answer; `autosave.flush()` on leaving the game)
-- `load(gameId)` -> `store.load` (use `record.save` as `ti4_host_start({setup: save.setup, resume: save})`)
+- `load(gameId)` -> `store.load` (use `record.save` as `ti4_host_start({resume: save})`: a save of format 2 names its game)
 - `list()` -> `store.listSummaries()`
 - `remove(gameId)` -> `store.remove`
 

@@ -140,7 +140,7 @@ export function LocalApp({
       return;
     }
     const { engine, saved } = start;
-    setDecisions(saved?.save?.log.length ?? 0);
+    setDecisions(saved?.save?.decisions.length ?? 0);
     setAnswers(saved?.save?.answers.length ?? 0);
     setSwitches(saved?.save?.switches ?? []);
     const made = createWasmTransport(engine, played, {
@@ -151,13 +151,13 @@ export function LocalApp({
       onModes: (modes) => localStorage.setItem(cardsKey(game), JSON.stringify(modes)),
       onSave(save) {
         storeSavedGame(localStorage, {
-          format: 4,
+          format: 5,
           engine: engine.hash,
           ...played,
           waitMs: wait.current || undefined,
           save,
         });
-        setDecisions(save.log.length);
+        setDecisions(save.decisions.length);
         setAnswers(save.answers.length);
         setSwitches(save.switches ?? []);
       },
@@ -424,7 +424,7 @@ export function LocalApp({
   } else if (waits) {
     body = (
       <Notice tone="error">
-        The saved game ({start.kind === "ready" ? (start.saved?.save?.log.length ?? 0) : 0}{" "}
+        The saved game ({start.kind === "ready" ? (start.saved?.save?.decisions.length ?? 0) : 0}{" "}
         decisions) was played by another build of the engine. This build may not offer the same
         options.
         <span className="mt-3 flex gap-2">

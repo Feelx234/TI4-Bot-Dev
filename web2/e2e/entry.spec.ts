@@ -42,7 +42,7 @@ test("a browser that kept the game of before the setup opens it from single play
   await page.addInitScript(() => {
     localStorage.setItem(
       "ti4.local.42.8.1",
-      JSON.stringify({ format: 4, engine: "", seed: 42, players: 8, humans: 1 }),
+      JSON.stringify({ format: 5, engine: "", seed: 42, players: 8, humans: 1 }),
     );
   });
   await page.goto("/");

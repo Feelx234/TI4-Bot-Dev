@@ -156,6 +156,16 @@ pub fn start(setup: &Value, resume: Option<&Value>) -> Value {
     serde_json::from_str(&out).expect("the end is JSON")
 }
 
+/// Play a save again from it alone (it names its game); returns the `end` envelope.
+pub fn resume(save: &Value) -> Value {
+    let request = json!({ "resume": save });
+    let len = host_api::put_input(&request.to_string());
+    let status = ti4_wasm::ti4_host_start(u32::try_from(len).unwrap());
+    let out = host_api::out_text();
+    assert!(status >= 0, "start failed: {out}");
+    serde_json::from_str(&out).expect("the end is JSON")
+}
+
 pub fn setup(seed: u64, players: usize) -> Value {
     json!({ "game_id": GAME, "seed": seed, "players": players, "human_seat": 0 })
 }

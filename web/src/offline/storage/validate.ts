@@ -31,12 +31,13 @@ export function jsonBytes(value: unknown): number {
 /** Checks the fields the store and the shell rely on; leaves the rest to the engine (which validates a resume itself). */
 export function validateSave(v: unknown): HostSave {
   if (!isObj(v)) bad("save is not an object");
-  if (v.format !== 1) bad(`unsupported save format ${String(v.format)}`);
-  if (!isStr(v.game_id, LIMITS.maxIdChars)) bad("save.game_id");
+  if (v.format !== 2) bad(`unsupported save format ${String(v.format)}`);
   if (!isInt(v.seed, 0, Number.MAX_SAFE_INTEGER)) bad("save.seed");
-  if (!isInt(v.players, 3, 6)) bad("save.players must be 3 to 6");
-  if (!isInt(v.human_seat, 0, (v.players as number) - 1)) bad("save.human_seat");
-  if (!isObj(v.setup)) bad("save.setup");
+  if (!isInt(v.players, 2, 8)) bad("save.players must be 2 to 8");
+  if (!isInt(v.humans, 1, 2 ** (v.players as number) - 1)) bad("save.humans");
+  if (!isObj(v.game)) bad("save.game");
+  if (!Array.isArray(v.decisions) || v.decisions.length > LIMITS.maxDecisions) bad("save.decisions");
+  for (const d of v.decisions) if (!isStr(d, LIMITS.maxAnswerChars)) bad("save.decisions entry");
   if (!Array.isArray(v.answers) || v.answers.length > LIMITS.maxAnswers) bad("save.answers");
   for (const a of v.answers) if (!isStr(a, LIMITS.maxAnswerChars)) bad("save.answers entry");
   if (typeof v.finished !== "boolean") bad("save.finished");
@@ -84,7 +85,8 @@ export function buildRecord(
     status: save.finished ? "finished" : "in_progress",
     summary: {
       playerCount: save.players,
-      humanSeat: save.human_seat + 1,
+      // The first seat of the mask, 1-based.
+      humanSeat: 32 - Math.clz32(save.humans & -save.humans),
       humanFaction: meta.humanFaction,
       seed: save.seed,
       round: save.round ?? null,

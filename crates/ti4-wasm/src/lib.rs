@@ -706,6 +706,10 @@ fn pick(
     rule: Option<&SeatObservation<'_>>,
     peek: bool,
 ) -> Result<ChoiceOption, IllegalChoice> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if !peek {
+        PICKS.fetch_add(1, Ordering::Relaxed);
+    }
     let (seed, index, table) = {
         let host = host();
         (host.seed, host.decided, host.table)
@@ -956,6 +960,11 @@ static ROUND_LIMIT: AtomicU32 = AtomicU32::new(ROUNDS);
 fn round_limit() -> u32 {
     ROUND_LIMIT.load(Ordering::Relaxed)
 }
+
+/// How many decisions the seats that the host does not play have made (the rule bot and the
+/// random seats), for callers on the native side.
+#[cfg(not(target_arch = "wasm32"))]
+static PICKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// The decisions of the game that was played last, for callers on the native side.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1585,6 +1594,15 @@ pub fn set_round_limit_native(rounds: Option<u32>) {
 #[must_use]
 pub fn decisions_native() -> Vec<ti4_engine::choice::DecisionRecord> {
     DECISIONS.lock().expect("decisions lock").clone()
+}
+
+/// How many decisions the seats that the host does not play have made so far (the rule bot and
+/// the random seats), for callers on the native side: a game that is played again from a save
+/// makes none of its saved decisions this way.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn picks_native() -> u64 {
+    PICKS.load(Ordering::Relaxed)
 }
 
 /// Call a setup export (`ti4_setup_preview`, `ti4_setup_draw`) with `table` as its request, for

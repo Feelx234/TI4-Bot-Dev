@@ -550,23 +550,23 @@ one, and the Dev sheet lists them.
 ### The saved game
 
 A game is not kept as its state. It is kept as what plays it again: the save of `HostSession`
-(`save_state`), with **the option id of every decision, of every seat, in order** (`log`), the
-answers of the page among them (`answers`), the switches of its seats (`switches`), and the
-times of its events. The random seats and the dice follow the seed. The server keeps a game the
-same way: an init record and the decision log. web2 stores it with the address of the game and
-the SHA-256 of the engine file (`web2/src/session/savedGame.ts`, format 4).
+(`save_state`, format 2, see "Save and resume"), with its game, **the option id of every
+decision, of every seat, in order** (`decisions`), the answers of the page among them
+(`answers`), the switches of its seats (`switches`), and the times of its events. The random
+seats and the dice follow the seed. The server keeps a game the same way: an init record and the
+decision log. web2 stores it with the address of the game and the SHA-256 of the engine file
+(`web2/src/session/savedGame.ts`, format 5).
 
 - Where: `localStorage`, key `ti4.local.<seed>.<players>.<humans>` (a scenario and single
   player have keys of their own), written whole at each question of the page. The Dev sheet has
   New game, Export and Import (a JSON file).
-- **Playing it again.** The save is the `resume` of the start request. With `log` every
-  decision is given again, whoever the seat is: no seat decides, no bot runs, nothing is
-  projected, no seat waits and no card setting is applied. What the host counts is counted as
-  in the game that was never saved, so the first choice after the replay has the same number,
-  and an undo goes back into the saved decisions. A seat that draws from the random stream moves
-  the stream, so the seats decide the same after the replay. `progress` envelopes say how far
-  it is (every 20 decisions). Without `log` (a save of `web/` before 2026-10-14) the person's
-  `answers` are given, and the other seats decide again.
+- **Playing it again.** The save is the `resume` of the start request. Every decision is given
+  again, whoever the seat is: no seat decides, no bot runs, nothing is projected, no seat waits
+  and no card setting is applied. What the host counts is counted as in the game that was never
+  saved, so the first choice after the replay has the same number, and an undo goes back into
+  the saved decisions. A seat that draws from the random stream moves the stream, so the seats
+  decide the same after the replay. `progress` envelopes say how far it is (every 20
+  decisions). A save of another format is not read.
 - A decision of the log that the game does not offer ends the run: the `end` envelope has
   `diverged`, which names its number, its id, the prompt and the ids that are offered.
 - **Undo.** One undo takes back one answer of the page, or a movement, the landings or a
@@ -716,7 +716,7 @@ bytes: read both again after every call (the buffer can move).
 | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
 | `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
 | `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}`. |
-| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}`. Returns when the game ends or is left; the output is an `end` envelope. |
+| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}` (with none of the three, the game of the save). Returns when the game ends or is left; the output is an `end` envelope. |
 | `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
 
 The import is `host.ask() -> i32` (`WebAssembly.Suspending`).
@@ -833,16 +833,29 @@ A page that does not ask for it (`web/`) is sent no `seat_staged`.
 
 ### Save and resume
 
-`save` is `{format:1, game_id, seed, players, human_seat, humans, setup, answers[], log[],
-switches[], redo[], staged{seat: {revision, slots}}, never[], event_times[], event_versions[],
-version, generation, decisions, decisions_hash, finished, round, phase, engine:{build,
-content_digest}}`. `setup` is the request
-the game was started from. Resume: `ti4_host_start({"setup": save.setup, "resume": save})` (web2
-gives its own `table` or `local`). The game plays the `log` again without asking (a few hundred ms for 40
-answers, seconds for a late game), reporting `progress`; the first `ask` then has `resume_check`
-(`ok` is whether the decisions are the saved ones: false means the engine changed) and an
-`initial_snapshot` with the full event log, times of day included. The page adds the hash of
-the wasm file to what it stores.
+`save` (`HostSession::save_state`) has format 2:
+
+| Field | |
+|---|---|
+| `format` | `2`. A start whose `resume` has another `format` is refused: old saves are not read. |
+| `seed`, `players` | The seed the seats decide from; the count, `ti4_host::setup::PLAYER_COUNTS` (2 to 8). |
+| `game` | The game as it was asked for, with the choices that were left open filled in: `{"setup"}`, `{"table"}` or `{"local"}` (`host_setup::GameRequest`). |
+| `table`? | The `TableSetup` the game was made from (a game of `setup` or `table`; not of `local`). |
+| `scenario`? | The scenario the game starts from. |
+| `humans` | The seats the page plays at the start, a mask (bit 0 is seat `a`). |
+| `decisions` | The option id of every decision of the game, of every seat, in order. An undo cuts it at the answer that it takes back. |
+| `answers` | The page's answers among them. |
+| `switches` | The changes of the seats of the page: `{decision, humans}` each. |
+| `redo`, `never`, `staged`, `event_times`, `event_versions`, `version`, `generation`, `decisions_hash` | What the run goes on with: the redo list, the Never cards, the staged work of each seat (see "Staged work"), the time and version of each event, the counters, and the hash that the replay is checked against. |
+| `finished`, `round`, `phase` | Where the game is. |
+| `engine` | `{build, content_digest}`. |
+
+Resume: `ti4_host_start({"resume": save})`; the game is `save.game` (a request that names its own
+game, as web2's does, plays that one). The game plays the `decisions` again without asking (a few
+hundred ms for 40 answers, seconds for a late game), reporting `progress`; no seat decides one of
+them again. The first `ask` then has `resume_check` (`ok` is whether the decisions are the saved
+ones: false means the engine changed) and an `initial_snapshot` with the full event log, times of
+day included. The page adds the hash of the wasm file to what it stores.
 
 ### What differs from the server
 
@@ -863,8 +876,9 @@ opening.
 `it/server_parity.rs` plays the same table through `ti4-server`'s own session and compares the
 decisions and the whole event log; `it/host_session.rs` checks every message against the
 `ServerMessage` types and the order a client relies on; `it/host_local.rs` the local play of
-web2 (several seats of the page, a change of them, stepping, a save with its log);
-`it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
+web2 (several seats of the page, a change of them, stepping, a save with its decisions);
+`it/host_history.rs` the history, and that a save plays again from itself alone with no seat
+deciding; `it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
 secondary that the session sends; `it/host_preview.rs` that each secondary preview equals the
 server's answer at the same position; `it/host_scenario.rs` that each scenario of three seats
 opens at the same question, after the same opening, as the server's launch of it. `node js/host.mjs <wasm>` runs the same

@@ -198,7 +198,7 @@ export class LocalTransport implements GameTransport {
     if (this.closed) return;
     this.store.set({ ...this.store.get(), status: "connecting", fatal: null, lastError: null });
     const save = this.latest;
-    void this.boot(save ? { setup: save.setup, resume: save } : this.options.config);
+    void this.boot(save ? { resume: save } : this.options.config);
   }
 
   /** The latest save (the answers so far); null before the first question. */

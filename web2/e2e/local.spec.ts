@@ -424,7 +424,7 @@ test("a saved game of another engine build is not replayed without a word", asyn
   // A decision that the game does not offer stops the replay and names it.
   await page.evaluate(() => {
     const save = JSON.parse(localStorage.getItem("ti4.local.3.8.1") ?? "");
-    const host = { ...save.save, log: ["no-such"] };
+    const host = { ...save.save, decisions: ["no-such"] };
     localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, save: host }));
   });
   await page.reload();
@@ -440,7 +440,7 @@ test("a saved game of another engine build is not replayed without a word", asyn
   });
   await page.reload();
   await expect(page.getByRole("status")).toContainText(
-    "The saved game has format 2; this page reads format 4. It cannot be played again.",
+    "The saved game has format 2; this page reads format 5. It cannot be played again.",
   );
   await page.getByRole("status").getByRole("button", { name: "New game" }).click();
   await expect(send(page)).toBeVisible();
@@ -1554,9 +1554,9 @@ test("single player: a table is set up in the page, started, kept and set up aga
   await send(page).click();
   await expect.poll(() => savedLine(page, /^Single player · /)).toContain("1 answers saved");
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!));
-  expect(saved.format).toBe(4);
+  expect(saved.format).toBe(5);
   // The decisions of every seat are kept, in their order: the other seats decided before the page.
-  expect(saved.save.log.length).toBeGreaterThan(1);
+  expect(saved.save.decisions.length).toBeGreaterThan(1);
   expect(saved.table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
   expect(saved.table.seats.map((seat: { kind: string }) => seat.kind)).toEqual([
     "human",

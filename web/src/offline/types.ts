@@ -147,14 +147,15 @@ export interface QueuedFeedbackReport {
  */
 export interface OfflineFeedbackLocal {
   seed: number;
-  setup: Record<string, unknown>;
   /** The human's option ids so far. */
   answers: string[];
   engine: { build: string; content_digest: string };
   wasm_sha256: string;
   save: {
+    format: 2;
     seed: number;
-    setup: Record<string, unknown>;
+    game: Record<string, unknown>;
+    decisions: string[];
     answers: string[];
     redo: string[];
     never: string[];
@@ -162,7 +163,6 @@ export interface OfflineFeedbackLocal {
     event_versions: Array<number | null>;
     generation: number;
     version: number;
-    decisions: number;
     decisions_hash: string;
     [other: string]: unknown;
   };
