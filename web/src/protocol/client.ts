@@ -503,6 +503,11 @@ export class GameSessionClient implements GameTransport {
   /** Bumped by every (re)load so an older, slower snapshot answer cannot overwrite a newer one. */
   private loadSeq = 0;
   private pingSequence = 0;
+  /**
+   * A ping went out and nothing has arrived since. Still set at the next heartbeat: the socket is
+   * open but dead (a proxy or tunnel dropped it without a close), so it is replaced.
+   */
+  private pingUnanswered = false;
   private pendingBatch: {
     nonce: string;
     plan: string;
@@ -1343,8 +1348,15 @@ export class GameSessionClient implements GameTransport {
         player_session: playerSession,
       };
       socket.send(JSON.stringify(message));
+      this.pingUnanswered = false;
       if (playerSession)
         this.heartbeat = setInterval(() => {
+          if (this.socket !== socket) return;
+          if (this.pingUnanswered) {
+            this.reconnect();
+            return;
+          }
+          this.pingUnanswered = true;
           if (socket.readyState === WebSocket.OPEN)
             socket.send(
               JSON.stringify({
@@ -1359,6 +1371,7 @@ export class GameSessionClient implements GameTransport {
     socket.onmessage = (event) => {
       // The server answered: this connection works, so the next failure starts the backoff over.
       if (this.socket === socket) {
+        this.pingUnanswered = false;
         this.reconnectAttempt = 0;
         if (this.state.reconnecting) this.setState({ ...this.state, reconnecting: false });
       }
