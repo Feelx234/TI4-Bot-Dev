@@ -85,8 +85,11 @@ pub mod objectives;
 // Agent layer (when to use a faction agent).
 pub mod agents;
 
+mod decider;
 pub mod faction_plans;
 pub mod random;
+
+pub use decider::RuleBotDecider;
 
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.

@@ -1006,10 +1006,9 @@ impl Actor {
     /// # Errors
     /// [`ActorError::NotUsable`] for a row outside the table.
     pub fn copy_input_rows(&mut self, pairs: &[(i64, i64)]) -> Result<(), ActorError> {
-        if let Some((from, to)) = pairs
-            .iter()
-            .find(|(from, to)| !(0..self.capacity).contains(from) || !(0..self.capacity).contains(to))
-        {
+        if let Some((from, to)) = pairs.iter().find(|(from, to)| {
+            !(0..self.capacity).contains(from) || !(0..self.capacity).contains(to)
+        }) {
             return Err(ActorError::NotUsable {
                 what: "row copy",
                 detail: format!("{from} -> {to} outside capacity {}", self.capacity),
@@ -2241,7 +2240,11 @@ mod tests {
             ..growth
         };
         assert!(actor.grow_input_capacity(wrong).is_err());
-        assert_eq!(actor.capacity(), CAPACITY, "a refused growth changed the actor");
+        assert_eq!(
+            actor.capacity(),
+            CAPACITY,
+            "a refused growth changed the actor"
+        );
 
         actor.grow_input_capacity(growth).expect("grows");
         assert_eq!(actor.capacity(), CAPACITY * 2);
@@ -2250,7 +2253,11 @@ mod tests {
         let new_column = CAPACITY + 5;
         let with_new = option(&[3, 48, 79, new_column], &[0.25, 1.0, -0.5, 1.0]);
         assert_eq!(score(&actor, with_new), before, "a new row is not zero");
-        let padded = actor.input().narrow(0, CAPACITY, CAPACITY).abs().sum(Kind::Float);
+        let padded = actor
+            .input()
+            .narrow(0, CAPACITY, CAPACITY)
+            .abs()
+            .sum(Kind::Float);
         assert!(padded.double_value(&[]) == 0.0);
     }
 
@@ -2265,7 +2272,10 @@ mod tests {
                 .expect("vec")
         };
         let before = score(&actor, option(&[3, 7], &[0.25, 1.0]));
-        assert!(actor.copy_input_rows(&[(7, CAPACITY)]).is_err(), "out of range is refused");
+        assert!(
+            actor.copy_input_rows(&[(7, CAPACITY)]).is_err(),
+            "out of range is refused"
+        );
         actor.copy_input_rows(&[(7, 300)]).expect("copies");
         assert_eq!(score(&actor, option(&[3, 300], &[0.25, 1.0])), before);
     }
@@ -2282,7 +2292,10 @@ mod tests {
             if matches!(index, 6..=8) {
                 assert!(total(mask) > 0.0, "parameter {index} opens the named rows");
             } else {
-                assert!(total(mask).abs() < f64::EPSILON, "parameter {index} is shared");
+                assert!(
+                    total(mask).abs() < f64::EPSILON,
+                    "parameter {index} is shared"
+                );
             }
         }
         let opened = |mask: &Tensor, faction: &str| {
@@ -2291,7 +2304,10 @@ mod tests {
         };
         for parameter in 6..=8 {
             assert!(opened(&masks[parameter], "sardakk") && opened(&masks[parameter], "naalu"));
-            assert!(!opened(&masks[parameter], "sol"), "a trained faction stays frozen");
+            assert!(
+                !opened(&masks[parameter], "sol"),
+                "a trained faction stays frozen"
+            );
         }
     }
 

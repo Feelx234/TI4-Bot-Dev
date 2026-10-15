@@ -1120,9 +1120,10 @@ fn main() {
     // Which factions a game seats (BF-22). `six` is the historical FACTIONS rotation; `wide` draws
     // six distinct factions per seed from the whole implemented roster, and the bundle's pinned
     // faction rows (ti4_mlp::FACTION_ROSTER) condition every one of them.
-    let roster = argument("--roster").map_or(ti4_engine::seating::FactionRoster::InScope, |value| {
-        ti4_training::rollout::parse_roster(&value).unwrap_or_else(|error| refuse(&error))
-    });
+    let roster = argument("--roster")
+        .map_or(ti4_engine::seating::FactionRoster::InScope, |value| {
+            ti4_training::rollout::parse_roster(&value).unwrap_or_else(|error| refuse(&error))
+        });
     if diag_path.is_some() {
         ti4_mlp::perf::enable(diag_sync);
     } else if hash_games || diag_sync {
@@ -1347,7 +1348,9 @@ fn main() {
     if roster != ti4_engine::seating::FactionRoster::InScope
         && argument("--waste-penalties").is_some()
     {
-        refuse("--waste-penalties is per faction of the six; with --roster wide or new use --waste-penalty");
+        refuse(
+            "--waste-penalties is per faction of the six; with --roster wide or new use --waste-penalty",
+        );
     }
     let waste_penalties: Vec<f64> = argument("--waste-penalties").map_or_else(
         || vec![waste_penalty; FACTIONS.len()],
@@ -1702,10 +1705,8 @@ fn main() {
             .filter(|alias| !FACTIONS.contains(alias))
             .map(|alias| ti4_mlp::FactionRow::of(alias).expect("a roster row"))
             .collect();
-        let masks = actor.faction_rows_masks(
-            &rows,
-            critic_mode == ti4_mlp::bundle::CriticMode::Shared,
-        );
+        let masks =
+            actor.faction_rows_masks(&rows, critic_mode == ti4_mlp::bundle::CriticMode::Shared);
         optimizer
             .restrict(masks)
             .unwrap_or_else(|error| refuse(&format!("restricting the optimiser: {error}")));

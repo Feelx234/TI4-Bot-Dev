@@ -2887,7 +2887,10 @@ mod tests {
             &technology
         ));
         let open = crate::technology::researchable(&state, content, POK, &player);
-        assert!(open.contains(&technology), "the waiver makes it researchable");
+        assert!(
+            open.contains(&technology),
+            "the waiver makes it researchable"
+        );
         let alternative = open
             .iter()
             .find(|id| **id != technology)

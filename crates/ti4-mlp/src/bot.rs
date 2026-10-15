@@ -680,10 +680,6 @@ impl MlpBot {
     /// Every failure here refuses the decision rather than skipping the record. A skipped record is
     /// a batch that is quietly smaller and biased toward whichever states happened not to fail, and
     /// no downstream check could see it (F-M10-034-D2).
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the behaviour quantities are only jointly meaningful; splitting them into a                   struct would move the coupling rather than remove it"
-    )]
     /// Whether this bundle's critic carries the power-projection facts: only when its vocabulary
     /// places them, so a bundle without them sees exactly the value input it always did.
     fn critic_wants_power(&self) -> bool {
@@ -767,6 +763,10 @@ impl MlpBot {
         progress
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the behaviour quantities are only jointly meaningful; splitting them into a struct would move the coupling rather than remove it"
+    )]
     fn record(
         &mut self,
         choice: &Choice,
