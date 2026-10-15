@@ -126,6 +126,10 @@ pub struct Restart {
     /// with the first snapshot of the new run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undone: Vec<PlanStep>,
+    /// The rule bot version the game is played with (`host_setup::Setup::bot_version`): the new
+    /// run plays the same bot even when its request repeats a setup that leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_version: Option<u32>,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -1414,6 +1418,7 @@ impl HostSession {
             log,
             switches: self.switches.clone(),
             undone: steps,
+            bot_version: self.bot_version(),
         });
         handled.resume = Some(Resume::Leave);
     }
@@ -1484,6 +1489,7 @@ impl HostSession {
                             log: Vec::new(),
                             switches: self.switches.clone(),
                             undone: Vec::new(),
+                            bot_version: self.bot_version(),
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1529,8 +1535,18 @@ impl HostSession {
             log: Vec::new(),
             switches: self.switches.clone(),
             undone: Vec::new(),
+            bot_version: self.bot_version(),
         });
         handled.resume = Some(Resume::Leave);
+    }
+
+    /// The rule bot version of this game, as its setup records it.
+    fn bot_version(&self) -> Option<u32> {
+        self.identity
+            .setup
+            .get("bot_version")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|v| u32::try_from(v).ok())
     }
 
     /// A staged plan of the page (`BatchPlan` of `web/`) sent as one request: the person's
@@ -1657,6 +1673,7 @@ impl HostSession {
             "human_seat": self.identity.human_seat,
             "humans": self.identity.humans,
             "setup": self.identity.setup,
+            "bot_version": self.bot_version(),
             "answers": self.answers,
             "log": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
             "switches": self.switches,

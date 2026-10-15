@@ -40,6 +40,7 @@
 //! - **Research** and **structure placement**: the option that moves an objective most.
 //! - **Secret objectives**: over the hand limit, the secret furthest from done goes back.
 
+use crate::tuning;
 use std::collections::BTreeSet;
 
 use rand::Rng;
@@ -50,9 +51,9 @@ use ti4_engine::production::Spend;
 use ti4_model::id::{ObjectiveId, PlanetId, PlayerId, SystemId};
 
 use super::{
-    ACTIVATION_THRESHOLD, EAGER_WORTH, activation_value, best_above, card_is, has_hostile_ships,
-    holds_mecatol, home_system, is_ground, is_ship, mecatol_in_reach, mecatol_takeable,
-    payload_f64, payload_str, ready_card, strategic_option, targets, unit_type,
+    activation_value, best_above, card_is, has_hostile_ships, holds_mecatol, home_system,
+    is_ground, is_ship, mecatol_in_reach, mecatol_takeable, payload_f64, payload_str, ready_card,
+    strategic_option, targets, unit_type,
 };
 
 /// The first round the objective layer plays: rounds one and two are the expansion.
@@ -87,16 +88,17 @@ pub fn set_enabled_for(seats: &[&str]) {
 }
 
 fn enabled_for(seat: &PlayerId) -> bool {
-    ENABLED
-        .lock()
-        .expect("objective layer switch")
-        .as_ref()
-        .is_none_or(|seats| seats.contains(seat.as_str()))
+    tuning::objectives_enabled()
+        && ENABLED
+            .lock()
+            .expect("objective layer switch")
+            .as_ref()
+            .is_none_or(|seats| seats.contains(seat.as_str()))
 }
 
 /// Whether the objective layer plays this decision.
 fn active(seen: &Observed<'_>) -> bool {
-    seen.round() >= OBJECTIVE_ROUND
+    seen.round() >= tuning::objective_round()
 }
 
 /// The objective layer's answer to `choice`, or `None` to leave it to the rule bot.
@@ -147,7 +149,13 @@ pub fn pick(
         return Some(index);
     }
     if choice.options.iter().any(|o| o.kind == "produce") {
-        return pick_produce(choice, observed, me, &reserve);
+        return pick_produce(
+            choice,
+            observed,
+            me,
+            &reserve,
+            &crate::planner::Bias::of(seen, me),
+        );
     }
     if !choice.options.is_empty() && choice.options.iter().all(|o| o.kind == "pay") {
         return pick_pay(choice, observed, &reserve);
@@ -265,9 +273,10 @@ pub fn gain(before: &[Goal], after: &[Goal]) -> f64 {
                 public_ready
             };
             let extra = (old.points - ready).max(0.0);
-            value += COMPLETE_VALUE * extra.max(0.25 * old.points);
-        } else if new.have > old.have && new.gap() <= 2.0 && old.threshold > 0.0 {
-            value += PROGRESS_VALUE * old.points * (new.have - old.have) / old.threshold;
+            value += tuning::complete_value() * extra.max(0.25 * old.points);
+        } else if new.have > old.have && new.gap() <= tuning::progress_gap() && old.threshold > 0.0
+        {
+            value += tuning::progress_value() * old.points * (new.have - old.have) / old.threshold;
         }
     }
     value
@@ -446,6 +455,7 @@ fn pick_produce(
     seen: &Observed<'_>,
     me: &PlayerId,
     reserve: &Reserve,
+    bias: &crate::planner::Bias,
 ) -> Option<usize> {
     if reserve.resources == 0 && reserve.influence == 0 && reserve.trade_goods == 0 {
         return None;
@@ -470,7 +480,7 @@ fn pick_produce(
     if !narrowed.options.iter().any(|o| o.kind == "produce") {
         return choice.options.iter().position(ChoiceOption::is_decline);
     }
-    super::pick_produce(&narrowed, seen, me).and_then(|i| keep.get(i).copied())
+    super::pick_produce_biased(&narrowed, seen, me, bias).and_then(|i| keep.get(i).copied())
 }
 
 /// Payment keeping the reserve: a planet's value of the other kind counts in full while the
@@ -660,7 +670,7 @@ fn rivals_about_to_win(seen: &Observed<'_>, me: &PlayerId) -> Vec<PlayerId> {
         .filter(|p| *p != me)
         .filter(|p| {
             seen.seat(p)
-                .is_some_and(|seat| seat.victory_points >= WIN - DENY_WITHIN)
+                .is_some_and(|seat| seat.victory_points >= WIN - tuning::deny_within())
         })
         .cloned()
         .collect()
@@ -741,7 +751,7 @@ fn system_value(
         })
         .count();
     #[expect(clippy::cast_precision_loss, reason = "a handful of planets")]
-    let deny = DENY_VALUE * denied as f64;
+    let deny = tuning::deny_value() * denied as f64;
     let mut value = base + objective + deny;
     // A fight that takes nothing and protects nothing is not worth the ships any more.
     if has_hostile_ships(observed, me, system)
@@ -796,7 +806,7 @@ fn pick_activation(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -
         .collect();
     // Nothing worth a token (an empty fight scores zero now): the least harmful system rather
     // than the rule bot's own pick, which would take that fight.
-    best_above(&scored, ACTIVATION_THRESHOLD).or_else(|| best_above(&scored, 0.0))
+    best_above(&scored, tuning::activation_threshold()).or_else(|| best_above(&scored, 0.0))
 }
 
 /// Action phase from round three: Imperial at once when it scores a public objective; a tactical
@@ -852,15 +862,15 @@ fn pick_action(
     let reserve = Reserve::of(seen, me);
     let keep_tokens = reserve.tokens > 0 && pool_tokens(observed, me) - 1 < reserve.tokens;
     let needed = if keep_tokens {
-        EAGER_WORTH * 2.0
+        tuning::eager_worth() * 2.0
     } else {
-        ACTIVATION_THRESHOLD
+        tuning::activation_threshold()
     };
     if worth < needed {
         return strategic.or_else(|| choice.options.iter().position(|o| o.id == "pass"));
     }
     match strategic {
-        Some(index) if worth < EAGER_WORTH && rng.random_bool(0.25) => Some(index),
+        Some(index) if worth < tuning::eager_worth() && rng.random_bool(0.25) => Some(index),
         _ => Some(tactical),
     }
 }
@@ -1193,9 +1203,9 @@ fn pick_structure(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> 
                 .filter(|g| !g.satisfied && g.family == format!("units_{kind}"))
                 .map(|g| {
                     if g.gap() <= 1.0 {
-                        COMPLETE_VALUE * g.points
+                        tuning::complete_value() * g.points
                     } else {
-                        PROGRESS_VALUE * g.points / g.threshold.max(1.0)
+                        tuning::progress_value() * g.points / g.threshold.max(1.0)
                     }
                 })
                 .sum();
