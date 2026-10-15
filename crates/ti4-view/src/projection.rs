@@ -62,6 +62,7 @@ pub fn project_player_view(player: &Player) -> PlayerView {
         secret_objective_progress: BTreeMap::new(),
         leaders: player.leaders.clone(),
         held_foreign_tokens: Vec::new(),
+        agenda_peek: Vec::new(),
     }
 }
 
@@ -676,6 +677,10 @@ pub fn project_game_view_full(
             {
                 view.secret_objective_progress =
                     project_secret_progress(&redacted, seat, map_tiles);
+                view.agenda_peek = ti4_engine::action_cards::insider_peek(&redacted, seat)
+                    .iter()
+                    .map(|alias| project_agenda_peek_card(alias))
+                    .collect();
             }
             view
         })
@@ -697,6 +702,29 @@ pub fn project_game_view_full(
             Some(viewer),
         ),
         table: project_table_view_with_map(&redacted, map_tiles),
+    }
+}
+
+/// One agenda as printed (an id the content does not know shows as its id, with no text).
+fn project_agenda_peek_card(alias: &str) -> crate::view::AgendaPeekCard {
+    let record = ContentStore::embedded().get(ContentType::Agendas, alias);
+    let field = |key: &str| {
+        record
+            .as_ref()
+            .and_then(|record| record.text(key))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let name = Some(field("name"))
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| alias.to_owned());
+    crate::view::AgendaPeekCard {
+        id: alias.to_owned(),
+        name,
+        kind: field("type"),
+        target: field("target"),
+        text1: field("text1"),
+        text2: field("text2"),
     }
 }
 
@@ -972,6 +1000,66 @@ mod tests {
         let sheets = json["players"].as_array().unwrap();
         assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_some()));
         assert!(sheets.iter().any(|p| p.get("held_foreign_tokens").is_none()));
+    }
+
+    #[test]
+    fn an_insider_peek_reaches_only_the_seat_that_looked() {
+        let mut state = ti4_engine::fixtures::seated_game(
+            &[("a", "mahact"), ("b", "xxcha")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let (viewer, other) = (PlayerId::new("a"), PlayerId::new("b"));
+        state.agenda_deck = vec!["one".into(), "two".into(), "three".into(), "four".into()];
+        state.faction_marks.insert(
+            ti4_engine::action_cards::insider_peek_key(&viewer),
+            "one,two,three".to_owned(),
+        );
+        let peek = |viewer: &ViewerRole, whose: &PlayerId| {
+            project_game_view(&state, viewer)
+                .players
+                .iter()
+                .find(|player| &player.id == whose)
+                .map(|player| {
+                    player
+                        .agenda_peek
+                        .iter()
+                        .map(|card| card.id.clone())
+                        .collect::<Vec<_>>()
+                })
+                .expect("a seat")
+        };
+
+        assert_eq!(
+            peek(&ViewerRole::Player(viewer.clone()), &viewer),
+            vec!["one", "two", "three"]
+        );
+        assert!(peek(&ViewerRole::Player(other.clone()), &viewer).is_empty());
+        assert!(peek(&ViewerRole::Player(other.clone()), &other).is_empty());
+        assert!(peek(&ViewerRole::Spectator, &viewer).is_empty());
+        // And nothing of it is on the wire for anybody else.
+        let sent =
+            serde_json::to_string(&project_game_view(&state, &ViewerRole::Player(other))).unwrap();
+        assert!(
+            !sent.contains("agenda_peek") && !sent.contains("three"),
+            "{sent}"
+        );
+        // The viewer gets the printed card, not just an id.
+        state.agenda_deck = vec!["revolution".into(), "secret".into()];
+        state.faction_marks.insert(
+            ti4_engine::action_cards::insider_peek_key(&viewer),
+            "revolution,secret".to_owned(),
+        );
+        let shown = project_game_view(&state, &ViewerRole::Player(viewer.clone()));
+        let cards = &shown
+            .players
+            .iter()
+            .find(|p| p.id == viewer)
+            .unwrap()
+            .agenda_peek;
+        assert_eq!(cards[0].name, "Anti-Intellectual Revolution");
+        assert_eq!(cards[0].kind, "Law");
+        assert!(cards[0].text1.starts_with("For:"));
+        assert_eq!(cards[1].target, "Elect Player");
     }
 
     fn reaction_offer() -> (Choice, String) {

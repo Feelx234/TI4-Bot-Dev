@@ -490,6 +490,28 @@ pub fn choose_reroll_dice(
     };
     let observed = Observed::new(state, content, sources, galaxy);
     let mut picks = Vec::new();
+    // Display only: the whole roll, one entry per die in the order the dice are asked about, so a
+    // client can show every die and which one this question is about.
+    let dice: Vec<serde_json::Value> = set
+        .rolls
+        .iter()
+        .enumerate()
+        .flat_map(|(unit, entry)| {
+            entry.faces.iter().enumerate().map(move |(die, face)| {
+                let bonus = entry.deltas.get(&die).copied().unwrap_or(0);
+                serde_json::json!({
+                    "unit": entry.unit,
+                    "unit_index": unit,
+                    "die": die,
+                    "face": face,
+                    "bonus": bonus,
+                    "hits_on": entry.hits_on,
+                    "rerolled": entry.rerolled.contains(&die),
+                })
+            })
+        })
+        .collect();
+    let mut asked = 0usize;
     for (unit, entry) in set.rolls.iter().enumerate() {
         for (die, face) in entry.faces.iter().enumerate() {
             // OBS-008b2: the die's own current hit status (its face plus whatever adjustment --
@@ -542,7 +564,10 @@ pub fn choose_reroll_dice(
                 format!("reroll die {} of {}", die + 1, entry.unit),
                 vec![reroll, decline],
             )
+            .detailed("dice", dice.clone())
+            .detailed("current", asked)
             .contextualized(context);
+            asked += 1;
             let Ok(answer) = table.ask_seeing(&choice, &observed) else {
                 continue;
             };
@@ -8514,6 +8539,54 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("dreadnought")
         );
+    }
+
+    /// Every reroll question carries the whole roll (display only), so a client can show all the
+    /// dice and which one is being asked about; the options and their ids are as before.
+    #[test]
+    fn every_reroll_question_carries_all_the_dice_and_its_own_position() {
+        let (mut state, system) = arena();
+        let player = defender();
+        let entry = |unit: &str, hits_on, faces: Vec<u32>| RerollEntry {
+            unit: unit.to_owned(),
+            planet: None,
+            hits_on: Some(hits_on),
+            faces,
+            rerolled: std::collections::BTreeSet::new(),
+            deltas: std::collections::BTreeMap::new(),
+            unit_types: std::collections::BTreeMap::new(),
+        };
+        state.reroll_staging.insert(
+            player.clone(),
+            RerollSet {
+                kind: "ground".to_owned(),
+                system,
+                rolls: vec![entry("infantry", 8, vec![3, 9]), entry("mech", 6, vec![6])],
+            },
+        );
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(FirstOption));
+        let mut table = Table::with_default(Box::new(decider));
+        let _ = choose_reroll_dice(
+            &state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            &player,
+            &DecisionSource::Content("test".to_owned()),
+            "test_reroll",
+        );
+
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 3, "one question per die");
+        for (index, choice) in asked.iter().enumerate() {
+            assert_eq!(choice.details["current"], index);
+            let dice = choice.details["dice"].as_array().expect("the dice");
+            assert_eq!(dice.len(), 3);
+            assert_eq!(dice[1]["face"], 9);
+            assert_eq!(dice[1]["hits_on"], 8);
+            assert_eq!(dice[2]["unit"], "mech");
+        }
     }
 
     /// OBS-008b2: a reroll option names its unit, current face, and hit threshold, and previews
