@@ -244,6 +244,7 @@ const AppRoutes: React.FC = () => {
         sessionStorage.removeItem(storageKey(gameId));
         navigate(null);
       }}
+      onHome={() => navigate(null)}
     />
   );
 };
@@ -254,7 +255,9 @@ const GameRoute: React.FC<{
   onCredential: (credential: string) => void;
   onCredentialInvalid: () => void;
   onForget: () => void;
-}> = ({ gameId, token, onCredential, onCredentialInvalid, onForget }) => {
+  /** Back to the start screen without leaving the seat (it stays in My games). */
+  onHome?: () => void;
+}> = ({ gameId, token, onCredential, onCredentialInvalid, onForget, onHome }) => {
   const {
     lobby,
     playerId,
@@ -297,6 +300,16 @@ const GameRoute: React.FC<{
         ) : !loading ? (
           <ConnectionProblem kind="unreachable" message={UNREACHABLE_MESSAGE} onRetry={retry} />
         ) : null}
+        {onHome && (gone || !loading) && (
+          <button
+            type="button"
+            className="button button--secondary"
+            data-testid="lobby-back-to-start"
+            onClick={onHome}
+          >
+            Back to start
+          </button>
+        )}
       </main>
     );
   const viewer: ViewerRole =
@@ -356,6 +369,7 @@ const GameRoute: React.FC<{
           onRemoveBot={(targetId) => removeBot(targetId)}
           onAddRandomBots={(options) => addRandomBots(options)}
           onSetSeatFaction={(targetId, faction) => setSeatFaction(targetId, faction)}
+          onHome={onHome}
         />
       )}
     </>
