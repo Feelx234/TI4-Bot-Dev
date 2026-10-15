@@ -1,6 +1,7 @@
 // How ids of the wire protocol are shown. Presentation only: no rule is decided here.
 import type { Force, TechColor, UnitType } from "../../model";
 import type { Catalog, SessionUpdate } from "../wire";
+import { titleCase } from "@ti4/shared/content/names.ts";
 
 const SYMBOLS = ["●", "◆", "▲", "■", "✚", "✖", "♣", "★"];
 const COLORS = [
@@ -19,11 +20,7 @@ export const seatMark = (index: number) => ({
   color: COLORS[index % COLORS.length],
 });
 
-export const titleCase = (text: string) =>
-  text.replace(
-    /(^|[\s_])([a-z])/g,
-    (_, gap: string, letter: string) => `${gap === "_" ? " " : gap}${letter.toUpperCase()}`,
-  );
+export { titleCase };
 
 /**
  * The name that a table calls a faction by, from the catalogue ("Jol-Nar"). Without the

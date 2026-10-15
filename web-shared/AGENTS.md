@@ -72,6 +72,8 @@ src/wire/    index.ts     the wire types: import them from here
                           isStaleServerMessage, the display parts of an update (trigger, auto-resolved notes,
                           reaction modes), and the map answers of the server (decodeMapChoice, decodeMapList,
                           decodeMapPreview)
+src/content/ catalog.ts   loadCatalog (from the engine of the page, else `GET /api/catalog`), CatalogError
+             names.ts     humanizeId, titleCase, the faction ids of a table (base game, Prophecy of Kings)
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
@@ -130,6 +132,19 @@ What is printed on the cards, from `ti4-content` through the engine: `Catalog`
   breakthroughs). Each kind is a list in the order of the corpus, each record with its `id`; a
   field that a record does not print is left out. web's content wrappers read these (step 15 of
   the plan).
+- `loadCatalog(source)` (`@ti4/shared/content/catalog.ts`) loads it. With `source.query` (a
+  query of the engine that the page has loaded: `EngineLink.query`, or `Host.query`) it asks the
+  engine, `{"query":"catalog"}`; without it the server (`source.fetch`, `source.url`, default
+  `/api/catalog`). With `source.content` it refuses a catalog of another corpus. It throws a
+  `CatalogError` with a `kind` (`engine`, `http`, `invalid`, `digest`): the app shows its own text.
+- `content/names.ts` holds the pure helpers about ids, with no text of their own:
+  - `humanizeId` (web's fallback name: underscores to spaces, each word in upper case, also after
+    a hyphen) and `titleCase` (web2's: upper case after a space or an underscore only). web's
+    `contentCatalog.ts` and web2's `select/names.ts` re-export them. web keeps two own title
+    cases of other behaviour (`presentation/landingPlan.ts`, `presentation/tradeNames.ts`).
+  - `FACTION_IDS` (what a table can seat, the engine's `seating::LOBBY_FACTIONS`, base game
+    first), `BASE_FACTION_IDS`, `POK_FACTION_IDS`, `POK_FACTIONS`. A test checks them against
+    the Rust source. web's `OFFLINE_FACTION_IDS` and `POK_FACTIONS` are these.
 
 ## Protocol fixtures
 

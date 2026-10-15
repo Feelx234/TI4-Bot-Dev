@@ -1,4 +1,7 @@
+import { humanizeId } from "@ti4/shared/content/names.ts";
 import { GENERATED_CONTENT_CATALOG } from "./generatedContentManifest.ts";
+
+export { humanizeId };
 
 export interface StrategyCardMeta {
   id: string;
@@ -33,10 +36,6 @@ export const TECHNOLOGIES = GENERATED_CONTENT_CATALOG.technologies;
 export const EXPLORATION_CARDS = GENERATED_CONTENT_CATALOG.explorationCards;
 export const PLANETS = GENERATED_CONTENT_CATALOG.planets;
 export const ATTACHMENTS = GENERATED_CONTENT_CATALOG.attachments;
-
-export function humanizeId(id: string): string {
-  return id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
 
 function exactLookup<T>(catalog: Record<string, T>, id: string): T | undefined {
   return catalog[id];
