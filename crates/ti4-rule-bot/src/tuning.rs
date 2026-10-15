@@ -78,7 +78,7 @@ tuning! {
     faction_plans_enabled: bool = true, "false: the faction plans (research order, production weights, preferred card) are off";
     short_bonus: f64 = crate::faction_plans::SHORT_BONUS, "production weight of a unit the faction plan is short of";
     upgraded_bonus: f64 = crate::faction_plans::UPGRADED_BONUS, "production weight of an upgraded unit";
-    vote_rule: bool = false, "v2: agenda votes, Politics' speaker and agenda placement by rule (answers.rs)";
+    vote_rule: bool = true, "v2: agenda votes, Politics' speaker and agenda placement by rule (answers.rs)";
     casualty_rule: bool = true, "v2: sustain damage whenever possible, least valuable casualty first";
     ground_rule: bool = false, "v2: troops only for the free lift of its ships (glut at lift + 2)";
     empty_fight_rule: bool = false, "v2: rounds 1-2, no fight that takes no planet away from its own systems";
