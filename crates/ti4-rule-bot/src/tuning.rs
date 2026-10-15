@@ -28,6 +28,13 @@ macro_rules! tuning {
             /// # Errors
             /// A message for an unknown key or a value that does not parse.
             pub fn set_key(&mut self, key: &str, value: &str) -> Result<(), String> {
+                if key == "bot_version" {
+                    // Every number of that version (later keys still override).
+                    let version: u32 =
+                        value.trim().parse().map_err(|e| format!("{key}={value}: {e}"))?;
+                    *self = for_version(version);
+                    return Ok(());
+                }
                 match key {
                     $( stringify!($field) => {
                         self.$field = value.trim().parse().map_err(|e| format!("{key}={value}: {e}"))?;
@@ -94,16 +101,38 @@ tuning! {
 pub const BOT_VERSION: u32 = 2;
 
 /// The tuning of bot version `version` (1 or 2; anything else: the current one).
+///
+/// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
+/// with a changed default: the compiler asks for its version-1 value.
 #[must_use]
 pub fn for_version(version: u32) -> Tuning {
-    let current = Tuning::default();
     if version != 1 {
-        return current;
+        return Tuning::default();
     }
     Tuning {
+        win_margin: crate::WIN_MARGIN,
+        retreat_margin: crate::RETREAT_MARGIN,
+        mecatol_bonus: crate::MECATOL_BONUS,
+        activation_threshold: crate::ACTIVATION_THRESHOLD,
+        eager_worth: crate::EAGER_WORTH,
+        accept_net: crate::ACCEPT_NET,
+        min_idle_ground: crate::MIN_IDLE_GROUND,
+        rich_resources: crate::RICH_RESOURCES,
+        fleet_tokens_wanted: crate::FLEET_TOKENS_WANTED,
+        expansion_rounds: crate::EXPANSION_ROUNDS,
+        plenty_resources: crate::PLENTY_RESOURCES,
+        enough_tokens: crate::ENOUGH_TOKENS,
+        objective_round: crate::objectives::OBJECTIVE_ROUND,
+        complete_value: crate::objectives::COMPLETE_VALUE,
+        progress_value: crate::objectives::PROGRESS_VALUE,
+        deny_value: crate::objectives::DENY_VALUE,
+        deny_within: crate::objectives::DENY_WITHIN,
+        objectives_enabled: true,
+        faction_plans_enabled: true,
+        short_bonus: crate::faction_plans::SHORT_BONUS,
+        upgraded_bonus: crate::faction_plans::UPGRADED_BONUS,
         vote_rule: false,
         casualty_rule: false,
-        misc_rule: false,
         ground_rule: false,
         empty_fight_rule: false,
         mecatol_rival_bonus: 0.0,
@@ -116,7 +145,7 @@ pub fn for_version(version: u32) -> Tuning {
         rift_caution: false,
         sftt_rule: false,
         end_turn_rule: false,
-        ..current
+        misc_rule: false,
     }
 }
 
@@ -156,5 +185,14 @@ mod tests {
         assert!(t.set_key("nope", "1").is_err());
         with(t, || assert!((win_margin() - 0.9).abs() < f64::EPSILON));
         assert!((win_margin() - crate::WIN_MARGIN).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bot_version_key_sets_that_version() {
+        let mut t = Tuning::default();
+        t.set_key("bot_version", "1").unwrap();
+        assert_eq!(t, for_version(1));
+        assert_eq!(for_version(BOT_VERSION), Tuning::default());
+        assert!(!for_version(1).vote_rule && !for_version(1).casualty_rule);
     }
 }
