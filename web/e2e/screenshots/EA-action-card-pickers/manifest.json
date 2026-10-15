@@ -1,5 +1,5 @@
 {
-  "title": "Action card pickers: before and after",
+  "title": "Action Card Pickers",
   "description": "Audit priorities 0 and 2 to 9 of docs/ACTION_CARD_UI_AUDIT.md. Every card whose picker changed, as the same mocked decision rendered on the audit branch (before) and on this branch (after), on a desktop and a 390x844 phone. Synthetic fixtures through a mocked server; before shots use the decision as the engine sent it before the change, after shots as it sends it now.",
   "tag": "web/e2e/screenshots/EA-action-card-pickers",
   "groups": [
