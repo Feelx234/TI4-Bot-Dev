@@ -87,6 +87,7 @@ afterEach(() => {
   FakeWebSocket.all = [];
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe("GameSessionClient resume after idle", () => {
@@ -144,9 +145,11 @@ describe("GameSessionClient resume after idle", () => {
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockImplementation(async () => ok(snapshot(6)));
     vi.stubGlobal("fetch", fetchMock);
+    // The longest jitter: the three waits of the retry are 1 s, 2 s and 4 s.
+    vi.spyOn(Math, "random").mockReturnValue(1);
     const client = newClient();
     client.start();
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       await vi.advanceTimersByTimeAsync(1_000);
       expect(client.getState().lastError).toBeNull();
     }

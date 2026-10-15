@@ -129,11 +129,17 @@ export function seatSync(
     if (sameStaged(at.local, at.server) || stagedBytes(at.local) > MAX_STAGED_BYTES) {
       return;
     }
+    // In flight before it is sent: the engine of a local game answers within `put`.
+    at.inFlight = true;
     if (!put(slot, at.revision, at.local ?? null)) {
+      at.inFlight = false;
       at.dirty = true;
       return;
     }
-    at.inFlight = true;
+    if (!at.inFlight) {
+      // The echo came already.
+      return;
+    }
     answer.set(
       slot,
       setTimeout(() => {

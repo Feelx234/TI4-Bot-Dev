@@ -266,8 +266,9 @@ test("the quick start is a game on the server, at its address", async ({ page })
   await expect(page).toHaveURL(/\?online=[^&]+&seat=[^&]+$/);
   // The page asks the table first, then loads the engine and opens the game. The speaker is
   // drawn: a seat that chooses last is given the last strategy card, and is asked in the
-  // action phase first.
-  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible();
+  // action phase first, after the seats before it took their turns.
+  const round1 = /^Round 1 · (Strategy phase|Action phase( · Turn \d+)?)$/;
+  await expect(page.getByText(round1)).toBeVisible();
   await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(8);
   // The page plays a seat: it is asked, or it waits for a seat before it.
   await expect(status(page)).toHaveText(/^(Your decision|Waiting for .+|Turn of .+)$/);
@@ -280,7 +281,7 @@ test("the quick start is a game on the server, at its address", async ({ page })
   );
   expect(Object.keys(players)).toEqual([address.get("seat")]);
   await page.reload();
-  await expect(page.getByText(/^Round 1 · (Strategy|Action) phase$/)).toBeVisible();
+  await expect(page.getByText(round1)).toBeVisible();
   await expect(status(page)).toHaveText(/^(Your decision|Waiting for .+|Turn of .+)$/);
   expect(errors).toEqual([]);
 });

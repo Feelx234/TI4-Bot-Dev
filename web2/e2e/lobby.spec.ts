@@ -591,7 +591,11 @@ test("the host sets up the table, and the other tab is told at once", async ({
   expect(errors).toEqual([]);
 });
 
-test("a secondary is drafted in one tab while a rule bot takes its time, and the toolbar says who the game waits for", async ({
+// Flaky (about 1 run in 4): Rule bot 1 holds Coup d'Etat in the late game and sometimes plays it
+// on the host's strategic action, so no secondary is drafted. A rule bot picks by (seed, seat id,
+// decision): the seat ids are new for each table, so the test cannot pin it. Needs a table whose
+// bots are deterministic, or a seat order where no bot can cancel the action.
+test.fixme("a secondary is drafted in one tab while a rule bot takes its time, and the toolbar says who the game waits for", async ({
   page,
   context,
   request,

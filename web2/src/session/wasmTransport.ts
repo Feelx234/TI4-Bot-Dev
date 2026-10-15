@@ -507,10 +507,15 @@ export function createWasmTransport(
 
   /** The app was told a save: an undo back to the start is a save too. */
   let kept = play.save !== undefined;
-  /** Tells the app what plays the game again. A new game with no decision yet has nothing to keep. */
+  /**
+   * Tells the app what plays the game again. A new game with no decision yet has nothing to
+   * keep, unless the seat staged something in it (a draft at the first question of a scenario).
+   */
   const keep = (on: Run) => {
     const save = command(on, { type: "save_state" })?.save;
-    if (save && (save.log.length > 0 || kept)) {
+    const staged = save?.staged;
+    const hasStaged = !!staged && typeof staged === "object" && Object.keys(staged).length > 0;
+    if (save && (save.log.length > 0 || kept || hasStaged)) {
       kept = true;
       play.onSave?.(save);
     }
