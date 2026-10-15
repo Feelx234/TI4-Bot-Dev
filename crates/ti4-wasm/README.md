@@ -1,6 +1,7 @@
 # ti4-wasm
 
-The rules engine compiled to WebAssembly, for an offline hotseat mode in `web2/`.
+The rules engine compiled to WebAssembly, for the games in a page: web's offline game and web2's
+local play ("The hosted game").
 
 It began as a spike (2026-10-09) that answered three questions: how large the wasm file is, what
 could make it smaller, and whether the engine's blocking decisions work in a browser. `web2` now

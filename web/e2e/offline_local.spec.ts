@@ -1,6 +1,8 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { spawnTestServer, type TestServer } from "../../web-shared/test/server.ts";
 import { playUntil, startOfflineGame, storedAnswers, storedFeedback, storedRecord } from "./offlineDriver";
-import { startTestServer, type TestServer } from "./offlineServer";
 
 // The offline game, end to end, with the production build only (see offline.config.ts): the
 // engine runs in a Web Worker (JSPI), and nothing but the built static files is ever fetched.
@@ -256,10 +258,24 @@ test("undo and history rewind work offline", async ({ page, context, baseURL }) 
   await expect(page.getByTestId("history-error")).toHaveCount(0);
 });
 
+/** Every report that the server stored (parsed JSON), the `.ids` markers of its idempotency check left out. */
+function storedReports(server: TestServer): Array<Record<string, unknown>> {
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((name) => {
+      if (name.startsWith(".")) return [];
+      const path = join(dir, name);
+      return statSync(path).isDirectory() ? walk(path) : path.endsWith(".json") ? [path] : [];
+    });
+  const root = join(server.dataDir, "feedback");
+  return existsSync(root) ? walk(root).map((file) => JSON.parse(readFileSync(file, "utf8"))) : [];
+}
+
+// A real ti4-server (TI4_E2E_SERVER_BIN, else the debug or release binary of the target dir), so
+// that a queued feedback report is proven to reach its feedback directory exactly once.
 test.describe("feedback written offline", () => {
   let server: TestServer;
   test.beforeAll(async () => {
-    server = await startTestServer();
+    server = await spawnTestServer();
   });
   test.afterAll(async () => {
     await server?.stop();
@@ -302,7 +318,7 @@ test.describe("feedback written offline", () => {
     await expect(page.getByTestId("feedback-queued")).toBeVisible();
     await page.getByTestId("feedback-done").dispatchEvent("click");
     await expect(page.getByTestId("offline-feedback-chip")).toContainText("will be sent");
-    expect(server.reports()).toHaveLength(0);
+    expect(storedReports(server)).toHaveLength(0);
     await playUntil(page, gameId, 8); // never blocked by the queue
 
     // The network returns, but the answer of the first send is lost on the way back.
@@ -310,7 +326,7 @@ test.describe("feedback written offline", () => {
     dropNextResponse = true;
     await context.setOffline(false);
     await expect.poll(() => forwarded, { timeout: 30_000 }).toBe(1);
-    expect(server.reports()).toHaveLength(1);
+    expect(storedReports(server)).toHaveLength(1);
     await expect(page.getByTestId("offline-feedback-chip")).toContainText("will be sent");
 
     // A second attempt (the browser says it is online again): the server answers duplicate.
@@ -321,7 +337,7 @@ test.describe("feedback written offline", () => {
     await expect(page.getByTestId("offline-feedback-chip")).toContainText("sent");
 
     // Exactly one file, with what a triage needs to replay the game.
-    const reports = server.reports();
+    const reports = storedReports(server);
     expect(reports).toHaveLength(1);
     const report = reports[0] as { report_id?: string; context: { local?: Record<string, any> } };
     const [queued] = await storedFeedback(page);

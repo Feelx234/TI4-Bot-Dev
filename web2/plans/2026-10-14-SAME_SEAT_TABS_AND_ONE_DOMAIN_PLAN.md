@@ -562,7 +562,7 @@ and Caddy keeps its single `reverse_proxy` as in `deploy/public/Caddyfile`.
   (checked from the worktree). The dev form above needs its real place.
 - Does the public server serve web2 (open question 1 of the lobby plan)? Phase 4's production
   form and the password screen depend on it.
-- web's offline single player and web2's single player both run `ti4-wasm` in the page, with
-  their own saves (IndexedDB `ti4-offline` vs localStorage `ti4.single`). On one origin a
-  player sees two "single player" entries; nothing in the decisions says whether that is
-  wanted. Not part of this plan.
+- web's offline single player and web2's single player both run `ti4-wasm` in the page. On one
+  origin they are two entries over one save list: both keep their games in IndexedDB
+  `ti4-offline` (`web-shared/src/storage/`, `2026-10-14-SHARED_TRANSPORT_PLAN.md`), so either
+  app lists and resumes every single player game of the browser.

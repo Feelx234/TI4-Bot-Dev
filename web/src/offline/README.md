@@ -102,4 +102,6 @@ are the same online and offline.
 Tests: `*.test.ts` in `local/` (fake worker), `contract.test.ts` (LocalTransport and GameSessionClient give the
 same state; the recorded stream runs with `TI4_HOSTED_STREAM`, see `hostedStream.test.ts`), and
 `npm run test:e2e:offline` (production build only, network blocked, about 20 decisions, refresh mid-game,
-resume from the list, export and import, a save of an older version).
+resume from the list, export and import, a save of an older version, and feedback queued offline that reaches a
+real server once: `spawnTestServer()` of `web-shared/test/server.ts`, with `TI4_E2E_SERVER_BIN` or the debug or
+release `server` of the target dir).

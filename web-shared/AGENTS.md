@@ -80,6 +80,7 @@ src/wire/    index.ts     the wire types: import them from here
 src/content/ catalog.ts   loadCatalog (from the engine of the page, else `GET /api/catalog`), CatalogError
              names.ts     humanizeId, titleCase, the faction ids of a table (base game, Prophecy of Kings)
 src/identity/ nickname.ts NICKNAME_KEY (`ti4.nickname`), validNickname (the names that the server takes)
+test/server.ts            spawnTestServer, testServerBinary: a real ti4-server for the tests of both apps (Node only)
 scripts/build-wasm.mjs    the build of the engine file of both apps
 ```
 
@@ -333,3 +334,15 @@ The single player games of both apps, in one IndexedDB database of the origin. I
 - web's `npm run test:e2e:offline` and web2's `npm run e2e` play games through the Worker of
   `src/engine/`. web2's `transportContract.test.ts` checks its transport over both links (the
   engine on `inlinePort`, and a real server).
+- **The test server** (`test/server.ts`, Node only; outside `src/`, so no app bundles it and web's
+  `tsc` does not check it): `spawnTestServer({binary?, env?, timeoutMs?})` starts a real
+  `ti4-server` on a free loopback port with a temp data directory (`TI4_DATA_DIR`), and resolves
+  once it printed `Listening on` (`{url, port, dataDir, stop}`). `stop()` kills it, waits for its
+  exit and removes the directory; a server that does not start is stopped and removed before the
+  call throws, and one left running is killed when the test process exits.
+  `testServerBinary()` is `TI4_E2E_SERVER_BIN`, else the debug and then the release `server` of
+  `$CARGO_TARGET_DIR` (default `target/`; `cargo b-web` builds the debug one), else null: the
+  caller skips. Its users: web2's `tableContract.test.ts` and `transportContract.test.ts` (a test
+  imports it by its relative path; `boundaries.test.ts` lets it), web's `e2e/offline_local.spec.ts`.
+  The servers of the Playwright configs and web's `resume_real.spec.ts` (a fixed port and a data
+  directory that outlives a restart) start their own.

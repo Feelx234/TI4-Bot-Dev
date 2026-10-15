@@ -1,9 +1,7 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { type TestServer, spawnTestServer, testServerBinary } from "../../../web-shared/test/server.ts";
 import { localTable } from "./localTable";
 import type { LocalGame } from "./savedGame";
 import { openSocket } from "@ti4/shared/net/socket.ts";
@@ -17,7 +15,7 @@ import { type Table, type TableState, createTable, serverTable } from "./table";
 // Both are built outside this suite, and a case is skipped without its build:
 // `scripts/build-wasm.sh`, and `cargo b-web`.
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
-const SERVER = fileURLToPath(new URL("../../../target/debug/server", import.meta.url));
+const SERVER = testServerBinary();
 
 /** One table, as a test uses it. */
 interface Side {
@@ -309,30 +307,18 @@ describe.skipIf(!existsSync(WASM))("the table in this page", () => {
   });
 });
 
-describe.skipIf(!existsSync(SERVER))("the table of a lobby on a server", () => {
-  const port = 20_000 + Math.floor(Math.random() * 30_000);
-  const data = mkdtempSync(join(tmpdir(), "ti4-table-contract-"));
-  let server: ChildProcess;
-  const fetcher: typeof fetch = (input, init) => fetch(`http://127.0.0.1:${port}${input}`, init);
+describe.skipIf(!SERVER)("the table of a lobby on a server", () => {
+  let server: TestServer;
+  const fetcher: typeof fetch = (input, init) => fetch(`${server.url}${input}`, init);
   beforeAll(async () => {
-    server = spawn(SERVER, [], {
-      env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), TI4_DATA_DIR: data },
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    await new Promise<void>((ready, failed) => {
-      server.once("exit", (code) => failed(new Error(`The server stopped with ${code}.`)));
-      server.stdout?.on("data", (text) => String(text).includes("Listening on") && ready());
-    });
+    server = await spawnTestServer();
   }, 60_000);
-  afterAll(() => {
-    server?.kill();
-    rmSync(data, { recursive: true, force: true });
-  });
+  afterAll(() => server?.stop());
   contract(async () => {
     const made = await createTable({ playerCount: 4, nickname: "Contract", seed: 3 }, fetcher);
     return side(
       serverTable(made.gameId, made, {
-        open: (id) => openSocket(`ws://127.0.0.1:${port}/ws/tables/${id}`),
+        open: (id) => openSocket(`ws://127.0.0.1:${server.port}/ws/tables/${id}`),
         fetch: fetcher,
       }),
     );

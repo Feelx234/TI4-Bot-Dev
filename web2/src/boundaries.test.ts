@@ -25,15 +25,17 @@ const files = (dir: string): string[] =>
         : [],
   );
 
-// The protocol fixtures of both apps (`fixtures/protocol/` of the repository), which tests read.
+// The protocol fixtures of both apps (`fixtures/protocol/` of the repository), and the test server
+// of `web-shared/test/`, which tests read.
 const fixtures = resolve(root, "../../fixtures/protocol");
+const testServer = resolve(root, "../../web-shared/test/server.ts");
 
 it.each(Object.keys(ALLOWED))("%s imports only its allowed layers", (layer) => {
   const bad: string[] = [];
   for (const file of files(join(root, layer))) {
     for (const [, target] of readFileSync(file, "utf8").matchAll(/from "(\.[^"]+)"/g)) {
       const path = resolve(dirname(file), target);
-      if (/\.test\.tsx?$/.test(file) && dirname(path) === fixtures) {
+      if (/\.test\.tsx?$/.test(file) && (dirname(path) === fixtures || path === testServer)) {
         continue;
       }
       const to = relative(root, path).split("/")[0];
