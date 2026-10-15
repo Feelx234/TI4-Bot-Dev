@@ -108,7 +108,8 @@ export interface GameShellProps {
   activeEffects?: import("../protocol/types.ts").ActiveEffectDto[];
   /** What the minimized decision pill says about the agenda ("Voting: Minister of Peace — For/Against"). */
   agendaPill?: string | null;
-  onSubmitChoice: (optionId: string) => Promise<void>;
+  /** With `nonce` (the question that was shown) a stale answer is dropped instead of sent. */
+  onSubmitChoice: (optionId: string, nonce?: string) => Promise<void>;
   /** The viewing seat's "never offer" cards (server state) and how to change them. */
   reactionModes?: import("../protocol/types.ts").ReactionModes;
   onSetReactionMode?: (
@@ -181,7 +182,7 @@ export interface ChoiceRendererDispatcherProps {
   choice: PendingChoiceDto | null;
   model?: ChoiceRendererModel | null;
   viewerSeat?: string | null;
-  onSubmit: (optionId: string) => Promise<void>;
+  onSubmit: (optionId: string, nonce?: string) => Promise<void>;
   reactionModes?: GameShellProps["reactionModes"];
   onSetReactionMode?: GameShellProps["onSetReactionMode"];
   /** A decision the client is answering for the seat; its dialog stays closed (movement, nothing movable). */
@@ -875,7 +876,9 @@ export const ChoiceRendererDispatcher: React.FC<
       return (
         <TurnActionBar
           model={barModel}
-          onSubmit={onSubmit}
+          // A click on a bar that is still painted after its question was answered (the next
+          // question is already pending) must not answer the next one: the nonce says which.
+          onSubmit={(optionId) => onSubmit(optionId, choice.nonce)}
           lastError={lastError ? present(lastError) : lastError}
         />
       );
