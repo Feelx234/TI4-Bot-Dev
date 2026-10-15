@@ -1358,7 +1358,10 @@ pub struct GameState {
     /// The turn of the action phase (LRR 3): 1 for the first player's turn, 2 for the next
     /// player's, and so on, counting every player's turn through the phase. Zero before the
     /// first turn. Unlike [`GameState::turn_seq`] it restarts with each action phase.
-    #[serde(default)]
+    ///
+    /// Not written while zero: a state saved before this field existed (an `init.json`, whose
+    /// checksum covers its bytes) must serialize back to the bytes it was checksummed over.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub action_turn: u32,
     /// Allocator for typed secret-objective trigger occurrences.
     ///

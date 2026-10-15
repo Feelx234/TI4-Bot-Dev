@@ -1553,6 +1553,8 @@ fn envelope_checksum<T: Serialize>(
 /// still matches the replay of the same decisions. Nothing a rule reads is left out.
 fn state_checksum(state: &GameState) -> Result<String, StorageError> {
     let mut state = state.clone();
+    // The action-phase turn counter (added 2026-10-15) is absent from an older snapshot.
+    state.action_turn = 0;
     for record in &mut state.exploration_log {
         record.gains.clear();
         record.placed.clear();
@@ -1681,6 +1683,42 @@ mod player_record_tests {
         // Saving it again keeps the checksum valid.
         store.save_player_lobby(&lobby).unwrap();
         assert!(store.load_player_lobby(id).unwrap().is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// An `init.json` written before `GameState::action_turn` existed has no such key, and its
+    /// checksum was made over those bytes. A state at turn zero must serialize without the key
+    /// again, so an old record's checksum still verifies (the 2026-10-15 alpha recovery
+    /// regression: 14 of 22 games failed with a checksum mismatch on `init.json`). The fixture
+    /// is built here from the old shape, not copied from a save.
+    #[test]
+    fn init_written_before_action_turn_still_loads() {
+        let (store, dir) = store();
+        let id = "game_00000000000000000000000000000002";
+        let init = GameInitRecord {
+            game_id: id.into(),
+            seed: Some(7),
+            player_ids: vec![PlayerId::new("p1")],
+            initial_state: crate::fixtures::create_sample_game(),
+            seats: BTreeMap::new(),
+            seat_tokens: BTreeMap::new(),
+            map_tiles: Vec::new(),
+            map_template: None,
+        };
+        // The old shape: the envelope as the old release wrote it, with its checksum.
+        let old = persist(&init).unwrap();
+        let old_text = serde_json::to_string_pretty(&old).unwrap();
+        assert!(!old_text.contains("action_turn"));
+        let game = store.game_dir(id).unwrap();
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join("init.json"), &old_text).unwrap();
+        let loaded = store.load_init(id).expect("old-shape init loads");
+        assert_eq!(loaded.initial_state.action_turn, 0);
+        // A later state with a turn counted keeps its key and its checksum too.
+        let mut later = init.clone();
+        later.initial_state.action_turn = 3;
+        store.save_init(&later).unwrap();
+        assert_eq!(store.load_init(id).unwrap().initial_state.action_turn, 3);
         fs::remove_dir_all(dir).unwrap();
     }
 
