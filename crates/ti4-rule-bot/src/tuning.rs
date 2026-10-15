@@ -73,6 +73,13 @@ tuning! {
     upgraded_bonus: f64 = crate::faction_plans::UPGRADED_BONUS, "production weight of an upgraded unit";
     vote_rule: bool = false, "v2: agenda votes, Politics' speaker and agenda placement by rule (answers.rs)";
     casualty_rule: bool = false, "v2: sustain damage whenever possible, least valuable casualty first";
+    ground_rule: bool = false, "v2: troops only for free lift; no fight that takes nothing in rounds 1-2";
+    mecatol_rival_bonus: f64 = 0.0, "v2: extra worth of Mecatol Rex while a rival holds it";
+    planner_weight: f64 = 0.0, "v2: production weight per point of an objective within planner_gap that more of a unit meets";
+    planner_gap: f64 = 3.0, "v2: steps short within which the planner weighs an objective";
+    progress_gap: f64 = 2.0, "steps short within which progress toward an objective is worth activating for";
+    nebula_margin: f64 = 0.0, "v2: extra matchup needed to attack a fleet in a nebula (defender +1)";
+    home_guard: bool = false, "v2: no warship leaves home when the rest could not hold it against a fleet a rival can bring";
     misc_rule: bool = false, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
 }
 

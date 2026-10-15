@@ -149,7 +149,7 @@ pub fn pick(
         return Some(index);
     }
     if choice.options.iter().any(|o| o.kind == "produce") {
-        return pick_produce(choice, observed, me, &reserve);
+        return pick_produce(choice, observed, me, &reserve, &crate::planner::Bias::of(seen, me));
     }
     if !choice.options.is_empty() && choice.options.iter().all(|o| o.kind == "pay") {
         return pick_pay(choice, observed, &reserve);
@@ -268,7 +268,7 @@ pub fn gain(before: &[Goal], after: &[Goal]) -> f64 {
             };
             let extra = (old.points - ready).max(0.0);
             value += tuning::complete_value() * extra.max(0.25 * old.points);
-        } else if new.have > old.have && new.gap() <= 2.0 && old.threshold > 0.0 {
+        } else if new.have > old.have && new.gap() <= tuning::progress_gap() && old.threshold > 0.0 {
             value += tuning::progress_value() * old.points * (new.have - old.have) / old.threshold;
         }
     }
@@ -448,6 +448,7 @@ fn pick_produce(
     seen: &Observed<'_>,
     me: &PlayerId,
     reserve: &Reserve,
+    bias: &crate::planner::Bias,
 ) -> Option<usize> {
     if reserve.resources == 0 && reserve.influence == 0 && reserve.trade_goods == 0 {
         return None;
@@ -472,7 +473,7 @@ fn pick_produce(
     if !narrowed.options.iter().any(|o| o.kind == "produce") {
         return choice.options.iter().position(ChoiceOption::is_decline);
     }
-    super::pick_produce(&narrowed, seen, me).and_then(|i| keep.get(i).copied())
+    super::pick_produce_biased(&narrowed, seen, me, bias).and_then(|i| keep.get(i).copied())
 }
 
 /// Payment keeping the reserve: a planet's value of the other kind counts in full while the

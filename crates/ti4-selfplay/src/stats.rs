@@ -129,6 +129,9 @@ pub struct Agg {
     pub objective_rate: BTreeMap<String, f64>,
     /// Mean points per game from each source.
     pub vp_source_mean: BTreeMap<String, f64>,
+    /// Units at the end per seat-game (`GameResult::end_counts`).
+    #[serde(default)]
+    pub end_count_mean: BTreeMap<String, f64>,
     /// Options taken (`subtype=option`), mean per game.
     pub usage_mean: BTreeMap<String, f64>,
 }
@@ -258,6 +261,7 @@ pub fn aggregate(games: &[&GameResult], detail: bool) -> Agg {
         let (mut bot, mut wall) = (0.0, 0.0);
         let mut scored: BTreeMap<String, usize> = BTreeMap::new();
         let mut sources: BTreeMap<String, f64> = BTreeMap::new();
+        let mut ends: BTreeMap<String, f64> = BTreeMap::new();
         let mut usage: BTreeMap<String, f64> = BTreeMap::new();
         let mut seatgames = 0usize;
         for g in games {
@@ -281,6 +285,9 @@ pub fn aggregate(games: &[&GameResult], detail: bool) -> Agg {
             for (k, v) in &g.vp_sources {
                 *sources.entry(k.clone()).or_default() += f64::from(*v);
             }
+            for (k, v) in &g.end_counts {
+                *ends.entry(k.clone()).or_default() += f64::from(*v);
+            }
             for (k, v) in &g.usage {
                 *usage.entry(k.clone()).or_default() += *v as f64;
             }
@@ -294,6 +301,10 @@ pub fn aggregate(games: &[&GameResult], detail: bool) -> Agg {
         agg.vp_source_mean = sources
             .into_iter()
             .map(|(k, v)| (k, v / n as f64))
+            .collect();
+        agg.end_count_mean = ends
+            .into_iter()
+            .map(|(k, v)| (k, v / seatgames.max(1) as f64))
             .collect();
         agg.usage_mean = usage.into_iter().map(|(k, v)| (k, v / n as f64)).collect();
     }
@@ -545,6 +556,16 @@ fn agg_text(out: &mut String, agg: &Agg, top: usize) {
                 .map(|(k, v)| format!("{k} {:.1}%", 100.0 * **v))
                 .collect::<Vec<_>>()
                 .join(", ")
+        );
+    }
+    if !agg.end_count_mean.is_empty() {
+        let _ = writeln!(
+            out,
+            "units at the end per seat: {:?}",
+            agg.end_count_mean
+                .iter()
+                .map(|(k, v)| (k.as_str(), (v * 100.0).round() / 100.0))
+                .collect::<Vec<_>>()
         );
     }
     if !agg.vp_source_mean.is_empty() {
