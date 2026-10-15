@@ -11,7 +11,7 @@ export interface StripScene {
   expand?: boolean;
 }
 
-/** Shapes as `ti4_view::effects::project_active_effects` serializes them. */
+/** Shapes as `ti4_host::view::effects::project_active_effects` serializes them. */
 export const STRIP_SCENES: StripScene[] = [
   {
     key: "combat-round",
