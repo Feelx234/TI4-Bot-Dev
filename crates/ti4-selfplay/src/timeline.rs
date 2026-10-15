@@ -323,7 +323,6 @@ fn home_threat(state: &GameState, p: &ti4_model::state::Player) -> (i64, i64) {
     (ships, ground)
 }
 
-
 /// Watches one game (see the module docs).
 pub struct Recorder {
     content: &'static ContentStore,
@@ -409,7 +408,10 @@ impl Recorder {
     }
 
     /// Look at the state after an engine step.
-    #[allow(clippy::too_many_lines, reason = "one pass over the state, as the analysis needs")]
+    #[allow(
+        clippy::too_many_lines,
+        reason = "one pass over the state, as the analysis needs"
+    )]
     pub fn observe(&mut self, st: &GameState) {
         let content = self.content;
         let c = Ctx {
@@ -492,7 +494,8 @@ impl Recorder {
                 && let Some(actor) = st.active.clone()
             {
                 let sys = st.board.get(&ti4_model::id::SystemId::new(sysid.as_str()));
-                let galaxy_planets = system_rec(content, sysid, POK).map_or(0, |s| s.planets().len());
+                let galaxy_planets =
+                    system_rec(content, sysid, POK).map_or(0, |s| s.planets().len());
                 let foreign_ships = sys.map_or(0, |s| {
                     s.units
                         .iter()

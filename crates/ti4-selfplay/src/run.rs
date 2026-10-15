@@ -332,7 +332,9 @@ pub fn comparison_from(
             }
             win_share.push(wins / 2.0 - 0.5);
             vp_adv.push(vp / 2.0);
-            let entry = maps.entry(format!("{}-{}", a.spec.players, a.spec.map)).or_default();
+            let entry = maps
+                .entry(format!("{}-{}", a.spec.players, a.spec.map))
+                .or_default();
             entry.0.push(wins / 2.0 - 0.5);
             entry.1.push(vp / 2.0);
             let (ma, mb) = (a.candidate_seats.as_ref(), b.candidate_seats.as_ref());
@@ -390,11 +392,27 @@ pub fn comparison_from(
         },
         by_faction: fac
             .into_iter()
-            .map(|(k, (w, v))| (k, SliceEffect { win: estimate(&w), vp: estimate(&v) }))
+            .map(|(k, (w, v))| {
+                (
+                    k,
+                    SliceEffect {
+                        win: estimate(&w),
+                        vp: estimate(&v),
+                    },
+                )
+            })
             .collect(),
         by_map: maps
             .into_iter()
-            .map(|(k, (w, v))| (k, SliceEffect { win: estimate(&w), vp: estimate(&v) }))
+            .map(|(k, (w, v))| {
+                (
+                    k,
+                    SliceEffect {
+                        win: estimate(&w),
+                        vp: estimate(&v),
+                    },
+                )
+            })
             .collect(),
         vp_per_round: estimate(&metric[0]),
         vp_r3: estimate(&metric[1]),
@@ -501,7 +519,10 @@ pub fn render_comparison(c: &Comparison) -> String {
     );
     let _ = writeln!(out, "verdict: {}", c.verdict);
     if !c.by_faction.is_empty() {
-        let _ = writeln!(out, "per faction (seat as candidate minus as baseline; win pp, VP):");
+        let _ = writeln!(
+            out,
+            "per faction (seat as candidate minus as baseline; win pp, VP):"
+        );
         for (name, e) in &c.by_faction {
             let _ = writeln!(
                 out,

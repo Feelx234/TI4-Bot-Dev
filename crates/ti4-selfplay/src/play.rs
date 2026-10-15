@@ -385,7 +385,13 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
         .flatten();
     let (termination, detail) = loop {
         while vp_by_round.len() + 1 < game.state.round as usize {
-            vp_by_round.push(game.state.players.iter().map(|p| p.victory_points).collect());
+            vp_by_round.push(
+                game.state
+                    .players
+                    .iter()
+                    .map(|p| p.victory_points)
+                    .collect(),
+            );
         }
         if game.state.finished {
             break ("victory", None);

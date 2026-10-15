@@ -543,12 +543,14 @@ fn main() -> ExitCode {
         ti4_selfplay::store::configure(if args.has("no-cache") {
             None
         } else {
-            args.get("results").map(std::path::PathBuf::from).or_else(|| {
-                std::env::var("SELFPLAY_RESULTS").map_or_else(
-                    |_| Some(std::path::PathBuf::from("selfplay-results")),
-                    |v| (!v.is_empty() && v != "off").then(|| std::path::PathBuf::from(v)),
-                )
-            })
+            args.get("results")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var("SELFPLAY_RESULTS").map_or_else(
+                        |_| Some(std::path::PathBuf::from("selfplay-results")),
+                        |v| (!v.is_empty() && v != "off").then(|| std::path::PathBuf::from(v)),
+                    )
+                })
         });
         if args.has("help") || cmd == "help" {
             print!("{HELP}");

@@ -70,6 +70,11 @@
 //!   objectives within reach ([`planner`]); Mecatol Rex held by a rival worth more; rivals denied
 //!   from six points; reworked plans for the weakest factions ([`faction_plans::PLANS_V2`]).
 //!
+//! - **Bot version 3** ([`tuning::BOT_VERSION`]; version 2 is [`tuning::for_version`]`(2)`): a technology gained
+//!   outside a research is chosen by the seat's order and the Nekro always use Technological Singularity
+//!   (`tech_pick_rule`, [`answers`]); Technology first in round 1 for the Arborec, Naalu and L1Z1X (`r1_tech`)
+//!   and in every round for the Nekro (`nekro_tech`). The rejected round-2 candidates stay behind their knobs.
+//!
 //! Other technology choices, action cards, the other secondaries and every other window stay
 //! random.
 
@@ -446,6 +451,11 @@ fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
         reason = "printed values are single digits"
     )]
     let mut worth = (record.resources() + record.influence()) as f64 + 0.5;
+    // Bot version 3: while the custodians token stands, influence is what lifts it (six to
+    // remove it, the point it scores): planets that bring it are worth more early on.
+    if !seen.custodians_removed() && seen.round() <= 3 {
+        worth += tuning::influence_early() * record.influence() as f64;
+    }
     if planet == MECATOL && !seen.custodians_removed() {
         worth += tuning::mecatol_bonus();
         // Bot version 3: Mecatol Rex is the strongest marker of a won game (analysis of 2000
@@ -494,7 +504,8 @@ fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// it has the six influence for them, and carriers that can reach the system bring ground forces
 /// past any defence there (no hostile fleet it cannot clearly beat).
 fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    if seen.custodians_removed() || (!blood_ties(seen, me) && seen.available_spend(me, Spend::Influence) < 6)
+    if seen.custodians_removed()
+        || (!blood_ties(seen, me) && seen.available_spend(me, Spend::Influence) < 6)
     {
         return false;
     }
@@ -1898,7 +1909,11 @@ fn fight_margin(seen: &Observed<'_>, system: &SystemId) -> f64 {
             .is_some_and(|s| s.is_nebula());
     // Bot version 3: a bigger edge for a fight in the first two rounds (analysis: bad seats lose
     // the fleet in an early fight and never catch up).
-    let early = if seen.round() <= 2 { tuning::early_margin() } else { 0.0 };
+    let early = if seen.round() <= 2 {
+        tuning::early_margin()
+    } else {
+        0.0
+    };
     tuning::win_margin() + early + if nebula { tuning::nebula_margin() } else { 0.0 }
 }
 
@@ -2863,8 +2878,7 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
     } else {
         0
     };
-    tuning::fleet_tokens_wanted()
-        .max(i32::try_from(stack).unwrap_or(i32::MAX) - armada)
+    tuning::fleet_tokens_wanted().max(i32::try_from(stack).unwrap_or(i32::MAX) - armada)
 }
 
 /// Redistribution ("tactic|fleet|strategy"): the fleet pool at [`fleet_wanted`], the rest split

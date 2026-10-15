@@ -158,8 +158,8 @@ A sweep is a loop over `selfplay compare`; the JSON (`--out`) has the estimate a
 ## Golden benchmark and baseline
 
 - `tools/rulebot/golden.json`: 200 games, 4 players seeds 1..100 on `4pHyperlanes` / `4pOuterRim`, 6 players seeds 1..100 on `6pStandard` / `6pOuterRim`.
-- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 2 since 2026-10-15; `baseline-v1.json` is
-  version 1, which `--bot bot_version=1` still reproduces hash for hash), recorded on the build named in `meta.git_rev`
+- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 3 since round 2; `baseline-v2.json` and `baseline-v1.json` are
+  versions 2 and 1, which `--bot bot_version=2` / `=1` still reproduce hash for hash, 200/200), recorded on the build named in `meta.git_rev`
   (AMD EPYC-Genoa, 8 cores, release build, 7 workers, 82 s, other jobs running on the machine).
 - `tools/rulebot/selfplay.sh bench` runs the set and compares every game's hash, termination and points with the baseline
   (`--verify`): **identical** is the gate for "I did not change the bot or the engine"; **different** is expected
@@ -239,8 +239,9 @@ Games are independent and the results do not depend on the number of workers (ch
 - `planner.rs` - (bot version 2) the objective planner's production weights.
 - `agents.rs` - when to use faction agents and other component actions.
 - `random.rs` - the seeded random pick under the rule bot (`decision_rng(seed, seat, n)`).
-- `tuning.rs` - the knobs, `BOT_VERSION` and `for_version(v)` (version 1 written out in full; `--bot bot_version=1`
-  plays it).
+- `tuning.rs` - the knobs, `BOT_VERSION` and `for_version(v)` (version 1 written out in full, version 2 as version 1 plus its
+  named changes; `--bot bot_version=1|2` plays them).
+- `ti4-selfplay`: `timeline.rs` (per-round record of every game), `store.rs` (stored games and the run cache).
 
 How the seats are driven elsewhere: `ti4-server/src/session/random_bot.rs` (online tables), `ti4-wasm/src/lib.rs`
 `Seat::decide` / `draw` (the offline game, the nightly offline mode) - this tool copies the latter.
@@ -543,3 +544,167 @@ Cheapest safe approach, implemented:
 - Stage II objectives are still rare because games end in round 7: the planner could reserve resources for a
   2-point spend objective one round ahead.
 - `activate_system` / `action_menu` are still 80% of the bot's time.
+
+
+## Stored games (round 2)
+
+Since round 2 no played game is thrown away. `run` and `compare` (so `selfplay.sh ab`) write every game, with a
+per-round **timeline** recorded while it is played (`crates/ti4-selfplay/src/timeline.rs`, the logic of the former
+`analyze` tool), to `tools/rulebot/results/<key>.jsonl` (git-ignored; `SELFPLAY_RESULTS` or `--results DIR` moves it,
+`SELFPLAY_RESULTS=off` / `--no-cache` disables it; `bench` and `baseline` never read it).
+
+- The timeline per game: map facts per seat, a snapshot per seat at the end of every action phase (victory points, planets,
+  resources/influence, technologies, ships/fighters/ground and where they stand, tokens, strategy cards, scored and held
+  secrets), victory point events with round and source, activations (what was attacked, planets gained), attacks on home
+  systems, objectives that were eligible at the status phase and what was scored, losses per round. Plus `vp_by_round`
+  (points of every seat after each round).
+- The key hashes every job (spec, limits, every seat's bot numbers, the seat mask), the shipped defaults and the harness
+  version (`store::HARNESS_VERSION`). The same run again reads the file (0.02 s instead of minutes). A bot change that no
+  knob shows needs `--no-cache` or `SELFPLAY_SALT=x`.
+- `selfplay metrics results/<key>.jsonl` prints the A/B metrics of a stored `compare` run with no rerun; any other analysis
+  reads the same lines (`jq`, python). Results are identical on 1 and 8 workers (checked), and stored files are rebuilt by
+  rerunning, so deleting them is always safe (about 50 KB a game).
+- `compare` now reports **VP per round** (final points over rounds played) and **VP after rounds 3, 4 and 5**, each paired by
+  table (mixed: candidate seats minus baseline seats; `--mode separate`: the all-candidate game against the all-baseline game,
+  an absolute strength measure), next to win share, VP per seat, rounds, and the effect per faction and per map.
+
+**Method note.** Round 1 judged changes on win share first. Win share is zero-sum (a change that raises every faction ties), so
+from round 2 the primary metric is VP per round (paired), with VP after rounds 3/4/5 and win share secondary. Round 1's numbers
+stay valid as what they are (win share and VP per seat; the accepted changes there also raised VP per seat), but VP per round
+was not primary then.
+
+## Round 2: bot version 3 (2026-10-15/16)
+
+Branch `rulebot-opt2` (from `rulebot-opt1`). Every candidate is a knob (`v3:` in `tuning.rs`); `for_version(2)` is version 2 written
+out and plays the golden set hash-identical (200/200), as does `for_version(1)`. `BOT_VERSION` is 3. Sources of the ideas:
+`crates/ti4-server/docs/COMMUNITY_FACTION_STRATEGIES.md` (CFS), `PODCAST_STRATEGIES.md` (PS), `FACTION_PLANS.md` (FP), and the
+analyses `BOT_V2_ANALYSIS_4P.md`, `BOT_V2_GAME_ANALYSIS.md`, `OBJECTIVE_SCORING_RATES.md`, `THEORETICAL_VP_PACE.md` (branches
+`bot-v2-analysis-4p`, `bot-v2-game-analysis`, `objective-rates`, `theoretical-vp-pace`).
+
+### Where v2 stands (6p, 1200 games, all seats v2, about 300 seats per faction, +-4.5 pp)
+
+Strongest sol 26.9%, l1z1x 23.8%, nomad 23.7%, mentak 22.0%; weakest **empyrean 6.8%, winnu 8.6%, ghost 11.1%, hacan 11.3%, naaz 11.8%,
+nekro 13.8%**, mahact 14.2%. Nekro (round 1's worry: 19% -> 14.5% in 4p) is inside the noise of the middle now; the plan order
+that changed for it (Leadership first) is only consulted when the draft is otherwise open from round 3, so it could not have
+caused the move. **Finding: the faction plans (research order, unit weights, preferred card) have no measurable effect.**
+`faction_plans_enabled=false` against the shipped bot: win share +0.00 [-3.08, +3.08], VP/seat -0.03 [-0.16, +0.10] (400 tables).
+
+### Change log (v2 baseline; screening 200 or 400 tables of 4p+6p, seeds 70000.., VP/rd = VP per round, paired)
+
+First batch, judged on win share and VP per seat (400 tables, before the VP/round metric existed):
+
+| change (knob) | source | win share pp [CI] | VP/seat [CI] | verdict |
+|---|---|---|---|---|
+| `r1_trade` Trade in R1 for nekro, ghost, cabal, empyrean, titans | CFS Nekro/Ghosts/Cabal/Empyrean, PS C | -1.88 [-4.70, +0.95] | -0.06 [-0.19, +0.06] | rejected |
+| `r1_leadership` Leadership R1 for muaat, mahact, cabal | CFS ranked #3 | -1.62 [-4.01, +0.76] | -0.05 [-0.15, +0.05] | rejected |
+| `r1_diplomacy` Diplomacy R1 for xxcha | CFS Xxcha | -0.88 [-3.13, +1.38] | +0.04 [-0.05, +0.13] | rejected |
+| `winnu_mecatol` Blood Ties: no 6 influence, Reclamation worth | CFS Winnu #7 | -0.12 [-0.55, +0.30] | -0.01 [-0.02, +0.01] | rejected (never matters) |
+| `letnev_armada` two fewer fleet tokens | CFS #9 | -0.62 [-2.69, +1.44] | -0.00 [-0.08, +0.07] | rejected |
+| `tech_hunt=1` Nekro fights for technologies | CFS #12 | -0.62 [-3.16, +1.91] | -0.03 [-0.13, +0.08] | rejected |
+| `empyrean_rule` Aetherpassage only for itself | engine text | -0.38 [-3.37, +2.62] | -0.05 [-0.17, +0.08] | rejected |
+| `adjacent_bonus=0.5` territory contiguity (map) | round-1 idea list | -1.12 [-4.20, +1.95] | -0.05 [-0.19, +0.08] | rejected |
+| `home_last_ship` last warship stays home from R3 (narrow home guard) | BOT_V2_GAME_ANALYSIS | -2.25 [-4.81, +0.31] | -0.09 [-0.18, -0.00] | rejected |
+| `mecatol_early=8` (worth in R2-3) | BOT_V2_ANALYSIS_4P #1 | -0.25 [-0.94, +0.44] | -0.01 [-0.04, +0.01] | rejected (never binds) |
+| `mecatol_bonus=9` | | -0.12 [-0.77, +0.52] | -0.01 [-0.04, +0.02] | rejected |
+| `eager_worth=2` | | -0.38 [-3.25, +2.50] | -0.01 [-0.12, +0.10] | rejected |
+| `expansion_rounds=3` | | -3.88 [-6.76, -0.99] | -0.08 [-0.20, +0.04] | rejected |
+| `retreat_margin=-0.2` | | -0.88 [-2.82, +1.07] | -0.03 [-0.09, +0.03] | rejected |
+| `accept_net=0` | | -1.00 [-4.04, +2.04] | -0.13 [-0.24, -0.01] | rejected |
+| `fleet_tokens_wanted=2` | | -4.38 [-7.26, -1.49] | -0.12 [-0.24, -0.00] | rejected |
+| `plenty_resources=4` | | -0.75 [-3.52, +2.02] | +0.03 [-0.09, +0.14] | rejected |
+| `win_margin=0.65` | | -0.50 [-2.95, +1.95] | -0.02 [-0.10, +0.07] | rejected |
+| `faction_plans_enabled=false` | | +0.00 [-3.08, +3.08] | -0.03 [-0.16, +0.10] | no effect (finding above) |
+
+Second batch under the primary metric (200 tables, seeds 70000..; the baseline is v2):
+
+| change (knob) | VP/rd [CI] | VP after R3 [CI] | VP after R5 [CI] | win pp [CI] | verdict |
+|---|---|---|---|---|---|
+| `tech_pick_rule` (Nekro fixed) | +0.024 [+0.002, +0.046] | +0.011 [-0.038, +0.061] | +0.102 [-0.008, +0.213] | +1.75 [-2.1, +5.6] | **accepted**, confirmed |
+| `r1_tech` (pool) | +0.016 [-0.013, +0.046] | +0.015 [-0.095, +0.125] | +0.053 [-0.103, +0.209] | +2.75 [-1.6, +7.1] | **accepted**, confirmed |
+| `nekro_tech` (Nekro fixed) | +0.009 [-0.019, +0.037] | +0.015 [-0.071, +0.101] | +0.078 [-0.067, +0.223] | +3.5 [-0.6, +7.6] | **accepted**, confirmed |
+| `early_margin=0.3` | +0.012 [-0.013, +0.038] | +0.100 [+0.024, +0.175] | +0.071 [-0.056, +0.199] | +4.75 [+0.7, +8.8] | rejected: not confirmed |
+| `early_margin=0.6` | +0.001 [-0.027, +0.029] | +0.008 [-0.080, +0.095] | +0.026 [-0.105, +0.157] | +1.5 [-2.7, +5.7] | rejected |
+| `r1_tech2` winnu, sardakk, argent (pool) | +0.017 [-0.014, +0.048] | -0.045 [-0.153, +0.062] | +0.017 [-0.137, +0.171] | +1.25 [-2.9, +5.4] | rejected |
+| `short_bonus=2` | +0.010 [-0.009, +0.029] | +0.025 [-0.003, +0.052] | -0.044 [-0.125, +0.038] | +3.25 [-0.4, +6.9] | rejected |
+| `short_bonus=3` | +0.001 [-0.018, +0.021] | +0.010 [-0.021, +0.040] | -0.084 [-0.172, +0.005] | +3.5 [-0.1, +7.1] | rejected |
+| `ground_margin=0.5` (troops piling up) | +0.003 [-0.018, +0.025] | +0.038 [+0.000, +0.075] | +0.002 [-0.095, +0.100] | -1.0 [-4.8, +2.8] | rejected |
+| `lift_rule=1` (transports for idle troops) | -0.003 [-0.010, +0.004] | +0.005 [-0.001, +0.010] | -0.011 [-0.043, +0.021] | +0.75 [-0.7, +2.2] | rejected (neutral) |
+| `activation_threshold=0.3` (activation floor) | +0.005 [-0.005, +0.015] | +0.002 [-0.001, +0.006] | -0.000 [-0.035, +0.035] | +0.25 [-1.4, +1.9] | rejected (neutral) |
+| `plan_off=1` plans off for ghost, hacan, empyrean, naaz, winnu (pool) | -0.004 [-0.030, +0.021] | -0.047 [-0.109, +0.015] | +0.042 [-0.077, +0.160] | -2.0 [-5.8, +1.8] | rejected |
+| `planner_weight=2` | -0.005 [-0.016, +0.006] | +0.002 [-0.006, +0.010] | -0.015 [-0.052, +0.022] | 0.0 [-2.0, +2.0] | rejected |
+| `planner_gap=5` | +0.006 [-0.001, +0.013] | +0.000 | +0.030 [+0.005, +0.056] | +1.0 [-0.5, +2.5] | rejected (small) |
+| `planner_weight=2,planner_gap=5` | +0.003 [-0.011, +0.016] | +0.002 | +0.015 [-0.030, +0.060] | +1.0 [-1.5, +3.5] | rejected |
+| `progress_gap=3` | +0.002 [-0.007, +0.011] | -0.001 | +0.018 [-0.006, +0.042] | +1.75 [-0.4, +3.9] | rejected |
+| `complete_value=9` | -0.025 [-0.042, -0.008] | -0.013 | -0.050 | -1.75 [-4.7, +1.2] | rejected (worse) |
+| `influence_early=0.5` (influence of planets worth more in R1-3, for the custodians) | +0.021 [-0.013, +0.054] (screen) | +0.053 | +0.095 | -1.0 | confirmed on fresh seeds 80000..: **-0.015 [-0.036, +0.006]**, R5 -0.108 [-0.208, -0.008]: rejected |
+| `influence_early=1.0` | +0.011 [-0.026, +0.047] | -0.009 | +0.059 | +1.25 | rejected |
+
+Confirmation on fresh seeds 80000.. (400 tables each): `tech_pick_rule` VP/rd **+0.023 [+0.005, +0.041]**, VP/seat +0.130 [+0.019, +0.240]
+(Nekro fixed); `r1_tech` +0.019 [-0.002, +0.040], VP after R5 +0.121 [+0.016, +0.226]; `nekro_tech` +0.020 [-0.002, +0.042], VP/seat +0.116
+[-0.019, +0.252]; `early_margin=0.3` +0.003 [-0.017, +0.023] (not confirmed). Both seed ranges point the same way for the three accepted
+changes; none of them is large, and only `tech_pick_rule` has a confidence interval above zero on its own.
+
+### What v3 contains
+
+- `tech_pick_rule`: a technology gained outside a research (the Nekro's Technological Singularity and the other
+  `*_pick_technology` / `*_choose_technology` prompts) is the best one by the seat's own order (plan, then `GENERAL`), and the Nekro always
+  use Technological Singularity when offered (both were random: `assimilate` 85 times in 200 golden games).
+- `r1_tech`: Technology first in round 1 for the Arborec (Sarween Tools: free infantry later), Naalu and L1Z1X (CFS Arborec, Naalu, L1Z1X).
+- `nekro_tech`: the Nekro's research is three command tokens (Propagation), so Technology is drafted first in every round (CFS Nekro: Trade then
+  Leadership, but the engine's Propagation makes Technology a free Leadership).
+
+### Version 3 against version 2 (seeds 90000.., fresh)
+
+Mixed (400 tables, 200 x 4p `4pHyperlanes` + 200 x 6p `6pStandard`): VP per round **+0.011 [-0.005, +0.028]**, VP/seat +0.072 [-0.031, +0.176], VP after
+rounds 3/4/5 +0.019 / +0.040 / +0.019 (all intervals include 0), win share +0.88 pp [-1.71, +3.46], rounds +0.10 [+0.00, +0.19].
+Uniform tables (every seat the same bot, 200 tables, seeds 95000..): VP per round -0.004 [-0.020, +0.012], rounds -0.035 [-0.16, +0.09]: **v3 is not
+measurably stronger or faster in absolute terms; the gain is confined to the three factions' paths above and small.** Honest summary: round 2
+found three small, twice-confirmed improvements and rejected everything else; the bot sits on a plateau for these levers.
+
+Per faction (v3 as candidate, 400 mixed tables; the unchanged factions show the noise, about +-9 pp): nekro +9 pp / +0.52 VP, mentak +14 / +0.54
+(unchanged by v3: noise), l1z1x +4 / -0.04, arborec +4 / +0.07, naalu -6 / -0.21; everything else inside the noise.
+
+### Per map (v3 against v2, mixed, 50 tables each, seeds 31000..; 4pHyperlanes and 6pStandard from the 400-table run)
+
+| map | tables | VP/rd [CI] | win share pp [CI] | VP/seat [CI] |
+|---|---|---|---|---|
+| 4-4pHyperlanes | 200 | n/a | +2.0 [-1.2, +5.2] | +0.11 [-0.05, +0.27] |
+| 6-6pStandard | 200 | n/a | -0.2 [-4.3, +3.8] | +0.03 [-0.10, +0.17] |
+| 3pHurtsDonut | 50 | +0.069 [-0.001, +0.140] | +7.0 [+0.7, +13.3] | +0.435 [+0.010, +0.860] |
+| 4pExpanse | 50 | -0.007 [-0.067, +0.054] | -2.0 [-9.9, +5.9] | -0.075 [-0.459, +0.309] |
+| 4pOuterRim | 50 | -0.001 [-0.051, +0.050] | +3.0 [-4.1, +10.1] | +0.080 [-0.240, +0.400] |
+| 4pPyrrhicVictory | 50 | -0.028 [-0.075, +0.020] | -6.0 [-12.0, +0.0] | -0.160 [-0.440, +0.120] |
+| 5pRaceForMecatol | 50 | +0.043 [-0.007, +0.093] | +7.0 [+1.4, +12.6] | +0.325 [-0.045, +0.695] |
+| 5pSmallAndRich | 50 | +0.004 [-0.039, +0.046] | -1.0 [-9.2, +7.2] | +0.038 [-0.258, +0.335] |
+| 6pBalancedSpiral | 50 | -0.018 [-0.071, +0.036] | +1.0 [-6.1, +8.1] | -0.113 [-0.462, +0.235] |
+| 6pGravity | 50 | +0.003 [-0.038, +0.044] | +3.0 [-5.1, +11.1] | +0.077 [-0.224, +0.378] |
+| 6pOuterRim | 50 | -0.012 [-0.049, +0.024] | -3.0 [-9.5, +3.5] | -0.077 [-0.338, +0.184] |
+
+### Hypotheses from the analysis reports: covered or not
+
+Tested (rejected or neutral): Mecatol push (`mecatol_early`, `influence_early`; earlier `mecatol_bonus=9`), activation floor (`activation_threshold=0.3`),
+early-fight gate (`early_margin`), narrow home guard (`home_last_ship`), idle-army use (`ground_margin`, `lift_rule`, round 1's `ground_rule`),
+Gravity Drive/Technology first for slow factions (`r1_tech`, `r1_tech2`), plan changes of the weakest factions (`plan_off`), objective planner strength
+(`planner_weight`, `planner_gap`, `progress_gap`, `complete_value`). Not built (open): a fleet stack at the end of a round for raise_fleet /
+command_armada / ose / supremacy, planetless-system parking for deep_space / vast_territories, a one-ship-per-system sweep for ctr / control_borderlands
+(OBJECTIVE_SCORING_RATES.md); a deliberate Mecatol-in-round-2 plan with Imperial every round and a second public slot chosen by reachable objective
+(THEORETICAL_VP_PACE.md: Imperial's Mecatol point is 0.34 of a possible 3 after round 3, custodians held by 43% of winners). Why: the objective layer
+already values each of these through the engine's own requirement functions, so a blanket plan would duplicate it; the productive form is an
+objective-*dependent* production/movement bias in `planner.rs` (the stacking and parking moves need multi-step movement planning, the same
+obstacle as round 1's "ship idle troops to the next planet"). The weakest factions (empyrean 6.8%, winnu 8.6%, ghost 11.1%, hacan 11.3%, naaz 11.8%)
+are not helped by any tested knob; their gap is in the opening (territory by round 2), which the existing scripted expansion handles identically for all.
+
+### Gates run on this branch
+
+`cargo test -p ti4-rule-bot -p ti4-selfplay -p ti4-wasm` pass; clippy clean; fmt (the three crates); golden `bench` identical to the new
+`baseline.json` (200/200), `--bot bot_version=2` identical to `baseline-v2.json` (200/200) and `bot_version=1` to `baseline-v1.json` (200/200);
+stress matrix (340 games) all victories, no problems; completion set (104 games, 3 to 8 players) all victories, 7.10 rounds, 3.49 s a game
+(`completion-baseline.json` is the version-3 run, `completion-baseline-v2.json` the old one); `bot_version_check 3 4 60`: new games record version 3 and
+resume identically, a version-2 save and a version-1 save without the field replay as theirs.
+
+### Open decisions
+
+1. Ship v3 at all: its measured gain is +0.011 VP per round [-0.005, +0.028] mixed and zero in uniform tables; all three changes are risk-free
+   in the sense that they only touch Nekro technology picks, the Arborec/Naalu/L1Z1X first card and the Nekro's cards.
+2. The objective-dependent Mecatol/Imperial/Custodians plan and the end-of-round fleet stack deserve their own round with movement planning.
+3. The dominant lever left is territory by round 2 (BOT_V2_ANALYSIS_4P): needs opening work, not knobs.

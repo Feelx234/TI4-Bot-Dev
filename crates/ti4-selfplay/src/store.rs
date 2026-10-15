@@ -50,7 +50,10 @@ pub fn key_of(jobs: &[Job]) -> (String, String) {
         ti4_rule_bot::tuning::BOT_VERSION
     );
     // The shipped numbers: a changed default is a changed bot.
-    text.push_str(&format!("{:?}\n", ti4_rule_bot::tuning::Tuning::default().entries()));
+    text.push_str(&format!(
+        "{:?}\n",
+        ti4_rule_bot::tuning::Tuning::default().entries()
+    ));
     if let Ok(salt) = std::env::var("SELFPLAY_SALT") {
         text.push_str(&format!("salt {salt}\n"));
     }
@@ -72,7 +75,11 @@ pub fn key_of(jobs: &[Job]) -> (String, String) {
         })
     };
     (
-        format!("{:016x}{:016x}", hash(0xcbf2_9ce4_8422_2325), hash(0x84222325_cbf29ce4)),
+        format!(
+            "{:016x}{:016x}",
+            hash(0xcbf2_9ce4_8422_2325),
+            hash(0x84222325_cbf29ce4)
+        ),
         text,
     )
 }
@@ -120,7 +127,11 @@ pub fn save(jobs: &[Job], results: &[GameResult], wall_s: f64) {
         std::fs::rename(tmp, dir.join(format!("{key}.jsonl")))
     };
     match write() {
-        Ok(()) => eprintln!("stored {} games as {}/{key}.jsonl", results.len(), dir.display()),
+        Ok(()) => eprintln!(
+            "stored {} games as {}/{key}.jsonl",
+            results.len(),
+            dir.display()
+        ),
         Err(e) => eprintln!("could not store the games: {e}"),
     }
 }

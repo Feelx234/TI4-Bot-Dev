@@ -95,7 +95,7 @@ tuning! {
     secondary_rule: bool = false, "v2: from round 3, Diplomacy/Trade/Construction/Politics secondaries only with a spare token and where they pay";
     misc_rule: bool = true, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
     r1_trade: bool = false, "v3: round 1 Trade for the factions whose guides open with it (nekro, ghost, cabal, empyrean, titans)";
-    r1_tech: bool = false, "v3: round 1 Technology first for arborec, naalu, l1z1x";
+    r1_tech: bool = true, "v3: round 1 Technology first for arborec, naalu, l1z1x";
     r1_leadership: bool = false, "v3: round 1 Leadership high for muaat, mahact, cabal";
     r1_diplomacy: bool = false, "v3: round 1 Diplomacy high for xxcha";
     winnu_mecatol: bool = false, "v3: the Winnu take Mecatol Rex without the six influence (Blood Ties), worth more (Reclamation)";
@@ -103,23 +103,24 @@ tuning! {
     lift_rule: f64 = 0.0, "v3: weight slope for transports while more ground forces idle at docks than ships can lift";
     adjacent_bonus: f64 = 0.0, "v3: worth per own system next to a system whose planets it can take";
     tech_hunt: f64 = 0.0, "v3: the Nekro: worth per rival technology it lacks in a fight it takes (Technological Singularity)";
-    tech_pick_rule: bool = false, "v3: a stolen or copied technology by the seat's order; the Nekro always use Technological Singularity";
-    nekro_tech: bool = false, "v3: the Nekro draft Technology first in every round (its research is three command tokens)";
+    tech_pick_rule: bool = true, "v3: a stolen or copied technology by the seat's order; the Nekro always use Technological Singularity";
+    nekro_tech: bool = true, "v3: the Nekro draft Technology first in every round (its research is three command tokens)";
     plan_off: i64 = 0, "v3: 1 = no faction plan for ghost, hacan, empyrean, naaz, winnu (they win least in self-play)";
     empyrean_rule: bool = false, "v3: the Empyrean allow Aetherpassage only to themselves";
     home_last_ship: bool = false, "v3: from round 3 the last warship does not leave home while a rival fleet could reach it";
     r1_tech2: bool = false, "v3: round 1 Technology first for winnu, sardakk, argent (no starting technology in this engine)";
+    influence_early: f64 = 0.0, "v3: extra worth per influence of a planet in rounds 1-3 while the custodians token stands";
     early_margin: f64 = 0.0, "v3: extra matchup needed for a fight in rounds 1-2";
     mecatol_early: f64 = 0.0, "v3: extra worth of Mecatol Rex in rounds 2-3 while the custodians token is on it";
     ground_margin: f64 = 0.0, "v3: extra ground forces for an invasion, as a share of the defenders' hit points";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
-/// `v2:` knobs, version 2 the bot before the `v3:` knobs; a saved offline game records the
+/// `v2:` knobs, version 2 the bot before the `v3:` knobs, version 3 adds them; a saved offline game records the
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
-pub const BOT_VERSION: u32 = 2;
+pub const BOT_VERSION: u32 = 3;
 
-/// The tuning of bot version `version` (1 or 2; anything else: the current one).
+/// The tuning of bot version `version` (1, 2 or 3; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
 /// with a changed default: the compiler asks for its version-1 value. Version 2 is version 1 plus
@@ -200,6 +201,7 @@ fn v1() -> Tuning {
         empyrean_rule: false,
         home_last_ship: false,
         r1_tech2: false,
+        influence_early: 0.0,
         early_margin: 0.0,
         mecatol_early: 0.0,
         ground_margin: 0.0,
@@ -251,6 +253,15 @@ mod tests {
         assert_eq!(t, for_version(1));
         assert_eq!(for_version(BOT_VERSION), Tuning::default());
         assert!(!for_version(1).vote_rule && !for_version(1).casualty_rule);
-        assert!(for_version(2).vote_rule && !for_version(2).r1_trade);
+        assert!(
+            for_version(2).vote_rule && !for_version(2).r1_tech && !for_version(2).tech_pick_rule
+        );
+        assert!(
+            for_version(3).r1_tech
+                && for_version(3).tech_pick_rule
+                && for_version(3).nekro_tech
+                && !for_version(2).nekro_tech
+        );
+        assert_eq!(for_version(3), Tuning::default());
     }
 }
