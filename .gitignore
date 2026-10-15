@@ -59,6 +59,9 @@ fixtures/legacy_entropy/*
 # The catalogue of the engine for the tests of web, written by `cargo wire-web`.
 !fixtures/catalog/
 !fixtures/catalog/**
+# The nicknames that the server and the pages take or refuse (`web-shared/src/identity/nickname.ts`).
+!fixtures/nickname/
+!fixtures/nickname/**
 
 # Local git worktrees. Gitlinks to them are meaningless to a clone.
 .worktrees/

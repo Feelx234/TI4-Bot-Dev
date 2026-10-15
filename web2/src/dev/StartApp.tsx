@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { StartScreen } from "../game/lobby/StartScreen";
-import { NICKNAME_KEY } from "../session/onlineKeys";
+import { NICKNAME_KEY, keptNickname, validNickname } from "../session/onlineKeys";
 import { SINGLE_ADDRESS } from "../session/savedGame";
 import {
   type OfflineSaveStore,
@@ -42,11 +42,7 @@ export function StartApp() {
     let stale = false;
     saveStore().then(async (opened) => {
       // A game page that was left before the store had its last save kept it in localStorage.
-      await takeLeft(
-        opened,
-        localStorage,
-        localStorage.getItem(NICKNAME_KEY)?.trim() || DEFAULT_NICKNAME,
-      );
+      await takeLeft(opened, localStorage, keptNickname(localStorage) ?? DEFAULT_NICKNAME);
       if (!stale) {
         setStore(opened);
         void read(opened);
@@ -86,6 +82,7 @@ export function StartApp() {
         }
       }}
       nickname={nickname}
+      validName={validNickname}
       onNickname={(name) => {
         setNickname(name);
         localStorage.setItem(NICKNAME_KEY, name);

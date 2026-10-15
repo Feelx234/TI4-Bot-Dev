@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Dialog, Kbd, usePhone } from "../../ui";
 import { keyIsFree } from "../shell/shortcuts";
-import { NICKNAME_MAX } from "./LobbyScreen";
+import { NICKNAME_MAX, type ValidName } from "./LobbyScreen";
 
 /** One way into a game. The row is the control; a choice is a page load. */
 export interface StartRow {
@@ -37,6 +37,7 @@ export function StartScreen({
   onDeleteOld,
   nickname,
   onNickname,
+  validName,
 }: {
   rows: StartRow[];
   /** The saved games of this browser, newest first. */
@@ -50,6 +51,8 @@ export function StartScreen({
   /** The name of the player at a table. It is kept for the next visit. */
   nickname: string;
   onNickname: (name: string) => void;
+  /** A name that the server refuses is marked: a table is made with the default name. */
+  validName: ValidName;
 }) {
   const phone = usePhone();
   const [deleting, setDeleting] = useState<Deleting | null>(null);
@@ -94,8 +97,9 @@ export function StartScreen({
         <input
           value={nickname}
           maxLength={NICKNAME_MAX}
+          aria-invalid={nickname.trim() !== "" && !validName(nickname.trim())}
           onChange={(event) => onNickname(event.target.value)}
-          className="min-h-9 min-w-0 flex-1 rounded border border-line bg-well px-2.5 text-base text-text touch:min-h-11"
+          className="min-h-9 min-w-0 flex-1 rounded border border-line bg-well px-2.5 text-base text-text aria-[invalid=true]:border-red touch:min-h-11"
         />
       </label>
       {(saves.length > 0 || old > 0 || warning) && (

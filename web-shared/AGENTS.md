@@ -79,6 +79,7 @@ src/wire/    index.ts     the wire types: import them from here
                           decodeMapPreview)
 src/content/ catalog.ts   loadCatalog (from the engine of the page, else `GET /api/catalog`), CatalogError
              names.ts     humanizeId, titleCase, the faction ids of a table (base game, Prophecy of Kings)
+src/identity/ nickname.ts NICKNAME_KEY (`ti4.nickname`), validNickname (the names that the server takes)
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
@@ -207,6 +208,23 @@ the `fetch` to use as its last argument (default: the page's), so a test gives i
   session each 2 s), web2 has the socket of the table (`web2/src/session/table.ts`).
 - The calls of a game (`/snapshot`, `turn-redo`, history, splice) stay in web's
   `GameSessionClient`; they use the paths and the header from here.
+
+## Nickname
+
+The name of a player at a table of the server, from `@ti4/shared/identity/nickname.ts`.
+
+- `validNickname(value)` is what the server takes (`ti4-server` `storage::validate_nickname`): a
+  string, trimmed, not only whitespace, at most `NICKNAME_MAX_BYTES` (64) bytes of UTF-8, with no
+  control or formatting code point. It gives no reason: the app words its own refusal (web's
+  lobby says why, web2 marks the input and does not send the name).
+- `fixtures/nickname/cases.json` of the repository has names that are taken and names that are
+  refused. `src/identity/nickname.test.ts` and the server's test
+  `storage::player_record_tests::nickname_validation_matches_the_shared_cases_of_the_pages` both
+  check them: a change of the rules changes both and the file.
+- `NICKNAME_KEY` (`ti4.nickname`) is the localStorage key of the name that the player gave
+  last, for both apps (web's `protocol/nickname.ts`, web2's `session/onlineKeys.ts`).
+- The seat tokens stay with each app: web keeps one player session per tab, web2 several
+  players of a game per browser (`onlineKeys.ts`).
 
 ## Protocol fixtures
 

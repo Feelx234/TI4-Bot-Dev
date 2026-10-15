@@ -1895,6 +1895,19 @@ mod player_record_tests {
         }
     }
 
+    /// The cases that the pages check their `validNickname` against (`web-shared`).
+    #[test]
+    fn nickname_validation_matches_the_shared_cases_of_the_pages() {
+        let cases: BTreeMap<String, Vec<String>> =
+            serde_json::from_str(include_str!("../../../fixtures/nickname/cases.json")).unwrap();
+        for name in &cases["valid"] {
+            assert!(validate_nickname(name).is_ok(), "{name:?} is valid");
+        }
+        for name in &cases["invalid"] {
+            assert!(validate_nickname(name).is_err(), "{name:?} is invalid");
+        }
+    }
+
     #[test]
     fn a_lobby_record_without_a_start_preset_still_loads_and_a_preset_round_trips() {
         let (mut record, _, _) =

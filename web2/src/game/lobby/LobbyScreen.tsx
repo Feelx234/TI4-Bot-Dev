@@ -21,8 +21,11 @@ import { keyIsFree } from "../shell/shortcuts";
 import { FactionSheet } from "./FactionSheet";
 import type { OtherGame } from "../shell/Toolbar";
 
-/** A nickname has 64 bytes at most on the server. */
+/** The characters of a name in an input. The server takes 64 bytes at most: `validName` says. */
 export const NICKNAME_MAX = 32;
+
+/** Whether the server takes a name (trimmed). A name that it refuses is not sent. */
+export type ValidName = (name: string) => boolean;
 
 const SIGNS: Record<LobbySignView["kind"], string> = {
   host: "★",
@@ -70,14 +73,19 @@ function RowButton({
   );
 }
 
-/** The name of the viewer, open in its row. Enter takes the name, Esc and a click elsewhere leave it. */
+/**
+ * The name of the viewer, open in its row. Enter takes the name, Esc and a click elsewhere leave
+ * it. A name that the server refuses is marked, and Enter keeps the editor open.
+ */
 function NameEditor({
   name,
   onName,
+  validName,
   onDone,
 }: {
   name: string;
   onName: (name: string) => void;
+  validName: ValidName;
   /** The name that was entered, or null when the editor was left. */
   onDone: (name: string | null) => void;
 }) {
@@ -86,17 +94,22 @@ function NameEditor({
     input.current?.focus();
     input.current?.select();
   }, []);
+  const wanted = name.trim();
+  const refused = wanted !== "" && !validName(wanted);
   return (
     <form
       className="flex w-[300px] flex-none phone:w-auto phone:min-w-0 phone:flex-1"
       onSubmit={(event) => {
         event.preventDefault();
-        onDone(name.trim());
+        if (!refused) {
+          onDone(wanted);
+        }
       }}
     >
       <input
         ref={input}
         aria-label="Your name"
+        aria-invalid={refused}
         value={name}
         maxLength={NICKNAME_MAX}
         onChange={(event) => onName(event.target.value)}
@@ -107,7 +120,7 @@ function NameEditor({
             onDone(null);
           }
         }}
-        className="min-h-8 w-full min-w-0 rounded border border-line bg-well px-2 text-base text-text touch:min-h-11"
+        className="min-h-8 w-full min-w-0 rounded border border-line bg-well px-2 text-base text-text aria-[invalid=true]:border-red touch:min-h-11"
       />
     </form>
   );
@@ -234,12 +247,14 @@ function PlayerRow({
   open,
   onOpen,
   dispatch,
+  validName,
 }: {
   row: LobbyRowView;
   /** The choice of the faction is open in this row. */
   open: boolean;
   onOpen: (open: boolean) => void;
   dispatch: (intent: LobbyIntent) => void;
+  validName: ValidName;
 }) {
   // The name of the viewer is edited in its row. Null: the row is closed.
   const [name, setName] = useState<string | null>(null);
@@ -251,6 +266,7 @@ function PlayerRow({
         <NameEditor
           name={name}
           onName={setName}
+          validName={validName}
           onDone={(wanted) => {
             if (wanted && wanted !== row.name) {
               dispatch({ type: "rename", name: wanted });
@@ -555,7 +571,15 @@ export function TableSheet({
   );
 }
 
-function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: LobbyIntent) => void }) {
+function Players({
+  view,
+  dispatch,
+  validName,
+}: {
+  view: LobbyView;
+  dispatch: (intent: LobbyIntent) => void;
+  validName: ValidName;
+}) {
   // The row whose choice of the faction is open, by its id. One at a time.
   const [open, setOpen] = useState<string | null>(null);
   return (
@@ -587,6 +611,7 @@ function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: Lobby
             row={row}
             open={open === row.id && row.editor !== null}
             onOpen={(wanted) => setOpen(wanted ? row.id : null)}
+            validName={validName}
             dispatch={dispatch}
           />
         ))}
@@ -601,19 +626,23 @@ function Footer({
   dispatch,
   nickname,
   onNickname,
+  validName,
   phone,
 }: {
   view: LobbyView;
   dispatch: (intent: LobbyIntent) => void;
   nickname: string;
   onNickname: (name: string) => void;
+  validName: ValidName;
   phone: boolean;
 }) {
   const { footer } = view;
   if (!footer.note && !footer.main) {
     return null;
   }
-  const nameless = footer.nickname && !nickname.trim();
+  // A visitor joins with a name that the server takes: an empty one is not marked, only waited for.
+  const nameless = footer.nickname && !validName(nickname.trim());
+  const refused = nameless && nickname.trim() !== "";
   return (
     <form
       className="flex items-center justify-between gap-[15px] border-t border-line bg-surface px-5 py-2.5 phone:flex-col phone:items-stretch phone:gap-1.5 phone:px-3 phone:py-2"
@@ -634,8 +663,9 @@ function Footer({
             <input
               value={nickname}
               maxLength={NICKNAME_MAX}
+              aria-invalid={refused}
               onChange={(event) => onNickname(event.target.value)}
-              className="min-h-9 w-[220px] min-w-0 rounded border border-line bg-well px-2.5 text-base text-text phone:w-auto phone:flex-1 touch:min-h-11"
+              className="min-h-9 w-[220px] min-w-0 rounded border border-line bg-well px-2.5 text-base text-text aria-[invalid=true]:border-red phone:w-auto phone:flex-1 touch:min-h-11"
             />
           </label>
         )}
@@ -670,6 +700,7 @@ export function LobbyScreen({
   dispatch,
   nickname,
   onNickname,
+  validName,
   link,
   toast,
   other,
@@ -679,6 +710,8 @@ export function LobbyScreen({
   /** The name that a visitor joins with. */
   nickname: string;
   onNickname: (name: string) => void;
+  /** Whether the server takes a name: the join and a new name wait for one that it takes. */
+  validName: ValidName;
   /** The address of the table, for the other players. Without it nobody else can come. */
   link?: string;
   toast: { id: number; text: string } | null;
@@ -690,8 +723,8 @@ export function LobbyScreen({
   const [copied, setCopied] = useState<{ id: number; text: string } | null>(null);
 
   // Enter is the main button, as in the game.
-  const now = useRef({ view, dispatch, nickname });
-  now.current = { view, dispatch, nickname };
+  const now = useRef({ view, dispatch, nickname, validName });
+  now.current = { view, dispatch, nickname, validName };
   useEffect(() => {
     let focusByKeyboard = false;
     const onPointer = () => (focusByKeyboard = false);
@@ -703,7 +736,7 @@ export function LobbyScreen({
       if (event.key !== "Enter" || !main || main.disabled || !keyIsFree(event, focusByKeyboard)) {
         return;
       }
-      if (named && !now.current.nickname.trim()) {
+      if (named && !now.current.validName(now.current.nickname.trim())) {
         return;
       }
       event.preventDefault();
@@ -741,6 +774,7 @@ export function LobbyScreen({
       dispatch={dispatch}
       nickname={nickname}
       onNickname={onNickname}
+      validName={validName}
       phone={phone}
     />
   );
@@ -750,7 +784,7 @@ export function LobbyScreen({
   ) : (
     <section aria-label="Galaxy board" className="min-h-0 min-w-0 bg-board" />
   );
-  const players = <Players view={view} dispatch={dispatch} />;
+  const players = <Players view={view} dispatch={dispatch} validName={validName} />;
   const setup = <Setup view={view} dispatch={dispatch} />;
   const latest = (copied?.id ?? 0) > (toast?.id ?? 0) ? copied : toast;
 

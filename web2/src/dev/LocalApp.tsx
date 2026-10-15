@@ -26,7 +26,7 @@ import {
   storeWait,
 } from "../session/savedGame";
 import { localGameTable } from "../session/localTable";
-import { NICKNAME_KEY } from "../session/onlineKeys";
+import { keptNickname } from "../session/onlineKeys";
 import {
   type GameMeta,
   type OfflineSaveStore,
@@ -59,7 +59,7 @@ export const wasmUrl = new URL("../session/ti4.wasm", import.meta.url).href;
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
 /** The name of the player, for the saved games. */
-const nickname = () => localStorage.getItem(NICKNAME_KEY)?.trim() || DEFAULT_NICKNAME;
+const nickname = () => keptNickname(localStorage) ?? DEFAULT_NICKNAME;
 
 /** What the page starts from: the engine, the save store, and the saved game of this address if there is one. */
 type Start =

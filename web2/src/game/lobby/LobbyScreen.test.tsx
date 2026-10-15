@@ -95,6 +95,7 @@ function lobby() {
       dispatch={(intent) => sent.push(intent)}
       nickname="Ada"
       onNickname={() => {}}
+      validName={(name) => name !== ""}
       link="http://table"
       toast={null}
     />,
@@ -152,6 +153,43 @@ it("a row that is no control has the sheet of its faction behind the name", () =
   expect(screen.getByRole("note")).toHaveTextContent("The Federation of Sol");
   // The row of the viewer has the control in that place, and "Random" has no sheet.
   expect(screen.queryByRole("button", { name: "About Random" })).toBeNull();
+});
+
+it("a name that the server refuses is marked, and neither joins nor renames", () => {
+  const sent: LobbyIntent[] = [];
+  const view: LobbyView = {
+    ...VIEW,
+    rows: [row("slot_1", "Ada", { player: "p1", you: true, rename: true })],
+    footer: {
+      note: "",
+      main: { label: "Join", disabled: false, intent: { type: "join" } },
+      nickname: true,
+    },
+  };
+  render(
+    <LobbyScreen
+      view={view}
+      dispatch={(intent) => sent.push(intent)}
+      nickname="Refused"
+      onNickname={() => {}}
+      validName={(name) => name !== "" && name !== "Refused"}
+      toast={null}
+    />,
+  );
+  expect(screen.getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+  expect(screen.getByRole("button", { name: /Join/ })).toBeDisabled();
+  fireEvent.keyDown(document.body, { key: "Enter" });
+
+  fireEvent.click(screen.getByRole("button", { name: "Change your name" }));
+  const editor = screen.getByLabelText("Your name");
+  fireEvent.change(editor, { target: { value: " Refused " } });
+  expect(editor).toHaveAttribute("aria-invalid", "true");
+  fireEvent.submit(editor);
+  // The editor stays open with the name, and nothing was sent.
+  expect(screen.getByLabelText("Your name")).toHaveValue(" Refused ");
+  fireEvent.change(editor, { target: { value: "Grace" } });
+  fireEvent.submit(editor);
+  expect(sent).toEqual([{ type: "rename", name: "Grace" }]);
 });
 
 it("the table of a running game is read in a sheet: the seats with their signs, and the wait for the host", () => {

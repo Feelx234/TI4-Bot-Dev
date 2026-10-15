@@ -1,5 +1,6 @@
 // The lobby of a table: the rows of the players with their signs, the setup, and the footer.
 // The components decide nothing from names: what a row shows and which controls it has is here.
+import { validNickname } from "@ti4/shared/identity/nickname.ts";
 import type {
   FactionSheetView,
   LobbyButtonView,
@@ -84,10 +85,15 @@ function mapName(lobby: LobbyState): string {
 export function nextNickname(lobby: LobbyState, viewer: string): string {
   const taken = new Set(lobby.slots.map((slot) => slot.nickname));
   const own = lobby.slots.find((slot) => slot.occupant === viewer)?.nickname ?? "Player";
-  const base = own.replace(/ \d+$/, "");
+  const base = Array.from(own.replace(/ \d+$/, ""));
   for (let number = 2; ; number++) {
     // A nickname has 64 bytes at most: a long name gives room to its number.
-    const name = `${base.slice(0, 56)} ${number}`;
+    let keep = base.length;
+    let name = `${base.join("")} ${number}`;
+    while (!validNickname(name) && keep > 1) {
+      keep -= 1;
+      name = `${base.slice(0, keep).join("").trimEnd()} ${number}`;
+    }
     if (!taken.has(name)) {
       return name;
     }

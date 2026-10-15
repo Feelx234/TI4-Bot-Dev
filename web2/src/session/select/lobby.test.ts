@@ -477,6 +477,10 @@ it("another tab of a player is that name with the next free number", () => {
   // From the second tab the number goes on: it is not "Ada 2 2".
   expect(nextNickname(more, "ada2")).toBe("Ada 3");
   expect(nextNickname(lobby(), "bart").length).toBeLessThanOrEqual(64);
+  // 21 characters of three bytes: the number takes the room of the last one.
+  const wide = lobby();
+  wide.slots[0] = person(1, "ada", "東".repeat(21));
+  expect(nextNickname(wide, "ada")).toBe(`${"東".repeat(20)} 2`);
 });
 
 /** The factions as the server groups them, cut to four. */

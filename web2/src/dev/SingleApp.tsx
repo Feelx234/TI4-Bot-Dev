@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LobbyScreen } from "../game/lobby/LobbyScreen";
 import type { LobbyIntent } from "../model";
 import { localTable } from "../session/localTable";
-import { NICKNAME_KEY, PLAYER_COUNT_KEY } from "../session/onlineKeys";
+import { PLAYER_COUNT_KEY, keptNickname, validNickname } from "../session/onlineKeys";
 import { type LocalGame, SINGLE_SLOT, gameOfSave } from "../session/savedGame";
 import { saveStore } from "../session/saves";
 import { selectLobby } from "../session/select/lobby";
@@ -69,7 +69,7 @@ function SingleSetup({
     }
     const kept = Number(localStorage.getItem(PLAYER_COUNT_KEY) || Number.NaN);
     const made = localTable(engine.module, {
-      nickname: localStorage.getItem(NICKNAME_KEY)?.trim() || DEFAULT_NICKNAME,
+      nickname: keptNickname(localStorage) ?? DEFAULT_NICKNAME,
       players:
         start.players ??
         (Number.isInteger(kept) && kept >= 2 && kept <= 8 ? kept : DEFAULT_PLAYERS),
@@ -146,6 +146,7 @@ function SingleSetup({
           dispatch={dispatch}
           nickname=""
           onNickname={() => {}}
+          validName={validNickname}
           toast={toast}
           other={START}
         />
