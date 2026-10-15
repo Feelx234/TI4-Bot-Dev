@@ -84,8 +84,13 @@ fn main() -> Result<(), String> {
         // would do without the field), usually a different game.
         let mut forced = save.clone();
         forced["setup"]["bot_version"] = json!(ti4_rule_bot::tuning::BOT_VERSION);
-        let (_, _, _, check) = play(&json!({ "setup": forced["setup"], "resume": forced }), Some(0))?;
-        println!("seed {seed}: the same save resumed with the current bot: ok={}", check["ok"]);
+        let outcome = play(&json!({ "setup": forced["setup"], "resume": forced }), Some(0));
+        let said = match &outcome {
+            Ok((_, asks, _, check)) if *asks > 0 => format!("resume_check {check}"),
+            Ok(_) => "the replay asked nothing (the person's saved answers no longer fit)".to_owned(),
+            Err(error) => error.chars().take(160).collect(),
+        };
+        println!("seed {seed}: the same save resumed with the current bot: {said}");
     }
     if failed {
         std::process::exit(1);
