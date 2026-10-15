@@ -423,3 +423,34 @@ export function serverProgressed(
 ): boolean {
   return latest.game_version > before || latest.turn_status.kind === "game_over";
 }
+
+/**
+ * The status banner's text once the game is over. The engine's end arrives before the page has
+ * drawn it, so one immediate read can still see the last "YOUR TURN" (offline runs o3-39-2142,
+ * o2-186-0210: the screenshot taken right after showed "Game Over!"). Reads until it says Game
+ * Over or the time is up; returns the last text read.
+ */
+export async function settledGameOverBanner(
+  read: () => Promise<string | null>,
+  timeoutMs = 10_000,
+  stepMs = 250,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  let text = "";
+  for (;;) {
+    text = (await read().catch(() => null)) ?? "";
+    if (/Game Over/i.test(text) || Date.now() >= deadline) return text;
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+}
+
+/**
+ * A production payment drawer that can never be confirmed: the plan's total is more than every
+ * offered planet and trade good together ("Not enough: all offered planets and trade goods cover
+ * only 9 of 10 resources"). A player then presses "Ask for each build" and pays the build the
+ * engine asks for; the harness otherwise excludes that button (offline run o3-210-0240 clicked
+ * Auto-pay 109 times).
+ */
+export function isPaymentDeadEnd(problem: string | null | undefined): boolean {
+  return /Not enough: all offered .* cover only/i.test(problem ?? "");
+}

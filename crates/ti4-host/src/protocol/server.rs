@@ -941,17 +941,26 @@ pub fn verified_decision_facts(
         detail = Some(format!("{} scored objective {}", record.player, option.id));
         private = None;
     }
-    if detail.is_none()
+    // The action selection says what was chosen. A recorded selection carries its `action_menu`
+    // context, for which the generic fallback ("resolved action menu") would hide the card.
+    let generic = record
+        .context
+        .as_ref()
+        .is_some_and(|context| context.subtype == "action_menu");
+    if (detail.is_none() || generic)
         && record.prompt == "action phase"
         && let Some(option) = offered.filter(|option| option.id == record.chosen)
     {
         detail = match option.id.as_str() {
             "tactical" => Some(format!("{} began a tactical action", record.player)),
             "pass" => Some(format!("{} passed their turn", record.player)),
+            // One strategy card: the web names it from the seat's single unexhausted card.
+            "strategic" => Some(format!("{} began a strategic action", record.player)),
             id if id.starts_with("strategic|") => id
                 .strip_prefix("strategic|")
                 .and_then(strategy_card_name)
-                .map(|name| format!("{} played {name}", record.player)),
+                .map(|name| format!("{} played {name}", record.player))
+                .or(detail),
             _ => Some(format!("{} began a component action", record.player)),
         };
     }
@@ -1254,6 +1263,28 @@ mod fact_tests {
             .as_deref(),
             Some("action selection")
         );
+        // Nightly 2026-10-14 #11 (s2-36-0118 and five more server runs): a recorded selection
+        // carries its `action_menu` context, whose generic "resolved action menu" hid the card.
+        // The web then took the primary's other, still unexhausted card for the action, a
+        // follower prepared a secondary for that card, and the plan was dropped before its window.
+        for (id, expected) in [
+            ("strategic|pok2diplomacy", "p1 played Diplomacy"),
+            ("tactical", "p1 began a tactical action"),
+            ("pass", "p1 passed their turn"),
+            ("strategic", "p1 began a strategic action"),
+        ] {
+            let option = ChoiceOption::new(id, "action");
+            let selection = DecisionRecord {
+                prompt: "action phase".into(),
+                ..record("action_menu", &option)
+            };
+            assert_eq!(
+                verified_decision_facts(&selection, Some(&option), None, &state)
+                    .0
+                    .as_deref(),
+                Some(expected)
+            );
+        }
         let effect = ChoiceOption::new("unknown", "effect").with("card", "hidden_card");
         let detail = public_decision_facts(&record("activate_relic", &effect), Some(&effect), None)
             .0

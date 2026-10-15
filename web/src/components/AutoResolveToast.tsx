@@ -131,6 +131,8 @@ interface AutoResolveToastContainerProps {
   onDismiss: (id: string) => void;
   /** Extra space above the bottom edge, so toasts clear bars and overlays down there. */
   bottomOffset?: number;
+  /** The column stops this far up (a control near the top); the oldest toasts are cut off. */
+  maxHeight?: number;
   /** Rendered below the toasts (the notification history button). */
   footer?: React.ReactNode;
   /**
@@ -146,7 +148,7 @@ interface AutoResolveToastContainerProps {
  */
 export const AutoResolveToastContainer: React.FC<
   AutoResolveToastContainerProps
-> = ({ notifications, onDismiss, bottomOffset, footer, underControls }) => (
+> = ({ notifications, onDismiss, bottomOffset, maxHeight, footer, underControls }) => (
   <div
     className={`auto-resolve-toast-container${underControls ? " auto-resolve-toast-container--under" : ""}`}
     data-testid="corner-toasts"
@@ -154,7 +156,15 @@ export const AutoResolveToastContainer: React.FC<
     aria-live="polite"
     aria-relevant="additions"
     aria-label="Game notifications"
-    style={bottomOffset === undefined ? undefined : { bottom: bottomOffset }}
+    style={
+      bottomOffset === undefined && maxHeight === undefined
+        ? undefined
+        : {
+            ...(bottomOffset === undefined ? {} : { bottom: bottomOffset }),
+            // Clipped from the top: the newest toasts and the history pill stay at the bottom.
+            ...(maxHeight === undefined ? {} : { maxHeight, overflow: "hidden", justifyContent: "flex-end" }),
+          }
+    }
   >
     {notifications.map((notification) => (
       <AutoResolveToast

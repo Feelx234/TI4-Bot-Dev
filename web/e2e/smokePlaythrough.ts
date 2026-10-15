@@ -32,6 +32,7 @@ import {
   preferPayment,
   preferReadyConfirm,
   preferTechWindowUse,
+  isPaymentDeadEnd,
   preferTokenConfirm,
   preferTradeDesk,
   steerWeight as policySteerWeight,
@@ -211,6 +212,25 @@ export function mulberry32(seed: number) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * Escapes a payment drawer whose plan nobody can pay (see `isPaymentDeadEnd`) the way a player
+ * would: "Ask for each build". True when it clicked.
+ */
+export async function escapePaymentDeadEnd(page: Page): Promise<boolean> {
+  const problem = await page
+    .getByTestId("payment-problem")
+    .first()
+    .textContent({ timeout: 200 })
+    .catch(() => null);
+  if (!isPaymentDeadEnd(problem)) return false;
+  return page
+    .getByTestId("ask-each-payment-btn")
+    .first()
+    .click({ timeout: 1_000 })
+    .then(() => true)
+    .catch(() => false);
 }
 
 export async function collectCandidates(page: Page): Promise<Candidate[]> {
@@ -1119,6 +1139,11 @@ export async function randomUiPlaythrough(
         if (clicks > 0 && (await uiVersion(page)) > before) {
           progressed = true;
           break;
+        }
+        if (clicks > 0 && clicks % 10 === 0 && (await escapePaymentDeadEnd(page))) {
+          log(`  escape: the payment plan cannot be paid; asked for each build`);
+          clicks++;
+          continue;
         }
         if (!reactionChecked) {
           const shown = await page

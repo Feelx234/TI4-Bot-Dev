@@ -85,6 +85,27 @@ export class PreviewUnsupportedError extends Error {
   }
 }
 
+/**
+ * The person (or an automatic answer) acted on a question that is no longer the pending one: the
+ * submission is dropped on the client instead of being sent with the newer question's nonce.
+ */
+export class StaleChoiceError extends Error {
+  constructor(readonly actedOn: string, readonly pending: string | null) {
+    super("That question has already been answered");
+    this.name = "StaleChoiceError";
+  }
+}
+
+/**
+ * `submitChoice(optionId, nonce)` with the nonce of the question the caller showed: refuses a stale
+ * answer (quietly, nothing is sent). Without a nonce the current pending question is answered.
+ */
+export function checkChoiceNonce(pending: { nonce: string } | null, nonce: string | undefined): void {
+  if (nonce === undefined || pending?.nonce === nonce) return;
+  console.info(`[submit] dropped a stale answer for ${nonce} (pending: ${pending?.nonce ?? "none"})`);
+  throw new StaleChoiceError(nonce, pending?.nonce ?? null);
+}
+
 /** How long a preview request may take before the caller falls back to its estimate. */
 export const PREVIEW_TIMEOUT_MS = 4_000;
 
@@ -314,6 +335,9 @@ function idsFor(entries: GameLogEntry[]): Set<string> {
   }
   return ids;
 }
+
+/** Rejections of a superseded submission that only say it came too late. */
+const SUPERSEDED = new Set(["no_pending_choice", "stale_nonce", "stale_version"]);
 
 function rejectionMessage(
   message: Extract<ServerMessage, { type: "action_rejected" }>,
@@ -674,8 +698,19 @@ export class GameSessionClient implements GameTransport {
     this.settleReaches(new Error("Session stopped"));
   }
 
-  async submitChoice(optionId: string): Promise<void> {
+  submitChoice(optionId: string, nonce?: string): Promise<void> {
+    // Not `async`: the caller gets the submission's own promise, so marking a superseded one as
+    // handled (below) also covers a caller that dropped it.
+    try {
+      return this.sendChoice(optionId, nonce);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  private sendChoice(optionId: string, nonce?: string): Promise<void> {
     const { pendingChoice, gameVersion } = this.state;
+    checkChoiceNonce(pendingChoice, nonce);
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       const message = "Cannot submit choice: not connected to server (reconnecting)";
       this.setState({ ...this.state, lastError: message });
@@ -694,6 +729,9 @@ export class GameSessionClient implements GameTransport {
         return this.submission.promise;
       if (this.submission.nonce === pendingChoice.nonce)
         throw new Error("Another choice submission is still pending");
+      // Its caller may have stopped listening (a fire-and-forget click): a late rejection of a
+      // superseded answer must not surface as an unhandled rejection.
+      this.submission.promise.catch(() => undefined);
       this.priorSubmissions.push(this.submission);
       this.submission = null;
     }
@@ -1516,7 +1554,9 @@ export class GameSessionClient implements GameTransport {
       if (index !== -1) {
         const reason = rejectionMessage(message);
         this.priorSubmissions.splice(index, 1)[0].reject(new Error(reason));
-        this.setState({ ...this.state, lastError: reason });
+        // A superseded answer that came too late is no news for the person: log it only.
+        if (SUPERSEDED.has(message.reason.reason)) console.info(`[submit] superseded answer: ${reason}`);
+        else this.setState({ ...this.state, lastError: reason });
         return;
       }
     }

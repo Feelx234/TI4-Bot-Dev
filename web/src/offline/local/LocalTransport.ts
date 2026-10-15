@@ -1,5 +1,6 @@
 import {
   canContinueBatch,
+  checkChoiceNonce,
   PLAN_SUBTYPES,
   PreviewUnsupportedError,
   ReachUnsupportedError,
@@ -380,9 +381,10 @@ export class LocalTransport implements GameTransport {
     throw new Error(message);
   }
 
-  async submitChoice(optionId: string): Promise<void> {
+  async submitChoice(optionId: string, nonce?: string): Promise<void> {
     if (this.readOnly) return this.setError(VIEW_ONLY);
     const { pendingChoice, gameVersion } = this.store.get();
+    checkChoiceNonce(pendingChoice, nonce);
     if (!pendingChoice) return this.setError("No decision currently pending");
     if (this.inflight) {
       if (this.inflight.nonce === pendingChoice.nonce) {

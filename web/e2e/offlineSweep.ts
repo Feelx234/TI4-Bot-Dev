@@ -7,13 +7,14 @@ import {
   ERROR_BANNERS,
   activationWeights,
   collectCandidates,
+  escapePaymentDeadEnd,
   mulberry32,
   pick,
   visibleErrors,
 } from "./smokePlaythrough";
 import { isReactionSubtype, OVERLAY_CLOSE_IDS, reactionTextProblem } from "./smokePolicy";
 import { storedRecord } from "./offlineDriver";
-import { preferTechWindowUse } from "./smokePolicy";
+import { preferTechWindowUse, settledGameOverBanner } from "./smokePolicy";
 
 /**
  * One full offline game (setup form to game over) driven through the real UI, for the nightly
@@ -693,6 +694,12 @@ export async function playOfflineGame(
           continue;
         }
         emptyPolls = 0;
+        if (clicks > 0 && clicks % 10 === 0 && (await escapePaymentDeadEnd(page))) {
+          log(`#${report.decisions} ${subtype} escape: the payment plan cannot be paid; asked for each build`);
+          clicks++;
+          report.clicks++;
+          continue;
+        }
         const chosen = pick(
           preferTechWindowUse(subtype, current.prompt, candidates, 0, true),
           clicks,
@@ -754,10 +761,9 @@ export async function playOfflineGame(
 
   // --- the end -----------------------------------------------------------------------------
   if (outcome === "finished") {
-    const banner = await page
-      .getByTestId("turn-status-banner")
-      .textContent({ timeout: 10_000 })
-      .catch(() => "");
+    const banner = await settledGameOverBanner(() =>
+      page.getByTestId("turn-status-banner").textContent({ timeout: 2_000 }),
+    );
     if (!/Game Over/i.test(banner ?? "")) {
       const name = await shot("no-game-over-banner");
       finding(`the engine ended the game but the status banner says "${(banner ?? "").slice(0, 80)}"${name ? `; screenshot shots/${name}` : ""}`);

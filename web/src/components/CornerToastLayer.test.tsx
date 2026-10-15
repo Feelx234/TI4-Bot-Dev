@@ -99,4 +99,19 @@ describe("CornerToastLayer", () => {
     expect(screen.getByTestId("corner-toasts").style.bottom).toBe("132px");
     bar.remove();
   });
+
+  // Run s2-36-0118: a tall stack covered the "Prepare your secondary" chip near the top left and
+  // the click on it timed out. The column now stops below the chip.
+  it("stops the stack below the secondary-prep chip", () => {
+    const chip = document.createElement("button");
+    chip.className = "secondary-prep__chip";
+    chip.getBoundingClientRect = () => ({ top: 140, bottom: 174, left: 20, height: 34 }) as DOMRect;
+    document.body.appendChild(chip);
+    render(layer([]));
+    const column = screen.getByTestId("corner-toasts");
+    expect(column.style.bottom).toBe("12px");
+    expect(column.style.maxHeight).toBe(`${window.innerHeight - 12 - (174 + 12)}px`);
+    expect(column.style.overflow).toBe("hidden");
+    chip.remove();
+  });
 });

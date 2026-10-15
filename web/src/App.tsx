@@ -921,6 +921,7 @@ const GameViewContainer: React.FC<{
             ? {
                 phase: snapshot.view.phase,
                 activePlayer: snapshot.view.active_player ?? null,
+                over: turnStatus?.kind === "game_over" || snapshot.view.finished === true,
               }
             : undefined
         }

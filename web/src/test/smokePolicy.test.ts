@@ -11,6 +11,8 @@ import {
   isUnstage,
   classifyControl,
   serverProgressed,
+  settledGameOverBanner,
+  isPaymentDeadEnd,
   classifyCandidate,
   turnBarPool,
   isBarControl,
@@ -624,5 +626,34 @@ describe("overlays the sweep driver closes (smoke harness)", () => {
     const stepper = ["stepper-minus | Fewer | −", "stepper-max | All (3)", "stepper-confirm | Spend nothing"].map((d) => classifyControl(d));
     expect(stepper.map((x) => x.commit)).toEqual([false, false, true]);
     expect(stepper.some((x) => x.unstage)).toBe(false);
+  });
+});
+
+describe("settledGameOverBanner", () => {
+  // Offline runs o3-39-2142 and o2-186-0210: one read right at the engine's end still saw the last
+  // "YOUR TURN" although the page showed "Game Over!" a moment later.
+  it("waits for the page to draw the end instead of reading once", async () => {
+    const texts = ["YOUR TURN: Awaiting your choice (Waiting for player)", "Game Over! Winner: Bot 2"];
+    let reads = 0;
+    const text = await settledGameOverBanner(async () => texts[Math.min(reads++, 1)], 1_000, 5);
+    expect(text).toBe("Game Over! Winner: Bot 2");
+  });
+
+  it("gives up with the last text when the banner never changes", async () => {
+    const text = await settledGameOverBanner(async () => "YOUR TURN", 30, 5);
+    expect(text).toBe("YOUR TURN");
+  });
+});
+
+describe("isPaymentDeadEnd", () => {
+  // Offline run o3-210-0240: a 3-build plan owed 10 while planets and trade goods covered 9; the
+  // only way on, "Ask for each build", is excluded from random clicks, so 80 clicks never paid.
+  it("recognises a plan that nothing offered can pay", () => {
+    expect(isPaymentDeadEnd("Not enough: all offered planets and trade goods cover only 9 of 10 resources.")).toBe(true);
+    expect(isPaymentDeadEnd("Not enough: all offered planets cover only 2 of 3 influence.")).toBe(true);
+  });
+  it("leaves a bill that can still be staged alone", () => {
+    expect(isPaymentDeadEnd("Stage 2 more to pay")).toBe(false);
+    expect(isPaymentDeadEnd(null)).toBe(false);
   });
 });

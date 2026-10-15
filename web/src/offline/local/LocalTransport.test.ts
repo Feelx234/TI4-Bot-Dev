@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PreviewUnsupportedError } from "../../protocol/client.ts";
+import { PreviewUnsupportedError, StaleChoiceError } from "../../protocol/client.ts";
 import { LocalTransport } from "./LocalTransport.ts";
 import { GAME, FakePort, accepted, envelope, question, rejected, save, snapshot } from "./testKit.ts";
 import type { StartConfig } from "./hostApi.ts";
@@ -69,6 +69,25 @@ describe("LocalTransport", () => {
     await promise;
     expect(transport.getState().pendingChoice?.nonce).toBe("n2");
     expect(transport.latestSave()?.answers).toEqual(["o1"]);
+  });
+
+  // Nightly 2026-10-14 #8 (o1-43-2146 and 10 other offline runs): the lone `strategic` answer of
+  // the previous question went out with the next question's nonce.
+  it("drops an answer stamped with the nonce of an earlier question and sends nothing", async () => {
+    const { transport, port } = await open();
+    port.onCommand = (request, id) => ({
+      t: "reply",
+      id,
+      envelope: envelope("command", { messages: [accepted(1, String(request.option_id))], resume: 0 }),
+    });
+    const first = transport.submitChoice("o1", "n1");
+    await new Promise((r) => setTimeout(r, 0));
+    port.emit({ t: "ask", envelope: envelope("ask", { messages: [question(2, "n2")] }), save: save(["o1"]) });
+    await first;
+    await expect(transport.submitChoice("o1", "n1")).rejects.toBeInstanceOf(StaleChoiceError);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(port.commands("submit_choice")).toHaveLength(1);
+    expect(transport.getState().lastError).toBeNull();
   });
 
   it("shares a repeated submit of the same option and refuses another option for the same decision", async () => {
