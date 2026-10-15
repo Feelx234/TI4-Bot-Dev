@@ -291,10 +291,16 @@ fn a_command_that_is_not_the_servers_is_refused_the_servers_way() {
     let kinds = kinds(&page.messages);
     assert!(kinds.contains(&"action_rejected"), "{kinds:?}");
     assert!(kinds.contains(&"pong"));
-    assert!(
-        kinds.contains(&"error"),
-        "preview is not offered: {kinds:?}"
-    );
+    // At the first question no strategic action is in progress: the server's refusal.
+    let preview = page
+        .messages
+        .iter()
+        .find(|message| message["type"] == "secondary_preview")
+        .unwrap_or_else(|| panic!("the preview is answered: {kinds:?}"));
+    assert_eq!(preview["request_id"], 1);
+    assert_eq!(preview["outcome"]["result"], "refused");
+    assert_eq!(preview["outcome"]["reason"], "no_strategic_action");
+    assert!(!kinds.contains(&"error"), "{kinds:?}");
     let rejected: Vec<&Value> = page
         .messages
         .iter()

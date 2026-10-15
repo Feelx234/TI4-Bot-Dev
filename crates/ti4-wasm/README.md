@@ -758,9 +758,9 @@ checked as on the server by `ti4_host::protocol::check_submission`; resumes with
 option), `apply_draft` (a script; `draft_applied` when it ended),
 `run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
 `set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`), `put_staged` (see
-"Staged work").
-`preview_secondary` is answered with an `error` that names it (the page then falls back to its
-own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
+"Staged work"), `preview_secondary` (`secondary_preview` for the seat the page is shown as, on
+the position it sees, as the server answers it: `ti4_host::preview`; `busy` once the game is
+over). `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
 
 - `{"type":"submit_batch","nonce","expected_version","plan": BatchPlan}`: the `BatchPlan` of
   `web/` (`tactical_movement`, `production`, `payment`, `casualties`, `tokens`,
@@ -832,7 +832,8 @@ separate `pending_choice` message; undo is the engine checkpoint (32 deep), and 
 local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
 redo (`ti4_host::history`, offered only by the server) and bluff holds do not exist; the page is one connection, so the staged work of a seat is
-told to it only while it is shown as that seat.
+told to it only while it is shown as that seat; a secondary preview is for the seat the page is
+shown as (the server: the seat of the connection), and it has no rate limit.
 
 ### Tests
 
@@ -842,7 +843,8 @@ decisions and the whole event log; `it/host_session.rs` checks every message aga
 `ServerMessage` types and the order a client relies on; `it/host_local.rs` the local play of
 web2 (several seats of the page, a change of them, stepping, a save with its log);
 `it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
-secondary that the session sends. `node js/host.mjs <wasm>` runs the same
+secondary that the session sends; `it/host_preview.rs` that each secondary preview equals the
+server's answer at the same position. `node js/host.mjs <wasm>` runs the same
 flow in a real WebAssembly instance (CI does). `node scripts/wasm-size-gate.mjs` checks the size
 against `size-budget.json`.
 

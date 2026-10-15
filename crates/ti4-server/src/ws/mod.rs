@@ -14,6 +14,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
+use ti4_host::preview::PreviewRequest;
 use ti4_host::protocol::PROTOCOL_VERSION;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
@@ -23,7 +24,6 @@ use ti4_host::protocol::server::{
 };
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 
-use crate::session::preview::PreviewRequest;
 use crate::session::{GameRegistry, GameSession};
 
 /// WebSocket upgrade handler for `GET /ws/games/{game_id}`.

@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–8 done (2026-10-15), items 9–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–9 done (2026-10-15), items 10–11 open.
 
 ## Context
 
@@ -273,8 +273,14 @@ Starts after Step 5 is committed.
    from `session/`) and `ti4_host::batch::BatchRecord` (from `storage.rs`). The server's
    registry, storage, examples and tests import them from the host. `registry/turn_redo_ops.rs`
    stays (gates, publish, storage).
-9. **Secondary preview.** `ti4_host::preview::{eligibility, answer}`. The server's `preview.rs` keeps
-   the lock and the busy check. `HostSession` answers `preview_secondary`.
+9. **Secondary preview.** (Done.) `ti4_host::preview::{eligibility, answer}` (with
+   `PreviewRequest`, `Position`: the published state, the decision log and the open question,
+   `Basis`, `busy`). The server's `preview.rs` keeps the lock, the busy check and the copy of the
+   position; `ws` keeps the seat of the connection and the rate limit. `HostSession::preview`
+   answers `preview_secondary` for the seat the page is shown as, on the position it sees; it is
+   busy unless the game waits for the page (a question or a step). web/ offline does not send it
+   (its page keeps its own estimate). Test: `host_preview` (each reply in a game with stepping
+   equals the server's `preview::answer` at the same position).
 10. **One scenario system (J).** `ti4_host::view::scenario` is the only one:
     - `Scenario` gains `humans` (seat places played by people; the rest are rule bots), `any_seed`
       (a scenario that finds its systems by seat takes the caller's seed), and

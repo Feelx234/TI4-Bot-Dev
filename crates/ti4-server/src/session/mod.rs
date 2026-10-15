@@ -819,7 +819,7 @@ impl GameSession {
     pub fn preview_secondary(
         &self,
         seat: &PlayerId,
-        request: &preview::PreviewRequest,
+        request: &ti4_host::preview::PreviewRequest,
     ) -> ti4_host::protocol::server::SecondaryPreviewMsg {
         preview::answer(&self.shared, &self.game_id, seat, request)
     }

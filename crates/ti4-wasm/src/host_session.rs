@@ -58,6 +58,7 @@ use ti4_host::planning::script::{
 };
 use ti4_host::planning::steps::PlanStep;
 use ti4_host::planning::undo::{UndoEntry, UndoRules, UndoTrack};
+use ti4_host::preview::{Basis, Position, PreviewRequest, busy, eligibility};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
 use ti4_host::protocol::check_submission;
 use ti4_host::protocol::client::ClientMessage;
@@ -66,8 +67,8 @@ use ti4_host::protocol::reach::ReachIntoMsg;
 use ti4_host::protocol::server::{
     ActionAcceptedMsg, ActionRejectedMsg, AutoResolvedNote, DraftAppliedMsg, EventVisibility,
     GameEvent, GameEventKind, GameEventMsg, GameOverMsg, MovementFact, PongMsg, ProtocolErrorMsg,
-    SeatDecisionDetail, ServerMessage, StateUpdateMsg, current_log_path, public_roll,
-    verified_decision_facts,
+    SeatDecisionDetail, SecondaryPreviewMsg, ServerMessage, StateUpdateMsg, current_log_path,
+    public_roll, verified_decision_facts,
 };
 use ti4_host::protocol::staged::StagedSlot;
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
@@ -79,7 +80,7 @@ use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
 use ti4_host::view::reaction_modes::{Modes, NeverSet};
-use ti4_model::id::PlayerId;
+use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase, ReactionMode};
 
 /// The most checkpoints (and so session marks) kept; see `CHECKPOINT_LIMIT` in `lib.rs`.
@@ -495,6 +496,18 @@ impl HostSession {
     #[must_use]
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// The position the page sees (the newest published one).
+    #[must_use]
+    pub fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    /// The map of the game, if it has one.
+    #[must_use]
+    pub fn galaxy(&self) -> Option<&Galaxy> {
+        self.galaxy.as_ref()
     }
 
     #[must_use]
@@ -1214,11 +1227,20 @@ impl HostSession {
                 let reply = self.reach(request_id, &system_id);
                 self.out.push(ServerMessage::ReachInto(reply));
             }
-            ClientMessage::PreviewSecondary { .. } => {
-                self.protocol_error(
-                    ErrorKind::MalformedMessage,
-                    "preview_secondary is not available in an offline game",
-                );
+            ClientMessage::PreviewSecondary {
+                request_id,
+                card,
+                primary,
+                answers,
+                ..
+            } => {
+                let reply = self.preview(&PreviewRequest {
+                    request_id,
+                    card,
+                    primary,
+                    answers,
+                });
+                self.out.push(ServerMessage::SecondaryPreview(reply));
             }
             // A bluff hold needs a second person; there is none.
             ClientMessage::SetReactionIntent { .. } | ClientMessage::PassReactionHold { .. } => {}
@@ -1249,6 +1271,41 @@ impl HostSession {
             self.version,
             self.galaxy.as_ref().map(|galaxy| (&self.state, galaxy)),
         )
+    }
+
+    /// The answer of `ClientMessage::PreviewSecondary` for the seat the page is shown as
+    /// (`ti4_host::preview`). The game is live while it waits for the page (a question or a
+    /// step); the position is the one the page sees.
+    #[must_use]
+    pub fn preview(&self, request: &PreviewRequest) -> SecondaryPreviewMsg {
+        let seat = &self.viewer;
+        let live = !self.finished
+            && self.error.is_none()
+            && (self.pending.is_some() || self.waiting.is_some());
+        let basis = if live {
+            let position = Position {
+                state: &self.state,
+                decision_log: &self.decision_log,
+                asked: self
+                    .pending
+                    .as_ref()
+                    .map(|(choice, _)| (&choice.player, choice)),
+            };
+            eligibility(
+                &position,
+                seat,
+                &StrategyCardId::new(request.card.clone()),
+                &PlayerId::new(request.primary.clone()),
+            )
+            .map(|()| Basis {
+                state: &self.state,
+                galaxy: self.galaxy.as_ref(),
+                decisions: self.decision_log.len(),
+            })
+        } else {
+            Err(busy())
+        };
+        ti4_host::preview::answer(&self.identity.game_id, seat, request, self.version, basis)
     }
 
     /// Checks a request against the pending choice ([`check_submission`]). On success the place

@@ -16,6 +16,7 @@ pub mod map;
 pub mod maps;
 pub mod planning;
 pub mod preset;
+pub mod preview;
 pub mod projection;
 pub mod protocol;
 pub mod replay;

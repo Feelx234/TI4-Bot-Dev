@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::secondary_preview::SecondaryPreview;
+use ti4_host::preview::PreviewRequest;
 use ti4_host::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
 use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::{PlayerId, StrategyCardId};
-use ti4_server::session::preview::PreviewRequest;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
 struct Table {

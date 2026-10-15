@@ -572,7 +572,7 @@ export class LocalTransport implements GameTransport {
     throw new ReachUnsupportedError("The engine could not answer who can go there");
   }
 
-  /** The hosted game has no secondary preview: the page falls back to its own estimate. */
+  /** Offline the page uses its own estimate: this transport does not ask the host (`preview_secondary`). */
   async previewSecondary(
     _card: string,
     _primary: string,
