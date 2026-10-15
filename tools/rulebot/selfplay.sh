@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Rule-bot self-play: games with the rule bot on every seat, no server, no browser, no libtorch.
+# See docs/RULE_BOT_OPTIMISATION.md.
+#
+#   tools/rulebot/selfplay.sh smoke            10 games, about a minute
+#   tools/rulebot/selfplay.sh bench            the golden set (200 games), checked against baseline.json
+#   tools/rulebot/selfplay.sh ab k=v[,k=v] [N] candidate bot against the shipped bot on N tables (default 200)
+#   tools/rulebot/selfplay.sh complete         time to completion, 3..8 players, several maps, no cutoff
+#   tools/rulebot/selfplay.sh replay ARGS...   one game: --seed S --players N [--map M --factions ...] --text
+#   tools/rulebot/selfplay.sh knobs            the bot's tunable numbers
+#   tools/rulebot/selfplay.sh run ARGS...      anything `selfplay run` takes
+#   tools/rulebot/selfplay.sh baseline         rewrite tools/rulebot/baseline.json (do this on purpose, in its own commit)
+#
+# Environment: SELFPLAY_TARGET (cargo target dir; default <repo>/target), SELFPLAY_OUT (default
+# <target>/selfplay-out), WORKERS (default cores-1), and CARGO_TARGET_DIR is respected.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo="$(cd "$here/../.." && pwd)"
+export CARGO_TARGET_DIR="${SELFPLAY_TARGET:-${CARGO_TARGET_DIR:-$repo/target}}"
+out="${SELFPLAY_OUT:-$CARGO_TARGET_DIR/selfplay-out}"
+mkdir -p "$out"
+bin="$CARGO_TARGET_DIR/release/selfplay"
+workers=()
+[[ -n "${WORKERS:-}" ]] && workers=(--workers "$WORKERS")
+
+build() {
+  (cd "$repo" && nice cargo build -q -p ti4-selfplay --release)
+}
+
+cmd="${1:-smoke}"
+[[ $# -gt 0 ]] && shift
+case "$cmd" in
+  build) build ;;
+  smoke)
+    build
+    "$bin" run --players 4,6 --games 5 --seed-start 100 "${workers[@]}" --out "$out/smoke.json" "$@"
+    ;;
+  bench)
+    build
+    # Hashes of the shipped bot on the golden seeds: a difference means the engine or the bot
+    # decides differently from the recorded baseline (expected only after a deliberate change).
+    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$out/bench.json" \
+      --verify "$here/baseline.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench: hashes differ from baseline.json (see above)"; exit $rc; }
+    ;;
+  ab)
+    build
+    cand="${1:?usage: selfplay.sh ab key=val[,key=val] [tables]}"
+    tables="${2:-100}"
+    [[ $# -gt 0 ]] && shift
+    [[ $# -gt 0 ]] && shift
+    # N tables of each size, each played twice (candidate on the even seats, then on the odd).
+    "$bin" compare --players 4,6 --games "$tables" --seed-start 20000 --candidate "$cand" \
+      "${workers[@]}" --out "$out/ab.json" "$@"
+    ;;
+  complete)
+    build
+    "$bin" run --config "$here/completion.json" --workers "${WORKERS:-1}" --out "$out/completion.json" "$@"
+    ;;
+  replay)
+    build
+    "$bin" replay "$@"
+    ;;
+  knobs)
+    build
+    "$bin" knobs
+    ;;
+  run)
+    build
+    "$bin" run "${workers[@]}" "$@"
+    ;;
+  baseline)
+    build
+    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$here/baseline.json" --quiet "$@"
+    ;;
+  *)
+    sed -n '2,16p' "${BASH_SOURCE[0]}"
+    exit 1
+    ;;
+esac
