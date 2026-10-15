@@ -20,17 +20,13 @@ import {
   STEPPING_KEY,
   cardsKey,
   clearSavedGame,
-  draftKey,
   gameAddress,
   loadSavedGame,
   parseSavedGame,
-  planKey,
-  secondaryKey,
   saveKey,
   storeSavedGame,
 } from "../session/savedGame";
 import { localGameTable } from "../session/localTable";
-import { localSeatStore } from "../session/seatStore";
 import type { Transport } from "../session/transport";
 import type { ReactionModes } from "../session/wire";
 import { useLiveSession } from "../session/useLiveSession";
@@ -83,8 +79,6 @@ export function LocalApp({
   const [answers, setAnswers] = useState(0);
   /** The seat changes of the game ("Play as"). The last one says which seats are played here. */
   const [switches, setSwitches] = useState<readonly SeatSwitch[]>([]);
-  /** Counts the seat changes of this visit: what was staged for the seat before is dropped. */
-  const [seatChanges, setSeatChanges] = useState(0);
   const [importError, setImportError] = useState<string | null>(null);
   const [transport, setTransport] = useState<Transport | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -175,23 +169,12 @@ export function LocalApp({
     };
   }, [start, waits, played, game]);
 
-  // A new object after a seat change: the session then starts with nothing staged.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: seatChanges is the reason to make it again
-  const drafts = useMemo(
-    () =>
-      localSeatStore(localStorage, {
-        movement: draftKey(game),
-        plan: planKey(game),
-        secondary: secondaryKey(game),
-      }),
-    [game, seatChanges],
-  );
   const stepSeats = (on: boolean) => {
     setStepping(on);
     localStorage.setItem(STEPPING_KEY, on ? "1" : "0");
     transport?.capabilities.stepping?.set(on);
   };
-  const { session, error, replaying } = useLiveSession(transport, drafts);
+  const { session, error, replaying } = useLiveSession(transport, transport?.staged);
   // The table of the game, for its sheet: of its setup the wait can still change.
   const module = start.kind === "ready" ? start.engine.module : null;
   const catalog = start.kind === "ready" ? start.engine.catalog : null;
@@ -226,14 +209,8 @@ export function LocalApp({
   /** The seats that are played here (bit 0 is seat A). */
   const humans = switches.at(-1)?.humans ?? game.humans;
   const playsHere = (seat: string) => (humans >> (seat.charCodeAt(0) - 97)) & 1;
-  /** Plays `seat` here in place of the seat that is shown. The draft of that seat is dropped. */
-  const playAs = (seat: string) => {
-    localStorage.removeItem(draftKey(game));
-    localStorage.removeItem(planKey(game));
-    localStorage.removeItem(secondaryKey(game));
-    setSeatChanges((count) => count + 1);
-    transport?.capabilities.switchSeat?.(seat);
-  };
+  /** Plays `seat` here in place of the seat that is shown. The engine drops what that seat staged. */
+  const playAs = (seat: string) => transport?.capabilities.switchSeat?.(seat);
   const newGame = () => {
     clearSavedGame(localStorage, game);
     setAnyway(false);
@@ -447,8 +424,9 @@ export function LocalApp({
   } else if (waits) {
     body = (
       <Notice tone="error">
-        The saved game ({start.kind === "ready" ? (start.saved?.save?.log.length ?? 0) : 0} decisions) was
-        played by another build of the engine. This build may not offer the same options.
+        The saved game ({start.kind === "ready" ? (start.saved?.save?.log.length ?? 0) : 0}{" "}
+        decisions) was played by another build of the engine. This build may not offer the same
+        options.
         <span className="mt-3 flex gap-2">
           <Button onClick={() => setAnyway(true)}>Replay anyway</Button>
           <Button onClick={newGame}>New game</Button>

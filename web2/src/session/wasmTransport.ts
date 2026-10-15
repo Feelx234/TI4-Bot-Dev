@@ -1,8 +1,11 @@
 // The engine in this page: `crates/ti4-wasm`, built by `scripts/build-wasm.sh`. A game speaks
 // the protocol of the server through the hosted exports (`ti4_host_start`, `ti4_host_command`):
 // `ClientMessage` in, `ServerMessage` out, read as `wsTransport.ts` reads them
-// (`serverMessages.ts`). The questions that need no game are exports of their own.
+// (`serverMessages.ts`). The questions that need no game are exports of their own. The engine
+// keeps the staged work of each seat in its saved game, as the server keeps it for the seat
+// (`put_staged`, `seat_staged`: `seatSync`), and sends a ready draft of a secondary itself.
 import type { LocalGame, SeatSwitch } from "./savedGame";
+import { seatSync } from "./seatStore";
 import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
 import type { Capabilities, PlanStopped, Transport, TransportEvent } from "./transport";
 import {
@@ -162,11 +165,7 @@ function keptOf(module: WebAssembly.Module) {
 export async function spaceOddsOf(module: WebAssembly.Module, request: SpaceOddsRequest) {
   const exports = await keptOf(module);
   try {
-    return askOn<SpaceOddsResponse>(
-      exports,
-      (on, length) => on.ti4_space_odds(length),
-      request,
-    );
+    return askOn<SpaceOddsResponse>(exports, (on, length) => on.ti4_space_odds(length), request);
   } catch (error) {
     // A trap may leave the instance broken: the next question makes a new one.
     if (error instanceof WebAssembly.RuntimeError) {
@@ -223,7 +222,6 @@ export async function loadEngine(wasmUrl: string): Promise<Engine> {
     catalog: await catalogOf(module),
   };
 }
-
 
 export interface LocalPlay {
   /** The game of an earlier visit (`HostSave`). It is played again before the first update. */
@@ -314,6 +312,24 @@ export function createWasmTransport(
   const unsent = new Set<string>();
   /** Why the engine did not play the draft that is asked. */
   let refusal: string | null = null;
+  /**
+   * The staged work of the seat that the page is shown as, kept by the engine. A write reaches
+   * the engine while it waits for the page (or after the end), and the save is kept after it.
+   */
+  const staged = seatSync((slot, base, value) => {
+    const on = run;
+    if (!on?.exports || !(on.parked || on.ended)) {
+      return false;
+    }
+    send(on, {
+      type: "put_staged",
+      slot,
+      base_revision: base,
+      ...(value === null ? {} : { value }),
+    });
+    keep(on);
+    return true;
+  });
 
   const say = (event: TransportEvent) => {
     for (const listener of listeners) {
@@ -416,6 +432,9 @@ export function createWasmTransport(
             fail(message.message);
           }
           break;
+        case "seat_staged":
+          staged.receive(message);
+          break;
         case "draft_outcome":
           if (asked?.id === message.request_id) {
             const { script, scope } = asked;
@@ -512,12 +531,15 @@ export function createWasmTransport(
     if (waitMs === 0) {
       return step();
     }
-    timer = setTimeout(() => {
-      timer = null;
-      if (run === on) {
-        step();
-      }
-    }, waitMs * (0.6 + 0.8 * Math.random()));
+    timer = setTimeout(
+      () => {
+        timer = null;
+        if (run === on) {
+          step();
+        }
+      },
+      waitMs * (0.6 + 0.8 * Math.random()),
+    );
   };
 
   const start = (resume?: Record<string, unknown>) => {
@@ -583,6 +605,7 @@ export function createWasmTransport(
         ...(resume ? { resume } : {}),
         modes,
         stepping: pauses(),
+        staged: true,
       };
       const status = await jspi.promising(on.exports.ti4_host_start)(write(on, request));
       if (run !== on) {
@@ -631,6 +654,15 @@ export function createWasmTransport(
     }
   };
   start(play.save);
+
+  // A reload, or a tab that is put away, does not wait for the next change: what was staged
+  // last is written now.
+  const flush = () => staged.flushNow();
+  const hidden = () => document.visibilityState === "hidden" && staged.flushNow();
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", hidden);
+  }
 
   const isPlayer = () => latest?.update.viewer.role === "player";
   /** Tells the engine whether it waits for each seat. Only a flag: it may be set at any time. */
@@ -683,6 +715,7 @@ export function createWasmTransport(
     catalog: engine.catalog,
     odds: (request) => spaceOddsOf(engine.module, request),
     capabilities,
+    staged: staged.store,
     subscribe(listener) {
       listeners.add(listener);
       listener({ kind: "modes", modes: { ...modes } });
@@ -777,8 +810,14 @@ export function createWasmTransport(
       send(run, { type: "undo", expected_version: latest.version });
     },
     close() {
+      staged.flushNow();
       leave();
       listeners.clear();
+      staged.close();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("pagehide", flush);
+        document.removeEventListener("visibilitychange", hidden);
+      }
     },
   };
 }

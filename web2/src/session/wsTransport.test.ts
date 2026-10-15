@@ -799,6 +799,32 @@ it("takes what another tab of the seat staged, also over a write of its own that
   expect(puts(game)).toHaveLength(1);
 });
 
+it("takes the slots of the message after a snapshot as they are, also an older revision", () => {
+  // The engine of a local game sends it when the seat that the page is shown as changes: the
+  // slots of the other seat, whose revisions count up for the whole page.
+  const game = server();
+  game.open();
+  game.tell(actor);
+  const store = game.transport.staged!;
+  const told: unknown[] = [];
+  store.subscribe((slot, value) => told.push([slot, value]));
+  game.tell(seatStaged(5, { plan: { revision: 5, value: { cursor: 1 } } }, { connection: 1 }));
+  expect(store.get("plan")).toEqual({ cursor: 1 });
+  game.tell(seatStaged(3, { plan: { revision: 3, value: { cursor: 9 } } }, { connection: 1 }));
+  expect(store.get("plan")).toEqual({ cursor: 9 });
+  game.tell(seatStaged(0, {}, { connection: 1 }));
+  expect(store.get("plan")).toBeNull();
+  expect(told).toEqual([
+    ["plan", { cursor: 1 }],
+    ["plan", { cursor: 9 }],
+    ["plan", null],
+  ]);
+  // A write goes on the revision of the seat that the page is shown as now.
+  store.set("plan", { cursor: 2 });
+  vi.advanceTimersByTime(250);
+  expect(puts(game)).toEqual([expect.objectContaining({ slot: "plan", base_revision: 0 })]);
+});
+
 it("says a write that the server did not take in words of the page, and does not try it again", () => {
   const game = server();
   game.open();

@@ -1,6 +1,6 @@
 # Deduplicate ti4-view / ti4-host / ti4-server and the two wasm hosts (2026-10-14)
 
-Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), items 7–11 open.
+Status: Steps 1–5 done (2026-10-14); Step 6: items 1–6 done (2026-10-14), item 7 done (2026-10-15), items 8–11 open.
 
 ## Context
 
@@ -249,15 +249,26 @@ Starts after Step 5 is committed.
    record is published (`selected` → `after_step`/`offer`); `Own`, `HostSession::own` and the
    server's `start` wrapper are gone. Tests: the track's own (moved from the server, plus the
    local rules) and `host_local::an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them`.
-7. **Staged work and the ready secondary.**
+7. **Staged work and the ready secondary.** (Done.)
    - `ti4_host::staged` (`SeatStaged`, `Put`, `SecondaryDraft`, `DraftAnswer`) and
-     `ti4_host::staged::ready` (`asked`, `ready_draft` over `&BTreeMap<PlayerId, SeatStaged>`,
-     `judge(&DraftOutcome, len) -> Check`, `unready_value`).
-   - The server keeps `StagedBook`, `put_and_tell`, storage, `may_send`.
-   - `HostSession` handles `PutStaged`, sends `SeatStaged` and the ready secondary, and saves the
-     slots in `save_state`.
-   - web2: delete the `localSeatStore` path and the client-side ready send
-     (`useLiveSession.ts`, the `!serverSends` branch).
+     `ti4_host::staged::ready` (`asked`, `Ready` with its `scope`, `ready_draft` over
+     `&BTreeMap<PlayerId, SeatStaged>`, `judge(&DraftOutcome, len) -> Check` (`Fits`, `Unfit`;
+     `Unknown` when there is no copy), `unready_value`).
+   - The server keeps `StagedBook`, `put_and_tell`, storage, `may_send`, and the run on its copy
+     (`ready_secondary::check` over `run_draft_on`).
+   - `HostSession` keeps the slots of each seat (in `save_state`, `Resume::staged` and every
+     `Restart`). The page is one connection (`PAGE_CONNECTION`), opted in by `Start::staged` or
+     `subscribe {staged}`: it is sent `SeatStaged` with `connection` after each snapshot and when
+     the seat it is shown as changes; revisions count up for the whole page, so a write meant for
+     another seat is stale. It handles `PutStaged` for the seat it is shown as. It sends the
+     ready secondary in `ask` and after a `PutStaged` of the slot while the seat is asked (the
+     reply resumes the game), through `PlayLoop::draft` (`draft_outcome_of` in `lib.rs`) and
+     `ScriptRuns::begin`. `switch_seat` clears the slots of the seat that is given up. Tests:
+     `tests/it/host_staged.rs`.
+   - web2: `localSeatStore` and its `localStorage` keys, and the client-side ready send
+     (`serverSends`, `holding` in `useLiveSession.ts`) are gone. `wasmTransport.ts` gives
+     `Transport.staged` through `seatSync` (`put_staged` while the game is parked, then the save);
+     `seatSync` takes the message after a snapshot as the seat's slots whatever their revision.
 8. **History rewrite.** `git mv` `session/splice.rs`, `session/turn_redo.rs` →
    `ti4-host/src/history/`, and `BatchRecord` → `ti4_host::batch`. `registry/turn_redo_ops.rs`
    stays (gates, publish, storage).

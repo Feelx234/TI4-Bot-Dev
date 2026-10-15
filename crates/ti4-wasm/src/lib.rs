@@ -1224,6 +1224,16 @@ pub(crate) fn draft_outcome(
     let player = host()
         .shown_seat()
         .ok_or_else(|| failed("no seat is played here: a draft is of one seat"))?;
+    draft_outcome_of(&player, script, scope)
+}
+
+/// Run `script` of `player` on a copy of the game at its last finished step: the check of a
+/// ready draft of a secondary ([`ti4_host::staged::ready`]).
+pub(crate) fn draft_outcome_of(
+    player: &PlayerId,
+    script: &[DraftStep],
+    scope: &PlanScope,
+) -> Result<ti4_host::planning::draft::DraftOutcome, Failure> {
     if DRAFT_BASE.with_borrow(Option::is_none) {
         let base = draft_base()?;
         DRAFT_BASE.set(Some(base));
@@ -1241,7 +1251,7 @@ pub(crate) fn draft_outcome(
             galaxy: latest.galaxy.as_ref(),
             secondary: Some(&SECONDARY),
         };
-        run_draft(&base, &player, scope, script)
+        run_draft(&base, player, scope, script)
     });
     Ok(outcome)
 }

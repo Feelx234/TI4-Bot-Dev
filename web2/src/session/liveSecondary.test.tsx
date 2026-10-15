@@ -3,10 +3,9 @@ import { resolve } from "node:path";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import type { BlockView, FlowActionView, Intent, SeatRowView } from "../model";
-import type { SaveStorage } from "./savedGame";
-import { type SeatStore, type StagedSlot, localSeatStore } from "./seatStore";
+import type { SeatStore, StagedSlot } from "./seatStore";
 import { type LiveSession, useLiveSession } from "./useLiveSession";
-import { type Engine, createWasmTransport } from "./wasmTransport";
+import { type Engine, type HostSave, createWasmTransport } from "./wasmTransport";
 import type { SessionUpdate } from "./wire";
 
 // The private draft of a secondary, on the real engine (`scripts/build-wasm.sh`): a game of
@@ -17,56 +16,51 @@ import type { SessionUpdate } from "./wire";
 const WASM = resolve(process.cwd(), "src/session/ti4.wasm");
 const built = existsSync(WASM);
 
-function storage(): SaveStorage & { values: Map<string, string> } {
-  const values = new Map<string, string>();
-  return {
-    values,
-    getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => void values.set(key, value),
-    removeItem: (key) => void values.delete(key),
-  };
-}
+/** The slots of seat a in a save of the engine (`HostSession::save_state`). */
+type SavedSlots = Record<string, { slots: Partial<Record<StagedSlot, { value?: unknown }>> }>;
 
 /**
- * `server`: the transport keeps the staged work of the seat (`Transport.staged`), as a game on
- * the server does, so the page sends no ready draft itself.
+ * `memory`: the page keeps what it stages in a store of the test, which another tab of the seat
+ * changes (`emit`); the engine does not see it. Else the store is the engine's
+ * (`Transport.staged`), which keeps it in the saved game and sends a ready draft itself.
  */
-async function open({ server = false } = {}) {
+async function open({ memory = false } = {}) {
   const engine: Engine = {
     module: await WebAssembly.compile(readFileSync(WASM)),
     hash: "test",
     scenarios: [],
     catalog: null,
   };
-  const kept = storage();
-  const local = localSeatStore(kept, {
-    movement: "movement",
-    plan: "plan",
-    secondary: "secondary",
-  });
-  // The store of a seat that another tab or the server changes, as the server tells it (`emit`).
+  const saves: HostSave[] = [];
+  const transport = createWasmTransport(
+    engine,
+    { seed: 4, players: 8, humans: 1 },
+    { stepping: true, onSave: (save) => saves.push(save) },
+  );
+  /** What the last save of the engine keeps in a slot of seat a. */
+  const kept = (slot: StagedSlot) =>
+    (saves.at(-1)?.staged as SavedSlots | undefined)?.a?.slots[slot]?.value ?? null;
+  // The store of a seat that another tab or the game changes, as the server tells it (`emit`).
+  const values = new Map<StagedSlot, unknown>();
   const listeners = new Set<(slot: StagedSlot, value: unknown, server: boolean) => void>();
-  const drafts: SeatStore = {
-    get: local.get,
-    set: vi.fn(local.set),
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
+  const engineStore = transport.staged!;
+  const drafts: SeatStore = memory
+    ? {
+        get: (slot) => values.get(slot) ?? null,
+        set: vi.fn((slot: StagedSlot, value: unknown) => void values.set(slot, value ?? null)),
+        subscribe(listener) {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      }
+    : { get: engineStore.get, set: vi.fn(engineStore.set), subscribe: engineStore.subscribe };
   const emit = (slot: StagedSlot, value: unknown, byServer = false) =>
     act(async () => {
-      local.set(slot, value);
+      values.set(slot, value);
       for (const listener of listeners) {
         listener(slot, value, byServer);
       }
     });
-  const engineTransport = createWasmTransport(
-    engine,
-    { seed: 4, players: 8, humans: 1 },
-    { stepping: true },
-  );
-  const transport = server ? { ...engineTransport, staged: drafts } : engineTransport;
   const applyDraft = vi.spyOn(transport, "applyDraft");
   const submitChoice = vi.spyOn(transport, "submitChoice");
   /** The strategic action of the last update of the game. */
@@ -185,31 +179,33 @@ it.skipIf(!built)(
     await dispatch({ type: "flow", action: "resolve" });
     await waitFor(() => expect(button("Mark draft ready")?.disabled).toBeFalsy());
 
-    // A ready draft is closed and says what it will do. It is kept for a reload.
+    // A ready draft is closed and says what it will do. The engine keeps it in the saved game.
     await dispatch({ type: "flow", action: "ready" });
     expect(mine()).toMatchObject({ status: { sign: "✎", label: "Draft ready" } });
     expect(mine()?.text).toMatch(/^Decline · not sent, resolves after /);
     expect(mine()?.open).toBeUndefined();
-    expect(JSON.parse(kept.values.get("secondary")!)).toMatchObject({
-      card: "pok3politics",
-      ready: true,
-      answers: [{ label: "decline" }],
-    });
     await dispatch({ type: "flow", action: "change" });
     expect(mine()?.status.label).toBe("Private draft");
     await dispatch({ type: "flow", action: "ready" });
+    await waitFor(() =>
+      expect(kept("secondary")).toMatchObject({
+        card: "pok3politics",
+        ready: true,
+        answers: [{ label: "decline" }],
+      }),
+    );
 
-    // The game comes to the seat: the draft is sent, and the seat is not asked.
+    // The game comes to the seat: the engine sends the draft, and the seat is not asked.
     const asked: string[] = [];
     await stepUntil(() => {
       asked.push(flow().pill?.label ?? "");
       return mine()?.status.label === "Passed" || game.seats() === null;
     });
     expect(asked).not.toContain("Your decision");
-    expect(game.applyDraft).toHaveBeenCalledTimes(1);
-    expect(game.applyDraft.mock.calls[0][1].plan).toBeNull();
+    expect(game.applyDraft).not.toHaveBeenCalled();
     expect(game.submitChoice).toHaveBeenCalledTimes(1);
-    expect(kept.values.has("secondary")).toBe(false);
+    await waitFor(() => expect(game.drafts.get("secondary")).toBeNull());
+    expect(kept("secondary")).toBeNull();
     game.transport.close();
   },
   120_000,
@@ -257,7 +253,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "shows the draft of a secondary that another tab of the seat changed, and does not write it back",
   async () => {
-    const game = await open();
+    const game = await open({ memory: true });
     const { flow, mine, menu, stepUntil, drafts, emit } = game;
     await stepUntil(() => flow().heading === "Politics" && !!mine()?.open);
     const option = menu(mine()?.open)[0].intent;
@@ -288,9 +284,9 @@ it.skipIf(!built)(
 );
 
 it.skipIf(!built)(
-  "online the server sends a ready draft: the page sends none, and says when the server made it not ready",
+  "the page sends no ready draft, and says when the game made it not ready",
   async () => {
-    const game = await open({ server: true });
+    const game = await open({ memory: true });
     const { flow, dispatch, button, mine, menu, stepUntil, emit } = game;
     await stepUntil(() => flow().heading === "Politics" && !!mine()?.open);
     await dispatch(menu(mine()?.open)[0].intent);
@@ -301,12 +297,12 @@ it.skipIf(!built)(
     const ready = game.drafts.get("secondary") as { ready: boolean };
     expect(ready.ready).toBe(true);
 
-    // The game comes to the seat. This game sends nothing for it, so it asks: the page shows
-    // the question and sends no draft.
+    // The game comes to the seat. The engine does not see this store and sends nothing, so it
+    // asks: the page shows the question and sends no draft.
     await stepUntil(() => flow().pill?.label === "Your decision");
     expect(game.applyDraft).not.toHaveBeenCalled();
 
-    // The server found that the draft no longer fits: every tab says so.
+    // The game found that the draft no longer fits: every tab says so.
     await emit("secondary", { ...ready, ready: false }, true);
     await waitFor(() =>
       expect(flow().footer.note).toBe("Your draft no longer fits the game. It is not ready."),

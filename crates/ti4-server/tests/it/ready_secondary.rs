@@ -14,9 +14,10 @@ use ti4_host::planning::draft::DraftStep;
 use ti4_host::protocol::PROTOCOL_VERSION;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::server::{SeatStagedMsg, ServerMessage};
+use ti4_host::protocol::staged::StagedSlot;
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
+use ti4_host::staged::SecondaryDraft;
 use ti4_model::id::PlayerId;
-use ti4_server::session::staged::{SecondaryDraft, StagedSlot};
 use ti4_server::session::{GameRegistry, GameSession};
 
 use crate::draft_scripts::next_message;

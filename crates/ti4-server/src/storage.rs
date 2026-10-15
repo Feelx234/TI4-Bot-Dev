@@ -453,7 +453,7 @@ pub struct ReactionModesRecord {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StagedRecord {
     #[serde(default)]
-    pub seats: BTreeMap<PlayerId, crate::session::staged::SeatStaged>,
+    pub seats: BTreeMap<PlayerId, ti4_host::staged::SeatStaged>,
 }
 
 impl ReactionModesRecord {

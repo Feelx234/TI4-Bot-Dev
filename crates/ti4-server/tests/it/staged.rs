@@ -12,9 +12,10 @@ use ti4_host::protocol::PROTOCOL_VERSION;
 use ti4_host::protocol::client::{ClientMessage, MAX_STAGED_VALUE_BYTES};
 use ti4_host::protocol::error::ErrorKind;
 use ti4_host::protocol::server::{SeatStagedMsg, ServerMessage};
+use ti4_host::protocol::staged::StagedSlot;
 use ti4_host::protocol::status::ViewerRole;
+use ti4_host::staged::Put;
 use ti4_model::id::PlayerId;
-use ti4_server::session::staged::{Put, StagedSlot};
 use ti4_server::session::{GameRegistry, MockClient};
 use ti4_server::storage::FileGameStore;
 

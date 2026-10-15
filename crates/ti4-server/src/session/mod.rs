@@ -697,7 +697,7 @@ impl GameSession {
 
     /// What `seat` has staged (see `staged`).
     #[must_use]
-    pub fn seat_staged(&self, seat: &PlayerId) -> staged::SeatStaged {
+    pub fn seat_staged(&self, seat: &PlayerId) -> ti4_host::staged::SeatStaged {
         self.initial_config
             .staged
             .lock()
@@ -707,7 +707,7 @@ impl GameSession {
     }
 
     /// Write one slot of what `seat` has staged, by compare-and-set on its revision
-    /// ([`staged::SeatStaged::put`]), save it, and send it to every connection of the seat with
+    /// ([`ti4_host::staged::SeatStaged::put`]), save it, and send it to every connection of the seat with
     /// `writer` as the writer. A stale or unchanged put writes and sends nothing.
     ///
     /// # Errors
@@ -715,11 +715,11 @@ impl GameSession {
     pub fn put_staged(
         &self,
         seat: &PlayerId,
-        slot: staged::StagedSlot,
+        slot: ti4_host::protocol::staged::StagedSlot,
         base_revision: u64,
         value: Option<serde_json::Value>,
         writer: u64,
-    ) -> Result<staged::Put, String> {
+    ) -> Result<ti4_host::staged::Put, String> {
         staged::put_and_tell(
             &self.shared,
             &self.initial_config.staged,
@@ -767,22 +767,23 @@ impl GameSession {
             return;
         };
         let book = &self.initial_config.staged;
-        let Some(ready) = ready_secondary::ready_draft(book, seat, &choice, round) else {
+        let Some(ready) = ti4_host::staged::ready::ready_draft(&book.lock(), seat, &choice, round)
+        else {
             return;
         };
-        match ready_secondary::check(&self.shared, seat, &ready.draft) {
-            ready_secondary::Check::Fits(script) => {
-                match self.apply_draft(seat, &nonce, version, &script) {
+        match ready_secondary::check(&self.shared, seat, &ready) {
+            ti4_host::staged::ready::Check::Fits => {
+                match self.apply_draft(seat, &nonce, version, &ready.draft.script()) {
                     Ok(None) => ready_secondary::spent(&self.shared, book, seat, ready.revision),
                     Ok(Some(_)) => ready_secondary::unready(&self.shared, book, seat, ready),
                     // The seat answered meanwhile, or the game went on.
                     Err(_) => {}
                 }
             }
-            ready_secondary::Check::Unfit => {
+            ti4_host::staged::ready::Check::Unfit => {
                 ready_secondary::unready(&self.shared, book, seat, ready);
             }
-            ready_secondary::Check::Unknown => {}
+            ti4_host::staged::ready::Check::Unknown => {}
         }
     }
 

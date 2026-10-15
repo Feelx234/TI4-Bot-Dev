@@ -116,6 +116,9 @@ pub struct Resume {
     /// The steps that the undo before this run took back (`Restart::undone`).
     #[serde(default)]
     pub undone: Vec<ti4_host::planning::steps::PlanStep>,
+    /// What each seat has staged and not sent (`ti4_host::staged`).
+    #[serde(default)]
+    pub staged: std::collections::BTreeMap<ti4_model::id::PlayerId, ti4_host::staged::SeatStaged>,
 }
 
 /// The request of `ti4_host_start`: one of `setup`, `table` and `local`, and what a save
@@ -140,6 +143,10 @@ pub struct Start {
     /// command `stepping`.
     #[serde(default)]
     pub stepping: u32,
+    /// The page takes part in the staged work of its seats: it is sent `seat_staged` and may
+    /// send `put_staged`, as a connection of the server that subscribed with `staged`.
+    #[serde(default)]
+    pub staged: bool,
 }
 
 impl Start {

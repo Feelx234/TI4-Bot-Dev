@@ -1,10 +1,8 @@
 //! The wire types of the staged work of a seat: what a seat has staged and not sent (the staged
 //! movement, landings and production, the private draft of a tactical action, and the draft of a
-//! secondary). The server keeps it for the seat, so every tab and every device of the seat has
-//! the same staged work; the state and its persistence are the server's
-//! (`ti4_server::session::staged`). The values are the client's; the server stores and forwards
-//! them, and reads only a draft of a secondary that is ready, to send it when the game asks the
-//! seat (`ti4_server::session::ready_secondary`).
+//! secondary). Each host keeps it for the seat ([`crate::staged`]: the slots of a seat and the
+//! ready draft of a secondary that the host sends when the game asks the seat); the server's
+//! shared book and its persistence are `ti4_server::session::staged`.
 //!
 //! Revisions count up for the whole seat, so the newest message of a seat is the one with the
 //! highest `revision`.

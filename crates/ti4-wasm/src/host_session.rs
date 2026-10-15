@@ -32,6 +32,12 @@
 //! - A seat that the page does not play may wait for the page before it decides (stepping, or
 //!   the wait of a table): the session then sends an update with no pending choice, and the
 //!   page lets the seat go on ([`LocalCommand::Step`]).
+//! - The staged work of each seat (`ti4_host::staged`) is kept in the session and in its save.
+//!   The page is one connection: it is told the slots of the seat that it is shown as, with
+//!   `connection`, after each snapshot and when that seat changes. Revisions count up for the
+//!   whole page, so a write that was meant for another seat is stale. A ready draft of a
+//!   secondary is sent by the session when the game asks the seat, and when the seat marks it
+//!   ready while the game asks it (`ti4_host::staged::ready`).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -44,7 +50,8 @@ use ti4_host::batch::{LiveBatch, LiveStep, MovementPlan};
 use ti4_host::clock::Clock;
 use ti4_host::journal::{self, EventDraft};
 use ti4_host::map::GalaxyLayout;
-use ti4_host::planning::draft::DraftStep;
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::draft::{DraftOutcome, DraftStep};
 use ti4_host::planning::script::{
     Check, Ended, First, OnMismatch, ScriptRuns, check_script, first_answer, refused,
     tactical_complete,
@@ -62,9 +69,12 @@ use ti4_host::protocol::server::{
     SeatDecisionDetail, ServerMessage, StateUpdateMsg, current_log_path, public_roll,
     verified_decision_facts,
 };
+use ti4_host::protocol::staged::StagedSlot;
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::protocol::view::BoardTileView;
 use ti4_host::setup::TableSeats;
+use ti4_host::staged::ready::{self, Check as ReadyCheck};
+use ti4_host::staged::{Put, SeatStaged};
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
@@ -74,6 +84,9 @@ use ti4_model::state::{GameState, Phase, ReactionMode};
 
 /// The most checkpoints (and so session marks) kept; see `CHECKPOINT_LIMIT` in `lib.rs`.
 pub const MARK_LIMIT: usize = 32;
+
+/// The id of the page as a connection: the `writer` of its writes of the staged work.
+pub const PAGE_CONNECTION: u64 = 1;
 
 /// What the host does with the answer of [`HostSession::command`] for the parked game.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +121,14 @@ pub trait PlayLoop: Send {
     /// A copy of the game at its last finished step and how many decisions the log had there:
     /// the check of a script before it is sent ([`check_script`]).
     fn script_copy(&self) -> Option<(Game<'static>, usize)>;
+    /// `script` of `seat` played on a copy of the game at its last finished step, in `scope`:
+    /// the check of a ready draft of a secondary. `None` when there is no copy.
+    fn draft(
+        &self,
+        seat: &PlayerId,
+        scope: &PlanScope,
+        script: &[DraftStep],
+    ) -> Option<DraftOutcome>;
 }
 
 /// A history change that needs the game to be played again: the host ends the parked run and
@@ -134,6 +155,9 @@ pub struct Restart {
     /// with the first snapshot of the new run.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub undone: Vec<PlanStep>,
+    /// What each seat has staged: a history change keeps it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub staged: BTreeMap<PlayerId, SeatStaged>,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -311,6 +335,12 @@ pub struct HostSession {
     undone: Vec<PlanStep>,
     /// The scripts that are being sent to the game. A refused entry takes the whole script back.
     scripts: ScriptRuns,
+    /// What each seat has staged and not sent.
+    staged: BTreeMap<PlayerId, SeatStaged>,
+    /// The page takes part in the staged work (`Start::staged`, or `subscribe` with `staged`).
+    staged_shared: bool,
+    /// The seat whose slots the page was told last.
+    staged_told: Option<PlayerId>,
     batch: Option<BatchRun>,
     /// How the last batch ended, for the host (taken by [`HostSession::take_batch_result`]).
     batch_result: Option<serde_json::Value>,
@@ -390,6 +420,9 @@ impl HostSession {
             auto_resolved: Vec::new(),
             undone: resume.undone.clone(),
             scripts: ScriptRuns::new(OnMismatch::TakeBack),
+            staged: resume.staged.clone(),
+            staged_shared: false,
+            staged_told: None,
             batch: None,
             batch_result: None,
             quiet: if resume.log.is_empty() {
@@ -944,8 +977,14 @@ impl HostSession {
         self.viewer.clone_from(&choice.player);
         self.pending = Some((choice.clone(), nonce.to_owned()));
         self.waiting = None;
-        self.can_undo = self.undo_start().is_some();
         self.awaiting = None;
+        // A ready draft of the secondary that the seat is asked is sent: the seat is not asked.
+        if !self.replaying()
+            && let Some(index) = self.send_ready(choice, nonce)
+        {
+            return Some(Resume::Answer(index));
+        }
+        self.can_undo = self.undo_start().is_some();
         self.show();
         None
     }
@@ -985,6 +1024,7 @@ impl HostSession {
             self.fresh = false;
             let snapshot = self.snapshot();
             self.out.push(snapshot);
+            self.tell_staged();
             // A snapshot has no notes: the windows that were passed before it come with an
             // update of the same version.
             if self.auto_resolved.is_empty() {
@@ -993,6 +1033,9 @@ impl HostSession {
         }
         let update = self.state_update();
         self.out.push(update);
+        if self.staged_told.as_ref() != Some(&self.viewer) {
+            self.tell_staged();
+        }
     }
 
     /// The page answered: nothing is pending until the next `ask`.
@@ -1102,9 +1145,13 @@ impl HostSession {
     pub fn client_message(&mut self, message: ClientMessage) -> Handled {
         let mut handled = Handled::default();
         match message {
-            ClientMessage::Subscribe { .. } => {
+            ClientMessage::Subscribe { staged, .. } => {
                 let snapshot = self.snapshot();
                 self.out.push(snapshot);
+                if staged {
+                    self.share_staged();
+                    self.tell_staged();
+                }
             }
             ClientMessage::Ping { sequence, .. } => {
                 self.out.push(ServerMessage::Pong(PongMsg {
@@ -1175,10 +1222,12 @@ impl HostSession {
             }
             // A bluff hold needs a second person; there is none.
             ClientMessage::SetReactionIntent { .. } | ClientMessage::PassReactionHold { .. } => {}
-            // Staged work is kept by the server so that the tabs of one seat share it; an
-            // offline game lives in one page, which keeps its staged work itself. Ignored, as
-            // `Subscribe::staged` is (no `SeatStaged` is ever sent).
-            ClientMessage::PutStaged { .. } => {}
+            ClientMessage::PutStaged {
+                slot,
+                base_revision,
+                value,
+                ..
+            } => handled.resume = self.page_put(slot, base_revision, value),
             ClientMessage::RunDraft { .. } => {
                 // `RunDraft` is answered by the caller (it needs the copy of the game).
                 self.protocol_error(
@@ -1338,6 +1387,7 @@ impl HostSession {
             log,
             switches: self.switches.clone(),
             undone: steps,
+            staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
     }
@@ -1361,6 +1411,9 @@ impl HostSession {
             return;
         }
         let humans = (humans & !bit(self.viewer.as_str()).unwrap_or(0)) | wanted;
+        // The seat that is given up drops what it staged.
+        let left = self.viewer.clone();
+        self.drop_staged(&left);
         let switch = SeatSwitch {
             decision: self.play_loop.decided(),
             humans,
@@ -1410,6 +1463,7 @@ impl HostSession {
                             log: Vec::new(),
                             switches: self.switches.clone(),
                             undone: Vec::new(),
+                            staged: self.staged.clone(),
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1458,6 +1512,7 @@ impl HostSession {
             log: Vec::new(),
             switches: self.switches.clone(),
             undone: Vec::new(),
+            staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
     }
@@ -1575,6 +1630,155 @@ impl HostSession {
         self.batch_result.take()
     }
 
+    // --- staged work -----------------------------------------------------------------------
+
+    /// The page takes part in the staged work of its seats: it is told their slots.
+    pub fn share_staged(&mut self) {
+        self.staged_shared = true;
+    }
+
+    /// What `seat` has staged.
+    #[must_use]
+    pub fn seat_staged(&self, seat: &PlayerId) -> SeatStaged {
+        self.staged.get(seat).cloned().unwrap_or_default()
+    }
+
+    /// Tells the page the slots of the seat that it is shown as, as the message after a
+    /// snapshot (with `connection`): they replace what the page holds.
+    fn tell_staged(&mut self) {
+        if !self.staged_shared {
+            return;
+        }
+        self.staged_told = Some(self.viewer.clone());
+        let mut message = self
+            .seat_staged(&self.viewer)
+            .message(&self.identity.game_id);
+        message.connection = Some(PAGE_CONNECTION);
+        self.out.push(ServerMessage::SeatStaged(message));
+    }
+
+    /// Writes one slot of `seat` ([`SeatStaged::put`]). Revisions count up for the whole page.
+    /// A write is told to the page when it holds the slots of `seat`, with `writer`: the page,
+    /// or none for a write of the session.
+    fn put_staged(
+        &mut self,
+        seat: &PlayerId,
+        slot: StagedSlot,
+        base_revision: u64,
+        value: Option<serde_json::Value>,
+        writer: Option<u64>,
+    ) -> Put {
+        let top = self
+            .staged
+            .values()
+            .map(|seat| seat.revision)
+            .max()
+            .unwrap_or(0);
+        let mut entry = self.seat_staged(seat);
+        entry.revision = top;
+        let put = entry.put(slot, base_revision, value);
+        if put != Put::Written {
+            return put;
+        }
+        self.staged.insert(seat.clone(), entry.clone());
+        if self.staged_shared && self.staged_told.as_ref() == Some(seat) {
+            let mut message = entry.message(&self.identity.game_id);
+            message.writer = writer;
+            self.out.push(ServerMessage::SeatStaged(message));
+        }
+        put
+    }
+
+    /// A write of the page, for the seat that it is shown as. A stale write is answered with
+    /// what the seat has. A draft of a secondary that is marked ready while the game asks the
+    /// seat for it is sent now: the answer for the parked game.
+    fn page_put(
+        &mut self,
+        slot: StagedSlot,
+        base_revision: u64,
+        value: Option<serde_json::Value>,
+    ) -> Option<Resume> {
+        let seat = self.viewer.clone();
+        match self.put_staged(&seat, slot, base_revision, value, Some(PAGE_CONNECTION)) {
+            Put::Stale => {
+                let message = self.seat_staged(&seat).message(&self.identity.game_id);
+                self.out.push(ServerMessage::SeatStaged(message));
+                None
+            }
+            Put::Written if slot == StagedSlot::Secondary && !self.replaying() => {
+                let (choice, nonce) = self.pending.clone()?;
+                if choice.player != seat || self.finished {
+                    return None;
+                }
+                self.send_ready(&choice, &nonce).map(Resume::Answer)
+            }
+            Put::Written | Put::Unchanged => None,
+        }
+    }
+
+    /// Clears every slot of `seat` (a write of the session).
+    fn drop_staged(&mut self, seat: &PlayerId) {
+        let slots: Vec<(StagedSlot, u64)> = self
+            .staged
+            .get(seat)
+            .map(|staged| {
+                staged
+                    .slots
+                    .iter()
+                    .filter(|(_, value)| value.value.is_some())
+                    .map(|(slot, value)| (*slot, value.revision))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (slot, revision) in slots {
+            self.put_staged(seat, slot, revision, None, None);
+        }
+    }
+
+    /// The ready draft of the secondary that `choice` asks its seat, numbered `nonce`: when the
+    /// game plays it whole on a copy, it begins as a script, its slot is cleared, and the place
+    /// of its first answer is returned. A draft that no longer fits is written back not ready,
+    /// and the seat is asked.
+    fn send_ready(&mut self, choice: &Choice, nonce: &str) -> Option<usize> {
+        let seat = &choice.player;
+        let ready = ready::ready_draft(&self.staged, seat, choice, self.state.round)?;
+        let script = ready.draft.script();
+        let check = self
+            .play_loop
+            .draft(seat, &ready.scope(), &script)
+            .map_or(ReadyCheck::Unknown, |outcome| {
+                ready::judge(&outcome, script.len())
+            });
+        let first = match check {
+            ReadyCheck::Unknown => return None,
+            ReadyCheck::Unfit => None,
+            ReadyCheck::Fits => first_answer(&script, choice, seat).ok(),
+        };
+        let place = first.as_ref().and_then(|first| {
+            choice
+                .options
+                .iter()
+                .position(|option| option.id == first.option.id)
+        });
+        let (Some(first), Some(place)) = (first, place) else {
+            self.put_staged(
+                seat,
+                StagedSlot::Secondary,
+                ready.revision,
+                Some(ready::unready_value(ready.value)),
+                None,
+            );
+            return None;
+        };
+        let active = self.state.active.clone();
+        let ended = self
+            .scripts
+            .begin(seat, nonce, script, first.script, first.next, active);
+        self.tell_scripts(ended);
+        self.put_staged(seat, StagedSlot::Secondary, ready.revision, None, None);
+        Some(place)
+    }
+
     /// The save of the game as it stands.
     #[must_use]
     pub fn save_state(&self, extra: serde_json::Value) -> serde_json::Value {
@@ -1590,6 +1794,7 @@ impl HostSession {
             "log": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
             "switches": self.switches,
             "redo": self.redo,
+            "staged": self.staged,
             // A save names the cards that are never offered; an own-turn card is not kept.
             "never": self.never.lock().expect("never set lock").iter()
                 .filter(|(_, mode)| **mode == ReactionMode::Never)

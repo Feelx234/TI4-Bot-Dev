@@ -126,6 +126,15 @@ impl PlayLoop for CrateLoop {
     fn script_copy(&self) -> Option<(Game<'static>, usize)> {
         crate::script_copy()
     }
+
+    fn draft(
+        &self,
+        seat: &PlayerId,
+        scope: &ti4_host::planning::audit::PlanScope,
+        script: &[ti4_host::planning::draft::DraftStep],
+    ) -> Option<ti4_host::planning::draft::DraftOutcome> {
+        crate::draft_outcome_of(seat, script, scope).ok()
+    }
 }
 
 fn session() -> std::sync::MutexGuard<'static, Option<HostSession>> {
@@ -389,6 +398,10 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         (tiles, built.galaxy),
         &resume,
     );
+    let mut session = session;
+    if start.staged {
+        session.share_staged();
+    }
     *session_lock() = Some(session);
     let replayed = resume.answers.len().max(resume.log.len());
     *REPLAY.lock().expect("replay lock") = Some(Replay {

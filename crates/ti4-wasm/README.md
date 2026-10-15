@@ -697,7 +697,7 @@ bytes: read both again after every call (the buffer can move).
 | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
 | `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
 | `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}`. |
-| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?}`. Returns when the game ends or is left; the output is an `end` envelope. |
+| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}`. Returns when the game ends or is left; the output is an `end` envelope. |
 | `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
 
 The import is `host.ask() -> i32` (`WebAssembly.Suspending`).
@@ -726,7 +726,7 @@ stored in the save, so a save is self-contained.
   "progress": {"done","total"},        // progress: a saved game is being played again
   "waiting": "c",                      // ask: the game waits before a decision of this seat
   "resume": -1 | -2 | -3 | -4 | <option index>,  // command: what the parked game does now
-  "restart": {"answers","redo","generation","version","log"?,"switches"?,"undone"?},  // play again with these
+  "restart": {"answers","redo","generation","version","log"?,"switches"?,"undone"?,"staged"?},  // play again with these
   "batch": {...},                      // how a submit_batch ended (ask or command)
   "save": {...},                       // command save_state
   "resume_check": {"ok",...},          // first ask after a replayed save
@@ -757,7 +757,8 @@ stored in the save, so a save is self-contained.
 checked as on the server by `ti4_host::protocol::check_submission`; resumes with the index of the
 option), `apply_draft` (a script; `draft_applied` when it ended),
 `run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
-`set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`).
+`set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`), `put_staged` (see
+"Staged work").
 `preview_secondary` is answered with an `error` that names it (the page then falls back to its
 own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
 
@@ -787,11 +788,36 @@ own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local 
 whole. Through the checkpoints the reply resumes `-2`; when they do not reach, or the game is
 over, it replies `restart` (with `log`) and `resume: -1`, and the page plays the game again.
 
+### Staged work
+
+What each seat has staged and not sent (`ti4_host::staged`: the staged movement, landings or
+production, the private draft of a tactical action, the draft of a secondary) is kept by
+`HostSession`, in its save and in every `restart`, as the server keeps it for the seat. A page
+that starts the game with `"staged": true` (web2), or subscribes with `staged`, is one
+connection of the seat that it is shown as (`connection` 1):
+
+- After each snapshot, and when the seat that the page is shown as changes (another seat of the
+  page is asked), it is sent `seat_staged` with `connection`: the slots of that seat, which
+  replace what the page holds.
+- `put_staged {slot, base_revision, value?}` writes a slot of that seat by compare-and-set; the
+  write is told back as `seat_staged` with `writer` 1, a stale one with what the seat has.
+  Revisions count up for the whole page, so a write that was meant for another seat is stale.
+- A draft of a secondary that is ready is sent by the session when the game asks the seat that
+  secondary, and when the seat marks it ready while the game asks it (then the `put_staged`
+  reply resumes the game): the draft is played on a copy of the game (`run_draft` with the
+  scope of the secondary, `ti4_host::staged::ready`), it begins as a script, and its slot is
+  cleared. One that no longer fits is written back with `ready: false`, and the seat is asked.
+  These writes of the session have no `writer`.
+- `switch_seat` clears the slots of the seat that is given up.
+
+A page that does not ask for it (`web/`) is sent no `seat_staged`.
+
 ### Save and resume
 
 `save` is `{format:1, game_id, seed, players, human_seat, humans, setup, answers[], log[],
-switches[], redo[], never[], event_times[], event_versions[], version, generation, decisions,
-decisions_hash, finished, round, phase, engine:{build, content_digest}}`. `setup` is the request
+switches[], redo[], staged{seat: {revision, slots}}, never[], event_times[], event_versions[],
+version, generation, decisions, decisions_hash, finished, round, phase, engine:{build,
+content_digest}}`. `setup` is the request
 the game was started from. Resume: `ti4_host_start({"setup": save.setup, "resume": save})` (web2
 gives its own `table` or `local`). The game plays the `log` again without asking (a few hundred ms for 40
 answers, seconds for a late game), reporting `progress`; the first `ask` then has `resume_check`
@@ -805,7 +831,8 @@ One `state_update` per question of the person (and one at the end), not per engi
 separate `pending_choice` message; undo is the engine checkpoint (32 deep), and its track has the
 local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
-redo and bluff holds do not exist.
+redo and bluff holds do not exist; the page is one connection, so the staged work of a seat is
+told to it only while it is shown as that seat.
 
 ### Tests
 
@@ -813,7 +840,9 @@ redo and bluff holds do not exist.
 `it/server_parity.rs` plays the same table through `ti4-server`'s own session and compares the
 decisions and the whole event log; `it/host_session.rs` checks every message against the
 `ServerMessage` types and the order a client relies on; `it/host_local.rs` the local play of
-web2 (several seats of the page, a change of them, stepping, a save with its log). `node js/host.mjs <wasm>` runs the same
+web2 (several seats of the page, a change of them, stepping, a save with its log);
+`it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
+secondary that the session sends. `node js/host.mjs <wasm>` runs the same
 flow in a real WebAssembly instance (CI does). `node scripts/wasm-size-gate.mjs` checks the size
 against `size-budget.json`.
 

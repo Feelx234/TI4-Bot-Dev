@@ -51,13 +51,13 @@ fn staged_work_is_asked_for_and_written_in_the_form_that_web2_sends() {
             "answers": [{"id": "yes", "label": "Follow"}], "ready": true}});
     let parsed = parse_client_message(&put.to_string()).expect("parse");
     // The server reads the draft of a secondary in the form that web2 writes it.
-    let draft = ti4_server::session::staged::SecondaryDraft::of(&put["value"]).expect("a draft");
+    let draft = ti4_host::staged::SecondaryDraft::of(&put["value"]).expect("a draft");
     assert!(draft.ready);
     assert_eq!(draft.answers[0].id, "yes");
     assert!(matches!(
         &parsed,
         ClientMessage::PutStaged {
-            slot: ti4_server::session::staged::StagedSlot::Secondary,
+            slot: ti4_host::protocol::staged::StagedSlot::Secondary,
             base_revision: 4,
             value: Some(_),
             ..

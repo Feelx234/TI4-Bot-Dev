@@ -115,9 +115,9 @@ export interface Transport {
   readonly catalog: Catalog | null;
   readonly capabilities: Capabilities;
   /**
-   * Where the game keeps what this seat has staged and not sent, the same in every tab and
-   * device of the seat. Absent when the game does not keep it (a game in this page, a
-   * spectator): the app that made the transport keeps it then.
+   * Where the game keeps what this seat has staged and not sent: the server, the same in every
+   * tab and device of the seat, or the engine of a local game, in its saved game. The game sends
+   * a ready draft of a secondary itself. Absent for a spectator, who stages nothing.
    */
   readonly staged?: SeatStore;
   /**

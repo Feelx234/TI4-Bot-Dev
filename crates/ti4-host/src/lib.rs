@@ -20,6 +20,7 @@ pub mod protocol;
 pub mod replay;
 pub mod rng_force;
 pub mod setup;
+pub mod staged;
 pub mod state_update;
 pub mod step_snapshot;
 pub mod view;

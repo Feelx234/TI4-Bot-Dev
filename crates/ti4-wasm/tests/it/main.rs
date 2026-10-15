@@ -9,4 +9,5 @@ mod host_local;
 mod host_script;
 mod host_session;
 mod host_setup;
+mod host_staged;
 mod server_parity;

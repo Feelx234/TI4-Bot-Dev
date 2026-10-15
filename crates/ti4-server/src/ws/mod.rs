@@ -608,7 +608,7 @@ async fn handle_socket(
                                     value,
                                     connection,
                                 ) {
-                                    Ok(crate::session::staged::Put::Stale) => {
+                                    Ok(ti4_host::staged::Put::Stale) => {
                                         // Nothing is written: the connection takes what is.
                                         let _ = outbound_tx
                                             .send(ServerMessage::SeatStaged(
@@ -617,9 +617,9 @@ async fn handle_socket(
                                             .await;
                                         None
                                     }
-                                    Ok(crate::session::staged::Put::Written)
+                                    Ok(ti4_host::staged::Put::Written)
                                         if slot
-                                            == crate::session::staged::StagedSlot::Secondary =>
+                                            == ti4_host::protocol::staged::StagedSlot::Secondary =>
                                     {
                                         // A draft that is marked ready while the game asks the
                                         // seat is sent now.

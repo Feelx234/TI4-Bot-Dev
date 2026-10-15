@@ -100,7 +100,7 @@ The rules of each feature are in `docs/agents/`. Before you change a feature, re
 | A strategy card, its primary or secondary, the draft of a secondary, the technology tree | `docs/agents/strategy-cards.md` |
 | The map, a system, the inspector, the payment bar, exploration (`src/game/board/`) | `docs/agents/board.md` |
 | Movement, invasion, production, the battle table, the space odds (`src/game/steps/`, `src/game/combat/`) | `docs/agents/tactical.md` |
-| Online play, the server transport, undo online, staged work of a seat (`wsTransport.ts`, `seatStore.ts`, `OnlineApp.tsx`) | `docs/agents/online.md` |
+| Online play, the server transport, undo online, staged work of a seat (`wsTransport.ts`, `seatStore.ts`, `OnlineApp.tsx`; in a local game also `local-play.md`) | `docs/agents/online.md` |
 | The lobby, single player, the setup of a table, the Table sheet (`src/game/lobby/`, `table.ts`, `localTable.ts`) | `docs/agents/lobby.md` |
 | A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game (`src/session/`, `LocalApp.tsx`) | `docs/agents/local-play.md` |
 | Tests, fixtures, screenshots, Rust builds, the wasm build | `docs/agents/testing.md` |
