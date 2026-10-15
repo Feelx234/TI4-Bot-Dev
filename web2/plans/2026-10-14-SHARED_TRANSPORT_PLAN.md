@@ -1,6 +1,6 @@
 # Shared web module (web-shared/): transport, engine, saves, wire types, content, odds (2026-10-14)
 
-Status: steps 1 to 20 done (2026-10-15).
+Status: steps 1 to 21 done (2026-10-15).
 
 ## Context
 
@@ -326,9 +326,10 @@ With both apps on one origin, both lists show every save of the browser.
       mirrors the server). web2 validates with it too.
     - Seat tokens stay per app: web keeps one session per tab, web2 several seats per browser.
 21. **`web-shared/scripts/build-wasm.mjs`.**
-    - One build script with an output dir argument. It has web's `TI4_*` env flags and web2's
-      `--dev`.
-    - `web/scripts/build-wasm.mjs`, `web2/scripts/build-wasm.sh` and `deploy.sh` call it.
+    - One build script with the output file as its argument. It has web's `TI4_*` env flags and
+      web2's `--dev`.
+    - `web/scripts/build-wasm.mjs` and `web2/scripts/build-wasm.sh` call it with their file;
+      `deploy.sh` reaches it through web's `npm run build`.
 22. **`web-shared/test/server.ts`.**
     - `spawnTestServer()`: a free port, a temp data dir, and a wait for `Listening on`.
     - It replaces `web/e2e/offlineServer.ts` and the spawn in

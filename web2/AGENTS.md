@@ -85,7 +85,7 @@ There are two layouts, and no others.
 
 The full rules are in `docs/agents/testing.md` ("Tests" and "Rust builds"). Read it before you run a build or a suite.
 
-- Rust: only the aliases `cargo l-web`, `cargo t-web`, `cargo b-web`, and `cargo wire-web` to write the generated wire types of `web-shared` after a change of a Rust wire type (never `-p`, `--workspace` or `cargo c-web`). Before a commit of Rust: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`; when `ti4-host` or `ti4-wasm` changed, also `scripts/build-wasm.sh` and `npm test`; when the server changed, also `cargo b-web` and `npm test`.
+- Rust: only the aliases `cargo l-web`, `cargo t-web`, `cargo b-web`, and `cargo wire-web` to write the generated wire types of `web-shared` after a change of a Rust wire type (never `-p`, `--workspace` or `cargo c-web`). Before a commit of Rust: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`; when `ti4-host` or `ti4-wasm` changed, also `scripts/build-wasm.sh` (the shared build of both apps, `web-shared/scripts/build-wasm.mjs`) and `npm test`; when the server changed, also `cargo b-web` and `npm test`.
 - A change of `web2/` only: `npm run typecheck`, `npm run lint`, `npm test`, then `npm run e2e -- -g "<the screen>"`; the whole `npm run e2e` before the commit. Not for each change: `npm run e2e:slow`, `npm run shots`, `cargo t-web-slow`.
 - With less than 4 GB of memory: one build or one suite at a time.
 

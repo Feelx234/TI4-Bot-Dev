@@ -256,7 +256,9 @@ stack is parked until the promise of the answer settles.
 played in the page.
 
 - `web2/scripts/build-wasm.sh` builds the file and copies it to `web2/src/session/ti4.wasm`
-  (not in the repository).
+  (not in the repository). It and web's `web/scripts/build-wasm.mjs` both run
+  `web-shared/scripts/build-wasm.mjs <out.wasm> [--dev]`: one cargo command
+  (`--profile wasm-release`, or `wasm-dev` with `--dev`), so both apps share one build.
 - `web2/src/session/` is the client side: `Transport` (updates in, `submitChoice` out),
   `messageTransport.ts` (the `ServerMessage`s of a link as the events of the page),
   `wasmTransport.ts` (the game in a Web Worker over `engineLink` of `web-shared/src/link/`, and
@@ -909,6 +911,8 @@ rustup target add wasm32-unknown-unknown
 
 # Build (about 2 minutes; the result is target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm)
 cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
+# The same build, copied to the file of an app (web2/scripts/build-wasm.sh, web's npm run build:wasm)
+node web-shared/scripts/build-wasm.mjs web2/src/session/ti4.wasm
 
 # The same seed and step count must print the same line in wasm and natively
 # (arguments: seed, steps, players)

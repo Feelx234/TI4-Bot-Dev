@@ -141,7 +141,8 @@ opt-level = "z"
 lto = "fat"
 panic = "abort"
 
-# The browser build for development: `web2/scripts/build-wasm.sh --dev`. Not optimized and
+# The browser build for development: `web-shared/scripts/build-wasm.mjs <out.wasm> --dev`
+# (`web2/scripts/build-wasm.sh --dev`). Not optimized and
 # incremental, so a change of the engine is rebuilt in seconds; the file is about three times the
 # size of the release build and the engine is slower in the page. `panic = "abort"` as in the
 # release build, so a panic looks the same in both.

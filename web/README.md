@@ -154,6 +154,12 @@ answers: `wire/decode.ts`) are in `../web-shared/`, which web and web2 share. Th
 `vite.config.ts` and `tsconfig.json`). Read [`../web-shared/AGENTS.md`](../web-shared/AGENTS.md)
 before you change it: some changes there need the agreement of both maintainers.
 
+The engine file of offline play (`src/offline/local/engine/ti4_wasm.wasm`, not in the repository)
+is built by `npm run build:wasm` (`scripts/build-wasm.mjs`, also the `prebuild` of `npm run build`).
+It runs the build that web2 runs too, `../web-shared/scripts/build-wasm.mjs`, so both apps get the
+same file from one cargo build. `TI4_WASM_FILE=<file>` copies a prebuilt file, `TI4_SKIP_WASM=1`
+builds without "Play offline", `TI4_REQUIRE_WASM=1` makes a failed build an error.
+
 ### The catalog of the printed cards
 
 Every text of a card, technology, unit, faction, leader, objective or planet that web shows comes

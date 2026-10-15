@@ -80,10 +80,31 @@ src/wire/    index.ts     the wire types: import them from here
 src/content/ catalog.ts   loadCatalog (from the engine of the page, else `GET /api/catalog`), CatalogError
              names.ts     humanizeId, titleCase, the faction ids of a table (base game, Prophecy of Kings)
 src/identity/ nickname.ts NICKNAME_KEY (`ti4.nickname`), validNickname (the names that the server takes)
+scripts/build-wasm.mjs    the build of the engine file of both apps
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
-`web2/src/session/ti4.wasm`).
+`web2/src/session/ti4.wasm`); `scripts/build-wasm.mjs` builds it for both ("The engine build").
+
+## The engine build
+
+`node web-shared/scripts/build-wasm.mjs <out.wasm> [--dev]` builds `crates/ti4-wasm` for the
+browser and copies the file to `<out.wasm>`. Both apps call it with their file, so they run one
+cargo command and share one build: web's `web/scripts/build-wasm.mjs` (`npm run build:wasm`, the
+`prebuild` of web's `npm run build`, and so of `deploy/public/deploy.sh`) and web2's
+`web2/scripts/build-wasm.sh`.
+
+- The command: `cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release`,
+  in the repository; `--dev` builds `--profile wasm-dev` (not optimized, incremental). It is not
+  one of the native aliases: the wasm target has its own build. The file is taken from
+  `$CARGO_TARGET_DIR` (default `target/`).
+- `TI4_WASM_FILE=<file>` copies a prebuilt file and builds nothing. `TI4_SKIP_WASM=1` builds
+  nothing and removes `<out.wasm>`.
+- A failed build (no cargo, no wasm32 target) warns, removes `<out.wasm>` and exits 0, so that
+  web's `npm run build` works without the engine. `TI4_REQUIRE_WASM=1` makes it an error (exit 1,
+  the old file kept): web2's script and the deploy set it.
+- The size gate is a separate step: `node scripts/wasm-size-gate.mjs <file.wasm>` of the
+  repository (budgets in `crates/ti4-wasm/size-budget.json`).
 
 ## Wire types
 
