@@ -2,7 +2,7 @@
 // the page. The server (`wsTransport.ts`, over `socketLink`) and the engine of a local game
 // (`wasmTransport.ts`, over `engineLink`) speak the same protocol: `ClientMessage` in,
 // `ServerMessage` out. What only one of them has is in `MessagePlay`.
-import type { GameLink } from "@ti4/shared/link/link.ts";
+import type { GameLink, HostCommand } from "@ti4/shared/link/link.ts";
 import type { PlanStep } from "./movementPlan";
 import { type LegacyStaged, seatSync } from "./seatStore";
 import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
@@ -133,7 +133,7 @@ export function messageTransport(link: GameLink, play: MessagePlay): MessageCore
     }
   };
   /** A message of the protocol. With replies, the reply; it is told before it settles. */
-  const post = (message: ClientRequest | Record<string, unknown>): Promise<unknown> | null => {
+  const post = (message: ClientRequest | HostCommand): Promise<unknown> | null => {
     const stamped = { protocol_version: PROTOCOL_VERSION, game_id: play.gameId, ...message };
     if (link.request) {
       return link.request(stamped);
@@ -142,7 +142,7 @@ export function messageTransport(link: GameLink, play: MessagePlay): MessageCore
     return null;
   };
   /** Sends when the game takes a message, and says whether it did. */
-  const send = (message: ClientRequest | Record<string, unknown>) => {
+  const send = (message: ClientRequest | HostCommand) => {
     if (!play.ready()) {
       return false;
     }
@@ -351,7 +351,7 @@ export function messageTransport(link: GameLink, play: MessagePlay): MessageCore
   const unlink = link.subscribe((event) => {
     switch (event.kind) {
       case "message":
-        return receive(event.message as ServerMessage);
+        return receive(event.message);
       case "offline":
         if (!offline) {
           offline = true;

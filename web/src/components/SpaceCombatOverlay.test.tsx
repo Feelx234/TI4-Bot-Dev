@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { SpaceCombatOverlay } from "./SpaceCombatOverlay.tsx";
 import { deriveChoiceRendererModel } from "../presentation/choiceModel.ts";
 import { PendingChoiceDto, BoardView, PlayerView } from "../protocol/types.ts";
+import { partialCombat, partialContext } from "../test/wire.ts";
 
 describe("SpaceCombatOverlay", () => {
   const originalFetch = global.fetch;
@@ -25,13 +26,13 @@ describe("SpaceCombatOverlay", () => {
         planets: {},
         units: [
           // Attacker (seat_1): Dreadnought, Carrier, 2 Fighters
-          { unit_type: "dreadnought", owner: "seat_1", damaged: false },
-          { unit_type: "carrier", owner: "seat_1", damaged: true },
-          { unit_type: "fighter", owner: "seat_1", damaged: false },
-          { unit_type: "fighter", owner: "seat_1", damaged: false },
+          { unit_type: "dreadnought", owner: "seat_1", damaged: false, planet: null, galvanized: false },
+          { unit_type: "carrier", owner: "seat_1", damaged: true, planet: null, galvanized: false },
+          { unit_type: "fighter", owner: "seat_1", damaged: false, planet: null, galvanized: false },
+          { unit_type: "fighter", owner: "seat_1", damaged: false, planet: null, galvanized: false },
           // Defender (seat_2): Cruiser, Destroyer
-          { unit_type: "cruiser", owner: "seat_2", damaged: false },
-          { unit_type: "destroyer", owner: "seat_2", damaged: false },
+          { unit_type: "cruiser", owner: "seat_2", damaged: false, planet: null, galvanized: false },
+          { unit_type: "destroyer", owner: "seat_2", damaged: false, planet: null, galvanized: false },
         ],
       },
     },
@@ -89,13 +90,13 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "100",
       prompt: "Sustain damage on a ship",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
+      }),
       options: [
-        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
-        { id: "decline", label: "Take the hit", kind: "decline" },
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain", payload: {} },
+        { id: "decline", label: "Take the hit", kind: "decline", payload: {} },
       ],
     };
 
@@ -139,13 +140,13 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "101",
       prompt: "Sustain damage on a ship",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
+      }),
       options: [
-        { id: "sustain:dreadnought:1", label: "Dreadnought (System 18)", kind: "sustain" },
-        { id: "decline", label: "Take the hit", kind: "decline" },
+        { id: "sustain:dreadnought:1", label: "Dreadnought (System 18)", kind: "sustain", payload: {} },
+        { id: "decline", label: "Take the hit", kind: "decline", payload: {} },
       ],
     };
 
@@ -180,12 +181,12 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "102",
       prompt: "Assign hits",
-      context: {
+      context: partialContext({
         subtype: "assign_casualty",
         outstanding: [{ amount: 2 }],
         target: { System: "18" },
-      },
-      options: [{ id: "destroy|fighter", label: "Destroy Fighter", kind: "casualty" }],
+      }),
+      options: [{ id: "destroy|fighter", label: "Destroy Fighter", kind: "casualty", payload: {} }],
     };
 
     const diceRolls = [
@@ -235,7 +236,7 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "103",
       prompt: "Assign hits",
-      context: { subtype: "assign_casualty", outstanding: [{ amount: 1 }], target: { System: "18" } },
+      context: partialContext({ subtype: "assign_casualty", outstanding: [{ amount: 1 }], target: { System: "18" } }),
       options: [
         { id: "destroy|0", label: "Destroy Fighter", kind: "casualty", payload: { unit: "fighter" } },
       ],
@@ -266,10 +267,10 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "103",
       prompt: "Assign hits",
-      context: {
+      context: partialContext({
         subtype: "assign_casualty",
         target: { System: "18" },
-      },
+      }),
       options: [],
     };
 
@@ -304,11 +305,11 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_2",
       nonce: "104",
       prompt: "Sustain damage",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
-      options: [{ id: "sustain:cruiser", label: "Cruiser", kind: "sustain" }],
+      }),
+      options: [{ id: "sustain:cruiser", label: "Cruiser", kind: "sustain", payload: {} }],
     };
 
     render(
@@ -351,13 +352,13 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "105",
       prompt: "Sustain damage on a ship",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
+      }),
       options: [
-        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
-        { id: "decline", label: "Take the hit", kind: "decline" },
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain", payload: {} },
+        { id: "decline", label: "Take the hit", kind: "decline", payload: {} },
       ],
     };
 
@@ -369,14 +370,14 @@ describe("SpaceCombatOverlay", () => {
           viewerSeat="seat_1"
           board={{
             ...sampleBoard,
-            combat: {
+            combat: partialCombat({
               system_id: "18",
               round: 1,
               battle_seq: 1,
               phase: "pre_roll",
               attacker: "seat_1",
               defender: "seat_2",
-            },
+            }),
           }}
           players={samplePlayers}
           onSubmit={vi.fn().mockResolvedValue(undefined)}
@@ -410,11 +411,11 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "106",
       prompt: "Sustain damage on a ship",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
-      options: [{ id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" }],
+      }),
+      options: [{ id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain", payload: {} }],
     };
 
     await act(async () => {
@@ -425,14 +426,14 @@ describe("SpaceCombatOverlay", () => {
           viewerSeat="seat_1"
           board={{
             ...sampleBoard,
-            combat: {
+            combat: partialCombat({
               system_id: "18",
               round: 1,
               battle_seq: 1,
               phase: "pre_roll",
               attacker: "seat_1",
               defender: "seat_2",
-            },
+            }),
           }}
           players={samplePlayers}
           onSubmit={vi.fn().mockResolvedValue(undefined)}
@@ -453,14 +454,14 @@ describe("SpaceCombatOverlay", () => {
     global.fetch = vi
       .fn()
       .mockImplementation(() => new Promise<Response>((resolve) => replies.push(resolve)));
-    const combat = {
+    const combat = partialCombat({
       system_id: "18",
       round: 1,
       battle_seq: 3,
       phase: "pre_roll" as const,
       attacker: "seat_1",
       defender: "seat_2",
-    };
+    });
     const props = {
       isOpen: true,
       choice: null,
@@ -480,12 +481,12 @@ describe("SpaceCombatOverlay", () => {
     rerender(
       <SpaceCombatOverlay
         {...props}
-        board={{ ...sampleBoard, combat: { ...combat, phase: "resolving_hits" } }}
+        board={{ ...sampleBoard, combat: partialCombat({ ...combat, phase: "resolving_hits" }) }}
       />,
     );
     expect(screen.queryByTestId("combat-odds-card")).not.toBeInTheDocument();
     rerender(
-      <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat: { ...combat, round: 2 } }} />,
+      <SpaceCombatOverlay {...props} board={{ ...sampleBoard, combat: partialCombat({ ...combat, round: 2 }) }} />,
     );
     expect(screen.getByTestId("combat-odds-tag")).toHaveTextContent(
       "Rough fleet estimate · simulation pending",
@@ -499,7 +500,7 @@ describe("SpaceCombatOverlay", () => {
 
   it("compares damage and casualties to the round-start fleet without hiding survivors", () => {
     const start = sampleBoard.systems["18"].units;
-    const combat = {
+    const combat = partialCombat({
       system_id: "18",
       round: 2,
       battle_seq: 5,
@@ -509,7 +510,7 @@ describe("SpaceCombatOverlay", () => {
       round_start: start,
       attacker_hits: 2,
       defender_hits: 1,
-    };
+    });
     const board: BoardView = {
       ...sampleBoard,
       combat,
@@ -543,13 +544,13 @@ describe("SpaceCombatOverlay", () => {
         choice={null}
         board={{
           ...board,
-          combat: {
+          combat: partialCombat({
             ...combat,
             phase: "pre_roll",
             round: 3,
             round_start: board.systems["18"].units,
             dice_rolls: [],
-          },
+          }),
         }}
         players={samplePlayers}
         onSubmit={vi.fn()}
@@ -563,10 +564,10 @@ describe("SpaceCombatOverlay", () => {
 
   it("updates the pill after each sustain on two ships without changing the fleet count", () => {
     const dreadnoughts = [
-      { unit_type: "dreadnought", owner: "seat_2", damaged: false },
-      { unit_type: "dreadnought", owner: "seat_2", damaged: false },
+      { unit_type: "dreadnought", owner: "seat_2", damaged: false, planet: null, galvanized: false },
+      { unit_type: "dreadnought", owner: "seat_2", damaged: false, planet: null, galvanized: false },
     ];
-    const combat = {
+    const combat = partialCombat({
       system_id: "18",
       round: 1,
       battle_seq: 9,
@@ -574,7 +575,7 @@ describe("SpaceCombatOverlay", () => {
       attacker: "seat_1",
       defender: "seat_2",
       round_start: dreadnoughts,
-    };
+    });
     const props = {
       isOpen: true,
       choice: null,
@@ -616,7 +617,7 @@ describe("SpaceCombatOverlay", () => {
       systems: {
         "18": { ...sampleBoard.systems["18"], units: start.filter((_, index) => index !== 2) },
       },
-      combat: {
+      combat: partialCombat({
         system_id: "18",
         round: 1,
         battle_seq: 4,
@@ -626,7 +627,7 @@ describe("SpaceCombatOverlay", () => {
         barrage_start: start,
         barrage_hits: { seat_1: 0, seat_2: 1 },
         barrage_dice: [{ player: "seat_2", unit: "destroyer", roll: 10, target: 9, hit: true }],
-      },
+      }),
     };
     render(
       <SpaceCombatOverlay
@@ -658,13 +659,13 @@ describe("SpaceCombatOverlay", () => {
         choice={null}
         board={{
           ...sampleBoard,
-          combat: {
+          combat: partialCombat({
             system_id: "18",
             round: 1,
             phase: "complete",
             attacker: "seat_1",
             defender: "seat_2",
-          },
+          }),
         }}
         onSubmit={vi.fn()}
         onClose={onClose}
@@ -691,10 +692,10 @@ describe("SpaceCombatOverlay", () => {
           actor: "seat_1",
           nonce: "reaction",
           prompt: "React to combat",
-          context: { subtype: "reaction_SPACE_COMBAT_STARTED", target: { System: "18" } },
+          context: partialContext({ subtype: "reaction_SPACE_COMBAT_STARTED", target: { System: "18" } }),
           options: [
             { id: "play", label: "Card", kind: "reaction", payload: { card: "direct_hit" } },
-            { id: "decline", label: "Pass", kind: "decline" },
+            { id: "decline", label: "Pass", kind: "decline", payload: {} },
           ],
         }}
         board={sampleBoard}
@@ -712,7 +713,7 @@ describe("SpaceCombatOverlay", () => {
   it("renders round hits scorecard displaying hits dealt by each player", () => {
     const boardWithCombat: BoardView = {
       ...sampleBoard,
-      combat: {
+      combat: partialCombat({
         system_id: "18",
         round: 2,
         phase: "resolving_hits",
@@ -725,7 +726,7 @@ describe("SpaceCombatOverlay", () => {
           { player: "seat_1", unit: "War Sun", roll: 7, target: 3, hit: true },
           { player: "seat_1", unit: "War Sun", roll: 8, target: 3, hit: true },
         ],
-      },
+      }),
     };
 
     render(
@@ -757,7 +758,7 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "assign-1",
       prompt: "Assign a hit",
-      context: { subtype: "assign_casualty", target: { System: "18" } },
+      context: partialContext({ subtype: "assign_casualty", target: { System: "18" } }),
       options: [
         { id: "fighter", label: "fighter", kind: "casualty", payload: { unit: "fighter" } },
         {
@@ -770,7 +771,7 @@ describe("SpaceCombatOverlay", () => {
     };
     const board: BoardView = {
       ...sampleBoard,
-      combat: {
+      combat: partialCombat({
         system_id: "18",
         round: 1,
         attacker: "seat_1",
@@ -779,7 +780,7 @@ describe("SpaceCombatOverlay", () => {
         defender_hits: 2,
         hits_to_assign: 2,
         dice_rolls: [{ player: "seat_1", unit: "dreadnought", roll: 9, target: 5, hit: true }],
-      },
+      }),
     };
     const props = {
       isOpen: true,
@@ -848,10 +849,10 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "107",
       prompt: "Assign casualty",
-      context: {
+      context: partialContext({
         subtype: "assign_casualty",
         target: { System: "18" },
-      },
+      }),
       options: [
         {
           id: "destroy|18|carrier|true",
@@ -911,13 +912,13 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "108",
       prompt: "Sustain damage",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
-      },
+      }),
       options: [
-        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain" },
-        { id: "decline", label: "Decline", kind: "decline" },
+        { id: "sustain:dreadnought:1", label: "Dreadnought", kind: "sustain", payload: {} },
+        { id: "decline", label: "Decline", kind: "decline", payload: {} },
       ],
     };
 
@@ -948,11 +949,11 @@ describe("SpaceCombatOverlay", () => {
       actor: "seat_1",
       nonce: "200",
       prompt: "cancel a hit at 18",
-      context: {
+      context: partialContext({
         subtype: "sustain_damage",
         target: { System: "18" },
         source: { Rule: "82" },
-      },
+      }),
       options: [
         {
           id: "sustain|0",
@@ -960,7 +961,7 @@ describe("SpaceCombatOverlay", () => {
           kind: "sustain",
           payload: { unit: "dreadnought" },
         },
-        { id: "decline", label: "take the hit", kind: "decline" },
+        { id: "decline", label: "take the hit", kind: "decline", payload: {} },
       ],
     };
 
@@ -1018,7 +1019,7 @@ describe("SpaceCombatOverlay", () => {
           nonce: "n-oneoff",
           actor: "seat_1",
           prompt: "choose a casualty",
-          context: { subtype, target: { System: "18" } },
+          context: partialContext({ subtype, target: { System: "18" } }),
           options: [
             { id: "destroy|0", label: "destroy dreadnought", kind: "casualty", payload: { unit: "dreadnought", damaged: false } },
             { id: "destroy|1", label: "destroy cruiser", kind: "casualty", payload: { unit: "cruiser", damaged: false } },
@@ -1051,11 +1052,11 @@ describe("SpaceCombatOverlay", () => {
         nonce: "n-ac",
         actor: "seat_1",
         prompt: "assign a hit",
-        context: {
+        context: partialContext({
           subtype: "assault_cannon_destroy",
           target: { System: "18" },
           ...(hit ? { hit } : {}),
-        },
+        }),
         options: [
           { id: "destroy|0", label: "destroy dreadnought", kind: "casualty", payload: { unit: "dreadnought", damaged: false } },
           { id: "destroy|1", label: "destroy carrier", kind: "casualty", payload: { unit: "carrier", damaged: true } },
@@ -1119,7 +1120,7 @@ describe("SpaceCombatOverlay", () => {
         nonce: "n-afb",
         actor: "seat_1",
         prompt: "when ANTI_FIGHTER_BARRAGE_STARTED",
-        context: {
+        context: partialContext({
           subtype: "reaction_when_ANTI_FIGHTER_BARRAGE_STARTED",
           target: { System: "18" },
           trigger: {
@@ -1129,10 +1130,10 @@ describe("SpaceCombatOverlay", () => {
             relation: "when",
             actor: "seat_1",
           },
-        },
+        }),
         options: [
           { id: "play|waylay", label: "Waylay", kind: "reaction", payload: { card: "waylay" } },
-          { id: "decline", label: "Pass", kind: "decline" },
+          { id: "decline", label: "Pass", kind: "decline", payload: {} },
         ],
       } as PendingChoiceDto;
       render(

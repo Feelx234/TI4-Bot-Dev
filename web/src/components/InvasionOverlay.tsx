@@ -239,12 +239,6 @@ export const InvasionEffectCard: React.FC<{
                 {unit && cost !== null && (
                   <small className="invasion-effect-btn__sub"> · cost {cost}</small>
                 )}
-                {option.description && (
-                  <small className="invasion-effect-btn__sub">
-                    {" "}
-                    · {option.description}
-                  </small>
-                )}
               </button>
             );
           })}

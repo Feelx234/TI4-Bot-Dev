@@ -10,7 +10,7 @@ import {
   type ReachReply,
   type SecondaryPreviewReply,
 } from "../../protocol/client.ts";
-import { decodeServerMessage } from "../../protocol/decode.ts";
+import { decodeServerMessage } from "@ti4/shared/wire/decode.ts";
 import {
   MessageDrivenState,
   type GameTransport,
@@ -21,7 +21,7 @@ import type { TurnRedoCommand, TurnRedoStatus } from "../../protocol/turnRedo.ts
 import type { Envelope, HostProgress, HostSave, StartConfig } from "@ti4/shared/engine/host.ts";
 import type { HostPort } from "@ti4/shared/engine/protocol.ts";
 import { engineLink, type EngineLink } from "@ti4/shared/link/engineLink.ts";
-import type { LinkEvent } from "@ti4/shared/link/link.ts";
+import type { HostCommand, LinkEvent } from "@ti4/shared/link/link.ts";
 
 /** What a local game offers in `GameTransport` terms. The shell's `Capabilities` say the same. */
 export const LOCAL_TRANSPORT_CAPABILITIES: TransportCapabilities = {
@@ -87,7 +87,7 @@ export class LocalTransport implements GameTransport {
     fatal: null,
     reconnecting: false,
     events: [],
-    history: { cursor: 0, redo_count: 0 },
+    history: { cursor: 0, redo_count: 0, generation: 0 },
   });
   private link: EngineLink | null = null;
   /** The link ended because of the saved game (it does not play back, or it was deleted), not the engine. */
@@ -313,7 +313,7 @@ export class LocalTransport implements GameTransport {
   // --- commands ------------------------------------------------------------------------------
 
   /** A command to the engine; the messages of its reply reach the reducer before it resolves. */
-  private send(request: object): Promise<Envelope> {
+  private send(request: HostCommand): Promise<Envelope> {
     const link = this.link;
     if (!link) return Promise.reject(new Error(NOT_RUNNING));
     return link.request(request);

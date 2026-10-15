@@ -25,11 +25,18 @@ const files = (dir: string): string[] =>
         : [],
   );
 
+// The protocol fixtures of both apps (`fixtures/protocol/` of the repository), which tests read.
+const fixtures = resolve(root, "../../fixtures/protocol");
+
 it.each(Object.keys(ALLOWED))("%s imports only its allowed layers", (layer) => {
   const bad: string[] = [];
   for (const file of files(join(root, layer))) {
     for (const [, target] of readFileSync(file, "utf8").matchAll(/from "(\.[^"]+)"/g)) {
-      const to = relative(root, resolve(dirname(file), target)).split("/")[0];
+      const path = resolve(dirname(file), target);
+      if (/\.test\.tsx?$/.test(file) && dirname(path) === fixtures) {
+        continue;
+      }
+      const to = relative(root, path).split("/")[0];
       if (to !== layer && !ALLOWED[layer].includes(to)) {
         bad.push(`${relative(root, file)} -> ${target}`);
       }

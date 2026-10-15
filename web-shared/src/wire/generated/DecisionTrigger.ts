@@ -23,7 +23,7 @@ event_id: number,
 /**
  * `"when"` or `"after"`.
  */
-relation: string, 
+relation: "when" | "after", 
 /**
  * The seat that caused the event; absent for phase and agenda events.
  */

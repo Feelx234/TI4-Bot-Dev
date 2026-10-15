@@ -1580,7 +1580,7 @@ mod fact_tests {
     #[test]
     fn event_visibility_wire_shape_matches_the_client_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../ti4-server/fixtures/event_visibility.json"
+            "../../../../fixtures/protocol/event_visibility.json"
         ))
         .unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();

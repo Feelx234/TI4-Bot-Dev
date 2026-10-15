@@ -11,6 +11,7 @@ import {
   SECRET_OBJECTIVES,
 } from "../protocol/contentCatalog.ts";
 import { CONTENT_PRESENTATION_PROVENANCE } from "../protocol/generatedContentManifest.ts";
+import { partialContext } from "./wire.ts";
 
 /**
  * System invariant verification suite.
@@ -175,7 +176,7 @@ describe("Frontend Invariants & Property-based Checks", () => {
       const turnStatus: PublicTurnStatus = {
         kind: "waiting_for_decision",
         seat: activeSeat,
-        phase: "Strategy",
+        phase: "strategy",
         round: 1,
         stage: "Strategy Card Selection",
       };
@@ -185,8 +186,8 @@ describe("Frontend Invariants & Property-based Checks", () => {
         actor: activeSeat,
         nonce: "0123456789abcdef",
         options: [
-          { id: "opt_1", label: "Leadership" },
-          { id: "opt_2", label: "Diplomacy" },
+          { id: "opt_1", label: "Leadership", payload: {}, kind: "" },
+          { id: "opt_2", label: "Diplomacy", payload: {}, kind: "" },
         ],
       };
 
@@ -338,12 +339,12 @@ describe("Frontend Invariants & Property-based Checks", () => {
           payload: { system: "18", to: "18", planet: "mecatol_rex" },
         },
       ],
-      context: {
+      context: partialContext({
         version: 1,
         actor: "alpha-user",
         subtype: "movement",
         target: { System: "18" },
-      },
+      }),
     };
 
     const highlights = deriveActorTargetHighlights(opaqueChoice, "alpha-user");

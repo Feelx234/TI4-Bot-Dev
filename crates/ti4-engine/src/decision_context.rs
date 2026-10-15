@@ -296,6 +296,7 @@ pub struct DecisionTrigger {
     /// The engine event id, valid within one trace only: a session-local key, not a durable id.
     pub event_id: u64,
     /// `"when"` or `"after"`.
+    #[cfg_attr(feature = "ts", ts(type = "\"when\" | \"after\""))]
     pub relation: String,
     /// The seat that caused the event; absent for phase and agenda events.
     #[serde(default, skip_serializing_if = "Option::is_none")]

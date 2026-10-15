@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { GameProvider } from "../game/context";
 import { ReferenceDrawer } from "../game/shell/Reference";
-import menuUpdate from "../session/fixtures/update-menu.json";
+import menuUpdate from "../../../fixtures/protocol/update-menu.json";
 import { selectShell } from "../session/select/shell";
 import type { Catalog, SessionUpdate } from "../session/wire";
 

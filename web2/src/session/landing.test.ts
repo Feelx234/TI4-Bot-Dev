@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import landingUpdate from "./fixtures/update-landing.json";
+import landingUpdate from "../../../fixtures/protocol/update-landing.json";
 import {
   type LandingDraft,
   chosenForce,
@@ -17,8 +17,8 @@ import { selectShell } from "./select/shell";
 import type { InvasionFacts, SessionUpdate, TacticalFacts } from "./wire";
 
 // An update of a real game, written by the engine: seat a (Sol) moved a carrier with two
-// infantry to the system next to its home, which has one planet that nobody holds.
-//   cargo run -p ti4-wasm --example record -- 3 8 1 10 pok8imperial no tactical 23 'move|01|0' 'load|3' 'load|4' done_loading done_moving > web2/src/session/fixtures/update-landing.json
+// infantry to the system next to its home, which has one planet that nobody holds
+// (`crates/ti4-wasm/tests/it/protocol_fixtures.rs` (`cargo wire-web`)).
 const update = landingUpdate as unknown as SessionUpdate;
 const real = update.tactical as InvasionFacts;
 const choice = update.pending_choice!.choice;

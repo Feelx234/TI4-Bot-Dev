@@ -38,15 +38,16 @@ t-web-slow = [
     "--config", "profile.dev.package.ti4-policy.opt-level=1",
     "-p", "ti4-server", "-p", "ti4-wasm", "--lib", "--test", "it", "--", "::slow_",
 ]
-# Writes the TypeScript types of the wire into `web-shared/src/wire/generated/` (`ti4_wasm::wire_ts`):
-# the test that checks them, with `TI4_WRITE_WIRE=1`. The package set and the targets of `t-web`,
-# so it builds nothing that `t-web` has not built.
+# Writes the TypeScript types of the wire into `web-shared/src/wire/generated/` (`ti4_wasm::wire_ts`)
+# and the messages of `fixtures/protocol/`: the tests that check them, with `TI4_WRITE_WIRE=1`. The
+# package set and the targets of `t-web`, so it builds nothing that `t-web` has not built.
 wire-web = [
     "test",
     "--config", "env.TI4_WRITE_WIRE=\"1\"",
     "-p", "ti4-model", "-p", "ti4-content", "-p", "ti4-calc", "-p", "ti4-engine", "-p", "ti4-host",
     "-p", "ti4-rule-bot", "-p", "ti4-server", "-p", "ti4-wasm",
     "--lib", "--tests", "--", "--exact", "wire_types::generated_wire_types_are_current",
+    "protocol_fixtures::protocol_fixtures_are_current", "fixtures_verification::ensure_and_verify_fixtures",
 ]
 # `target/debug/server` for the e2e and the transport tests of web2. The test target is named only
 # so that the features are those of `t-web` (it is small); without it the engine is built again.

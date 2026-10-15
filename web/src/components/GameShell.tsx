@@ -852,10 +852,6 @@ export const ChoiceRendererDispatcher: React.FC<
     options: choice.options.map((option) => ({
       ...option,
       label: present(option.label),
-      description:
-        option.description == null
-          ? option.description
-          : present(option.description),
     })),
   };
 

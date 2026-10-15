@@ -1,6 +1,7 @@
 import type { Envelope, StartConfig } from "../engine/host.ts";
 import type { FromWorker, HostPort } from "../engine/protocol.ts";
-import { type GameLink, listeners } from "./link.ts";
+import type { ClientMessage, ServerMessage } from "../wire/index.ts";
+import { type GameLink, type HostCommand, listeners } from "./link.ts";
 
 export interface EngineLinkOptions {
   /**
@@ -15,7 +16,7 @@ export interface EngineLinkOptions {
 /** A link to the engine: its commands have replies, and a page can wait for its next question. */
 export interface EngineLink extends GameLink {
   /** A command (a `ClientMessage`, `save_state`, `history`, `submit_batch`, …): its reply. */
-  request(command: object): Promise<Envelope>;
+  request(command: ClientMessage | HostCommand): Promise<Envelope>;
   /** A query of the engine (`{"query": …}`): no game needs to run. */
   query(request: object): Promise<unknown>;
   /** The envelope of the next question (or end) the engine reaches; rejects when the link fails. */
@@ -74,7 +75,7 @@ export function engineLink(port: HostPort, config: StartConfig, options: EngineL
   };
   const tell = (messages: readonly unknown[]) => {
     for (const message of messages) {
-      all.tell({ kind: "message", message });
+      all.tell({ kind: "message", message: message as ServerMessage });
     }
   };
   const open = () => {
@@ -182,7 +183,7 @@ export function engineLink(port: HostPort, config: StartConfig, options: EngineL
       port.post(make(id));
     });
   };
-  const request = (command: object) =>
+  const request = (command: ClientMessage | HostCommand) =>
     post<Envelope>((id) => ({ t: "command", id, request: command }));
 
   port.listen(receive);

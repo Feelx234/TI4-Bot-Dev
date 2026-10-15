@@ -1,4 +1,4 @@
-import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import {
   findActionCardByName,
   findActionCardMeta,
@@ -55,7 +55,7 @@ export function isHandCardDecision(subtype: string | undefined): boolean {
  */
 export function describeCardOption(
   subtype: string | undefined,
-  option: Pick<ChoiceOptionDto, "id" | "label">,
+  option: Pick<ChoiceOption, "id" | "label">,
 ): CardOptionInfo | null {
   if (!subtype) return null;
   if (NOTE_PICK_SUBTYPE.test(subtype)) return describeNote(option.id);

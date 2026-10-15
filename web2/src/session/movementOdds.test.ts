@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import battleUpdate from "./fixtures/update-battle.json";
-import movementUpdate from "./fixtures/update-movement.json";
+import battleUpdate from "../../../fixtures/protocol/update-battle.json";
+import movementUpdate from "../../../fixtures/protocol/update-movement.json";
 import { type MovementDraft, setLoad, setShip } from "./movementDraft";
 import { type KeptOdds, oddsRequest } from "./movementOdds";
 import { percentages, selectArrival, selectMovement } from "./select/movement";
@@ -10,8 +10,8 @@ import { spaceOddsOf } from "./wasmTransport";
 import type { BattleResponse, MovementFacts, SessionUpdate } from "./wire";
 
 // An update of a real game, written by the engine: in the late game, seat a (Sol) moves into
-// the system of seat c (Letnev), which has two cruisers, a destroyer and a PDS there:
-//   cargo run -p ti4-wasm --example record -- late-game 8 1 3 tactical 32 > web2/src/session/fixtures/update-battle.json
+// the system of seat c (Letnev), which has two cruisers, a destroyer and a PDS there
+// (`crates/ti4-wasm/tests/it/protocol_fixtures.rs` (`cargo wire-web`)).
 const update = battleUpdate as unknown as SessionUpdate;
 const facts = update.tactical as MovementFacts;
 const WARSUN = "01|1";

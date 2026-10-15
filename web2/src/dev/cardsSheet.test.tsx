@@ -3,13 +3,13 @@ import { expect, it, vi } from "vitest";
 import { GameProvider } from "../game/context";
 import { ReferenceDrawer } from "../game/shell/Reference";
 import type { Intent } from "../model";
-import menuUpdate from "../session/fixtures/update-menu.json";
+import menuUpdate from "../../../fixtures/protocol/update-menu.json";
 import type { CardSettings } from "../session/select/cards";
 import { selectShell } from "../session/select/shell";
 import type { Catalog, SessionUpdate } from "../session/wire";
 
-// The Cards sheet over an update of the real engine: seat a holds `scuttle` and `rally`. The test
-// is here because `dev` is the layer that may import both the session and the components.
+// The Cards sheet over an update of the real engine, with seat a holding `scuttle` and `rally`.
+// The test is here because `dev` is the layer that may import both the session and the components.
 const card = (id: string, name: string, window: string, group: string) => ({
   id,
   name,
@@ -46,8 +46,17 @@ const catalog = {
     secret_objective_groups: [],
   },
 } as Catalog;
+const base = menuUpdate as unknown as SessionUpdate;
 const update: SessionUpdate = {
-  ...(menuUpdate as unknown as SessionUpdate),
+  ...base,
+  view: {
+    ...base.view,
+    players: base.view.players.map((player) =>
+      player.id === "a"
+        ? { ...player, held_action_cards: ["scuttle", "rally"], action_cards_count: 2 }
+        : player,
+    ),
+  },
   action_cards: { deck: 90, discard: ["mb2"], hand_limit: 7 },
 };
 const local = {

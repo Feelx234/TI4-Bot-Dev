@@ -156,7 +156,7 @@ describe("engineLink", () => {
     expect(events).toEqual([{ kind: "fatal", message: "unreachable" }]);
     port.emit({ t: "ask", envelope: envelope("ask"), save: null });
     expect(events).toHaveLength(1);
-    await expect(link.request({})).rejects.toThrow("unreachable");
+    await expect(link.request({ type: "history" })).rejects.toThrow("unreachable");
   });
 
   it("tells an end with an error as fatal", () => {

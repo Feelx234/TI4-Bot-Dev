@@ -3,12 +3,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { InvasionLandingTray } from "./InvasionLandingTray.tsx";
 import { galleryBoard, galleryPlayers } from "../dev/galleryBoard.ts";
 import { actor } from "../dev/decisionGalleryCases.ts";
+import { partialContext } from "../test/wire.ts";
 
 const choice = {
   actor,
   nonce: "landing-1",
   prompt: "Land on Jord",
-  context: { subtype: "commit_ground_forces", target: { System: "18" } },
+  context: partialContext({ subtype: "commit_ground_forces", target: { System: "18" } }),
   options: [
     {
       id: "land|jord|infantry",
@@ -16,7 +17,7 @@ const choice = {
       kind: "land",
       payload: { planet: "jord", unit: "infantry" },
     },
-    { id: "done_landing", label: "Done landing", kind: "decline" },
+    { id: "done_landing", label: "Done landing", kind: "decline", payload: {} },
   ],
 };
 
@@ -54,10 +55,10 @@ it("uses the engine's classified defender, all standing guns and legal Harrow in
       "18": {
         ...galleryBoard.systems["18"],
         units: [
-          { owner: actor, unit_type: "spec_ops", damaged: false, planet: "jord" },
-          { owner: actor, unit_type: "infantry", damaged: false },
-          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "pds", damaged: false, planet: "jord" },
+          { owner: actor, unit_type: "spec_ops", damaged: false, planet: "jord", galvanized: false },
+          { owner: actor, unit_type: "infantry", damaged: false, planet: null, galvanized: false },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "pds", damaged: false, planet: "jord", galvanized: false },
         ],
       },
     },
@@ -136,14 +137,15 @@ it("uses a fresh option for each staged copy and keeps the remainder when interr
       current_planet: null,
       defender: null,
       ground_round: 0,
+      odds_context: {},
     },
     systems: {
       ...galleryBoard.systems,
       "18": {
         ...galleryBoard.systems["18"],
         units: [
-          { owner: actor, unit_type: "infantry", damaged: false },
-          { owner: actor, unit_type: "infantry", damaged: false },
+          { owner: actor, unit_type: "infantry", damaged: false, planet: null, galvanized: false },
+          { owner: actor, unit_type: "infantry", damaged: false, planet: null, galvanized: false },
         ],
       },
     },
@@ -247,13 +249,13 @@ it("shows the defender's ground forces, PDS and Space Cannon Defense beside the 
       "18": {
         ...galleryBoard.systems["18"],
         units: [
-          { owner: actor, unit_type: "infantry", damaged: false },
-          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "mech", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "pds", damaged: false, planet: "jord" },
-          { owner: "defender", unit_type: "space_dock", damaged: false, planet: "jord" },
+          { owner: actor, unit_type: "infantry", damaged: false, planet: null, galvanized: false },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "infantry", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "mech", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "pds", damaged: false, planet: "jord", galvanized: false },
+          { owner: "defender", unit_type: "space_dock", damaged: false, planet: "jord", galvanized: false },
         ],
       },
     },

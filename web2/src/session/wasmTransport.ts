@@ -11,7 +11,7 @@ import { hasJspi } from "@ti4/shared/engine/jspi.ts";
 import { inlinePort, workerPort } from "@ti4/shared/engine/port.ts";
 import type { HostPort } from "@ti4/shared/engine/protocol.ts";
 import { engineLink } from "@ti4/shared/link/engineLink.ts";
-import type { GameLink } from "@ti4/shared/link/link.ts";
+import type { GameLink, HostCommand } from "@ti4/shared/link/link.ts";
 import type { HostSave as StoredSave } from "@ti4/shared/storage/index.ts";
 import { type MessageCore, messageTransport } from "./messageTransport";
 import type { LocalGame } from "./savedGame";
@@ -20,6 +20,7 @@ import type { Capabilities, Transport } from "./transport";
 import type {
   BattleResponse,
   Catalog,
+  ClientMessage,
   ReactionModes,
   SeatStaged,
   SeatSwitch,
@@ -337,8 +338,8 @@ export function createWasmTransport(
   });
 
   /** A command, and its reply. A step does not wait for its reply: no second one is sent. */
-  const request = async (command: object) => {
-    const moves = MOVES.has((command as { type?: string }).type ?? "");
+  const request = async (command: ClientMessage | HostCommand) => {
+    const moves = MOVES.has(command.type);
     const was = parked;
     if (moves) {
       parked = false;
@@ -357,7 +358,7 @@ export function createWasmTransport(
     }
     return envelope;
   };
-  const local = (command: object) => {
+  const local = (command: ClientMessage | HostCommand) => {
     request(command).catch(() => undefined);
   };
   const linked: GameLink = {

@@ -82,7 +82,8 @@ To enable self-service MLP bots from the lobby:
 
 ### Unit & Protocol Conformance Tests (Vitest)
 
-Runs wire fixture validations, React component tests, and invariant checks:
+Runs wire fixture validations (the messages of `../fixtures/protocol/`, written by the Rust tests),
+React component tests, and invariant checks:
 
 ```bash
 npm test
@@ -135,7 +136,7 @@ web/
 │   ├── hooks/
 │   │   └── useGameSession.ts           # WebSocket connection hook with state sync & heartbeat
 │   ├── protocol/
-│   │   └── types.ts                    # TypeScript wire DTOs matching ti4-server Rust protocol
+│   │   └── types.ts                    # the wire types generated from Rust (web-shared), what web narrows, the lobby
 │   ├── test/
 │   │   └── invariants.test.ts          # State integrity and privacy invariant checks
 │   ├── App.tsx                         # Main app container
@@ -146,7 +147,8 @@ web/
 
 ### Shared with web2
 
-The engine driver of offline play (the Worker, `Host`, `HostRunner`, the engine file hash) is in
-`../web-shared/`, which web and web2 share. This app imports it as `@ti4/shared/...` (the alias is in
+The engine driver of offline play (the Worker, `Host`, `HostRunner`, the engine file hash), the
+save store, the wire types (generated from Rust) and their checks (`decodeServerMessage`, the map
+answers: `wire/decode.ts`) are in `../web-shared/`, which web and web2 share. This app imports it as `@ti4/shared/...` (the alias is in
 `vite.config.ts` and `tsconfig.json`). Read [`../web-shared/AGENTS.md`](../web-shared/AGENTS.md)
 before you change it: some changes there need the agreement of both maintainers.

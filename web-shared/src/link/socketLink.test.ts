@@ -77,10 +77,10 @@ describe("socketLink", () => {
       { type: "ping", sequence: 1 },
       { type: "ping", sequence: 2 },
     ]);
-    const custom = start({ ping: (sequence) => ({ type: "beat", n: sequence }) });
+    const custom = start({ ping: (sequence) => ({ type: "ping", sequence: sequence * 10 }) });
     custom.last().open();
     vi.advanceTimersByTime(HEARTBEAT_MS);
-    expect(custom.last().sent[1]).toEqual({ type: "beat", n: 1 });
+    expect(custom.last().sent[1]).toEqual({ type: "ping", sequence: 10 });
   });
 
   it("tells a loss once as offline, and opens again after a growing wait", () => {

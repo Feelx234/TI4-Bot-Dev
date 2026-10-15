@@ -1,4 +1,14 @@
 import type { HostSave } from "../engine/host.ts";
+import type { ClientMessage, ServerMessage } from "../wire/index.ts";
+
+/**
+ * A command of the engine's host that is not a `ClientMessage` (`save_state`, `history`,
+ * `submit_batch`, `step`…; "Commands" in `crates/ti4-wasm/README.md`). It is not generated.
+ */
+export type HostCommand = { type: string; [field: string]: unknown };
+
+/** A `ClientMessage` without the fields that a socket link adds to each message (`stamp`). */
+export type Unstamped<T> = T extends unknown ? Omit<T, "protocol_version"> : never;
 
 /**
  * A game at the level of its messages: a server behind a websocket (`socketLink`) or the engine
@@ -8,9 +18,9 @@ import type { HostSave } from "../engine/host.ts";
  */
 export interface GameLink {
   /** A `ClientMessage` or a local host command. Nothing is sent while the link is not open. */
-  send(message: object): void;
+  send(message: ClientMessage | HostCommand): void;
   /** The engine only: a command whose reply is wanted (`save_state`, `history`, a query). */
-  request?(command: object): Promise<unknown>;
+  request?(command: ClientMessage | HostCommand): Promise<unknown>;
   /** The listener gets the events from now on. The answer ends the subscription. */
   subscribe(listener: (event: LinkEvent) => void): () => void;
   /** Ends the link. Nothing is told after it. */
@@ -18,8 +28,11 @@ export interface GameLink {
 }
 
 export type LinkEvent =
-  /** A `ServerMessage`, undecoded. */
-  | { kind: "message"; message: unknown }
+  /**
+   * A `ServerMessage` as the server or the engine wrote it. The link does not check it:
+   * `decodeServerMessage` (`wire/decode.ts`) does.
+   */
+  | { kind: "message"; message: ServerMessage }
   /** The link can be used: a socket opened (and subscribed), or the engine asked its first question. */
   | { kind: "opened" }
   /** The socket was lost; another one is on its way. */

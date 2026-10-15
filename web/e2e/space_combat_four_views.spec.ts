@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import { openPlayerGame } from "./lobbyHelpers";
-import type { InitialSnapshotMsg, ChoiceOptionDto } from "../src/protocol/types";
+import type { InitialSnapshotMsg, ChoiceOption } from "../src/protocol/types";
 import { getUnitBaseType } from "../src/components/UnitIcon";
 
 const backend = `http://127.0.0.1:${process.env.TI4_E2E_BACKEND_PORT ?? "8180"}`;
@@ -295,7 +295,7 @@ test("a complete human battle stays public in four independent views", async ({
           .soft(actorPage!.getByRole("button", { name: "Play Shields Holding" }))
           .toBeVisible();
       }
-      let selected: ChoiceOptionDto;
+      let selected: ChoiceOption;
       if (card && (actor === sol || String(card.payload?.card_name) === "Sabotage")) {
         selected = card;
       } else if (subtype === "announce_retreat") {
@@ -759,7 +759,7 @@ test("replaying Direct Hit, Sabotage and Shields Holding after undo keeps the ga
           options.find(
             (option) => option.payload?.card_name === name || option.label === `Play ${name}`,
           );
-        let selected: ChoiceOptionDto;
+        let selected: ChoiceOption;
         if (!seen.sustain && actor === letnev && subtype === "sustain_damage") {
           selected = options.find((option) => option.kind === "sustain")!;
           expect(selected).toBeDefined();

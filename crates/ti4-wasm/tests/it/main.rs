@@ -12,5 +12,6 @@ mod host_script;
 mod host_session;
 mod host_setup;
 mod host_staged;
+mod protocol_fixtures;
 mod server_parity;
 mod wire_types;

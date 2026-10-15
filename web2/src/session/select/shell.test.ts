@@ -1,13 +1,12 @@
 import { expect, it } from "vitest";
-import menuUpdate from "../fixtures/update-menu.json";
-import systemsUpdate from "../fixtures/update-load.json";
+import menuUpdate from "../../../../fixtures/protocol/update-menu.json";
+import systemsUpdate from "../../../../fixtures/protocol/update-load.json";
 import type { ComponentCatalog, SessionUpdate } from "../wire";
 import type { LocalState } from "./action";
 import { selectShell } from "./shell";
 
-// The fixtures are updates of a real game, written by the engine:
-//   cargo run -p ti4-wasm --example record -- 3 8 1 20 > web2/src/session/fixtures/update-menu.json
-//   cargo run -p ti4-wasm --example record -- 3 8 1 6 pok8imperial no tactical 23 'move|01|0' > web2/src/session/fixtures/update-load.json
+// The fixtures are updates of a real game, written by the engine: the menu of an action phase in
+// round 2, and the loading of a carrier (`crates/ti4-wasm/tests/it/protocol_fixtures.rs` (`cargo wire-web`)).
 const menu = menuUpdate as unknown as SessionUpdate;
 const systems = systemsUpdate as unknown as SessionUpdate;
 const local = (change: Partial<LocalState> = {}): LocalState => ({

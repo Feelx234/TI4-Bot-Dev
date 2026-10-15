@@ -51,7 +51,8 @@ src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelop
                           this thread, for Node and the tests)
              identity.ts  sha256Hex/sha256 of the engine file, EngineIdentity {build, contentDigest, wasmSha256}
 src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
-src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent; a game at the level of its messages
+src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent, HostCommand; a game at the level of
+                           its messages: `ClientMessage` (or a command of the host) in, `ServerMessage` out
              socketLink.ts socketLink: the server over `connect` (subscription on each open, heartbeat, backoff,
                            `again`); web2's `wsTransport` runs on it
              engineLink.ts engineLink: the engine over a HostPort (start, replies, the next question, a gate, saves);
@@ -67,6 +68,10 @@ src/storage/ types.ts     HostSave (format 2), SavedGameRecord, GameMeta, StoreS
 src/wire/    index.ts     the wire types: import them from here
              generated/   one file for each type, and index.ts with every type and PROTOCOL_VERSION; written
                           from Rust by `cargo wire-web`, never by hand
+             decode.ts    decodeServerMessage (checks a message before an app reads it), decodeInitialSnapshot,
+                          isStaleServerMessage, the display parts of an update (trigger, auto-resolved notes,
+                          reaction modes), and the map answers of the server (decodeMapChoice, decodeMapList,
+                          decodeMapPreview)
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
@@ -88,11 +93,17 @@ The types of what the server and the engine send and take, generated from the Ru
   it sends (serde `default`) is `name?: T` with `#[cfg_attr(feature = "ts", ts(optional))]` on an
   `Option`, and `ts(optional = nullable)` on another type (`TableSetup`, `SeatRequest`, `scope`
   of `run_draft`). `u64` is `number`. The engine's `GameState` is `Record<string, unknown>`.
-- web2 imports them through `web2/src/session/wire.ts`, which re-exports them and adds only what
-  web2 narrows. web has its own types (`web/src/protocol/types.ts`).
+- Each app imports them through its own module, which re-exports them and adds only what the app
+  narrows or keeps of its own: `web2/src/session/wire.ts` and `web/src/protocol/types.ts` (with
+  the lobby of the server, and web's `PendingChoiceDto`). A field that Rust does not send is not
+  read: a type of an app is never a looser copy of a generated one.
+- `wire/decode.ts` checks a message of the server or the engine (`decodeServerMessage`): the
+  envelope and what an app relies on, not every field. A link (`GameLink`) types its messages as
+  `ServerMessage` but does not check them; web decodes each one (`GameSessionClient`,
+  `LocalTransport`). Its errors are for the developer.
 - A change of a Rust type of the wire: run `cargo wire-web` (it writes `src/wire/generated/`
-  and removes the files of types that are gone) and commit the files. `cargo t-web` fails while
-  they are stale (`wire_types::generated_wire_types_are_current`).
+  and removes the files of types that are gone, and writes `fixtures/protocol/`) and commit the
+  files. `cargo t-web` fails while they are stale (`wire_types::generated_wire_types_are_current`).
 - The derives are behind the `ts` feature of `ti4-model`, `ti4-engine`, `ti4-calc`, `ti4-host`
   and `ti4-wasm`. Only the tests enable it (the dev-dependency of `ti4-server` on `ti4-wasm`), so
   the wasm file and the server binary of a deploy have none of it. A new type that a root names
@@ -100,6 +111,27 @@ The types of what the server and the engine send and take, generated from the Ru
   `#[cfg_attr(feature = "ts", ts(type = "..."))]`. Two types with one name fail the generator:
   rename one with `ts(rename = "...")`.
 - The generated files are not linted or formatted (`biome.json`, `.oxfmtrc.json`).
+- `PROTOCOL_VERSION` is also named in `index.ts`: Node (web's e2e) loads this dir as CommonJS,
+  and an ES module does not see a value that only `export *` passes on.
+
+## Protocol fixtures
+
+`fixtures/protocol/` of the repository holds messages for the tests of both apps, written by the
+Rust tests; never edit one.
+
+- `actor_snapshot.json`, `opponent_snapshot.json`, `spectator_snapshot.json`,
+  `stale_submission_rejected.json`, `terminal_game_over.json`: `ServerMessage`s of the server
+  (`ti4_server::fixtures`, `crates/ti4-server/tests/it/fixtures_verification.rs`).
+- `update-*.json`: the `SessionUpdate` of one question of a game that the hosted engine plays
+  (`crates/ti4-wasm/tests/it/protocol_fixtures.rs` names the game and the answers that reach it).
+- `event_visibility.json`: three `GameEvent`s, checked to round-trip by a test of `ti4-host`.
+- `cargo t-web` fails while a file differs from what Rust writes; `cargo wire-web` writes them
+  again. A change of the engine can change a recorded game: then a test of an app is brought up
+  to date, or sets on its copy what it needs.
+- They are read through the generated types: `src/wire/decode.test.ts` decodes each message and
+  reads each update, web's `src/protocol/fixtures.test.ts` decodes the messages, and the tests of
+  web2 import the updates as `SessionUpdate` (`web2/src/boundaries.test.ts` lets a test import
+  them).
 
 ## Save store
 
@@ -157,7 +189,7 @@ The single player games of both apps, in one IndexedDB database of the origin. I
   `cd web2 && npm test`.
 - web2's biome lints this dir: `web-shared/biome.json` extends `web2/biome.json`, and web2's
   `npm run lint` runs it here too. Not `src/wire/generated/`.
-- `cargo t-web` checks that `src/wire/generated/` is current.
+- `cargo t-web` checks that `src/wire/generated/` and `fixtures/protocol/` are current.
 - The storage tests (`src/storage/storage.test.ts`) run on `fake-indexeddb`, a fresh
   `IDBFactory` for each test.
 - web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`), without the

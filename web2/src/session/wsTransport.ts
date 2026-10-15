@@ -73,7 +73,7 @@ export function createWsTransport(
     subscribe: () => ({
       type: "subscribe",
       game_id: game.gameId,
-      ...(player ? { player_session: game.playerSession, staged: true } : {}),
+      ...(game.playerSession !== null ? { player_session: game.playerSession, staged: true } : {}),
     }),
     stamp: { protocol_version: PROTOCOL_VERSION },
     lost(event) {

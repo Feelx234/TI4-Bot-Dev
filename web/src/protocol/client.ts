@@ -12,18 +12,16 @@ import {
 } from "./resilience.ts";
 import {
   ClientMessage,
-  InitialSnapshotMsg,
   PendingChoiceDto,
   PROTOCOL_VERSION,
   PublicTurnStatus,
   ServerMessage,
-  StateUpdateMsg,
   ViewerRole,
   HistoryStatus,
   ReactionModeSetting,
   ReactionIntentStateMsg,
   PreviewRefusal,
-  SecondaryPreviewBody,
+  SecondaryPreview,
   ReachOrigin,
   ReachRefusal,
 } from "./types.ts";
@@ -33,7 +31,7 @@ import {
   decodeInitialSnapshot,
   decodeServerMessage,
   isStaleServerMessage,
-} from "./decode.ts";
+} from "@ti4/shared/wire/decode.ts";
 import { SERVER_CAPABILITIES } from "./capabilities.ts";
 import type { GameTransport } from "./transport.ts";
 import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
@@ -50,7 +48,7 @@ const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["draft_outcom
 export type SecondaryPreviewReply =
   | {
       kind: "preview";
-      body: SecondaryPreviewBody;
+      body: SecondaryPreview;
       /** The game version and decision count the answer was computed at. */
       asOfVersion: number;
       asOfDecisions: number;
@@ -83,7 +81,7 @@ export const PREVIEW_TIMEOUT_MS = 4_000;
 
 export type ConnectionStatus =
   "connecting" | "connected" | "disconnected" | "error";
-export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
+export type SnapshotState = Extract<ServerMessage, { type: "initial_snapshot" | "state_update" }>;
 export type GameLogEntry = import("./types.ts").GameEvent;
 export type HistoryChange =
   | "undo"
@@ -286,7 +284,7 @@ const initialState: GameSessionState = {
   fatal: null,
   reconnecting: false,
   events: [],
-  history: { cursor: 0, redo_count: 0 },
+  history: { cursor: 0, redo_count: 0, generation: 0 },
 };
 
 /** Keep the complete authoritative history, including early rounds and batches. */
@@ -322,6 +320,10 @@ function rejectionMessage(
       return "Rejected: No decision is currently pending";
     case "validation_failed":
       return `Rejected: ${message.reason.message}`;
+    case "undo_barrier":
+      return "Rejected: That decision can no longer be taken back";
+    case "answered_elsewhere":
+      return "Rejected: The decision was already answered";
   }
 }
 
@@ -338,7 +340,7 @@ function pendingChoice(
     // The trigger is display data: keep a well-formed one, drop a damaged one.
     context:
       context && "trigger" in context
-        ? { ...context, trigger: decodeDecisionTrigger(context.trigger) }
+        ? { ...context, trigger: decodeDecisionTrigger(context.trigger) ?? undefined }
         : context,
     ...(envelope.choice.details ? { details: envelope.choice.details } : {}),
   };
@@ -431,6 +433,11 @@ export function reduceServerMessage(
     case "secondary_preview":
     case "reach_into":
       // Answered to the asking call, never part of the shared projection.
+      return state;
+    case "draft_outcome":
+    case "draft_applied":
+    case "seat_staged":
+      // Answers to drafts and staged work, which this client never asks for.
       return state;
   }
 }

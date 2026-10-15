@@ -1,13 +1,14 @@
 import { type Socket, backoff, connect } from "../net/socket.ts";
-import { type GameLink, listeners } from "./link.ts";
+import type { ClientMessage, ServerMessage } from "../wire/index.ts";
+import { type GameLink, type HostCommand, type Unstamped, listeners } from "./link.ts";
 
 export interface SocketLinkOptions {
   /** What is sent on each socket that opens: the subscription to the game. */
-  subscribe(): object;
+  subscribe(): Unstamped<ClientMessage>;
   /** The heartbeat, sent every `HEARTBEAT_MS` while a socket is open. Without it: a `ping`. */
-  ping?(sequence: number): object;
-  /** Added to every message that is sent (the protocol version, say). */
-  stamp?: object;
+  ping?(sequence: number): Unstamped<ClientMessage>;
+  /** Added to every message that is sent: the protocol version. */
+  stamp?: { protocol_version: number };
   /** How long to wait before try `attempt` (from 0) to reach the game again, in ms. Without it: `backoff`. */
   retryAfter?(attempt: number): number;
   /**
@@ -20,6 +21,8 @@ export interface SocketLinkOptions {
 
 /** A link to a server: it can drop its socket and open one at once, to be told the game again. */
 export interface SocketLink extends GameLink {
+  /** A `ClientMessage`; the link adds its `stamp`. */
+  send(message: ClientMessage | Unstamped<ClientMessage> | HostCommand): void;
   /** Drops the socket and opens one now: the subscription of the new socket tells the game. */
   again(): void;
 }
@@ -37,7 +40,7 @@ export function socketLink(open: () => Socket, options: SocketLinkOptions): Sock
   let offline = false;
   let closed = false;
 
-  const send = (message: object) => {
+  const send = (message: ClientMessage | Unstamped<ClientMessage> | HostCommand) => {
     connection.send(JSON.stringify({ ...options.stamp, ...message }));
   };
   const close = () => {
@@ -66,7 +69,7 @@ export function socketLink(open: () => Socket, options: SocketLinkOptions): Sock
         return;
       }
       attempt = 0;
-      all.tell({ kind: "message", message });
+      all.tell({ kind: "message", message: message as ServerMessage });
     },
     lost(event) {
       const told = options.lost?.(event);

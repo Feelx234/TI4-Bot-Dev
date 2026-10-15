@@ -9,24 +9,25 @@ import {
   type DraftOutcome,
   PROTOCOL_VERSION,
   type ReactionFacts,
+  type ServerMessage,
 } from "./wire";
 import { GAME_UNKNOWN, type OnlineGame, type Socket, createWsTransport } from "./wsTransport";
 
-// The messages that the server wrote (`crates/ti4-server/fixtures`, checked against the server
-// by `tests/it/fixtures_verification.rs`), replayed over a socket of the test. The transport
-// against a real server is in `transportContract.test.ts`.
-const fixture = (name: string) =>
+// The messages that the server wrote (`fixtures/protocol`, checked against the server by
+// `crates/ti4-server/tests/it/fixtures_verification.rs`), replayed over a socket of the test. The
+// transport against a real server is in `transportContract.test.ts`.
+const fixture = <T extends ServerMessage["type"]>(name: string) =>
   JSON.parse(
     readFileSync(
-      fileURLToPath(new URL(`../../../crates/ti4-server/fixtures/${name}.json`, import.meta.url)),
+      fileURLToPath(new URL(`../../../fixtures/protocol/${name}.json`, import.meta.url)),
       "utf8",
     ),
-  );
-const actor = fixture("actor_snapshot");
-const opponent = fixture("opponent_snapshot");
-const spectator = fixture("spectator_snapshot");
-const stale = fixture("stale_submission_rejected");
-const gameOver = fixture("terminal_game_over");
+  ) as Extract<ServerMessage, { type: T }>;
+const actor = fixture<"initial_snapshot">("actor_snapshot");
+const opponent = fixture<"initial_snapshot">("opponent_snapshot");
+const spectator = fixture<"initial_snapshot">("spectator_snapshot");
+const stale = fixture<"action_rejected">("stale_submission_rejected");
+const gameOver = fixture<"game_over">("terminal_game_over");
 
 const GAME: OnlineGame = { gameId: actor.game_id, playerSession: "secret" };
 /** A page whose engine has the corpus of the server. */
@@ -235,7 +236,7 @@ it("refuses a server of another protocol or with other cards", () => {
   cards.tell(actor);
   const [event] = cards.take().slice(-1);
   expect(event.kind === "error" && event.message).toContain(
-    `${actor.content.slice(0, 12)} there, 0123456789ab here`,
+    `${actor.content?.slice(0, 12)} there, 0123456789ab here`,
   );
   // A listener that comes later is told why there is no game.
   const late: TransportEvent[] = [];

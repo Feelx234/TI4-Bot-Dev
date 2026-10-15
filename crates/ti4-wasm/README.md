@@ -266,10 +266,10 @@ played in the page.
   view models of web2, and `useLiveSession`.
 - The activation, the movement and the landings of a tactical action have their screens (see
   "A tactical action" below). Every other decision is one list in the action panel.
-- `cargo run -p ti4-wasm --example record -- <seed> <players> <mask> <choice number> [option id ...]`
-  writes the update of one choice. The option ids answer the first choices, so that the game
-  reaches the choice that is wanted. The tests of web2 use five such files
-  (`web2/src/session/fixtures/`).
+- `tests/it/protocol_fixtures.rs` records the update of one choice of a game for each file of
+  `fixtures/protocol/update-*.json`: the game, the number of the choice, and the option ids that
+  answer the first choices so that the game reaches it. The tests of web2 read these files. The
+  test fails while a file differs from what the engine plays; `cargo wire-web` writes them again.
 
 ### A tactical action
 
@@ -351,8 +351,8 @@ staged them, each with its place; the payments follow them.
 - The cost and the limits of a staged build are sums in TypeScript over the facts
   (`productionDraft.ts`): the purchases at their printed cost, less the discount and the credit.
   The fleet pool and the capacity are plain sums, so they do not know what a rule excuses.
-- The record example plays a scenario when its first argument is the id of one:
-  `cargo run -p ti4-wasm --example record -- late-game 8 1 5 tactical 72 done_moving decline`.
+- A recording of `tests/it/protocol_fixtures.rs` plays a scenario when its game names one
+  (`update-production`: the scenario `late-game`, answers `tactical 72 done_moving decline`).
 
 Limits:
 

@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { SpaceOdds } from "../game/combat/SpaceOdds";
 import { GameProvider } from "../game/context";
-import battleUpdate from "../session/fixtures/update-battle.json";
+import battleUpdate from "../../../fixtures/protocol/update-battle.json";
 import { setCount } from "../session/movementDraft";
 import { type KeptOdds, oddsRequest } from "../session/movementOdds";
 import { selectMovement } from "../session/select/movement";

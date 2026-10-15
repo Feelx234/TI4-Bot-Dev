@@ -1,10 +1,10 @@
 import type {
   BoardView,
-  DecisionTriggerDto,
+  DecisionTrigger,
   GameEvent,
   PendingChoiceDto,
 } from "../protocol/types.ts";
-import { decodeDecisionTrigger } from "../protocol/decode.ts";
+import { decodeDecisionTrigger } from "@ti4/shared/wire/decode.ts";
 import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
 import {
   findActionCardByName,
@@ -281,7 +281,7 @@ function strategyCardName(id: string | null): string {
 }
 
 /** Facts from the engine's typed trigger: the best source, and the only one for exact units. */
-export function factsFromTrigger(trigger: DecisionTriggerDto): ReactionTriggerFacts {
+export function factsFromTrigger(trigger: DecisionTrigger): ReactionTriggerFacts {
   const facts = emptyFacts(trigger.event_type);
   facts.actorId = trigger.actor ?? null;
   facts.subjectId = trigger.subject ?? null;
