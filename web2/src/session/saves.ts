@@ -22,7 +22,7 @@ import {
   readLeft,
   savedAddress,
 } from "./savedGame";
-import { titleCase } from "./select/names";
+import { humanizeId } from "./select/names";
 import type { HostSave } from "./wasmTransport";
 import type { SessionUpdate } from "./wire";
 
@@ -198,7 +198,7 @@ export function saveRows(games: readonly SavedGameSummary[], now = Date.now()): 
               : "Saved game";
     const factions = summary.factions
       .filter((faction, seat) => faction !== null && (summary.humans >> seat) & 1)
-      .map((faction) => titleCase(faction as string));
+      .map((faction) => humanizeId(faction as string));
     const phase = summary.phase === null ? null : (PHASES[summary.phase] ?? summary.phase);
     const where =
       game.status === "finished"

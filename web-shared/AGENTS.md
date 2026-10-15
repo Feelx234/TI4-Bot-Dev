@@ -78,7 +78,7 @@ src/wire/    index.ts     the wire types: import them from here
                           reaction modes), and the map answers of the server (decodeMapChoice, decodeMapList,
                           decodeMapPreview)
 src/content/ catalog.ts   loadCatalog (from the engine of the page, else `GET /api/catalog`), CatalogError
-             names.ts     humanizeId, titleCase, the faction ids of a table (base game, Prophecy of Kings)
+             names.ts     humanizeId, the faction ids of a table (base game, Prophecy of Kings)
 src/identity/ nickname.ts NICKNAME_KEY (`ti4.nickname`), validNickname (the names that the server takes)
 test/server.ts            spawnTestServer, testServerBinary: a real ti4-server for the tests of both apps (Node only)
 scripts/build-wasm.mjs    the build of the engine file of both apps
@@ -173,10 +173,9 @@ What is printed on the cards, from `ti4-content` through the engine: `Catalog`
   web (`web/src/test/setup.ts` loads it). `cargo wire-web` writes it; `cargo t-web` fails while it
   is stale (`catalog_fixture::catalog_fixture_is_current`).
 - `content/names.ts` holds the pure helpers about ids, with no text of their own:
-  - `humanizeId` (web's fallback name: underscores to spaces, each word in upper case, also after
-    a hyphen) and `titleCase` (web2's: upper case after a space or an underscore only). web's
-    `contentCatalog.ts` and web2's `select/names.ts` re-export them. web keeps two own title
-    cases of other behaviour (`presentation/landingPlan.ts`, `presentation/tradeNames.ts`).
+  - `humanizeId`, the one capitalization of both apps: underscores to spaces, each word in upper
+    case, also after a hyphen ("jol-nar" → "Jol-Nar"). web's `contentCatalog.ts` and web2's
+    `select/names.ts` re-export it.
   - `FACTION_IDS` (what a table can seat, the engine's `seating::LOBBY_FACTIONS`, base game
     first), `BASE_FACTION_IDS`, `POK_FACTION_IDS`, `POK_FACTIONS`. A test checks them against
     the Rust source. web's `OFFLINE_FACTION_IDS` and `POK_FACTIONS` are these.

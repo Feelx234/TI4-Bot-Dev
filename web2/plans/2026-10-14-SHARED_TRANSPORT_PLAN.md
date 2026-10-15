@@ -285,7 +285,7 @@ With both apps on one origin, both lists show every save of the browser.
 14. **`web-shared/src/content/`.**
     - `loadCatalog()` uses the engine query when an engine is loaded, and `/api/catalog`
       otherwise.
-    - It also holds the pure helpers that both apps have: `humanizeId`/`titleCase`, the faction
+    - It also holds the pure helpers that both apps have: `humanizeId`, the faction
       ids and the expansion sets.
 15. **web uses the catalog.**
     - It loads the catalog at startup (a provider in web's React tree).

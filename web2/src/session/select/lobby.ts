@@ -19,7 +19,7 @@ import type { TableState } from "../table";
 import type { Catalog, LobbySlot, LobbyState, SetupOptions } from "../wire";
 import { SEAT_PLACE, selectPreviewBoard } from "./board";
 import { factionSheet } from "./factionSheet";
-import { factionName, titleCase } from "./names";
+import { factionName, humanizeId } from "./names";
 
 /** What the page knows of the table besides the table itself. */
 export interface LobbyLocal {
@@ -77,7 +77,7 @@ function sign(
 
 function mapName(lobby: LobbyState): string {
   const { map } = lobby;
-  const name = map.kind === "random" ? "Random" : (map.name ?? titleCase(map.alias ?? "Map"));
+  const name = map.kind === "random" ? "Random" : (map.name ?? humanizeId(map.alias ?? "Map"));
   return `${name} · ${plural(map.systems, "system")}${map.hyperlanes ? " · hyperlanes" : ""}`;
 }
 
@@ -161,7 +161,7 @@ function setupRows(
       label: "Strategy cards",
       value:
         sets.find((cards) => cards.id === lobby.strategy_card_set)?.name ??
-        titleCase(lobby.strategy_card_set),
+        humanizeId(lobby.strategy_card_set),
       control:
         free && sets.length
           ? {
@@ -218,7 +218,7 @@ function setupRows(
         scenario === null
           ? "Round 1"
           : (scenarios.find((item) => item.id === scenario)?.title ??
-            titleCase(scenario.replaceAll("-", " "))),
+            humanizeId(scenario.replaceAll("-", " "))),
       control:
         host && before && scenarios.length
           ? {

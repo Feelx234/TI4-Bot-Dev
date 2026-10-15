@@ -8,7 +8,6 @@ import {
   POK_FACTIONS,
   POK_FACTION_IDS,
   humanizeId,
-  titleCase,
 } from "./names.ts";
 
 const catalog = (content = "digest-a") => ({
@@ -126,18 +125,11 @@ describe("humanizeId", () => {
     ["jol-nar", "Jol-Nar"],
     ["l1z1x", "L1z1x"],
     ["sol", "Sol"],
-    ["", ""],
-  ])("%s → %s", (id, name) => expect(humanizeId(id)).toBe(name));
-});
-
-describe("titleCase", () => {
-  it.each([
     ["pok_trade", "Pok Trade"],
     ["action phase", "Action Phase"],
-    ["jol-nar", "Jol-nar"],
     ["Already", "Already"],
     ["", ""],
-  ])("%s → %s", (text, title) => expect(titleCase(text)).toBe(title));
+  ])("%s → %s", (id, name) => expect(humanizeId(id)).toBe(name));
 });
 
 describe("the faction ids", () => {

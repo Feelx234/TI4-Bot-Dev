@@ -1,24 +1,13 @@
 // Pure helpers about the ids of the corpus. No text for a player: the names are the catalog's.
 
 /**
- * An id written as words: underscores become spaces and each word starts in upper case
- * ("support_for_the_throne" → "Support For The Throne", "jol-nar" → "Jol-Nar"). A fallback for an
- * id the catalog does not name.
+ * An id written as words: underscores become spaces and each word starts in upper case, also
+ * after a hyphen ("support_for_the_throne" → "Support For The Throne", "jol-nar" → "Jol-Nar"). A
+ * fallback for an id the catalog does not name, in both apps.
  */
 export function humanizeId(id: string): string {
   return id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
-
-/**
- * A text or an id with each word in upper case: a lower case letter at the start or after a
- * space or an underscore, an underscore before a letter becoming a space ("pok_trade" →
- * "Pok Trade", "jol-nar" → "Jol-nar"). It differs from `humanizeId` after other marks.
- */
-export const titleCase = (text: string) =>
-  text.replace(
-    /(^|[\s_])([a-z])/g,
-    (_, gap: string, letter: string) => `${gap === "_" ? " " : gap}${letter.toUpperCase()}`,
-  );
 
 /**
  * The factions of the base game that a table can seat, in the engine's order

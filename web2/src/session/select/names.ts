@@ -1,7 +1,7 @@
 // How ids of the wire protocol are shown. Presentation only: no rule is decided here.
 import type { Force, TechColor, UnitType } from "../../model";
 import type { Catalog, SessionUpdate } from "../wire";
-import { titleCase } from "@ti4/shared/content/names.ts";
+import { humanizeId } from "@ti4/shared/content/names.ts";
 
 const SYMBOLS = ["●", "◆", "▲", "■", "✚", "✖", "♣", "★"];
 const COLORS = [
@@ -20,14 +20,14 @@ export const seatMark = (index: number) => ({
   color: COLORS[index % COLORS.length],
 });
 
-export { titleCase };
+export { humanizeId };
 
 /**
  * The name that a table calls a faction by, from the catalogue ("Jol-Nar"). Without the
  * catalogue it is the id.
  */
 export const factionName = (id: string, catalog: Catalog | null) =>
-  catalog?.components.faction_sheets[id]?.name ?? titleCase(id);
+  catalog?.components.faction_sheets[id]?.name ?? humanizeId(id);
 /**
  * Who a seat is, where the page says who the game waits for: the name of its player, as the
  * table says it, and in a game with no table the faction.
@@ -52,7 +52,7 @@ export function strategyCard(
     return { number: card.initiative, name: card.name };
   }
   const [, number = "0", name = ""] = /(\d)([a-z]*)$/.exec(id) ?? [];
-  return { number: Number(number), name: name ? titleCase(name) : id };
+  return { number: Number(number), name: name ? humanizeId(name) : id };
 }
 
 const UNITS: [suffix: string, unit: UnitType][] = [
@@ -131,7 +131,7 @@ const PHASES: Record<string, string> = {
   status: "Status phase",
   agenda: "Agenda phase",
 };
-export const phaseName = (phase: string) => PHASES[phase] ?? titleCase(phase);
+export const phaseName = (phase: string) => PHASES[phase] ?? humanizeId(phase);
 
 /** The label of an option starts in lower case, as the engine writes it. */
 export const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
@@ -151,5 +151,5 @@ export function nameOfKey(key: string, catalog: Catalog | null): string {
         : kind === "technology"
           ? catalog?.components.technologies
           : undefined;
-  return cards?.find((card) => card.id === id)?.name ?? titleCase(id);
+  return cards?.find((card) => card.id === id)?.name ?? humanizeId(id);
 }

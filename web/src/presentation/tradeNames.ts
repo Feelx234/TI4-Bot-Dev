@@ -4,6 +4,7 @@
  * Quick deals and the answer prompt, so no raw id reaches the player.
  */
 import { CONTENT } from "../protocol/catalogStore.ts";
+import { humanizeId } from "../protocol/contentCatalog.ts";
 import { getCardInfo } from "./cardDatabase.ts";
 
 export type TradeCardKind = "note" | "action" | "secret";
@@ -16,12 +17,8 @@ const KIND_TYPE: Record<TradeCardKind, string> = {
 
 const SECRETS = CONTENT.secretObjectives as unknown as Record<string, { name: string }>;
 
-const titleCase = (s: string): string =>
-  s
-    .split(/[\s_:]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+/** An unknown id as words: underscores, colons and runs of spaces become one space. */
+const fallbackName = (s: string): string => humanizeId(s.split(/[\s_:]+/).filter(Boolean).join(" "));
 
 export interface PrintedName {
   /** The text to show. */
@@ -47,7 +44,7 @@ export function printedCardName(kind: TradeCardKind, rawId: string): PrintedName
     if (info && info.type === KIND_TYPE[kind]) known = info.name;
   }
   if (known) return { name: `${known}${suffix}`, known: true };
-  return { name: `${titleCase(head)}${suffix}` || id, known: false };
+  return { name: `${fallbackName(head)}${suffix}` || id, known: false };
 }
 
 const PREFIX_KIND: Record<string, TradeCardKind> = {
