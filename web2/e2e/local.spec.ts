@@ -495,6 +495,9 @@ test("an exported game is imported in another browser and opens at the same choi
 });
 
 test("a saved game of another engine build is not replayed without a word", async ({ page }) => {
+  // Longer than a test of this suite should be (five loads of a game of eight): see "Tests" in
+  // AGENTS.md.
+  test.setTimeout(10_000);
   await page.goto("/?local=3&players=8&humans=1");
   await expect(send(page)).toBeDisabled();
   await answer(page);
@@ -760,7 +763,8 @@ test("a draft goes on to the landings and the production, and ends at a draw", a
   await expect(dialog.getByText("1 purchase produced and paid")).toBeVisible();
   await dialog.getByRole("button", { name: "Apply to Live" }).click();
   await expect(workspace("Live")).toHaveAttribute("aria-pressed", "true");
-  await expect(heading(page)).not.toHaveText("Production");
+  // The next decision is open before the map is clicked: its update would close the inspector.
+  await expect(heading(page)).toHaveText("Place up to 2 infantry");
   await system("72").click();
   const inspector = page
     .locator("section[aria-label='Galaxy board'] > div")
@@ -1328,7 +1332,8 @@ test("a production: the build is staged on the map, then paid on the map, and se
 
   // The main button sends the build and its payment, and the game goes on.
   await send(page).click();
-  await expect(heading(page)).not.toHaveText("Production");
+  // The next decision is open before the map is clicked: its update would close the inspector.
+  await expect(heading(page)).toHaveText("Place up to 2 infantry");
   await expect(bar).toHaveCount(0);
   await system("72").click();
   const inspector = page

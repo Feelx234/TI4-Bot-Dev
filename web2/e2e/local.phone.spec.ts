@@ -649,10 +649,21 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   await send.click();
   // Another seat plays Politics after some steps of the seats before it.
   const draft = panel.getByText("✎ Private draft");
+  const politics = panel.getByRole("heading", { name: "Politics" });
+  const done = async () => (await politics.isVisible()) && (await draft.isVisible());
   const step = page.getByRole("button", { name: /^Step/ });
-  for (let steps = 0; steps < 200 && !(await draft.isVisible()); steps++) {
+  const status = page.locator("header strong");
+  for (let steps = 0; steps < 200 && !(await done()); steps++) {
+    const before = await status.textContent();
     await step.click();
-    await page.waitForTimeout(100);
+    // The step is taken when the game says something else. A seat that decides twice says the
+    // same: then the next step is tried after a moment.
+    await expect
+      .poll(async () => (await done()) || (await status.textContent()) !== before, {
+        timeout: 300,
+      })
+      .toBe(true)
+      .catch(() => {});
   }
   await expect(draft).toBeVisible();
   await expect(panel.getByText("Strategy pool 2 → 1")).toBeVisible();
