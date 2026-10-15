@@ -6068,7 +6068,8 @@ fn repeal_law(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
         .iter()
         .map(|(alias, _)| {
             let mut card = crate::strategy_cards::agenda_details(context.content, alias);
-            card["outcome"] = serde_json::json!(context.state.laws.get(alias));
+            let outcome = context.state.laws.get(alias);
+            card["outcome"] = serde_json::json!(outcome);
             (alias.clone(), card)
         })
         .collect();
