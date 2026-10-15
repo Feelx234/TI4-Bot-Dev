@@ -7987,8 +7987,11 @@ mod tests {
         let mut state = crate::fixtures::game(&["a"]);
         state.agenda_deck = vec!["one".into(), "two".into(), "three".into(), "four".into()];
 
-        resolve_card(&mut state, "insider", &player, &[]);
+        let asked = resolve_card_capturing(&mut state, "insider", &player, &[]);
 
+        // Nobody is asked anything, so no decision is added to a game's log: a game saved before
+        // the card showed anything replays decision for decision.
+        assert!(asked.borrow().is_empty());
         assert_eq!(
             state.agenda_deck,
             vec![

@@ -738,6 +738,9 @@ pub fn redacted_state(state: &GameState, viewer: &ViewerRole) -> GameState {
             for player in &mut spectator.players {
                 *player = redact_player(player);
             }
+            // A spectator is nobody: the private rows of faction_marks (a seat's own secret, cards
+            // shown to one seat, Insider Information's peek) are for their seat alone.
+            ti4_model::view::redact_marks(&mut spectator, &PlayerId::new(""));
             spectator
         }
     }
@@ -1060,6 +1063,48 @@ mod tests {
         assert_eq!(cards[0].kind, "Law");
         assert!(cards[0].text1.starts_with("For:"));
         assert_eq!(cards[1].target, "Elect Player");
+    }
+
+    #[test]
+    fn a_spectators_state_carries_no_private_mark() {
+        let mut state = ti4_engine::fixtures::seated_game(
+            &[("a", "mahact"), ("b", "xxcha")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let viewer = PlayerId::new("a");
+        state.agenda_deck = vec!["one".into(), "two".into()];
+        state.faction_marks.insert(
+            ti4_engine::action_cards::insider_peek_key(&viewer),
+            "one,two".to_owned(),
+        );
+        state
+            .faction_marks
+            .insert("sardakk:tekklar:round".to_owned(), "3".to_owned());
+
+        let spectator = redacted_state(&state, &ViewerRole::Spectator);
+        assert!(
+            !spectator
+                .faction_marks
+                .keys()
+                .any(|key| key.starts_with("private:"))
+        );
+        assert!(
+            spectator
+                .faction_marks
+                .contains_key("sardakk:tekklar:round")
+        );
+        let own = redacted_state(&state, &ViewerRole::Player(viewer.clone()));
+        assert!(
+            own.faction_marks
+                .contains_key(&ti4_engine::action_cards::insider_peek_key(&viewer))
+        );
+        let other = redacted_state(&state, &ViewerRole::Player(PlayerId::new("b")));
+        assert!(
+            !other
+                .faction_marks
+                .keys()
+                .any(|key| key.starts_with("private:"))
+        );
     }
 
     fn reaction_offer() -> (Choice, String) {

@@ -231,7 +231,8 @@
   min-height: 48px;
   font-size: 1.4rem;
 }
-.stepper__input {
+.stepper .stepper__input {
+  flex: 0 0 80px;
   width: 80px;
   min-height: 48px;
   text-align: center;

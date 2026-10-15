@@ -117,3 +117,8 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Offline saves and engine checks (DP-offline-saves)
 
 `DP-offline-saves` shows the saved-games list with several real games, import (done and refused), the engine-mismatch dialog (view only, delete confirmation), the storage-warning banner, the feedback chip (queued, sent, failed with Retry) and the "engine <hash>" label in the banner and build footer, desktop and 390x844. Like DO it needs the engine: `npm run build:wasm`, then `npm run screenshots -- DP`. The other-engine save, the missing IndexedDB and the feedback answers are simulated.
+
+## Action card pickers (EA-action-card-pickers)
+
+`EA-action-card-pickers` shows every action-card picker that changed (Plagiarize, Lucky Shot, Public Disgrace, Overrule, Strategize, Repeal Law, Fire Team, Upgrade, Rescue, Plague, the player-pick facts, Insider Information, Ghost Squad, Lie in Wait, Seize Artifact, Bribery) as the same mocked decision before and after, on a desktop and a 390x844 phone. `scene.ts` holds the decisions: with `TI4_SHOT_PREFIX=before` it uses the shape the engine sent before the change (no `details`, no option payloads), otherwise the current shape. The `before-*` PNGs in `before/` were taken on the audit branch commit (copy the folder there and run `TI4_SHOT_PREFIX=before npm run screenshots -- EA`); `npm run screenshots -- EA` regenerates the `after-*` PNGs and builds a page that pairs them per card (the manifest's `groups`, an optional addition to `build-artifact.mjs`). The decisions are taken from real nightly traces, with the ids the engine writes (`player_` plus 64 hex characters), so the labels carry the raw ids as they do in play.
+
