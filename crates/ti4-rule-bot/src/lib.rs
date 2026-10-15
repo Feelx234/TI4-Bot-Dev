@@ -177,9 +177,11 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     {
         return Some(index);
     }
-    // -- home guard (bot version 2): never strip the home system bare before a rival fleet --
+    // -- movement filters (bot version 2): no gravity-rift gamble outside a fight; never strip
+    // the home system bare before a rival fleet --
     if subtype == Some("movement_step")
-        && let Some(keep) = home_guard_keep(choice, observed, &me)
+        && let Some(keep) =
+            rift_keep(choice, observed, &me).or_else(|| home_guard_keep(choice, observed, &me))
     {
         let mut narrowed = choice.clone();
         narrowed.options = keep.iter().map(|&i| choice.options[i].clone()).collect();
@@ -1862,6 +1864,34 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
         .map(|(i, _)| i)
         .collect();
     (keep.len() < choice.options.len()).then_some(keep)
+}
+
+/// Bot version 2 ([`tuning::rift_caution`]): outside a fight, the move options that do not
+/// leave a gravity rift (41.2: a ship rolls for each rift it exits, and dies on 1-3 with its
+/// cargo; the engine marks such a move's preview as unresolved); `None` when none is dropped.
+fn rift_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+    if !tuning::rift_caution() {
+        return None;
+    }
+    let active = seen.active_system()?;
+    if has_hostile_ships(seen, me, active) {
+        return None;
+    }
+    let risky = |o: &ChoiceOption| {
+        o.kind == "move"
+            && matches!(
+                o.preview.as_ref().map(|p| &p.outcome),
+                Some(ti4_engine::preview::Outcome::Unknown { reason }) if reason.contains("gravity-rift")
+            )
+    };
+    let keep: Vec<usize> = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !risky(o))
+        .map(|(i, _)| i)
+        .collect();
+    (keep.len() < choice.options.len() && !keep.is_empty()).then_some(keep)
 }
 
 /// Space cannon of the seat's own units on the planets of `system`.

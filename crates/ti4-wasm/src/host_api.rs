@@ -299,8 +299,14 @@ pub struct Prepared {
 /// Read the request of `ti4_host_start` and make the session and the game.
 pub fn prepare(len: usize) -> Result<Prepared, String> {
     let text = input(len)?;
-    let start: Start = serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
+    let mut start: Start =
+        serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
+    start.settle_bot_version();
     let built = start.setup.build()?;
+    // The rule seats of this game play the bot version it was made with (one game per host).
+    ti4_rule_bot::tuning::set(ti4_rule_bot::tuning::for_version(
+        built.setup.bot_version.unwrap_or(1),
+    ));
     let resume: SavedGame = start.resume.unwrap_or_default();
     let identity = Identity {
         game_id: built.setup.game_id.clone(),

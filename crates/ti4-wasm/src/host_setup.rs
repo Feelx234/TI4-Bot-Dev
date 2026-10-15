@@ -60,6 +60,12 @@ pub struct Setup {
     /// `"rule"` (the default) or `"random"`: who plays the seats of the others.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bots: Option<String>,
+    /// The rule bot's behaviour ([`ti4_rule_bot::tuning::for_version`]). A resumed save
+    /// recomputes the rule seats' answers, so it must play the bot it was saved with. Left out:
+    /// a new game plays [`ti4_rule_bot::tuning::BOT_VERSION`]; a save made before this field
+    /// existed played version 1 ([`Start::settle_bot_version`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_version: Option<u32>,
 }
 
 /// What a save brings to a new run of the same game.
@@ -99,6 +105,20 @@ pub struct Start {
     pub setup: Setup,
     #[serde(default)]
     pub resume: Option<Resume>,
+}
+
+impl Start {
+    /// Fill in the bot version when the setup leaves it out: a resumed save without one was
+    /// made by version 1 (the field came with version 2), a new game plays the current bot.
+    pub fn settle_bot_version(&mut self) {
+        if self.setup.bot_version.is_none() {
+            self.setup.bot_version = Some(if self.resume.is_some() {
+                1
+            } else {
+                ti4_rule_bot::tuning::BOT_VERSION
+            });
+        }
+    }
 }
 
 fn mix(seed: u64) -> u64 {
@@ -171,6 +191,14 @@ impl Setup {
         match setup.bots.as_deref() {
             None | Some("rule" | "random") => {}
             Some(other) => return Err(format!("bots '{other}': use 'rule' or 'random'")),
+        }
+        if let Some(version) = setup.bot_version
+            && !(1..=ti4_rule_bot::tuning::BOT_VERSION).contains(&version)
+        {
+            return Err(format!(
+                "bot version {version}: this build plays 1 to {}",
+                ti4_rule_bot::tuning::BOT_VERSION
+            ));
         }
         Ok(setup)
     }

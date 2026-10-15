@@ -544,9 +544,100 @@ pub const PLANS: &[Plan] = &[
     },
 ];
 
+/// Bot version 2 ([`tuning::plans_v2`]): reworked plans of the factions that won least in
+/// self-play (golden set: yssaril 8.5%, l1z1x 9%, nekro 9%, hacan 10%, arborec 10%).
+///
+/// - The Yssaril take Leadership and Technology instead of Politics: the bot plays its action
+///   cards mostly at random, so two more of them are worth less than tokens.
+/// - The L1Z1X and the Nekro take Leadership first: a dreadnought fleet (and the Nekro, who
+///   cannot research, its Propagation tokens from Technology later) moves on command tokens.
+/// - The Hacan build carriers to expand on their trade goods, and take Leadership after Trade.
+/// - The Arborec take Leadership after Construction and build more carriers for Mitosis' troops.
+pub const PLANS_V2: &[Plan] = &[
+    Plan {
+        factions: &["yssaril"],
+        techs: &[
+            "dxa", "tp", "mi", "st", "ps", "sar", "hm", "amd|sr", "cv2", "dn2",
+        ],
+        units: &[
+            Emphasis("carrier", 1.3, 1.0, 3, 2),
+            Emphasis("cruiser", 1.1, 1.0, 0, 0),
+            Emphasis("mech", 1.1, 1.1, 1, 1),
+            Emphasis("dreadnought", 1.1, 1.4, 1, 2),
+            Emphasis("flagship", 1.0, 1.3, 0, 1),
+        ],
+        ships: [8, 10],
+        cards: &["Leadership", "Technology", "Warfare"],
+    },
+    Plan {
+        factions: &["l1z1x"],
+        techs: &[
+            "amd|sr", "st", "sdn2", "sar", "ff2", "da", "gls", "is", "asc", "fl",
+        ],
+        units: &[
+            Emphasis("dreadnought", 1.8, 1.8, 4, 5),
+            Emphasis("carrier", 1.1, 1.0, 2, 1),
+            Emphasis("fighter", 1.2, 1.2, 0, 0),
+            Emphasis("flagship", 1.0, 1.3, 0, 1),
+            Emphasis("cruiser", 0.7, 0.7, 0, 0),
+            Emphasis("destroyer", 0.8, 0.8, 0, 0),
+            Emphasis("infantry", 0.8, 0.8, 0, 0),
+        ],
+        ships: [9, 11],
+        cards: &["Leadership", "Warfare", "Technology"],
+    },
+    Plan {
+        factions: &["nekro"],
+        techs: &[],
+        units: &[
+            Emphasis("dreadnought", 1.5, 1.6, 2, 4),
+            Emphasis("carrier", 1.1, 1.0, 2, 1),
+            Emphasis("cruiser", 1.1, 1.0, 0, 0),
+            Emphasis("flagship", 1.0, 1.4, 0, 1),
+            Emphasis("mech", 1.1, 1.1, 0, 0),
+        ],
+        ships: [8, 10],
+        cards: &["Leadership", "Technology", "Warfare"],
+    },
+    Plan {
+        factions: &["hacan"],
+        techs: &[
+            "gls", "sdn|pi", "qdn", "nm", "dxa", "pm", "cv2", "dn2", "ie",
+        ],
+        units: &[
+            Emphasis("dreadnought", 1.3, 1.5, 2, 3),
+            Emphasis("carrier", 1.3, 1.0, 3, 2),
+            Emphasis("fighter", 1.1, 1.0, 0, 0),
+            Emphasis("flagship", 1.0, 1.3, 0, 1),
+        ],
+        ships: [8, 10],
+        cards: &["Trade", "Leadership", "Technology"],
+    },
+    Plan {
+        factions: &["arborec"],
+        techs: &[
+            "nm", "dxa", "lw2", "amd|sr", "cv2", "bio", "hm", "sar", "da",
+        ],
+        units: &[
+            Emphasis("carrier", 1.4, 1.1, 3, 3),
+            Emphasis("mech", 1.3, 1.2, 2, 3),
+            Emphasis("flagship", 1.2, 1.5, 0, 1),
+            Emphasis("dreadnought", 1.0, 1.4, 1, 2),
+            Emphasis("fighter", 0.8, 0.8, 0, 0),
+        ],
+        ships: [7, 9],
+        cards: &["Construction", "Leadership", "Warfare"],
+    },
+];
+
 /// The plan for a faction alias, if it has one.
 #[must_use]
 pub fn plan_for(faction: &str) -> Option<&'static Plan> {
+    if tuning::plans_v2()
+        && let Some(plan) = PLANS_V2.iter().find(|plan| plan.factions.contains(&faction))
+    {
+        return Some(plan);
+    }
     PLANS.iter().find(|plan| plan.factions.contains(&faction))
 }
 

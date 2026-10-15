@@ -80,7 +80,38 @@ tuning! {
     progress_gap: f64 = 2.0, "steps short within which progress toward an objective is worth activating for";
     nebula_margin: f64 = 0.0, "v2: extra matchup needed to attack a fleet in a nebula (defender +1)";
     home_guard: bool = false, "v2: no warship leaves home when the rest could not hold it against a fleet a rival can bring";
+    plans_v2: bool = false, "v2: reworked plans of the weakest factions (yssaril, l1z1x, nekro, hacan, arborec)";
+    rift_caution: bool = false, "v2: outside a fight, no move that exits a gravity rift (a 30% loss per rift)";
     misc_rule: bool = false, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
+}
+
+/// The rule bot's behaviour version that new games play. Version 1 is the bot before the
+/// `v2:` knobs; a saved offline game records the version it was played with
+/// (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
+pub const BOT_VERSION: u32 = 2;
+
+/// The tuning of bot version `version` (1 or 2; anything else: the current one).
+#[must_use]
+pub fn for_version(version: u32) -> Tuning {
+    let current = Tuning::default();
+    if version != 1 {
+        return current;
+    }
+    Tuning {
+        vote_rule: false,
+        casualty_rule: false,
+        misc_rule: false,
+        ground_rule: false,
+        mecatol_rival_bonus: 0.0,
+        planner_weight: 0.0,
+        planner_gap: 3.0,
+        progress_gap: 2.0,
+        nebula_margin: 0.0,
+        home_guard: false,
+        plans_v2: false,
+        rift_caution: false,
+        ..current
+    }
 }
 
 thread_local! {
