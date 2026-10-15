@@ -138,3 +138,11 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Agenda preview chip (EE-agenda-peek-chip)
 
 `EE-agenda-peek-chip` shows the Insider Information preview on a 390x844 phone and on a desktop, with the turn menu open: before it was a fixed card up to 60% of the screen high over the turn bar (`before/` PNGs from the merged head without the change); now it is a 54 px chip above the bar that opens to the cards on a tap. `npm run screenshots -- EE` asserts the chip height, that no turn bar button is covered, the half-screen cap and that Escape closes the open card.
+
+## Nightly 2026-10-14 follow-up fixes (EF-nightly-0415-fixes)
+
+`EF-nightly-0415-fixes` shows the corner toast column stopping below the "Prepare your secondary" chip, and a finished game without a turn bar (game-over banner). Regenerate with `npm run screenshots -- EF`.
+
+## Alpha feedback 15 October (EG-alpha-feedback-0415)
+
+`EG-alpha-feedback-0415` shows Plague's planet chips with infantry counts, the commander/hero unlock toast and the lobby's Back to start button (before-* PNGs in `before/`, taken with `TI4_SHOT_PREFIX=before`). Regenerate with `npm run screenshots -- EG`. The folder was created as `EF-alpha-feedback-0415` and renamed to EG when merged with the nightly fixes (which also used EF).

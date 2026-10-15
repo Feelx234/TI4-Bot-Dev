@@ -44,6 +44,17 @@ describe("useCornerToasts", () => {
     act(() => localStorage.setItem(TOAST_MUTE_KEY, "true"));
   });
 
+  it("toasts an unlocked commander with what it does, for every seat (fb_1792039768)", () => {
+    const sol = (status: string) => [{ id: "p1", victory_points: 3, leaders: { solcommander: status } }];
+    const { result, rerender } = renderHook((p: Props) => useCornerToasts(p), {
+      initialProps: { ...base, players: sol("locked") },
+    });
+    expect(result.current.notifications).toHaveLength(0);
+    rerender({ ...base, players: sol("unlocked") });
+    const texts = result.current.notifications.map((t) => t.text);
+    expect(texts).toContainEqual(expect.stringMatching(/unlocked the commander Claire Gibson: At the start of a ground combat/));
+  });
+
   it("does not toast what was already in the log when the game loaded", () => {
     const { result } = renderHook((p: Props) => useCornerToasts(p), {
       initialProps: { ...base, events: [ev("a", "p2", "played Sabotage")] },

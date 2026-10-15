@@ -1,4 +1,5 @@
 import { PlagueTargetNote } from "./PlagueTargetNote.tsx";
+import { describePlagueTarget, isPlaguePick } from "../presentation/plagueTarget.ts";
 import React, { useState } from "react";
 import { ValueText } from "./PlanetValueIcons.tsx";
 import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
@@ -321,6 +322,10 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
             const planet = getPlanetDetails(candidate.planetId, boardView);
             const stats = formatPlanetStats(planet);
             const votes = currentVotes(candidate.options[0]);
+            // Plague rolls for the infantry there: that count matters, not the planet's values.
+            const plague = isPlaguePick(choice)
+              ? describePlagueTarget(choice, candidate.planetId, boardView)
+              : null;
             return (
               <button
                 key={candidate.planetId}
@@ -332,7 +337,12 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
                 onClick={() => pickPlanet(candidate.planetId)}
               >
                 {planet.name}
-                {stats && (
+                {plague ? (
+                  <span className="text-muted" data-testid={`plague-chip-infantry-${candidate.planetId}`}>
+                    {" "}
+                    · {plague.infantry} infantry
+                  </span>
+                ) : stats && (
                   <span className="text-muted">
                     {" "}
                     <ValueText text={stats} />
