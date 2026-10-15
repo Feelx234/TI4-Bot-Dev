@@ -4,7 +4,8 @@ import type {
   GameEvent,
   PendingChoiceDto,
 } from "../protocol/types.ts";
-import { decodeDecisionTrigger } from "../protocol/decode.ts";
+import { decodeDecisionTrigger, decodeEffectPreviews } from "../protocol/decode.ts";
+import { describePreview } from "./effectText.ts";
 import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
 import {
   findActionCardByName,
@@ -642,8 +643,18 @@ export function describeReaction(input: ReactionModelInput): ReactionModel {
     .map((option) =>
       subtype in ABILITY_SUBTYPES ? abilityStepRow(option, subtype) : rowFor(option),
     );
+  // What the engine says each card would do now (the context's previews, per option).
+  const previews = decodeEffectPreviews(choice.context?.previews);
   for (const row of reactions) {
-    if (row.card?.id === "salvage") {
+    const preview = previews.find((candidate) => candidate.option === row.optionId);
+    if (preview) {
+      row.effect = describePreview(preview, {
+        seat: labels.actor,
+        viewerSeat: input.viewerSeat,
+        system: systemLabel,
+      });
+    }
+    if (row.card?.id === "salvage" && !row.effect) {
       row.effect = salvageEffect(
         trigger?.actor ?? input.viewerSeat ?? null,
         input.board,

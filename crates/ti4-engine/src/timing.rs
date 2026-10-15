@@ -10,7 +10,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use ti4_model::id::PlayerId;
+use ti4_model::id::{ActionCardId, PlayerId};
 use ti4_model::{content_types::SourceSet, state::GameState};
 
 use crate::{
@@ -1180,6 +1180,28 @@ impl Resolver {
             format!("{} {}", relation_name(relation), event.event_type),
             options,
         );
+        // What each single-card slot would do now (display only; see `reaction_preview`).
+        let previews = {
+            let single: Vec<(ActionCardId, String)> = choice
+                .options
+                .iter()
+                .filter_map(|option| {
+                    option
+                        .payload
+                        .get("card")
+                        .and_then(serde_json::Value::as_str)
+                        .map(|card| (ActionCardId::new(card), option.id.clone()))
+                })
+                .collect();
+            crate::reaction_preview::previews_for(
+                context.state,
+                context.content,
+                context.sources,
+                player,
+                event,
+                single.iter().map(|(card, option)| (card, option.clone())),
+            )
+        };
         let choice = choice.contextualized(
             crate::decision_context::DecisionContext::new(
                 player.clone(),
@@ -1190,6 +1212,7 @@ impl Resolver {
             )
             .optional(declinable)
             .about_battle(context.state)
+            .with_previews(previews)
             .with_trigger(crate::decision_context::DecisionTrigger::from_event(
                 event,
                 relation_name(relation),

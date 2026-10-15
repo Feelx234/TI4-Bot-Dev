@@ -298,4 +298,9 @@ pub struct GameView {
     pub players: Vec<PlayerView>,
     pub board: BoardView,
     pub table: TableView,
+    /// Lingering effects of played action cards that are in force now ([`crate::effects`]).
+    /// Display only, public, and absent while there are none, so older clients and saves never
+    /// see the field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_effects: Vec<crate::effects::ActiveEffectView>,
 }

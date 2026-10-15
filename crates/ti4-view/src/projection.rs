@@ -697,6 +697,7 @@ pub fn project_game_view_full(
             Some(viewer),
         ),
         table: project_table_view_with_map(&redacted, map_tiles),
+        active_effects: crate::effects::project_active_effects(state),
     }
 }
 
@@ -1035,6 +1036,41 @@ mod tests {
             .remove("trigger");
         let back: PendingChoiceEnvelope = serde_json::from_value(old).unwrap();
         assert!(back.choice.context.unwrap().trigger.is_none());
+    }
+
+    #[test]
+    fn the_effect_previews_reach_the_asked_seat_and_only_that_seat() {
+        use ti4_engine::decision_context::EffectPreview;
+        let (mut choice, nonce) = reaction_offer();
+        let preview = EffectPreview {
+            option: "reaction:x:ACTION_CARD_PLAYED:when".to_owned(),
+            card: "sabo1".to_owned(),
+            effect: "cancel_card".to_owned(),
+            seats: vec![PlayerId::new("player_1")],
+            system: None,
+            planets: Vec::new(),
+            units: Vec::new(),
+            amount: None,
+            of: None,
+            refs: vec!["fs1".to_owned()],
+            fizzles: None,
+        };
+        choice.context = choice.context.take().map(|c| c.with_previews(vec![preview]));
+        let owner = ViewerRole::Player(PlayerId::new("player_2"));
+        let sent = project_pending_choice(&owner, Some((&choice, &nonce))).expect("asked");
+        let json = serde_json::to_value(&sent).unwrap();
+        let previews = &json["choice"]["context"]["previews"];
+        assert_eq!(previews[0]["effect"], "cancel_card");
+        assert_eq!(previews[0]["refs"][0], "fs1");
+        assert!(previews[0].get("units").is_none(), "empty fields stay off the wire");
+        for other in [ViewerRole::Player(PlayerId::new("player_1")), ViewerRole::Spectator] {
+            assert!(project_pending_choice(&other, Some((&choice, &nonce))).is_none());
+        }
+        // A message from before previews existed decodes, with none.
+        let mut old = json.clone();
+        old["choice"]["context"].as_object_mut().unwrap().remove("previews");
+        let back: PendingChoiceEnvelope = serde_json::from_value(old).unwrap();
+        assert!(back.choice.context.unwrap().previews.is_empty());
     }
 
     #[test]

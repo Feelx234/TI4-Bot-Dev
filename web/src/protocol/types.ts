@@ -215,6 +215,49 @@ export interface HitDetailDto {
   producer?: string;
 }
 
+/**
+ * What playing one reaction card would do right now (display only; absent from older servers and
+ * saves). `effect` is a stable kind the client words; a kind it does not know is ignored.
+ */
+export interface EffectPreviewDto {
+  /** The id of the option of the same decision the preview belongs to. */
+  option: string;
+  /** The content alias of the card. */
+  card: string;
+  effect: string;
+  seats?: string[];
+  system?: string;
+  planets?: string[];
+  units?: TriggerUnitsDto[];
+  amount?: number;
+  of?: number;
+  refs?: string[];
+  /** Why playing it would change nothing right now. */
+  fizzles?: string;
+}
+
+export type EffectExpiryDto =
+  | "combat_round"
+  | "tactical_action"
+  | "invasion"
+  | "agenda"
+  | "next_action"
+  | "negotiation"
+  | "next_strategy_phase";
+
+/** A lingering effect of a played action card that is in force now (`GameView.active_effects`). */
+export interface ActiveEffectDto {
+  seat: string;
+  /** A content alias, when one card alone causes the effect. */
+  card?: string;
+  effect: string;
+  until: EffectExpiryDto;
+  copies?: number;
+  amount?: number;
+  other?: string;
+  system?: string;
+}
+
 export interface DecisionContextDto {
   version?: number;
   actor?: string;
@@ -232,6 +275,8 @@ export interface DecisionContextDto {
   /** Present on reaction decisions from servers that send it; absent in older saves and fixtures. */
   trigger?: DecisionTriggerDto | null;
   hit?: HitDetailDto | null;
+  /** What each card of a reaction window would do now (servers that send it). */
+  previews?: EffectPreviewDto[];
 }
 
 export interface OutstandingConstraintDto {
@@ -469,6 +514,8 @@ export interface GameView {
   players: PlayerView[];
   board: BoardView;
   table: TableView;
+  /** Lingering effects of played action cards in force now; absent while there are none. */
+  active_effects?: ActiveEffectDto[];
 }
 
 export type EventVisibility =
