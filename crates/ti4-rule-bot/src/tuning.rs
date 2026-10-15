@@ -93,7 +93,7 @@ tuning! {
     sftt_rule: bool = false, "v2: never give away a Support for the Throne (a victory point) in a trade";
     end_turn_rule: bool = false, "v2: end the turn when nothing else is wanted; always use a legendary planet's end-of-turn ability";
     secondary_rule: bool = false, "v2: from round 3, Diplomacy/Trade/Construction/Politics secondaries only with a spare token and where they pay";
-    misc_rule: bool = false, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
+    misc_rule: bool = true, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
