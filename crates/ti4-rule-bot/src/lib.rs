@@ -64,8 +64,14 @@
 //!   worth a token to build at until the plan's fleet size. A strategy card the rules above
 //!   leave open goes to the plan's preferred card.
 //!
-//! Other technology choices, agendas, action cards, the other secondaries and every other window
-//! stay random.
+//! - **Bot version 2** ([`tuning::BOT_VERSION`]; version 1 is [`tuning::for_version`]`(1)`):
+//!   agenda votes, Politics' speaker and agenda placement, sustain damage and casualties, readying
+//!   planets, retreat destinations and Trade's free replenish ([`answers`]); production weights for
+//!   objectives within reach ([`planner`]); Mecatol Rex held by a rival worth more; rivals denied
+//!   from six points; reworked plans for the weakest factions ([`faction_plans::PLANS_V2`]).
+//!
+//! Other technology choices, action cards, the other secondaries and every other window stay
+//! random.
 
 use std::collections::{BTreeMap, BTreeSet};
 
