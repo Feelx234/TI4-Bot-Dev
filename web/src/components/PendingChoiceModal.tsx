@@ -42,6 +42,16 @@ import { usePlanetResources } from "../presentation/PlanetResourcesContext.tsx";
 import { VoteGoodsPanel } from "./VoteGoodsPanel.tsx";
 import { useAgendaPill } from "./AgendaStrip.tsx";
 import { investmentsProgress, isStrategyCardGrid } from "../presentation/strategyGoods.ts";
+import { pickOptionTitle } from "../presentation/pickTitles.ts";
+import { describeStrategyCardPick } from "../presentation/strategyCardPick.ts";
+import { describeRerollDice, rerollIntents } from "../presentation/rerollDice.ts";
+import { describeGroundMover } from "../presentation/groundMover.ts";
+import { describeNumberStepper } from "../presentation/numberStepper.ts";
+import { RerollDicePanel } from "./RerollDicePanel.tsx";
+import { GroundMoverPanel } from "./GroundMoverPanel.tsx";
+import { NumberStepperPanel } from "./NumberStepperPanel.tsx";
+import { LawPickOptionNote, LawPickPanel } from "./LawPickParts.tsx";
+import { StrategyCardHolderTag, StrategyCardPickPanel } from "./StrategyCardPickParts.tsx";
 
 export interface PendingChoiceModalProps {
   choice: PendingChoiceDto | null;
@@ -242,6 +252,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
     tokens || secondary || replenish || abilityOffer ? null : describeOfferCard(choice);
   const voteGoods =
     tokens || secondary || replenish || abilityOffer || offerCard ? null : describeVoteGoods(choice);
+  // Action cards with a picker of their own, in place of one radio per answer.
+  const hasOwnPanel = Boolean(tokens || secondary || replenish || abilityOffer || offerCard || voteGoods);
+  const reroll = hasOwnPanel ? null : describeRerollDice(choice);
+  const mover = hasOwnPanel ? null : describeGroundMover(choice, boardView);
+  const stepper = hasOwnPanel ? null : describeNumberStepper(choice);
+  const cardPicker = reroll ?? mover ?? stepper;
+  const strategyPick = describeStrategyCardPick(choice);
+  // Overrule and Strategize leave the card where it is: trade goods on it are not collected.
+  const showGoods = !strategyPick || strategyPick.kind === "disgrace";
   const submitOption = async (optionId: string) => {
     if (isSubmitting || isPipelineRunning) return;
     setSubmissionError(null);
@@ -316,7 +335,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           <DecisionHeader
             actor={choice.actor}
             title={gainTokensPrompt(choice)}
-            progress={handDecisionNote(choice) ?? undefined}
+            progress={present(handDecisionNote(choice) ?? "") || undefined}
             choice={choice}
             onMinimize={() => setIsMinimized(true)}
             titleTestId="choice-prompt"
@@ -408,6 +427,30 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
               onChoose={(id) => void submitOption(id)}
             />
           )}
+          {reroll && (
+            <RerollDicePanel
+              key={reroll.dice.map((die) => `${die.unit}${die.face}`).join("-")}
+              view={reroll}
+              disabled={isSubmitting || isPipelineRunning}
+              onConfirm={(ticked) =>
+                executePipeline(rerollIntents(reroll, ticked).map((predicate) => ({ predicate })))
+              }
+            />
+          )}
+          {mover && (
+            <GroundMoverPanel
+              view={mover}
+              disabled={isSubmitting || isPipelineRunning}
+              onChoose={(id) => void submitOption(id)}
+            />
+          )}
+          {stepper && (
+            <NumberStepperPanel
+              view={stepper}
+              disabled={isSubmitting || isPipelineRunning}
+              onConfirm={(id) => void submitOption(id)}
+            />
+          )}
           {voteGoods && (
             <VoteGoodsPanel
               key={choice.nonce}
@@ -431,13 +474,15 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
           {!secondary && !tokens && !replenish && <InvestmentsContextPanel choice={choice} />}
           <NotOfferedNote choice={choice} />
           {!secondary && !tokens && !replenish && <UnitPickPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <LawPickPanel choice={choice} />}
+          {!secondary && !tokens && !replenish && <StrategyCardPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <TechnologyPickPanel choice={choice} />}
           {!secondary && !tokens && !replenish && <PredictOutcomePanel choice={choice} />}
           {!secondary && !tokens && !replenish && !offerCard && <ExploreRewardPanel choice={choice} />}
           {!secondary && !tokens && !replenish && !offerCard && !describeExploreCard(choice) && (
             <CommodityStandingPanel choice={choice} />
           )}
-          {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && !voteGoods && (
+          {!secondary && !tokens && !replenish && !abilityOffer && !offerCard && !voteGoods && !cardPicker && (
           <form
             onSubmit={handleSubmit}
             style={{ display: "flex", flexDirection: "column", gap: 12 }}
@@ -515,10 +560,11 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                           style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}
                         >
                           <span>
-                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? opt.label)}
+                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? present(opt.label))}
                           </span>
-                          {card && <StrategyGoodsBadge option={opt} />}
+                          {card && showGoods && <StrategyGoodsBadge option={opt} />}
                         </div>
+                        {card && <StrategyCardHolderTag choice={choice} option={opt} />}
                         {handCard?.badge && (
                           <div className="card-option__badge" data-testid="card-option-badge">
                             {handCard.badge}
@@ -532,21 +578,32 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                         {card && (
                           <div className="strategy-draft-card__text">
                             <strong>Primary</strong>
+                            {strategyPick?.half === "primary" && (
+                              <span className="strategy-performed" data-testid="strategy-performed">
+                                {" "}performed
+                              </span>
+                            )}
                             <p>
                               {card.primaryText || opt.description || "No printed text available."}
                             </p>
                             <strong>Secondary</strong>
+                            {strategyPick?.half === "secondary" && (
+                              <span className="strategy-performed" data-testid="strategy-performed">
+                                {" "}performed
+                              </span>
+                            )}
                             <p>{card.secondaryText || "No printed text available."}</p>
                           </div>
                         )}
                         <UnitAbilityOptionNote choice={choice} option={opt} board={boardView} />
                         <RemoveUnitOptionNote choice={choice} option={opt} board={boardView} />
-                        <UnitPickOptionNote choice={choice} option={opt} />
+                        <UnitPickOptionNote choice={choice} option={opt} board={boardView} />
+                        <LawPickOptionNote choice={choice} option={opt} />
                         <TechnologyPickOptionNote choice={choice} option={opt} />
                         <PredictOutcomeNote choice={choice} option={opt} />
                         <PoliticsOptionNote choice={choice} option={opt} />
                         <LegendaryOptionNote choice={choice} option={opt} board={boardView} />
-                        {card && <StrategyGoodsNote choice={choice} option={opt} />}
+                        {card && showGoods && <StrategyGoodsNote choice={choice} option={opt} />}
                         <SystemPickOptionFacts choice={choice} optionId={opt.id} board={boardView} />
                         {opt.description && (
                           <div
@@ -557,7 +614,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                               whiteSpace: "pre-line",
                             }}
                           >
-                            {opt.description}
+                            {present(opt.description)}
                           </div>
                         )}
                       </div>

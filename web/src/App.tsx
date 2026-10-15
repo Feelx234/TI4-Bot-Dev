@@ -1,3 +1,5 @@
+import { AgendaPeekCard } from "./components/AgendaPeekCard.tsx";
+import { describeAgendaPeek } from "./presentation/agendaPeek.ts";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ViewerRole } from "./protocol/types.ts";
 import { useGameSession } from "./hooks/useGameSession.ts";
@@ -700,6 +702,7 @@ const GameViewContainer: React.FC<{
         </div>
       )}
       <ReconnectingChip visible={reconnecting} />
+      <AgendaPeekCard peek={describeAgendaPeek(snapshot?.view.players ?? [], userSeat)} />
       {fatal && (
         <ConnectionProblem kind={fatal.kind} message={fatal.message} onRetry={retryConnection} />
       )}
