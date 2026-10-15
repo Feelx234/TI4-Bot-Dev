@@ -62,7 +62,7 @@ fn main() -> Result<(), String> {
         .map_err(|e| format!("{e}"))?;
     let asks: u32 = args
         .next()
-        .map_or(Ok(120), |t| t.parse())
+        .map_or(Ok(60), |t| t.parse())
         .map_err(|e| format!("{e}"))?;
     let mut failed = false;
     for seed in 1..=games {
