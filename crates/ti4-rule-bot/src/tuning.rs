@@ -83,7 +83,7 @@ tuning! {
     ground_rule: bool = false, "v2: troops only for the free lift of its ships (glut at lift + 2)";
     empty_fight_rule: bool = false, "v2: rounds 1-2, no fight that takes no planet away from its own systems";
     mecatol_rival_bonus: f64 = 4.0, "v2: extra worth of Mecatol Rex while a rival holds it";
-    planner_weight: f64 = 0.0, "v2: production weight per point of an objective within planner_gap that more of a unit meets";
+    planner_weight: f64 = 1.0, "v2: production weight per point of an objective within planner_gap that more of a unit meets";
     planner_gap: f64 = 3.0, "v2: steps short within which the planner weighs an objective";
     progress_gap: f64 = 2.0, "steps short within which progress toward an objective is worth activating for";
     nebula_margin: f64 = 0.0, "v2: extra matchup needed to attack a fleet in a nebula (defender +1)";
