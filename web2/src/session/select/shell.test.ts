@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import menuUpdate from "../../../../fixtures/protocol/update-menu.json";
 import systemsUpdate from "../../../../fixtures/protocol/update-load.json";
-import type { ComponentCatalog, SessionUpdate } from "../wire";
+import type { ComponentCatalog, ContentRecords, SessionUpdate } from "../wire";
 import type { LocalState } from "./action";
 import { selectShell } from "./shell";
 
@@ -47,6 +47,24 @@ const NO_COMPONENTS: ComponentCatalog = {
   public_objective_groups: [],
   agendas: [],
   agenda_groups: [],
+};
+
+const NO_RECORDS: ContentRecords = {
+  strategy_cards: [],
+  secret_objectives: [],
+  public_objectives: [],
+  action_cards: [],
+  technologies: [],
+  explores: [],
+  planets: [],
+  attachments: [],
+  factions: [],
+  units: [],
+  leaders: [],
+  abilities: [],
+  promissory_notes: [],
+  relics: [],
+  breakthroughs: [],
 };
 const flow = (update: SessionUpdate, state: LocalState) => {
   const { action } = selectShell(update, state);
@@ -201,6 +219,7 @@ it("names an attachment as printed, with what it changes", () => {
     content: "",
     exploration: catalog,
     components: NO_COMPONENTS,
+    records: NO_RECORDS,
   }).board.tiles.find((tile) => tile.id === "01")!.planets[0];
   expect(jord.traits.attachments).toEqual([
     { name: "Dyson Sphere", effect: "+2 / +1", text: "Printed." },
@@ -241,7 +260,12 @@ it("lists the exploration decks: what is left of each card, who drew it, who has
     decks: { CULTURAL: ["crf1", "crf2", "crf3", "pw"] },
     attachments: [],
   };
-  const view = selectShell(update, local(), { content: "", exploration: catalog, components: NO_COMPONENTS });
+  const view = selectShell(update, local(), {
+    content: "",
+    exploration: catalog,
+    components: NO_COMPONENTS,
+    records: NO_RECORDS,
+  });
   const [cultural, hazardous] = view.reference.exploration;
   expect(view.reference.exploration.map((deck) => deck.deck)).toEqual([
     "cultural",

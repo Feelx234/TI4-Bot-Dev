@@ -9,9 +9,10 @@ use std::fmt;
 use std::io;
 use std::sync::Mutex;
 
-/// The largest result of an export, in bytes: the catalogue of printed cards, the options of a
-/// table with its maps. A full game state is about 40 KiB (2026-10-09).
-pub const RESPONSE_CAPACITY: usize = 256 * 1024;
+/// The largest result of an export, in bytes: the catalogue of printed cards (about 410 KiB with
+/// the records of the corpus, 2026-10-15), the options of a table with its maps. A full game
+/// state is about 40 KiB (2026-10-09).
+pub const RESPONSE_CAPACITY: usize = 512 * 1024;
 
 /// The largest request of the host, in bytes: a table, the sides of a combat.
 pub const REQUEST_CAPACITY: usize = 64 * 1024;

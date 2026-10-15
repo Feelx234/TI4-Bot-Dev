@@ -137,7 +137,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         )
         .route("/api/games/{game_id}/replay", get(games::get_replay))
         .route("/api/games/{game_id}/map", get(games::get_map))
-        .route("/api/content/catalog", get(content::get_catalog))
+        .route("/api/catalog", get(content::get_catalog))
         .route(
             "/api/access",
             get(crate::public::get_access).post(crate::public::post_access),

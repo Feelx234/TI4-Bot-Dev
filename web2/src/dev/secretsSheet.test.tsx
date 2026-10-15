@@ -42,6 +42,23 @@ const catalog = {
     ],
     secret_objective_groups: ["Planets you control", "Ships on the board", "Win a combat"],
   },
+  records: {
+    strategy_cards: [],
+    secret_objectives: [],
+    public_objectives: [],
+    action_cards: [],
+    technologies: [],
+    explores: [],
+    planets: [],
+    attachments: [],
+    factions: [],
+    units: [],
+    leaders: [],
+    abilities: [],
+    promissory_notes: [],
+    relics: [],
+    breakthroughs: [],
+  },
 } as Catalog;
 const update: SessionUpdate = {
   ...(menuUpdate as unknown as SessionUpdate),

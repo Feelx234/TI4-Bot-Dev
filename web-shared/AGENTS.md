@@ -114,6 +114,23 @@ The types of what the server and the engine send and take, generated from the Ru
 - `PROTOCOL_VERSION` is also named in `index.ts`: Node (web's e2e) loads this dir as CommonJS,
   and an ES module does not see a value that only `export *` passes on.
 
+## Catalog
+
+What is printed on the cards, from `ti4-content` through the engine: `Catalog`
+(`ti4_host::view::components`). A page asks for it once; an update names cards by id only.
+
+- The engine gives it to `{"query":"catalog"}` (and `ti4_catalog`), the server at
+  `GET /api/catalog`: the same JSON. `content` is the digest of the corpus; a page compares it
+  with `content` of a snapshot of the server.
+- `exploration` and `components` are the cards of the sources of a game (Prophecy of Kings):
+  web2 reads them.
+- `records` (`ContentRecords`) is every record of the corpus that a page names by id, of every
+  source: 15 kinds (strategy cards, secret and public objectives, action cards, technologies,
+  explores, planets, attachments, factions, units, leaders, abilities, promissory notes, relics,
+  breakthroughs). Each kind is a list in the order of the corpus, each record with its `id`; a
+  field that a record does not print is left out. web's content wrappers read these (step 15 of
+  the plan).
+
 ## Protocol fixtures
 
 `fixtures/protocol/` of the repository holds messages for the tests of both apps, written by the

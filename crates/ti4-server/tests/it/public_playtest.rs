@@ -184,7 +184,7 @@ async fn password_gate_blocks_api_and_ws_until_the_cookie_is_held() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
     let r = c
-        .get(format!("http://{base}/api/content/catalog"))
+        .get(format!("http://{base}/api/catalog"))
         .send()
         .await
         .unwrap();

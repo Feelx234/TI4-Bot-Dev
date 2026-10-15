@@ -279,7 +279,8 @@ pub fn put_input(text: &str) -> usize {
 ///   presets, scenarios (`host_setup::describe`).
 /// - `{"query":"map_preview","choice":{"kind":"template","alias":"..."}|{"kind":"random"},
 ///   "player_count":4,"variant":0}`: a pictured map (`MapPreview` of the server).
-/// - `{"query":"catalog"}`: the printed cards (as `ti4_catalog`).
+/// - `{"query":"catalog"}`: the printed cards (as `ti4_catalog`, and `GET /api/catalog` of the
+///   server).
 pub fn query(len: usize) -> i32 {
     #[derive(serde::Deserialize)]
     #[serde(tag = "query", rename_all = "snake_case")]
@@ -308,11 +309,22 @@ pub fn query(len: usize) -> i32 {
             player_count,
             variant,
         } => crate::host_setup::map_preview(&choice, player_count, variant),
-        Query::Catalog => serde_json::to_value(ti4_host::view::components::catalog(
-            ti4_content::ContentStore::embedded(),
-            ti4_model::content_types::POK,
-        ))
-        .map_err(|error| error.to_string()),
+        Query::Catalog => {
+            // Written as `ti4_catalog` writes it, through `dyn Write`: one copy of the
+            // serializer of every printed record, not a second one into a `Value`.
+            let mut out = OUT.lock().expect("out lock");
+            out.clear();
+            let writer: &mut dyn std::io::Write = &mut *out;
+            serde_json::to_writer(
+                writer,
+                &ti4_host::view::components::catalog(
+                    ti4_content::ContentStore::embedded(),
+                    ti4_model::content_types::POK,
+                ),
+            )
+            .expect("the catalogue serializes");
+            return length(out.len());
+        }
     };
     match value {
         Ok(value) => {

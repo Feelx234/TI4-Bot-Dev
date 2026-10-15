@@ -18,6 +18,7 @@ use ti4_engine::deck::build_starting_decks;
 use ti4_model::content_types::{ContentType, SourceSet};
 
 use crate::view::exploration::{ExplorationCatalog, exploration_catalog};
+use crate::view::records::{ContentRecords, content_records};
 
 /// One faction ability as printed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,7 +243,7 @@ pub struct ComponentCatalog {
 }
 
 /// Everything printed that a client is handed once.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Catalog {
@@ -252,15 +253,19 @@ pub struct Catalog {
     pub content: String,
     pub exploration: ExplorationCatalog,
     pub components: ComponentCatalog,
+    /// Every record of the corpus that a page names by id, of every source: the exploration and
+    /// the components above are those of `sources` only.
+    pub records: ContentRecords,
 }
 
-/// The catalogue of `sources`.
+/// The catalogue of `sources`, and the records of the whole corpus.
 #[must_use]
 pub fn catalog(content: &ContentStore, sources: SourceSet) -> Catalog {
     Catalog {
         content: ti4_content::provenance::digest_of(content).corpus,
         exploration: exploration_catalog(content, sources),
         components: component_catalog(content, sources),
+        records: content_records(content),
     }
 }
 

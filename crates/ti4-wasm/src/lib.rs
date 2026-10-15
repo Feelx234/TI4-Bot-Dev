@@ -1409,8 +1409,8 @@ pub extern "C" fn ti4_scenarios() -> i32 {
 }
 
 /// The printed cards as JSON in the response buffer: the exploration cards and the attachments,
-/// and the cards of the play areas (abilities, leaders, technologies, relics). A host asks once:
-/// an update names cards by id only.
+/// the cards of the play areas (abilities, leaders, technologies, relics), and the records of the
+/// corpus that a page names by id. A host asks once: an update names cards by id only.
 #[unsafe(no_mangle)]
 pub extern "C" fn ti4_catalog() -> i32 {
     status(respond(
