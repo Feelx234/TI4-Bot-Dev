@@ -653,15 +653,16 @@ export function reduce(world: World, intent: Intent) {
       toast(intent.action === "play" ? `${open.pick} played.` : "You passed.");
       break;
     }
-    case "setCardOffer":
-      world.neverOffer = world.neverOffer.filter((card) => card !== intent.card);
-      if (intent.never) {
-        world.neverOffer.push(intent.card);
+    case "setOffer":
+      // The demo has the two modes of a card: offered, or never.
+      world.neverOffer = world.neverOffer.filter((card) => card !== intent.key);
+      if (intent.mode !== "always") {
+        world.neverOffer.push(intent.key);
       }
       toast(
-        intent.never
-          ? `${intent.card}: never offered. Its windows are skipped and you are told.`
-          : `${intent.card}: offered again.`,
+        intent.mode !== "always"
+          ? `${intent.name}: never offered. Its windows are skipped and you are told.`
+          : `${intent.name}: offered again.`,
       );
       break;
     case "setCardFake":

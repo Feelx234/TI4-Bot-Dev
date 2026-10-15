@@ -8,6 +8,7 @@
   },
   "view": {
     "round": 2,
+    "turn": 0,
     "phase": "action",
     "speaker": "seat_a",
     "seating_order": [
@@ -541,6 +542,7 @@
     "agenda_seq": 0,
     "transactions_this_round": [],
     "turn_seq": 0,
+    "action_turn": 0,
     "feat_occurrence_seq": 0,
     "scored_feat_occurrences": [],
     "vp_ledger": [],

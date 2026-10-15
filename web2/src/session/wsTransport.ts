@@ -1,16 +1,19 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
 import type { PlanStep } from "./movementPlan";
+import { type LegacyStaged, seatSync } from "./seatStore";
+import { modesOf, passedOf, planStoppedOf, rejection, updateOf } from "./serverMessages";
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import type { PlanStopped, Transport, TransportEvent } from "./transport";
+import { spaceOddsOf } from "./wasmTransport";
 import {
   type Catalog,
   type ClientRequest,
   type DraftScope,
   type DraftStep,
   PROTOCOL_VERSION,
-  type RejectionReason,
+  type ReactionModes,
   type ServerMessage,
-  type SessionUpdate,
+  type SpaceOddsRequest,
   type StateMsg,
 } from "./wire";
 
@@ -19,6 +22,8 @@ export interface OnlineGame {
   gameId: string;
   /** What the server gave the player when the game was made or joined. Null: a spectator. */
   playerSession: string | null;
+  /** What an older page kept of the staged work of the player in this browser: put once, when the server has none. */
+  legacyStaged?: LegacyStaged;
 }
 
 export { type Socket, openSocket } from "./socket";
@@ -57,50 +62,14 @@ const pageKnows = (gameId: string): Promise<boolean> =>
 
 const short = (digest: string | undefined) => (digest ? digest.slice(0, 12) : "none");
 
-function rejection(reason: RejectionReason): string {
-  switch (reason.reason) {
-    case "stale_version":
-    case "stale_nonce":
-      return "The game went on before your answer arrived. Nothing was sent.";
-    case "no_pending_choice":
-      return "The game does not wait for this answer. Nothing was sent.";
-    case "unauthorized_seat":
-      return "The server does not take this answer from you. Nothing was sent.";
-    case "unknown_option":
-      return `The game does not offer "${reason.option_id}". Nothing was sent.`;
-    case "validation_failed":
-      return reason.message;
-    case "undo_barrier":
-      return {
-        revealed: "Something hidden was shown since your last decision. It cannot be taken back.",
-        random: "Dice were rolled since your last decision. It cannot be taken back.",
-        other_seat: "Another player decided since your last decision. It cannot be taken back.",
-      }[reason.barrier];
-  }
-}
-
-/** The part of a message of the server that is the update. `state` is large and not read. */
-const updateOf = (message: StateMsg): SessionUpdate => ({
-  viewer: message.viewer,
-  view: message.view,
-  pending_choice: message.pending_choice,
-  turn_status: message.turn_status,
-  tactical: message.tactical,
-  exploration: message.exploration,
-  action_cards: message.action_cards,
-  secret_objectives: message.secret_objectives,
-  score: message.score,
-  agendas: message.agendas,
-  secondary: message.secondary,
-});
-
 /**
  * Plays one game of the server. The first update is the snapshot that the server sends after
  * the subscription. `catalog` is the one of the engine of this page (`Engine.catalog`): the
- * server sends ids, and the game is played only when both have the same corpus.
+ * server sends ids, and the game is played only when both have the same corpus. The odds of a
+ * combat are computed by `module`, the engine of this page, as in a local game.
  */
 export function createWsTransport(
-  engine: { catalog: Catalog | null },
+  engine: { catalog: Catalog | null; module?: WebAssembly.Module },
   game: OnlineGame,
   play: OnlinePlay = {},
 ): Transport {
@@ -115,7 +84,8 @@ export function createWsTransport(
   let failed: string | null = null;
   let offline = false;
   let closed = false;
-  let never: string[] = [];
+  /** The modes of the seat, as the server told them last. */
+  let modes: ReactionModes = {};
   let link: Connection | null = null;
   let attempt = 0;
   let resync: ReturnType<typeof setTimeout> | null = null;
@@ -134,6 +104,19 @@ export function createWsTransport(
   let undoing = false;
   /** The notes of the server that were told. A note has an id so that a repeat can be dropped. */
   const noted = new Set<string>();
+  /** The staged work of the seat, kept by the server for every tab of the seat. A spectator has none. */
+  const player = game.playerSession !== null;
+  const staged = seatSync(
+    (slot, base, value) =>
+      send({
+        type: "put_staged",
+        game_id: game.gameId,
+        slot,
+        base_revision: base,
+        ...(value === null ? {} : { value }),
+      }),
+    game.legacyStaged,
+  );
 
   const say = (event: TransportEvent) => {
     for (const listener of listeners) {
@@ -180,18 +163,15 @@ export function createWsTransport(
       clearTimeout(resync);
       resync = null;
     }
-    const modes = message.reaction_modes ?? {};
-    const cards = Object.keys(modes)
-      .filter((card) => modes[card] === "never")
-      .sort();
-    if (cards.join("\n") !== never.join("\n")) {
-      never = cards;
-      say({ kind: "cards", never: [...never] });
+    const told = modesOf(message.reaction_modes ?? {});
+    if (JSON.stringify(told) !== JSON.stringify(modes)) {
+      modes = told;
+      say({ kind: "modes", modes: { ...modes } });
     }
-    for (const note of message.auto_resolved ?? []) {
-      if (note.passed?.length && !noted.has(note.id)) {
+    for (const note of passedOf(message)) {
+      if (!noted.has(note.id)) {
         noted.add(note.id);
-        say({ kind: "passed", cards: note.passed });
+        say({ kind: "passed", cards: note.cards });
       }
     }
     const update = updateOf(message);
@@ -245,6 +225,11 @@ export function createWsTransport(
       case "action_rejected": {
         sent = null;
         undoing = false;
+        if (message.reason.reason === "answered_elsewhere") {
+          // Another tab of the seat, or the server for a ready draft, answered first: the update
+          // that shows the answer is on its way, and nothing went wrong.
+          return;
+        }
         say({ kind: "rejected", reason: rejection(message.reason) });
         again();
         const { reason } = message.reason;
@@ -271,7 +256,18 @@ export function createWsTransport(
               : `The server refused the game: ${message.message}`,
           );
         }
-        return say({ kind: "rejected", reason: message.message });
+        // A write of the staged work that the server did not take is followed by what it keeps.
+        return say({
+          kind: "rejected",
+          reason: staged.waiting()
+            ? "The server did not keep what you staged. It stays in this tab."
+            : message.message,
+        });
+      case "seat_staged":
+        if (player) {
+          staged.receive(message);
+        }
+        return;
       case "draft_outcome":
         if (asked?.id === message.request_id) {
           const { script, scope } = asked;
@@ -283,21 +279,13 @@ export function createWsTransport(
         if (sent?.nonce !== message.nonce) {
           return;
         }
-        const { destination, lead } = sent;
+        const script = sent;
         sent = null;
         if (!message.stopped) {
           return;
         }
-        // The server counts in entries of the script; a plan in the steps after the answers by id.
-        const { applied, remaining, interrupted, reason } = message.stopped;
-        const plan: PlanStopped = {
-          destination,
-          applied: Math.max(0, applied - lead),
-          remaining: remaining.slice(Math.max(0, lead - applied)),
-          interrupted,
-          reason,
-        };
-        if (interrupted) {
+        const plan = planStoppedOf(message.stopped, script);
+        if (plan.interrupted) {
           // The game went on: the update of where it is now comes next.
           stopped = plan;
         } else {
@@ -316,7 +304,9 @@ export function createWsTransport(
       send({
         type: "subscribe",
         game_id: game.gameId,
-        ...(game.playerSession === null ? {} : { player_session: game.playerSession }),
+        ...(game.playerSession === null
+          ? {}
+          : { player_session: game.playerSession, staged: true }),
       });
     },
     // The server counts a player as present while its connection pings.
@@ -335,6 +325,7 @@ export function createWsTransport(
       // What was on its way is lost. The snapshot after the next subscription says where the game is.
       sent = null;
       asked = null;
+      staged.lost();
       // The server replaced the game for the undo of this side: the game is not lost, and the
       // snapshot of the next subscription is what the undo left. Any other end is a loss.
       const undone = undoing && event.code === REPLACED;
@@ -347,15 +338,29 @@ export function createWsTransport(
     },
   });
 
+  // A reload, or a tab that is put away, does not wait for the next change: what was staged
+  // last is written now.
+  const leave = () => staged.flushNow();
+  const hidden = () => document.visibilityState === "hidden" && staged.flushNow();
+  if (player && typeof window !== "undefined") {
+    window.addEventListener("pagehide", leave);
+    document.addEventListener("visibilitychange", hidden);
+  }
+
   const isPlayer = () => latest?.update.viewer.role === "player";
 
   return {
     catalog: engine.catalog,
+    odds: (request: SpaceOddsRequest) =>
+      engine.module
+        ? spaceOddsOf(engine.module, request)
+        : Promise.reject(new Error("This page has no engine for the odds.")),
     // The tools of a local game are not on the server.
     capabilities: {},
+    ...(player ? { staged: staged.store } : {}),
     subscribe(listener) {
       listeners.add(listener);
-      listener({ kind: "cards", never: [...never] });
+      listener({ kind: "modes", modes: { ...modes } });
       if (failed !== null) {
         listener({ kind: "error", message: failed });
       } else {
@@ -416,10 +421,10 @@ export function createWsTransport(
         asked = { id, script, scope };
       }
     },
-    setReactionMode(card, mode) {
-      if (never.includes(card) !== (mode === "never")) {
-        // The server tells the change with the game (`reaction_modes`): a `cards` event follows.
-        send({ type: "set_reaction_mode", game_id: game.gameId, card, mode });
+    setReactionMode(key, mode) {
+      if ((modes[key] ?? "always") !== mode) {
+        // The server tells the change with the game (`reaction_modes`): a `modes` event follows.
+        send({ type: "set_reaction_mode", game_id: game.gameId, card: key, mode });
       }
     },
     undo() {
@@ -432,6 +437,11 @@ export function createWsTransport(
     close() {
       closed = true;
       settle();
+      if (player && typeof window !== "undefined") {
+        window.removeEventListener("pagehide", leave);
+        document.removeEventListener("visibilitychange", hidden);
+      }
+      staged.close();
       link?.close();
       listeners.clear();
     },

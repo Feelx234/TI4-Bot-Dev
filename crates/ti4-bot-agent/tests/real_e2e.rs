@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use ti4_bot_agent::{BotConfig, run};
+use ti4_host::protocol::{ClientMessage, ServerMessage, parse_server_message};
 use ti4_server::create_app;
-use ti4_server::protocol::{ClientMessage, ServerMessage, parse_server_message};
 use ti4_server::session::GameRegistry;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
@@ -404,9 +404,10 @@ async fn scripted_first_option(
     send_client(
         &mut socket,
         ClientMessage::Subscribe {
-            protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
+            protocol_version: ti4_host::protocol::PROTOCOL_VERSION,
             game_id: game_id.clone(),
             player_session: Some(token),
+            staged: false,
         },
     )
     .await?;
@@ -471,7 +472,7 @@ async fn submit_first<S>(
     game_id: &str,
     nonce: String,
     game_version: u64,
-    options: Vec<ti4_server::protocol::server::ChoiceOption>,
+    options: Vec<ti4_host::protocol::server::ChoiceOption>,
 ) -> Result<(), String>
 where
     S: SinkExt<Message> + Unpin,
@@ -485,7 +486,7 @@ where
     send_client(
         socket,
         ClientMessage::SubmitChoice {
-            protocol_version: ti4_server::protocol::PROTOCOL_VERSION,
+            protocol_version: ti4_host::protocol::PROTOCOL_VERSION,
             game_id: game_id.to_owned(),
             nonce,
             expected_version: game_version,

@@ -1,6 +1,6 @@
 /**
  * TypeScript definitions for the Twilight Imperium 4 Wire Protocol DTOs.
- * Exactly mirrors Rust structs from `crates/ti4-server/src/protocol/`.
+ * Exactly mirrors Rust structs from `crates/ti4-host/src/protocol/`.
  */
 
 export const PROTOCOL_VERSION = 3;
@@ -748,7 +748,7 @@ export interface ReactionIntentStateMsg {
   holding: boolean;
 }
 
-/** Why the server refused a secondary preview (`ti4_server::protocol::server::PreviewRefusal`). */
+/** Why the server refused a secondary preview (`ti4_host::protocol::server::PreviewRefusal`). */
 export type PreviewRefusal =
   | "not_seated"
   | "no_strategic_action"

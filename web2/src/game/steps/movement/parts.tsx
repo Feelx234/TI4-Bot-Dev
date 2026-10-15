@@ -1,6 +1,7 @@
 import type { MovementView, OriginView } from "../../../model";
 import { plural, unitName } from "../../../model";
 import { Card, CardHeading, Gauge, Gauges, Icon, cx } from "../../../ui";
+import { SpaceOdds } from "../../combat/SpaceOdds";
 import { useLink } from "../../link";
 
 /** The fleet in the active system, before and after the staged movement, with its two limits. */
@@ -39,6 +40,9 @@ export function Arrival({ view }: { view: MovementView }) {
           ))}
         </Gauges>
       </div>
+      {view.odds && (
+        <SpaceOdds view={view.odds} className="border-t border-line px-3.5 py-1.5 phone:px-2.5" />
+      )}
     </Card>
   );
 }

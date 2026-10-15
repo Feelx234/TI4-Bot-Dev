@@ -1,6 +1,6 @@
 // The seats and the player table.
 import type { PlayerRowView, PlayerTableView, SeatId, SeatView } from "../../model";
-import type { Catalog, PlayerView, SessionUpdate } from "../wire";
+import type { Catalog, PlayerView, ReactionModes, SessionUpdate } from "../wire";
 import { componentCards } from "./components";
 import { DECKS } from "./exploration";
 import { commodityValue, factionName, seatMark, strategyCard } from "./names";
@@ -17,16 +17,24 @@ export function selectSeats(
   catalog: Catalog | null = null,
 ): Record<SeatId, SeatView> {
   return Object.fromEntries(
-    seated(update).map((player, index) => [
-      player.id,
-      {
+    seated(update).map((player, index) => {
+      // The table says who sits in the seat. A game with no table has no names: the letter of
+      // the seat tells the seats apart.
+      const fact = update.seats?.[player.id];
+      const seat: SeatView = {
         id: player.id,
-        // A local game has no player names. The seat letter tells the seats apart.
-        name: `Seat ${player.id.toUpperCase()}`,
+        name: fact?.nickname || `Seat ${player.id.toUpperCase()}`,
         faction: factionName(player.faction, catalog),
         ...seatMark(index),
-      },
-    ]),
+      };
+      if (fact && fact.kind !== "human") {
+        seat.played = {
+          kind: fact.kind === "smart" ? "rule" : "random",
+          word: "No person plays this seat",
+        };
+      }
+      return [player.id, seat];
+    }),
   );
 }
 
@@ -44,6 +52,8 @@ export function selectPlayers(
   update: SessionUpdate,
   /** The printed cards. Without it a card is shown by its id. */
   catalog: Catalog | null = null,
+  /** The modes that the viewer set for its reactions: the sheet of the viewer has them. */
+  modes: ReactionModes = {},
 ): PlayerTableView {
   const { view, viewer } = update;
   const acting = actingSeat(update);
@@ -102,7 +112,12 @@ export function selectPlayers(
         player.secret_objectives_count,
       ],
       planets,
-      ...componentCards(update, player, catalog),
+      ...componentCards(
+        update,
+        player,
+        catalog,
+        viewer.role === "player" && viewer.seat === player.id ? modes : null,
+      ),
       // The ids are the short names that players use: AMD, DET, NM.
       technologies: player.technologies.map((id) => id.toUpperCase()),
       fragments: DECKS.flatMap(([key, deck]) => {

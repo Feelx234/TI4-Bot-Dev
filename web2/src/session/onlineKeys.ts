@@ -1,6 +1,8 @@
 // What the browser keeps of the games on the server. `localStorage` is shared by all tabs, so
 // everything of a seat is kept for its player: two tabs of one browser can be two seats of one
-// game, and the address of a tab says which (`?online=<game_id>&seat=<player_id>`).
+// game, and the address of a tab says which (`?online=<game_id>&seat=<player_id>`). What a seat
+// has staged is kept by the server (`Transport.staged`); a page of before kept it here.
+import type { LegacyStaged } from "./seatStore";
 
 /** The part of `Storage` that is used. */
 export interface KeyStorage {
@@ -20,7 +22,7 @@ const legacyKey = (gameId: string) => `ti4.online.${gameId}.session`;
 
 const STAGED = { draft: "movement", plan: "draft", secondary: "secondary" } as const;
 
-/** Where the staged work of one player of a game on the server is kept between two visits. */
+/** Where a page of before kept the staged work of one player of a game on the server. */
 export const onlineKeys = (gameId: string, playerId: string) => ({
   /** The staged movement, landings or production, with the nonce of its choice. */
   draft: `ti4.online.${gameId}.${playerId}.${STAGED.draft}`,
@@ -88,4 +90,34 @@ export function moveLegacy(storage: KeyStorage, gameId: string, playerId: string
       storage.removeItem(old);
     }
   }
+}
+
+/**
+ * The staged work that a page of before kept for a player, by slot of the server: it is put
+ * once, when the server has none, and then dropped (`OnlineGame.legacyStaged`).
+ */
+export function legacyStaged(storage: KeyStorage, gameId: string, playerId: string): LegacyStaged {
+  const keys = onlineKeys(gameId, playerId);
+  const slots = { movement: keys.draft, plan: keys.plan, secondary: keys.secondary };
+  return {
+    read() {
+      const values: ReturnType<LegacyStaged["read"]> = {};
+      for (const [slot, key] of Object.entries(slots) as [keyof typeof slots, string][]) {
+        try {
+          const value: unknown = JSON.parse(storage.getItem(key) ?? "null");
+          if (value !== null) {
+            values[slot] = value;
+          }
+        } catch {
+          // A value that cannot be read is not put.
+        }
+      }
+      return values;
+    },
+    drop() {
+      for (const key of Object.values(slots)) {
+        storage.removeItem(key);
+      }
+    },
+  };
 }

@@ -6,14 +6,14 @@
 
 use std::collections::BTreeMap;
 
+use crate::map::GalaxyLayout;
+use crate::view::secondary::SecondaryWatch;
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, DecisionRecord};
 use ti4_model::content_types::POK;
 use ti4_model::id::{PlayerId, SystemId};
 use ti4_model::state::{GameState, ReactionMode};
-use ti4_view::map::GalaxyLayout;
-use ti4_view::secondary::SecondaryWatch;
 
 use crate::PROTOCOL_VERSION;
 use crate::projection::project_state_update_with_map;
@@ -21,6 +21,7 @@ use crate::protocol::reach::{ReachIntoMsg, ReachRefusal};
 use crate::protocol::server::{AutoResolvedNote, CurrentLogPath, ServerMessage, current_log_path};
 use crate::protocol::status::ViewerRole;
 use crate::protocol::view::BoardTileView;
+use crate::setup::TableSeats;
 
 /// Everything a `StateUpdate` for any viewer is made from.
 pub struct StateUpdateInputs<'a> {
@@ -45,6 +46,8 @@ pub struct StateUpdateInputs<'a> {
     pub reaction_modes: &'a BTreeMap<PlayerId, BTreeMap<String, ReactionMode>>,
     /// The one viewer that may take its last decision back now, if any.
     pub may_undo: Option<&'a ViewerRole>,
+    /// Who sits in each seat, told to every viewer; `None` for a game with no table.
+    pub seats: Option<&'a TableSeats>,
 }
 
 impl StateUpdateInputs<'_> {
@@ -85,6 +88,7 @@ pub fn state_update_for(
     );
     update.history.can_undo = inputs.may_undo == Some(viewer);
     update.current_path.clone_from(path);
+    update.seats = inputs.seats.cloned();
     update.reaction_modes = match viewer {
         ViewerRole::Player(seat) => inputs.reaction_modes.get(seat).cloned().unwrap_or_default(),
         _ => return ServerMessage::StateUpdate(update),

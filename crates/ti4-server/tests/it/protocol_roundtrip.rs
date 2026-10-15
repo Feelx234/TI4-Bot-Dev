@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 use ti4_engine::choice::{Choice, ChoiceOption};
-use ti4_model::id::PlayerId;
-use ti4_server::protocol::client::ClientMessage;
-use ti4_server::protocol::error::{ErrorKind, ProtocolError};
-use ti4_server::protocol::server::{
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::error::{ErrorKind, ProtocolError};
+use ti4_host::protocol::server::{
     ActionAcceptedMsg, ActionRejectedMsg, GameOverMsg, PendingChoiceMsg, ProtocolErrorMsg,
     ServerMessage,
 };
-use ti4_server::protocol::status::RejectionReason;
-use ti4_server::protocol::{
+use ti4_host::protocol::status::RejectionReason;
+use ti4_host::protocol::{
     PROTOCOL_VERSION, parse_client_message, parse_server_message, validate_protocol_version,
 };
+use ti4_model::id::PlayerId;
 
 #[test]
 fn client_subscribe_round_trips() {
@@ -18,6 +18,7 @@ fn client_subscribe_round_trips() {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
         player_session: Some("secret_token_123".to_owned()),
+        staged: false,
     };
     let json = serde_json::to_string_pretty(&msg).expect("serialize");
     assert!(json.contains("\"type\": \"subscribe\""));
@@ -27,11 +28,59 @@ fn client_subscribe_round_trips() {
 }
 
 #[test]
+fn staged_work_is_asked_for_and_written_in_the_form_that_web2_sends() {
+    // A client that keeps its staged work itself sends no `staged`, and gets none.
+    let old = serde_json::json!({"type":"subscribe", "protocol_version": PROTOCOL_VERSION,
+        "game_id":"game", "player_session":"private"});
+    assert!(matches!(
+        parse_client_message(&old.to_string()),
+        Ok(ClientMessage::Subscribe { staged: false, .. })
+    ));
+    let mut wanted = old.clone();
+    wanted["staged"] = serde_json::json!(true);
+    let parsed = parse_client_message(&wanted.to_string()).expect("parse");
+    assert!(matches!(
+        parsed,
+        ClientMessage::Subscribe { staged: true, .. }
+    ));
+    assert_eq!(serde_json::to_value(&parsed).unwrap(), wanted);
+
+    let put = serde_json::json!({"type":"put_staged", "protocol_version": PROTOCOL_VERSION,
+        "game_id":"game", "slot":"secondary", "base_revision": 4,
+        "value": {"round": 2, "primary": "b", "card": "technology",
+            "answers": [{"id": "yes", "label": "Follow"}], "ready": true}});
+    let parsed = parse_client_message(&put.to_string()).expect("parse");
+    // The server reads the draft of a secondary in the form that web2 writes it.
+    let draft = ti4_server::session::staged::SecondaryDraft::of(&put["value"]).expect("a draft");
+    assert!(draft.ready);
+    assert_eq!(draft.answers[0].id, "yes");
+    assert!(matches!(
+        &parsed,
+        ClientMessage::PutStaged {
+            slot: ti4_server::session::staged::StagedSlot::Secondary,
+            base_revision: 4,
+            value: Some(_),
+            ..
+        }
+    ));
+    assert_eq!(parsed.validate_bounds(), Ok(()));
+    let mut clear = put.clone();
+    clear.as_object_mut().unwrap().remove("value");
+    assert!(matches!(
+        parse_client_message(&clear.to_string()),
+        Ok(ClientMessage::PutStaged { value: None, .. })
+    ));
+    let mut unknown = put;
+    unknown["slot"] = serde_json::json!("hand");
+    assert!(parse_client_message(&unknown.to_string()).is_err());
+}
+
+#[test]
 fn movement_edit_round_trips_with_only_a_server_script_identity() {
     let message = ClientMessage::EditPlanningMovement {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".into(),
-        identity: ti4_server::planning::runner::AttemptIdentity {
+        identity: ti4_host::planning::wire::AttemptIdentity {
             checkpoint_id: 10,
             plan_revision: 4,
             generation_id: 2,
@@ -47,10 +96,10 @@ fn movement_edit_round_trips_with_only_a_server_script_identity() {
 
 #[test]
 fn planning_updates_and_results_round_trip_without_a_live_game_version() {
-    use ti4_server::planning::runner::{
+    use ti4_host::planning::wire::{
         AttemptIdentity, FailureCategory, PlanningEnvelope, PlanningUpdate, Progress,
     };
-    use ti4_server::protocol::server::{PlanningRejection, PlanningResultMsg, PlanningUpdateMsg};
+    use ti4_host::protocol::server::{PlanningRejection, PlanningResultMsg, PlanningUpdateMsg};
     let identity = AttemptIdentity {
         checkpoint_id: 10,
         plan_revision: 2,
@@ -213,7 +262,7 @@ fn server_pending_choice_round_trips() {
             ],
         ),
         state,
-        galaxy_layout: ti4_server::map::GalaxyLayout {
+        galaxy_layout: ti4_host::map::GalaxyLayout {
             version: 1,
             active_sources: vec!["base".to_owned()],
             placements: Vec::new(),
@@ -227,15 +276,15 @@ fn server_pending_choice_round_trips() {
 
 #[test]
 fn server_event_round_trips() {
-    let msg = ServerMessage::Event(ti4_server::protocol::server::GameEventMsg {
+    let msg = ServerMessage::Event(ti4_host::protocol::server::GameEventMsg {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_abc".to_owned(),
-        entry: ti4_server::protocol::server::GameEvent {
+        entry: ti4_host::protocol::server::GameEvent {
             id: "game_abc-1".to_owned(),
             timestamp: "12:34:56".to_owned(),
             version: Some(2),
-            visibility: ti4_server::protocol::server::EventVisibility::Public,
-            event: ti4_server::protocol::server::GameEventKind::DecisionResolved,
+            visibility: ti4_host::protocol::server::EventVisibility::Public,
+            event: ti4_host::protocol::server::GameEventKind::DecisionResolved,
             decision_count: Some(1),
             batch_id: None,
             batch_start_cursor: None,
@@ -337,10 +386,10 @@ fn subscribe_accepts_only_the_v3_player_session_field() {
 
 #[test]
 fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
-    use ti4_server::protocol::client::MAX_SCRIPT_ENTRIES;
-    use ti4_server::protocol::server::{DraftAppliedMsg, ScriptStopped};
-    use ti4_view::planning::draft::DraftStep;
-    use ti4_view::planning::steps::PlanStep;
+    use ti4_host::planning::draft::DraftStep;
+    use ti4_host::planning::steps::PlanStep;
+    use ti4_host::protocol::client::MAX_SCRIPT_ENTRIES;
+    use ti4_host::protocol::server::{DraftAppliedMsg, ScriptStopped};
 
     // The script of the page: an answer by its id, then the steps as `submitPlan` has them.
     let json = serde_json::json!({
@@ -374,7 +423,7 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
         game_id: "game_abc".to_owned(),
         request_id: "r1".to_owned(),
         script,
-        scope: ti4_view::planning::audit::PlanScope::Tactical,
+        scope: ti4_host::planning::audit::PlanScope::Tactical,
     };
     let json = serde_json::to_string(&run(script.clone())).unwrap();
     assert!(json.contains("\"type\":\"run_draft\""));
@@ -409,8 +458,8 @@ fn the_script_messages_round_trip_in_the_form_that_a_local_game_takes() {
 
 #[test]
 fn the_undo_of_a_seat_round_trips_and_is_absent_from_a_message_without_it() {
-    use ti4_server::protocol::server::{ActionRejectedMsg, HistoryStatus};
-    use ti4_server::protocol::status::UndoBarrier;
+    use ti4_host::protocol::server::{ActionRejectedMsg, HistoryStatus};
+    use ti4_host::protocol::status::UndoBarrier;
 
     let json = serde_json::json!({
         "type": "undo",

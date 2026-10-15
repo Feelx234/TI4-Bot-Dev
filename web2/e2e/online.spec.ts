@@ -164,6 +164,102 @@ test("a seeded game on the server: the first turn, with a draft, the sheets and 
   expect(errors).toEqual([]);
 });
 
+test("the same seat in two tabs: what one tab stages, the other shows", async ({
+  page,
+  context,
+  request,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  const errors = errorsOf(page);
+  const response = await request.post("/api/games", {
+    data: { player_count: 8, seed: 3, nickname: "Ada", fill_seats: "random" },
+  });
+  expect(response.ok()).toBe(true);
+  const made = await response.json();
+  await context.addInitScript(
+    ([key, value]) => localStorage.setItem(key, value),
+    [
+      `ti4.online.${made.game_id}.players`,
+      JSON.stringify({ [made.player.id]: made.player_session }),
+    ],
+  );
+  const address = `/?online=${made.game_id}&seat=${made.player.id}`;
+  await page.goto(address);
+  for (let count = 0; ; count++) {
+    expect(count).toBeLessThan(20);
+    await expect(status(page)).toHaveText("Your decision");
+    if (await row(page, "Take a tactical action").count()) {
+      break;
+    }
+    await panel(page).getByRole("button", { pressed: false }).first().click();
+    await send(page).click();
+    await expect(status(page)).not.toHaveText("Your decision");
+  }
+  const other = await context.newPage();
+  const otherErrors = errorsOf(other);
+  await other.goto(address);
+  await expect(row(other, "Take a tactical action")).toBeVisible();
+
+  // Tab A drafts the action; the draft of tab B follows. What is open is of each tab.
+  await workspace(page, "Draft").click();
+  await expect(heading(page)).toHaveText("Activation");
+  const labels = await page
+    .locator("g.system.target:not(.plain)")
+    .evaluateAll((all) => all.map((one) => one.getAttribute("aria-label") ?? ""));
+  const target = labels
+    .map((label) => /^Activate [^,]+, system (\w+)$/.exec(label)?.[1])
+    .find(Boolean)!;
+  await system(page, target).click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  await panel(page)
+    .getByRole("button", { name: /Nothing staged$/ })
+    .first()
+    .click();
+  const sheet = page.getByRole("group", { name: /^Move from / });
+  const ships = sheet.getByRole("button", { name: /^[A-Z][a-z ]+ \d of \d$/, pressed: false });
+  await ships.first().click();
+  await ships.first().click();
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
+  await expect(workspace(other, "Live")).toHaveAttribute("aria-pressed", "true");
+  await workspace(other, "Draft").click();
+  await expect(heading(other)).toHaveText("Movement");
+  await expect(system(other, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
+  // One ship less in tab A is one ship less in tab B.
+  await sheet
+    .getByRole("button", { name: /^[A-Z][a-z ]+ \d of \d$/, pressed: true })
+    .first()
+    .click();
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 1 [^,]+ ship$/);
+  await expect(system(other, target)).toHaveAttribute("aria-label", /, 1 [^,]+ ship$/);
+
+  // Tab A plays the action live, and stages the movement: tab B shows the same tokens and marks.
+  await workspace(page, "Live").click();
+  await workspace(other, "Live").click();
+  await row(page, "Take a tactical action").click();
+  await send(page).click();
+  await expect(heading(page)).toHaveText("Activation");
+  await system(page, target).click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  await expect(heading(other)).toHaveText("Movement");
+  await panel(page)
+    .getByRole("button", { name: /Nothing staged$/ })
+    .first()
+    .click();
+  await ships.first().click();
+  await ships.first().click();
+  await expect(system(page, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
+  await expect(system(other, target)).toHaveAttribute("aria-label", /, 2 [^,]+ ships$/);
+  await expect(page.locator('g.system[aria-label*="handled"]')).toHaveCount(1);
+  await expect(other.locator('g.system[aria-label*="handled"]')).toHaveCount(1);
+  await expect(send(other)).toHaveText(/Move fleet/);
+  await other.screenshot({ path: "shots/online/same-seat-movement.png", animations: "disabled" });
+  expect(errors).toEqual([]);
+  expect(otherErrors).toEqual([]);
+});
+
 test("the quick start is a game on the server, at its address", async ({ page }) => {
   const errors = errorsOf(page);
   await page.goto("/?online&fill=random");

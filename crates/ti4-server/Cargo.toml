@@ -13,7 +13,6 @@ ti4-content = { workspace = true }
 ti4-engine = { workspace = true }
 ti4-policy = { workspace = true }
 ti4-rule-bot = { workspace = true }
-ti4-view = { workspace = true }
 ti4-host = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -31,6 +30,13 @@ futures-util = "0.3"
 sha2 = { workspace = true }
 
 [dev-dependencies]
-rstest = { workspace = true }
+# The wasm host as a native library, for the test that both hosts play the same game.
+ti4-wasm = { path = "../ti4-wasm" }
 tokio-tungstenite = "0.26"
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
+
+# The binary has no tests; without this it is linked a second time as an empty test executable.
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+test = false

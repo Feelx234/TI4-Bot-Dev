@@ -514,9 +514,7 @@ fn takeover_persistence_failure_preserves_old_credential_and_restart_recovers_ne
             .get_game("rotate")
             .unwrap()
             .viewer_for_seat_token(latest.as_str()),
-        Some(ti4_server::protocol::status::ViewerRole::Player(
-            host.clone()
-        ))
+        Some(ti4_host::protocol::status::ViewerRole::Player(host.clone()))
     );
     assert!(
         registry
@@ -542,7 +540,7 @@ fn takeover_persistence_failure_preserves_old_credential_and_restart_recovers_ne
             .get_game("rotate")
             .unwrap()
             .viewer_for_seat_token(latest.as_str()),
-        Some(ti4_server::protocol::status::ViewerRole::Player(host))
+        Some(ti4_host::protocol::status::ViewerRole::Player(host))
     );
     post_start.remove_game("rotate");
     registry.remove_game("rotate");

@@ -1,10 +1,10 @@
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::server::ServerMessage;
 use ti4_server::fixtures::{
     sample_actor_snapshot, sample_opponent_snapshot, sample_spectator_snapshot,
     sample_stale_submission_rejected, sample_terminal_game_over,
 };
-use ti4_server::protocol::PROTOCOL_VERSION;
-use ti4_server::protocol::client::ClientMessage;
-use ti4_server::protocol::server::ServerMessage;
 
 const SNAPSHOT_BOUND_BYTES: usize = 256 * 1024; // 256 KiB
 const CHOICE_BOUND_BYTES: usize = 64 * 1024; // 64 KiB
@@ -80,6 +80,7 @@ fn client_submission_messages_remain_within_bounds() {
         protocol_version: PROTOCOL_VERSION,
         game_id: "game_long_identifier_uuid_v4_style".to_owned(),
         player_session: Some("secret_player_token_sample".to_owned()),
+        staged: false,
     };
     let subscribe_json = serde_json::to_string(&subscribe).expect("serialize");
     assert!(

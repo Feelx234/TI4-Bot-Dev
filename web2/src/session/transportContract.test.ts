@@ -14,6 +14,7 @@ import type {
   DraftScope,
   DraftStep,
   MovementFacts,
+  ReactionModes,
   SessionUpdate,
 } from "./wire";
 import { createWsTransport, openSocket } from "./wsTransport";
@@ -38,6 +39,9 @@ interface Side {
   until(wanted: (event: Update) => boolean): Promise<Update>;
   draft(script: DraftStep[], scope?: DraftScope): Promise<DraftOutcome | null>;
   never(): string[];
+  modes(): ReactionModes;
+  /** Waits until the transport told this mode of a reaction. */
+  mode(key: string, wanted: "always" | "never" | "ownturn"): Promise<void>;
   /** Waits until the transport told the Never cards as `wanted`. */
   cards(wanted: string[]): Promise<void>;
 }
@@ -46,6 +50,7 @@ function side(transport: Transport): Side {
   const seen: Update[] = [];
   const drafts = new Map<DraftStep[], (outcome: DraftOutcome | null) => void>();
   let never: string[] = [];
+  let modes: ReactionModes = {};
   let failed: string | null = null;
   let wake: (() => void) | null = null;
   transport.subscribe((event) => {
@@ -56,8 +61,9 @@ function side(transport: Transport): Side {
     } else if (event.kind === "draft") {
       drafts.get(event.script)?.(event.outcome);
       drafts.delete(event.script);
-    } else if (event.kind === "cards") {
-      never = event.never;
+    } else if (event.kind === "modes") {
+      never = Object.keys(event.modes).filter((key) => event.modes[key] === "never");
+      modes = event.modes;
     }
     wake?.();
   });
@@ -89,7 +95,9 @@ function side(transport: Transport): Side {
         transport.draft(script, scope);
       }),
     never: () => never,
+    modes: () => modes,
     cards: (wanted) => wait(() => never.join() === wanted.join()),
+    mode: (key, wanted) => wait(() => (modes[key] ?? "always") === wanted),
   };
 }
 
@@ -363,6 +371,37 @@ function contract(start: () => Promise<Side>) {
     game.transport.setReactionMode("Sabotage", "never");
     game.transport.setReactionMode("Sabotage", "always");
     await game.cards([]);
+    // The card of an ability is set by its key, and "only on my turns" is a mode of its own.
+    game.transport.setReactionMode("leader:solagent", "ownturn");
+    await game.mode("leader:solagent", "ownturn");
+    expect(game.never()).toEqual([]);
+    game.transport.setReactionMode("leader:solagent", "always");
+    await game.mode("leader:solagent", "always");
+    expect(game.modes()).toEqual({});
+    game.transport.close();
+  }, 60_000);
+
+  it("computes the odds of a space combat in the page, the same for the same sides", async () => {
+    const game = await start();
+    const sides = {
+      attacker: { faction: "sol", units: { dreadnought: 2, carrier: 1, fighter: 3 } },
+      defender: { faction: "letnev", units: { cruiser: 2, destroyer: 1 }, guns: { pds: 1 } },
+    };
+    const odds = await game.transport.odds(sides);
+    expect(odds.attacker_fielded).toEqual({ dreadnought: 2, carrier: 1, fighter: 3 });
+    expect(odds.attacker_win_rate).toBeGreaterThan(odds.defender_win_rate);
+    expect(
+      odds.attacker_win_rate +
+        odds.defender_win_rate +
+        odds.mutual_destruction_rate +
+        odds.unresolved_rate,
+    ).toBeCloseTo(1);
+    expect(await game.transport.odds(sides)).toEqual(odds);
+    // Sides that the engine does not read are refused, and the next question is answered.
+    await expect(
+      game.transport.odds({ ...sides, attacker: { faction: "sol", units: { nothing: 1 } } }),
+    ).rejects.toThrow();
+    expect(await game.transport.odds(sides)).toEqual(odds);
     game.transport.close();
   }, 60_000);
 }
@@ -380,11 +419,12 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
   const port = 20_000 + Math.floor(Math.random() * 30_000);
   const data = mkdtempSync(join(tmpdir(), "ti4-contract-"));
   let server: ChildProcess;
-  let engine: Pick<Engine, "catalog">;
+  let engine: Pick<Engine, "catalog" | "module">;
   beforeAll(async () => {
     // The printed cards are those of the engine of this page, as in the browser: the transport
-    // plays only when the server has the same corpus.
-    engine = { catalog: await catalogOf(await WebAssembly.compile(readFileSync(WASM))) };
+    // plays only when the server has the same corpus. The odds are of that engine too.
+    const module = await WebAssembly.compile(readFileSync(WASM));
+    engine = { catalog: await catalogOf(module), module };
     server = spawn(SERVER, [], {
       env: {
         ...process.env,
@@ -405,6 +445,66 @@ describe.skipIf(!existsSync(WASM) || !existsSync(SERVER))("a server", () => {
     server?.kill();
     rmSync(data, { recursive: true, force: true });
   });
+  /** A game of eight with one seat for this side, and the transport of that seat. */
+  const play = async (made?: { game_id: string; player_session: string }) => {
+    if (!made) {
+      const response = await fetch(`http://127.0.0.1:${port}/api/games`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          player_count: 8,
+          seed: 3,
+          nickname: "Contract",
+          fill_seats: "random",
+        }),
+      });
+      expect(response.status).toBe(200);
+      made = await response.json();
+    }
+    const game = made!;
+    return {
+      made: game,
+      transport: createWsTransport(
+        engine,
+        { gameId: game.game_id, playerSession: game.player_session },
+        { open: (id) => openSocket(`ws://127.0.0.1:${port}/ws/games/${id}`) },
+      ),
+    };
+  };
+  // Only the server keeps what a seat staged: a game in this page is in one tab.
+  it("keeps what a seat staged for every connection of the seat", async () => {
+    const first = await play();
+    const second = await play(first.made);
+    const a = first.transport.staged!;
+    const b = second.transport.staged!;
+    /** The next value of a slot that the other connection wrote. */
+    const next = (store: typeof b) =>
+      new Promise<unknown>((told) => {
+        const stop = store.subscribe((slot, value) => {
+          stop();
+          told([slot, value]);
+        });
+      });
+    // The second tab is told what the first staged, as the server keeps it.
+    const draft = { history: [{ system: "26", steps: null }], cursor: 0 };
+    let told = next(b);
+    a.set("plan", draft);
+    expect(await told).toEqual(["plan", draft]);
+    expect(b.get("plan")).toEqual(draft);
+    // And the first what the second clears.
+    told = next(a);
+    b.set("plan", null);
+    expect(await told).toEqual(["plan", null]);
+    // A tab that comes later has it at once.
+    a.set("secondary", { card: "pok3politics", answers: [], ready: false });
+    await new Promise((settle) => setTimeout(settle, 500));
+    const late = await play(first.made);
+    const told3 = await next(late.transport.staged!);
+    expect(told3).toEqual(["secondary", { answers: [], card: "pok3politics", ready: false }]);
+    for (const side of [first, second, late]) {
+      side.transport.close();
+    }
+  }, 30_000);
   contract(async () => {
     const response = await fetch(`http://127.0.0.1:${port}/api/games`, {
       method: "POST",

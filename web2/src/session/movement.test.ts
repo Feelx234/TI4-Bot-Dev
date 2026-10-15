@@ -142,7 +142,7 @@ it("stages the steps of a stopped plan again", () => {
 const moveChoice = moving.pending_choice!.choice;
 const loadChoice = loading.pending_choice!.choice;
 
-// How a step answers a choice is decided in the engine (`plan_answer` in ti4-view); the tests
+// How a step answers a choice is decided in the engine (`plan_answer` in ti4-host); the tests
 // of it are there, and `wasmTransport.test.ts` sends plans to the real engine.
 it("reads the step back from the option that answered it", () => {
   // Every option of a movement is a step, and no two options are the same step.

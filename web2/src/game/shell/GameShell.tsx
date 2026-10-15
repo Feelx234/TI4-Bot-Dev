@@ -31,9 +31,15 @@ export function GameShell({
   other,
   settings,
   settingsOpen = false,
+  table,
 }: {
   session: GameSession;
   other?: OtherGame;
+  /**
+   * The content of the sheet "Table": who sits in each seat and how the game was set up. A
+   * game with no table has none. It is there only while the sheet is open.
+   */
+  table?: ReactNode;
   /**
    * The content of the Dev sheet. `close` shuts the sheet, for an action that ends it. The
    * sheet is shown when the session has a capability for it.
@@ -55,23 +61,17 @@ export function GameShell({
     setDrawer((now) => (now === id ? null : id));
   };
   const phone = usePhone();
-  const [pane, setPane] = useState<Pane>("action");
-  // The pane follows the choice: a choice on the board or in the player table opens that pane.
+  // The pane where the open choice is made: the board, the player table, or the action.
   const choiceOn: Pane | null = view.players.pick
     ? "players"
     : view.board.task?.interactive || view.board.targeting
       ? "map"
-      : null;
-  useEffect(() => setPane(choiceOn ?? "action"), [choiceOn]);
-  // After an undo the pane follows the choice that is open again, also one of the same kind.
-  const undone = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the next view is the answer to the undo
-  useEffect(() => {
-    if (undone.current) {
-      undone.current = false;
-      setPane(choiceOn ?? "action");
-    }
-  }, [view]);
+      : view.asked
+        ? "action"
+        : null;
+  // The game opens on the pane of its choice. After that only a tap on a tab changes the pane;
+  // the tab of the choice is marked.
+  const [pane, setPane] = useState<Pane>(() => choiceOn ?? "action");
 
   const dispatch = useCallback(
     (intent: Intent) => {
@@ -84,9 +84,6 @@ export function GameShell({
       }
       if (intent.type === "inspectLogEntry") {
         setDrawer(null);
-      }
-      if (intent.type === "undo") {
-        undone.current = true;
       }
       session.dispatch(intent);
     },
@@ -134,7 +131,7 @@ export function GameShell({
     };
   }, []);
 
-  const reference = drawer && (
+  const reference = drawer && drawer !== "table" && (
     <ReferenceDrawer
       id={drawer}
       deck={deck}
@@ -152,7 +149,13 @@ export function GameShell({
             {dev(close)}
           </Drawer>
         )
-      : reference;
+      : drawer === "table"
+        ? table && (
+            <Drawer title="Table" onClose={close}>
+              {table}
+            </Drawer>
+          )
+        : reference;
   const players = (
     <PlayerTable
       view={view.players}
@@ -176,6 +179,7 @@ export function GameShell({
               phone={phone}
               other={other}
               settings={!!dev}
+              table={!!table}
             />
           }
           board={<Board view={view.board}>{sheet}</Board>}

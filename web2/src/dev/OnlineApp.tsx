@@ -8,8 +8,8 @@ import {
   dropPlayer,
   keepPlayer,
   legacySession,
+  legacyStaged,
   moveLegacy,
-  onlineKeys,
   playersOf,
 } from "../session/onlineKeys";
 import { hostChange, nextNickname, selectLobby } from "../session/select/lobby";
@@ -26,6 +26,7 @@ import { useLiveSession } from "../session/useLiveSession";
 import { type Engine, loadEngine } from "../session/wasmTransport";
 import { createWsTransport } from "../session/wsTransport";
 import { Button } from "../ui";
+import { GameTable } from "./GameTable";
 import { Notice, wasmUrl } from "./LocalApp";
 import { DEFAULT_NICKNAME, type OnlineStart, tableAddress, tableRequest } from "./onlineStart";
 
@@ -33,6 +34,19 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 /** The way out of a table: the start screen. */
 const START = { label: "Start", href: "/" };
+
+/**
+ * A visitor takes the seat of a person who is away, under the name of the seat. The browser
+ * keeps the player, and the page is loaded as that player.
+ */
+function rejoin(table: Table, gameId: string, player: string, name: string) {
+  void table.takeOver(player, name).then((taken) => {
+    if (taken) {
+      keepPlayer(localStorage, gameId, taken.playerId, taken.playerSession);
+      location.replace(tableAddress(gameId, taken.playerId));
+    }
+  });
+}
 
 /** The table that `?online` asked for. One for the page: React may mount twice (StrictMode). */
 let created: ReturnType<typeof createTable> | null = null;
@@ -89,32 +103,42 @@ function OnlineGame({
   const [transport, setTransport] = useState<Transport | null>(null);
   // Made in an effect, as the game of `LocalApp`: each mount gets a connection of its own.
   useEffect(() => {
-    const made = createWsTransport(engine, { gameId, playerSession: seat?.playerSession ?? null });
+    const made = createWsTransport(engine, {
+      gameId,
+      playerSession: seat?.playerSession ?? null,
+      // What a page of before kept in this browser goes to the server once.
+      legacyStaged: seat ? legacyStaged(localStorage, gameId, seat.playerId) : undefined,
+    });
     setTransport(made);
     return () => {
       made.close();
       setTransport(null);
     };
   }, [engine, gameId, seat]);
-  // What is staged is kept for the player: two tabs of one browser are two seats.
-  const drafts = useMemo(() => {
-    if (!seat) {
-      return undefined;
-    }
-    const keys = onlineKeys(gameId, seat.playerId);
-    return {
-      storage: localStorage,
-      key: keys.draft,
-      planKey: keys.plan,
-      secondaryKey: keys.secondary,
-    };
-  }, [gameId, seat]);
-  const { session, error } = useLiveSession(transport, drafts);
+  // What is staged is kept by the server for the seat: every tab of the seat has the same.
+  const { session, error } = useLiveSession(transport, transport?.staged);
+  // The table of the game has a socket of its own, open while the sheet "Table" is in view.
+  const openTable = useCallback(() => serverTable(gameId, seat), [gameId, seat]);
+  const takeOver = useCallback(
+    (table: Table, player: string, name: string) => rejoin(table, gameId, player, name),
+    [gameId],
+  );
   if (session && !error) {
     return (
       <div className="flex h-dvh flex-col">
         <div className="relative grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]">
-          <GameShell session={session} other={START} />
+          <GameShell
+            session={session}
+            other={START}
+            table={
+              <GameTable
+                open={openTable}
+                catalog={engine.catalog}
+                // Only a visitor sits down in a seat: a player has one.
+                onTakeOver={seat ? undefined : takeOver}
+              />
+            }
+          />
         </div>
       </div>
     );
@@ -179,6 +203,10 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
     () => localStorage.getItem(NICKNAME_KEY) ?? DEFAULT_NICKNAME,
   );
   const running = state?.lobby.phase === "running";
+  /** A visitor of a running game chose "Watch": the page is the game, with no seat. */
+  const [watching, setWatching] = useState(false);
+  // A player of a running game is in the game. A visitor is shown the table first.
+  const inGame = running && (seat !== null || watching);
 
   useEffect(() => {
     let stale = false;
@@ -192,9 +220,9 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
 
   // The time is the id: the screen has messages of its own, and shows the newest.
   const say = useCallback((text: string) => setToast({ id: performance.now(), text }), []);
-  // The socket of the table is open while the table is a lobby: the game has its own.
+  // The socket of the table is open while the page shows the table: the game has its own.
   useEffect(() => {
-    if (!who || running) {
+    if (!who || inGame) {
       return;
     }
     setMine(Object.keys(playersOf(localStorage, gameId)));
@@ -233,7 +261,7 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
       made.close();
       setTable(null);
     };
-  }, [gameId, who, running, say]);
+  }, [gameId, who, inGame, say]);
 
   const view = useMemo(
     () => state && selectLobby(state, { mine, inspected, offline }, engine?.catalog ?? null),
@@ -246,7 +274,7 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
   if (!state || !view) {
     return <Waiting failure={null}>Connecting to the table…</Waiting>;
   }
-  if (running) {
+  if (inGame) {
     return engine ? (
       <OnlineGame engine={engine} gameId={gameId} seat={seat} />
     ) : (
@@ -305,8 +333,14 @@ function TableApp({ gameId, asked }: { gameId: string; asked: string | null }) {
       case "rename":
         localStorage.setItem(NICKNAME_KEY, intent.name);
         return table?.rename(intent.name);
+      case "faction":
+        return table?.setFaction(intent.player, intent.faction);
       case "start":
         return table?.start();
+      case "watch":
+        return setWatching(true);
+      case "takeOver":
+        return table ? rejoin(table, gameId, intent.player, intent.name) : undefined;
     }
   };
 

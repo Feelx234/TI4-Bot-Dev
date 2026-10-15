@@ -9,9 +9,9 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::secondary_preview::SecondaryPreview;
+use ti4_host::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
+use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::{PlayerId, StrategyCardId};
-use ti4_server::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::preview::PreviewRequest;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
@@ -32,7 +32,7 @@ fn start(card_name: &str, card_id: &str) -> Table {
     let p3 = PlayerId::new("p3");
     let ids = vec![p1.clone(), p2.clone(), p3.clone()];
     let (mut state, galaxy) =
-        ti4_server::map::create_game_with_map(content, &ids, 4242).expect("game");
+        ti4_host::map::create_game_with_template(content, &ids, 4242, None).expect("game");
     let card = StrategyCardId::new(card_id);
     state.unclaimed_strategy_cards.retain(|c| c != &card);
     state.player_mut(&p1).unwrap().strategy_cards = vec![card.clone()];
@@ -42,7 +42,7 @@ fn start(card_name: &str, card_id: &str) -> Table {
         seat.strategic_tokens = 2;
         seat.trade_goods = 6;
     }
-    let tiles = ti4_server::map::build_board_tiles(content, &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(content, &galaxy);
     let config = SessionConfig::new(format!("preview_{card_name}"), state)
         .with_player_ids(ids)
         .with_galaxy(galaxy, tiles)
@@ -314,7 +314,7 @@ fn the_answer_does_not_depend_on_other_seats_hidden_information() {
             PlayerId::new("p3"),
         ];
         let (mut state, _) =
-            ti4_server::map::create_game_with_map(content, &ids, 4242).expect("game");
+            ti4_host::map::create_game_with_template(content, &ids, 4242, None).expect("game");
         let card = StrategyCardId::new("pok7technology");
         state.unclaimed_strategy_cards.retain(|c| c != &card);
         state.player_mut(&ids[0]).unwrap().strategy_cards = vec![card.clone()];

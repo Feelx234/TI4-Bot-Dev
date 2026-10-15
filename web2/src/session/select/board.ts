@@ -10,6 +10,7 @@ import type {
 } from "../../model";
 import type { LandingDraft } from "../landingDraft";
 import type { MovementDraft } from "../movementDraft";
+import type { KeptOdds } from "../movementOdds";
 import type { ProductionDraft } from "../productionDraft";
 import type {
   BoardTileView,
@@ -198,7 +199,13 @@ export function selectBoard(
   inspected: string | null,
   task: BoardTaskView | null,
   /** The open movement step: the board shows what is staged, and a system opens its fleet. */
-  movement: { facts: MovementFacts; draft: MovementDraft; handled: string[] } | null = null,
+  movement: {
+    facts: MovementFacts;
+    draft: MovementDraft;
+    handled: string[];
+    /** The last answer of the engine for the odds of the space combat there. */
+    odds?: KeptOdds | null;
+  } | null = null,
   /** The open landings: the planets of the active system are the choice, and it opens them. */
   landing: { facts: InvasionFacts; draft: LandingDraft; chosen: number | null } | null = null,
   /** The printed names and texts of the attachments. */
@@ -227,9 +234,15 @@ export function selectBoard(
       open?.system_id ?? null,
       movement.handled,
     );
-  const origin =
+  // A sheet of a task at a system has what is in it, as the inspector has.
+  const details = (tile: BoardTileView) => {
+    const { facts, notes, rows } = inspector(tile, board.systems[tile.system_id], viewer, traits);
+    return { facts, notes, rows };
+  };
+  const fleet =
     movement &&
     selectOrigin(update, movement.facts, movement.draft, open?.system_id ?? null, movement.handled);
+  const origin = fleet && open ? { ...fleet, details: details(open) } : fleet;
   const tiles = map.map((tile) => tileView(tile, board.systems[tile.system_id], viewer, traits));
   // The landings with their controls take the place of the inspector of the active system.
   const sheet =
@@ -239,7 +252,10 @@ export function selectBoard(
   // The build with its controls takes the place of the inspector too, while it is chosen.
   const build =
     production && production.stage === "build" && open?.system_id === production.facts.system
-      ? selectBuild(update, production.facts, production.draft, "build")
+      ? {
+          ...selectBuild(update, production.facts, production.draft, "build"),
+          details: details(open),
+        }
       : null;
   return {
     tiles: move
@@ -281,7 +297,14 @@ export function selectBoard(
         ? {
             ...inspector(open, board.systems[open.system_id], viewer, traits),
             ...(movement && open.system_id === movement.facts.active
-              ? { arriving: selectArrival(update, movement.facts, movement.draft) }
+              ? {
+                  arriving: selectArrival(
+                    update,
+                    movement.facts,
+                    movement.draft,
+                    movement.odds ?? null,
+                  ),
+                }
               : {}),
           }
         : null,

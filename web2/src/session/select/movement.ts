@@ -8,6 +8,7 @@ import type {
   RouteView,
   ShipHoldView,
   ShipUnitView,
+  SpaceOddsView,
   TileView,
   UnitType,
 } from "../../model";
@@ -23,6 +24,7 @@ import {
   shipKey,
   sourceId,
 } from "../movementDraft";
+import { type KeptOdds, oddsRequest } from "../movementOdds";
 import type { BoardTileView, CargoPool, MovementFacts, SessionUpdate, ShipFact } from "../wire";
 import { UNIT_ORDER, isShip, unitType } from "./names";
 
@@ -271,6 +273,108 @@ function arriving(plan: Plan): Map<UnitType, number> {
   return counts;
 }
 
+/**
+ * Whole percentages of `rates` (fractions that sum to 1) that sum to 100: the rates that rounding
+ * down cuts most get the points that are left.
+ */
+export function percentages(rates: number[]): number[] {
+  const exact = rates.map((rate) => Math.max(0, rate) * 100);
+  const whole = exact.map(Math.floor);
+  const order = exact
+    .map((value, index) => ({ index, cut: value - whole[index] }))
+    .sort((a, b) => b.cut - a.cut || a.index - b.index);
+  let left = 100 - whole.reduce((sum, value) => sum + value, 0);
+  for (const { index } of order) {
+    if (left <= 0) {
+      break;
+    }
+    whole[index] += 1;
+    left -= 1;
+  }
+  return whole;
+}
+
+/** Counts by unit id, as counts by kind of ship. */
+function byKind(counts: Record<string, number> | undefined): Map<UnitType, number> {
+  const kinds = new Map<UnitType, number>();
+  for (const [unit, count] of Object.entries(counts ?? {})) {
+    const kind = unitType(unit);
+    if (kind && isShip(kind) && count > 0) {
+      kinds.set(kind, (kinds.get(kind) ?? 0) + count);
+    }
+  }
+  return kinds;
+}
+
+/**
+ * The odds of the space combat that the staged movement starts. `kept` is the last answer of the
+ * engine: of another movement it is shown as pending, with the ships that fight now.
+ */
+function oddsOf(plan: Plan, kept: KeptOdds | null): SpaceOddsView | null {
+  const asked = oddsRequest(plan.facts, plan.draft);
+  const battle = plan.facts.battle;
+  if (!asked || !battle) {
+    return null;
+  }
+  const pending = kept?.key !== asked.key;
+  // The engine had no odds for these sides.
+  if (!pending && !kept?.response) {
+    return null;
+  }
+  const response = kept?.response ?? null;
+  const [win, draw, loss] = response
+    ? percentages([
+        response.attacker_win_rate,
+        response.mutual_destruction_rate + response.unresolved_rate,
+        response.defender_win_rate,
+      ])
+    : [null, null, null];
+  const side = (
+    seat: string,
+    fielded: Record<string, number> | undefined,
+    expected: Record<string, number> | undefined,
+  ) => {
+    const fights = byKind(fielded);
+    const survives = new Map<UnitType, number>();
+    for (const [unit, count] of Object.entries(expected ?? {})) {
+      const kind = unitType(unit);
+      if (kind) {
+        survives.set(kind, (survives.get(kind) ?? 0) + count);
+      }
+    }
+    return {
+      seat,
+      ships: UNIT_ORDER.filter((unit) => fights.has(unit)).map((unit) => ({
+        unit,
+        expected: response ? (survives.get(unit) ?? 0).toFixed(1) : null,
+        fielded: fights.get(unit) ?? 0,
+      })),
+    };
+  };
+  // The ships that fight are those of this movement; the survivors are of the answer.
+  const { attacker, defender } = asked.request;
+  return {
+    defender: battle.defender,
+    win,
+    draw,
+    loss,
+    rollouts: response?.simulations ?? 0,
+    pending,
+    sides: [
+      side(
+        plan.viewer,
+        pending ? attacker.units : response?.attacker_fielded,
+        response?.attacker_expected_survivors,
+      ),
+      side(
+        battle.defender,
+        pending ? defender.units : response?.defender_fielded,
+        response?.defender_expected_survivors,
+      ),
+    ],
+  };
+}
+
 const stagedShips = (plan: Plan) => plan.facts.ships.filter((ship) => shipId(ship) in plan.draft);
 /** Fleet supply in the active system with the staged ships. */
 const supplyUsed = (plan: Plan) =>
@@ -281,6 +385,8 @@ export function selectMovement(
   facts: MovementFacts,
   draft: MovementDraft,
   handled: string[] = [],
+  /** The last answer of the engine for the odds of a space combat. */
+  odds: KeptOdds | null = null,
 ): MovementView {
   const plan = planOf(update, facts, draft, handled);
   const origins = originsOf(facts);
@@ -326,6 +432,7 @@ export function selectMovement(
     removed: [],
     cannon: null,
     cannonSkipped: false,
+    odds: oddsOf(plan, odds),
   };
 }
 
@@ -342,7 +449,12 @@ export const selectOrigin = (
     : null;
 
 /** What is committed to the active system: the ships that move, by the system that they leave. */
-export function selectArrival(update: SessionUpdate, facts: MovementFacts, draft: MovementDraft) {
+export function selectArrival(
+  update: SessionUpdate,
+  facts: MovementFacts,
+  draft: MovementDraft,
+  odds: KeptOdds | null = null,
+) {
   const plan = planOf(update, facts, draft);
   const origins = originsOf(facts)
     .map((origin) => originOf(plan, origin, true))
@@ -354,6 +466,7 @@ export function selectArrival(update: SessionUpdate, facts: MovementFacts, draft
       ? `${plural(ships, "ship")}${cargo ? ` · ${cargo} cargo` : ""} · fleet supply ${supplyUsed(plan)} / ${facts.fleet_supply.limit}`
       : "Nothing moves here yet",
     origins,
+    odds: oddsOf(plan, odds),
   };
 }
 

@@ -7,13 +7,13 @@ use ti4_model::id::PlayerId;
 use super::error::ErrorKind;
 use super::status::{PublicTurnStatus, RejectionReason, ViewerRole};
 use super::view::GameView;
-use ti4_view::map::GalaxyLayout;
+use crate::map::GalaxyLayout;
 pub use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_model::state::GameState;
 use ti4_model::state::Phase;
 use ti4_model::state::ReactionMode;
 
-pub use ti4_view::projection::PendingChoiceEnvelope;
+pub use crate::projection::PendingChoiceEnvelope;
 
 /// Initial per-viewer snapshot sent upon subscription or reconnection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,39 +40,46 @@ pub struct InitialSnapshotMsg {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reaction_modes: BTreeMap<String, ReactionMode>,
     /// What the viewer needs to stage the pending choice of a tactical action
-    /// ([`ti4_view::tactical`]). Only the seat that is asked has it.
+    /// ([`crate::view::tactical`]). Only the seat that is asked has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tactical: Option<ti4_view::tactical::TacticalFacts>,
-    /// The exploration decks and the planets that are still explored ([`ti4_view::exploration`]).
+    pub tactical: Option<crate::view::tactical::TacticalFacts>,
+    /// The exploration decks and the planets that are still explored ([`crate::view::exploration`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exploration: Option<ti4_view::exploration::ExplorationFacts>,
+    pub exploration: Option<crate::view::exploration::ExplorationFacts>,
     /// The action card deck, its discard pile and the hand limit of the viewer
-    /// ([`ti4_view::action_cards`]).
+    /// ([`crate::view::action_cards`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action_cards: Option<ti4_view::action_cards::ActionCardFacts>,
+    pub action_cards: Option<crate::view::action_cards::ActionCardFacts>,
     /// The secret objective deck and what each seat has scored of it
-    /// ([`ti4_view::secret_objectives`]).
+    /// ([`crate::view::secret_objectives`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_objectives: Option<ti4_view::secret_objectives::SecretObjectiveFacts>,
-    /// Where the victory points of every seat come from ([`ti4_view::score`]).
+    pub secret_objectives: Option<crate::view::secret_objectives::SecretObjectiveFacts>,
+    /// Where the victory points of every seat come from ([`crate::view::score`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub score: Option<ti4_view::score::ScoreFacts>,
-    /// The agenda deck ([`ti4_view::agendas`]).
+    pub score: Option<crate::view::score::ScoreFacts>,
+    /// The agenda deck ([`crate::view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agendas: Option<ti4_view::agendas::AgendaFacts>,
-    /// The strategic action that is resolved now ([`ti4_view::secondary`]).
+    pub agendas: Option<crate::view::agendas::AgendaFacts>,
+    /// The strategic action that is resolved now ([`crate::view::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
+    pub secondary: Option<crate::view::secondary::SecondaryFacts>,
+    /// The reaction window that the viewer is asked in ([`crate::view::reaction`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<crate::view::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it
+    /// ([`crate::setup::SeatFact`]). Public; absent for a game with no table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<crate::setup::TableSeats>,
     /// The digest of the corpus that this server plays with
     /// ([`ti4_content::provenance::embedded_digest`]). A client that has the printed texts of
-    /// its own (`ti4_view::components::Catalog::content`) compares the two before it plays.
+    /// its own (`crate::view::components::Catalog::content`) compares the two before it plays.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub content: String,
     /// The steps of a movement, of the landings or of a production that the undo of the
     /// viewer took back, in order, for the page to stage them again. Told once, with the
     /// first snapshot of the seat after its undo.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub undone: Vec<ti4_view::planning::steps::PlanStep>,
+    pub undone: Vec<crate::planning::steps::PlanStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,7 +310,9 @@ pub fn public_roll(
     {
         return None;
     }
-    let hits = roll.hits_on.map(|_| u32::try_from(roll.hits()).unwrap_or(u32::MAX));
+    let hits = roll
+        .hits_on
+        .map(|_| u32::try_from(roll.hits()).unwrap_or(u32::MAX));
     let outcome = roll.outcome.clone().or_else(|| {
         hits.map(|hits| match hits {
             0 => "no hits".to_owned(),
@@ -1022,20 +1031,29 @@ mod roll_tests {
         assert_eq!(public.roller, Some(PlayerId::new("p1")));
         assert_eq!(public.label, "Gravity rift");
         assert_eq!(public.faces, vec![2]);
-        assert_eq!(public.system.as_deref(), Some("67"), "the rift, not the active system");
-        assert_eq!(public.describe(), "p1 rolled Gravity rift in system 67: 2 (ship destroyed)");
+        assert_eq!(
+            public.system.as_deref(),
+            Some("67"),
+            "the rift, not the active system"
+        );
+        assert_eq!(
+            public.describe(),
+            "p1 rolled Gravity rift in system 67: 2 (ship destroyed)"
+        );
     }
 
     #[test]
     fn hit_rolls_count_their_hits_and_default_to_the_active_system() {
-        let public = public_roll(0, &roll("space combat", &[8, 3, 10], Some(7)), Some("18")).unwrap();
+        let public =
+            public_roll(0, &roll("space combat", &[8, 3, 10], Some(7)), Some("18")).unwrap();
         assert_eq!(public.hits, Some(2));
         assert_eq!(public.outcome.as_deref(), Some("2 hits"));
         assert_eq!(public.system.as_deref(), Some("18"));
         let miss = public_roll(1, &roll("space combat", &[1], Some(7)), None).unwrap();
         assert_eq!(miss.outcome.as_deref(), Some("no hits"));
         assert_eq!(miss.system, None);
-        let anti_fighter = public_roll(2, &roll("anti-fighter barrage", &[9], Some(9)), None).unwrap();
+        let anti_fighter =
+            public_roll(2, &roll("anti-fighter barrage", &[9], Some(9)), None).unwrap();
         assert_eq!(anti_fighter.label, "Anti-fighter barrage");
         assert_eq!(anti_fighter.outcome.as_deref(), Some("1 hit"));
     }
@@ -1088,7 +1106,10 @@ mod roll_tests {
         assert_eq!(json["event"]["kind"], "dice_rolled");
         assert_eq!(json["roll"]["faces"], serde_json::json!([10, 4]));
         assert_eq!(serde_json::from_value::<GameEvent>(json).unwrap(), event);
-        for viewer in [ViewerRole::Spectator, ViewerRole::Player(PlayerId::new("p2"))] {
+        for viewer in [
+            ViewerRole::Spectator,
+            ViewerRole::Player(PlayerId::new("p2")),
+        ] {
             assert_eq!(event.for_viewer(&viewer).unwrap().roll, event.roll);
         }
     }
@@ -1578,8 +1599,10 @@ mod fact_tests {
     /// The web client decodes this exact file (web/src/protocol/eventVisibility.test.ts).
     #[test]
     fn event_visibility_wire_shape_matches_the_client_fixture() {
-        let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../ti4-server/fixtures/event_visibility.json")).unwrap();
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../ti4-server/fixtures/event_visibility.json"
+        ))
+        .unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
         assert_eq!(events[0].visibility, EventVisibility::Public);
         assert_eq!(
@@ -1748,29 +1771,36 @@ pub struct StateUpdateMsg {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub reaction_modes: BTreeMap<String, ReactionMode>,
     /// What the viewer needs to stage the pending choice of a tactical action
-    /// ([`ti4_view::tactical`]). Only the seat that is asked has it.
+    /// ([`crate::view::tactical`]). Only the seat that is asked has it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tactical: Option<ti4_view::tactical::TacticalFacts>,
-    /// The exploration decks and the planets that are still explored ([`ti4_view::exploration`]).
+    pub tactical: Option<crate::view::tactical::TacticalFacts>,
+    /// The exploration decks and the planets that are still explored ([`crate::view::exploration`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub exploration: Option<ti4_view::exploration::ExplorationFacts>,
+    pub exploration: Option<crate::view::exploration::ExplorationFacts>,
     /// The action card deck, its discard pile and the hand limit of the viewer
-    /// ([`ti4_view::action_cards`]).
+    /// ([`crate::view::action_cards`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub action_cards: Option<ti4_view::action_cards::ActionCardFacts>,
+    pub action_cards: Option<crate::view::action_cards::ActionCardFacts>,
     /// The secret objective deck and what each seat has scored of it
-    /// ([`ti4_view::secret_objectives`]).
+    /// ([`crate::view::secret_objectives`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_objectives: Option<ti4_view::secret_objectives::SecretObjectiveFacts>,
-    /// Where the victory points of every seat come from ([`ti4_view::score`]).
+    pub secret_objectives: Option<crate::view::secret_objectives::SecretObjectiveFacts>,
+    /// Where the victory points of every seat come from ([`crate::view::score`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub score: Option<ti4_view::score::ScoreFacts>,
-    /// The agenda deck ([`ti4_view::agendas`]).
+    pub score: Option<crate::view::score::ScoreFacts>,
+    /// The agenda deck ([`crate::view::agendas`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agendas: Option<ti4_view::agendas::AgendaFacts>,
-    /// The strategic action that is resolved now ([`ti4_view::secondary`]).
+    pub agendas: Option<crate::view::agendas::AgendaFacts>,
+    /// The strategic action that is resolved now ([`crate::view::secondary`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<ti4_view::secondary::SecondaryFacts>,
+    pub secondary: Option<crate::view::secondary::SecondaryFacts>,
+    /// The reaction window that the viewer is asked in ([`crate::view::reaction`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<crate::view::reaction::ReactionFacts>,
+    /// Who sits in each seat: the name of its player and who plays it
+    /// ([`crate::setup::SeatFact`]). Public; absent for a game with no table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seats: Option<crate::setup::TableSeats>,
 }
 
 /// One decision made on a seat's behalf because it had a single legal option.
@@ -1984,7 +2014,7 @@ pub struct PlanningStatusMsg {
     pub available: bool,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     pub can_apply: bool,
     pub application: Option<DraftApplication>,
     /// The strategic action whose secondary this seat may draft, if any.
@@ -2019,7 +2049,7 @@ pub struct SecondaryDraftStatus {
     pub seats_before: Option<usize>,
     pub can_start: bool,
     pub has_draft: bool,
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     /// The draft is submitted for the seat when the live window reaches it.
     pub ready: bool,
     pub application: Option<DraftApplication>,
@@ -2051,7 +2081,7 @@ pub struct PlanningUpdateMsg {
     pub game_id: String,
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
-    pub envelope: crate::planning::PlanningEnvelope,
+    pub envelope: crate::planning::wire::PlanningEnvelope,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -2078,7 +2108,7 @@ pub struct PlanningResultMsg {
     #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
     pub draft: DraftKind,
     /// None identifies a start request; Some identifies an answer, reset, or apply request.
-    pub identity: Option<crate::planning::AttemptIdentity>,
+    pub identity: Option<crate::planning::wire::AttemptIdentity>,
     /// None means accepted by the controller. Application progress is seat-private status.
     pub rejection: Option<PlanningRejection>,
 }
@@ -2095,7 +2125,7 @@ pub struct DraftOutcomeMsg {
     /// the same script may end elsewhere.
     pub base_version: u64,
     /// Boxed: an outcome has up to four updates, and a message is moved through queues.
-    pub outcome: Box<ti4_view::planning::draft::DraftOutcome>,
+    pub outcome: Box<crate::planning::draft::DraftOutcome>,
 }
 
 /// Where a script that was sent to the live game stopped before its end.
@@ -2106,7 +2136,7 @@ pub struct ScriptStopped {
     /// is as before.
     pub applied: usize,
     /// The entries that are not in the game.
-    pub remaining: Vec<ti4_view::planning::draft::DraftStep>,
+    pub remaining: Vec<crate::planning::draft::DraftStep>,
     /// True when the game asked something else first, or went on without the rest; false when
     /// it refused an entry and nothing was sent.
     pub interrupted: bool,
@@ -2125,6 +2155,8 @@ pub struct DraftAppliedMsg {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stopped: Option<ScriptStopped>,
 }
+
+pub use super::staged::SeatStagedMsg;
 
 /// Messages emitted from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2153,6 +2185,8 @@ pub enum ServerMessage {
     /// Which ships could move into a system, as of now. Sent only to the connection that asked;
     /// ephemeral.
     ReachInto(super::reach::ReachIntoMsg),
+    /// What the seat has staged. Sent only to the connections of that seat that asked for it.
+    SeatStaged(SeatStagedMsg),
 }
 
 impl ServerMessage {
@@ -2178,6 +2212,7 @@ impl ServerMessage {
             Self::ReactionIntentState(m) => m.protocol_version,
             Self::SecondaryPreview(m) => m.protocol_version,
             Self::ReachInto(m) => m.protocol_version,
+            Self::SeatStaged(m) => m.protocol_version,
         }
     }
 
@@ -2201,6 +2236,7 @@ impl ServerMessage {
             Self::ReactionIntentState(m) => Some(&m.game_id),
             Self::SecondaryPreview(m) => Some(&m.game_id),
             Self::ReachInto(m) => Some(&m.game_id),
+            Self::SeatStaged(m) => Some(&m.game_id),
             Self::Error(_) | Self::Pong(_) => None,
         }
     }
@@ -2228,7 +2264,8 @@ impl ServerMessage {
             | Self::DraftApplied(_)
             | Self::ReactionIntentState(_)
             | Self::SecondaryPreview(_)
-            | Self::ReachInto(_) => None,
+            | Self::ReachInto(_)
+            | Self::SeatStaged(_) => None,
         }
     }
 }

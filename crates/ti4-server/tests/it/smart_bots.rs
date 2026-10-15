@@ -18,16 +18,16 @@ fn config_with(
     let ids: Vec<PlayerId> = (1..=controllers.len())
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
-    let (state, galaxy) = ti4_server::map::create_game_with_options(
+    let (state, galaxy) = ti4_host::map::create_game_with_template_seated(
         ContentStore::embedded(),
         &ids,
         seed,
         None,
-        None,
+        &ti4_engine::seating::seat_in_scope(&ids),
         Some(card_set),
     )
     .expect("create game");
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(id, state)
         .with_seed(seed)
         .with_player_ids(ids.clone())

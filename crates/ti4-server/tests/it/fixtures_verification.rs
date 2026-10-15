@@ -1,10 +1,10 @@
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::RejectionReason;
+use ti4_host::protocol::{PROTOCOL_VERSION, parse_server_message};
 use ti4_server::fixtures::{
     sample_actor_snapshot, sample_opponent_snapshot, sample_spectator_snapshot,
     sample_stale_submission_rejected, sample_terminal_game_over,
 };
-use ti4_server::protocol::server::ServerMessage;
-use ti4_server::protocol::status::RejectionReason;
-use ti4_server::protocol::{PROTOCOL_VERSION, parse_server_message};
 
 #[test]
 fn ensure_and_verify_fixtures() {
@@ -76,7 +76,7 @@ fn a_snapshot_names_the_corpus_of_the_catalogue() {
     let ServerMessage::InitialSnapshot(snapshot) = sample_actor_snapshot() else {
         panic!("a snapshot");
     };
-    let catalog = ti4_view::components::catalog(
+    let catalog = ti4_host::view::components::catalog(
         ti4_content::ContentStore::embedded(),
         ti4_model::content_types::POK,
     );

@@ -87,6 +87,7 @@ export function Peek({
   buttonClassName,
   width: wanted = 340,
   flush = false,
+  tall = false,
   children,
 }: {
   label: string;
@@ -97,6 +98,11 @@ export function Peek({
   width?: number;
   /** The content sets its own padding: a card with sections. */
   flush?: boolean;
+  /**
+   * The text can be longer than the window is high (a whole sheet): it opens on the side of the
+   * trigger with more room, and scrolls inside that room.
+   */
+  tall?: boolean;
   children: ReactNode;
 }) {
   const [open, setOpen] = useState<"peek" | "pinned" | null>(null);
@@ -136,7 +142,8 @@ export function Peek({
   const width = Math.min(wanted, window.innerWidth - 16);
   // Above the trigger when the room below is small and there is more of it above.
   const below = rect ? window.innerHeight - rect.bottom : 0;
-  const above = !!rect && below < 200 && rect.top > below;
+  const above = !!rect && (tall || below < 200) && rect.top > below;
+  const room = rect ? (above ? rect.top : below) - 14 : 0;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: hover only shows the text early; the button inside is the control
     <span
@@ -174,7 +181,9 @@ export function Peek({
             className={cx(
               "rounded-lg border border-[#415065] bg-raised text-xs leading-[1.45] font-normal whitespace-normal text-text shadow-pop",
               !flush && "space-y-2 px-3 py-2.5",
+              tall && "overflow-y-auto overscroll-contain",
             )}
+            style={tall ? { maxHeight: room } : undefined}
           >
             {children}
           </div>
@@ -188,9 +197,17 @@ export function Peek({
  * Rule or help text behind a "?" button. Hover or focus shows it; a click keeps it open.
  * The players are experts, so this text is never in the layout.
  */
-export function Hint({ label, children }: { label: string; children: ReactNode }) {
+export function Hint({
+  label,
+  children,
+  ...peek
+}: {
+  label: string;
+  children: ReactNode;
+} & Pick<Parameters<typeof Peek>[0], "width" | "tall">) {
   return (
     <Peek
+      {...peek}
       label={label}
       trigger="?"
       buttonClassName={(pinned) =>

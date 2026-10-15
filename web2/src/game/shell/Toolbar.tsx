@@ -26,6 +26,7 @@ export function Toolbar({
   phone = false,
   other,
   settings = false,
+  table = false,
 }: {
   view: ToolbarView;
   drawer: string | null;
@@ -35,8 +36,13 @@ export function Toolbar({
   other?: OtherGame;
   /** The local game has a Dev sheet, opened like the reference sheets. */
   settings?: boolean;
+  /** The game has a table: the sheet "Table" is the last reference sheet. */
+  table?: boolean;
 }) {
   const dispatch = useDispatch();
+  const references: (readonly [string, string])[] = table
+    ? [...REFERENCES, ["table", "Table"]]
+    : [...REFERENCES];
   const tab = (mode: Workspace, label: string, disabled = false, title?: string) => (
     <button
       type="button"
@@ -55,9 +61,11 @@ export function Toolbar({
   ];
   return (
     <header className="flex min-h-12 items-center gap-3.5 border-b border-line bg-surface px-4 py-1.5 phone:flex-wrap phone:gap-x-2 phone:gap-y-1.5 phone:px-3 phone:pt-[max(6px,env(safe-area-inset-top))]">
-      <div className="flex min-w-0 flex-col text-xs leading-[1.3] text-muted phone:flex-1">
+      {/* A status can name a player: on a phone it has the room that is left, whatever its length. */}
+      <div className="flex min-w-0 flex-col text-xs leading-[1.3] text-muted phone:w-0 phone:flex-1">
         <span>
           Round {view.round} · {view.phase}
+          {view.turn > 0 && ` · Turn ${view.turn}`}
         </span>
         <strong className="truncate text-sm font-semibold text-text">
           <i className="mr-1.5 mb-0.5 inline-block size-1.5 rounded-full bg-accent" />
@@ -87,7 +95,7 @@ export function Toolbar({
       </nav>
       {phone ? null : (
         <nav aria-label="Reference" className="ml-auto flex gap-1">
-          {REFERENCES.map(([id, label]) => (
+          {references.map(([id, label]) => (
             <Button
               key={id}
               tone="quiet"
@@ -153,7 +161,7 @@ export function Toolbar({
         <Menu
           label="Reference and more"
           items={[
-            ...REFERENCES.map(([id, label]) => ({ label, onSelect: () => onDrawer(id) })),
+            ...references.map(([id, label]) => ({ label, onSelect: () => onDrawer(id) })),
             ...(view.draft ? draftItems : []),
             ...(other ? [{ label: other.label, onSelect: () => location.assign(other.href) }] : []),
             ...(settings ? [{ label: "Dev", onSelect: () => onDrawer("settings") }] : []),

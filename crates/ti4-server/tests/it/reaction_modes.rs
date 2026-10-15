@@ -5,11 +5,11 @@ use std::fs;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use ti4_host::protocol::server::ServerMessage;
+use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::PlayerId;
 use ti4_model::state::ReactionMode;
 use ti4_server::dev::execute_launch_scenario;
-use ti4_server::protocol::server::ServerMessage;
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::{GameRegistry, GameSession, MockClient};
 use ti4_server::storage::FileGameStore;
 
@@ -238,7 +238,7 @@ fn never_declines_the_window_unasked_journals_it_and_survives_a_restart() {
         store
             .load_reaction_modes(&game_id)
             .unwrap()
-            .never
+            .into_modes()
             .is_empty()
     );
     let _ = fs::remove_dir_all(dir);
@@ -278,7 +278,7 @@ fn only_a_seat_can_set_its_own_known_cards_and_old_saves_have_no_file() {
         store
             .load_reaction_modes(&launch.game_id)
             .unwrap()
-            .never
+            .into_modes()
             .is_empty()
     );
 
@@ -293,10 +293,34 @@ fn only_a_seat_can_set_its_own_known_cards_and_old_saves_have_no_file() {
             .is_empty()
     );
     assert_eq!(
-        store.load_reaction_modes(&launch.game_id).unwrap().never[&seats.sol]
-            .iter()
-            .collect::<Vec<_>>(),
-        vec!["Sabotage"]
+        store.load_reaction_modes(&launch.game_id).unwrap().modes[&seats.sol],
+        std::iter::once(("Sabotage".to_owned(), ReactionMode::Never)).collect()
+    );
+    // The card of an ability is set by its key, and "only on my turns" is a mode of its own.
+    session
+        .set_reaction_mode(&seats.sol, "leader:solagent", ReactionMode::OwnTurn)
+        .unwrap();
+    assert_eq!(
+        session
+            .get_snapshot(&ViewerRole::Player(seats.sol.clone()))
+            .reaction_modes
+            .get("leader:solagent"),
+        Some(&ReactionMode::OwnTurn)
+    );
+    assert!(
+        session
+            .set_reaction_mode(&seats.sol, "leader:not a key", ReactionMode::Never)
+            .is_err()
+    );
+    session
+        .set_reaction_mode(&seats.sol, "leader:solagent", ReactionMode::Always)
+        .unwrap();
+    // A save of before the modes of abilities has the Never cards alone, and is read.
+    let old: ti4_server::storage::ReactionModesRecord =
+        serde_json::from_str(r#"{"never":{"p1":["Sabotage"]}}"#).unwrap();
+    assert_eq!(
+        old.into_modes()[&PlayerId::new("p1")]["Sabotage"],
+        ReactionMode::Never
     );
     // A restarted worker (undo, redo, batch) keeps it.
     assert_eq!(session.restart_config().reaction_modes[&seats.sol].len(), 1);

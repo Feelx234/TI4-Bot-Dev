@@ -239,9 +239,8 @@ mod tests {
         let hash_of = |choice: &Choice| {
             let mut log = DecisionLog::default();
             log.record(choice, &choice.options[0]);
-            [CanonicalHashVersion::V1, CanonicalHashVersion::V2].map(|version| {
-                decision_hash(version, &log.records[0]).digest
-            })
+            [CanonicalHashVersion::V1, CanonicalHashVersion::V2]
+                .map(|version| decision_hash(version, &log.records[0]).digest)
         };
         assert_eq!(hash_of(&plain()), hash_of(&with_facts));
     }

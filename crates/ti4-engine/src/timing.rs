@@ -152,6 +152,10 @@ pub struct Ability {
     pub option_payload: Option<OptionPayload>,
 }
 
+/// The key of [`Choice::details`] that names the active player of a reaction window in the
+/// action phase.
+pub const ACTIVE_DETAIL: &str = "active";
+
 /// The label of a reaction option for the player: the printed name of the faction ability or the
 /// leader behind an ability id such as `ability:empyrean:aetherpassage:SYSTEM_ACTIVATED:after`
 /// or `leader:mentak:mentakagent:PILLAGE_USED:after`, plus the window in words ("after system
@@ -1201,6 +1205,14 @@ impl Resolver {
                 event,
                 single.iter().map(|(card, option)| (card, option.clone())),
             )
+        };
+        // Whose turn it is, for a seat that asked to be offered a reaction on its own turns only
+        // (`ti4_host::view::reaction_modes`). Display only, as every detail: not in a record or a replay.
+        let choice = match &context.state.active {
+            Some(active) if context.state.phase == ti4_model::state::Phase::Action => {
+                choice.detailed(ACTIVE_DETAIL, active.to_string())
+            }
+            _ => choice,
         };
         let choice = choice.contextualized(
             crate::decision_context::DecisionContext::new(

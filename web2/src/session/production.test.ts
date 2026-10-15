@@ -347,7 +347,10 @@ it("opens the production step with the build at the system that produces", () =>
   const { board } = view;
   expect(board.task).toMatchObject({ target: "system", interactive: true, values: { "72": 0 } });
   expect(board.task?.payment).toBeUndefined();
-  expect(board.production).toEqual(sheet);
+  // The sheet on the board has what is in the system, as the inspector has.
+  const { details, ...build } = board.production!;
+  expect(build).toEqual(sheet);
+  expect(details?.rows.flatMap((row) => row.planet?.name ?? [])).toEqual(["Lisis", "Velnor"]);
   expect(board.inspector).toBeNull();
   expect(board.taskSystems).toEqual(["72"]);
   expect(selectShell(update, local()).board.production).toBeNull();

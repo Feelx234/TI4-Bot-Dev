@@ -8,14 +8,14 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
 
-use ti4_server::create_app;
-use ti4_server::dev::execute_launch_scenario;
-use ti4_server::protocol::PROTOCOL_VERSION;
-use ti4_server::protocol::client::ClientMessage;
-use ti4_server::protocol::server::{
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::client::ClientMessage;
+use ti4_host::protocol::server::{
     PreviewRefusal, PreviewResult, SecondaryPreviewMsg, ServerMessage,
 };
-use ti4_server::protocol::status::ViewerRole;
+use ti4_host::protocol::status::ViewerRole;
+use ti4_server::create_app;
+use ti4_server::dev::execute_launch_scenario;
 use ti4_server::session::GameRegistry;
 
 type Socket =
@@ -30,6 +30,7 @@ async fn connect(addr: &str, game_id: &str, token: Option<&str>) -> Socket {
         protocol_version: PROTOCOL_VERSION,
         game_id: game_id.to_owned(),
         player_session: token.map(str::to_owned),
+        staged: false,
     };
     stream
         .send(Message::Text(
@@ -181,7 +182,7 @@ async fn previews_are_seated_only_private_and_rate_limited() {
         {
             assert_eq!(
                 error.kind,
-                ti4_server::protocol::error::ErrorKind::MalformedMessage
+                ti4_host::protocol::error::ErrorKind::MalformedMessage
             );
             break;
         }

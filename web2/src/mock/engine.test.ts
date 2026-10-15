@@ -653,10 +653,10 @@ describe("mock engine", () => {
 
   it("skips the window of a card that is set to Never offer, and says so", () => {
     const world = createWorld();
-    reduce(world, { type: "setCardOffer", card: "Direct Hit", never: true });
+    reduce(world, { type: "setOffer", key: "Direct Hit", name: "Direct Hit", mode: "never" });
     expect(
       selectShell(world).reference.actionCards?.hand.find((item) => item.name === "Direct Hit"),
-    ).toMatchObject({ never: true });
+    ).toMatchObject({ offer: { mode: "never" } });
     world.toast = null;
     const toasts: string[] = [];
     loadExample(world, "draft-combat");

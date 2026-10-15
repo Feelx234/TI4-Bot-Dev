@@ -2,7 +2,6 @@
 // for undo and redo. A draft is a script. The engine plays it on a copy of the game each time it
 // changes (`Transport.draft`), so nothing here decides a rule.
 import type { LandingStep, MovementStep, PlanStep, ProductionStep } from "./movementPlan";
-import type { SaveStorage } from "./savedGame";
 import type { DraftOutcome, DraftStep, SessionUpdate } from "./wire";
 
 /** The steps of a tactical action that a draft stages, in their order. */
@@ -201,27 +200,30 @@ export function problemOf(entry: DraftEntry, outcome: DraftOutcome): string | nu
   }
 }
 
-/** The draft as it is kept between two visits. */
-export function readDraft(storage: SaveStorage, key: string): Draft | null {
-  try {
-    const value = JSON.parse(storage.getItem(key) ?? "null");
-    return value &&
-      Array.isArray(value.history) &&
-      value.history.length > 0 &&
-      Number.isInteger(value.cursor) &&
-      value.cursor >= 0 &&
-      value.cursor < value.history.length
-      ? { history: value.history, cursor: value.cursor }
-      : null;
-  } catch {
-    return null;
-  }
+/** The draft as it is kept between two visits (`SeatStore`, slot "plan"). Null: none, or not a draft. */
+export function parseDraft(value: unknown): Draft | null {
+  const kept = value as Partial<Draft> | null;
+  return kept &&
+    Array.isArray(kept.history) &&
+    kept.history.length > 0 &&
+    Number.isInteger(kept.cursor) &&
+    kept.cursor! >= 0 &&
+    kept.cursor! < kept.history.length
+    ? { history: kept.history, cursor: kept.cursor! }
+    : null;
 }
 
-export function storeDraft(storage: SaveStorage, key: string, draft: Draft | null): void {
-  if (draft) {
-    storage.setItem(key, JSON.stringify(draft));
-  } else {
-    storage.removeItem(key);
+/**
+ * The draft within `bytes` as JSON: the oldest states of its undo go first, then the states that
+ * redo would bring back. The state that is the draft now stays.
+ */
+export function trimDraft(draft: Draft, bytes: number, size: (draft: Draft) => number): Draft {
+  let trimmed = draft;
+  while (size(trimmed) > bytes && trimmed.history.length > 1) {
+    trimmed =
+      trimmed.cursor > 0
+        ? { history: trimmed.history.slice(1), cursor: trimmed.cursor - 1 }
+        : { history: trimmed.history.slice(0, -1), cursor: 0 };
   }
+  return trimmed;
 }

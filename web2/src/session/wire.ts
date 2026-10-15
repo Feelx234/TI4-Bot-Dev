@@ -1,14 +1,14 @@
 /**
  * The part of the wire protocol that web2 reads. The shapes are the serde output of the Rust
- * types named in each comment (`crates/ti4-view`, `crates/ti4-engine`). The server sends them in
+ * types named in each comment (`crates/ti4-host`, `crates/ti4-engine`). The server sends them in
  * `StateUpdateMsg`, the wasm build hands them over as `SessionUpdate`: same names, same shapes.
  * The messages of the websocket are at the end.
  */
 
-/** `ti4_view::status::ViewerRole` */
+/** `ti4_host::protocol::status::ViewerRole` */
 export type ViewerRole = { role: "player"; seat: string } | { role: "spectator" };
 
-/** `ti4_view::status::PublicTurnStatus` */
+/** `ti4_host::protocol::status::PublicTurnStatus` */
 export type PublicTurnStatus =
   | { kind: "active_turn"; player: string; phase: string; round: number }
   | { kind: "waiting_for_decision"; seat: string; phase: string; round: number; stage: string }
@@ -42,13 +42,13 @@ export interface Choice {
   details?: Record<string, unknown>;
 }
 
-/** `ti4_view::projection::PendingChoiceEnvelope` */
+/** `ti4_host::projection::PendingChoiceEnvelope` */
 export interface PendingChoiceEnvelope {
   nonce: string;
   choice: Choice;
 }
 
-/** `ti4_view::view::PlayerView` */
+/** `ti4_host::protocol::view::PlayerView` */
 export interface PlayerView {
   id: string;
   faction: string;
@@ -78,7 +78,7 @@ export interface PlayerView {
   leaders: Record<string, string>;
 }
 
-/** `ti4_view::view::PlanetView` */
+/** `ti4_host::protocol::view::PlanetView` */
 export interface PlanetView {
   planet_id: string;
   controlled_by: string | null;
@@ -86,7 +86,7 @@ export interface PlanetView {
   attachments?: string[];
 }
 
-/** `ti4_view::view::PlacedUnitView` */
+/** `ti4_host::protocol::view::PlacedUnitView` */
 export interface PlacedUnitView {
   unit_type: string;
   owner: string;
@@ -95,7 +95,7 @@ export interface PlacedUnitView {
   galvanized?: boolean;
 }
 
-/** `ti4_view::view::SystemView` */
+/** `ti4_host::protocol::view::SystemView` */
 export interface SystemView {
   system_id: string;
   command_tokens: string[];
@@ -103,7 +103,7 @@ export interface SystemView {
   units: PlacedUnitView[];
 }
 
-/** `ti4_view::view::PlanetMetaView` */
+/** `ti4_host::protocol::view::PlanetMetaView` */
 export interface PlanetMetaView {
   id: string;
   label: string;
@@ -115,7 +115,7 @@ export interface PlanetMetaView {
   space_station?: boolean;
 }
 
-/** `ti4_view::view::BoardTileView` */
+/** `ti4_host::protocol::view::BoardTileView` */
 export interface BoardTileView {
   system_id: string;
   label: string;
@@ -129,7 +129,7 @@ export interface BoardTileView {
   planets?: PlanetMetaView[];
 }
 
-/** `ti4_view::view::BoardView`. `combat` and `invasion` are not read yet. */
+/** `ti4_host::protocol::view::BoardView`. `combat` and `invasion` are not read yet. */
 export interface BoardView {
   systems: Record<string, SystemView>;
   active_system?: string;
@@ -138,7 +138,7 @@ export interface BoardView {
   invasion?: unknown;
 }
 
-/** `ti4_view::view::TableView`. `objective_progress` is not read yet. */
+/** `ti4_host::protocol::view::TableView`. `objective_progress` is not read yet. */
 export interface TableView {
   revealed_objectives: string[];
   scored_objectives: Record<string, string[]>;
@@ -148,9 +148,11 @@ export interface TableView {
   laws: Record<string, string>;
 }
 
-/** `ti4_view::view::GameView` */
+/** `ti4_host::protocol::view::GameView` */
 export interface GameView {
   round: number;
+  /** The turn of the action phase, from 1; 0 in the other phases. */
+  turn: number;
   phase: string;
   speaker: string;
   seating_order: string[];
@@ -161,7 +163,7 @@ export interface GameView {
   table: TableView;
 }
 
-/** `ti4_view::tactical::MoveFact` */
+/** `ti4_host::view::tactical::MoveFact` */
 export interface MoveFact {
   /** The ship cannot arrive without Gravity Drive. */
   gravity_drive: boolean;
@@ -172,7 +174,7 @@ export interface MoveFact {
   rifts: string[];
 }
 
-/** `ti4_view::tactical::ShipFact` */
+/** `ti4_host::view::tactical::ShipFact` */
 export interface ShipFact {
   origin: string;
   index: number;
@@ -191,7 +193,7 @@ export interface ShipFact {
   loads?: number[];
 }
 
-/** `ti4_view::tactical::CargoPool` */
+/** `ti4_host::view::tactical::CargoPool` */
 export interface CargoPool {
   system: string;
   /** The planet, or null for the space area. */
@@ -202,7 +204,7 @@ export interface CargoPool {
   count: number;
 }
 
-/** `ti4_view::tactical::ActivationFacts` */
+/** `ti4_host::view::tactical::ActivationFacts` */
 export interface ActivationFacts {
   kind: "activation";
   tactic_tokens: number;
@@ -217,7 +219,7 @@ export interface ActivationFacts {
   }[];
 }
 
-/** `ti4_view::tactical::MovementFacts` */
+/** `ti4_host::view::tactical::MovementFacts` */
 export interface MovementFacts {
   kind: "movement";
   active: string;
@@ -229,9 +231,55 @@ export interface MovementFacts {
   fleet_supply: { limit: number; charged: number };
   /** How many ships already moved in this activation. */
   moved: number;
+  /** The space combat that ships moving in start: only when another seat has ships in the active system. */
+  battle?: BattleFacts;
 }
 
-/** `ti4_view::tactical::LandingPool` */
+/**
+ * `ti4_host::view::tactical::CombatSide`: one side of a space combat as the state has it, by unit id.
+ * It is a side of `ti4_space_odds` as it is.
+ */
+export interface CombatSide {
+  faction: string;
+  /** The ships of the side in the active system. */
+  units?: Record<string, number>;
+  /** How many of them are damaged. */
+  damaged?: Record<string, number>;
+  /** The units of the side that fire SPACE CANNON in the active system before the combat. */
+  guns?: Record<string, number>;
+}
+
+/** `ti4_host::view::tactical::BattleFacts`: the space combat in the active system, before a ship moves in. */
+export interface BattleFacts {
+  /** The seat that defends. */
+  defender: string;
+  /** The seat that moves, with what it has there already. The page adds the ships that it moves in. */
+  attacker: CombatSide;
+  defender_side: CombatSide;
+}
+
+/** What `ti4_space_odds` reads: two sides of a space combat. */
+export interface SpaceOddsRequest {
+  attacker: CombatSide;
+  defender: CombatSide;
+}
+
+/** `ti4_calc::odds::BattleResponse`: the rates are fractions of the rollouts, the survivors by unit id. */
+export interface SpaceOddsResponse {
+  simulations: number;
+  attacker_win_rate: number;
+  defender_win_rate: number;
+  mutual_destruction_rate: number;
+  /** The rollouts that did not end. */
+  unresolved_rate: number;
+  average_rounds: number;
+  attacker_expected_survivors: Record<string, number>;
+  defender_expected_survivors: Record<string, number>;
+  attacker_fielded: Record<string, number>;
+  defender_fielded: Record<string, number>;
+}
+
+/** `ti4_host::view::tactical::LandingPool` */
 export interface LandingPool {
   unit: string;
   damaged: boolean;
@@ -241,7 +289,7 @@ export interface LandingPool {
   count: number;
 }
 
-/** `ti4_view::tactical::InvasionFacts` */
+/** `ti4_host::view::tactical::InvasionFacts` */
 export interface InvasionFacts {
   kind: "invasion";
   active: string;
@@ -250,7 +298,7 @@ export interface InvasionFacts {
   planets: { planet: string; lands?: number[] }[];
 }
 
-/** `ti4_view::tactical::BuildFact`: one kind of unit of a production, also one that the seat cannot produce now. */
+/** `ti4_host::view::tactical::BuildFact`: one kind of unit of a production, also one that the seat cannot produce now. */
 export interface BuildFact {
   unit: string;
   /** The printed cost of one purchase, before a discount. */
@@ -279,7 +327,7 @@ export interface BuildFact {
   unavailable?: "technology" | "supply" | "blockade" | "no_place" | "not_offered";
 }
 
-/** `ti4_view::tactical::ProductionFacts` */
+/** `ti4_host::view::tactical::ProductionFacts` */
 export interface ProductionFacts {
   kind: "production";
   /** The system that produces. */
@@ -313,7 +361,7 @@ export interface ExplorationRecord {
   outcome: string;
 }
 
-/** `ti4_view::exploration::ExplorationFacts` */
+/** `ti4_host::view::exploration::ExplorationFacts` */
 export interface ExplorationFacts {
   /** The card ids that each deck still holds, sorted. The keys are CULTURAL, HAZARDOUS, ... */
   decks: Record<string, string[]>;
@@ -322,7 +370,7 @@ export interface ExplorationFacts {
   explores: Record<string, string[]>;
 }
 
-/** `ti4_view::exploration::ExplorationCatalog`: the printed exploration cards. */
+/** `ti4_host::view::exploration::ExplorationCatalog`: the printed exploration cards. */
 export interface ExplorationCatalog {
   cards: { id: string; name: string; deck: string; resolution: string; text: string }[];
   /** The cards that each deck begins a game with. */
@@ -337,7 +385,7 @@ export interface ExplorationCatalog {
   }[];
 }
 
-/** `ti4_view::components::PrintedCard` */
+/** `ti4_host::view::components::PrintedCard` */
 export interface PrintedCard {
   id: string;
   name: string;
@@ -346,18 +394,34 @@ export interface PrintedCard {
   used: boolean;
 }
 
-/** `ti4_view::components::ComponentCatalog`: the printed cards of the play areas. */
+/** `ti4_host::view::components::FactionSheet`: a faction as its sheet prints it. */
+export interface FactionSheet {
+  name: string;
+  title: string;
+  commodities: number;
+  /** The agent, the commander and the hero, by id. */
+  leaders?: string[];
+  starting_technologies?: string[];
+  /** A faction that chooses its starting technologies: how many, and of which. */
+  starting_technology_choice?: { amount: number; options: string[] };
+  faction_technologies?: string[];
+  /** The units that the faction begins with. Without `planet` they are in the space area. */
+  starting_fleet?: { unit: string; count: number; planet?: string }[];
+  home_planets?: { id: string; name: string; resources: number; influence: number }[];
+}
+
+/** `ti4_host::view::components::ComponentCatalog`: the printed cards of the play areas. */
 export interface ComponentCatalog {
   abilities: { id: string; name: string; window?: string; text: string }[];
   /** The ability ids of each faction, in the order of the faction sheet. */
   factions: Record<string, string[]>;
   /**
-   * `ti4_view::components::FactionSheet`: the name that a table calls each faction by ("Sol"),
-   * the name as printed and the commodity value. Absent from the demo.
+   * `ti4_host::view::components::FactionSheet`: the name that a table calls each faction by ("Sol"),
+   * the name as printed and what the sheet of the faction says. Absent from the demo.
    */
-  faction_sheets?: Record<string, { name: string; title: string; commodities: number }>;
+  faction_sheets?: Record<string, FactionSheet>;
   /**
-   * `ti4_view::components::StrategyCard`: the strategy cards of every set. The id of a card of
+   * `ti4_host::view::components::StrategyCard`: the strategy cards of every set. The id of a card of
    * an older printing has no name in it (`base4`). Absent from the demo.
    */
   strategy_cards?: { id: string; name: string; initiative: number }[];
@@ -428,7 +492,7 @@ export interface ComponentCatalog {
   agenda_groups?: string[];
 }
 
-/** `ti4_view::score::PointSource`: a source of points that is not a public objective. */
+/** `ti4_host::view::score::PointSource`: a source of points that is not a public objective. */
 export interface PointSource {
   kind:
     | "secrets"
@@ -450,7 +514,7 @@ export interface PointSource {
   from?: Record<string, string[]>;
 }
 
-/** `ti4_view::score::ScoreFacts` */
+/** `ti4_host::view::score::ScoreFacts` */
 export interface ScoreFacts {
   /** The points that win the game. */
   target: number;
@@ -462,7 +526,7 @@ export interface ScoreFacts {
   unexplained?: Record<string, number>;
 }
 
-/** `ti4_view::secret_objectives::SecretObjectiveFacts` */
+/** `ti4_host::view::secret_objectives::SecretObjectiveFacts` */
 export interface SecretObjectiveFacts {
   /** How many cards the deck still holds. */
   deck: number;
@@ -472,13 +536,13 @@ export interface SecretObjectiveFacts {
   hand_limit: number;
 }
 
-/** `ti4_view::agendas::AgendaFacts` */
+/** `ti4_host::view::agendas::AgendaFacts` */
 export interface AgendaFacts {
   /** How many cards the deck still holds. */
   deck: number;
 }
 
-/** `ti4_view::action_cards::ActionCardFacts` */
+/** `ti4_host::view::action_cards::ActionCardFacts` */
 export interface ActionCardFacts {
   /** How many cards the deck still holds. */
   deck: number;
@@ -490,7 +554,7 @@ export interface ActionCardFacts {
   hand_limit?: number;
 }
 
-/** `ti4_view::components::Catalog`: everything printed. The host asks for it once. */
+/** `ti4_host::view::components::Catalog`: everything printed. The host asks for it once. */
 export interface Catalog {
   /**
    * The digest of the corpus that the texts are of. A game on the server is played only when
@@ -502,21 +566,21 @@ export interface Catalog {
   components: ComponentCatalog;
 }
 
-/** `ti4_view::tactical::TacticalFacts` */
+/** `ti4_host::view::tactical::TacticalFacts` */
 export type TacticalFacts = ActivationFacts | MovementFacts | InvasionFacts | ProductionFacts;
 
-/** `ti4_view::planning::draft::DraftStep`: one entry of a draft script. */
+/** `ti4_host::planning::draft::DraftStep`: one entry of a draft script. */
 export type DraftStep = import("./movementPlan").PlanStep | { kind: "choose"; option_id: string };
 
 /**
- * `ti4_view::planning::audit::PlanScope`: what a draft script is of. The next tactical action of
+ * `ti4_host::planning::audit::PlanScope`: what a draft script is of. The next tactical action of
  * the seat, or its secondary of the strategic action that is resolved (`secondary` of the update).
  */
 export type DraftScope =
   | { kind: "tactical" }
   | { kind: "secondary"; primary: string; card: string };
 
-/** `ti4_view::planning::draft::DraftStop`: why a run of a draft ended. */
+/** `ti4_host::planning::draft::DraftStop`: why a run of a draft ended. */
 export type DraftStop =
   /** The script is used up: the question of the update is open. */
   | { kind: "open" }
@@ -524,11 +588,11 @@ export type DraftStop =
   | { kind: "complete" }
   /** The game does not offer what step `step` of the script asks for. */
   | { kind: "refused"; step: number; reason: string }
-  /** Something a draft cannot show: `ti4_view::planning::audit::StopReason`. */
+  /** Something a draft cannot show: `ti4_host::planning::audit::StopReason`. */
   | { kind: "stopped"; reason: string }
   | { kind: "failed"; reason: string };
 
-/** `ti4_view::planning::draft::DraftOutcome` */
+/** `ti4_host::planning::draft::DraftOutcome` */
 export interface DraftOutcome {
   /** Where the run ended. It has the open question when the stop is "open". */
   update: SessionUpdate;
@@ -543,7 +607,15 @@ export interface DraftOutcome {
   stop: DraftStop;
 }
 
-/** `ti4_view::projection::SessionUpdate`: the fields of `StateUpdateMsg` that web2 reads. */
+/** `ti4_host::projection::SessionUpdate`: the fields of `StateUpdateMsg` that web2 reads. */
+/** `ti4_host::view::seats::SeatFact`: who sits in a seat of a running game. It is public. */
+export interface SeatFact {
+  /** The name of the player at the table. */
+  nickname: string;
+  /** "human" is a person, "smart" the rule bot, "random" a seat that decides at random. */
+  kind: "human" | "smart" | "random";
+}
+
 export interface SessionUpdate {
   viewer: ViewerRole;
   view: GameView;
@@ -563,9 +635,70 @@ export interface SessionUpdate {
   agendas?: AgendaFacts;
   /** The strategic action that is resolved now, from the card that is played to its last follower. */
   secondary?: SecondaryFacts;
+  /** The reaction window that the viewer is asked in, with what it offers as printed. */
+  reaction?: ReactionFacts;
+  /** Who sits in each seat, by the id of its player. A game with no table has none. */
+  seats?: Record<string, SeatFact>;
 }
 
-/** `ti4_view::secondary::SecondaryFacts`: who played which strategy card, and what each follower did. */
+/**
+ * When a reaction is offered to a seat: always, never, or only in the turns of the seat
+ * (`ti4_model::state::ReactionMode`). "Only in my turns" is of the action phase.
+ */
+export type ReactionMode = "always" | "never" | "ownturn";
+
+/** The modes that a seat set, by the key of the reaction. A key that is not there is "always". */
+export type ReactionModes = Record<string, Exclude<ReactionMode, "always">>;
+
+/** `ti4_engine::decision_context::DecisionTrigger`: what opened a reaction window. All of it is public. */
+export interface DecisionTrigger {
+  kind: string;
+  /** The event of the engine: "TACTICAL_ACTION_ENDED". */
+  event_type: string;
+  relation: "when" | "after";
+  /** The seat that caused the event. */
+  actor?: string;
+  /** A second seat: a partner, the victim of hits, a defender. */
+  subject?: string;
+  /** The id of an action card that was played, or of a strategy card. */
+  card?: string;
+  agenda?: string;
+  system?: string;
+  planet?: string;
+  hits?: number;
+}
+
+/** `ti4_host::view::reaction::ReactionOffer`: one thing that a reaction window offers, as printed. */
+export interface ReactionOffer {
+  /** The id of the option that uses it. A slot of several action cards has one offer for each name. */
+  option: string;
+  /** What the seat mutes: "leader:nomadagentmercer", or the printed name of an action card. */
+  key: string;
+  kind:
+    | "leader"
+    | "ability"
+    | "technology"
+    | "promissory"
+    | "unit"
+    | "breakthrough"
+    | "action_card";
+  /** Of a leader: "agent", "commander" or "hero". */
+  role?: string;
+  name: string;
+  /** When it is used, as printed. */
+  window?: string;
+  text?: string;
+}
+
+/** `ti4_host::view::reaction::ReactionFacts` */
+export interface ReactionFacts {
+  trigger?: DecisionTrigger;
+  /** The window is in the action phase: "only in my turns" says something about it. */
+  own_turn_applies: boolean;
+  offers: ReactionOffer[];
+}
+
+/** `ti4_host::view::secondary::SecondaryFacts`: who played which strategy card, and what each follower did. */
 export interface SecondaryFacts {
   primary: string;
   card: string;
@@ -579,12 +712,12 @@ export interface SecondaryFacts {
   draft: boolean;
 }
 
-// The messages of the websocket (`crates/ti4-server/src/protocol`), as far as web2 reads them.
+// The messages of the websocket (`crates/ti4-host/src/protocol`), as far as web2 reads them.
 
-/** `ti4_server::protocol::PROTOCOL_VERSION`. Every message has it. */
+/** `ti4_host::protocol::PROTOCOL_VERSION`. Every message has it. */
 export const PROTOCOL_VERSION = 3;
 
-/** `ti4_view::status::RejectionReason` */
+/** `ti4_host::protocol::status::RejectionReason` */
 export type RejectionReason =
   | { reason: "stale_version"; expected: number; current: number }
   | { reason: "stale_nonce" }
@@ -593,7 +726,12 @@ export type RejectionReason =
   | { reason: "unknown_option"; option_id: string }
   | { reason: "validation_failed"; message: string }
   /** `UndoBarrier`: the decision that the seat asked to take back lies behind it. */
-  | { reason: "undo_barrier"; barrier: "revealed" | "random" | "other_seat" };
+  | { reason: "undo_barrier"; barrier: "revealed" | "random" | "other_seat" }
+  /**
+   * `AnsweredElsewhere`: another tab or device of the seat answered this choice already, or the
+   * server sent a ready draft of the seat for it. Only to a page that asked for the staged work.
+   */
+  | { reason: "answered_elsewhere" };
 
 /**
  * `InitialSnapshotMsg` and `StateUpdateMsg`: a `SessionUpdate` with the version of the game.
@@ -604,13 +742,14 @@ export interface StateMsg extends SessionUpdate {
   protocol_version: number;
   game_id: string;
   game_version: number;
-  /** The cards that the seat of this connection set, by printed name. Absent when it set none. */
-  reaction_modes?: Record<string, "always" | "never">;
+  /** The reactions that the seat of this connection set, by key. Absent when it set none. */
+  reaction_modes?: Record<string, ReactionMode>;
   /**
-   * `AutoResolvedNote`, of a `state_update` only. Read for `passed` alone: the cards of a
-   * window that was declined because the seat set each of them to never offer.
+   * `AutoResolvedNote`, of a `state_update` only. Read for `passed`: the cards of a window that
+   * was declined because the seat set each of them to never offer, and `count`, how many such
+   * windows the note is.
    */
-  auto_resolved?: { id: string; passed?: string[] }[];
+  auto_resolved?: { id: string; passed?: string[]; count?: number }[];
   /** Of an `initial_snapshot` only: the digest of the corpus of the server (`Catalog.content`). */
   content?: string;
   /**
@@ -634,7 +773,7 @@ export interface ScriptStopped {
 }
 
 /**
- * `ti4_server::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
+ * `ti4_host::protocol::ServerMessage`. Not read for now, and so not named here: `event`,
  * `pending_choice` (an update has it), `action_accepted`, `game_over` (the update before it says
  * so), `pong`, and the messages of the planning runner (`planning_update`, `planning_status`,
  * `planning_result`).
@@ -668,14 +807,50 @@ export type ServerMessage =
       outcome: DraftOutcome;
     }
   | { type: "draft_applied"; protocol_version: number; nonce: string; stopped?: ScriptStopped }
+  | ({ type: "seat_staged" } & SeatStagedMsg)
   | { type: "other"; protocol_version: number };
 
-/** `ti4_server::protocol::ClientMessage`, without the messages of the planning runner. */
+/** `ti4_host::protocol::staged::StagedSlot`: one kind of staged work of a seat. */
+export type StagedSlot = "movement" | "plan" | "secondary";
+
+/** `ti4_host::protocol::staged::StagedValue`: a slot and the revision of its last write. */
+export interface StagedValue {
+  revision: number;
+  /** Null or absent: the slot was cleared. */
+  value?: unknown;
+}
+
+/**
+ * `ti4_host::protocol::staged::SeatStagedMsg`: what the seat of this connection has staged, sent
+ * to a connection that subscribed with `staged`: after the snapshot, after every write of any
+ * connection of the seat, and as the answer to a write that was not taken. It has no game
+ * version: the newest is the one with the highest `revision`.
+ */
+export interface SeatStagedMsg {
+  protocol_version: number;
+  game_id: string;
+  /** The revision of the newest write of any slot (0: never written). */
+  revision: number;
+  /** The slots that were ever written. */
+  slots: Partial<Record<StagedSlot, StagedValue>>;
+  /** The connection whose write this is. */
+  writer?: number;
+  /** The id of this connection, in the message after the snapshot only: the `writer` of its writes. */
+  connection?: number;
+}
+
+/** `ti4_host::protocol::ClientMessage`, without the messages of the planning runner. */
 export type ClientMessage = ClientRequest & { protocol_version: number };
 
 /** A message to the server, before it has the version of the protocol. */
 export type ClientRequest =
-  | { type: "subscribe"; game_id: string; player_session?: string }
+  | {
+      type: "subscribe";
+      game_id: string;
+      player_session?: string;
+      /** The connection takes part in the staged work of its seat (`seat_staged`, `put_staged`). */
+      staged?: boolean;
+    }
   | {
       type: "submit_choice";
       game_id: string;
@@ -683,7 +858,7 @@ export type ClientRequest =
       expected_version: number;
       option_id: string;
     }
-  | { type: "set_reaction_mode"; game_id: string; card: string; mode: "always" | "never" }
+  | { type: "set_reaction_mode"; game_id: string; card: string; mode: ReactionMode }
   | {
       type: "run_draft";
       game_id: string;
@@ -701,6 +876,17 @@ export type ClientRequest =
     }
   /** Takes back the last decision of the seat. The server then closes the socket as replaced. */
   | { type: "undo"; game_id: string; expected_version: number }
+  /**
+   * Writes a slot of the staged work of the seat, when `base_revision` is its revision
+   * (`ti4_host::protocol::client::ClientMessage::PutStaged`). No value clears it.
+   */
+  | {
+      type: "put_staged";
+      game_id: string;
+      slot: StagedSlot;
+      base_revision: number;
+      value?: unknown;
+    }
   | { type: "ping"; sequence: number };
 
 // ---- The table of a game on the server, before and while it runs --------------------------------
@@ -720,7 +906,7 @@ export interface LobbySlot {
   faction?: string;
 }
 
-/** `ti4_server::maps::MapChoiceView` */
+/** `ti4_host::maps::MapChoiceView` */
 export interface MapChoiceView {
   kind: "template" | "random";
   alias?: string | null;
@@ -770,16 +956,91 @@ export interface SetupOptions {
   bot_kinds: { id: string; name: string; description: string }[];
   max_bot_delay_ms: number;
   default_bot_delay_ms: number;
-  /** `ti4_view::scenario::Scenario`: the games that a table can start from. */
+  /** `ti4_host::view::scenario::Scenario`: the games that a table can start from. */
   scenarios: { id: string; title: string; description: string; seed: number; players: number }[];
 }
 
-/** `ti4_server::maps::MapPreview`: the board that the table will play. */
+/** `ti4_host::maps::MapPreview`: the board that the table will play. */
 export interface MapPreview {
   player_count: number;
   tiles: BoardTileView[];
   /** The place of a seat: `home_system_id` is a tile of `tiles`, not a system of the game. */
   seats: { seat: number; home_system_id: string }[];
+}
+
+/** `ti4_host::maps::MapTemplateSummary`: a map that a table can play. */
+export interface MapSummary {
+  alias: string;
+  name?: string;
+  author: string;
+  player_count: number;
+  buildable: boolean;
+  systems: number;
+  hyperlanes: boolean;
+  /** The map that a table of this size starts with. */
+  recommended: boolean;
+}
+
+/** `ti4_host::maps::MapChoice`: the map of a table. */
+export type MapChoice = { kind: "template"; alias: string } | { kind: "random" };
+
+/**
+ * `ti4_host::setup::TableSetup`: what a host chose for a table. Both hosts start a table from
+ * it, so a table of a seed is the same game in the page and on the server.
+ */
+export interface TableSetup {
+  player_count: number;
+  seed: number;
+  /** Absent: the seeded random board. */
+  map?: MapChoice;
+  /** The id of a set of `SetupOptions.strategy_card_sets`. Absent: the usual set. */
+  strategy_cards?: string;
+  /** Absent: "random", drawn from the seed. */
+  seat_order?: "random" | "join";
+  /** Absent: "random", drawn from the seed. "seat" is the first seat. */
+  speaker_order?: "random" | "seat";
+  /** The id of a scenario. Absent: round 1. */
+  start_from?: string | null;
+}
+
+/** One player of the table of the page (`ti4-wasm`, `SeatRequest`). */
+export interface TableSeat {
+  /** "human" is played in the page, "smart" by the rule bot, "random" at random. */
+  kind: "human" | "smart" | "random";
+  /** The faction that was chosen for the player. Absent: drawn from the seed. */
+  faction?: string | null;
+  /** The name of the player at the table. With a name for every player the game says them (`SessionUpdate.seats`). */
+  name?: string;
+}
+
+/**
+ * The table of the page as the setup exports of the engine read it (`ti4-wasm`,
+ * `TableRequest`). `seats` are the players in the order in which they came; the player who came
+ * as number i has the id of the i-th letter ("a", "b", …), wherever the draw seats it.
+ */
+export interface TableRequest {
+  setup: TableSetup;
+  seats: TableSeat[];
+}
+
+/** `ti4_setup_options`: the options of the server, and the maps of the number of seats. */
+export interface TableOptions extends SetupOptions {
+  maps: MapSummary[];
+}
+
+/** `ti4_setup_preview`: the board of the table, and what the table says of its map. */
+export interface TablePreview extends MapPreview {
+  map: MapChoiceView;
+}
+
+/** `ti4_setup_draw`: what the start draws for a table. */
+export interface TableDraw {
+  /** The ids of the players in the order of their seats. */
+  players: string[];
+  /** For each seat, the place of its player in the order in which the players came. */
+  order: number[];
+  /** The faction of each seat. For a scenario: the factions that it seats, in the order of the join. */
+  factions: string[];
 }
 
 /** `ti4_server::ws::table::TableServerMessage` */

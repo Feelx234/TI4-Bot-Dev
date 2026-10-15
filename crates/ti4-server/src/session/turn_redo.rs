@@ -46,9 +46,10 @@ use ti4_model::deck_reserve::{DeckSegment, OPEN, ReservedDraw};
 use ti4_model::id::PlayerId;
 use ti4_model::state::{GameState, Phase};
 
-use crate::protocol::server::{GameEvent, GameEventKind};
-use crate::protocol::splice::ConflictKind;
-use crate::protocol::turn_redo::{TurnRedoConflict, TurnRedoStage, TurnRedoStop};
+use ti4_host::protocol::server::{GameEvent, GameEventKind};
+use ti4_host::protocol::splice::ConflictKind;
+use ti4_host::protocol::turn_redo::{TurnRedoConflict, TurnRedoStage, TurnRedoStop};
+
 use crate::session::rng_force::{RngForce, RngMarks};
 use crate::session::splice::{RawConflict, StrictDecider};
 use crate::storage::BatchRecord;
@@ -762,7 +763,7 @@ pub fn reserved_card_detail(deck: &str, card: Option<&str>, recipient: &str) -> 
 /// secret objective) is named only to the seat it was reserved for; everyone else is told that
 /// some card of that deck is missing.
 pub fn redact_for_viewer(
-    outcome: &mut crate::protocol::turn_redo::TurnRedoOutcome,
+    outcome: &mut ti4_host::protocol::turn_redo::TurnRedoOutcome,
     viewer: &PlayerId,
 ) {
     let TurnRedoStop::Conflict { conflict } = &mut outcome.stop else {
@@ -896,7 +897,7 @@ pub struct TurnRedoRecord {
     pub handoff_len: Option<usize>,
     /// Where the latest request's recorded tail comes from.
     pub source: TailSource,
-    pub outcome: Option<crate::protocol::turn_redo::TurnRedoOutcome>,
+    pub outcome: Option<ti4_host::protocol::turn_redo::TurnRedoOutcome>,
     /// The timeline before the first redo of the chain.
     pub alternate: AlternateTimeline,
 }

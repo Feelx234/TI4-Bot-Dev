@@ -9,12 +9,12 @@ use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use serde::Deserialize;
 use thiserror::Error;
+use ti4_host::map::GalaxyLayout;
+use ti4_host::protocol::server::Choice;
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage, parse_server_message};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::map::GalaxyLayout;
-use ti4_server::protocol::server::Choice;
-use ti4_server::protocol::status::ViewerRole;
-use ti4_server::protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage, parse_server_message};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -427,6 +427,7 @@ async fn run_connection(
             protocol_version: PROTOCOL_VERSION,
             game_id: config.game_id.clone(),
             player_session: Some(admission.session.clone()),
+            staged: false,
         },
         config.timeout,
     )
@@ -904,6 +905,7 @@ mod tests {
                     protocol_version: PROTOCOL_VERSION,
                     game_id: game.to_owned(),
                     player_session: Some(admitted.session.clone()),
+                    staged: false,
                 },
                 Duration::from_secs(2),
             )
@@ -1130,13 +1132,12 @@ mod tests {
                     sequence: 1
                 }
             ));
-            let pong = serde_json::to_string(&ServerMessage::Pong(
-                ti4_server::protocol::server::PongMsg {
+            let pong =
+                serde_json::to_string(&ServerMessage::Pong(ti4_host::protocol::server::PongMsg {
                     protocol_version: PROTOCOL_VERSION,
                     sequence: 1,
-                },
-            ))
-            .unwrap();
+                }))
+                .unwrap();
             socket.send(Message::Text(pong.into())).await.unwrap();
             let terminal =
                 serde_json::to_string(&sample_terminal_game_over()).expect("serialize terminal");

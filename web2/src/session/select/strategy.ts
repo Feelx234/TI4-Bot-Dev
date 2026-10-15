@@ -5,7 +5,7 @@
 import type { ActionButtonView, BlockView, FlowActionView, SeatRowView } from "../../model";
 import type { Catalog, ExplorationCatalog, SecondaryFacts, SessionUpdate } from "../wire";
 import { type LocalState, openChoice, selectAction } from "./action";
-import { factionName, sentence } from "./names";
+import { seatLabel, sentence } from "./names";
 
 /** The seat that the strategic action waits for: the primary, then the first follower to ask. */
 const decidingSeat = (action: SecondaryFacts): string | null =>
@@ -57,10 +57,7 @@ export function selectStrategy(
   // The choice, the note and the buttons of a decision are those of every decision.
   const inner = selectAction(update, local, catalog, printed);
   const deciding = decidingSeat(action);
-  const name = (id: string) =>
-    id === seat
-      ? "You"
-      : factionName(update.view.players.find((player) => player.id === id)?.faction ?? id, printed);
+  const name = (id: string) => (id === seat ? "You" : seatLabel(update, id, printed));
   /** The live game asks the viewer for its part of the action. */
   const live = !!choice && !follow?.editing;
   // The card is the heading, so the question is said in the row. The question of a secondary

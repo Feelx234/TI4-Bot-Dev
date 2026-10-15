@@ -4118,7 +4118,10 @@ mod tests {
             .iter()
             .map(|record| format!("{}: {}", record.prompt, record.chosen))
             .collect();
-        assert!(asked.get() > 1, "the copy and the research were asked: {recorded:?}");
+        assert!(
+            asked.get() > 1,
+            "the copy and the research were asked: {recorded:?}"
+        );
         assert_eq!(
             recorded.len(),
             asked.get(),

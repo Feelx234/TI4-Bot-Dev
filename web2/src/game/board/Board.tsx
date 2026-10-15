@@ -1,15 +1,15 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { BoardView, InspectorView } from "../../model";
-import { forceText } from "../../model";
 import { Button, CloseButton, Hint, Icon, Segmented, cx, usePhone, type IconName } from "../../ui";
-import { OwnerLabel, useDispatch } from "../context";
+import { useDispatch } from "../context";
+import { SpaceOdds } from "../combat/SpaceOdds";
 import { GalaxyMap, type MapViewId } from "./GalaxyMap";
 import { LandingSheet } from "../steps/invasion/LandingSheet";
 import { ProductionSheet } from "../steps/production/ProductionSheet";
 import { OriginSheet } from "../steps/movement/OriginSheet";
 import { OriginTokens } from "../steps/movement/Tokens";
 import { PaymentBar } from "./PaymentBar";
-import { PlanetTraits } from "./PlanetTraits";
+import { SystemDetails } from "./SystemDetails";
 import { useCamera } from "./useCamera";
 
 const MAP_VIEWS: { id: MapViewId; label: string; icon: IconName; legend: string }[] = [
@@ -55,57 +55,16 @@ function SystemInspector({ view }: { view: InspectorView }) {
         onClick={() => dispatch({ type: "closeInspector" })}
       />
       <h3 className="text-base font-semibold">{view.title}</h3>
-      <div className="text-muted">{view.facts}</div>
-      {view.notes.map((note) => (
-        <div key={note} className="text-muted">
-          {note}
-        </div>
-      ))}
-      {view.rows.map((row, index) => (
-        <div
-          key={index}
-          className="mt-[7px] grid grid-cols-[78px_minmax(0,1fr)] gap-2 border-t border-line pt-[7px]"
-        >
-          <span>
-            {row.seat ? (
-              <OwnerLabel seat={row.seat} />
-            ) : row.planet ? (
-              <>
-                {row.planet.name}
-                <div className="text-muted">
-                  {row.planet.resources} / {row.planet.influence}
-                </div>
-              </>
-            ) : (
-              row.label
-            )}
-          </span>
-          <span>
-            {row.planet && <OwnerLabel seat={row.planet.owner} />}
-            {row.planet && (
-              <div>
-                <PlanetTraits name={row.planet.name} traits={row.planet.traits} />
-              </div>
-            )}
-            {row.text}
-            {row.force && forceText(row.force)}
-            {row.notes?.map((note) => (
-              <div
-                key={note.text}
-                className={note.tone === "planned" ? "text-accent" : "text-muted"}
-              >
-                {note.text}
-              </div>
-            ))}
-          </span>
-        </div>
-      ))}
+      <SystemDetails view={view} />
       {view.arriving && (
         <div className="-mx-3 mt-2 border-t border-line">
           <div className="px-3 pt-2 phone:px-2.5">
             <strong className="text-sm font-mid">Arrives</strong>{" "}
             <span className="text-muted">{view.arriving.summary}</span>
           </div>
+          {view.arriving.odds && (
+            <SpaceOdds view={view.arriving.odds} className="mt-1 px-3 phone:px-2.5" />
+          )}
           {view.arriving.origins.map((origin) => (
             <section key={origin.system} aria-label={`From ${origin.label}`}>
               {/* The controls of these ships are at the system that they leave. */}

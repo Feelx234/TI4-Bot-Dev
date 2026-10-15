@@ -59,21 +59,25 @@ test("phone: a game of eight is played through the decision list @slow", async (
       await sheet.getByRole("button", { name: "Done with this system" }).click();
       await expect(send).toHaveText(/Move fleet/);
       await expect(page.locator(".galaxy .t-staged")).toHaveCount(1);
-      // An undo of the movement stages it again, and the map is open again.
+      // An undo of the movement stages it again.
       await send.click();
       await expect(send).not.toHaveText(/Move/);
       await pane("Action").click();
       await page.getByRole("button", { name: "Undo" }).click();
       await expect(send).toHaveText(/Move/);
-      await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+      // The pane stays where the player is; the tab of the map is marked.
+      await expect(pane("Action")).toHaveAttribute("aria-pressed", "true");
+      await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+      await pane("Map").click();
       await expect(send).toHaveText(/Move fleet/);
       await expect(page.locator(".galaxy .t-staged")).toHaveCount(1);
       await page.screenshot({ path: "shots/phone/local/undo.png", animations: "disabled" });
-      // An undo opens the map also when the choice before it was on the map: the activation.
+      // An undo of the activation marks the map too.
       await pane("Action").click();
       await page.getByRole("button", { name: "Undo" }).click();
       await expect(send).toHaveText(/Activate system/);
-      await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+      await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+      await pane("Map").click();
       await system.filter({ hasText: "#23" }).first().click();
       await send.click();
       await expect(send).toHaveText(/Move nothing/);
@@ -118,15 +122,30 @@ test("phone: a draft is staged on the map and applied from the toolbar", async (
     .getByRole("button", { name: "Draft" })
     .click();
   // The system is chosen on the map, and the main button records it.
-  await expect(pane("Map")).toHaveAttribute("aria-pressed", "true");
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("23").click();
   await expect(send).toHaveText(/Activate system/);
   await expect(send).toBeInViewport({ ratio: 1 });
+  // The click shows what is in the system too.
+  const details = page.getByRole("button", { name: "Close system details" });
+  await expect(details).toBeVisible();
+  await expect(page.getByRole("heading", { name: /· 23$/ })).toBeVisible();
+  await fits();
+  await page.screenshot({
+    path: "shots/phone/local/activation-details.png",
+    animations: "disabled",
+  });
   await send.click();
+  // The details close with the activation: the movement has the whole map.
+  await expect(details).toBeHidden();
   // Every change of the movement is recorded, and nothing follows it here: the footer has no
   // main button. The controls of the draft are in the toolbar.
   await system("01").click();
   const sheet = page.getByRole("group", { name: /^Move from / });
+  // The fleet sheet has what is in the system, as the inspector has it.
+  await expect(sheet.getByText("4 / 2")).toBeAttached();
   await sheet.getByRole("button", { name: /^Carrier 1 of / }).click();
   await sheet.getByRole("button", { name: "Done with this system" }).click();
   await expect(send).toHaveCount(0);
@@ -229,6 +248,54 @@ test("phone: the Dev sheet leads to a game on the server, and its menu leads bac
   await page.screenshot({ path: "shots/phone/online/menu.png", animations: "disabled" });
 });
 
+test("phone: a movement into a fleet of another seat has the odds of the space combat", async ({
+  page,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  await page.goto("/?scenario=late-game&humans=1");
+  const send = page.locator('footer button[aria-keyshortcuts="Enter"]');
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  const width = page.viewportSize()!.width;
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  await page.locator("#step-panel").getByRole("button", { name: "Take a tactical action" }).click();
+  await send.click();
+  await pane("Map").click();
+  // Seat C has two cruisers and a destroyer in 32.
+  await system("32").click();
+  await send.click();
+  await system("24").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Dreadnought 1 of 1" }).click();
+  await fleet.getByRole("button", { name: "Done with this system" }).click();
+
+  // The inspector of the active system has the odds under "Arrives".
+  await system("32").click();
+  const arriving = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ has: page.getByRole("button", { name: "Close system details" }) })
+    .getByRole("region", { name: "Space combat" });
+  await expect(arriving).toHaveAttribute("aria-busy", "false");
+  await expect(arriving).toContainText(/Win \d+% · Draw \d+% · Loss \d+%/);
+  await expect(arriving.getByLabel(/^Survivors of Sol/)).toHaveText(/^\s*\d\.\d \/ 1\s*$/);
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/inspector-odds.png", animations: "disabled" });
+  const numbers = (await arriving.textContent()) ?? "";
+
+  // The panel has the same odds in the card of the active system.
+  await pane("Action").click();
+  const odds = page.locator("#step-panel").getByRole("region", { name: "Space combat" });
+  await expect(odds).toContainText(numbers);
+  await expect(odds.getByLabel("Survivors of Letnev")).toHaveText(
+    /^\s*\d\.\d \/ 2\s+\d\.\d \/ 1\s*$/,
+  );
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/movement-odds.png", animations: "disabled" });
+});
+
 test("phone: the landings are staged in a sheet over the map", async ({ page }) => {
   // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
   test.setTimeout(10_000);
@@ -242,6 +309,9 @@ test("phone: the landings are staged in a sheet over the map", async ({ page }) 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
   await page.locator("#step-panel").getByRole("button", { name: "Take a tactical action" }).click();
   await send.click();
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("38").click();
   await send.click();
   await system("63").click();
@@ -314,12 +384,18 @@ test("phone: a production is a sheet on the map, then the map is the payment", a
   const row = (name: string | RegExp) => page.locator("#step-panel").getByRole("button", { name });
   await row("Take a tactical action").click();
   await send.click();
+  // The choice is on the map: its tab is marked, and the pane stays until the tab is tapped.
+  await expect(pane("Map")).toHaveAccessibleName(/choice open/);
+  await pane("Map").click();
   await system("72").click();
   await send.click();
-  // Nothing moves, and AI Development Algorithm is kept.
+  // Nothing moves, and AI Development Algorithm is kept: a question of the list.
   await send.click();
+  await expect(pane("Action")).toHaveAccessibleName(/choice open/);
+  await pane("Action").click();
   await row(/^Decline/i).click();
   await send.click();
+  await pane("Map").click();
 
   // The map stays open, and the build is a sheet over it, with the room of the footer.
   const sheet = page.getByRole("group", { name: /^Produce in / });
@@ -405,15 +481,18 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
     page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "Draft" });
   await expect(row("Take a tactical action")).toBeVisible();
   await draft().click();
+  await pane("Map").click();
 
   // The system of the two space docks. Nothing moves, and AI Development Algorithm is kept.
   await system("72").click();
   await send.click();
   await expect(send).toHaveText(/Move nothing/);
   await send.click();
+  await pane("Action").click();
   await row(/^Decline/i).click();
   await expect(send).toHaveText(/Record/);
   await send.click();
+  await pane("Map").click();
   // The build of the draft is the sheet over the map, as in Live.
   const sheet = page.getByRole("group", { name: /^Produce in / });
   await expect(sheet).toBeVisible();
@@ -497,6 +576,28 @@ test("phone: the sheet of a player has its cards, and nothing is cut at the side
   await page.screenshot({ path: "shots/local/phone-player-sheet.png", animations: "disabled" });
 });
 
+test("phone: a reaction window has its card, its setting and Pass, and nothing is cut at the side", async ({
+  page,
+}) => {
+  // Seat G is Sardakk: it holds Reverse Engineer, and the first seat of the round discards a card.
+  await page.goto("/?scenario=late-game&humans=64");
+  const panel = page.locator("#step-panel");
+  await page
+    .getByRole("navigation", { name: "Panes" })
+    .getByRole("button", { name: "Action" })
+    .click();
+  await expect(panel.getByRole("heading").first()).toHaveText(/^After .+ discards .+$/);
+  await expect(panel.getByRole("button", { name: "Reverse Engineer" })).toBeVisible();
+  await expect(panel.getByRole("combobox", { name: "Offer Reverse Engineer" })).toBeInViewport({
+    ratio: 1,
+  });
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toHaveText(/Pass/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({ path: "shots/phone/local/reaction-window.png", animations: "disabled" });
+});
+
 test("phone: the Agendas sheet has the laws and the open groups in its width", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -575,4 +676,48 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
     animations: "disabled",
   });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+});
+
+test("phone: single player is set up on the panes of the lobby, with the long name", async ({
+  page,
+}) => {
+  const fits = async () =>
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      412,
+    );
+  const pane = (name: string) =>
+    page.getByRole("navigation", { name: "Panes" }).getByRole("button", { name });
+  const main = page.locator('button[aria-keyshortcuts="Enter"]');
+  const long = "Bartholomew Featherstonehaugh the Third of Mecatol";
+  await page.addInitScript((name) => localStorage.setItem("ti4.nickname", name), long);
+  await page.goto("/?single&seed=3&players=8");
+
+  // The Players pane is first: eight seats, nothing is cut at the side, the main button in reach.
+  const rows = page.getByRole("region", { name: "Players" }).locator("ul.overflow-y-auto > li");
+  await expect(rows).toHaveCount(8);
+  await expect(rows.nth(0)).toContainText(`${long} (you)`);
+  await expect(main).toHaveText(/^Start game/);
+  await expect(main).toBeInViewport();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/single-players.png", animations: "disabled" });
+
+  await pane("Setup").tap();
+  const setup = page.getByRole("region", { name: "Setup" });
+  await expect(setup.getByLabel("Players", { exact: true })).toHaveText("8");
+  await setup.getByRole("button", { name: "One player fewer" }).tap();
+  await expect(setup.getByLabel("Players", { exact: true })).toHaveText("7");
+  await expect(main).toBeInViewport();
+  await fits();
+  await page.screenshot({ path: "shots/phone/local/single-setup.png", animations: "disabled" });
+
+  await pane("Map").tap();
+  await expect(page.locator("g.system.home")).toHaveCount(7);
+  await expect(main).toBeInViewport();
+  await fits();
+
+  // The game of the table has the panes of a game.
+  await main.tap();
+  await expect(pane("Action")).toBeVisible();
+  await expect(page.locator('footer button[aria-keyshortcuts="Enter"]')).toBeVisible();
+  await fits();
 });

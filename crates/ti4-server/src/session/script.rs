@@ -1,27 +1,27 @@
 //! A script of a seat: run as a draft on a copy of the game, or sent to the live game.
 //!
 //! A script is what the page of a player keeps of a draft or of a staged step
-//! ([`ti4_view::planning::draft::DraftStep`]). The server keeps none: a run plays the whole
+//! ([`ti4_host::planning::draft::DraftStep`]). The server keeps none: a run plays the whole
 //! script on a copy and forgets it ([`run_draft`]), and a script that is sent lives only while
 //! the game answers its questions from it ([`ScriptApplication`]). One function answers a
 //! question from a script, here and in a local game: [`script_answer`].
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, SeatObservation, Table,
 };
 use ti4_engine::game::Game;
+use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
+use ti4_host::planning::fork::TACTICAL_COMPLETE;
+use ti4_host::planning::steps::INTERRUPTED;
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::server::{DraftAppliedMsg, ScriptStopped, ServerMessage};
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::view::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
-use ti4_view::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_view::planning::fork::TACTICAL_COMPLETE;
-use ti4_view::planning::steps::INTERRUPTED;
 
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::server::{DraftAppliedMsg, ScriptStopped, ServerMessage};
-use crate::protocol::status::ViewerRole;
 use crate::session::worker::SessionShared;
 
 /// How many engine steps the check of a script takes at most, as a run of a draft.
@@ -200,7 +200,7 @@ struct Probe {
     actor: PlayerId,
     /// The cards that the actor is never offered: the live game declines a window of such
     /// cards before the seat, and so before its script, is asked.
-    never: BTreeSet<String>,
+    never: ti4_host::view::reaction_modes::Modes,
     script: Vec<DraftStep>,
     next: usize,
     verdict: Option<Check>,
@@ -306,7 +306,7 @@ pub(crate) fn check_script(
     pending: &Choice,
     script: &[DraftStep],
     actor: &PlayerId,
-    never: BTreeSet<String>,
+    never: ti4_host::view::reaction_modes::Modes,
 ) -> Check {
     let probe = Arc::new(Mutex::new(Probe {
         tail: tail.into(),
@@ -361,8 +361,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::sync::mpsc;
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_host::planning::steps::PlanStep;
     use ti4_model::state::{GameState, Phase};
-    use ti4_view::planning::steps::PlanStep;
 
     use crate::session::worker::Subscriber;
 

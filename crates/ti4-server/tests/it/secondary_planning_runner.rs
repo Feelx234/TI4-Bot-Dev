@@ -5,13 +5,14 @@ use std::time::Duration;
 use ti4_content::ContentStore;
 use ti4_engine::fixtures::{game, hub_with_centre, put_on_planet};
 use ti4_engine::game::Game;
+use ti4_host::planning::audit::{
+    ASSUMPTION, PlanScope, SECONDARY_ASSUMPTION, SafePublication, StopReason,
+};
+use ti4_host::planning::wire::{PlanningEnvelope, PlanningUpdate, PlayerPlan};
 use ti4_model::content_types::POK;
 use ti4_model::id::{ActionCardId, PlanetId, PlayerId, StrategyCardId, SystemId};
 use ti4_model::state::{GameState, Phase};
-use ti4_server::planning::runner::{
-    ASSUMPTION, PlanScope, PlanningEnvelope, PlanningRunner, PlanningUpdate, PlayerPlan,
-    SECONDARY_ASSUMPTION, SafePublication, StopReason,
-};
+use ti4_server::planning::runner::PlanningRunner;
 
 const DEADLINE: Duration = Duration::from_secs(5);
 
@@ -273,7 +274,7 @@ fn recorded(runner: &PlanningRunner) -> Vec<String> {
         .collect()
 }
 
-fn follower(publication: &SafePublication) -> ti4_server::protocol::view::PlayerView {
+fn follower(publication: &SafePublication) -> ti4_host::protocol::view::PlayerView {
     publication
         .position
         .players

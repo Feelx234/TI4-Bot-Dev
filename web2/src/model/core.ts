@@ -26,6 +26,11 @@ export interface SeatView {
   id: SeatId;
   /** Player name. */
   name: string;
+  /**
+   * No person plays the seat: the sign of who does, as the lobby has it ("⚙" the rule bot, "⚄" a
+   * random seat), with its word. Absent for a person.
+   */
+  played?: { kind: "rule" | "random"; word: string };
   faction: string;
   /** Shape that identifies the seat without colour. */
   symbol: string;
@@ -91,3 +96,19 @@ export const forceText = (force: Force) =>
         `${item.count} ${unitName(item.unit, item.count)}${item.damaged ? ` (${item.count > 1 ? item.damaged + " " : ""}damaged)` : ""}`,
     )
     .join(" · ") || "None";
+
+/**
+ * When a reaction is offered to the viewer: always, never, or only in the turns of the viewer.
+ * "ownturn" is of the action phase: outside it nobody has the turn, and the reaction is offered.
+ */
+export type OfferMode = "always" | "never" | "ownturn";
+
+/** The setting of one reaction of the viewer: the control at the right of its row or of its card. */
+export interface OfferView {
+  /** What is set: the printed name of an action card, or the key of the card of an ability. */
+  key: string;
+  name: string;
+  mode: OfferMode;
+  /** "Only on my turns" can be chosen here. Not in a window outside the action phase. */
+  ownTurn: boolean;
+}

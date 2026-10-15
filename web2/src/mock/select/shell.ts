@@ -86,6 +86,7 @@ function toolbar(world: World, state: State): ToolbarView {
   const draft = state.mode === "draft" && world.mode === "draft";
   return {
     round: 3,
+    turn: 2,
     phase: "Action phase",
     status: statusText(world, state),
     workspace: world.mode,
@@ -447,7 +448,14 @@ function reference(world: World, state: State): ReferenceView {
         .map((name) => ({
           ...printed(name),
           copies: count(held, name),
-          never: printed(name).action ? null : world.neverOffer.includes(name),
+          offer: printed(name).action
+            ? null
+            : {
+                key: name,
+                name,
+                mode: world.neverOffer.includes(name) ? ("never" as const) : ("always" as const),
+                ownTurn: false,
+              },
         })),
       faked: world.fakedCards.filter(canFake).map(printed),
       reference: groups.map((group) => ({
@@ -567,5 +575,7 @@ export function selectShell(world: World): ShellView {
     reveal: state.reveal ?? null,
     toast: world.toast,
     announcement: world.announcement,
+    // The demo always has a choice open, except for a past action.
+    asked: world.mode !== "history",
   };
 }

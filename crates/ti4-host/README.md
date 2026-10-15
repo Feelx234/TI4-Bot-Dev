@@ -17,9 +17,10 @@ Contract (checked by CI for T4):
 
 | Module | Contents | Used by the server in |
 |---|---|---|
-| `protocol` | `ClientMessage`, `ServerMessage` and every message struct (`StateUpdateMsg`, `InitialSnapshotMsg`, `PendingChoiceMsg`, `TurnStatusMsg`, `ActionAcceptedMsg`/`ActionRejectedMsg`, `GameOverMsg`, `Event`...), `GameEvent`/`GameEventKind`/`EventVisibility`/`SeatDecisionDetail`/`MovementFact`/`PublicRoll` and their builders (`public_roll`, `decision_facts`, `verified_decision_facts`, `decision_grouping`, `action_id_for`, `current_log_path`), `HistoryStatus`, `AutoResolvedNote`, `PROTOCOL_VERSION`, `parse_client_message`/`parse_server_message` | everywhere (`ti4_server::protocol` re-exports it) |
-| `projection` | `project_initial_snapshot[_with_map]`, `project_state_update[_with_map]`, `redacted_state`, `project_turn_status`, `project_pending_choice`, `facts_context` (thin layer over `ti4-view`) | `session/worker.rs`, `ws` |
-| `planning` | `PlayerPlan`, `AttemptIdentity`, `PlanningEnvelope`, `PlanningUpdate`, `Progress`, `FailureCategory`, `SubmissionError` + the recorders of `ti4-view::planning` (`RecordingDecider`, `ReplayDecider`, `RecordedDecision`) | `planning/runner.rs` (the thread that runs a plan stays in the server) |
+| `protocol` | `ClientMessage`, `ServerMessage` and every message struct (`StateUpdateMsg`, `InitialSnapshotMsg`, `PendingChoiceMsg`, `TurnStatusMsg`, `ActionAcceptedMsg`/`ActionRejectedMsg`, `GameOverMsg`, `Event`...), `GameEvent`/`GameEventKind`/`EventVisibility`/`SeatDecisionDetail`/`MovementFact`/`PublicRoll` and their builders (`public_roll`, `decision_facts`, `verified_decision_facts`, `decision_grouping`, `action_id_for`, `current_log_path`), `HistoryStatus`, `AutoResolvedNote`, `PROTOCOL_VERSION`, `parse_client_message`/`parse_server_message` | everywhere |
+| `projection` | `project_initial_snapshot[_with_map]`, `project_state_update[_with_map]`, `redacted_state`, `project_turn_status`, `project_pending_choice`, `facts_context`, and the views and the facts they are made of (`project_session_update`, `SessionUpdate`, `FactsContext`; `messages.rs` wraps them in protocol messages) | `session/worker.rs`, `ws` |
+| `planning` | `PlayerPlan`, `AttemptIdentity`, `PlanningEnvelope`, `PlanningUpdate`, `Progress`, `FailureCategory`, `SubmissionError` (`planning::wire`) + the recorders (`RecordingDecider`, `ReplayDecider`, `RecordedDecision`), the draft (`draft::script_answer`, `steps::PlanStep`) and the checks of the publication boundary (`audit`, `fork`) | `planning/runner.rs` (the thread that runs a plan stays in the server) |
+| `view` | The facts of an update that the UI reads, beside the view: `tactical`, `exploration`, `action_cards`, `secret_objectives`, `score`, `agendas`, `secondary`, `reaction`, `seats`; `reaction_modes::NeverOffer`; the catalogue of the printed components (`components`) and the scenarios (`scenario`). It was the crate `ti4-view` until 2026-10-14. | `session/worker.rs`, `ws`, lobby |
 | `journal` | `reconcile_with_redo`, `build_event`, `build_roll_event`, `roll_is_known`, `roll_cursor`, `consume_or_fork_redo`, `EventDraft`, `Reconciled`, `RedoOutcome` | `SessionShared::{record_and_broadcast_event, record_rolls, consume_or_fork_redo}` |
 | `state_update` | `StateUpdateInputs`, `state_update_for`, `queue_auto_resolved`, `answer_reach` | `SessionShared::{broadcast_state_update, note_passed_window}`, `session/reach.rs` |
 | `rng_force` | `RngMarks`, `RngForce` (forced random positions of a timeline, the "marks" of a history) | storage, turn redo, replay |
@@ -27,7 +28,7 @@ Contract (checked by CI for T4):
 | `step_snapshot` | `StepSnapshot` (copy of the game at a step boundary, fork for fast resume) | worker, batch |
 | `batch` | `BatchRequest`, `MovementPlan`, `MovementStep`, `simulate[_with]`, `replay_boundary[_state]`, `replay_budget`, `ReplayBasis` (trait) | registry `submit_batch` |
 | `clock` | `Clock`, `Deadline`, `NonceSource`, `SystemClock` (native only), `ManualClock`, `CounterNonce` | all of the above that need time |
-| `preset`, `card_set`, `map`, `maps` | Game setup: start presets, the strategy-card sets, `create_game_with_factions` (what a lobby start calls), the map catalogue and previews (`maps::catalog`). Moved from `ti4-server` unchanged (it re-exports them); the browser host builds the same opening state from the same seed. | lobby start, `/api/maps` |
+| `setup`, `preset`, `map`, `maps` | Game setup: `setup` is the one path of every host (`TableSetup`, `draw`, `create`, `setup_options`, `SeatOrder`, `SpeakerOrder`, the strategy-card sets `setup::card_set`); a start preset (`preset`) is a field of `TableSetup`. `map` has the board geometry and the game of a map with every faction given (`create_game_with_template_seated`, `rebuild_galaxy`; `create_game_with_template` seats the in-scope factions, for tests and fixtures), `maps` the map templates and their builder (`maps::{template_loader, build}`) and the map catalogue and previews (`maps::catalog`). The server and both browser hosts build the same opening state from the same seed. | lobby start, `/api/maps`, wasm setup |
 | `batch::LiveBatch` | A batch applied to the live game one question at a time (the same decider as `simulate`), for a host with no network between the request and its answers | (browser host only) |
 
 ### Injected time and nonces
@@ -59,9 +60,11 @@ pub trait ReplayBasis {
 
 ## The host API for T4/T5: commands in, `ServerMessage` JSON out
 
-One game, one human seat (`ViewerRole::Player(seat)`), no sockets. The wasm export (T4) is
-`host_command(json_in) -> json_out_array` (or a push callback); both ends are the existing
-serde types, so the web client's `decode.ts` and `reduceServerMessage` need no changes.
+One game, the seats of one page (`ViewerRole::Player(seat)`, the seat that is asked), no
+sockets. The wasm exports are `ti4_host_start` and `ti4_host_command` (`crates/ti4-wasm/README.md`,
+"The hosted game"); both ends are the existing serde types, so the offline client of `web/`
+(`reduceServerMessage`) and web2 (`serverMessages.ts`, shared with its server transport) read the
+messages of the server as they are. Both pages play through this one host.
 
 Input is `ClientMessage` JSON (`{"type": "...", "protocol_version": 3, ...}`; unknown fields
 are an error, `parse_client_message` validates the version). Output is a list of
@@ -74,8 +77,8 @@ them to that one connection. The mapping, with the server code that produces eac
 | `submit_choice {nonce, expected_version, option_id}` | `action_accepted` or `action_rejected {reason}` (stale version, wrong nonce, unknown option), then after the engine step: `event` (0..n), `state_update` (every step), `pending_choice` / `turn_status` when asked again, `game_over` at the end | `journal::build_event`, `state_update::state_update_for`, `projection::project_turn_status`, `broadcast_game_over` |
 | `undo {expected_version}` | `action_rejected {reason: undo_barrier \| no_pending_choice \| stale_version}` or, on success, a fresh `initial_snapshot` (offline: replay to the earlier position, same game id, `history.generation` + 1) | `StateUpdateInputs.may_undo`, `rng_force`, `replay` |
 | `query_reach {request_id, system_id}` | `reach_into {origins, refused?}` | `state_update::answer_reach(game_id, request_id, system_id, version, Some((&state, &galaxy)))` |
-| `preview_secondary {request_id, card, primary, answers}` | `secondary_preview` | `ti4_engine::secondary_preview` (server glue: `session/preview.rs`, stays out of the host for now; `ti4_draft` with `scope: secondary` is the wasm equivalent) |
-| `run_draft` / `apply_draft` | `draft_outcome` / `draft_applied` (+ `state_update`) | `ti4-view::planning` (`script_answer`, `ti4_plan`) |
+| `preview_secondary {request_id, card, primary, answers}` | `secondary_preview` | `ti4_engine::secondary_preview` (server glue: `session/preview.rs`, stays out of the host for now; `run_draft` with `scope: secondary` is the wasm equivalent) |
+| `run_draft` / `apply_draft` | `draft_outcome` / `draft_applied` (+ `state_update`) | `ti4_host::planning` (`script_answer`) |
 | `start_planning`, `reset_planning`, `edit_planning_movement`, `apply_planning`, `submit_planning_choice`, `secondary_planning` | `planning_status`, `planning_update`, `planning_result` | `planning::PlanningEnvelope` (the runner thread is the server's; offline uses the draft path above) |
 | `set_reaction_mode {card, mode}` | `state_update` with `reaction_modes` | `StateUpdateInputs.reaction_modes` |
 | `set_reaction_intent`, `pass_reaction_hold` | none (bluff holds are for several humans; dropped offline) | n/a |
@@ -84,7 +87,7 @@ them to that one connection. The mapping, with the server code that produces eac
 Batches (`BatchRequest` and the movement/production basket as one request) are decoded by
 `batch::BatchRequest` / `MovementPlan` and checked by `batch::simulate`; the batch HTTP/WS
 glue is in `ti4-server/src/session/registry.rs::submit_batch`. Offline it can instead be
-mapped to a `PlanStep` script for `ti4-view::planning::script_answer`, see the plan, 2.2.
+mapped to a `PlanStep` script for `ti4_host::planning::script_answer`, see the plan, 2.2.
 
 ### What the host crate does not do: the session core
 

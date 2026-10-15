@@ -22,13 +22,13 @@ async function openSettings(page: Page) {
   await expect(settings(page)).toBeVisible();
 }
 
-/** The line of the Dev sheet ("Local game · seed 42 · 8 seats · 4 answers saved"). Read, then closed. */
-async function savedLine(page: Page) {
+/**
+ * The line of the Dev sheet ("Local game · seed 42 · 8 seats · 4 answers saved · 31 decisions of
+ * all seats"). Read, then closed.
+ */
+async function savedLine(page: Page, start = /^Local game · /) {
   await openSettings(page);
-  const line =
-    (await settings(page)
-      .getByText(/^Local game · /)
-      .textContent()) ?? "";
+  const line = (await settings(page).getByText(start).textContent()) ?? "";
   await page.keyboard.press("Escape");
   await expect(settings(page)).toBeHidden();
   return line;
@@ -153,13 +153,26 @@ test("a tactical action: the system and the movement are staged on the map", asy
   expect(standOut).toBeLessThan(48);
   await expect(system("01")).not.toHaveClass(/plain/);
   await page.screenshot({ path: "shots/local/activation-open.png", animations: "disabled" });
+  // A click chooses the system and shows what is in it.
+  const details = page.getByRole("button", { name: "Close system details" });
   await system("01").click();
   await expect(panel(page).getByText("Production 6")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Jord - Sol · 01" })).toBeVisible();
+  await expect(page.getByText("2 Carriers")).toBeVisible();
+  await page.screenshot({ path: "shots/local/activation-details.png", animations: "disabled" });
+  // The details cover the corner of the board where 23 is.
+  await details.click();
   await system("23").click();
   await expect(page.locator("g.system.chosen")).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: /· 23$/ })).toBeVisible();
   await expect(panel(page).getByText("3 ships in range")).toBeVisible();
   await expect(panel(page).getByText("From 1 system")).toBeVisible();
   await page.screenshot({ path: "shots/local/activation.png", animations: "disabled" });
+  // Closing the details does not take the choice back.
+  await details.click();
+  await expect(details).toBeHidden();
+  await expect(page.locator("g.system.chosen")).toHaveCount(1);
+  await expect(send(page)).toBeEnabled();
   await page.keyboard.press("Enter");
 
   // Movement: nothing is staged, and moving nothing is what the main button says.
@@ -170,6 +183,8 @@ test("a tactical action: the system and the movement are staged on the map", asy
   await system("01").click();
   const sheet = page.getByRole("group", { name: /^Move from Jord/ });
   await expect(sheet).toBeVisible();
+  // The fleet sheet has what is in the system, as the inspector has it.
+  await expect(sheet.getByText("4 / 2")).toBeVisible();
   await sheet.getByRole("button", { name: "Carrier 1 of 2" }).click();
   await sheet.getByRole("button", { name: /^Load Infantry, Planet Jord, 5 left/ }).click();
   await sheet.getByRole("button", { name: "Load Infantry on Carrier 1 of 2" }).first().click();
@@ -251,6 +266,60 @@ test("an inspected system shows its forces", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Jord - Sol · 01" })).toBeVisible();
   await expect(page.getByText("2 Carriers")).toBeVisible();
   await page.screenshot({ path: "shots/local/inspector.png", animations: "disabled" });
+});
+
+test("a movement into a fleet of another seat has the odds of the space combat", async ({
+  page,
+}) => {
+  // Longer than a test of this suite should be: see "Tests" in AGENTS.md.
+  test.setTimeout(10_000);
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/?scenario=late-game&humans=1");
+  const system = (id: string) => page.locator("g.system").filter({ hasText: `#${id}` });
+  await panel(page).getByRole("button", { name: "Take a tactical action" }).click();
+  await send(page).click();
+  // Seat C has two cruisers and a destroyer in 32, and a PDS on its planet.
+  await expect(heading(page)).toHaveText("Activation");
+  await system("32").click();
+  await page.keyboard.press("Enter");
+  await expect(heading(page)).toHaveText("Movement");
+  const odds = panel(page).getByRole("region", { name: "Space combat" });
+  await expect(odds).toHaveCount(0);
+  await system("24").click();
+  const fleet = page.getByRole("group", { name: /^Move from / });
+  await fleet.getByRole("button", { name: "Dreadnought 1 of 1" }).click();
+  await fleet.getByRole("button", { name: "Done with this system" }).click();
+
+  // The panel has Win, Draw and Loss, and the survivors of each side against the ships that fight.
+  await expect(odds).toHaveAttribute("aria-busy", "false");
+  await expect(odds).toContainText(/Space combat ·\s+Letnev/);
+  await expect(odds).toContainText(/Win \d+% · Draw \d+% · Loss \d+%/);
+  await expect(odds.getByLabel(/^Survivors of Sol/)).toHaveText(/^\s*\d\.\d \/ 1\s*$/);
+  await expect(odds.getByLabel("Survivors of Letnev")).toHaveText(
+    /^\s*\d\.\d \/ 2\s+\d\.\d \/ 1\s*$/,
+  );
+  await expect(odds.getByTitle("Cruisers")).toBeVisible();
+  await odds.getByRole("button", { name: "About the odds" }).click();
+  await expect(page.getByRole("note")).toContainText("2000 rollouts");
+  await page.keyboard.press("Escape");
+  // The open step does not scroll at 1920×1080.
+  const overflow = await page
+    .locator("#step-panel > div.overflow-y-auto")
+    .evaluate((element) => element.scrollHeight - element.clientHeight);
+  expect(overflow, "the step content needs vertical scroll").toBeLessThanOrEqual(0);
+  await page.screenshot({ path: "shots/local/movement-odds.png", animations: "disabled" });
+
+  // The inspector of the active system has the same odds under "Arrives".
+  await system("32").click();
+  const inspector = page
+    .locator("section[aria-label='Galaxy board'] > div")
+    .filter({ has: page.getByRole("button", { name: "Close system details" }) });
+  const arriving = inspector.getByRole("region", { name: "Space combat" });
+  await expect(arriving).toContainText((await odds.textContent()) ?? "");
+  await page.screenshot({ path: "shots/local/inspector-odds.png", animations: "disabled" });
+  expect(errors).toEqual([]);
 });
 
 test("a reload goes on where the game was, and undo takes back one answer @slow", async ({
@@ -352,15 +421,30 @@ test("a saved game of another engine build is not replayed without a word", asyn
   await answer(page);
   await expect.poll(() => savedLine(page)).toContain("2 answers saved");
 
-  // An answer that the game does not offer stops the replay and names the answer.
+  // A decision that the game does not offer stops the replay and names it.
   await page.evaluate(() => {
     const save = JSON.parse(localStorage.getItem("ti4.local.3.8.1") ?? "");
-    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, answers: ["no-such"] }));
+    const host = { ...save.save, log: ["no-such"] };
+    localStorage.setItem("ti4.local.3.8.1", JSON.stringify({ ...save, save: host }));
   });
   await page.reload();
   await expect(page.getByRole("status")).toContainText(
-    'The saved game does not fit this engine: answer 1 of 1 was "no-such"',
+    'The saved game does not fit this engine: decision 1 of 1 was "no-such"',
   );
+
+  // A save of an older format had the answers of the page only. It is not read, and the page
+  // says so, with the way to a new game.
+  await page.evaluate(() => {
+    const old = { format: 2, engine: "", seed: 3, players: 8, humans: 1, answers: ["sol"] };
+    localStorage.setItem("ti4.local.3.8.1", JSON.stringify(old));
+  });
+  await page.reload();
+  await expect(page.getByRole("status")).toContainText(
+    "The saved game has format 2; this page reads format 4. It cannot be played again.",
+  );
+  await page.getByRole("status").getByRole("button", { name: "New game" }).click();
+  await expect(send(page)).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem("ti4.local.3.8.1"))).toBeNull();
 });
 
 test("a draft of a tactical action is private, is kept, and is applied as one request", async ({
@@ -1299,6 +1383,59 @@ test("the sheet of a player has its abilities, leaders and used cards as printed
   await expect(other.getByRole("region", { name: "Leaders" }).getByRole("article")).toHaveCount(3);
 });
 
+test("a reaction window has its trigger and its cards as printed, and each has its setting", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  // Seat G is Sardakk: it holds Reverse Engineer, and the first seat of the round discards a card.
+  await page.goto("/?scenario=late-game&humans=64");
+  await expect(heading(page)).toHaveText(/^After .+ discards .+$/);
+  // No id of the engine is on the screen.
+  await expect(panel(page)).not.toContainText("ACTION_CARD_DISCARDED");
+  const row = panel(page).getByRole("button", { name: "Reverse Engineer" });
+  await expect(row).toBeVisible();
+  await expect(panel(page)).toContainText("Take that action card from the discard pile");
+  // The decline is the main button, and no row.
+  await expect(send(page)).toHaveText(/Pass/);
+  await expect(panel(page).getByRole("button", { name: "Decline" })).toHaveCount(0);
+  const setting = panel(page).getByRole("combobox", { name: "Offer Reverse Engineer" });
+  await expect(setting.getByRole("option")).toHaveText(["Offered", "Only on my turns", "Never"]);
+  await page.screenshot({ path: "shots/local/reaction-window.png", animations: "disabled" });
+
+  // The setting is of the windows after this one: the window stays open, with what is set.
+  await setting.selectOption("ownturn");
+  await expect(page.getByRole("status").filter({ hasText: "Reverse Engineer" })).toContainText(
+    "offered on your turns only",
+  );
+  await expect(heading(page)).toHaveText(/^After .+ discards .+$/);
+  await expect(setting).toHaveValue("ownturn");
+  await expect(send(page)).toHaveText(/Pass/);
+
+  // The sheets are where it is set back: the Cards sheet for a card, the sheet of the seat for
+  // the card of an ability.
+  await page.getByRole("button", { name: "Cards", exact: true }).click();
+  const cards = page.getByRole("complementary", { name: "Cards" });
+  const kept = cards.getByRole("combobox", { name: "Offer Reverse Engineer" });
+  await expect(kept).toHaveValue("ownturn");
+  await kept.selectOption("always");
+  await expect(kept).toHaveValue("always");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Seat G, .*Open player sheet/ }).click();
+  const sheet = page.getByRole("complementary", { name: /^Seat G · / });
+  const agent = sheet.getByRole("combobox", { name: "Offer T'ro" });
+  await expect(agent).toHaveValue("always");
+  await agent.selectOption("never");
+  await expect(agent).toHaveValue("never");
+  // The sheet of another seat has no setting.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Seat A, .*Open player sheet/ }).click();
+  await expect(
+    page.getByRole("complementary", { name: /^Seat A · / }).getByRole("combobox"),
+  ).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("the Agendas sheet of the late game has the laws in play and the deck in groups", async ({
   page,
 }) => {
@@ -1332,4 +1469,137 @@ test("the Agendas sheet of the late game has the laws in play and the deck in gr
   await expect(deck.getByText("Political Censure")).toHaveCount(0);
   await page.screenshot({ path: "shots/local/agendas-late-game.png", animations: "disabled" });
   expect(errors).toEqual([]);
+});
+
+// Single player: the setup of a table in the page (`?single`), on the screen of the lobby.
+const lobbyPlayers = (page: Page) => page.getByRole("region", { name: "Players" });
+const lobbyRows = (page: Page) => lobbyPlayers(page).locator("ul.overflow-y-auto > li");
+const lobbySetup = (page: Page) => page.getByRole("region", { name: "Setup" });
+const setupValue = (page: Page, label: string) =>
+  lobbySetup(page).getByLabel(label, { exact: true });
+const lobbyTitle = (page: Page) => page.locator("header strong").first();
+const lobbyMain = (page: Page) => page.locator('button[aria-keyshortcuts="Enter"]');
+
+test("single player: a table is set up in the page, started, kept and set up again", async ({
+  page,
+}) => {
+  test.setTimeout(10_000);
+  const errors: string[] = [];
+  page.on("console", (message) => message.type() === "error" && errors.push(message.text()));
+  page.on("pageerror", (error) => errors.push(error.message));
+  // With no game of this browser, "Single player" of the start screen is the setup.
+  await page.goto("/");
+  await expect(page.getByRole("link", { name: /Single player/ })).toHaveAttribute(
+    "href",
+    "/?single",
+  );
+  await page.goto("/?single&seed=3&players=5");
+  await expect(lobbyTitle(page)).toHaveText("Single player · 5 players");
+  // The table is of the page: the other seats are rule bots, and nobody is given a link.
+  await expect(lobbyRows(page)).toHaveCount(5);
+  await expect(lobbyRows(page).nth(0)).toContainText("Player (you)");
+  await expect(lobbyRows(page).nth(4)).toContainText("Rule bot 4");
+  await expect(page.getByRole("button", { name: "Copy link" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Join in a new tab" })).toHaveCount(0);
+  // The board has a place for each seat.
+  await expect(page.locator("g.system.home")).toHaveCount(5);
+
+  // The setup of the lobby: the seats, the cards, the kind of a seat and the faction.
+  await lobbySetup(page).getByRole("button", { name: "One player fewer" }).click();
+  await expect(lobbyTitle(page)).toHaveText("Single player · 4 players");
+  await expect(lobbyRows(page)).toHaveCount(4);
+  await expect(page.locator("g.system.home")).toHaveCount(4);
+  await setupValue(page, "Strategy cards").selectOption({ label: "Prophecy of Kings" });
+  await expect(setupValue(page, "Strategy cards")).toHaveValue("pok");
+  await lobbyPlayers(page).getByRole("button", { name: "Remove Rule bot 3" }).click();
+  await expect(lobbyMain(page)).toBeDisabled();
+  await expect(page.locator("#lobby-note")).toHaveText("Waiting for 1 open seat");
+  await lobbyRows(page).nth(3).getByRole("button", { name: "Random", exact: true }).click();
+  await expect(lobbyRows(page).nth(3)).toContainText("Random 1");
+  await lobbyPlayers(page)
+    .getByRole("button", { name: /^Faction of Player: / })
+    .click();
+  await lobbyPlayers(page)
+    .getByRole("group", { name: "Faction of Player" })
+    .getByRole("button", { name: "Hacan", exact: true })
+    .click();
+  await expect(lobbyPlayers(page).getByRole("button", { name: /^Faction of Player: / })).toHaveText(
+    /Hacan/,
+  );
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: "shots/local/single-setup.png", animations: "disabled" });
+
+  // Enter is the main button: the game of this table, with the faction that was chosen.
+  await expect(lobbyMain(page)).toHaveText(/^Start game/);
+  await page.keyboard.press("Enter");
+  await expect(send(page)).toBeVisible();
+  await expect(page.getByRole("region", { name: "Players" }).locator("tbody tr")).toHaveCount(4);
+  await expect(
+    page.getByRole("region", { name: "Players" }).locator('tbody tr[class*="bg-cyan"]'),
+  ).toContainText("Hacan");
+  await expect(page.getByRole("button", { name: "Start", exact: true })).toBeVisible();
+  const line = () => settings(page).getByText(/^Single player · /);
+  await openSettings(page);
+  await expect(line()).toHaveText(
+    /^Single player · seed 3 · 4 seats · 0 answers saved · \d+ decisions of all seats$/,
+  );
+  await expect(settings(page).getByRole("region", { name: "Start from" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  // An answer is kept, and a reload is this game, not another setup.
+  await panel(page).getByRole("button", { pressed: false }).first().click();
+  await send(page).click();
+  await expect.poll(() => savedLine(page, /^Single player · /)).toContain("1 answers saved");
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!));
+  expect(saved.format).toBe(4);
+  // The decisions of every seat are kept, in their order: the other seats decided before the page.
+  expect(saved.save.log.length).toBeGreaterThan(1);
+  expect(saved.table.setup).toMatchObject({ player_count: 4, seed: 3, strategy_cards: "pok" });
+  expect(saved.table.seats.map((seat: { kind: string }) => seat.kind)).toEqual([
+    "human",
+    "smart",
+    "smart",
+    "random",
+  ]);
+  await page.goto("/");
+  await page.getByRole("link", { name: /Single player/ }).click();
+  await expect(page).toHaveURL("/?single");
+  await expect(send(page)).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Players" }).locator('tbody tr[class*="bg-cyan"]'),
+  ).toContainText("Hacan");
+
+  // "New game" of the Dev sheet drops the game and opens the setup.
+  await openSettings(page);
+  await settings(page).getByRole("button", { name: "New game" }).click();
+  await expect(lobbyTitle(page)).toHaveText(/^Single player · /);
+  expect(await page.evaluate(() => localStorage.getItem("ti4.single"))).toBeNull();
+  expect(errors).toEqual([]);
+});
+
+test("single player: the other seats take the wait of the table, and the page says who decides", async ({
+  page,
+}) => {
+  test.setTimeout(10_000);
+  await page.goto("/?single&seed=3&players=4");
+  await lobbySetup(page).getByRole("button", { name: "Wait more" }).click();
+  await expect(setupValue(page, "Bots wait")).toHaveText("0.5 s");
+  await lobbyMain(page).click();
+  // On this seed three seats choose a strategy card before the page: each takes its time, the
+  // toolbar says who the game waits for, and then the page is asked.
+  const status = page.locator("header strong").first();
+  await expect(status).toHaveText(/^Waiting for /);
+  const first = await status.textContent();
+  // A reload while the second seat takes its time: the decision of the first seat is kept, so
+  // the game does not go back to it.
+  await expect(status).not.toHaveText(first!);
+  await page.reload();
+  await expect(status).toHaveText(/^Waiting for |^Your decision$/);
+  expect(await status.textContent()).not.toBe(first);
+  await expect(send(page)).toBeVisible();
+  await expect(page.locator("header strong").first()).toHaveText("Your decision");
+  await expect(heading(page)).toHaveText("Choose a strategy card");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("ti4.single")!).waitMs)).toBe(
+    500,
+  );
 });

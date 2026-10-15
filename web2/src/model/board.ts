@@ -1,4 +1,10 @@
-import type { BuildSheetView, LandingView, OriginView, PaymentView } from "./action";
+import type {
+  BuildSheetView,
+  LandingView,
+  OriginView,
+  PaymentView,
+  SpaceOddsView,
+} from "./action";
 import type { Force, PlanetId, SeatId, SystemId } from "./core";
 
 export type Anomaly = "asteroid" | "supernova" | "nebula" | "rift";
@@ -124,19 +130,23 @@ export interface InspectorRowView {
   notes?: { text: string; tone: "muted" | "planned" }[];
 }
 
-export interface InspectorView {
-  system: SystemId;
-  title: string;
+/** What is in one system. The inspector shows it, and every sheet of a task at a system. */
+export interface SystemDetailsView {
   facts: string;
   notes: string[];
   rows: InspectorRowView[];
+}
+
+export interface InspectorView extends SystemDetailsView {
+  system: SystemId;
+  title: string;
   /** Set when the player may start a tactical action here. */
   activate: "allowed" | "token" | null;
   /**
    * The active system while the movement is staged: the ships that are committed to it, by the
    * system that they leave, each with what it carries. Read-only; the controls are at those systems.
    */
-  arriving?: { summary: string; origins: OriginView[] };
+  arriving?: { summary: string; origins: OriginView[]; odds: SpaceOddsView | null };
 }
 
 export interface BoardView {

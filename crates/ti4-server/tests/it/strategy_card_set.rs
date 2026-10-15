@@ -331,33 +331,39 @@ async fn a_game_saved_before_the_option_existed_is_a_pok_game_and_replays_identi
 
 #[test]
 fn the_legacy_path_and_the_pok_set_build_the_identical_opening_state() {
-    use ti4_server::map::{create_game_with_options, create_game_with_template};
+    use ti4_host::map::{create_game_with_template, create_game_with_template_seated};
     let content = ContentStore::embedded();
     let players: Vec<PlayerId> = (1..=4).map(|i| PlayerId::new(format!("p{i}"))).collect();
+    let seated = ti4_engine::seating::seat_in_scope(&players);
     for template in [None, Some("4pStandard")] {
         let Ok((legacy, legacy_galaxy)) = create_game_with_template(content, &players, 5, template)
         else {
             continue;
         };
         let (named, named_galaxy) =
-            create_game_with_options(content, &players, 5, template, None, Some("pok")).unwrap();
+            create_game_with_template_seated(content, &players, 5, template, &seated, Some("pok"))
+                .unwrap();
         assert_eq!(legacy, named, "the PoK set is the pre-option game");
         assert_eq!(
-            ti4_server::map::build_board_tiles(content, &legacy_galaxy),
-            ti4_server::map::build_board_tiles(content, &named_galaxy)
+            ti4_host::map::build_board_tiles(content, &legacy_galaxy),
+            ti4_host::map::build_board_tiles(content, &named_galaxy)
         );
         let (te, te_galaxy) =
-            create_game_with_options(content, &players, 5, template, None, Some("te")).unwrap();
+            create_game_with_template_seated(content, &players, 5, template, &seated, Some("te"))
+                .unwrap();
         assert_ne!(legacy.unclaimed_strategy_cards, te.unclaimed_strategy_cards);
         // Only the cards differ: the board and every deck are the same game.
         assert_eq!(
-            ti4_server::map::build_board_tiles(content, &legacy_galaxy),
-            ti4_server::map::build_board_tiles(content, &te_galaxy)
+            ti4_host::map::build_board_tiles(content, &legacy_galaxy),
+            ti4_host::map::build_board_tiles(content, &te_galaxy)
         );
         assert_eq!(legacy.agenda_deck, te.agenda_deck);
         assert_eq!(legacy.objective_deck, te.objective_deck);
     }
-    assert!(create_game_with_options(content, &players, 5, None, None, Some("nope")).is_err());
+    assert!(
+        create_game_with_template_seated(content, &players, 5, None, &seated, Some("nope"))
+            .is_err()
+    );
 }
 
 #[test]

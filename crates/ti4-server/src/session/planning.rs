@@ -5,14 +5,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ti4_engine::choice::{Choice, ChoiceOption};
 use ti4_engine::game::Game;
+use ti4_host::planning::RecordedDecision;
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::wire::{AttemptIdentity, PlayerPlan, SubmissionError};
+use ti4_host::protocol::server::{DraftApplication, DraftApplicationState, SecondaryDraftStatus};
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::Phase;
 
-use crate::planning::RecordedDecision;
-use crate::planning::runner::{
-    AttemptIdentity, PlanScope, PlanningRunner, PlayerPlan, SubmissionError,
-};
-use crate::protocol::server::{DraftApplication, DraftApplicationState, SecondaryDraftStatus};
+use crate::planning::runner::PlanningRunner;
 
 // Checkpoint identities stay distinct even when undo replaces the whole session.
 static NEXT_CHECKPOINT: AtomicU64 = AtomicU64::new(1);
@@ -86,8 +86,8 @@ pub(crate) struct SessionPlanning {
     // Kept apart from tactical applications: a seat may hold both drafts.
     secondary_applications: BTreeMap<PlayerId, Application>,
     /// The strategic action that is resolved, for the facts of an update and for a draft of a
-    /// secondary that is run from a script (`ti4_view::secondary`).
-    pub(crate) watch: ti4_view::secondary::SecondaryWatch,
+    /// secondary that is run from a script (`ti4_host::view::secondary`).
+    pub(crate) watch: ti4_host::view::secondary::SecondaryWatch,
 }
 
 impl SessionPlanning {
@@ -103,7 +103,7 @@ impl SessionPlanning {
             applications: BTreeMap::new(),
             secondary: None,
             secondary_applications: BTreeMap::new(),
-            watch: ti4_view::secondary::SecondaryWatch::default(),
+            watch: ti4_host::view::secondary::SecondaryWatch::default(),
         }
     }
 
@@ -185,7 +185,7 @@ impl SessionPlanning {
     pub fn reset(
         &mut self,
         player: &PlayerId,
-        identity: super::super::planning::runner::AttemptIdentity,
+        identity: ti4_host::planning::wire::AttemptIdentity,
     ) -> Result<(), PlanningError> {
         if self.closed || !self.available {
             return Err(PlanningError::Unavailable);

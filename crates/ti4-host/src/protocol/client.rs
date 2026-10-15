@@ -15,6 +15,7 @@ pub const MAX_SCRIPT_ENTRIES: usize = 512;
 /// `session::bluff::MAX_DECLARED_TRIGGERS`) and the longest id.
 pub const MAX_INTENT_TRIGGERS: usize = 16;
 pub const MAX_TRIGGER_ID_BYTES: usize = 32;
+pub use super::staged::MAX_STAGED_VALUE_BYTES;
 /// Most answers one `PreviewSecondary` may carry (a Leadership purchase scripts its whole payment).
 pub const MAX_PREVIEW_ANSWERS: usize = ti4_engine::secondary_preview::MAX_ANSWERS;
 
@@ -28,6 +29,11 @@ pub enum ClientMessage {
         game_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         player_session: Option<String>,
+        /// The connection takes part in the staged work of its seat: it is sent
+        /// `ServerMessage::SeatStaged` after the snapshot and after every change, from any
+        /// connection of the seat. Left out by a client that keeps its staged work itself.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        staged: bool,
     },
     /// Submit an engine-offered option ID for an outstanding decision.
     SubmitChoice {
@@ -45,17 +51,17 @@ pub enum ClientMessage {
     ResetPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     EditPlanningMovement {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     ApplyPlanning {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         nonce: String,
         expected_version: u64,
     },
@@ -63,7 +69,7 @@ pub enum ClientMessage {
     SubmitPlanningChoice {
         protocol_version: u16,
         game_id: String,
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         option_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_id: Option<String>,
@@ -97,10 +103,10 @@ pub enum ClientMessage {
         protocol_version: u16,
         game_id: String,
         request_id: String,
-        script: Vec<ti4_view::planning::draft::DraftStep>,
+        script: Vec<crate::planning::draft::DraftStep>,
         /// Left out: the next tactical action.
         #[serde(default)]
-        scope: ti4_view::planning::audit::PlanScope,
+        scope: crate::planning::audit::PlanScope,
     },
     /// Answer the pending choice of this connection's seat, and the choices after it, with
     /// `script`: a draft or a plan that is sent to the live game. A script that the game would
@@ -111,7 +117,7 @@ pub enum ClientMessage {
         game_id: String,
         nonce: String,
         expected_version: u64,
-        script: Vec<ti4_view::planning::draft::DraftStep>,
+        script: Vec<crate::planning::draft::DraftStep>,
     },
     /// Take back the last decision of this connection's seat, when the last update said that
     /// it may (`HistoryStatus::can_undo`): a movement, the landings and a purchase go back
@@ -172,6 +178,21 @@ pub enum ClientMessage {
         request_id: u64,
         system_id: String,
     },
+    /// Replace what this connection's seat has staged in one slot (`None` clears it). The
+    /// server keeps it for the seat, not for the connection, so every tab and device of the
+    /// seat has it. The value is the client's; the server reads only a ready draft of a
+    /// secondary (slot `secondary`), which it sends when the game asks the seat. The put is a
+    /// compare-and-set: `base_revision` is the revision of the slot that the client changed
+    /// (0 for a slot that was never written). A stale one writes nothing, and the connection is
+    /// sent the slots as they are.
+    PutStaged {
+        protocol_version: u16,
+        game_id: String,
+        slot: super::staged::StagedSlot,
+        base_revision: u64,
+        #[serde(default)]
+        value: Option<serde_json::Value>,
+    },
     /// Keep-alive ping message.
     Ping {
         protocol_version: u16,
@@ -185,22 +206,22 @@ pub enum ClientMessage {
 pub enum SecondaryPlanningRequest {
     Start {},
     Reset {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
     },
     Answer {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         option_id: String,
     },
     /// Ready: submit the draft for this seat when the live window reaches it.
     SetReady {
-        identity: crate::planning::AttemptIdentity,
+        identity: crate::planning::wire::AttemptIdentity,
         ready: bool,
     },
 }
 
 impl SecondaryPlanningRequest {
     #[must_use]
-    pub const fn identity(&self) -> Option<crate::planning::AttemptIdentity> {
+    pub const fn identity(&self) -> Option<crate::planning::wire::AttemptIdentity> {
         match self {
             Self::Start {} => None,
             Self::Reset { identity }
@@ -266,6 +287,7 @@ impl std::fmt::Debug for ClientMessage {
                 protocol_version,
                 game_id,
                 player_session,
+                staged,
             } => f
                 .debug_struct("Subscribe")
                 .field("protocol_version", protocol_version)
@@ -274,6 +296,20 @@ impl std::fmt::Debug for ClientMessage {
                     "player_session",
                     &player_session.as_ref().map(|_| "[redacted]"),
                 )
+                .field("staged", staged)
+                .finish(),
+            Self::PutStaged {
+                game_id,
+                slot,
+                base_revision,
+                value,
+                ..
+            } => f
+                .debug_struct("PutStaged")
+                .field("game_id", game_id)
+                .field("slot", slot)
+                .field("base_revision", base_revision)
+                .field("cleared", &value.is_none())
                 .finish(),
             Self::SubmitChoice {
                 protocol_version,
@@ -421,6 +457,9 @@ impl ClientMessage {
             | Self::Ping {
                 protocol_version, ..
             }
+            | Self::PutStaged {
+                protocol_version, ..
+            }
             | Self::RunDraft {
                 protocol_version, ..
             }
@@ -565,6 +604,15 @@ impl ClientMessage {
                 bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
                 bounded(system_id, super::reach::MAX_SYSTEM_ID_BYTES, "system_id")?;
             }
+            Self::PutStaged { game_id, value, .. } => {
+                bounded(game_id, MAX_GAME_ID_BYTES, "game_id")?;
+                if value.as_ref().is_some_and(|value| {
+                    !serde_json::to_string(value)
+                        .is_ok_and(|text| text.len() <= MAX_STAGED_VALUE_BYTES)
+                }) {
+                    return Err("value");
+                }
+            }
             Self::Ping { .. } => {}
         }
         Ok(())
@@ -573,7 +621,7 @@ impl ClientMessage {
 
 /// A script may be empty: a draft with nothing chosen opens the turn menu. Its texts are
 /// bounded by the size of a message.
-fn bounded_script(script: &[ti4_view::planning::draft::DraftStep]) -> Result<(), &'static str> {
+fn bounded_script(script: &[crate::planning::draft::DraftStep]) -> Result<(), &'static str> {
     if script.len() > MAX_SCRIPT_ENTRIES {
         Err("script")
     } else {
@@ -595,7 +643,7 @@ mod tests {
 
     #[test]
     fn planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::AttemptIdentity {
+        let identity = crate::planning::wire::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,
@@ -672,7 +720,7 @@ mod tests {
 
     #[test]
     fn secondary_planning_messages_round_trip_and_validate_bounds() {
-        let identity = crate::planning::AttemptIdentity {
+        let identity = crate::planning::wire::AttemptIdentity {
             checkpoint_id: 12,
             plan_revision: 3,
             generation_id: 2,

@@ -3,12 +3,13 @@ use std::time::{Duration, Instant};
 
 use ti4_content::{ContentStore, galaxy::all_systems};
 use ti4_engine::fixtures::{game, hub_with_centre, put, put_on_planet};
+use ti4_host::planning::audit::StopReason;
+use ti4_host::planning::wire::{PlanningEnvelope, PlanningUpdate, SubmissionError};
+use ti4_host::protocol::server::DraftApplicationState;
+use ti4_host::protocol::status::ViewerRole;
 use ti4_model::content_types::POK;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::state::Phase;
-use ti4_server::planning::runner::{PlanningEnvelope, PlanningUpdate, StopReason, SubmissionError};
-use ti4_server::protocol::server::DraftApplicationState;
-use ti4_server::protocol::status::ViewerRole;
 use ti4_server::session::registry::HistoryAction;
 use ti4_server::session::{
     GameRegistry, GameSession, PlanningError, SeatController, SessionConfig,
@@ -154,7 +155,7 @@ fn stopped_draft(session: &GameSession, answers: &[String]) -> PlanningEnvelope 
     }
 }
 
-fn ready_to_apply(session: &GameSession) -> ti4_server::protocol::server::PlanningStatusMsg {
+fn ready_to_apply(session: &GameSession) -> ti4_host::protocol::server::PlanningStatusMsg {
     let deadline = Instant::now() + DEADLINE;
     loop {
         let status = session.planning_status(&PlayerId::new("b"));
@@ -1081,7 +1082,7 @@ fn reset_clears_the_script_and_retires_the_displayed_offer() {
     assert!(refreshed.identity.checkpoint_id > fresh.identity.checkpoint_id);
     assert_eq!(refreshed.reset_revision, fresh.reset_revision);
     let plan = &session.plans()[&PlayerId::new("b")];
-    let restored: ti4_server::planning::runner::PlayerPlan =
+    let restored: ti4_host::planning::wire::PlayerPlan =
         serde_json::from_value(serde_json::to_value(plan).unwrap()).unwrap();
     assert_eq!(restored.reset_revision, fresh.reset_revision);
     session.stop();

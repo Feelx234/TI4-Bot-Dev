@@ -87,7 +87,15 @@ export function ShellFrame({
                   className="min-h-12 flex-1 border-t-2 border-transparent text-sm font-strong text-muted aria-pressed:border-accent aria-pressed:text-accent"
                 >
                   {label}
-                  {marked === id && pane !== id && " ·"}
+                  {marked === id && pane !== id && (
+                    <>
+                      <span
+                        aria-hidden
+                        className="ml-1.5 inline-block size-2 rounded-full bg-accent align-middle shadow-[0_0_6px_var(--color-accent)] animate-blink motion-reduce:animate-none"
+                      />
+                      <span className="sr-only">, choice open</span>
+                    </>
+                  )}
                 </button>
               ))}
             </nav>

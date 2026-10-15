@@ -480,7 +480,7 @@ async fn public_mode_refuses_ml_bots_presets_and_keeps_the_small_body_cap() {
     assert_eq!(r.status(), StatusCode::OK);
     let r = c
         .post(format!("http://{base}/api/games"))
-        .json(&json!({ "player_count": 2, "nickname": "A", "start_preset": ti4_server::preset::COMBAT }))
+        .json(&json!({ "player_count": 2, "nickname": "A", "start_preset": ti4_host::preset::COMBAT }))
         .send()
         .await
         .unwrap();

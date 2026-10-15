@@ -4,7 +4,9 @@
 import { type Connection, type Socket, backoff, connect, pageSocket } from "./socket";
 import {
   type LobbyState,
+  type MapChoice,
   type MapPreview,
+  type MapSummary,
   PROTOCOL_VERSION,
   type SetupOptions,
   type TableServerMessage,
@@ -25,6 +27,11 @@ export interface TableState {
   preview: MapPreview | null;
   /** What a host can choose, with the names. Null until the server said it. */
   options: SetupOptions | null;
+  /**
+   * The table is kept in the page (single player): the page plays the other seats, and nobody
+   * else can come to it. It has no address to give away and no name to change.
+   */
+  local?: true;
 }
 
 /** A change of the setup of a table. A part that is left out stays as it is. */
@@ -58,16 +65,33 @@ export interface Table {
    * the new one is for another tab. Null when the table refused.
    */
   join(nickname: string): Promise<Seat | null>;
+  /**
+   * Takes the seat of a person who is away over, as a visitor (`can_take_over` of its slot). The
+   * seat keeps its player and gets this name. Null when the table refused.
+   */
+  takeOver(playerId: string, nickname: string): Promise<Seat | null>;
   /** Gives the seat of this page back. The host cannot leave. */
   leave(): void;
   /** Lets the server play one open seat, or with `fill` every open seat. Host only. */
   addBots(kind: string, fill?: boolean): void;
   /** Removes a seat that the server plays, or another player. Host only. */
   removeSeat(playerId: string): void;
-  /** Changes the setup. Host only. The change applies at once, for every player. */
+  /**
+   * Changes the setup. Host only. The change applies at once, for every player. Of a running
+   * game only the wait changes.
+   */
   setSettings(settings: TableSettings): void;
   /** Gives the player of this page another name. */
   rename(nickname: string): void;
+  /**
+   * Chooses the faction of a seat, or with null leaves it to the draw of the start. A player
+   * chooses for the own seat, the host for any. A faction that another seat has is refused.
+   */
+  setFaction(playerId: string, faction: string | null): void;
+  /** The maps that a table of `players` seats can play. */
+  maps(players: number): Promise<MapSummary[]>;
+  /** Chooses the map. Host only. A map is for one number of seats. */
+  setMap(map: MapChoice): void;
   /** Starts the game. Host only, with every seat filled. */
   start(): void;
   close(): void;
@@ -266,16 +290,17 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
       return;
     }
     latest = { lobby, viewer };
-    if (lobby.phase === "lobby" && previewed !== lobby.map_revision) {
+    // A running table has its board too: a visitor is shown it before the game.
+    if (previewed !== lobby.map_revision) {
       askPreview(lobby.map_revision);
     }
     tell();
   };
 
   /** A call that changes the table. A refusal is told with its reason, and the table stays. */
-  const change = async (route: string, body: unknown) => {
+  const change = async (route: string, body: unknown, send = call) => {
     try {
-      const response = await call(route, body);
+      const response = await send(route, body);
       if (!response.ok) {
         return say({ kind: "rejected", reason: await refusal(response) });
       }
@@ -384,17 +409,59 @@ export function serverTable(gameId: string, seat: Seat | null, play: ServerTable
         return null;
       }
     },
+    async takeOver(playerId, nickname) {
+      try {
+        // With no credential: the server gives the seat to nobody who has one.
+        const response = await call(
+          "join",
+          { kind: "takeover", player_id: playerId, nickname },
+          "",
+        );
+        if (!response.ok) {
+          say({ kind: "rejected", reason: await refusal(response) });
+          return null;
+        }
+        const made: Admission = await response.json();
+        take(made.lobby, latest?.viewer ?? null, false);
+        return { playerId: made.player.id, playerSession: made.player_session! };
+      } catch {
+        say({ kind: "rejected", reason: "The server cannot be reached. Nothing was changed." });
+        return null;
+      }
+    },
     leave: () => void change("leave", {}),
     addBots: (kind, fill = false) => void change("bots", fill ? { kind, fill: true } : { kind }),
     removeSeat: (playerId) => void change("remove-bot", { player_id: playerId }),
     setSettings: (settings) =>
-      void change("settings", {
-        ...(settings.players === undefined ? {} : { player_count: settings.players }),
-        ...(settings.cards === undefined ? {} : { strategy_card_set: settings.cards }),
-        ...(settings.waitMs === undefined ? {} : { bot_delay_ms: settings.waitMs }),
-        ...(settings.startFrom === undefined ? {} : { start_from: settings.startFrom }),
-      }),
+      latest?.lobby.phase === "running"
+        ? // The wait is the one value of a table that changes after the start: the game has the call.
+          void change("settings", { bot_delay_ms: settings.waitMs }, (_, body) =>
+            fetcher(`/api/games/${encodeURIComponent(gameId)}/settings`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                ...(seat ? { "x-ti4-player-session": seat.playerSession } : {}),
+              },
+              body: JSON.stringify(body),
+            }),
+          )
+        : void change("settings", {
+            ...(settings.players === undefined ? {} : { player_count: settings.players }),
+            ...(settings.cards === undefined ? {} : { strategy_card_set: settings.cards }),
+            ...(settings.waitMs === undefined ? {} : { bot_delay_ms: settings.waitMs }),
+            ...(settings.startFrom === undefined ? {} : { start_from: settings.startFrom }),
+          }),
     rename: (nickname) => void change("nickname", { nickname }),
+    setFaction: (playerId, faction) =>
+      void change("seat-faction", { player_id: playerId, faction }),
+    async maps(players) {
+      const response = await fetcher(`/api/maps?player_count=${players}`);
+      if (!response.ok) {
+        throw new Error(await refusal(response));
+      }
+      return response.json();
+    },
+    setMap: (map) => void change("map", { map }),
     start: () => void change("start", {}),
     close() {
       closed = true;

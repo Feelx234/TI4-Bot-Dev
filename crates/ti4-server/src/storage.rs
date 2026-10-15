@@ -15,8 +15,9 @@ use ti4_engine::choice::DecisionRecord;
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 
-use crate::protocol::server::GameEvent;
-use crate::protocol::view::BoardTileView;
+use ti4_host::protocol::server::GameEvent;
+use ti4_host::protocol::view::BoardTileView;
+
 use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
 
@@ -205,6 +206,18 @@ impl std::fmt::Debug for PlayerLobbyMember {
     }
 }
 
+/// The strategy card set of a record written before the option existed: those games keep the
+/// Prophecy of Kings cards they were recorded with; only newly created games default to
+/// [`ti4_host::setup::card_set::DEFAULT`]. The cards themselves are baked into the saved initial state, so
+/// a restart or a history replacement replays the same cards.
+pub const LEGACY_CARD_SET: &str = ti4_host::setup::card_set::POK;
+
+/// The strategy card set a stored value stands for: a missing value is a legacy record.
+#[must_use]
+pub fn stored_card_set(stored: Option<&str>) -> &str {
+    stored.unwrap_or(LEGACY_CARD_SET)
+}
+
 /// Private versioned lobby record. Never return this type from a public API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -218,11 +231,12 @@ pub struct PlayerLobbyRecord {
     pub seed: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub map_template: Option<String>,
-    /// Opening-state preset (see [`crate::preset`]); the result is saved in the init record.
+    /// Opening-state preset (see [`ti4_host::preset`]); the result is saved in the init record.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_preset: Option<String>,
-    /// Strategy card set chosen at creation (see [`crate::card_set`]). Absent in records written
-    /// before the option existed: those games play the PoK cards they were recorded with.
+    /// Strategy card set chosen at creation (see [`ti4_host::setup::card_set`]). Absent in records written
+    /// before the option existed: those games play the PoK cards they were recorded with
+    /// ([`LEGACY_CARD_SET`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strategy_card_set: Option<String>,
     /// Who opens as speaker: `"random"` (a seat drawn from the seed) or `"seat"` (the first
@@ -241,7 +255,7 @@ pub struct PlayerLobbyRecord {
     /// value of the process (`TI4_RANDOM_BOT_DELAY_MS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_delay_ms: Option<u64>,
-    /// The scenario of `ti4_view::scenario` that the game starts from. Absent: round 1.
+    /// The scenario of `ti4_host::view::scenario` that the game starts from. Absent: round 1.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_from: Option<String>,
     pub lobby_version: u64,
@@ -420,8 +434,42 @@ pub struct BatchRecord {
 /// for. A game without it simply has no preferences, which is how every older save loads.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReactionModesRecord {
-    #[serde(default)]
+    /// The card names that a seat set to never offer, as a save of before the modes of
+    /// abilities has them. Read, and not written.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub never: BTreeMap<PlayerId, std::collections::BTreeSet<String>>,
+    /// The mode of each reaction that a seat set, by its key.
+    #[serde(default)]
+    pub modes: BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>>,
+}
+
+/// What each seat has staged and not sent (`session::staged`), saved in `staged.json`.
+///
+/// Not a game input: replay never reads it. A game without the file has nothing staged, which
+/// is how every older save loads.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StagedRecord {
+    #[serde(default)]
+    pub seats: BTreeMap<PlayerId, crate::session::staged::SeatStaged>,
+}
+
+impl ReactionModesRecord {
+    /// The modes of every seat, with the Never cards of an older save among them.
+    #[must_use]
+    pub fn into_modes(
+        self,
+    ) -> BTreeMap<PlayerId, BTreeMap<String, ti4_model::state::ReactionMode>> {
+        let mut modes = self.modes;
+        for (seat, cards) in self.never {
+            let of_seat = modes.entry(seat).or_default();
+            for card in cards {
+                of_seat
+                    .entry(card)
+                    .or_insert(ti4_model::state::ReactionMode::Never);
+            }
+        }
+        modes
+    }
 }
 
 /// Initial configuration record saved atomically to `init.json`.
@@ -516,7 +564,7 @@ impl FileGameStore {
         for event in history.events.iter().chain(&history.redo_events) {
             if matches!(
                 event.event,
-                crate::protocol::server::GameEventKind::DecisionResolved
+                ti4_host::protocol::server::GameEventKind::DecisionResolved
             ) {
                 cursor += 1;
             }
@@ -557,7 +605,7 @@ impl FileGameStore {
                             && event.batch_id.as_deref() == Some(&batch.batch_id)
                             && matches!(
                                 event.event,
-                                crate::protocol::server::GameEventKind::DecisionResolved
+                                ti4_host::protocol::server::GameEventKind::DecisionResolved
                             )
                     })
                 {
@@ -574,7 +622,7 @@ impl FileGameStore {
                     .and_then(|value| value.parse::<usize>().ok());
                 if !matches!(
                     event.event,
-                    crate::protocol::server::GameEventKind::DecisionResolved
+                    ti4_host::protocol::server::GameEventKind::DecisionResolved
                 ) || !start.is_some_and(|start| {
                     start > 0
                         && start <= event.decision_count.unwrap_or(0)
@@ -593,7 +641,7 @@ impl FileGameStore {
                     &batch.batch_id == id
                         && matches!(
                             event.event,
-                            crate::protocol::server::GameEventKind::DecisionResolved
+                            ti4_host::protocol::server::GameEventKind::DecisionResolved
                         )
                         && event.decision_count.is_some_and(|cursor| {
                             cursor > batch.start_cursor && cursor <= batch.end_cursor
@@ -780,6 +828,28 @@ impl FileGameStore {
         let path = self.game_dir(game_id)?.join("reaction_modes.json");
         if !path.exists() {
             return Ok(ReactionModesRecord::default());
+        }
+        read_json_file(&path, MAX_SNAPSHOT_BYTES)
+    }
+
+    /// Atomically stores what every seat has staged.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the record is too large or cannot be written.
+    pub fn save_staged(&self, game_id: &str, record: &StagedRecord) -> Result<(), StorageError> {
+        let dir = self.game_dir(game_id)?;
+        fs::create_dir_all(&dir)?;
+        atomic_write_json_bounded(&dir.join("staged.json"), record, MAX_SNAPSHOT_BYTES)
+    }
+
+    /// Loads what the seats have staged; a game that never staged anything has none.
+    ///
+    /// # Errors
+    /// Returns [`StorageError`] if the file exists but cannot be read.
+    pub fn load_staged(&self, game_id: &str) -> Result<StagedRecord, StorageError> {
+        let path = self.game_dir(game_id)?.join("staged.json");
+        if !path.exists() {
+            return Ok(StagedRecord::default());
         }
         read_json_file(&path, MAX_SNAPSHOT_BYTES)
     }
@@ -1033,11 +1103,12 @@ impl FileGameStore {
         let content = ContentStore::embedded();
         let galaxy = if let Some(scenario) = start_from {
             // A game that started from a scenario is played on the map of the scenario.
-            let (_, g) = ti4_view::scenario::start(content, scenario, &init_record.player_ids)
-                .map_err(StorageError::Map)?;
+            let (_, g) =
+                ti4_host::view::scenario::start(content, scenario, &init_record.player_ids)
+                    .map_err(StorageError::Map)?;
             Some(g)
         } else if let Some(seed) = init_record.seed {
-            let g = crate::map::rebuild_galaxy(
+            let g = ti4_host::map::rebuild_galaxy(
                 content,
                 &init_record.player_ids,
                 seed,
@@ -1052,7 +1123,7 @@ impl FileGameStore {
 
         let map_tiles = if init_record.map_tiles.is_empty() {
             if let Some(g) = &galaxy {
-                crate::map::build_board_tiles(content, g)
+                ti4_host::map::build_board_tiles(content, g)
             } else {
                 Vec::new()
             }
@@ -1116,7 +1187,7 @@ impl FileGameStore {
                 .filter(|entry| {
                     matches!(
                         entry.event,
-                        crate::protocol::server::GameEventKind::DecisionResolved
+                        ti4_host::protocol::server::GameEventKind::DecisionResolved
                     )
                 })
                 .count();
@@ -1153,8 +1224,9 @@ impl FileGameStore {
         let mut config =
             SessionConfig::new(&init_record.game_id, init_record.initial_state.clone())
                 .with_store(self.clone())
-                .with_reaction_modes(self.load_reaction_modes(game_id)?.never)
+                .with_reaction_modes(self.load_reaction_modes(game_id)?.into_modes())
                 .with_prior_history(decisions.clone(), events.clone());
+        config.staged = crate::session::staged::StagedBook::new(self.load_staged(game_id)?.seats);
         config.resume = replay_copy.map(Arc::new);
         config.random_bot_delay_ms = bot_delay_ms;
         if let Some(history) = history {
@@ -1502,6 +1574,19 @@ fn content_identity() -> String {
 #[cfg(test)]
 mod player_record_tests {
     use super::*;
+
+    #[test]
+    fn only_offered_sets_validate_and_missing_means_pok() {
+        use ti4_host::setup::card_set::{DEFAULT, OFFERED, validate};
+        for set in OFFERED {
+            assert_eq!(validate(set), Ok(set));
+        }
+        assert!(validate("base_game").is_err());
+        assert!(validate("TE").is_err());
+        assert_eq!(stored_card_set(None), "pok");
+        assert_eq!(stored_card_set(Some("te")), "te");
+        assert_eq!(DEFAULT, "te");
+    }
 
     fn store() -> (FileGameStore, PathBuf) {
         let dir = std::env::temp_dir().join(format!("ti4_pil01_{:032x}", rand::random::<u128>()));

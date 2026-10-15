@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type {
+  FactionSheetView,
   Intent,
   LobbyButtonView,
+  LobbyFactionEditorView,
+  LobbyFactionOptionView,
   LobbyIntent,
   LobbyRowView,
   LobbySetupRowView,
@@ -9,12 +12,13 @@ import type {
   LobbyStepView,
   LobbyView,
 } from "../../model";
-import { Button, Hint, Kbd, Select, Toast, cx, usePhone } from "../../ui";
+import { Button, Eyebrow, Hint, Kbd, Peek, Select, Toast, cx, usePhone } from "../../ui";
 import { Board } from "../board/Board";
-import { GameProvider } from "../context";
+import { GameProvider, SeatSymbol } from "../context";
 import { LinkProvider } from "../link";
 import { ShellFrame } from "../shell/ShellFrame";
 import { keyIsFree } from "../shell/shortcuts";
+import { FactionSheet } from "./FactionSheet";
 import type { OtherGame } from "../shell/Toolbar";
 
 /** A nickname has 64 bytes at most on the server. */
@@ -109,11 +113,132 @@ function NameEditor({
   );
 }
 
+/** The width of the sheet of a faction: it has the printed text of nine cards or more. */
+const SHEET_WIDTH = 460;
+
+/** The faction of a row that is no control: its sheet is behind the name. */
+function FactionName({ name, sheet }: { name: string; sheet: FactionSheetView | null }) {
+  if (!sheet) {
+    return <span className="truncate">{name}</span>;
+  }
+  return (
+    <Peek
+      label={`About ${name}`}
+      width={SHEET_WIDTH}
+      flush
+      tall
+      trigger={name}
+      buttonClassName={(pinned) =>
+        cx(
+          "min-w-0 truncate underline decoration-dotted decoration-muted/60 underline-offset-4 hover:text-text",
+          pinned && "text-text",
+        )
+      }
+    >
+      <FactionSheet sheet={sheet} />
+    </Peek>
+  );
+}
+
+/** One faction of the choice. The row is the control; the sheet of the faction is behind "?". */
+function FactionOption({
+  option,
+  dispatch,
+}: {
+  option: LobbyFactionOptionView;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  const { intent } = option;
+  return (
+    <li className="flex min-w-0 items-center gap-1.5">
+      <button
+        type="button"
+        aria-pressed={option.chosen}
+        aria-disabled={intent === null && !option.chosen}
+        title={option.taken ? `${option.name}: ${option.taken} has it` : option.name}
+        className={cx(
+          "flex min-h-7 min-w-0 flex-1 items-center gap-1.5 rounded px-1 text-left text-sm touch:min-h-10",
+          option.chosen ? "font-mid text-accent" : "hover:bg-raised",
+          option.taken && "opacity-55 hover:bg-transparent",
+        )}
+        onClick={() => intent && dispatch(intent)}
+      >
+        <span className="w-3 flex-none" aria-hidden="true">
+          {option.chosen && "▸"}
+        </span>
+        <span className="min-w-0 flex-none truncate">{option.name}</span>
+        {option.taken && (
+          <span className="ml-auto min-w-0 truncate text-xs text-muted">{option.taken}</span>
+        )}
+      </button>
+      {option.sheet && (
+        <Hint label={`About ${option.name}`} width={SHEET_WIDTH} tall>
+          <FactionSheet sheet={option.sheet} />
+        </Hint>
+      )}
+    </li>
+  );
+}
+
+/** The choice of the faction of a seat, open in its row. A choice applies at once. */
+function FactionEditor({
+  editor,
+  onClose,
+  dispatch,
+}: {
+  editor: LobbyFactionEditorView;
+  onClose: () => void;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  // The list opens under its row: the panel shows as much of it as it has room for.
+  useEffect(() => void root.current?.scrollIntoView?.({ block: "nearest" }), []);
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    // Esc goes one level back: it closes a text that is open (the sheet of a faction) first,
+    // then the choice.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector('[role="note"]')) {
+        close.current();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div ref={root} role="group" aria-label={editor.label} className="px-5 pt-0.5 pb-2 phone:px-3">
+      <ul>
+        <FactionOption option={editor.random} dispatch={dispatch} />
+      </ul>
+      {editor.groups.map((group) => (
+        <section key={group.name} aria-label={group.name || "Factions"}>
+          {group.name && (
+            <h4 className="mt-1.5 px-1 text-muted">
+              <Eyebrow>{group.name}</Eyebrow>
+            </h4>
+          )}
+          <ul className="grid grid-cols-3 gap-x-4 phone:grid-cols-2">
+            {group.options.map((option) => (
+              <FactionOption key={option.id} option={option} dispatch={dispatch} />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function PlayerRow({
   row,
+  open,
+  onOpen,
   dispatch,
 }: {
   row: LobbyRowView;
+  /** The choice of the faction is open in this row. */
+  open: boolean;
+  onOpen: (open: boolean) => void;
   dispatch: (intent: LobbyIntent) => void;
 }) {
   // The name of the viewer is edited in its row. Null: the row is closed.
@@ -149,58 +274,84 @@ function PlayerRow({
           {row.become && <span className="font-normal text-accent"> (yours)</span>}
         </span>
       )}
-      <span className="w-[180px] flex-none truncate text-muted phone:w-auto phone:max-w-[40%]">
-        {row.faction}
-      </span>
     </>
   );
   return (
     <li
       aria-current={row.you ? "true" : undefined}
-      className={cx(
-        "flex min-h-9 items-center gap-2.5 px-5 py-0.5 text-base phone:flex-wrap phone:px-3 phone:py-1.5 [li+&]:border-t [li+&]:border-line/50",
-        row.you && "bg-cyan/[.06]",
-      )}
+      className={cx("[li+&]:border-t [li+&]:border-line/50", row.you && "bg-cyan/[.06]")}
     >
-      {row.become ? (
-        <button
-          type="button"
-          title="Play this seat in this tab"
-          className="flex min-w-0 items-center gap-2.5 text-left hover:text-accent phone:flex-1"
-          onClick={() => dispatch(row.become!)}
-        >
-          {who}
-        </button>
-      ) : (
-        who
+      <div className="flex min-h-9 items-center gap-2.5 px-5 py-0.5 text-base phone:flex-wrap phone:px-3 phone:py-1.5">
+        {row.become ? (
+          <button
+            type="button"
+            title="Play this seat in this tab"
+            className="flex min-w-0 items-center gap-2.5 text-left hover:text-accent phone:flex-1"
+            onClick={() => dispatch(row.become!)}
+          >
+            {who}
+          </button>
+        ) : (
+          who
+        )}
+        {/* A row that is no control has the sheet of its faction behind the name. */}
+        {!row.editor && (
+          <span className="flex w-[180px] flex-none text-muted phone:w-auto phone:max-w-[40%]">
+            <FactionName name={row.faction} sheet={row.sheet} />
+          </span>
+        )}
+        {/* The faction of the row is the control that opens its choice, in the same column. */}
+        {row.editor && (
+          <span className="flex w-[180px] flex-none phone:w-auto phone:max-w-[40%]">
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-label={`${row.editor.label}: ${row.faction}`}
+              title="Choose the faction"
+              className={cx(
+                "flex min-h-7 min-w-0 items-center gap-1.5 rounded border bg-well px-2 text-left font-mid hover:border-line-strong touch:min-h-10",
+                open ? "border-cyan text-accent" : "border-line",
+              )}
+              onClick={() => onOpen(!open)}
+            >
+              <span className="min-w-0 truncate">{row.faction}</span>
+              <span className="flex-none text-xs text-muted" aria-hidden="true">
+                ▾
+              </span>
+            </button>
+          </span>
+        )}
+        <span className="ml-auto flex flex-none items-center gap-1.5">
+          {row.rename && name === null && (
+            <Button
+              tone="quiet"
+              size="icon"
+              aria-label="Change your name"
+              title="Change your name"
+              onClick={() => setName(row.name)}
+            >
+              ✎
+            </Button>
+          )}
+          {row.buttons.map((button) => (
+            <RowButton key={button.label} view={button} dispatch={dispatch} />
+          ))}
+          {row.remove && (
+            <Button
+              tone="quiet"
+              size="icon"
+              aria-label={row.remove.label}
+              title={row.remove.label}
+              onClick={() => dispatch(row.remove!.intent)}
+            >
+              ×
+            </Button>
+          )}
+        </span>
+      </div>
+      {open && row.editor && (
+        <FactionEditor editor={row.editor} onClose={() => onOpen(false)} dispatch={dispatch} />
       )}
-      <span className="ml-auto flex flex-none items-center gap-1.5">
-        {row.rename && name === null && (
-          <Button
-            tone="quiet"
-            size="icon"
-            aria-label="Change your name"
-            title="Change your name"
-            onClick={() => setName(row.name)}
-          >
-            ✎
-          </Button>
-        )}
-        {row.buttons.map((button) => (
-          <RowButton key={button.label} view={button} dispatch={dispatch} />
-        ))}
-        {row.remove && (
-          <Button
-            tone="quiet"
-            size="icon"
-            aria-label={row.remove.label}
-            title={row.remove.label}
-            onClick={() => dispatch(row.remove!.intent)}
-          >
-            ×
-          </Button>
-        )}
-      </span>
     </li>
   );
 }
@@ -290,39 +441,123 @@ function SetupValue({
   );
 }
 
+/** The values of the setup, one row each. `dense`: in a sheet, which has its own margins. */
+function SetupRows({
+  view,
+  dispatch,
+  dense = false,
+}: {
+  view: LobbyView;
+  dispatch: (intent: LobbyIntent) => void;
+  dense?: boolean;
+}) {
+  return (
+    <dl className={cx(dense && "mt-1 rounded border border-line")}>
+      {view.setup.map((row) => (
+        <div
+          key={row.id}
+          className={cx(
+            "flex min-h-9 items-center justify-between gap-3 py-0.5 text-base [div+&]:border-t [div+&]:border-line/50",
+            dense ? "px-2.5" : "px-5 phone:px-3",
+          )}
+        >
+          <dt className="flex flex-none items-center gap-2 text-muted">
+            {row.label}
+            {row.help.length > 0 && (
+              <Hint label={`About ${row.label}`}>
+                {row.help.map((item) => (
+                  <span key={item.title} className="block">
+                    <strong>{item.title}.</strong> {item.text}
+                  </span>
+                ))}
+              </Hint>
+            )}
+          </dt>
+          <dd className="flex min-w-0 items-center">
+            <SetupValue row={row} dispatch={dispatch} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function Setup({ view, dispatch }: { view: LobbyView; dispatch: (intent: LobbyIntent) => void }) {
   return (
     <section aria-label="Setup" className="flex-none">
       <Heading>Setup</Heading>
-      <dl>
-        {view.setup.map((row) => (
-          <div
-            key={row.id}
-            className="flex min-h-9 items-center justify-between gap-3 px-5 py-0.5 text-base phone:px-3 [div+&]:border-t [div+&]:border-line/50"
-          >
-            <dt className="flex flex-none items-center gap-2 text-muted">
-              {row.label}
-              {row.help.length > 0 && (
-                <Hint label={`About ${row.label}`}>
-                  {row.help.map((item) => (
-                    <span key={item.title} className="block">
-                      <strong>{item.title}.</strong> {item.text}
-                    </span>
-                  ))}
-                </Hint>
-              )}
-            </dt>
-            <dd className="flex min-w-0 items-center">
-              <SetupValue row={row} dispatch={dispatch} />
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <SetupRows view={view} dispatch={dispatch} />
     </section>
   );
 }
 
+/**
+ * The table of a running game, as a reference sheet: who sits in each seat and how the game was
+ * set up. It is the lobby with nothing open (pattern 10): the rows of the players in the order
+ * of their seats, with the symbol of the seat, and the rows of the setup. Only the wait has a
+ * control, for the host.
+ */
+export function TableSheet({
+  view,
+  dispatch,
+}: {
+  view: LobbyView;
+  dispatch: (intent: LobbyIntent) => void;
+}) {
+  return (
+    <>
+      {view.status && (
+        <p role="status" className="mt-2 text-muted">
+          {view.status}
+        </p>
+      )}
+      <section aria-label="Players">
+        <h3 className="mt-3.5 text-muted">
+          <Eyebrow>Players</Eyebrow>
+        </h3>
+        <ul className="mt-1 rounded border border-line">
+          {view.rows.map((row) => (
+            <li
+              key={row.id}
+              aria-current={row.you ? "true" : undefined}
+              className={cx(
+                "flex min-h-9 flex-wrap items-center gap-x-2 px-2.5 py-0.5 text-base [li+&]:border-t [li+&]:border-line/50",
+                row.you && "bg-cyan/[.06]",
+              )}
+            >
+              {row.player !== null && <SeatSymbol seat={row.player} />}
+              <Sign sign={row.sign} />
+              {/* A name is cut on desktop, with the full name on hover; a phone gives it a second line. */}
+              <span
+                title={row.name}
+                className="min-w-0 flex-1 truncate font-mid phone:whitespace-normal phone:[overflow-wrap:anywhere]"
+              >
+                {row.name}
+                {row.you && <span className="font-normal text-muted"> (you)</span>}
+              </span>
+              <span className="flex max-w-[45%] flex-none text-muted">
+                <FactionName name={row.faction} sheet={row.sheet} />
+              </span>
+              {row.buttons.map((button) => (
+                <RowButton key={button.label} view={button} dispatch={dispatch} />
+              ))}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section aria-label="Setup">
+        <h3 className="mt-3.5 text-muted">
+          <Eyebrow>Setup</Eyebrow>
+        </h3>
+        <SetupRows view={view} dispatch={dispatch} dense />
+      </section>
+    </>
+  );
+}
+
 function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: LobbyIntent) => void }) {
+  // The row whose choice of the faction is open, by its id. One at a time.
+  const [open, setOpen] = useState<string | null>(null);
   return (
     <section aria-label="Players" className="flex min-h-0 flex-1 flex-col">
       <Heading
@@ -330,7 +565,7 @@ function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: Lobby
           <>
             <span className="text-sm text-muted tabular-nums">{view.filled}</span>
             {view.help.length > 0 && (
-              <Hint label="About seats that the server plays">
+              <Hint label="About the kinds of a seat">
                 {view.help.map((item) => (
                   <span key={item.title} className="block">
                     <strong>{item.title}.</strong> {item.text}
@@ -347,7 +582,13 @@ function Players({ view, dispatch }: { view: LobbyView; dispatch: (intent: Lobby
       </Heading>
       <ul className="min-h-0 flex-1 overflow-y-auto">
         {view.rows.map((row) => (
-          <PlayerRow key={row.id} row={row} dispatch={dispatch} />
+          <PlayerRow
+            key={row.id}
+            row={row}
+            open={open === row.id && row.editor !== null}
+            onOpen={(wanted) => setOpen(wanted ? row.id : null)}
+            dispatch={dispatch}
+          />
         ))}
       </ul>
     </section>
@@ -438,8 +679,8 @@ export function LobbyScreen({
   /** The name that a visitor joins with. */
   nickname: string;
   onNickname: (name: string) => void;
-  /** The address of the table, for the other players. */
-  link: string;
+  /** The address of the table, for the other players. Without it nobody else can come. */
+  link?: string;
   toast: { id: number; text: string } | null;
   /** The way out: the start screen. A page load. */
   other?: OtherGame;
@@ -485,6 +726,9 @@ export function LobbyScreen({
   };
   const copy = () => {
     const say = (text: string) => setCopied({ id: performance.now(), text });
+    if (link === undefined) {
+      return;
+    }
     navigator.clipboard.writeText(link).then(
       () => say("Link copied"),
       () => say(link),
@@ -526,9 +770,11 @@ export function LobbyScreen({
                   </span>
                 )}
               </div>
-              <Button tone="quiet" size="sm" onClick={copy}>
-                Copy link
-              </Button>
+              {link !== undefined && (
+                <Button tone="quiet" size="sm" onClick={copy}>
+                  Copy link
+                </Button>
+              )}
               {other && (
                 <Button tone="quiet" size="sm" onClick={() => location.assign(other.href)}>
                   {other.label}

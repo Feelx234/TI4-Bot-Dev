@@ -1,5 +1,9 @@
 // A local game as it is kept between two visits: not its state, but what plays it again.
-// The engine is deterministic, so the seed and the answers of this page give the same game.
+// The engine is deterministic, so the seed and the decisions of the seats give the same game.
+// The server keeps a game the same way: the chosen option of every decision, in order.
+
+import type { HostSave } from "./wasmTransport";
+import type { TableRequest } from "./wire";
 
 /** Which game the engine sets up. */
 export interface LocalGame {
@@ -9,45 +13,74 @@ export interface LocalGame {
   /** Bit 0 is the first seat. A seat whose bit is set is played here; the others decide at random. */
   humans: number;
   /**
-   * The prepared board that the game starts from (`ti4_view::scenario`). The seed and the number
+   * The prepared board that the game starts from (`ti4_host::view::scenario`). The seed and the number
    * of seats are then those of the scenario.
    */
   scenario?: string;
+  /**
+   * The table that the game was set up as (single player). The engine starts the game from it:
+   * `seed` and `players` are those of its setup, and `humans` is the mask of its players of the
+   * kind "human" (bit 0 is the player who came first, with the id "a").
+   */
+  table?: TableRequest;
+  /** The wait of the seats that the page plays before each answer, in milliseconds. */
+  waitMs?: number;
 }
 
 /** The seats that are played here changed during the game (Dev, "Play as"). */
 export interface SeatSwitch {
-  /** The number of the decision of the game from which the mask holds (`ti4_decided`). */
+  /** The number of the decision of the game from which the mask holds: how many decisions the seats made before it. */
   decision: number;
-  /** The seats that are played here from then on, as `LocalGame.humans`. */
+  /**
+   * The seats that are played here from then on, as `LocalGame.humans`. An undo does not go back
+   * before the change.
+   */
   humans: number;
-  /** How many answers this page had given. An undo does not go back before them. */
-  answers: number;
 }
 
 export interface SavedGame extends LocalGame {
-  format: 1;
-  /** SHA-256 of the engine file that played it. Another engine may play the answers differently. */
+  /**
+   * Formats 1 and 2 had the answers of the page only, and the other seats decided again when
+   * the game was played again. Format 3 had the decisions in a list of the page. They are not
+   * read.
+   */
+  format: 4;
+  /** SHA-256 of the engine file that played it. Another engine may offer other options. */
   engine: string;
-  /** The option id of each answer of this page, in order. */
-  answers: string[];
-  /** In order. Left out when the seats did not change. */
-  switches?: SeatSwitch[];
+  /**
+   * What the engine saved of the game (`HostSession::save_state`): the option id of every
+   * decision of the game, of every seat, in order (`log`), the answers of the page among them,
+   * and the seat changes (`switches`). Left out before the first question.
+   */
+  save?: HostSave;
 }
 
 /** The part of `Storage` that is used, so a test can pass a map. */
 export type SaveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export const saveKey = (game: LocalGame): string =>
-  game.scenario === undefined
-    ? `ti4.local.${game.seed}.${game.players}.${game.humans}`
-    : `ti4.local.scenario.${game.scenario}.${game.humans}`;
+/** Where the game of single player is kept: one, whatever its table is. */
+export const SINGLE_KEY = "ti4.single";
 
-/** The address of a game: what `localGame` in `dev/LocalApp.tsx` reads. */
+/** The address of single player: the setup of a table, or the game that was started from it. */
+export const SINGLE_ADDRESS = "?single";
+
+export const saveKey = (game: LocalGame): string =>
+  game.table !== undefined
+    ? SINGLE_KEY
+    : game.scenario === undefined
+      ? `ti4.local.${game.seed}.${game.players}.${game.humans}`
+      : `ti4.local.scenario.${game.scenario}.${game.humans}`;
+
+/**
+ * The address of a game: what `localGame` in `dev/LocalApp.tsx` reads. The game of a table has
+ * the address of its save: a setup does not fit an address.
+ */
 export const gameAddress = (game: LocalGame): string =>
-  game.scenario === undefined
-    ? `?local=${game.seed}&players=${game.players}&humans=${game.humans}`
-    : `?scenario=${encodeURIComponent(game.scenario)}&humans=${game.humans}`;
+  game.table !== undefined
+    ? SINGLE_ADDRESS
+    : game.scenario === undefined
+      ? `?local=${game.seed}&players=${game.players}&humans=${game.humans}`
+      : `?scenario=${encodeURIComponent(game.scenario)}&humans=${game.humans}`;
 
 /** Where the staged movement of the open movement step is kept: it is not an answer yet. */
 export const draftKey = (game: LocalGame): string => `${saveKey(game)}.movement`;
@@ -80,9 +113,9 @@ export function parseSavedGame(text: string): SavedGame {
   if (typeof value !== "object" || value === null) {
     throw new Error("The saved game is not a JSON object.");
   }
-  if (value.format !== 1) {
+  if (value.format !== 4) {
     throw new Error(
-      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 1.`,
+      `The saved game has format ${JSON.stringify(value.format)}; this page reads format 4.`,
     );
   }
   for (const field of ["seed", "players", "humans"] as const) {
@@ -96,44 +129,60 @@ export function parseSavedGame(text: string): SavedGame {
   if (value.scenario !== undefined && typeof value.scenario !== "string") {
     throw new Error('The saved game has no text in "scenario".');
   }
-  const { answers } = value;
-  if (!Array.isArray(answers) || !answers.every((answer) => typeof answer === "string")) {
-    throw new Error('The saved game has no list of option ids in "answers".');
-  }
-  const { switches } = value;
+  // The engine checks the table when it starts the game: only its shape is read here.
+  const table = value.table as Partial<TableRequest> | undefined;
   if (
-    switches !== undefined &&
+    table !== undefined &&
     !(
-      Array.isArray(switches) &&
-      switches.every(
-        (item) =>
-          typeof item === "object" &&
-          item !== null &&
-          isCount(item.decision) &&
-          isCount(item.humans) &&
-          isCount(item.answers),
-      )
+      typeof table === "object" &&
+      table !== null &&
+      typeof table.setup === "object" &&
+      table.setup !== null &&
+      Array.isArray(table.seats)
     )
   ) {
-    throw new Error('The saved game has no list of seat changes in "switches".');
+    throw new Error('The saved game has no setup and seats in "table".');
+  }
+  if (value.waitMs !== undefined && !isCount(value.waitMs)) {
+    throw new Error('The saved game has no whole number in "waitMs".');
+  }
+  const save = value.save as Partial<Record<keyof HostSave, unknown>> | undefined;
+  const ids = (list: unknown) =>
+    Array.isArray(list) && list.every((decision) => typeof decision === "string");
+  if (save !== undefined) {
+    if (typeof save !== "object" || save === null) {
+      throw new Error('The saved game has no object in "save".');
+    }
+    if (!ids(save.log) || !ids(save.answers)) {
+      throw new Error('The saved game has no lists of option ids in "save".');
+    }
+    const { switches } = save;
+    if (
+      switches !== undefined &&
+      !(
+        Array.isArray(switches) &&
+        switches.every(
+          (item) =>
+            typeof item === "object" &&
+            item !== null &&
+            isCount(item.decision) &&
+            isCount(item.humans),
+        )
+      )
+    ) {
+      throw new Error('The saved game has no list of seat changes in "save.switches".');
+    }
   }
   return {
-    format: 1,
+    format: 4,
     engine: value.engine,
     seed: value.seed as number,
     players: value.players as number,
     humans: value.humans as number,
     ...(value.scenario === undefined ? {} : { scenario: value.scenario }),
-    answers,
-    ...(switches?.length
-      ? {
-          switches: switches.map(({ decision, humans, answers }: SeatSwitch) => ({
-            decision,
-            humans,
-            answers,
-          })),
-        }
-      : {}),
+    ...(table === undefined ? {} : { table: table as TableRequest }),
+    ...(value.waitMs === undefined ? {} : { waitMs: value.waitMs as number }),
+    ...(save === undefined ? {} : { save: save as HostSave }),
   };
 }
 
@@ -143,7 +192,7 @@ export function loadSavedGame(storage: SaveStorage, game: LocalGame): SavedGame 
   return text === null ? null : parseSavedGame(text);
 }
 
-/** Writes the whole game. It is a few KiB: one short id for each answer. */
+/** Writes the whole game: one short id for each decision, some hundred KiB for a long game of eight. */
 export function storeSavedGame(storage: SaveStorage, save: SavedGame): void {
   storage.setItem(saveKey(save), JSON.stringify(save));
 }

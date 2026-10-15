@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
 import {
+  SINGLE_ADDRESS,
+  SINGLE_KEY,
   type SavedGame,
   clearSavedGame,
   gameAddress,
@@ -8,9 +10,15 @@ import {
   saveKey,
   storeSavedGame,
 } from "./savedGame";
+import type { TableRequest } from "./wire";
 
 const game = { seed: 3, players: 8, humans: 1 };
-const save: SavedGame = { format: 1, engine: "ab12", ...game, answers: ["sol", "pass", "18"] };
+const save: SavedGame = {
+  format: 4,
+  engine: "ab12",
+  ...game,
+  save: { log: ["sol", "pass", "18"], answers: ["sol"], version: 7 },
+};
 
 function storage() {
   const items = new Map<string, string>();
@@ -41,22 +49,32 @@ it("says which part of a saved game is wrong", () => {
   const broken = (change: object) => () => parseSavedGame(JSON.stringify({ ...save, ...change }));
   expect(() => parseSavedGame("{")).toThrow(/^The saved game is not JSON: /);
   expect(() => parseSavedGame("null")).toThrow("The saved game is not a JSON object.");
-  expect(broken({ format: 2 })).toThrow("The saved game has format 2; this page reads format 1.");
+  expect(broken({ format: 3 })).toThrow("The saved game has format 3; this page reads format 4.");
+  expect(broken({ table: { setup: {} } })).toThrow(
+    'The saved game has no setup and seats in "table".',
+  );
+  expect(broken({ waitMs: "1" })).toThrow('The saved game has no whole number in "waitMs".');
   expect(broken({ seed: "3" })).toThrow('The saved game has no whole number in "seed".');
   expect(broken({ humans: -1 })).toThrow('The saved game has no whole number in "humans".');
   expect(broken({ engine: undefined })).toThrow('The saved game has no text in "engine".');
-  expect(broken({ answers: ["a", 2] })).toThrow(
-    'The saved game has no list of option ids in "answers".',
+  expect(broken({ save: { log: ["a", 2], answers: [] } })).toThrow(
+    'The saved game has no lists of option ids in "save".',
   );
+  expect(broken({ save: [] })).toThrow('The saved game has no lists of option ids in "save".');
 });
 
 it("keeps the seat changes of a game, and says when they are not a list of them", () => {
-  const switched = { ...save, switches: [{ decision: 12, humans: 4, answers: 3 }] };
+  const switched = { ...save, save: { ...save.save!, switches: [{ decision: 12, humans: 4 }] } };
   expect(parseSavedGame(JSON.stringify(switched))).toEqual(switched);
-  expect(parseSavedGame(JSON.stringify({ ...save, switches: [] }))).toEqual(save);
-  expect(() => parseSavedGame(JSON.stringify({ ...save, switches: [{ decision: 12 }] }))).toThrow(
-    'The saved game has no list of seat changes in "switches".',
+  const wrong = { ...save, save: { ...save.save!, switches: [{ decision: 12 }] } };
+  expect(() => parseSavedGame(JSON.stringify(wrong))).toThrow(
+    'The saved game has no list of seat changes in "save.switches".',
   );
+});
+
+it("keeps a game that was set up and not yet asked: it has no save of the engine", () => {
+  const { save: _, ...fresh } = save;
+  expect(parseSavedGame(JSON.stringify(fresh))).toEqual(fresh);
 });
 
 it("makes the key from the game alone", () => {
@@ -73,4 +91,45 @@ it("keeps a scenario apart from the game of the same seed", () => {
   expect(loadSavedGame(store, game)).toBeNull();
   expect(loadSavedGame(store, scenario)).toEqual({ ...save, scenario: "late-game" });
   expect(() => parseSavedGame(JSON.stringify({ ...save, scenario: 3 }))).toThrow(/"scenario"/);
+});
+
+it("does not read a game of an older format: the answers of the page, or a list of the page", () => {
+  for (const format of [1, 2, 3]) {
+    const old = { format, engine: "ab12", ...game, answers: ["sol", "pass", "18"] };
+    expect(() => parseSavedGame(JSON.stringify(old))).toThrow(
+      `The saved game has format ${format}; this page reads format 4.`,
+    );
+  }
+});
+
+it("keeps the game of a table under the key of single player, with its table and its wait", () => {
+  const table: TableRequest = {
+    setup: { player_count: 4, seed: 12, strategy_cards: "pok" },
+    seats: [
+      { kind: "human", faction: "hacan" },
+      { kind: "smart" },
+      { kind: "random" },
+      {
+        kind: "smart",
+      },
+    ],
+  };
+  const single: SavedGame = {
+    format: 4,
+    engine: "ab12",
+    seed: 12,
+    players: 4,
+    humans: 1,
+    table,
+    waitMs: 500,
+    save: { log: ["leadership"], answers: ["leadership"] },
+  };
+  const store = storage();
+  storeSavedGame(store, single);
+  expect([...store.items.keys()]).toEqual([SINGLE_KEY]);
+  expect(saveKey(single)).toBe(SINGLE_KEY);
+  expect(gameAddress(single)).toBe(SINGLE_ADDRESS);
+  // The table says which game it is: any game of a table is read from the one key.
+  expect(loadSavedGame(store, { seed: 0, players: 0, humans: 0, table })).toEqual(single);
+  expect(parseSavedGame(JSON.stringify(single))).toEqual(single);
 });

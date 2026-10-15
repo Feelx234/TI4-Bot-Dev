@@ -1797,10 +1797,19 @@ impl<'a> Game<'a> {
         self.state.activation_seq += 1;
         self.state.combat_round_seq += 1;
         self.state.production_seq += 1;
+        // A draft of the turn that the player is taking is that turn again: its number (LRR 3)
+        // stays. Any other draft is of the next turn.
+        let same_turn = self.state.phase == Phase::Action
+            && self.state.active.as_ref() == Some(player)
+            && self.state.action_turn > 0;
+        let action_turn = self.state.action_turn;
         // From the strategy phase the copy only changes its phase: the end of that phase is
         // not resolved.
         self.state.phase = Phase::Action;
         crate::phase::begin_action_turn(&mut self.state, player);
+        if same_turn {
+            self.state.action_turn = action_turn;
+        }
         self.sync_timing_context();
         Ok(())
     }
@@ -1987,7 +1996,11 @@ impl<'a> Game<'a> {
     )]
     pub fn step(&mut self) -> StepResult {
         // Rolls are stamped with the system in play, for the public roll feed only.
-        let scene = self.state.active_system.as_ref().map(|id| id.as_str().to_owned());
+        let scene = self
+            .state
+            .active_system
+            .as_ref()
+            .map(|id| id.as_str().to_owned());
         self.dice.set_scene(scene.as_deref());
         if let Err(error) = self.announce_staged_ground_events() {
             return self.result(false, Some(error));
@@ -8368,6 +8381,7 @@ mod tests {
         expected.active_system = None;
         expected.pending = None;
         expected.turn_seq += 1;
+        expected.action_turn += 1;
         expected.activation_seq += 1;
         expected.combat_round_seq += 1;
         expected.production_seq += 1;

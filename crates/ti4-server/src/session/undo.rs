@@ -12,19 +12,18 @@
 //! card that is drawn from a deck in order sets no latch: only the view of the seat before and
 //! after its decision shows it ([`learned_identity`]).
 
-use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
 
-use crate::session::reaction_modes::{Filtered, filter};
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
 use ti4_engine::observation::ExecutionObservation;
+use ti4_host::planning::audit::learned_identity;
+use ti4_host::planning::steps::PlanStep;
+use ti4_host::projection::project_game_view;
+use ti4_host::protocol::status::{UndoBarrier, ViewerRole};
+use ti4_host::protocol::view::GameView;
+use ti4_host::view::reaction_modes::{Filtered, filter};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_view::planning::audit::learned_identity;
-use ti4_view::planning::steps::PlanStep;
-use ti4_view::projection::project_game_view;
-use ti4_view::status::{UndoBarrier, ViewerRole};
-use ti4_view::view::GameView;
 
 use crate::session::worker::SessionShared;
 
@@ -125,14 +124,22 @@ impl UndoTrack {
     }
 
     /// The place in the tail of the first answer that one undo of `seat` takes back.
-    fn start(&self, seat: &PlayerId, never: &BTreeSet<String>) -> Option<usize> {
+    fn start(
+        &self,
+        seat: &PlayerId,
+        never: &ti4_host::view::reaction_modes::Modes,
+    ) -> Option<usize> {
         (self.owner() == Some(seat))
             .then(|| start(&self.tail, never))
             .flatten()
     }
 
     /// Whether `seat` has a decision to take back. `never` is its Never cards as they are now.
-    pub(crate) fn can_undo(&self, seat: &PlayerId, never: &BTreeSet<String>) -> bool {
+    pub(crate) fn can_undo(
+        &self,
+        seat: &PlayerId,
+        never: &ti4_host::view::reaction_modes::Modes,
+    ) -> bool {
         self.start(seat, never).is_some()
     }
 
@@ -146,7 +153,7 @@ impl UndoTrack {
     pub(crate) fn plan(
         &self,
         seat: &PlayerId,
-        never: &BTreeSet<String>,
+        never: &ti4_host::view::reaction_modes::Modes,
     ) -> Result<(usize, Vec<PlanStep>), Option<UndoBarrier>> {
         let Some(start) = self.start(seat, never) else {
             // The last decision is of another seat, whatever was rolled after it.
@@ -164,54 +171,17 @@ impl UndoTrack {
     }
 }
 
-fn subtype(choice: &Choice) -> &str {
-    choice
-        .context
-        .as_ref()
-        .map_or("", |context| context.subtype.as_str())
-}
-
-/// Whether the choice at `at` is in the middle of a movement (a ship has moved, or a hold is
-/// open), of the landings (the answer before it landed a unit) or of a production (a purchase
-/// that is being paid and placed). An undo that opens such a choice again goes on: a movement
-/// is taken back whole, as a local game takes it back (`insideMovement` of the wasm transport).
-fn inside(tail: &[(Choice, ChoiceOption)], at: usize) -> bool {
-    let before = at.checked_sub(1).map(|index| &tail[index]);
-    match subtype(&tail[at].0) {
-        "load_cargo" => true,
-        "movement_step" => before.is_some_and(|(choice, option)| {
-            option.kind == ti4_engine::tactical::MOVE_KIND || subtype(choice) == "load_cargo"
-        }),
-        "commit_ground_forces" => {
-            before.is_some_and(|(_, option)| option.kind == ti4_engine::invasion::COMMIT_KIND)
-        }
-        "produce_unit" | "pay_resources" | "place_unit" => tail[..at]
-            .iter()
-            .rev()
-            .find(|(_, option)| {
-                option.kind != ti4_engine::production::PAY_KIND
-                    && option.kind != ti4_engine::production::PLACE_KIND
-            })
-            .is_some_and(|(_, option)| option.kind == ti4_engine::production::PRODUCE_KIND),
-        _ => false,
-    }
-}
-
-/// The place of the first answer that one undo takes back. A window that the game declines
-/// for the Never cards of the seat is no answer of the player: the game would decline it
-/// again, so the undo goes back over it to the answer before.
-fn start(tail: &[(Choice, ChoiceOption)], never: &BTreeSet<String>) -> Option<usize> {
-    let mut found = None;
-    for at in (0..tail.len()).rev() {
-        if matches!(filter(&tail[at].0, never), Filtered::Declined { .. }) {
-            continue;
-        }
-        found = Some(at);
-        if !inside(tail, at) {
-            break;
-        }
-    }
-    found
+/// The place of the first answer that one undo takes back
+/// (`ti4_host::planning::undo::start`). A window that the game declines for the Never cards of
+/// the seat is no answer of the player: the game would decline it again, so the undo goes back
+/// over it to the answer before.
+fn start(
+    tail: &[(Choice, ChoiceOption)],
+    never: &ti4_host::view::reaction_modes::Modes,
+) -> Option<usize> {
+    ti4_host::planning::undo::start(tail, 0, |(choice, _)| {
+        matches!(filter(choice, never), Filtered::Declined { .. })
+    })
 }
 
 /// Tells the track of the session each answer of a seat, a replayed one too.
@@ -298,7 +268,7 @@ mod tests {
 
     #[test]
     fn one_undo_takes_back_one_answer_and_a_movement_whole() {
-        let none = BTreeSet::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let answers = [
             asked("a", "action_menu", ChoiceOption::new("tactical", "action")),
             asked("a", "activate", ChoiceOption::new("18", "system")),
@@ -325,7 +295,7 @@ mod tests {
 
     #[test]
     fn a_purchase_goes_back_with_what_paid_and_placed_it() {
-        let none = BTreeSet::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let answers = [
             asked(
                 "a",
@@ -354,7 +324,9 @@ mod tests {
 
     #[test]
     fn a_window_that_is_declined_for_a_never_card_goes_with_the_answer_before_it() {
-        let never: BTreeSet<String> = std::iter::once("Sabotage".to_owned()).collect();
+        let never: ti4_host::view::reaction_modes::Modes =
+            std::iter::once(("Sabotage".to_owned(), ti4_model::state::ReactionMode::Never))
+                .collect();
         let window = {
             let player = seat();
             let card = ChoiceOption::new("card", ti4_engine::reactions::ACTION_CARD_KIND)
@@ -373,7 +345,13 @@ mod tests {
         let track_of = track(&answers);
         assert_eq!(track_of.plan(&seat(), &never).unwrap().0, 0);
         // Asked again, the window is an answer of the player.
-        assert_eq!(track_of.plan(&seat(), &BTreeSet::new()).unwrap().0, 1);
+        assert_eq!(
+            track_of
+                .plan(&seat(), &ti4_host::view::reaction_modes::Modes::new())
+                .unwrap()
+                .0,
+            1
+        );
         // A window alone is nothing to take back.
         let alone = track(&[window]);
         assert!(!alone.can_undo(&seat(), &never));
@@ -382,7 +360,7 @@ mod tests {
 
     #[test]
     fn a_decision_of_another_seat_a_die_and_a_reveal_are_barriers() {
-        let none = BTreeSet::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let own = asked("a", "activate", ChoiceOption::new("18", "system"));
         let other = asked("b", "activate", ChoiceOption::new("19", "system"));
 
@@ -432,7 +410,7 @@ mod tests {
 
     #[test]
     fn a_card_that_the_seat_holds_after_its_decision_is_a_barrier() {
-        let none = BTreeSet::new();
+        let none = ti4_host::view::reaction_modes::Modes::new();
         let own = asked("a", "activate", ChoiceOption::new("18", "system"));
         let mut before = state();
         let mut track = UndoTrack::new();

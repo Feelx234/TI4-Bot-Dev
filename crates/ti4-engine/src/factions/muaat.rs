@@ -2694,10 +2694,16 @@ mod tests {
         let mut table = scripted(&["decline"]);
         let logged = table.log.records.len();
         assert!(!borrow_umbat(&mut state, &mut table, &b()));
-        assert_eq!(state, before, "a declined copy changes nothing and keeps Ssruu ready");
+        assert_eq!(
+            state, before,
+            "a declined copy changes nothing and keeps Ssruu ready"
+        );
         let records = &table.log.records[logged..];
         assert_eq!(
-            records.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
+            records
+                .iter()
+                .map(|record| record.chosen.as_str())
+                .collect::<Vec<_>>(),
             ["decline"],
             "the answered decline stays recorded, so a replay asks and answers it again"
         );

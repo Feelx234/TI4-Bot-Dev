@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import {
+  type Draft,
   activate,
   answer,
   canRedo,
@@ -10,7 +11,7 @@ import {
   isBoundary,
   newDraft,
   problemOf,
-  readDraft,
+  parseDraft,
   redo,
   scriptOf,
   setLandings,
@@ -19,10 +20,11 @@ import {
   stageAfter,
   stageAt,
   startOver,
-  storeDraft,
+  trimDraft,
   undo,
 } from "./draft";
 import type { LandingStep, MovementStep, ProductionStep } from "./movementPlan";
+import { localSeatStore } from "./seatStore";
 import type { DraftOutcome, DraftStop, SessionUpdate } from "./wire";
 
 const MOVE: MovementStep[] = [
@@ -106,14 +108,31 @@ it("is kept between two visits, with its history", () => {
     setItem: (key: string, value: string) => void stored.set(key, value),
     removeItem: (key: string) => void stored.delete(key),
   };
-  expect(readDraft(storage, "draft")).toBeNull();
+  const store = localSeatStore(storage, { movement: "movement", plan: "draft", secondary: "s" });
+  expect(parseDraft(store.get("plan"))).toBeNull();
   const draft = undo(setMovement(activate(newDraft(), "23"), MOVE));
-  storeDraft(storage, "draft", draft);
-  expect(readDraft(storage, "draft")).toEqual(draft);
+  store.set("plan", draft);
+  expect(parseDraft(store.get("plan"))).toEqual(draft);
   stored.set("draft", '{"history":[],"cursor":0}');
-  expect(readDraft(storage, "draft")).toBeNull();
-  storeDraft(storage, "draft", null);
+  expect(parseDraft(store.get("plan"))).toBeNull();
+  store.set("plan", null);
   expect(stored.has("draft")).toBe(false);
+});
+
+it("drops the oldest states of its undo first when it is too large to keep", () => {
+  let draft = activate(newDraft(), "23");
+  for (let index = 0; index < 5; index += 1) {
+    draft = setMovement(draft, index % 2 ? MOVE : []);
+  }
+  draft = undo(draft);
+  const size = (kept: Draft) => kept.history.length;
+  // Seven states, the draft at the sixth: two older states go.
+  expect(trimDraft(draft, 5, size)).toEqual({ history: draft.history.slice(2), cursor: 3 });
+  // At the oldest state, redo goes from the end.
+  const first = { history: draft.history, cursor: 0 };
+  expect(trimDraft(first, 2, size)).toEqual({ history: draft.history.slice(0, 2), cursor: 0 });
+  expect(trimDraft(draft, 1, size)).toEqual({ history: [entryOf(draft)], cursor: 0 });
+  expect(trimDraft(draft, 100, size)).toBe(draft);
 });
 
 const LAND: LandingStep[] = [
@@ -165,7 +184,9 @@ it("goes on to the landings and the production, with what the game asks before t
   expect(entryOf(setMovement(draft, [{ kind: "done_moving" }])).landings).toEqual(LAND);
   expect(entryOf(activate(draft, "24"))).toEqual({ system: "24", steps: null });
   // A step that is not drafted adds nothing: the run is open at its first question.
-  const skipped = entryOf(setProduction(setMovement(activate(newDraft(), "23"), MOVE), BUILD, true));
+  const skipped = entryOf(
+    setProduction(setMovement(activate(newDraft(), "23"), MOVE), BUILD, true),
+  );
   expect(scriptOf(skipped)).toEqual([choose("tactical"), choose("23"), ...MOVE, ...BUILD]);
 });
 

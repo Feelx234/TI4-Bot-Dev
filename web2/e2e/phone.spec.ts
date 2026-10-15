@@ -174,7 +174,7 @@ test.describe("flows", () => {
     await shot(page, "flow/inspector");
   });
 
-  test("a payment: the pane goes to the map, the main button stays", async ({ page }) => {
+  test("a payment: the game opens on the map, the main button stays", async ({ page }) => {
     await page.goto("/?example=live-strategic");
     await expect(pane(page, "Map")).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /Exhaust Jord/ }).tap();
@@ -182,14 +182,19 @@ test.describe("flows", () => {
     await shot(page, "flow/pay");
   });
 
-  test("a choice of a player opens the player table", async ({ page }) => {
+  test("a choice of a player marks the tab of the player table", async ({ page }) => {
     await page.goto("/?example=live-picker-4p");
     await page
       .locator("#step-panel")
       .getByRole("button", { name: /Play an action card/ })
       .tap();
     await page.locator("#step-panel").getByRole("button", { name: /Spy/ }).tap();
-    await expect(pane(page, "Players")).toHaveAttribute("aria-pressed", "true");
+    // The pane stays: the tab of the player table is marked.
+    await expect(pane(page, "Action")).toHaveAttribute("aria-pressed", "true");
+    await expect(pane(page, "Players")).toHaveAccessibleName(/choice open/);
+    await shot(page, "flow/pick-player-marked");
+    await pane(page, "Players").tap();
+    await expect(pane(page, "Players")).not.toHaveAccessibleName(/choice open/);
     await shot(page, "flow/pick-player");
   });
 

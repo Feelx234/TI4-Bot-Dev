@@ -1,6 +1,7 @@
 import type { BuildCountView, BuildGroupView, BuildSheetView, BuildUnitView } from "../../../model";
 import { plural } from "../../../model";
 import { Button, Gauge, Icon, Peek, cx } from "../../../ui";
+import { SystemDetails } from "../../board/SystemDetails";
 import { useDispatch } from "../../context";
 
 // The columns of a unit row: name, cost, what is left in supply, then what is staged. Every row
@@ -221,7 +222,7 @@ export function ProductionSheet({ view }: { view: BuildSheetView }) {
     <div
       role="group"
       aria-label={`Produce in ${view.label}`}
-      className="absolute bottom-2.5 left-2.5 z-2 max-h-[62%] w-[540px] overflow-auto rounded-lg border border-line bg-surface/97 text-sm phone:inset-x-0 phone:bottom-0 phone:z-3 phone:max-h-[70%] phone:w-auto phone:rounded-none phone:border-x-0 phone:border-b-0 phone:bg-surface"
+      className="absolute bottom-2.5 left-2.5 z-2 max-h-[80%] w-[540px] overflow-auto rounded-lg border border-line bg-surface/97 text-sm phone:inset-x-0 phone:bottom-0 phone:z-3 phone:max-h-[70%] phone:w-auto phone:rounded-none phone:border-x-0 phone:border-b-0 phone:bg-surface"
     >
       <div className="sticky top-0 z-1 bg-surface">
         <div className="flex items-center gap-2 border-b border-line py-0.5 pr-1 pl-3 phone:pl-2.5">
@@ -263,6 +264,13 @@ export function ProductionSheet({ view }: { view: BuildSheetView }) {
       {view.groups.map((group, index) => (
         <Group key={group.title} group={group} first={index === 0} />
       ))}
+      {/* What is in the system, as the inspector has it. It scrolls with the units. */}
+      {view.details && (
+        <SystemDetails
+          view={view.details}
+          className="border-t border-line px-3 pb-2.5 pt-1.5 text-xs phone:px-2.5"
+        />
+      )}
     </div>
   );
 }

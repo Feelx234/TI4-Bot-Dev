@@ -5,7 +5,7 @@ import { type LocalState, boardTask, openChoice, selectAction } from "./action";
 import { selectBoard } from "./board";
 import { type CardSettings, NO_CARD_SETTINGS, selectActionCards } from "./cards";
 import { selectExploration } from "./exploration";
-import { factionName, phaseName } from "./names";
+import { phaseName, seatLabel } from "./names";
 import { isEmpty } from "../productionDraft";
 import { selectPlayers, selectSeats } from "./players";
 import { selectScore } from "./score";
@@ -16,8 +16,7 @@ import { selectTactical, tacticalFacts } from "./tactical";
 
 function status(update: SessionUpdate, local: LocalState, printed: Catalog | null): string {
   const turn = update.turn_status;
-  const faction = (seat: string) =>
-    factionName(update.view.players.find((player) => player.id === seat)?.faction ?? seat, printed);
+  const faction = (seat: string) => seatLabel(update, seat, printed);
   if (local.error) {
     return "The game stopped";
   }
@@ -78,7 +77,7 @@ export function selectShell(
   const facts = tacticalFacts(update, local);
   const movement =
     facts?.kind === "movement" && local.step === null
-      ? { facts, draft: local.movement, handled: local.handled }
+      ? { facts, draft: local.movement, handled: local.handled, odds: local.odds ?? null }
       : null;
   const landing =
     facts?.kind === "invasion" ? { facts, draft: local.landing, chosen: local.landingKind } : null;
@@ -94,7 +93,7 @@ export function selectShell(
     ? selectTactical(update, local, facts, catalog, printed)
     : showsStrategy(update, local)
       ? selectStrategy(update, local, catalog, printed)
-      : selectAction(update, local, catalog, printed);
+      : selectAction(update, local, catalog, printed, cards.modes);
   return {
     seats: selectSeats(update, printed),
     accent:
@@ -107,6 +106,7 @@ export function selectShell(
         : "live",
     toolbar: {
       round: update.view.round,
+      turn: update.view.turn,
       phase: phaseName(update.view.phase),
       status: status(update, local, printed),
       workspace: local.draft ? "draft" : "live",
@@ -119,7 +119,7 @@ export function selectShell(
         applyHint: local.draft.applyHint,
       },
     },
-    players: selectPlayers(update, printed),
+    players: selectPlayers(update, printed, cards.modes),
     board: selectBoard(
       update,
       local.inspected,
@@ -144,5 +144,6 @@ export function selectShell(
     reveal: null,
     toast: null,
     announcement: "",
+    asked: !!update.pending_choice || !!local.draft,
   };
 }

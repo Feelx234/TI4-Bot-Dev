@@ -25,12 +25,12 @@ use std::sync::{Arc, Mutex};
 use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::secondary_preview::{SecondaryPreview, preview_secondary};
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
 use ti4_model::content_types::POK;
 use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase};
 
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
 use crate::session::worker::SessionShared;
 
 /// One preview request as the connection layer hands it over (the seat is the connection's).

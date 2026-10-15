@@ -4,7 +4,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
-use crate::session::reaction_modes::NeverOffer;
 use ti4_content::ContentStore;
 use ti4_engine::choice::{
     AlwaysDecline, Choice, ChoiceOption, Decider, DecisionRecord, FirstOption, IllegalChoice,
@@ -12,22 +11,23 @@ use ti4_engine::choice::{
 };
 use ti4_engine::fingerprint::{CanonicalHash, CanonicalHashVersion, decision_hash};
 use ti4_engine::game::Game;
-use ti4_model::id::PlayerId;
-use ti4_model::state::{GameState, ReactionMode};
-
-use crate::projection::project_turn_status;
-use crate::protocol::PROTOCOL_VERSION;
-use crate::protocol::server::{
+use ti4_host::clock::SystemClock;
+use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
+use ti4_host::projection::project_turn_status;
+use ti4_host::protocol::PROTOCOL_VERSION;
+use ti4_host::protocol::server::{
     EventVisibility, GameEvent, GameEventKind, GameOverMsg, MovementFact, PendingChoiceMsg,
     ServerMessage, TurnStatusMsg,
 };
-use crate::protocol::status::ViewerRole;
+use ti4_host::protocol::status::ViewerRole;
+use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
+use ti4_host::view::reaction_modes::NeverOffer;
+use ti4_model::id::PlayerId;
+use ti4_model::state::{GameState, ReactionMode};
+
 use crate::session::decider::{ChoiceSubmission, RemoteHumanDecider};
 use crate::session::{SeatController, SessionConfig};
 use crate::storage::FileGameStore;
-use ti4_host::clock::SystemClock;
-use ti4_host::journal::{self, EventDraft, Reconciled, RedoOutcome};
-use ti4_host::state_update::{self, StateUpdateInputs, state_update_for};
 
 /// State of a currently pending decision awaiting a human answer.
 #[derive(Debug, Clone)]
@@ -42,8 +42,8 @@ pub struct PendingDecision {
     pub reply_tx: Option<
         mpsc::Sender<
             Result<
-                crate::protocol::server::ActionAcceptedMsg,
-                crate::protocol::status::RejectionReason,
+                ti4_host::protocol::server::ActionAcceptedMsg,
+                ti4_host::protocol::status::RejectionReason,
             >,
         >,
     >,
@@ -90,6 +90,8 @@ pub struct SessionShared {
     pub seat_tokens: BTreeMap<PlayerId, String>,
     pub player_ids: Vec<PlayerId>,
     pub seats: BTreeMap<PlayerId, SeatController>,
+    /// The name of each player at the table ([`SessionConfig::nicknames`]).
+    pub nicknames: BTreeMap<PlayerId, String>,
     pub seed: Option<u64>,
     pub subscribers: BTreeMap<u64, Subscriber>,
     pub next_subscriber_id: u64,
@@ -97,8 +99,8 @@ pub struct SessionShared {
     pub finished: bool,
     pub stopped: bool,
     pub error: Option<String>,
-    pub map_tiles: Vec<crate::protocol::view::BoardTileView>,
-    pub galaxy_layout: crate::map::GalaxyLayout,
+    pub map_tiles: Vec<ti4_host::protocol::view::BoardTileView>,
+    pub galaxy_layout: ti4_host::map::GalaxyLayout,
     /// The map of the game, for the facts of a message and for a draft. `None` in a session
     /// that was made without one: its messages have no `tactical` and no `exploration`.
     pub galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
@@ -126,15 +128,23 @@ pub struct SessionShared {
     pub rng_marks: crate::session::RngMarks,
     /// Decisions auto-resolved since the last state update, with the seat they belong to.
     /// Transient by design: not persisted, so a restart's replay never re-announces them.
-    pub pending_auto_resolved: Vec<(PlayerId, crate::protocol::server::AutoResolvedNote)>,
+    pub pending_auto_resolved: Vec<(PlayerId, ti4_host::protocol::server::AutoResolvedNote)>,
     /// Card names each seat asked never to be offered. The sets are shared with the seats'
     /// deciders, which read them as each question is asked.
-    pub reaction_modes: BTreeMap<PlayerId, crate::session::reaction_modes::NeverSet>,
+    pub reaction_modes: BTreeMap<PlayerId, ti4_host::view::reaction_modes::NeverSet>,
     /// The decisions that their seat may take back ([`super::undo`]).
     pub(crate) undo: super::undo::UndoTrack,
-    /// The steps that the undo before this session took back, for the next snapshot of the
-    /// seat ([`super::GameSession::take_undone`]).
-    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_view::planning::steps::PlanStep>>,
+    /// The steps that the undo before this session took back, for the first snapshot of each
+    /// connection of the seat ([`super::GameSession::undone_for`]), until the seat decides again.
+    pub(crate) undone: BTreeMap<PlayerId, Vec<ti4_host::planning::steps::PlanStep>>,
+    /// The length of the log that the undo left: a decision after it is new.
+    pub(crate) undone_from: usize,
+    /// What each seat has staged ([`super::staged`]): the book of the session's config, for the
+    /// decider of a seat, which sends a ready draft of a secondary ([`super::ready_secondary`]).
+    pub(crate) staged: super::staged::StagedBook,
+    /// The newest nonces that each seat answered, from any connection or by the server. A second
+    /// answer to one of them is told apart from a stale one ([`Self::was_answered`]).
+    pub(crate) answered: BTreeMap<PlayerId, VecDeque<String>>,
     /// A copy of the game at the newest step boundary the worker passed, for batch checks (see
     /// `session::step_snapshot`). Only the worker sets it; it is dropped when the session stops
     /// or finishes, and a new session (every history change but appending) starts without one.
@@ -149,7 +159,63 @@ pub struct SessionShared {
     pub preview_galaxy: Option<Arc<ti4_content::galaxy::Galaxy>>,
 }
 
+/// How many answered nonces are kept for each seat.
+const ANSWERED_KEPT: usize = 16;
+
 impl SessionShared {
+    /// `seat` answered the choice of `nonce` (it is reserved for the answer).
+    pub(crate) fn note_answer(&mut self, seat: &PlayerId, nonce: &str) {
+        let answered = self.answered.entry(seat.clone()).or_default();
+        if answered.len() >= ANSWERED_KEPT {
+            answered.pop_front();
+        }
+        answered.push_back(nonce.to_owned());
+    }
+
+    /// The answer of `seat` to the choice of `nonce` did not reach the game.
+    pub(crate) fn forget_answer(&mut self, seat: &PlayerId, nonce: &str) {
+        if let Some(answered) = self.answered.get_mut(seat) {
+            answered.retain(|kept| kept != nonce);
+        }
+    }
+
+    /// `seat` answered the choice of `nonce` already.
+    #[must_use]
+    pub fn was_answered(&self, seat: &PlayerId, nonce: &str) -> bool {
+        self.answered
+            .get(seat)
+            .is_some_and(|answered| answered.iter().any(|kept| kept == nonce))
+    }
+
+    /// Who sits in each seat, for a snapshot and an update: the name of the player and who
+    /// plays the seat. `None` for a session with no table (it has no names).
+    #[must_use]
+    pub fn table_seats(&self) -> Option<ti4_host::setup::TableSeats> {
+        use ti4_host::setup::{HUMAN_KIND, SeatFact, bot_kind};
+        if self.nicknames.is_empty() {
+            return None;
+        }
+        Some(
+            self.nicknames
+                .iter()
+                .map(|(player, nickname)| {
+                    let kind = match self.seats.get(player) {
+                        Some(SeatController::BotSmart) => bot_kind::RULE,
+                        Some(controller) if controller.is_in_process_bot() => bot_kind::RANDOM,
+                        _ => HUMAN_KIND,
+                    };
+                    (
+                        player.clone(),
+                        SeatFact {
+                            nickname: nickname.clone(),
+                            kind: kind.to_owned(),
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+
     /// Fail the session closed with `error`, unless it has been stopped on purpose.
     ///
     /// A stopped session's worker unwinds with errors (a human decider whose inbox was dropped
@@ -162,11 +228,11 @@ impl SessionShared {
         }
     }
 
-    /// Every seat's Never set as plain data, for persistence and for a restarted worker.
+    /// Every seat's modes as plain data, for persistence and for a restarted worker.
     #[must_use]
     pub fn reaction_modes_snapshot(
         &self,
-    ) -> BTreeMap<PlayerId, std::collections::BTreeSet<String>> {
+    ) -> BTreeMap<PlayerId, ti4_host::view::reaction_modes::Modes> {
         self.reaction_modes
             .iter()
             .map(|(seat, set)| (seat.clone(), set.lock().expect("never set lock").clone()))
@@ -174,7 +240,7 @@ impl SessionShared {
             .collect()
     }
 
-    /// One seat's choices by card name, as the protocol sends them.
+    /// One seat's modes by key, as the protocol sends them.
     #[must_use]
     pub fn reaction_modes_for(&self, viewer: &ViewerRole) -> BTreeMap<String, ReactionMode> {
         let ViewerRole::Player(seat) = viewer else {
@@ -183,20 +249,17 @@ impl SessionShared {
         self.reaction_modes
             .get(seat)
             .map_or_else(BTreeMap::new, |set| {
-                set.lock()
-                    .expect("never set lock")
-                    .iter()
-                    .map(|card| (card.clone(), ReactionMode::Never))
-                    .collect()
+                set.lock().expect("never set lock").clone()
             })
     }
 
-    /// Record one seat's choice for one printed card name, persist it, and tell that seat's
-    /// clients. Idempotent: setting the mode a card already has changes nothing.
+    /// Record one seat's mode for one reaction (the printed name of an action card, or the key
+    /// of the card of an ability), persist it, and tell that seat's clients. Idempotent: setting
+    /// the mode a reaction already has changes nothing.
     ///
     /// # Errors
-    /// A message for the client when the seat is unknown or the card is not an action card, or
-    /// when the choice could not be saved (in which case it is not applied).
+    /// A message for the client when the seat is unknown or the key names no reaction, or when
+    /// the choice could not be saved (in which case it is not applied).
     pub fn set_reaction_mode(
         &mut self,
         seat: &PlayerId,
@@ -206,23 +269,22 @@ impl SessionShared {
         let Some(set) = self.reaction_modes.get(seat).cloned() else {
             return Err("no such seat".to_owned());
         };
-        if !is_action_card_name(card) {
-            return Err(format!("unknown action card '{card}'"));
+        if !ti4_host::view::reaction_modes::is_reaction_key(card) {
+            return Err(format!("unknown reaction '{card}'"));
         }
         let before = set.lock().expect("never set lock").clone();
-        {
-            let mut guard = set.lock().expect("never set lock");
-            match mode {
-                ReactionMode::Never => guard.insert(card.to_owned()),
-                ReactionMode::Always => guard.remove(card),
-            };
-        }
+        ti4_host::view::reaction_modes::set_mode(
+            &mut set.lock().expect("never set lock"),
+            card,
+            mode,
+        );
         if *set.lock().expect("never set lock") == before {
             return Ok(());
         }
         if let Some(store) = &self.store {
             let record = crate::storage::ReactionModesRecord {
-                never: self.reaction_modes_snapshot(),
+                modes: self.reaction_modes_snapshot(),
+                ..Default::default()
             };
             if let Err(error) = store.save_reaction_modes(&self.game_id, &record) {
                 *set.lock().expect("never set lock") = before;
@@ -303,6 +365,7 @@ impl SessionShared {
             seat_tokens: BTreeMap::new(),
             player_ids: Vec::new(),
             seats: BTreeMap::new(),
+            nicknames: BTreeMap::new(),
             seed: None,
             subscribers: BTreeMap::new(),
             next_subscriber_id: 0,
@@ -313,7 +376,7 @@ impl SessionShared {
             stopped: false,
             error: None,
             map_tiles: Vec::new(),
-            galaxy_layout: crate::map::GalaxyLayout {
+            galaxy_layout: ti4_host::map::GalaxyLayout {
                 version: 1,
                 active_sources: Vec::new(),
                 placements: Vec::new(),
@@ -338,6 +401,9 @@ impl SessionShared {
             reaction_modes: BTreeMap::new(),
             undo: super::undo::UndoTrack::new(),
             undone: BTreeMap::new(),
+            undone_from: 0,
+            staged: super::staged::StagedBook::default(),
+            answered: BTreeMap::new(),
             step_snapshot: None,
             resumed_from: None,
             bluff: crate::session::bluff::BluffBook::default(),
@@ -361,7 +427,20 @@ impl SessionShared {
             })
     }
 
-    fn never_of(&self, seat: &PlayerId) -> std::collections::BTreeSet<String> {
+    /// A seat that decided after the undo has nothing taken back to stage again.
+    fn forget_undone_of_deciders(&mut self) {
+        if self.undone.is_empty() {
+            return;
+        }
+        let from = self.undone_from.min(self.decision_log.len());
+        let decided: std::collections::BTreeSet<PlayerId> = self.decision_log[from..]
+            .iter()
+            .map(|record| record.player.clone())
+            .collect();
+        self.undone.retain(|seat, _| !decided.contains(seat));
+    }
+
+    fn never_of(&self, seat: &PlayerId) -> ti4_host::view::reaction_modes::Modes {
         self.reaction_modes
             .get(seat)
             .map(|set| set.lock().expect("never set lock").clone())
@@ -388,10 +467,10 @@ impl SessionShared {
         seat: &PlayerId,
         expected_version: u64,
     ) -> Result<
-        (usize, Vec<ti4_view::planning::steps::PlanStep>),
-        crate::protocol::status::RejectionReason,
+        (usize, Vec<ti4_host::planning::steps::PlanStep>),
+        ti4_host::protocol::status::RejectionReason,
     > {
-        use crate::protocol::status::RejectionReason;
+        use ti4_host::protocol::status::RejectionReason;
         if self.game_version != expected_version {
             return Err(RejectionReason::StaleVersion {
                 expected: expected_version,
@@ -440,7 +519,7 @@ impl SessionShared {
         decision_count: usize,
         detail: Option<String>,
         movement: Option<MovementFact>,
-        seat_detail: Option<crate::protocol::server::SeatDecisionDetail>,
+        seat_detail: Option<ti4_host::protocol::server::SeatDecisionDetail>,
     ) -> Result<(), String> {
         match journal::reconcile_with_redo(
             self.history_active,
@@ -501,7 +580,7 @@ impl SessionShared {
                     subscriber
                         .tx
                         .try_send(ServerMessage::Event(
-                            crate::protocol::server::GameEventMsg {
+                            ti4_host::protocol::server::GameEventMsg {
                                 protocol_version: PROTOCOL_VERSION,
                                 game_id: self.game_id.clone(),
                                 entry: projected,
@@ -519,7 +598,7 @@ impl SessionShared {
     /// Reads the engine's roll history only; nothing here can reach back into the game.
     pub fn record_rolls(
         &mut self,
-        rolls: Vec<crate::protocol::server::PublicRoll>,
+        rolls: Vec<ti4_host::protocol::server::PublicRoll>,
         version: Option<u64>,
     ) -> Result<(), String> {
         for roll in rolls {
@@ -556,7 +635,7 @@ impl SessionShared {
                         subscriber
                             .tx
                             .try_send(ServerMessage::Event(
-                                crate::protocol::server::GameEventMsg {
+                                ti4_host::protocol::server::GameEventMsg {
                                     protocol_version: PROTOCOL_VERSION,
                                     game_id: self.game_id.clone(),
                                     entry: projected,
@@ -587,7 +666,7 @@ impl SessionShared {
                     game_version,
                     nonce: nonce.to_owned(),
                     choice: choice.clone(),
-                    state: crate::projection::redacted_state(&state, viewer),
+                    state: ti4_host::projection::redacted_state(&state, viewer),
                     galaxy_layout: galaxy_layout.clone(),
                 })
             } else {
@@ -638,6 +717,7 @@ impl SessionShared {
             .as_ref()
             .map(|pending| ViewerRole::Player(pending.seat.clone()))
             .filter(|viewer| self.can_undo(viewer));
+        let table_seats = self.table_seats();
         let inputs = StateUpdateInputs {
             game_id: &self.game_id,
             version: self.game_version,
@@ -656,6 +736,7 @@ impl SessionShared {
             auto_resolved: &auto_resolved,
             reaction_modes: &modes_by_seat,
             may_undo: may_undo.as_ref(),
+            seats: table_seats.as_ref(),
         };
         let path = inputs.path();
         let messages: Vec<_> = self
@@ -877,14 +958,6 @@ impl Decider for ReplayingDecider {
     }
 }
 
-/// Whether `name` is the printed name of some action card in the content corpus.
-fn is_action_card_name(name: &str) -> bool {
-    ContentStore::embedded()
-        .records(ti4_model::content_types::ContentType::ActionCards)
-        .iter()
-        .any(|record| record.text("name") == Some(name))
-}
-
 /// Spawns the dedicated session worker thread for an active game session.
 #[allow(clippy::too_many_lines)]
 #[must_use]
@@ -942,6 +1015,7 @@ pub fn spawn_session_worker(
     initial_shared.seat_tokens.clone_from(&config.seat_tokens);
     initial_shared.player_ids.clone_from(&config.player_ids);
     initial_shared.seats.clone_from(&config.seats);
+    initial_shared.nicknames.clone_from(&config.nicknames);
     initial_shared.seed = config.seed;
     if let Some(delay) = config.random_bot_delay_ms {
         initial_shared.bot_delay_ms = delay;
@@ -963,6 +1037,8 @@ pub fn spawn_session_worker(
     initial_shared.history_generation = config.history_generation;
     initial_shared.batches.clone_from(&config.batches);
     initial_shared.undone.clone_from(&config.undone);
+    initial_shared.undone_from = config.prior_decisions.len();
+    initial_shared.staged = config.staged.clone();
     initial_shared.rng_marks.clone_from(&config.rng_marks);
     let rng_force = crate::session::RngForce::new(&config.rng_marks);
     for seat in config.seats.keys() {
@@ -1171,8 +1247,12 @@ pub fn spawn_session_worker(
                 // choice for the next boundary instead of publishing an unverified play.
                 if record.context.as_ref().zip(selected.as_ref()).is_some_and(
                     |(context, option)| {
-                        crate::protocol::server::played_card_detail(context, option, &record.player)
-                            .is_some()
+                        ti4_host::protocol::server::played_card_detail(
+                            context,
+                            option,
+                            &record.player,
+                        )
+                        .is_some()
                             && !option
                                 .payload
                                 .get("card")
@@ -1194,7 +1274,7 @@ pub fn spawn_session_worker(
                 lock.decision_log = records[..start + index + 1].to_vec();
                 let version = lock.game_version;
                 let (detail, movement, seat_detail) =
-                    crate::protocol::server::verified_decision_facts(
+                    ti4_host::protocol::server::verified_decision_facts(
                         record,
                         selected.as_ref(),
                         state.active_system.as_ref().map(|id| id.as_str()),
@@ -1242,7 +1322,7 @@ pub fn spawn_session_worker(
                 {
                     replies.push((
                         reply,
-                        crate::protocol::server::ActionAcceptedMsg {
+                        ti4_host::protocol::server::ActionAcceptedMsg {
                             protocol_version: PROTOCOL_VERSION,
                             game_id: lock.game_id.clone(),
                             game_version: version,
@@ -1442,6 +1522,7 @@ pub fn spawn_session_worker(
                 let event_start = lock.event_log.len();
                 lock.latest_state = game.state.clone();
                 lock.decision_log.clone_from(&game.table.log.records);
+                lock.forget_undone_of_deciders();
 
                 if let Some(err) = result.error {
                     lock.error = Some(err.to_string());
@@ -1457,7 +1538,7 @@ pub fn spawn_session_worker(
                     );
                     for reply_tx in replies {
                         let _ = reply_tx.send(Err(
-                            crate::protocol::status::RejectionReason::ValidationFailed {
+                            ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                 message: "engine transition failed".to_owned(),
                             },
                         ));
@@ -1483,7 +1564,7 @@ pub fn spawn_session_worker(
                                 .and_then(|pending| pending.reply_tx.take())
                             {
                                 let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                    ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                         message: "decision could not be persisted".to_owned(),
                                     },
                                 ));
@@ -1498,7 +1579,7 @@ pub fn spawn_session_worker(
                         );
                         let offered = selected.as_ref();
                         let (detail, movement, seat_detail) =
-                            crate::protocol::server::verified_decision_facts(
+                            ti4_host::protocol::server::verified_decision_facts(
                                 record,
                                 offered,
                                 lock.latest_state
@@ -1526,7 +1607,7 @@ pub fn spawn_session_worker(
                                 .and_then(|pending| pending.reply_tx.take())
                             {
                                 let _ = reply_tx.send(Err(
-                                    crate::protocol::status::RejectionReason::ValidationFailed {
+                                    ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                         message: "event could not be persisted".to_owned(),
                                     },
                                 ));
@@ -1554,7 +1635,7 @@ pub fn spawn_session_worker(
                         {
                             accepted_replies.push((
                                 reply_tx,
-                                crate::protocol::server::ActionAcceptedMsg {
+                                ti4_host::protocol::server::ActionAcceptedMsg {
                                     protocol_version: PROTOCOL_VERSION,
                                     game_id: lock.game_id.clone(),
                                     game_version: version,
@@ -1581,7 +1662,7 @@ pub fn spawn_session_worker(
                             .iter()
                             .enumerate()
                             .filter_map(|(offset, roll)| {
-                                crate::protocol::server::public_roll(
+                                ti4_host::protocol::server::public_roll(
                                     rolls_seen + offset,
                                     roll,
                                     active,
@@ -1610,7 +1691,7 @@ pub fn spawn_session_worker(
                         lock.error = Some(format!("failed to persist snapshot: {error}"));
                         for (reply_tx, _) in accepted_replies {
                             let _ = reply_tx.send(Err(
-                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                     message: "snapshot could not be persisted".to_owned(),
                                 },
                             ));
@@ -1653,7 +1734,7 @@ pub fn spawn_session_worker(
                         lock.error = Some(error);
                         for (reply_tx, _) in accepted_replies {
                             let _ = reply_tx.send(Err(
-                                crate::protocol::status::RejectionReason::ValidationFailed {
+                                ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                     message: "history could not be persisted".to_owned(),
                                 },
                             ));
@@ -1681,7 +1762,7 @@ pub fn spawn_session_worker(
                     lock.error = Some(error);
                     for (reply_tx, _) in accepted_replies {
                         let _ = reply_tx.send(Err(
-                            crate::protocol::status::RejectionReason::ValidationFailed {
+                            ti4_host::protocol::status::RejectionReason::ValidationFailed {
                                 message: "history could not be persisted".to_owned(),
                             },
                         ));
@@ -1761,7 +1842,9 @@ mod auto_resolved_tests {
         rx
     }
 
-    fn notes(rx: &mpsc::Receiver<ServerMessage>) -> Vec<crate::protocol::server::AutoResolvedNote> {
+    fn notes(
+        rx: &mpsc::Receiver<ServerMessage>,
+    ) -> Vec<ti4_host::protocol::server::AutoResolvedNote> {
         match rx.try_recv().expect("a state update") {
             ServerMessage::StateUpdate(update) => update.auto_resolved,
             other => panic!("expected a state update, got {other:?}"),
@@ -1826,8 +1909,9 @@ mod tie_break_tests {
     fn tied_last_turn(game_id: &str, history_active: bool) -> SessionConfig {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            crate::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
-        let tiles = crate::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+            ti4_host::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+                .unwrap();
+        let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
         let mut by_initiative: Vec<(StrategyCardId, i32)> = state
             .card_initiative
             .iter()

@@ -33,7 +33,7 @@ Board
 
 Outside the game screen
 
-- Lobby, map picker with preview, nicknames, seats and bots.
+- Map picker with preview (phase 4 of `plans/2026-10-12-LOBBY_PLAN.md`). The lobby, the nicknames, the seats and the bots are built.
 
 Missing UX niceties
 

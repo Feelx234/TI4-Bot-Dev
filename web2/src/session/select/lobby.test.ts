@@ -104,6 +104,10 @@ const local = (change: Partial<LobbyLocal> = {}): LobbyLocal => ({
 });
 const catalog = {
   components: {
+    abilities: [],
+    factions: {},
+    leaders: [],
+    technologies: [],
     faction_sheets: { hacan: { name: "Hacan", title: "The Emirates of Hacan", commodities: 6 } },
   },
 } as unknown as Catalog;
@@ -462,4 +466,227 @@ it("another tab of a player is that name with the next free number", () => {
   // From the second tab the number goes on: it is not "Ada 2 2".
   expect(nextNickname(more, "ada2")).toBe("Ada 3");
   expect(nextNickname(lobby(), "bart").length).toBeLessThanOrEqual(64);
+});
+
+/** The factions as the server groups them, cut to four. */
+const GROUPED: SetupOptions = {
+  ...OPTIONS,
+  faction_groups: [
+    {
+      name: "Base game",
+      factions: [
+        { id: "sol", name: "Sol" },
+        { id: "hacan", name: "Hacan" },
+        { id: "jolnar", name: "Jol-Nar" },
+      ],
+    },
+    { name: "Prophecy of Kings", factions: [{ id: "argent", name: "Argent Flight" }] },
+  ],
+};
+const editors = (viewer: string | null, change: Partial<LobbyState> = {}) =>
+  selectLobby(of(lobby(change), viewer, GROUPED), local(), catalog).rows.map((row) => row.editor);
+
+it("the row of the viewer opens into the choice of its faction: Random first, then the groups", () => {
+  const [ada, bart] = editors("bart");
+  // A row of another player is not a control.
+  expect(ada).toBeNull();
+  expect(bart!.label).toBe(`Faction of ${LONG}`);
+  expect(bart!.random).toEqual({
+    id: "",
+    name: "Random",
+    chosen: true,
+    intent: null,
+    taken: "",
+    sheet: null,
+  });
+  expect(bart!.groups.map((group) => [group.name, group.options.map((item) => item.name)])).toEqual(
+    [
+      ["Base game", ["Sol", "Hacan", "Jol-Nar"]],
+      ["Prophecy of Kings", ["Argent Flight"]],
+    ],
+  );
+  // A faction that another seat has stays in its place and says who has it.
+  const [sol, hacan, jolnar] = bart!.groups[0].options;
+  expect([sol.intent, sol.taken]).toEqual([null, "Rule bot 1"]);
+  expect([hacan.intent, hacan.taken]).toEqual([null, "Ada"]);
+  expect(jolnar).toMatchObject({
+    chosen: false,
+    taken: "",
+    intent: { type: "faction", player: "bart", faction: "jolnar" },
+  });
+});
+
+it("the chosen faction has the mark, and Random gives it back", () => {
+  const [ada] = editors("ada");
+  expect(ada!.random).toMatchObject({
+    chosen: false,
+    intent: { type: "faction", player: "ada", faction: null },
+  });
+  const hacan = ada!.groups[0].options[1];
+  // The own faction is not taken: it is the chosen one.
+  expect(hacan).toMatchObject({ chosen: true, intent: null, taken: "" });
+});
+
+it("the host chooses for a seat that the server plays, and for no other person", () => {
+  const rows = editors("ada");
+  expect(rows.map((editor) => editor !== null)).toEqual([true, false, true, false, false, false]);
+  const bot = rows[2]!;
+  expect(bot.label).toBe("Faction of Rule bot 1");
+  expect(bot.groups[0].options[2].intent).toEqual({
+    type: "faction",
+    player: "bot1",
+    faction: "jolnar",
+  });
+  expect(bot.groups[0].options[1].taken).toBe("Ada");
+  // A player who is not the host has the own row only, and a visitor none.
+  expect(editors("bart").map((editor) => editor !== null)).toEqual([
+    false,
+    true,
+    false,
+    false,
+    false,
+    false,
+  ]);
+  expect(editors(null).every((editor) => editor === null)).toBe(true);
+});
+
+it("nothing is chosen for a table of a scenario, or after the start", () => {
+  expect(editors("ada", { start_from: "late-game" }).every((editor) => editor === null)).toBe(true);
+  expect(editors("ada", { phase: "running" }).every((editor) => editor === null)).toBe(true);
+});
+
+it("until the server said the groups, the factions of the table are one list", () => {
+  const view = selectLobby(of(lobby(), "ada", null), local(), catalog);
+  expect(view.rows[0].editor!.groups).toMatchObject([
+    {
+      name: "",
+      options: [
+        { id: "sol", name: "Sol", taken: "Rule bot 1" },
+        { id: "hacan", name: "Hacan", chosen: true },
+      ],
+    },
+  ]);
+});
+
+it("the sheet of a faction is behind its name, where the catalogue has it", () => {
+  const view = selectLobby(of(lobby(), "bart", GROUPED), local(), catalog);
+  expect(view.rows.map((row) => row.sheet?.title ?? null)).toEqual([
+    "The Emirates of Hacan",
+    null,
+    // The catalogue of this test has no sheet of Sol.
+    null,
+    null,
+    null,
+    null,
+  ]);
+  expect(view.rows[1].editor!.groups[0].options[1].sheet).toEqual({
+    title: "The Emirates of Hacan",
+    facts: [
+      { label: "Commodities", value: "6" },
+      { label: "Starting technologies", value: "None" },
+    ],
+    abilities: [],
+    technologies: [],
+    leaders: [],
+  });
+});
+
+it("a table in the page is single player: no tab to join from, no name to change, and the page plays the other seats", () => {
+  const state: TableState = {
+    ...of(
+      lobby({
+        slots: [
+          person(1, "ada", "Ada"),
+          slot(2, { occupant: "b", nickname: "Rule bot 1", bot: "smart", connected: true }),
+          slot(3),
+        ],
+      }),
+      "ada",
+    ),
+    local: true,
+  };
+  const view = selectLobby(state, local(), catalog);
+  expect(view.title).toBe("Single player · 3 players");
+  expect(view.rows[0].you).toBe(true);
+  expect(view.rows[0].rename).toBe(false);
+  expect(view.rows[0].editor).not.toBeNull();
+  expect(view.rows[1].sign).toEqual({ kind: "rule", word: "Rule bot: played by the page" });
+  expect(view.rows[1].editor).not.toBeNull();
+  expect(view.rows[1].remove?.intent).toEqual({ type: "remove", player: "b" });
+  expect(view.rows[2].buttons.map((button) => button.label)).toEqual(["Rule bot", "Random"]);
+  expect(view.setup.find((row) => row.id === "wait")?.help[0].text).toMatch(
+    /^A seat that the page plays waits/,
+  );
+  expect(view.footer.main).toEqual({
+    label: "Start game",
+    disabled: true,
+    intent: { type: "start" },
+  });
+});
+
+/** The table of a game that runs: Ada, Bart who is away, and a rule bot, in the order of their seats. */
+const running = (change: Partial<LobbyState> = {}) =>
+  lobby({
+    phase: "running",
+    slots: [
+      person(1, "bart", LONG, { connected: false, can_take_over: true, faction: "sol" }),
+      person(2, "ada", "Ada", { faction: "hacan" }),
+      slot(3, { occupant: "bot1", nickname: "Rule bot 1", bot: "smart", connected: true }),
+    ],
+    ...change,
+  });
+
+it("the table of a running game is the same screen with nothing open, and the host sets the wait", () => {
+  const view = selectLobby(of(running(), "ada"), local(), catalog);
+  expect(view.title).toBe("Table · 3 players");
+  // The rows are the seats of the game, by their players.
+  expect(view.rows.map((row) => [row.player, row.name, row.sign?.kind ?? null])).toEqual([
+    ["bart", LONG, "away"],
+    ["ada", "Ada", "host"],
+    ["bot1", "Rule bot 1", "rule"],
+  ]);
+  for (const row of view.rows) {
+    expect([row.editor, row.remove, row.rename, row.buttons]).toEqual([null, null, false, []]);
+  }
+  expect(view.fill).toBeNull();
+  expect(view.footer).toEqual({ note: "", main: null, nickname: false });
+  // Of the setup only the wait has a control.
+  expect(view.setup.filter((row) => row.control).map((row) => row.id)).toEqual(["wait"]);
+  const wait = view.setup.find((row) => row.id === "wait")!;
+  expect(wait.control).toMatchObject({
+    kind: "counter",
+    more: { intent: { type: "set", change: { waitMs: 1000 } } },
+  });
+});
+
+it("a player who is not the host reads the table of a running game, with no control", () => {
+  const view = selectLobby(of(running({ host_player_id: "bart" }), "ada"), local(), catalog);
+  expect(view.setup.every((row) => row.control === null)).toBe(true);
+  expect(view.rows.flatMap((row) => row.buttons)).toEqual([]);
+  expect(view.footer.main).toBeNull();
+});
+
+it("a visitor of a running game watches, or sits down in the seat of a person who is away", () => {
+  const view = selectLobby(of(running(), null), local(), catalog);
+  expect(view.footer).toEqual({
+    note: "",
+    main: { label: "Watch", disabled: false, intent: { type: "watch" } },
+    nickname: false,
+  });
+  expect(view.rows.map((row) => row.buttons)).toEqual([
+    [
+      {
+        label: "Rejoin",
+        title: `Rejoin as ${LONG}: play this seat from this tab`,
+        intent: { type: "takeOver", player: "bart", name: LONG },
+      },
+    ],
+    [],
+    [],
+  ]);
+  expect(view.setup.every((row) => row.control === null)).toBe(true);
+  // Before the grace time is over the seat is not offered.
+  const early = running();
+  early.slots[0].can_take_over = false;
+  expect(selectLobby(of(early, null), local(), catalog).rows[0].buttons).toEqual([]);
 });

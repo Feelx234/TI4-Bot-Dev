@@ -1,11 +1,16 @@
 import type { MovementPlan, PlanStep } from "./movementPlan";
+import type { SeatStore } from "./seatStore";
 import type {
   Catalog,
   DraftOutcome,
   DraftScope,
   DraftStep,
   PublicTurnStatus,
+  ReactionMode,
+  ReactionModes,
   SessionUpdate,
+  SpaceOddsRequest,
+  SpaceOddsResponse,
 } from "./wire";
 
 /** A plan that did not reach its end. Compare `BatchInterruption` and `BatchFailure` of the server. */
@@ -54,9 +59,9 @@ export type TransportEvent =
    * does not wait for this side.
    */
   | { kind: "draft"; script: DraftStep[]; scope?: DraftScope; outcome: DraftOutcome | null }
-  /** The printed names of the cards that this side is never offered, after each change. */
-  | { kind: "cards"; never: string[] }
-  /** A window was declined for this side, because it offered only these cards and each is never offered. */
+  /** The mode of each reaction that this side set, by its key, after each change. */
+  | { kind: "modes"; modes: ReactionModes }
+  /** A window was declined for this side, because this side muted everything that it offered: these, by name. */
   | { kind: "passed"; cards: string[] }
   /**
    * The game cannot be reached, and the transport tries again. The last update stays in view and
@@ -88,6 +93,12 @@ export interface Capabilities {
    * this side, or when the seat is played here already.
    */
   switchSeat?(seat: string): void;
+  /**
+   * The wait of the seats that this page plays, in milliseconds. A seat that waits now finishes
+   * its wait. It is of the table of the game: the sheet "Table" has its control, and the app
+   * that made the transport keeps it.
+   */
+  wait?(ms: number): void;
   /** The game can start from a prepared board. The app that made the transport has the list. */
   scenarios?: true;
   /** The game is kept in this page: the app that made the transport can start it again, export it and import it. */
@@ -103,6 +114,12 @@ export interface Transport {
   /** The printed cards. An update names them by id only. */
   readonly catalog: Catalog | null;
   readonly capabilities: Capabilities;
+  /**
+   * Where the game keeps what this seat has staged and not sent, the same in every tab and
+   * device of the seat. Absent when the game does not keep it (a game in this page, a
+   * spectator): the app that made the transport keeps it then.
+   */
+  readonly staged?: SeatStore;
   /**
    * A new listener is told the cards that are never offered and the latest update, replay or
    * error at once, if there is one.
@@ -130,16 +147,22 @@ export interface Transport {
    */
   applyDraft(nonce: string, draft: { choices: string[]; plan: MovementPlan | null }): void;
   /**
-   * Whether a window offers this card to this side, by its printed name. A window that offers
-   * only cards that are never offered is declined where the game runs (a `passed` event), and
-   * any other window is asked without them. The change is told as a `cards` event.
+   * When a window offers a reaction to this side: an action card by its printed name, the card
+   * of an ability by its key (`ReactionOffer.key`). A window that offers only what this side
+   * muted is declined where the game runs (a `passed` event), and any other window is asked
+   * without it. The change is told as a `modes` event.
    */
-  setReactionMode(card: string, mode: "always" | "never"): void;
+  setReactionMode(key: string, mode: ReactionMode): void;
   /**
    * Takes back the last answer of this side, when `canUndo` of the last update says so; a
    * movement is taken back whole, and so are the landings, and the next update tells the steps.
    */
   undo(): void;
+  /**
+   * The odds of a space combat between two sides, from the engine of this page also online: the
+   * same sides give the same numbers. Nothing of the game is read or changed.
+   */
+  odds(request: SpaceOddsRequest): Promise<SpaceOddsResponse>;
   /** Ends the game on this side. */
   close(): void;
 }

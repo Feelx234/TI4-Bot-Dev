@@ -28,13 +28,25 @@ import {
   totals,
 } from "./productionDraft";
 import { selectActionCards } from "./select/cards";
+import { factionName } from "./select/names";
+import { selectReaction } from "./select/reaction";
 import { selectScore } from "./select/score";
 import { selectAgendas } from "./select/agendas";
 import { selectSecrets } from "./select/secrets";
+import { factionSheet } from "./select/factionSheet";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
 import type { LocalGame, SeatSwitch } from "./savedGame";
-import { type Engine, catalogOf, createWasmTransport, scenariosOf } from "./wasmTransport";
+import {
+  type Engine,
+  type HostSave,
+  catalogOf,
+  createWasmTransport,
+  scenariosOf,
+  setupDrawOf,
+  setupOptionsOf,
+  setupPreviewOf,
+} from "./wasmTransport";
 import type {
   DraftOutcome,
   DraftScope,
@@ -42,7 +54,9 @@ import type {
   InvasionFacts,
   MovementFacts,
   ProductionFacts,
+  ReactionModes,
   SessionUpdate,
+  TableRequest,
 } from "./wire";
 
 // The real engine, built by `scripts/build-wasm.sh` (it is not in the repository).
@@ -56,9 +70,14 @@ async function play(
   stepping = false,
   game: LocalGame = { seed: 3, players: 8, humans: 1 },
   saved: {
-    answers?: readonly string[];
-    switches?: readonly SeatSwitch[];
+    /** The game of an earlier visit (`save()` of its `play`). */
+    save?: HostSave;
+    /** The cards that are never offered, by name: a short form of `modes`. */
     never?: readonly string[];
+    modes?: ReactionModes;
+    ruleSeats?: number;
+    table?: TableRequest;
+    waitMs?: number;
   } = {},
 ) {
   const engine: Engine = {
@@ -67,13 +86,17 @@ async function play(
     scenarios: [],
     catalog: null,
   };
-  let answers: readonly string[] = saved.answers ?? [];
-  let switches: readonly SeatSwitch[] = saved.switches ?? [];
-  const transport = createWasmTransport(engine, game, {
-    ...saved,
-    onAnswers: (all, changes) => {
-      answers = [...all];
-      switches = [...changes];
+  /** What plays the game again, as the transport told it last: every decision of every seat, and the answers of this side among them. */
+  let save: HostSave | undefined = saved.save;
+  const { table, never: _, ...rest } = saved;
+  const transport = createWasmTransport(engine, table ? { ...game, table } : game, {
+    ...rest,
+    modes: {
+      ...saved.modes,
+      ...Object.fromEntries((saved.never ?? []).map((name) => [name, "never"])),
+    },
+    onSave: (made) => {
+      save = made;
     },
     stepping,
   });
@@ -81,6 +104,7 @@ async function play(
   /** The cards of each window that the engine passed, and the Never cards as they were told last. */
   const passed: string[][] = [];
   let never: string[] = [];
+  let modes: ReactionModes = {};
   /** Who waits for the outcome of a draft script. */
   const drafts = new Map<DraftStep[], (outcome: DraftOutcome | null) => void>();
   let wake: (() => void) | null = null;
@@ -96,8 +120,9 @@ async function play(
       drafts.delete(event.script);
     } else if (event.kind === "passed") {
       passed.push(event.cards);
-    } else if (event.kind === "cards") {
-      never = event.never;
+    } else if (event.kind === "modes") {
+      never = Object.keys(event.modes).filter((key) => event.modes[key] === "never");
+      modes = event.modes;
     }
   });
   /** Asks for a draft and waits for its answer: the script comes back with it. */
@@ -121,8 +146,11 @@ async function play(
     draft,
     passed,
     never: () => never,
-    answers: () => answers,
-    switches: () => switches,
+    modes: () => modes,
+    save: () => save!,
+    decisions: (): readonly string[] => save?.log ?? [],
+    answers: (): readonly string[] => save?.answers ?? [],
+    switches: (): readonly SeatSwitch[] => save?.switches ?? [],
   };
 }
 
@@ -332,10 +360,15 @@ it.skipIf(!built)(
     const steps = stepsOf(facts, setShip(facts, setShip(facts, {}, "01|0", true), "01|2", true));
     first.transport.submitPlan(first.nonce(open), { destination: "23", steps });
     await first.next();
-    const saved = [...first.answers()];
-    first.transport.close();
+    const saved = first.save();
     // The hold of the carrier was declined, though the plan loads nothing.
-    expect(saved.slice(3)).toEqual(["move|01|0", "done_loading", "move|01|1", "done_moving"]);
+    expect(first.answers().slice(3)).toEqual([
+      "move|01|0",
+      "done_loading",
+      "move|01|1",
+      "done_moving",
+    ]);
+    first.transport.close();
 
     // A new visit: the page does not know which answers were one plan.
     const engine: Engine = {
@@ -344,11 +377,11 @@ it.skipIf(!built)(
       scenarios: [],
       catalog: null,
     };
-    let answers: readonly string[] = saved;
+    let answers: readonly string[] = [];
     const transport = createWasmTransport(
       engine,
       { seed: 3, players: 8, humans: 1 },
-      { answers: saved, onAnswers: (all) => (answers = [...all]) },
+      { save: saved, onSave: (made) => (answers = made.answers) },
     );
     const updates: Update[] = [];
     let wake: (() => void) | null = null;
@@ -566,7 +599,7 @@ it.skipIf(!built)(
     expect(facts.kind).toBe("production");
     const unit = (id: string) => facts.units.findIndex((item) => item.unit === id);
     // The printed side of a unit, in the shape that the card reads. A failure here with an
-    // engine that is older than `ti4-view`: run scripts/build-wasm.sh.
+    // engine that is older than `ti4-host/src/view`: run scripts/build-wasm.sh.
     expect(facts.units[unit("warsun")]).toMatchObject({
       abilities: ["SUSTAIN DAMAGE", "BOMBARDMENT 3+ (x3)"],
       rules: "Other player's units in this system lose PLANETARY SHIELD.",
@@ -770,7 +803,7 @@ it.skipIf(!built)(
     // Every card of the deck is in the deck, in a hand or in the discard pile.
     const held = update.view.players.reduce((sum, player) => sum + player.action_cards_count, 0);
     expect(facts.deck + held + facts.discard.length).toBe(deck.length);
-    const view = selectActionCards(update, catalog, { never: [], faked: [] })!;
+    const view = selectActionCards(update, catalog, { modes: {}, faked: [] })!;
     expect(view.held).toBe(view.hand.reduce((sum, card) => sum + card.copies, 0));
     for (const card of view.hand) {
       expect(card.text).not.toBe("");
@@ -955,7 +988,46 @@ it.skipIf(!built)(
     // printed: every faction and every card set that a table of the server can play has them.
     const sheets = catalog.components.faction_sheets!;
     expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(24);
-    expect(sheets.ghost).toEqual({ name: "Creuss", title: "The Ghosts of Creuss", commodities: 4 });
+    expect(sheets.ghost).toMatchObject({
+      name: "Creuss",
+      title: "The Ghosts of Creuss",
+      commodities: 4,
+    });
+    // The sheet of a faction, as a player reads it before the game: all of it is printed.
+    expect(factionSheet("sol", catalog)).toMatchObject({
+      title: "The Federation of Sol",
+      facts: [
+        { label: "Home system", value: "Jord 4/2" },
+        { label: "Commodities", value: "4" },
+        { label: "Starting technologies", value: "Antimass Deflectors, Neural Motivator" },
+        { label: "Starting fleet", value: "2 Carriers · Destroyer · 3 Fighters" },
+        { label: "On Jord", value: "5 Infantry · Space dock" },
+      ],
+      abilities: [{ name: "Orbital Drop", window: "ACTION:" }, { name: "Versatile" }],
+      technologies: [{ name: "Spec Ops II" }, { name: "Advanced Carrier II" }],
+      leaders: [
+        { name: "Evelyn DeLouis", kind: "Agent · Master Tactician" },
+        { name: "Claire Gibson", kind: "Commander · Voice of the People" },
+        { name: "Jace X, 4th Air Legion", unlock: "Have 3 scored objectives." },
+      ],
+    });
+    expect(factionSheet("argent", catalog)!.facts[2].value).toBe(
+      "Choose 2 of Neural Motivator, Sarween Tools, Plasma Scoring",
+    );
+    // Every faction of a lobby has a whole sheet, and no line of it is an id.
+    for (const id of Object.keys(sheets)) {
+      const sheet = factionSheet(id, catalog)!;
+      const cards = [...sheet.abilities, ...sheet.technologies, ...sheet.leaders];
+      expect(
+        cards.every((item) => item.text !== ""),
+        id,
+      ).toBe(true);
+      expect(
+        sheet.facts.map((fact) => fact.label),
+        id,
+      ).toContain("Starting fleet");
+    }
+    expect(factionSheet("nobody", catalog)).toBeNull();
     expect(sol.commodities[1]).toBe(4);
     const cards = new Map(catalog.components.strategy_cards!.map((card) => [card.id, card.name]));
     expect(["te4construction", "te6warfare", "base4"].map((id) => cards.get(id))).toEqual([
@@ -977,7 +1049,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "plays another seat from a decision on, several times, and a replay is the same game",
   async () => {
-    const { transport, next, nonce, answers, switches } = await play();
+    const { transport, next, nonce, answers, save, switches } = await play();
     const seatOf = (event: Update) => {
       const { viewer, pending_choice } = event.update;
       expect(pending_choice?.choice.player).toBe(viewer.role === "player" ? viewer.seat : null);
@@ -1030,16 +1102,14 @@ it.skipIf(!built)(
     expect(seatOf(open)).toBe("a");
     const reached = await answer(open);
     expect(seatOf(reached)).toBe("a");
-    expect(switches().map((item) => [item.humans, item.answers])).toEqual([
-      [0b100, 3],
-      [0b10000, 4],
-      [0b10, 4],
-      [0b1, 5],
-    ]);
+    expect(switches().map((item) => item.humans)).toEqual([0b100, 0b10000, 0b10, 0b1]);
+    // Each is at a later decision of the game.
+    const at = switches().map((item) => item.decision);
+    expect(at).toEqual([...new Set(at)].sort((left, right) => left - right));
     transport.close();
 
-    // A new visit: the answers and the seat changes play the same game.
-    const visit = await play(false, undefined, { answers: answers(), switches: switches() });
+    // A new visit: the decisions and the seat changes play the same game.
+    const visit = await play(false, undefined, { save: save() });
     const resumed = await visit.next();
     expect(resumed.update).toEqual(reached.update);
     expect(resumed.canUndo).toBe(true);
@@ -1055,7 +1125,7 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "takes the seat that the game waits for, while the seats are stepped",
   async () => {
-    const { transport, next, nonce, answers, switches } = await play(true);
+    const { transport, next, nonce, save } = await play(true);
     const menu = await next();
     transport.submitChoice(nonce(menu), menu.update.pending_choice!.choice.options[0].id);
     const paused = await next();
@@ -1072,7 +1142,7 @@ it.skipIf(!built)(
     transport.close();
 
     // Played again without steps, the change is at the same decision.
-    const visit = await play(false, undefined, { answers: answers(), switches: switches() });
+    const visit = await play(false, undefined, { save: save() });
     expect((await visit.next()).update).toEqual(asked.update);
     visit.transport.close();
   },
@@ -1096,15 +1166,126 @@ it.skipIf(!built)(
       "ability",
       "decline",
     ]);
-    // The card is set while its window is open: the window is asked again, and passed.
+    // The card is set while its window is open: that window stays, and the player answers it.
     transport.setReactionMode(NAV_SUITE, "never");
     expect(never()).toEqual([NAV_SUITE]);
+    expect(passed).toEqual([]);
+    transport.submitChoice(nonce(window), "decline");
+    // The window after it is passed in the engine.
     const moving = await next();
     expect(subtype(moving)).toBe("movement_step");
-    expect(passed).toEqual([[NAV_SUITE], [NAV_SUITE]]);
+    expect(passed).toEqual([[NAV_SUITE]]);
     // The decline is an answer of the game: a saved game has it.
     expect(answers()).toEqual(["tactical", "41", "decline", "decline"]);
     transport.close();
+  },
+  60_000,
+);
+
+// In the scenario "Late game" seat g is Sardakk: it holds Reverse Engineer, which a window offers
+// when another seat discards a card, and its agent T'ro is readied, which a window offers at the
+// end of the tactical action of any seat.
+const SARDAKK: LocalGame = { seed: 42, players: 8, humans: 0b1000000, scenario: "late-game" };
+const TRO = "leader:sardakkagent";
+
+/** Answers what the seat is asked with a pass, up to the window that offers `key`. */
+async function toWindowOf(game: Awaited<ReturnType<typeof play>>, key: string): Promise<Update> {
+  for (let asked = 0; asked < 200; asked++) {
+    const event = await game.next();
+    if (event.update.reaction?.offers.some((offer) => offer.key === key)) {
+      return event;
+    }
+    const { options } = event.update.pending_choice!.choice;
+    const pass =
+      options.find((option) => option.kind === "decline") ??
+      options.find((option) => option.id === "pass") ??
+      options[options.length - 1];
+    game.transport.submitChoice(game.nonce(event), pass.id);
+  }
+  throw new Error(`no window offered ${key}`);
+}
+
+it.skipIf(!built)(
+  "says what a window of an ability offers as printed, and passes it for a seat that wants it in its turns only",
+  async () => {
+    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const game = await play(false, SARDAKK);
+    const window = await toWindowOf(game, TRO);
+    const { update } = window;
+    const choice = update.pending_choice!.choice;
+    expect(subtype(window)).toBe("reaction_after_TACTICAL_ACTION_ENDED");
+    // The window is in the action phase, in the turn of another seat.
+    const active = choice.details?.active;
+    expect(active).not.toBe("g");
+    expect(update.reaction).toMatchObject({
+      own_turn_applies: true,
+      trigger: { event_type: "TACTICAL_ACTION_ENDED", relation: "after", actor: active },
+    });
+    const offer = update.reaction!.offers.find((item) => item.key === TRO)!;
+    expect(offer).toMatchObject({ kind: "leader", role: "agent", name: "T'ro" });
+    expect(offer.window).toMatch(/^At the end of a player's tactical action/);
+    expect(offer.text).toMatch(/exhaust this card/);
+
+    // The screen: the trigger in game values, the card as printed, the setting, and no event id.
+    const view = selectReaction(update, choice, null, catalog, game.modes())!;
+    const faction = factionName(
+      update.view.players.find((player) => player.id === active)!.faction,
+      catalog,
+    );
+    expect(view.heading).toBe(
+      `After ${faction}’s tactical action in system ${update.reaction!.trigger!.system}`,
+    );
+    expect(view.pass).toBe("decline");
+    const row = view.rows.find((item) => item.offer?.key === TRO)!;
+    expect(row).toMatchObject({
+      key: "1",
+      title: "T'ro",
+      state: "Agent",
+      offer: { name: "T'ro", mode: "always", ownTurn: true },
+      intent: { type: "chooseOption", option: offer.option },
+    });
+    expect(row.text).toMatch(
+      /^At the end of a player's tactical action: You may exhaust this card/,
+    );
+    expect(JSON.stringify(view)).not.toContain("TACTICAL_ACTION_ENDED");
+    // The decline is the main button, and no row.
+    expect(view.rows).toHaveLength(choice.options.length - 1);
+
+    // Set while its window is open: that window stays, and the player answers it.
+    const before = game.passed.length;
+    game.transport.setReactionMode(TRO, "ownturn");
+    expect(game.modes()).toEqual({ [TRO]: "ownturn" });
+    expect(game.passed).toHaveLength(before);
+    game.transport.submitChoice(game.nonce(window), "decline");
+    const after = await game.next();
+    expect(after.update.pending_choice?.nonce).not.toBe(update.pending_choice?.nonce);
+    game.transport.close();
+  },
+  60_000,
+);
+
+it.skipIf(!built)(
+  "offers a reaction in the turn of its seat when the seat wants it in its turns only",
+  async () => {
+    // Nav Suite is offered after seat d activates a system: its own turn.
+    const game = await play(false, XXCHA, { modes: { [NAV_SUITE]: "ownturn" } });
+    game.transport.submitChoice(game.nonce(await game.next()), "tactical");
+    game.transport.submitChoice(game.nonce(await game.next()), "41");
+    const window = await game.next();
+    expect(subtype(window)).toBe("reaction_after_SYSTEM_ACTIVATED");
+    expect(window.update.pending_choice?.choice.details?.active).toBe("d");
+    expect(window.update.reaction?.offers.map((offer) => offer.key)).toEqual([NAV_SUITE]);
+    expect(game.passed).toEqual([]);
+    game.transport.close();
+
+    // In the turn of another seat the same mode passes the window of a card.
+    const other = await play(false, SARDAKK, { modes: { "Reverse Engineer": "ownturn" } });
+    const asked = await other.next();
+    expect(
+      asked.update.reaction?.offers.some((offer) => offer.key === "Reverse Engineer") ?? false,
+    ).toBe(false);
+    expect(other.passed[0]).toEqual(["Reverse Engineer"]);
+    other.transport.close();
   },
   60_000,
 );
@@ -1133,17 +1314,17 @@ it.skipIf(!built)(
     first.transport.submitChoice(first.nonce(activation), "41");
     expect(subtype(await first.next())).toBe("movement_step");
     expect(first.passed).toHaveLength(4);
-    const saved = first.answers();
+    const saved = first.save();
     first.transport.close();
 
     // The card is offered again, and the saved game is the same game: its window was declined.
-    const offered = await play(false, XXCHA, { answers: saved });
+    const offered = await play(false, XXCHA, { save: saved });
     expect(subtype(await offered.next())).toBe("movement_step");
     expect(offered.passed).toEqual([]);
     offered.transport.close();
 
     // A game where the player declined the window, played again with the card never offered.
-    const again = await play(false, XXCHA, { answers: saved, never: [NAV_SUITE] });
+    const again = await play(false, XXCHA, { save: saved, never: [NAV_SUITE] });
     const resumed = await again.next();
     expect(subtype(resumed)).toBe("movement_step");
     expect(again.passed).toEqual([]);
@@ -1265,6 +1446,252 @@ it.skipIf(!built)(
     const mine = after.update.secondary?.followers.find((follower) => follower.seat === "a");
     expect(same ? mine?.state : "passed").toBe("passed");
     transport.close();
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "the rule bot plays the seats of its mask, and the same mask is the same game",
+  async () => {
+    const game: LocalGame = { seed: 3, players: 6, humans: 1 };
+    /** The first choices of seat a, each answered with its first option. */
+    const first = async (ruleSeats: number) => {
+      const { transport, next, nonce } = await play(false, game, { ruleSeats });
+      const asked: string[] = [];
+      for (let count = 0; count < 6; count++) {
+        const event = await next();
+        const choice = event.update.pending_choice!.choice;
+        // What the other seats did is in the view: the questions of seat a alone can be the same.
+        asked.push(
+          `${choice.prompt}: ${choice.options.map((option) => option.id).join(",")} ${JSON.stringify(event.update.view.players)}`,
+        );
+        transport.submitChoice(nonce(event), choice.options[0].id);
+      }
+      transport.close();
+      return asked;
+    };
+    const ruled = await first(0b111110);
+    expect(await first(0b111110)).toEqual(ruled);
+    // Random seats play another game: the mask reached the engine.
+    expect(await first(0)).not.toEqual(ruled);
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "sets up a table: its options, its board, its draw, and the game of that draw",
+  async () => {
+    const module = await WebAssembly.compile(readFileSync(WASM));
+    const options = await setupOptionsOf(module, 4);
+    expect(options.strategy_card_sets.map((set) => set.id)).toEqual([
+      "te",
+      "pok",
+      "base_game_codex1",
+    ]);
+    expect(options.bot_kinds.map((kind) => kind.id)).toEqual(["smart", "random"]);
+    expect(options.bot_kinds[0].description).toMatch(/^The page plays/);
+    expect(options.faction_groups.flatMap((group) => group.factions)).toHaveLength(24);
+    expect(options.maps.length).toBeGreaterThan(0);
+    expect(options.maps.every((map) => map.player_count === 4 && map.buildable)).toBe(true);
+    const usual = options.maps.find((map) => map.recommended)!;
+
+    const table: TableRequest = {
+      setup: {
+        player_count: 4,
+        seed: 12,
+        map: { kind: "template", alias: usual.alias },
+        strategy_cards: "pok",
+      },
+      seats: [
+        { kind: "human", faction: "hacan" },
+        { kind: "smart" },
+        { kind: "random", faction: "ghost" },
+        { kind: "smart" },
+      ],
+    };
+    const preview = await setupPreviewOf(module, table);
+    expect(preview.map.alias).toBe(usual.alias);
+    expect(preview.seats).toHaveLength(4);
+    // A place of a seat is a tile of the board, with no planets and no faction.
+    for (const seat of preview.seats) {
+      const tile = preview.tiles.find((have) => have.system_id === seat.home_system_id);
+      expect(tile).toBeDefined();
+      expect(tile?.planets ?? []).toEqual([]);
+    }
+
+    const draw = await setupDrawOf(module, table);
+    expect([...draw.players].sort()).toEqual(["a", "b", "c", "d"]);
+    expect(draw.factions[draw.players.indexOf("a")]).toBe("hacan");
+    expect(draw.factions[draw.players.indexOf("c")]).toBe("ghost");
+    expect(new Set(draw.factions).size).toBe(4);
+
+    // The game is that draw: the page is player a, with the faction that it chose.
+    const { transport, next } = await play(false, { seed: 12, players: 4, humans: 1 }, { table });
+    const { update } = await next();
+    expect(update.pending_choice?.choice.player).toBe("a");
+    expect(update.view.players.map((player) => player.id)).toEqual(draw.players);
+    expect(update.view.players.map((player) => player.faction)).toEqual(draw.factions);
+    transport.close();
+
+    // A table that cannot be is refused with the reason.
+    await expect(
+      setupDrawOf(module, { ...table, setup: { ...table.setup, strategy_cards: "base_game" } }),
+    ).rejects.toThrow(/strategy_card_set/);
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "the wait of a table: the page is shown the game while a seat takes its time, and the game is the same",
+  async () => {
+    const table: TableRequest = {
+      setup: { player_count: 4, seed: 12 },
+      seats: [{ kind: "human" }, { kind: "smart" }, { kind: "random" }, { kind: "smart" }],
+    };
+    /** The first choices of player a, each answered with its first option, and the waits before them. */
+    const first = async (waitMs: number) => {
+      const { transport, next, nonce } = await play(
+        false,
+        { seed: 12, players: 4, humans: 1 },
+        { table, waitMs },
+      );
+      const asked: string[] = [];
+      const waited: string[] = [];
+      while (asked.length < 4) {
+        const event = await next();
+        const pending = event.update.pending_choice;
+        if (!pending) {
+          // The game waits for another seat: the status names it, and nothing is to step.
+          expect(event.stepping).toBeUndefined();
+          const turn = event.update.turn_status;
+          waited.push(turn.kind === "waiting_for_decision" ? turn.seat : turn.kind);
+          continue;
+        }
+        const { choice } = pending;
+        asked.push(
+          `${choice.prompt}: ${choice.options.map((option) => option.id).join(",")} ${JSON.stringify(event.update.view.players)}`,
+        );
+        transport.submitChoice(nonce(event), choice.options[0].id);
+      }
+      transport.close();
+      return { asked, waited };
+    };
+    const now = await first(0);
+    expect(now.waited).toEqual([]);
+    const paced = await first(2);
+    expect(paced.asked).toEqual(now.asked);
+    expect(paced.waited.length).toBeGreaterThan(0);
+    expect(paced.waited).not.toContain("a");
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "a saved game has the decisions of every seat: a new visit goes on where the game was, and an undo takes them back with the answer",
+  async () => {
+    const table: TableRequest = {
+      setup: { player_count: 4, seed: 12 },
+      seats: [{ kind: "human" }, { kind: "smart" }, { kind: "random" }, { kind: "smart" }],
+    };
+    const game = { seed: 12, players: 4, humans: 1 };
+    const first = await play(true, game, { table });
+    // Player a answers, and the other seats are stepped, until two of them decided after the
+    // last answer and a third is waited for.
+    let event = await first.next();
+    let asked = event;
+    let before = -1;
+    let stepped = 0;
+    while (event.update.pending_choice || stepped < 2 || before < 0) {
+      if (event.update.pending_choice) {
+        asked = event;
+        before = first.decisions().length;
+        stepped = 0;
+        const [option] = event.update.pending_choice.choice.options;
+        first.transport.submitChoice(first.nonce(event), option.id);
+      } else {
+        stepped += 1;
+        first.transport.capabilities.stepping?.step();
+      }
+      event = await first.next();
+    }
+    const answers = first.answers();
+    const saved = first.decisions();
+    const kept = first.save();
+    // The decisions of the other seats are in the game, in their order.
+    expect(saved).toHaveLength(before + 3);
+    expect(saved[before]).toBe(answers.at(-1));
+    expect(saved.length).toBeGreaterThan(answers.length + 2);
+    first.transport.close();
+
+    // A new visit, stepped: it waits for the same seat, on the same game.
+    const visit = await play(true, game, { table, save: kept });
+    const resumed = await visit.next();
+    expect(resumed.stepping).toEqual(event.stepping);
+    expect(resumed.update).toEqual(event.update);
+    expect(visit.answers()).toEqual(answers);
+    // An undo opens the last answer of the page again: what the other seats decided after it
+    // is gone with it.
+    visit.transport.undo();
+    const back = await visit.next();
+    expect(back.update).toEqual(asked.update);
+    expect(visit.decisions()).toEqual(saved.slice(0, before));
+    expect(visit.answers()).toEqual(answers.slice(0, -1));
+    visit.transport.close();
+
+    // A new visit with the wait of the table: the page is shown that seat at once.
+    const paced = await play(false, game, { table, waitMs: 2, save: kept });
+    const waiting = await paced.next();
+    expect(waiting.stepping).toBeUndefined();
+    expect(waiting.update).toEqual(event.update);
+    paced.transport.close();
+  },
+  120_000,
+);
+
+it.skipIf(!built)(
+  "the game of a table says who sits in each seat, and its wait changes while it runs",
+  async () => {
+    const seats: TableRequest["seats"] = [
+      { kind: "human", name: "Ada" },
+      { kind: "smart", name: "Rule bot 1" },
+      { kind: "random", name: "Random 1" },
+      { kind: "smart", name: "Rule bot 2" },
+    ];
+    const table: TableRequest = { setup: { player_count: 4, seed: 12 }, seats };
+    const game = { seed: 12, players: 4, humans: 1 };
+    const { transport, next, nonce } = await play(false, game, { table });
+    let event = await next();
+    // The players have the ids of the join ("a" came first), wherever the draw seated them.
+    expect(event.update.seats).toEqual({
+      a: { nickname: "Ada", kind: "human" },
+      b: { nickname: "Rule bot 1", kind: "smart" },
+      c: { nickname: "Random 1", kind: "random" },
+      d: { nickname: "Rule bot 2", kind: "smart" },
+    });
+    // With no wait the page is asked only its own decisions. The host sets a wait: from now on
+    // the page is shown the game while another seat takes its time.
+    expect(event.update.pending_choice).toBeDefined();
+    transport.capabilities.wait?.(2);
+    let waited = 0;
+    for (let asked = 0; asked < 6 && waited === 0;) {
+      if (event.update.pending_choice) {
+        asked += 1;
+        transport.submitChoice(nonce(event), event.update.pending_choice.choice.options[0].id);
+      } else {
+        waited += 1;
+        expect(event.update.seats?.a.nickname).toBe("Ada");
+      }
+      event = await next();
+    }
+    expect(waited).toBeGreaterThan(0);
+    transport.close();
+
+    // A table of an older page has no names: its game says none.
+    const old = await play(false, game, {
+      table: { ...table, seats: seats.map(({ kind }) => ({ kind })) },
+    });
+    expect((await old.next()).update.seats).toBeUndefined();
+    old.transport.close();
   },
   120_000,
 );

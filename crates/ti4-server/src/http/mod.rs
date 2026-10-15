@@ -111,6 +111,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::remove_bot_from_lobby),
         )
         .route(
+            "/api/games/{game_id}/settings",
+            axum::routing::post(games::change_running_settings),
+        )
+        .route(
             "/api/games/{game_id}/terminate",
             axum::routing::post(games::terminate_game),
         )

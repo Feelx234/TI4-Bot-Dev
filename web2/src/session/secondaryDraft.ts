@@ -6,7 +6,6 @@
 // It can be made from the moment the card is played (`secondary` of the update says when), and
 // it is sent when the game asks the seat, if the player marked it ready.
 import { stopText } from "./draft";
-import type { SaveStorage } from "./savedGame";
 import type { Choice, DraftOutcome, DraftScope, DraftStep, SecondaryFacts } from "./wire";
 
 export interface SecondaryDraft {
@@ -85,20 +84,10 @@ export const endOf = (outcome: DraftOutcome): string | null =>
 export const asksSecondary = (choice: Choice, action: SecondaryFacts): boolean =>
   choice.details?.kind === "strategy_secondary" && choice.details.card === action.card;
 
-/** The draft as it is kept between two visits. */
-export function readDraft(storage: SaveStorage, key: string): SecondaryDraft | null {
-  try {
-    const value = JSON.parse(storage.getItem(key) ?? "null");
-    return value && Array.isArray(value.answers) && typeof value.card === "string" ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-export function storeDraft(storage: SaveStorage, key: string, draft: SecondaryDraft | null): void {
-  if (draft) {
-    storage.setItem(key, JSON.stringify(draft));
-  } else {
-    storage.removeItem(key);
-  }
+/** The draft as it is kept between two visits (`SeatStore`, slot "secondary"). Null: none, or not a draft. */
+export function parseDraft(value: unknown): SecondaryDraft | null {
+  const kept = value as Partial<SecondaryDraft> | null;
+  return kept && Array.isArray(kept.answers) && typeof kept.card === "string"
+    ? (kept as SecondaryDraft)
+    : null;
 }

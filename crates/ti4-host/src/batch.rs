@@ -678,7 +678,12 @@ impl PrivateDecider {
                         .context
                         .as_ref()
                         .map(ti4_engine::decision_context::DecisionContext::without_display_fields)
-                && choice.options.iter().filter(|o| o.id == record.chosen).count() <= 1
+                && choice
+                    .options
+                    .iter()
+                    .filter(|o| o.id == record.chosen)
+                    .count()
+                    <= 1
                 && let Some(matching) = matching
             {
                 Ok(matching)
@@ -1476,7 +1481,10 @@ fn simulate_script(
     }
     let replayed = prefix.len() - covered;
     let clock = config.clock();
-    let deadline = Deadline::after(clock, u64::try_from(replay_budget(replayed).as_millis()).unwrap_or(u64::MAX));
+    let deadline = Deadline::after(
+        clock,
+        u64::try_from(replay_budget(replayed).as_millis()).unwrap_or(u64::MAX),
+    );
     let mut phase = game.state.phase;
     let mut round = game.state.round;
     let mut transitions = Vec::new();
@@ -1647,7 +1655,8 @@ mod tests {
     fn a_three_way_tie_ending_inside_a_batch_goes_to_the_first_in_initiative() {
         let players: Vec<PlayerId> = ["p1", "p2", "p3"].into_iter().map(PlayerId::new).collect();
         let (mut state, galaxy) =
-            ti4_view::map::create_game_with_map(ContentStore::embedded(), &players, 42).unwrap();
+            crate::map::create_game_with_template(ContentStore::embedded(), &players, 42, None)
+                .unwrap();
         let mut by_initiative: Vec<_> = state
             .card_initiative
             .iter()
@@ -2113,11 +2122,8 @@ mod tests {
     /// diverged" and every later batch of the game was rejected.
     #[test]
     fn prefix_replays_a_free_form_transaction_answer() {
-        let deal = offered(
-            "propose_transaction",
-            vec![ChoiceOption::decline()],
-        )
-        .accepting_free_form(ti4_engine::transactions::FREE_FORM_PREFIX);
+        let deal = offered("propose_transaction", vec![ChoiceOption::decline()])
+            .accepting_free_form(ti4_engine::transactions::FREE_FORM_PREFIX);
         let mut script = decider(BatchKind::Payment, vec![MovementStep::TradeGood]);
         script.0.lock().unwrap().prefix.push_back(DecisionRecord {
             player: deal.player.clone(),
@@ -2126,7 +2132,9 @@ mod tests {
             offered: deal.ids().iter().map(|id| (*id).to_owned()).collect(),
             context: deal.context.clone(),
         });
-        let chosen = script.choose(&deal).expect("free-form prefix answer replays");
+        let chosen = script
+            .choose(&deal)
+            .expect("free-form prefix answer replays");
         assert_eq!(chosen.id, "x;rn=cf:xxcha;");
         assert_eq!(script.0.lock().unwrap().next, 0);
     }

@@ -14,7 +14,6 @@ members = [
     "crates/ti4-tensor",
     "crates/ti4-mlp",
     "crates/ti4-review",
-    "crates/ti4-view",
     "crates/ti4-host",
     "crates/ti4-server",
     "crates/ti4-advisor",
@@ -45,7 +44,6 @@ ti4-cli = { path = "crates/ti4-cli" }
 ti4-tensor = { path = "crates/ti4-tensor" }
 ti4-mlp = { path = "crates/ti4-mlp" }
 ti4-review = { path = "crates/ti4-review", default-features = false }
-ti4-view = { path = "crates/ti4-view" }
 ti4-host = { path = "crates/ti4-host" }
 ti4-server = { path = "crates/ti4-server" }
 ti4-advisor = { path = "crates/ti4-advisor" }
@@ -56,7 +54,7 @@ xtask = { path = "crates/xtask" }
 
 # External
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 serde_stacker = "0.1"
 bincode = "2"
 sha2 = "0.10"
@@ -66,7 +64,7 @@ hex = "0.4"
 flate2 = "1"
 zstd = "0.13"
 thiserror = "2"
-tracing = "0.1"
+tracing = { version = "0.1", features = ["log"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rand = "0.9"
 rand_chacha = "0.9"
@@ -80,15 +78,14 @@ anyhow = "1"
 itertools = "0.14"
 rayon = "1.11"
 mimalloc = { version = "0.1", default-features = false }
-smallvec = "1"
+smallvec = { version = "1", features = ["const_generics", "const_new"] }
 hashbrown = "0.15"
 indexmap = "2"
-bitflags = "2"
+bitflags = { version = "2", features = ["std"] }
 enumset = "1.1.5"
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 proptest = "1.6"
-rstest = "0.26"
 eframe = { version = "=0.35.0", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
 # Keep GTK/Wayland defaults off; XDG Portal is the Linux backend and builds on WSL without GTK.
 rfd = { version = "0.17.2", default-features = false, features = ["common-controls-v6", "xdg-portal"] }

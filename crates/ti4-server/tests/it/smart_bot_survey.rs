@@ -18,16 +18,16 @@ fn config_with(id: &str, seed: u64, controllers: &[SeatController]) -> SessionCo
     let ids: Vec<PlayerId> = (1..=controllers.len())
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
-    let (state, galaxy) = ti4_server::map::create_game_with_options(
+    let (state, galaxy) = ti4_host::map::create_game_with_template_seated(
         ContentStore::embedded(),
         &ids,
         seed,
         None,
-        None,
+        &ti4_engine::seating::seat_in_scope(&ids),
         Some("te"),
     )
     .expect("create game");
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(id, state)
         .with_seed(seed)
         .with_player_ids(ids.clone())
@@ -255,30 +255,24 @@ fn opening(seats: usize, seed: u64, roster: bool, rounds: u32) -> Vec<RoundRow> 
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
     // Factions from the whole roster by seed (`+fac`), or the default in-scope seating.
-    let (mut initial, galaxy) = match ti4_server::preset::roster("explore+fac", seed, &ids) {
-        Some(assignments) if roster => ti4_server::map::create_game_with_template_seated(
-            ContentStore::embedded(),
-            &ids,
-            seed,
-            None,
-            &assignments,
-            Some("te"),
-        ),
-        _ => ti4_server::map::create_game_with_options(
-            ContentStore::embedded(),
-            &ids,
-            seed,
-            None,
-            None,
-            Some("te"),
-        ),
-    }
+    let assignments = match ti4_host::preset::roster("explore+fac", seed, &ids) {
+        Some(assignments) if roster => assignments,
+        _ => ti4_engine::seating::seat_in_scope(&ids),
+    };
+    let (mut initial, galaxy) = ti4_host::map::create_game_with_template_seated(
+        ContentStore::embedded(),
+        &ids,
+        seed,
+        None,
+        &assignments,
+        Some("te"),
+    )
     .expect("create game");
     // The speaker (first draft pick) rotates with the seed, so no seat always drafts first; only
     // this survey's tables, not the game setup.
     let speaker = usize::try_from(seed).unwrap_or(0) % seats;
     initial.speaker = ids[speaker].clone();
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(format!("opening_{seats}_{seed}"), initial.clone())
         .with_seed(seed)
         .with_player_ids(ids.clone())
@@ -619,8 +613,8 @@ fn midgame(seats: usize, seed: u64, rounds: u32) -> (Vec<MidRow>, bool, u32) {
         .map(|i| PlayerId::new(format!("p{i}")))
         .collect();
     let assignments =
-        ti4_server::preset::roster("explore+fac", seed, &ids).expect("roster assignment");
-    let (mut initial, galaxy) = ti4_server::map::create_game_with_template_seated(
+        ti4_host::preset::roster("explore+fac", seed, &ids).expect("roster assignment");
+    let (mut initial, galaxy) = ti4_host::map::create_game_with_template_seated(
         ContentStore::embedded(),
         &ids,
         seed,
@@ -631,7 +625,7 @@ fn midgame(seats: usize, seed: u64, rounds: u32) -> (Vec<MidRow>, bool, u32) {
     .expect("create game");
     let speaker = usize::try_from(seed).unwrap_or(0) % seats;
     initial.speaker = ids[speaker].clone();
-    let tiles = ti4_server::map::build_board_tiles(ContentStore::embedded(), &galaxy);
+    let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let mut config = SessionConfig::new(format!("midgame_{seats}_{seed}"), initial)
         .with_seed(seed)
         .with_player_ids(ids.clone())

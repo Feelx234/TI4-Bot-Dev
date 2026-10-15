@@ -16,6 +16,7 @@ import { plural } from "../../model";
 import { Button, Drawer, Eyebrow, Icon, Peek, cx } from "../../ui";
 import { TYPE_COLOR } from "../board/PlanetTraits";
 import { RichText, SeatSymbol, useDispatch, useSeat, useSeats } from "../context";
+import { OfferSelect } from "../OfferSelect";
 
 function Sections({ sections }: { sections: ListSectionView[] }) {
   return (
@@ -115,7 +116,7 @@ function Log({ log }: { log: ReferenceView["log"] }) {
 }
 
 /** A card as printed: the name, what it is, when it is used and the text. Dense, with the frame of a card. */
-function PrintedCard({
+export function PrintedCard({
   name,
   kind,
   window,
@@ -218,23 +219,7 @@ function ActionCards({ view }: { view: ActionCardsView }) {
               }
               window={card.window}
               text={card.text}
-              aside={
-                card.never !== null && (
-                  <Button
-                    size="sm"
-                    tone="quiet"
-                    active={card.never}
-                    aria-pressed={card.never}
-                    aria-label={`Never offer ${card.name}`}
-                    title="A window that offers only cards that are never offered is passed without a question"
-                    onClick={() =>
-                      dispatch({ type: "setCardOffer", card: card.name, never: !card.never })
-                    }
-                  >
-                    {card.never ? "Never offered" : "Offered"}
-                  </Button>
-                )
-              }
+              aside={card.offer && <OfferSelect offer={card.offer} />}
             />
           </article>
         ))}
@@ -823,7 +808,14 @@ function ComponentCards({ title, cards }: { title: string; cards: ComponentCardV
             kind={card.kind}
             window={card.window}
             text={card.text}
-            aside={card.state && STATES[card.state]}
+            aside={
+              (card.state || card.offer) && (
+                <span className="flex items-center gap-2.5">
+                  {card.state && STATES[card.state]}
+                  {card.offer && <OfferSelect offer={card.offer} />}
+                </span>
+              )
+            }
           >
             {card.unlock && (
               <div className="mt-0.5 text-xs">
@@ -897,6 +889,18 @@ export function ReferenceDrawer({
         <ComponentCards title="Faction abilities" cards={player.abilities} />
         <ComponentCards title="Leaders" cards={player.leaders} />
         <ComponentCards title="Action components" cards={player.components} />
+        {!!player.muted?.length && (
+          <section aria-label="Other reactions">
+            <h3 className="mt-3.5 text-muted">
+              <Eyebrow>Other reactions</Eyebrow>
+            </h3>
+            {player.muted.map((offer) => (
+              <article key={offer.key} aria-label={offer.name}>
+                <PrintedCard name={offer.name} aside={<OfferSelect offer={offer} />} />
+              </article>
+            ))}
+          </section>
+        )}
         <Sections sections={playerSections(player)} />
       </Drawer>
     );

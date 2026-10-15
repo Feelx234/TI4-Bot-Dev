@@ -23,11 +23,12 @@ fn start_error(setup: &Value) -> String {
 }
 
 #[test]
-fn the_form_is_offered_cards_factions_maps_and_bots_for_three_to_six() {
+fn the_form_is_offered_cards_factions_maps_and_bots_of_the_table_setup() {
     let _serial = crate::common::serial();
     let form = query(&json!({ "query": "describe" })).unwrap();
-    assert_eq!(form["min_players"], 3);
-    assert_eq!(form["max_players"], 6);
+    // The options of `ti4_host::setup`, as the server and web2 have them.
+    assert_eq!(form["min_players"], *ti4_host::setup::PLAYER_COUNTS.start());
+    assert_eq!(form["max_players"], *ti4_host::setup::PLAYER_COUNTS.end());
     let sets = form["strategy_card_sets"].as_array().unwrap();
     assert_eq!(sets.len(), 3);
     assert_eq!(sets.iter().filter(|set| set["default"] == true).count(), 1);
@@ -42,7 +43,9 @@ fn the_form_is_offered_cards_factions_maps_and_bots_for_three_to_six() {
             .iter()
             .all(|g| !g["factions"].as_array().unwrap().is_empty())
     );
-    assert_eq!(form["bot_kinds"].as_array().unwrap().len(), 2);
+    let kinds = form["bot_kinds"].as_array().unwrap();
+    assert_eq!(kinds.len(), 2);
+    assert_eq!(kinds[0]["id"], ti4_host::setup::bot_kind::RULE);
     for count in 3..=6 {
         let maps = form["maps"][count.to_string()].as_array().unwrap();
         assert!(!maps.is_empty(), "maps for {count}");
@@ -51,7 +54,7 @@ fn the_form_is_offered_cards_factions_maps_and_bots_for_three_to_six() {
             "a recommended map for {count}"
         );
     }
-    assert!(form["maps"].get("7").is_none());
+    assert!(form["maps"].get("8").is_some());
     assert!(form["presets"].as_array().unwrap().len() > 5);
     assert!(form["content_digest"].as_str().unwrap().len() > 10);
 }
@@ -75,8 +78,8 @@ fn a_map_is_pictured_for_the_form_with_a_place_for_each_seat() {
 fn a_table_the_host_does_not_offer_is_refused_with_a_reason() {
     let _serial = crate::common::serial();
     for (setup, wanted) in [
-        (json!({ "seed": 1, "players": 2 }), "3 to 6"),
-        (json!({ "seed": 1, "players": 7 }), "3 to 6"),
+        (json!({ "seed": 1, "players": 1 }), "player_count"),
+        (json!({ "seed": 1, "players": 9 }), "player_count"),
         (
             json!({ "seed": 1, "players": 4, "human_seat": 4 }),
             "seat 4",
@@ -89,7 +92,11 @@ fn a_table_the_host_does_not_offer_is_refused_with_a_reason() {
             json!({ "seed": 1, "players": 4, "card_set": "nope" }),
             "strategy_card_set",
         ),
-        (json!({ "seed": 1, "players": 4, "bots": "smart" }), "bots"),
+        (json!({ "seed": 1, "players": 4, "bots": "nope" }), "nope"),
+        (
+            json!({ "seed": 1, "players": 4, "preset": "nope" }),
+            "start_preset",
+        ),
         (
             json!({ "seed": 1, "players": 4, "map": "no-such-map" }),
             "map",

@@ -66,6 +66,29 @@ it("shows eight seats with different marks, in seat order", () => {
   ]);
 });
 
+it("a seat has the name of its player, and the sign of a seat that no person plays", () => {
+  // A game with no table has no names: the letter of the seat tells the seats apart.
+  expect(selectShell(menu, local()).seats.a).toMatchObject({ name: "Seat A" });
+  expect(selectShell(menu, local()).seats.a.played).toBeUndefined();
+  const seats = selectShell(
+    {
+      ...menu,
+      seats: {
+        a: { nickname: "Ada", kind: "human" },
+        b: { nickname: "Rule bot 1", kind: "smart" },
+        c: { nickname: "Random bot 1", kind: "random" },
+      },
+    },
+    local(),
+  ).seats;
+  expect(seats.a).toMatchObject({ name: "Ada", faction: "Sol" });
+  expect(seats.a.played).toBeUndefined();
+  expect(seats.b).toMatchObject({ name: "Rule bot 1", played: { kind: "rule" } });
+  expect(seats.c).toMatchObject({ name: "Random bot 1", played: { kind: "random" } });
+  // A seat that the table does not name keeps its letter.
+  expect(seats.d.name).toBe("Seat D");
+});
+
 it("counts what the planets of a seat give, ready and total", () => {
   const row = selectShell(menu, local()).players.rows[0];
   const values = new Map(

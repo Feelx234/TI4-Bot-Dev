@@ -513,3 +513,88 @@ it("the player of a kept session is asked from the server", async () => {
   await expect(playerOf("g1", "secret", answer(true))).resolves.toBe("ada");
   await expect(playerOf("g1", "secret", answer(false))).resolves.toBeNull();
 });
+
+it("the faction of a seat is a call of the lobby, and a faction of another seat is refused", async () => {
+  const game = server(SEAT, {
+    "/seat-faction": { status: 409, body: "Hacan is already taken by Bo" },
+  });
+  game.open();
+  game.push(lobby(1));
+  await settle();
+  game.take();
+  game.table.setFaction("p1", "hacan");
+  await settle();
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/lobby/seat-faction",
+    session: "secret",
+    body: { player_id: "p1", faction: "hacan" },
+  });
+  expect(game.take()).toEqual([{ kind: "rejected", reason: "Hacan is already taken by Bo" }]);
+  // Back to the draw of the start.
+  game.table.setFaction("bot1", null);
+  await settle();
+  expect(game.calls.at(-1)?.body).toEqual({ player_id: "bot1", faction: null });
+});
+
+it("a visitor takes the seat of a person who is away, with no player session", async () => {
+  const running = lobby(3, { phase: "running" });
+  const game = server(null, {
+    "/join": {
+      status: 200,
+      body: { player_session: "fresh", player: { id: "bo" }, lobby: running },
+    },
+  });
+  game.open();
+  game.push(lobby(2, { phase: "running" }));
+  await settle();
+  game.take();
+  await expect(game.table.takeOver("bo", "Bo")).resolves.toEqual({
+    playerId: "bo",
+    playerSession: "fresh",
+  });
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/lobby/join",
+    session: null,
+    body: { kind: "takeover", player_id: "bo", nickname: "Bo" },
+  });
+  game.answers["/join"] = { status: 409, body: "Takeover is unavailable" };
+  game.take();
+  await expect(game.table.takeOver("bo", "Bo")).resolves.toBeNull();
+  expect(game.take()).toEqual([{ kind: "rejected", reason: "Takeover is unavailable" }]);
+});
+
+it("the wait of a running game is a call of the game, and nothing else of its setup is sent", async () => {
+  const game = server(SEAT, {
+    "/api/games/g1/settings": {
+      status: 200,
+      body: lobby(3, { phase: "running", bot_delay_ms: 1500 }),
+    },
+  });
+  game.open();
+  game.push(lobby(2, { phase: "running" }));
+  await settle();
+  game.take();
+  game.table.setSettings({ waitMs: 1500, players: 5 });
+  await settle();
+  expect(game.calls.at(-1)).toMatchObject({
+    url: "/api/games/g1/settings",
+    method: "POST",
+    session: "secret",
+    body: { bot_delay_ms: 1500 },
+  });
+  expect(game.take()).toMatchObject([
+    { kind: "table", lobby: { phase: "running", bot_delay_ms: 1500 } },
+  ]);
+});
+
+it("a running table has its board too", async () => {
+  const preview = { player_count: 2, tiles: [], seats: [] };
+  const game = server(null, { "/map-preview": { status: 200, body: preview } });
+  game.open();
+  game.push(lobby(2, { phase: "running" }));
+  await settle();
+  expect(game.take()).toMatchObject([
+    { kind: "table", preview: null },
+    { kind: "table", preview },
+  ]);
+});
