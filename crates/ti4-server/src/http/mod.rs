@@ -107,6 +107,10 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
             axum::routing::post(games::set_lobby_seat_faction),
         )
         .route(
+            "/api/games/{game_id}/lobby/shuffle-seats",
+            axum::routing::post(games::shuffle_lobby_seats),
+        )
+        .route(
             "/api/games/{game_id}/lobby/remove-bot",
             axum::routing::post(games::remove_bot_from_lobby),
         )
@@ -137,7 +141,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
         )
         .route("/api/games/{game_id}/replay", get(games::get_replay))
         .route("/api/games/{game_id}/map", get(games::get_map))
-        .route("/api/content/catalog", get(content::get_catalog))
+        .route("/api/catalog", get(content::get_catalog))
         .route(
             "/api/access",
             get(crate::public::get_access).post(crate::public::post_access),
@@ -155,10 +159,7 @@ pub fn create_app(registry: Arc<GameRegistry>) -> Router {
     if !is_public {
         router = router
             .route("/api/dev/scenarios", get(crate::dev::list_scenarios))
-            .route(
-                "/api/dev/scenarios/launch",
-                post(crate::dev::launch_scenario),
-            );
+            .route("/api/dev/scenarios/launch", post(crate::dev::post_launch));
     }
     if serves_web {
         router = router.fallback(spa_fallback);

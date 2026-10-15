@@ -50,7 +50,7 @@ impl Server {
         let created: Value = self
             .client
             .post(self.url("/api/games"))
-            .json(&json!({"player_count": players, "seed": 42, "nickname": "Host", "seat_order": "join"}))
+            .json(&json!({"player_count": players, "seed": 42, "nickname": "Host"}))
             .send()
             .await
             .unwrap()

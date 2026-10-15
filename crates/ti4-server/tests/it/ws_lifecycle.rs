@@ -139,7 +139,7 @@ async fn create_game(
     let response = client
         .post(format!("http://{addr}/api/games"))
         .json(
-            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host", "seat_order": "join" }),
+            &serde_json::json!({ "player_count": players.len(), "seed": seed, "nickname": "Host" }),
         )
         .send()
         .await
@@ -359,10 +359,7 @@ async fn websocket_full_lifecycle_and_rejections() {
                 ServerMessage::PendingChoice(p) => {
                     break (p.nonce, p.game_version, p.choice.options[0].id.clone());
                 }
-                ServerMessage::Event(_)
-                | ServerMessage::StateUpdate(_)
-                | ServerMessage::PlanningStatus(_)
-                | ServerMessage::PlanningUpdate(_) => continue,
+                ServerMessage::Event(_) | ServerMessage::StateUpdate(_) => continue,
                 other => panic!("Expected PendingChoice, got {other:?}"),
             }
         }

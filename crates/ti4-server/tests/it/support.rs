@@ -15,9 +15,9 @@ use ti4_engine::choice::{
     Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, SeededRandom, Table,
 };
 use ti4_engine::game::Game;
+use ti4_host::rng_force::{RngForce, RngMarks};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::session::{RngForce, RngMarks};
 use ti4_server::storage::{GameHistory, GameInitRecord};
 
 /// A game's initial position and the decisions recorded for it.
@@ -275,7 +275,7 @@ pub fn strictly_replayable(source: &Source) -> bool {
     let mut config = ti4_server::session::SessionConfig::new("strict", source.state.clone())
         .with_galaxy(source.galaxy.clone(), Vec::new());
     config.rng_marks = source.marks.clone();
-    ti4_server::session::batch::replay_boundary_state(&config, &source.records).is_ok()
+    ti4_host::batch::replay_boundary_state(&config, &source.records).is_ok()
 }
 
 /// [`saved_games`] restricted to the ones [`strictly_replayable`] accepts.

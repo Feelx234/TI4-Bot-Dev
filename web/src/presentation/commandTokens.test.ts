@@ -28,6 +28,7 @@ const poolOptions = ["tactic_tokens", "fleet_tokens", "strategic_tokens"].map((i
   id,
   kind: "pool",
   label: id,
+  payload: {},
 }));
 const gain = (toPlace = 2) => ({
   options: poolOptions,
@@ -40,7 +41,7 @@ const gain = (toPlace = 2) => ({
   },
 });
 const redistribute = (arrangements = ["3|4|2", "2|5|2", "4|4|1", "9|0|0"]) => ({
-  options: arrangements.map((id) => ({ id, kind: "redistribute", label: id })),
+  options: arrangements.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
   details: {
     kind: "command_tokens",
     mode: "redistribute",
@@ -181,8 +182,8 @@ const gainBuy = (toPlace = 3, purchase = purchaseDetails()) => ({
 });
 const buyQuestion = (purchase = purchaseDetails()) => ({
   options: [
-    { id: "no", kind: "strategy", label: "spend nothing further" },
-    { id: "yes", kind: "strategy", label: "spend 3 influence" },
+    { id: "no", kind: "strategy", label: "spend nothing further", payload: {} },
+    { id: "yes", kind: "strategy", label: "spend 3 influence", payload: {} },
   ],
   details: {
     kind: "command_tokens",
@@ -412,7 +413,7 @@ describe("payment override", () => {
 describe("restack (Predictive Intelligence)", () => {
   const moveIds = ["tactic|fleet", "tactic|strategy", "fleet|tactic", "fleet|strategy", "strategy|tactic", "strategy|fleet", "done"];
   const restack = () => ({
-    options: moveIds.map((id) => ({ id, kind: id === "done" ? "decline" : "redistribute", label: id })),
+    options: moveIds.map((id) => ({ id, kind: id === "done" ? "decline" : "redistribute", label: id, payload: {} })),
     details: {
       kind: "command_tokens",
       mode: "restack",
@@ -431,7 +432,7 @@ describe("restack (Predictive Intelligence)", () => {
   });
 
   it("is not offered without any move option", () => {
-    const none = { ...restack(), options: [{ id: "done", kind: "decline", label: "done" }] };
+    const none = { ...restack(), options: [{ id: "done", kind: "decline", label: "done", payload: {} }] };
     expect(describeCommandTokens(none, true)).toBeNull();
   });
 

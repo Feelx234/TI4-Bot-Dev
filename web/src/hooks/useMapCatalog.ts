@@ -1,6 +1,6 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { decodeMapList, decodeMapPreview } from "../protocol/mapDecode.ts";
+import { decodeMapList, decodeMapPreview } from "@ti4/shared/wire/decode.ts";
 import type { MapChoice, MapPreviewDto, MapTemplateSummary } from "../protocol/types.ts";
 
 export type Loadable<T> =

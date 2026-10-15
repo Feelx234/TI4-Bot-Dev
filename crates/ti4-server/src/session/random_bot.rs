@@ -9,10 +9,12 @@
 //! legal answers, so a pick among the options is the same behaviour one level down. The
 //! harness's special cases that the option list still needs are mirrored in [`weight`].
 //!
-//! Determinism: every pick is seeded from (game seed, seat id, decision index), where the
-//! decision index is the number of decisions answered before this one in the whole game
+//! Determinism: every pick is seeded from (game seed, seat place, decision index), where the seat
+//! place is the index of the seat in the seat order of the game (`GameState::players`, from 0)
+//! and the decision index is the number of decisions answered before this one in the whole game
 //! (replayed ones included). The same position therefore gets the same answer, in the same
-//! process or after a restart. A bot only ever *produces* new decisions; a replay or recovery
+//! process or after a restart, and the same table of a seed is the same game in the page: the ids
+//! of the seats (random on the server) play no part. A bot only ever *produces* new decisions; a replay or recovery
 //! feeds the recorded answers through the replaying layer above this decider and never reaches it.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -22,7 +24,6 @@ use std::time::Duration;
 use rand::Rng;
 use rand_chacha::ChaCha8Rng;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice, SeatObservation};
-use ti4_model::id::PlayerId;
 
 use crate::session::worker::SessionShared;
 
@@ -90,10 +91,11 @@ impl Decider for CountingDecider {
 }
 
 /// The decider of a `BotRandom` seat, and (with [`RandomBotDecider::smart`]) of a `BotSmart`
-/// seat, which consults [`crate::session::smart_bot::pick`] before falling back to the random
+/// seat, which consults [`ti4_rule_bot::pick`] before falling back to the random
 /// pick.
 pub struct RandomBotDecider {
-    seat: PlayerId,
+    /// The place of the seat in the seat order of the game, from 0.
+    place: usize,
     game_seed: u64,
     counter: DecisionCounter,
     shared: Arc<Mutex<SessionShared>>,
@@ -103,13 +105,13 @@ pub struct RandomBotDecider {
 impl RandomBotDecider {
     #[must_use]
     pub fn new(
-        seat: PlayerId,
+        place: usize,
         game_seed: u64,
         counter: DecisionCounter,
         shared: Arc<Mutex<SessionShared>>,
     ) -> Self {
         Self {
-            seat,
+            place,
             game_seed,
             counter,
             shared,
@@ -198,7 +200,7 @@ impl RandomBotDecider {
         let index = self.counter.load(Ordering::SeqCst);
         let seen = if self.smart { seen } else { None };
         let (picked, mut rng) =
-            ti4_rule_bot::choose(choice, seen, self.game_seed, &self.seat, index);
+            ti4_rule_bot::choose(choice, seen, self.game_seed, self.place, index);
         self.shared.lock().expect("shared lock").bot_deciding = true;
         // `release` clears `bot_deciding` under the same lock that checks the pause, so a
         // history change sees either a bot still holding its answer or the answer in the game.
@@ -238,6 +240,7 @@ mod tests {
     use std::time::Instant;
 
     use ti4_engine::decision_context::{DecisionContext, DecisionSource};
+    use ti4_model::id::PlayerId;
     use ti4_model::state::Phase;
 
     use super::*;
@@ -247,9 +250,8 @@ mod tests {
             SessionShared::new("wait".to_owned(), crate::fixtures::create_sample_game());
         shared.bot_delay_ms = delay_ms;
         let shared = Arc::new(Mutex::new(shared));
-        let seat = PlayerId::new("p1");
         (
-            RandomBotDecider::new(seat, 7, Arc::new(AtomicUsize::new(0)), shared.clone()),
+            RandomBotDecider::new(0, 7, Arc::new(AtomicUsize::new(0)), shared.clone()),
             shared,
         )
     }

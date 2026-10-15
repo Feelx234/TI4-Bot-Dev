@@ -2,8 +2,10 @@
 //! same game in the wasm host (single player of web2) and on the server.
 //!
 //! Both start the table with `ti4_host::setup`, and a seat that no person plays decides from the
-//! seed, its id and the number of the decision (`ti4_rule_bot::choose`). This test holds the two
-//! deciders together: the wasm host counts the decisions in its own way.
+//! seed, its place in the seat order and the number of the decision (`ti4_rule_bot::choose`).
+//! This test holds the two deciders together: the wasm host counts the decisions in its own way.
+//! The ids of the players are not the same on the two hosts (the page has letters, the server
+//! makes random ones), and the game does not depend on them.
 //!
 //! A saved game is the same on both too: the option id of every decision, of every seat, in
 //! order. The wasm host plays the log of the server again (`resume.log` of `ti4_host_start`).
@@ -59,20 +61,21 @@ fn in_the_page(setup: &TableSetup, seats: &Seats, saved: &[DecisionRecord]) -> V
 }
 
 /// The table on the server, until `decisions` decisions are made or the game is over. The ids
-/// of the players are those of the wasm host: the player who came as number `i` is the letter
-/// `i`.
+/// of the players are not those of the wasm host, and they sort in the other order than the
+/// seats: the decisions are given back with the id of each player as the page has it (the
+/// player of seat `i` is the letter `i`).
 fn on_the_server(setup: &TableSetup, seats: &Seats, decisions: usize) -> Vec<DecisionRecord> {
     let content = ContentStore::embedded();
-    let joined: Vec<PlayerId> = ["a", "b", "c", "d", "e", "f", "g", "h"][..seats.len()]
-        .iter()
-        .map(|name| PlayerId::new(*name))
+    let joined: Vec<PlayerId> = (0..seats.len())
+        .map(|seat| PlayerId::new(format!("player_{:x}", 0xffff - seat * 0x1111)))
         .collect();
+    let letters = ["a", "b", "c", "d", "e", "f", "g", "h"];
     let chosen: Vec<Option<String>> = seats
         .iter()
         .map(|(_, faction)| faction.map(str::to_owned))
         .collect();
     let drawn = setup::draw(setup, &chosen).expect("the table is drawn");
-    let players = drawn.seated(&joined);
+    let players = joined.clone();
     let (state, galaxy) = setup::create(content, setup, &players, &drawn).expect("the game");
     let tiles = ti4_host::map::build_board_tiles(content, &galaxy);
     let mut config = SessionConfig::new("both_hosts", state)
@@ -80,7 +83,7 @@ fn on_the_server(setup: &TableSetup, seats: &Seats, decisions: usize) -> Vec<Dec
         .with_player_ids(players)
         .with_galaxy(galaxy, tiles)
         .with_random_bot_delay_ms(0);
-    for (player, (kind, _)) in joined.into_iter().zip(seats) {
+    for (player, (kind, _)) in joined.iter().cloned().zip(seats) {
         let controller = match *kind {
             setup::bot_kind::RULE => SeatController::BotSmart,
             setup::bot_kind::RANDOM => SeatController::BotRandom,
@@ -106,7 +109,17 @@ fn on_the_server(setup: &TableSetup, seats: &Seats, decisions: usize) -> Vec<Dec
         std::thread::sleep(Duration::from_millis(10));
     }
     session.stop();
-    session.decision_log()
+    session
+        .decision_log()
+        .iter()
+        .map(|record| {
+            let mut text = serde_json::to_string(record).expect("a record");
+            for (player, letter) in joined.iter().zip(letters) {
+                text = text.replace(player.as_str(), letter);
+            }
+            serde_json::from_str(&text).expect("a record")
+        })
+        .collect()
 }
 
 #[test]
@@ -202,8 +215,8 @@ fn the_table_of_web_is_the_table_of_the_server() {
             .map(|name| PlayerId::new(*name))
             .collect();
         let drawn = setup::draw(&table, &chosen).expect("the table is drawn");
-        let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)
-            .expect("the server builds the table");
+        let (state, galaxy) =
+            setup::create(content, &table, &joined, &drawn).expect("the server builds the table");
         // The game of a session places what the galaxy gives (frontier tokens, faction marks).
         let game = ti4_engine::game::Game::with_seeded_random(state, content, table.game_seed())
             .with_sources(ti4_model::content_types::POK)

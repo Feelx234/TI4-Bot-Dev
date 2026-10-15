@@ -35,6 +35,7 @@ pub const PRODUCTION_SUBTYPE: &str = "produce_unit";
 /// How many ships of the seat can move to one system, if it is activated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReachFact {
     pub system: String,
     pub ships: usize,
@@ -57,6 +58,7 @@ fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
 /// How a ship gets to the active system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MoveFact {
     /// The move uses Gravity Drive: the ship cannot arrive without it.
     pub gravity_drive: bool,
@@ -71,6 +73,7 @@ pub struct MoveFact {
 /// Why a ship cannot move to the active system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Blocked {
     /// The system of the ship has a command token of the seat.
     CommandToken,
@@ -81,6 +84,7 @@ pub enum Blocked {
 /// One ship of the seat outside the active system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ShipFact {
     pub origin: String,
     /// The place of the ship among the units of the seat in the space area of `origin`.
@@ -108,6 +112,7 @@ pub struct ShipFact {
 /// Units of one kind in one place that a ship can load.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CargoPool {
     pub system: String,
     /// The planet, or `None` for the space area.
@@ -121,6 +126,7 @@ pub struct CargoPool {
 /// What the seat may keep in the active system (fleet supply).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct FleetSupplyFact {
     pub limit: i64,
     pub charged: i64,
@@ -128,6 +134,7 @@ pub struct FleetSupplyFact {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActivationFacts {
     pub tactic_tokens: i32,
     pub systems: Vec<ReachFact>,
@@ -135,6 +142,7 @@ pub struct ActivationFacts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MovementFacts {
     pub active: String,
     pub ships: Vec<ShipFact>,
@@ -157,12 +165,16 @@ pub struct MovementFacts {
 /// fire SPACE CANNON in that system before the combat. The shape of a side of `ti4_calc`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CombatSide {
     pub faction: String,
+    /// The ships of the side in the active system.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub units: BTreeMap<String, usize>,
+    /// How many of them are damaged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub damaged: BTreeMap<String, usize>,
+    /// The units of the side that fire SPACE CANNON in the active system before the combat.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub guns: BTreeMap<String, usize>,
 }
@@ -171,8 +183,11 @@ pub struct CombatSide {
 /// is the seat that moves; the ships it moves in are added by the client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BattleFacts {
+    /// The seat that defends.
     pub defender: String,
+    /// The seat that moves, with what it has there already.
     pub attacker: CombatSide,
     pub defender_side: CombatSide,
 }
@@ -180,6 +195,7 @@ pub struct BattleFacts {
 /// Ground forces of one kind in one place that the seat can land.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LandingPool {
     pub unit: String,
     pub damaged: bool,
@@ -195,6 +211,7 @@ pub struct LandingPool {
 /// One planet of the active system.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LandingPlanet {
     pub planet: String,
     /// What can land here: places in [`InvasionFacts::forces`]. Empty when nothing can.
@@ -204,6 +221,7 @@ pub struct LandingPlanet {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InvasionFacts {
     pub active: String,
     pub forces: Vec<LandingPool>,
@@ -211,9 +229,10 @@ pub struct InvasionFacts {
     pub planets: Vec<LandingPlanet>,
 }
 
-/// One kind of unit that the seat can produce now.
+/// One kind of unit of a production, also one that the seat cannot produce now (`unavailable`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct BuildFact {
     pub unit: String,
     /// The printed cost of one purchase, before a discount.
@@ -255,6 +274,7 @@ pub struct BuildFact {
 /// The combat value of a unit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CombatFact {
     pub hits_on: i64,
     pub dice: i64,
@@ -263,6 +283,7 @@ pub struct CombatFact {
 /// Why a unit cannot be produced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Unavailable {
     /// The seat does not have the technology that the unit needs.
     Technology,
@@ -279,6 +300,7 @@ pub enum Unavailable {
 /// A planet that can pay resources, with what it is worth to the seat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PayingPlanet {
     pub planet: String,
     pub worth: i64,
@@ -287,6 +309,7 @@ pub struct PayingPlanet {
 /// A limit and what already counts against it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct LimitFact {
     pub limit: i64,
     pub used: i64,
@@ -294,6 +317,7 @@ pub struct LimitFact {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProductionFacts {
     /// The system that produces.
     pub system: String,
@@ -320,6 +344,7 @@ pub struct ProductionFacts {
 /// The facts of the pending choice of a tactical action.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TacticalFacts {
     Activation(ActivationFacts),
     Movement(MovementFacts),

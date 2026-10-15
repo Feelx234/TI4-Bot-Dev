@@ -14,6 +14,7 @@ use crate::protocol::status::ViewerRole;
 /// The action cards as every player at the table sees them, and the hand limit of the viewer.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActionCardFacts {
     /// How many cards the deck still holds. Which cards is hidden.
     pub deck: usize,

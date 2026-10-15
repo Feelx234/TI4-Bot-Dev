@@ -15,16 +15,15 @@
 //! it refuses to answer any more questions, but it cannot undo earlier changes.
 //! A planning copy must never replace the live game. This code also does not stop
 //! the engine from rolling dice or revealing hidden information. The [`audit`]
-//! module has the checks of that publication boundary; the server's planning
-//! runner and [`draft`] put them around these adapters and an ordinary
-//! disposable engine fork.
+//! module has the checks of that publication boundary; [`draft`] puts them
+//! around these adapters and an ordinary disposable engine fork.
 
 pub mod audit;
 pub mod draft;
 pub mod fork;
+pub mod script;
 pub mod steps;
 pub mod undo;
-pub mod wire;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};

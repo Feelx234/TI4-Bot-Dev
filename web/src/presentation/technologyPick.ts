@@ -1,4 +1,4 @@
-import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import { TECH_TRACKS, getTechnologyTrack, hydrateTech, type PrereqSymbol } from "./technologyData.ts";
 
 const TECH_PICK = /_pick_technology$/;
@@ -29,7 +29,7 @@ export function splitTechnologyOptionId(id: string): { owner: string | null; tec
 /** One technology option as the card prints it. `null` for options that are not technologies. */
 export function describeTechnologyPickOption(
   choice: Pick<PendingChoiceDto, "context">,
-  option: Pick<ChoiceOptionDto, "id" | "kind">,
+  option: Pick<ChoiceOption, "id" | "kind">,
 ): TechnologyPickOption | null {
   if (!isTechnologyPick(choice) || option.kind !== "technology") return null;
   const { owner, technology } = splitTechnologyOptionId(option.id);

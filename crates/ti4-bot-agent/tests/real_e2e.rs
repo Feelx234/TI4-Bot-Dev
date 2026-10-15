@@ -168,7 +168,7 @@ async fn exercise_game_prefix(
     let client = reqwest::Client::new();
     let created = client
         .post(format!("{http_base}/api/games"))
-        .json(&serde_json::json!({ "player_count": 3, "seed": 4_242, "nickname": "Host", "seat_order": "join" }))
+        .json(&serde_json::json!({ "player_count": 3, "seed": 4_242, "nickname": "Host" }))
         .send()
         .await
         .map_err(|error| error.to_string())?

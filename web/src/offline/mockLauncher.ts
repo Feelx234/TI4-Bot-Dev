@@ -35,6 +35,8 @@ export interface MockOptions {
   noMaps?: boolean;
   /** How the picker's data behaves: answers (default), never answers, fails, or has no layout. */
   mapsState?: "ready" | "loading" | "error" | "empty";
+  /** Saved games of an older version (not listed, only deleted). */
+  unreadable?: number;
   /** A resume asks this question first (a saved game of another engine). */
   mismatch?: OfflineMismatchPrompt;
 }
@@ -45,6 +47,7 @@ export interface MockOptions {
  */
 export function createMockLauncher(options: MockOptions = {}): OfflineLauncher {
   let games = [...(options.games ?? [])];
+  let unreadable = options.unreadable ?? 0;
   let items: QueuedFeedbackItem[] = (options.feedback ?? []).map((f, i) => ({
     localId: `fb_local_${i}`,
     state: f.state,
@@ -106,7 +109,8 @@ export function createMockLauncher(options: MockOptions = {}): OfflineLauncher {
       games = [
         {
           gameId, playerCount: setup.playerCount, humanFaction: setup.humanFaction,
-          humanSeat: setup.humanSeat ?? 1, round: 1, phase: "strategy", answers: 0,
+          humanSeat: setup.humanSeat ?? 1,
+          humanSeats: [setup.humanSeat ?? 1], factions: [], playable: true, round: 1, phase: "strategy", answers: 0,
           createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000, status: "in_progress",
           resumeEstimateMs: 1000,
         },
@@ -138,12 +142,19 @@ export function createMockLauncher(options: MockOptions = {}): OfflineLauncher {
         persistence: options.storageWarning ? "memory" : "indexeddb",
         warning: options.storageWarning ?? null,
         persisted: options.storageWarning ? null : true,
+        unreadable,
       }),
       subscribe: () => () => undefined,
+      removeUnreadable: async () => {
+        const removed = unreadable;
+        unreadable = 0;
+        return removed;
+      },
       importGame: async () => {
         games = [
           {
             gameId: `off_imported_${games.length + 1}`, playerCount: 4, humanFaction: "sol", humanSeat: 1,
+            humanSeats: [1], factions: ["sol", null, null, null], playable: true,
             round: 2, phase: "action", answers: 60, createdAt: Date.now() / 1000, updatedAt: Date.now() / 1000,
             status: "in_progress", resumeEstimateMs: 700,
           },

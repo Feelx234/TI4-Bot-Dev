@@ -133,7 +133,8 @@ say "Building the web client ($COMMIT)"
 if command -v rustup >/dev/null 2>&1; then
   rustup target add wasm32-unknown-unknown   # rust-toolchain.toml lists it; this makes it explicit
 fi
-# web/scripts/build-wasm.mjs (`npm run build:wasm`) builds crates/ti4-wasm and copies the engine to
+# web/scripts/build-wasm.mjs (`npm run build:wasm`) runs the shared build of both apps,
+# web-shared/scripts/build-wasm.mjs: it builds crates/ti4-wasm and copies the engine to
 # web/src/offline/local/engine/, where vite finds it. `npm run build` runs it as its `prebuild`
 # hook. TI4_REQUIRE_WASM=1 turns "cargo or the wasm32 target is missing" into an error: without it
 # the script only warns and the release would silently have no "Play offline".

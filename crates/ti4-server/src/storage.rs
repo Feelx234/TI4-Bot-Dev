@@ -18,8 +18,9 @@ use ti4_model::state::GameState;
 use ti4_host::protocol::server::GameEvent;
 use ti4_host::protocol::view::BoardTileView;
 
-use crate::session::replay::{replay_session, replay_session_forced};
 use crate::session::{GameSession, SeatController, SessionConfig};
+use ti4_host::batch::BatchRecord;
+use ti4_host::replay::{replay_session, replay_session_forced};
 
 /// Errors encountered during game persistence or recovery.
 #[derive(Debug, Error)]
@@ -31,7 +32,7 @@ pub enum StorageError {
     #[error("Replay error during recovery of game '{game_id}': {source}")]
     Replay {
         game_id: String,
-        source: crate::session::replay::ReplayError,
+        source: ti4_host::replay::ReplayError,
     },
     #[error("Game '{0}' not found in storage")]
     NotFound(String),
@@ -243,14 +244,20 @@ pub struct PlayerLobbyRecord {
     /// seat). Absent means random; the drawn speaker itself is saved in the init record's state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker_order: Option<String>,
-    /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new seat
-    /// order) so clients know to refetch the preview.
+    /// Bumped whenever the map the table will get changes (a new choice, a re-roll, a new count)
+    /// so clients know to refetch the preview.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub map_revision: u64,
-    /// How the seats are given at Start: `"random"` (drawn from the seed) or `"join"` (the order
-    /// in which the players came). Absent means random. See [`crate::session::table`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub seat_order: Option<String>,
+    /// The seat order (`"random"` or `"join"`) of a record written before 2026-10-15. Nothing
+    /// reads it: a table seats its players in the order of its slots. It is kept only so that
+    /// such a record serializes back to the bytes its checksum was made over; it is never set for
+    /// a new table and is not written when absent.
+    #[serde(
+        default,
+        rename = "seat_order",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_seat_order: Option<String>,
     /// The wait before each answer of a seat that the server plays, in milliseconds. Absent: the
     /// value of the process (`TI4_RANDOM_BOT_DELAY_MS`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -409,22 +416,12 @@ pub struct GameHistory {
     #[serde(default)]
     pub batches: Vec<BatchRecord>,
     /// Forced random stream positions by decision index; present only on a timeline made by a
-    /// turn redo (see `session::rng_force`). Absent in every older save.
-    #[serde(default, skip_serializing_if = "crate::session::RngMarks::is_empty")]
-    pub rng_marks: crate::session::RngMarks,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BatchRecord {
-    pub request_id: String,
-    pub batch_id: String,
-    pub actor: PlayerId,
-    pub start_cursor: usize,
-    pub end_cursor: usize,
-    /// Set when the batch stopped at a reaction window; answers a repeated request the same way.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub interrupted: Option<crate::session::batch::BatchInterruption>,
+    /// turn redo (see `ti4_host::rng_force`). Absent in every older save.
+    #[serde(
+        default,
+        skip_serializing_if = "ti4_host::rng_force::RngMarks::is_empty"
+    )]
+    pub rng_marks: ti4_host::rng_force::RngMarks,
 }
 
 /// Per-seat "never offer" choices, saved beside the decision log in `reaction_modes.json`.
@@ -450,7 +447,7 @@ pub struct ReactionModesRecord {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StagedRecord {
     #[serde(default)]
-    pub seats: BTreeMap<PlayerId, crate::session::staged::SeatStaged>,
+    pub seats: BTreeMap<PlayerId, ti4_host::staged::SeatStaged>,
 }
 
 impl ReactionModesRecord {
@@ -861,7 +858,7 @@ impl FileGameStore {
     pub fn save_turn_redo(
         &self,
         game_id: &str,
-        record: &crate::session::turn_redo::TurnRedoRecord,
+        record: &ti4_host::history::turn_redo::TurnRedoRecord,
     ) -> Result<(), StorageError> {
         let dir = self.game_dir(game_id)?;
         fs::create_dir_all(&dir)?;
@@ -875,7 +872,7 @@ impl FileGameStore {
     pub fn load_turn_redo(
         &self,
         game_id: &str,
-    ) -> Result<Option<crate::session::turn_redo::TurnRedoRecord>, StorageError> {
+    ) -> Result<Option<ti4_host::history::turn_redo::TurnRedoRecord>, StorageError> {
         let path = self.game_dir(game_id)?.join("turn_redo.json");
         if !path.exists() {
             return Ok(None);
@@ -1103,9 +1100,13 @@ impl FileGameStore {
         let content = ContentStore::embedded();
         let galaxy = if let Some(scenario) = start_from {
             // A game that started from a scenario is played on the map of the scenario.
-            let (_, g) =
-                ti4_host::view::scenario::start(content, scenario, &init_record.player_ids)
-                    .map_err(StorageError::Map)?;
+            let (_, g) = ti4_host::view::scenario::start(
+                content,
+                scenario,
+                &init_record.player_ids,
+                init_record.seed.unwrap_or_default(),
+            )
+            .map_err(StorageError::Map)?;
             Some(g)
         } else if let Some(seed) = init_record.seed {
             let g = ti4_host::map::rebuild_galaxy(
@@ -1138,7 +1139,7 @@ impl FileGameStore {
             .unwrap_or_default();
         // The copy near the end lets the session worker fork the game instead of replaying the
         // whole history a second time.
-        let (replay_report, replay_copy) = crate::session::replay::replay_session_with_copy(
+        let (replay_report, replay_copy) = ti4_host::replay::replay_session_with_copy(
             &init_record.initial_state,
             galaxy.as_ref(),
             &decisions,
@@ -1926,6 +1927,19 @@ mod player_record_tests {
                 validate_nickname(name),
                 Err(StorageError::InvalidPlayerRecord("nickname"))
             ));
+        }
+    }
+
+    /// The cases that the pages check their `validNickname` against (`web-shared`).
+    #[test]
+    fn nickname_validation_matches_the_shared_cases_of_the_pages() {
+        let cases: BTreeMap<String, Vec<String>> =
+            serde_json::from_str(include_str!("../../../fixtures/nickname/cases.json")).unwrap();
+        for name in &cases["valid"] {
+            assert!(validate_nickname(name).is_ok(), "{name:?} is valid");
+        }
+        for name in &cases["invalid"] {
+            assert!(validate_nickname(name).is_err(), "{name:?} is invalid");
         }
     }
 

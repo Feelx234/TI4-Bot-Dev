@@ -2,9 +2,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
+use ti4_host::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
 use ti4_model::id::{PlayerId, SystemId, UnitTypeId};
 use ti4_model::units::Unit;
-use ti4_server::session::batch::{BatchKind, BatchRequest, MovementPlan, MovementStep};
 use ti4_server::session::registry::{HistoryAction, HistoryError};
 use ti4_server::session::{GameRegistry, GameSession, SeatController, SessionConfig};
 use ti4_server::storage::FileGameStore;
@@ -1324,7 +1324,7 @@ async fn http_history_requires_the_current_host_and_replaces_connected_sessions(
     socket
         .send(tokio_tungstenite::tungstenite::Message::Text(
             serde_json::json!({
-                "type": "subscribe", "protocol_version": 3, "game_id": "history_http",
+                "type": "subscribe", "protocol_version": 4, "game_id": "history_http",
             })
             .to_string()
             .into(),

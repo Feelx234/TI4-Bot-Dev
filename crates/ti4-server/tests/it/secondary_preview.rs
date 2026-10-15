@@ -9,10 +9,10 @@ use std::time::{Duration, Instant};
 
 use ti4_content::ContentStore;
 use ti4_engine::secondary_preview::SecondaryPreview;
+use ti4_host::preview::PreviewRequest;
 use ti4_host::protocol::server::{PreviewRefusal, PreviewResult, SecondaryPreviewMsg};
 use ti4_host::protocol::status::ViewerRole;
 use ti4_model::id::{PlayerId, StrategyCardId};
-use ti4_server::session::preview::PreviewRequest;
 use ti4_server::session::{GameSession, MockClient, SeatController, SessionConfig};
 
 struct Table {
@@ -369,7 +369,7 @@ fn files(dir: &std::path::Path) -> Vec<(String, Vec<u8>)> {
 
 #[test]
 fn a_preview_writes_nothing_to_storage() {
-    use ti4_server::dev::execute_launch_scenario;
+    use ti4_server::dev::launch_scenario;
     use ti4_server::session::GameRegistry;
     use ti4_server::storage::FileGameStore;
     let dir =
@@ -377,8 +377,7 @@ fn a_preview_writes_nothing_to_storage() {
     let store = Arc::new(FileGameStore::new(&dir).expect("store"));
     let registry = Arc::new(GameRegistry::new().with_store(store));
     // Sol (human) has played Technology and is being asked its research; a bot seat follows.
-    let launch =
-        execute_launch_scenario(&registry, "research_tech_skips", Some(17)).expect("launch");
+    let launch = launch_scenario(&registry, "research_tech_skips", Some(17)).expect("launch");
     let session = registry.get_game(&launch.game_id).expect("game");
     let state = session.current_state();
     let Some(ViewerRole::Player(primary)) = session.viewer_for_seat_token(&launch.player_session)

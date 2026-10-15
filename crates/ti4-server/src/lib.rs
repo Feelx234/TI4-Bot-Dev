@@ -7,7 +7,6 @@ pub mod dev;
 pub mod feedback;
 pub mod fixtures;
 pub mod http;
-pub mod planning;
 pub mod public;
 pub mod session;
 pub mod storage;

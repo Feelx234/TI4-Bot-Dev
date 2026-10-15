@@ -3,13 +3,12 @@ import { render, screen, fireEvent, within } from "@testing-library/react";
 import { Board, getPlayerColor } from "./Board.tsx";
 import { BoardView } from "../protocol/types.ts";
 import { PaymentDraftProvider } from "../presentation/PaymentDraftContext.tsx";
+import { partialContext } from "../test/wire.ts";
 
 const mockBoard: BoardView = {
   systems: {
     "18": {
       system_id: "18",
-      coordinate: "<0, 0, 0>",
-      tile_type: "normal",
       planets: {
         mecatol_rex: {
           planet_id: "mecatol_rex",
@@ -19,15 +18,13 @@ const mockBoard: BoardView = {
         },
       },
       units: [
-        { unit_type: "cruiser", owner: "p1", damaged: false },
-        { unit_type: "infantry", owner: "p1", damaged: false },
+        { unit_type: "cruiser", owner: "p1", damaged: false, planet: null, galvanized: false },
+        { unit_type: "infantry", owner: "p1", damaged: false, planet: null, galvanized: false },
       ],
       command_tokens: ["p1"],
     },
     "34": {
       system_id: "34",
-      coordinate: "<1, 0, -1>",
-      tile_type: "normal",
       planets: {
         abyz: {
           planet_id: "abyz",
@@ -95,7 +92,7 @@ describe("Board Component", () => {
           system_id: "18",
           command_tokens: [],
           planets: {},
-          units: [{ unit_type: "carrier", owner: "p1", damaged: false }],
+          units: [{ unit_type: "carrier", owner: "p1", damaged: false, planet: null, galvanized: false }],
         },
       },
       map_tiles: [
@@ -311,7 +308,7 @@ describe("Board Component", () => {
       nonce: "nonce_act",
       actor: "p1",
       prompt: "activate a system",
-      context: { subtype: "activate_system" },
+      context: partialContext({ subtype: "activate_system" }),
       options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
     };
 
@@ -339,8 +336,8 @@ describe("Board Component", () => {
           actor: "p1",
           prompt: "choose",
           options: [
-            { id: "first", label: "First", payload: { system: "18" } },
-            { id: "second", label: "Second", payload: { system: "18" } },
+            { id: "first", label: "First", payload: { system: "18" }, kind: "" },
+            { id: "second", label: "Second", payload: { system: "18" }, kind: "" },
           ],
         }}
       />,
@@ -355,10 +352,10 @@ describe("Board Component", () => {
       nonce: "nonce_move",
       actor: "p1",
       prompt: "movement",
-      context: {
+      context: partialContext({
         subtype: "movement_step",
         target: { System: "18" },
-      },
+      }),
       options: [
         {
           id: "move|34|0",
@@ -372,7 +369,7 @@ describe("Board Component", () => {
           kind: "move",
           payload: { origin: "34", unit: "fighter" },
         },
-        { id: "done_moving", label: "Finish", kind: "decline" },
+        { id: "done_moving", label: "Finish", kind: "decline", payload: {} },
       ],
     };
 
@@ -435,11 +432,11 @@ describe("Board Component", () => {
             },
           },
           units: [
-            { unit_type: "dreadnought", owner: "p1", damaged: false },
-            { unit_type: "cruiser", owner: "p1", damaged: false },
-            { unit_type: "infantry", owner: "p1", planet: "planet_alpha", damaged: false },
-            { unit_type: "mech", owner: "p1", planet: "planet_alpha", damaged: false },
-            { unit_type: "pds", owner: "p1", planet: "planet_alpha", damaged: false },
+            { unit_type: "dreadnought", owner: "p1", damaged: false, planet: null, galvanized: false },
+            { unit_type: "cruiser", owner: "p1", damaged: false, planet: null, galvanized: false },
+            { unit_type: "infantry", owner: "p1", planet: "planet_alpha", damaged: false, galvanized: false },
+            { unit_type: "mech", owner: "p1", planet: "planet_alpha", damaged: false, galvanized: false },
+            { unit_type: "pds", owner: "p1", planet: "planet_alpha", damaged: false, galvanized: false },
           ],
           command_tokens: [],
         },
@@ -452,7 +449,7 @@ describe("Board Component", () => {
               exhausted: true,
             },
           },
-          units: [{ unit_type: "destroyer", owner: "p2", damaged: false }],
+          units: [{ unit_type: "destroyer", owner: "p2", damaged: false, planet: null, galvanized: false }],
           command_tokens: [],
         },
       },
@@ -522,8 +519,8 @@ describe("Board Component", () => {
             system_id: "401",
             planets: {},
             units: [
-              { unit_type: "cruiser", owner: "p1", damaged: false },
-              { unit_type: "cruiser", owner: "p2", damaged: false },
+              { unit_type: "cruiser", owner: "p1", damaged: false, planet: null, galvanized: false },
+              { unit_type: "cruiser", owner: "p2", damaged: false, planet: null, galvanized: false },
             ],
             command_tokens: [],
           },
@@ -582,8 +579,8 @@ describe("Board Component", () => {
               p_right: { planet_id: "p_right", controlled_by: "p2", exhausted: false },
             },
             units: [
-              { unit_type: "infantry", owner: "p1", planet: "p_left", damaged: false },
-              { unit_type: "infantry", owner: "p2", planet: "p_right", damaged: false },
+              { unit_type: "infantry", owner: "p1", planet: "p_left", damaged: false, galvanized: false },
+              { unit_type: "infantry", owner: "p2", planet: "p_right", damaged: false, galvanized: false },
             ],
             command_tokens: [],
           },
@@ -687,10 +684,10 @@ describe("Board planet selection mode", () => {
     nonce: "nonce_mining",
     actor: "p1",
     prompt: "Mining Initiative: mine which planet",
-    context: {
+    context: partialContext({
       subtype: "mining_initiative_pick_planet",
       source: { ActionCard: "mining_initiative" },
-    },
+    }),
     options: [
       { id: "abyz", kind: "planet", label: "Abyz", payload: { planet: "abyz", system: "34" } },
       { id: "fria", kind: "planet", label: "Fria", payload: { planet: "fria", system: "34" } },
@@ -781,13 +778,13 @@ describe("Board payment mode", () => {
     nonce: "nonce_pay",
     actor: "p1",
     prompt: "pay 5 resources",
-    context: {
+    context: partialContext({
       subtype: "pay_resources",
-      outstanding: [{ kind: "resources", amount: 5, paid: 0 }],
-    },
+      outstanding: [{ kind: "Resources", amount: 5, paid: 0 }],
+    }),
     options: [
       { id: "exhaust|fria", kind: "pay", label: "Fria", payload: { worth: 4, kind: "resources", planet_name: "Fria" } },
-      { id: "decline", kind: "decline", label: "Cancel" },
+      { id: "decline", kind: "decline", label: "Cancel", payload: {} },
     ],
   };
   const board: BoardView = {

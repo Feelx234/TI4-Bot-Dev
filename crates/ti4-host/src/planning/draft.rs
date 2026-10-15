@@ -4,9 +4,8 @@
 //! disposable [`Game::fork`] with a fresh hypothetical turn ([`PlanScope::Tactical`]) or with
 //! the window of one follower ([`PlanScope::Secondary`]), and returns where it stopped and
 //! what the planner is shown there. Nothing is kept between two runs, so a changed script is run
-//! again from its start, and the caller needs no thread and no game of its own. The server's
-//! planning runner keeps a worker thread around the same guard ([`super::fork`]) and the same
-//! checks ([`super::audit`]).
+//! again from its start, and the caller needs no thread and no game of its own. The copy is
+//! guarded by [`super::fork`], and what it shows is checked by [`super::audit`].
 //!
 //! The run covers the whole action: the activation, the movement, the landings of an invasion
 //! and the production; or the whole secondary of the planner. It ends where the script does,
@@ -45,6 +44,7 @@ const STEP_BOUND: usize = 64;
 /// An answer by the id of its option: the action of the turn menu, the system that is activated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ChosenOption {
     Choose { option_id: String },
 }
@@ -55,6 +55,7 @@ pub enum ChosenOption {
 /// of the planner before the production).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum DraftStep {
     Chosen(ChosenOption),
     Step(PlanStep),
@@ -215,6 +216,7 @@ pub fn needless(entries: &[DraftStep]) -> bool {
 /// Why a run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum DraftStop {
     /// The script is used up: the question of the update is open.
     Open,
@@ -231,6 +233,7 @@ pub enum DraftStop {
 
 /// Where a run of a script ended, and what the planner is shown there.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DraftOutcome {
     /// The position where the run ended, with the open question when the stop is
     /// [`DraftStop::Open`]. The same shape as a live update.

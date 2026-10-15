@@ -56,6 +56,7 @@ fn is_false(value: &bool) -> bool {
 /// Named rather than free text so a producer's identity survives rewording. `Rule` carries an LRR
 /// reference where one exists, because "the engine asked" is not an explanation anyone can check.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum DecisionSource {
     /// A core rule, by its LRR number where one applies (`"37.3"`, `"52.3"`).
     Rule(String),
@@ -79,6 +80,7 @@ pub enum DecisionSource {
 /// option, where an option payload describes one answer. "Which unit takes this hit" has a system
 /// as its target and units as its options.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum DecisionTarget {
     System(SystemId),
     Planet { system: SystemId, planet: PlanetId },
@@ -92,6 +94,7 @@ pub enum DecisionTarget {
 /// has already committed within this same transaction, so `remaining` is what a further offer may
 /// legitimately ask for; charging `amount` again is the defect this type exists to prevent.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct OutstandingConstraint {
     pub kind: ConstraintKind,
     /// The full bill or allowance for the transaction.
@@ -122,6 +125,7 @@ impl OutstandingConstraint {
 
 /// The kind of quantity an [`OutstandingConstraint`] tracks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ConstraintKind {
     Resources,
     Influence,
@@ -141,6 +145,7 @@ pub enum ConstraintKind {
 
 /// Why the engine is asking, in a form that does not depend on prompt wording.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DecisionContext {
     pub version: u16,
     /// The seat being asked.
@@ -194,6 +199,7 @@ pub struct DecisionContext {
 /// `effect` is optional and omitted when empty, so a new effect kind never breaks a client (it
 /// ignores a kind it does not know).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct EffectPreview {
     /// The id of the option of this decision the preview belongs to.
     pub option: String,
@@ -229,6 +235,7 @@ pub struct EffectPreview {
 /// What produced the hits a casualty decision assigns.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum HitCause {
     /// Assault Cannon (technology): the opponent destroys one of their non-fighter ships.
     AssaultCannon,
@@ -251,6 +258,7 @@ pub enum HitCause {
 /// Which of the target's ships a hit may be assigned to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum HitRestriction {
     Any,
     /// Non-fighter ships only (Assault Cannon; Graviton Laser System while one is left).
@@ -259,6 +267,7 @@ pub enum HitRestriction {
 
 /// The kind of hit a casualty decision assigns (see [`DecisionContext::hit`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HitDetail {
     pub cause: HitCause,
     /// `true` for a destroy effect: not a hit, so SUSTAIN DAMAGE does not apply to it.
@@ -275,6 +284,7 @@ pub struct HitDetail {
 /// breaks a client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum TriggerKind {
     ActionCardPlayed,
     ActionCardDiscarded,
@@ -313,6 +323,7 @@ pub enum TriggerKind {
 
 /// A public unit count named by a trigger: owner, unit type and how many.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TriggerUnits {
     pub owner: PlayerId,
     pub unit_type: String,
@@ -324,6 +335,7 @@ pub struct TriggerUnits {
 /// Everything named here has already happened in public: a played action card, an activated
 /// system, a moved fleet. It never carries a vote outcome, a hand, or any unplayed alternative.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DecisionTrigger {
     pub kind: TriggerKind,
     /// The raw engine event type, for fallback and debugging.
@@ -331,6 +343,7 @@ pub struct DecisionTrigger {
     /// The engine event id, valid within one trace only: a session-local key, not a durable id.
     pub event_id: u64,
     /// `"when"` or `"after"`.
+    #[cfg_attr(feature = "ts", ts(type = "\"when\" | \"after\""))]
     pub relation: String,
     /// The seat that caused the event; absent for phase and agenda events.
     #[serde(default, skip_serializing_if = "Option::is_none")]

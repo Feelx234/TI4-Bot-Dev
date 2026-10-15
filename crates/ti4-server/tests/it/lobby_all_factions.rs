@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use ti4_content::ContentStore;
 use ti4_engine::seating::LOBBY_FACTIONS;
 use ti4_host::maps::catalog::MapChoice;
-use ti4_host::setup::{self, SeatOrder, SpeakerOrder, TableSetup};
+use ti4_host::setup::{self, SpeakerOrder, TableSetup};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
 use ti4_server::session::{GameSession, SeatController, SessionConfig};
@@ -28,7 +28,6 @@ fn build(
     let table = TableSetup {
         map: MapChoice::from_stored(template),
         strategy_cards: setup::card_set::POK.to_owned(),
-        seat_order: SeatOrder::Join,
         speaker_order: SpeakerOrder::Random,
         ..TableSetup::new(players.len(), seed)
     };
@@ -246,7 +245,7 @@ fn the_pool_is_the_survey_roster() {
     // Plans exist for every faction in the pool.
     for faction in LOBBY_FACTIONS {
         assert!(
-            ti4_server::session::smart_bot_faction_plans::plan_for(faction).is_some(),
+            ti4_rule_bot::faction_plans::plan_for(faction).is_some(),
             "{faction}"
         );
     }

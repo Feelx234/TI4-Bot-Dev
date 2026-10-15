@@ -1,13 +1,12 @@
 import { expect, it } from "vitest";
-import menuUpdate from "../fixtures/update-menu.json";
-import systemsUpdate from "../fixtures/update-load.json";
-import type { ComponentCatalog, SessionUpdate } from "../wire";
+import menuUpdate from "../../../../fixtures/protocol/update-menu.json";
+import systemsUpdate from "../../../../fixtures/protocol/update-load.json";
+import type { ComponentCatalog, ContentRecords, SessionUpdate } from "../wire";
 import type { LocalState } from "./action";
 import { selectShell } from "./shell";
 
-// The fixtures are updates of a real game, written by the engine:
-//   cargo run -p ti4-wasm --example record -- 3 8 1 20 > web2/src/session/fixtures/update-menu.json
-//   cargo run -p ti4-wasm --example record -- 3 8 1 6 pok8imperial no tactical 23 'move|01|0' > web2/src/session/fixtures/update-load.json
+// The fixtures are updates of a real game, written by the engine: the menu of an action phase in
+// round 2, and the loading of a carrier (`crates/ti4-wasm/tests/it/protocol_fixtures.rs` (`cargo wire-web`)).
 const menu = menuUpdate as unknown as SessionUpdate;
 const systems = systemsUpdate as unknown as SessionUpdate;
 const local = (change: Partial<LocalState> = {}): LocalState => ({
@@ -42,6 +41,30 @@ const NO_COMPONENTS: ComponentCatalog = {
   action_card_groups: [],
   secret_objectives: [],
   secret_objective_groups: [],
+  faction_sheets: {},
+  strategy_cards: [],
+  public_objectives: [],
+  public_objective_groups: [],
+  agendas: [],
+  agenda_groups: [],
+};
+
+const NO_RECORDS: ContentRecords = {
+  strategy_cards: [],
+  secret_objectives: [],
+  public_objectives: [],
+  action_cards: [],
+  technologies: [],
+  explores: [],
+  planets: [],
+  attachments: [],
+  factions: [],
+  units: [],
+  leaders: [],
+  abilities: [],
+  promissory_notes: [],
+  relics: [],
+  breakthroughs: [],
 };
 const flow = (update: SessionUpdate, state: LocalState) => {
   const { action } = selectShell(update, state);
@@ -193,8 +216,10 @@ it("names an attachment as printed, with what it changes", () => {
     ],
   };
   const jord = selectShell(update, local(), {
+    content: "",
     exploration: catalog,
     components: NO_COMPONENTS,
+    records: NO_RECORDS,
   }).board.tiles.find((tile) => tile.id === "01")!.planets[0];
   expect(jord.traits.attachments).toEqual([
     { name: "Dyson Sphere", effect: "+2 / +1", text: "Printed." },
@@ -235,7 +260,12 @@ it("lists the exploration decks: what is left of each card, who drew it, who has
     decks: { CULTURAL: ["crf1", "crf2", "crf3", "pw"] },
     attachments: [],
   };
-  const view = selectShell(update, local(), { exploration: catalog, components: NO_COMPONENTS });
+  const view = selectShell(update, local(), {
+    content: "",
+    exploration: catalog,
+    components: NO_COMPONENTS,
+    records: NO_RECORDS,
+  });
   const [cultural, hazardous] = view.reference.exploration;
   expect(view.reference.exploration.map((deck) => deck.deck)).toEqual([
     "cultural",

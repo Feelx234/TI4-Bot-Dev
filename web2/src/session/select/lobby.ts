@@ -1,5 +1,6 @@
 // The lobby of a table: the rows of the players with their signs, the setup, and the footer.
 // The components decide nothing from names: what a row shows and which controls it has is here.
+import { validNickname } from "@ti4/shared/identity/nickname.ts";
 import type {
   FactionSheetView,
   LobbyButtonView,
@@ -18,7 +19,7 @@ import type { TableState } from "../table";
 import type { Catalog, LobbySlot, LobbyState, SetupOptions } from "../wire";
 import { SEAT_PLACE, selectPreviewBoard } from "./board";
 import { factionSheet } from "./factionSheet";
-import { factionName, titleCase } from "./names";
+import { factionName, humanizeId } from "./names";
 
 /** What the page knows of the table besides the table itself. */
 export interface LobbyLocal {
@@ -76,7 +77,7 @@ function sign(
 
 function mapName(lobby: LobbyState): string {
   const { map } = lobby;
-  const name = map.kind === "random" ? "Random" : (map.name ?? titleCase(map.alias ?? "Map"));
+  const name = map.kind === "random" ? "Random" : (map.name ?? humanizeId(map.alias ?? "Map"));
   return `${name} · ${plural(map.systems, "system")}${map.hyperlanes ? " · hyperlanes" : ""}`;
 }
 
@@ -84,10 +85,15 @@ function mapName(lobby: LobbyState): string {
 export function nextNickname(lobby: LobbyState, viewer: string): string {
   const taken = new Set(lobby.slots.map((slot) => slot.nickname));
   const own = lobby.slots.find((slot) => slot.occupant === viewer)?.nickname ?? "Player";
-  const base = own.replace(/ \d+$/, "");
+  const base = Array.from(own.replace(/ \d+$/, ""));
   for (let number = 2; ; number++) {
     // A nickname has 64 bytes at most: a long name gives room to its number.
-    const name = `${base.slice(0, 56)} ${number}`;
+    let keep = base.length;
+    let name = `${base.join("")} ${number}`;
+    while (!validNickname(name) && keep > 1) {
+      keep -= 1;
+      name = `${base.slice(0, keep).join("").trimEnd()} ${number}`;
+    }
     if (!taken.has(name)) {
       return name;
     }
@@ -155,7 +161,7 @@ function setupRows(
       label: "Strategy cards",
       value:
         sets.find((cards) => cards.id === lobby.strategy_card_set)?.name ??
-        titleCase(lobby.strategy_card_set),
+        humanizeId(lobby.strategy_card_set),
       control:
         free && sets.length
           ? {
@@ -212,7 +218,7 @@ function setupRows(
         scenario === null
           ? "Round 1"
           : (scenarios.find((item) => item.id === scenario)?.title ??
-            titleCase(scenario.replaceAll("-", " "))),
+            humanizeId(scenario.replaceAll("-", " "))),
       control:
         host && before && scenarios.length
           ? {
@@ -245,6 +251,12 @@ export function hostChange(before: LobbyState, after: LobbyState): string | null
   if (before.slots.length !== after.slots.length) {
     return `The host set the players to ${after.slots.length}`;
   }
+  // The same players in another order of the rows: a join or a seat that goes is no shuffle.
+  const order = (lobby: LobbyState) => lobby.slots.map((slot) => slot.occupant);
+  const players = (lobby: LobbyState) => order(lobby).filter(Boolean).sort().join();
+  if (players(before) === players(after) && order(before).join() !== order(after).join()) {
+    return "The host shuffled the seats";
+  }
   if (before.strategy_card_set !== after.strategy_card_set) {
     return "The host changed the strategy cards";
   }
@@ -272,7 +284,7 @@ function factionGroups(
       name: group.name,
       factions: group.factions.map((faction) => ({
         id: faction.id,
-        name: catalog?.components.faction_sheets?.[faction.id]?.name ?? faction.name,
+        name: catalog?.components.faction_sheets[faction.id]?.name ?? faction.name,
       })),
     }));
   }
@@ -438,6 +450,14 @@ export function selectLobby(
         ? {
             label: `Fill with ${usual.name.toLowerCase()}s`,
             intent: { type: "fillBots", kind: usual.id },
+          }
+        : null,
+    shuffle:
+      host && before && seats > 1
+        ? {
+            label: "Shuffle seats",
+            title: "Put the players in another order: the rows are the seats of the game",
+            intent: { type: "shuffleSeats" },
           }
         : null,
     footer,

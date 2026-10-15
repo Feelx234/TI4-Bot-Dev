@@ -321,8 +321,7 @@ fn opening(seats: usize, seed: u64, roster: bool, rounds: u32) -> Vec<RoundRow> 
             std::fs::write(format!("{dir}/opening_{seats}_{seed}_r{round}.jsonl"), text)
                 .expect("write dump");
         }
-        let state = match ti4_server::session::replay_session(&initial, Some(&galaxy), &log[..end])
-        {
+        let state = match ti4_host::replay::replay_session(&initial, Some(&galaxy), &log[..end]) {
             Ok(report) => report.final_state,
             Err(error) => {
                 // A replay that diverges says nothing about the bot: the table is left out.

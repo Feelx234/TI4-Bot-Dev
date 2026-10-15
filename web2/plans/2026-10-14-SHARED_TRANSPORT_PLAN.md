@@ -1,6 +1,6 @@
 # Shared web module (web-shared/): transport, engine, saves, wire types, content, odds (2026-10-14)
 
-Status: planned, not started.
+Status: done (2026-10-15): steps 1 to 22, and the docs.
 
 ## Context
 
@@ -10,16 +10,17 @@ both maintainers (see "Ownership and changes").
 
 Each app has two backends for a game:
 
-| | server | single player (wasm engine) |
-|---|---|---|
-| web/ | `GameSessionClient` (`src/protocol/client.ts`, WS + HTTP, own reconnect in `resilience.ts`) | `LocalTransport` → Web Worker → `HostRunner`/`Host` (`src/offline/local/`) → wasm `ti4_host_*` = `HostSession`, speaks `ServerMessage` |
-| web2/ | `wsTransport.ts` over `socket.ts` (reconnect, backoff, heartbeat), speaks `ServerMessage` | `wasmTransport.ts` (966 lines) on the **main thread**, bespoke C-ABI (`ti4_play*`, `ti4_draft`, `ti4_plan`, `ti4_journal`, …) |
+|       | server                                                                                      | single player (wasm engine)                                                                                                            |
+| ----- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| web/  | `GameSessionClient` (`src/protocol/client.ts`, WS + HTTP, own reconnect in `resilience.ts`) | `LocalTransport` → Web Worker → `HostRunner`/`Host` (`src/offline/local/`) → wasm `ti4_host_*` = `HostSession`, speaks `ServerMessage` |
+| web2/ | `wsTransport.ts` over `socket.ts` (reconnect, backoff, heartbeat), speaks `ServerMessage`   | `wasmTransport.ts` (966 lines) on the **main thread**, bespoke C-ABI (`ti4_play*`, `ti4_draft`, `ti4_plan`, `ti4_journal`, …)          |
 
 One wasm binary has two JS drivers and two wasm protocols. Step 5 of
 `web2/plans/2026-10-14-DEDUPLICATE_HOSTS_PLAN.md` moves web2 onto `HostSession` and its
 `ServerMessage` decoding.
 
 Several other things are also written twice, or exist in one app only:
+
 - **Saves.**
   - web/ keeps them in IndexedDB `ti4-offline` (`web/src/offline/storage/`). It has a list,
     limits, an autosave with a pagehide flush, and validation. Its `HostSave` format 1 holds
@@ -43,6 +44,7 @@ Several other things are also written twice, or exist in one app only:
   - `ti4-calc/src/odds.rs` has `ground_odds`, but no wasm export calls it.
 
 **Not shared: the UI-facing transport interface.**
+
 - web's `GameTransport` is a stateful store (`GameSessionState` via `reduceServerMessage`). It
   has history, splice, turn-redo, the advisor and reach.
 - web2's `Transport` is an event stream (`TransportEvent`). It has drafts, plans, `SeatStore`,
@@ -50,7 +52,8 @@ Several other things are also written twice, or exist in one app only:
 - Merging them would mean rewriting one UI's state model, with no runtime gain.
 
 **Shared: the layers below it.**
-- A message-level *link*. It sends a `ClientMessage` (or a local host command) and receives
+
+- A message-level _link_. It sends a `ClientMessage` (or a local host command) and receives
   `ServerMessage` objects and the connection status. It has two implementations: websocket and
   wasm engine.
 - The save store.
@@ -98,6 +101,7 @@ This section is also the first section of `web-shared/AGENTS.md`.
 
 `web-shared/` is a new TS source dir at the repo root with no dependencies. Apps import it as
 `@ti4/shared/...`.
+
 - Both `vite.config.ts`: `resolve.alias { "@ti4/shared": <root>/web-shared/src }`, and add `..` to
   `server.fs.allow`.
 - Both `tsconfig.json`: `paths { "@ti4/shared/*": ["../web-shared/src/*"] }`, and add the dir to
@@ -114,6 +118,7 @@ This section is also the first section of `web-shared/AGENTS.md`.
   table in `web2/AGENTS.md` and from `web/README.md`.
 
 Layout:
+
 ```
 web-shared/src/
   engine/   host.ts (Host, hasJspi, Envelope/HostSave types), runner.ts (HostRunner),
@@ -154,13 +159,17 @@ tracks are independent of each other, except where a step says otherwise.
 3. **`GameLink`.**
    ```ts
    interface GameLink {
-     send(message: object): void;                 // ClientMessage or a local host command
+     send(message: object): void; // ClientMessage or a local host command
      request?(command: object): Promise<unknown>; // engine only: save_state, history, queries
      subscribe(listener: (e: LinkEvent) => void): () => void;
      close(): void;
    }
-   type LinkEvent = { kind: "message"; message: unknown } | { kind: "opened" } | { kind: "offline" }
-     | { kind: "progress"; done: number; total: number } | { kind: "save"; save: HostSave }
+   type LinkEvent =
+     | { kind: "message"; message: unknown }
+     | { kind: "opened" }
+     | { kind: "offline" }
+     | { kind: "progress"; done: number; total: number }
+     | { kind: "save"; save: HostSave }
      | { kind: "fatal"; message: string };
    ```
    - `socketLink(open, …)` wraps `connect`: the subscription on `opened`, the heartbeat and the
@@ -170,9 +179,10 @@ tracks are independent of each other, except where a step says otherwise.
      - the `messages` of `ask`/`reply` envelopes become `message` events;
      - a `save` at each ask;
      - `crash`/`fatal` become `fatal`.
-     
+
      The logic is lifted from `LocalTransport` (`web/src/offline/local/LocalTransport.ts`, its
      port and waiter handling).
+
    - Tests use a fake `Socket` and a fake `HostPort`, built on the ideas of
      `web/src/offline/local/testKit.ts`.
    - The link stays untyped (`unknown`) until track C step 12. After that it is
@@ -207,12 +217,13 @@ tracks are independent of each other, except where a step says otherwise.
    - `switches`: a decision index and a humans mask each;
    - `finished`, `round?`, `phase?`;
    - `engine`.
-   
+
    The player count is `setup::PLAYER_COUNTS` (2..=8). A resume feeds every decision to the
    engine, as web2's local play and the server already do. Undo cuts `decisions` at the answer
    it takes back. The host keeps this list itself, so web2 no longer builds it from
    `ti4_journal`, which goes with the other bespoke exports (step 5).
    Needs step 5.1 of the dedup plan.
+
 7. **The save store moves to `web-shared/src/storage/`.**
    - `git mv web/src/offline/storage/*`. The feedback queue code stays in web/. Its object
      store stays in the shared schema, because it is one DB.
@@ -231,9 +242,13 @@ tracks are independent of each other, except where a step says otherwise.
    - Export and Import use the shared envelope.
    - The localStorage keys `ti4.single` and `ti4.local.*` are deleted once, at start. The
      `DEFAULT_GAME` fallback in `StartApp.tsx` goes.
-   - The staged slots (movement, draft, secondary, cards) stay in localStorage, because
-     `SeatStore.get` is synchronous and the slots are small.
-     - They are keyed by the save's id: `ti4.save.<id>.<slot>`.
+   - The staged work is in the engine's save (`staged`, step 5). localStorage keeps, next to a
+     save, what the page reads or writes at once, keyed by the save's id:
+     `ti4.save.<id>.<part>`.
+     - `cards` (the reaction modes) and `wait` (the wait of a table).
+     - `left`: the newest save, with what the shown seat staged, when the page is left. A write
+       of IndexedDB that starts at `pagehide` does not end before the page is gone; the next
+       page that opens the store puts it there.
      - Removing a save clears them.
    - web2's start screen lists the saves, by web2's own rules. The list is UI and stays per app.
 9. **web/ on format 2.** `launcher.ts` and `register.ts` resume from `decisions`. The list
@@ -281,7 +296,7 @@ With both apps on one origin, both lists show every save of the browser.
 14. **`web-shared/src/content/`.**
     - `loadCatalog()` uses the engine query when an engine is loaded, and `/api/catalog`
       otherwise.
-    - It also holds the pure helpers that both apps have: `humanizeId`/`titleCase`, the faction
+    - It also holds the pure helpers that both apps have: `humanizeId`, the faction
       ids and the expansion sets.
 15. **web uses the catalog.**
     - It loads the catalog at startup (a provider in web's React tree).
@@ -322,9 +337,10 @@ With both apps on one origin, both lists show every save of the browser.
       mirrors the server). web2 validates with it too.
     - Seat tokens stay per app: web keeps one session per tab, web2 several seats per browser.
 21. **`web-shared/scripts/build-wasm.mjs`.**
-    - One build script with an output dir argument. It has web's `TI4_*` env flags and web2's
-      `--dev`.
-    - `web/scripts/build-wasm.mjs`, `web2/scripts/build-wasm.sh` and `deploy.sh` call it.
+    - One build script with the output file as its argument. It has web's `TI4_*` env flags and
+      web2's `--dev`.
+    - `web/scripts/build-wasm.mjs` and `web2/scripts/build-wasm.sh` call it with their file;
+      `deploy.sh` reaches it through web's `npm run build`.
 22. **`web-shared/test/server.ts`.**
     - `spawnTestServer()`: a free port, a temp data dir, and a wait for `Listening on`.
     - It replaces `web/e2e/offlineServer.ts` and the spawn in
@@ -360,12 +376,14 @@ starts only after both maintainers agree on it.
 ## Verification
 
 Gates for every step:
+
 - web2: `npm run typecheck`, `npm run lint`, `npm test`.
 - web: `npx tsc --noEmit`, `npm test`.
 - Rust steps: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`, run one at a time. When
   the host or wasm changed, also `scripts/build-wasm.sh`.
 
 Per step:
+
 - **1, 4:** `npm run test:e2e:offline` in web/ (start an offline game, resume from a save).
 - **2:** web2 `npm run e2e -- -g online`, with `cargo b-web && target/debug/server`.
 - **5:**

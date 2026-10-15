@@ -45,6 +45,7 @@ pub const DECLINE_ID: &str = "decline";
 ///
 /// `id` must be stable for a given game state so decision logs replay faithfully.
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ChoiceOption {
     pub id: String,
     pub kind: String,
@@ -52,6 +53,7 @@ pub struct ChoiceOption {
     /// Structured detail for whatever will apply this option. Excluded from equality, as in
     /// the oracle: two options with the same id are the same option, and a payload that
     /// differed would mean the id was not stable.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub payload: BTreeMap<String, Value>,
     /// What taking this option would do, when its producer can compute that without mutation.
     ///
@@ -165,6 +167,7 @@ impl ChoiceOption {
 
 /// A decision point handed to exactly one actor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Choice {
     pub player: PlayerId,
     pub prompt: String,
@@ -176,6 +179,7 @@ pub struct Choice {
     /// left). Display only: never read by the engine, never copied into a [`DecisionRecord`],
     /// and skipped when empty, so records, replays and fingerprints are unaffected.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub details: serde_json::Map<String, Value>,
     /// An id prefix that names answers built by the asker rather than listed in `options`
     /// (a transaction's free-form deal). Unlisted ids starting with it are accepted as answers;
@@ -349,6 +353,42 @@ pub enum IllegalChoice {
         prompt: String,
         reason: String,
     },
+    #[error(
+        "{player} was asked {prompt:?} {repeats} times in one engine step without progress (limit {MAX_IDENTICAL_ASKS_PER_STEP}); the decision cycle never ends"
+    )]
+    NoProgress {
+        player: PlayerId,
+        prompt: String,
+        repeats: u32,
+    },
+}
+
+/// The most times one identical choice (same seat, prompt and option ids) may be put within a
+/// single engine step before the table declares the decision cycle stuck.
+pub const MAX_IDENTICAL_ASKS_PER_STEP: u32 = 500;
+
+/// Stable 64-bit FNV-1a over the seat, prompt and ordered option ids (length-prefixed, so
+/// boundaries cannot blur). Written out rather than `DefaultHasher` so it never varies by run.
+fn choice_fingerprint(choice: &Choice) -> u64 {
+    const BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut hash = BASIS;
+    let mut feed = |text: &str| {
+        for byte in (text.len() as u64)
+            .to_le_bytes()
+            .into_iter()
+            .chain(text.bytes())
+        {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    };
+    feed(choice.player.as_str());
+    feed(&choice.prompt);
+    for option in &choice.options {
+        feed(&option.id);
+    }
+    hash
 }
 
 /// Reject any answer that was not among the offered options.
@@ -948,6 +988,39 @@ impl<'a> Observed<'a> {
     #[must_use]
     pub fn systems_with_token(&self, player: &PlayerId) -> BTreeSet<&'a SystemId> {
         self.state.systems_with_token(player)
+    }
+
+    /// Whose command tokens sit in `mahact`'s fleet pool (Edict), one entry per token. Public: the
+    /// tokens are on the table in the owner's colour.
+    #[must_use]
+    pub fn mahact_fleet_pool_owners(&self, mahact: &PlayerId) -> Vec<PlayerId> {
+        crate::factions::mahact::fleet_pool_owners(self.state, mahact)
+    }
+
+    /// Players with a control token on one of `owner`'s faceup plots (the Firmament's puppets),
+    /// which the Heaven's Eye reads. Public: the tokens sit on faceup cards.
+    #[must_use]
+    pub fn firmament_puppets(&self, owner: &PlayerId) -> BTreeSet<PlayerId> {
+        crate::factions::firmament::puppeted(self.state, owner)
+    }
+
+    /// Whether `system` holds an active breach (the Crimson Rebellion). Public: the token's face
+    /// shows.
+    #[must_use]
+    pub fn active_breach_in(&self, system: &SystemId) -> bool {
+        crate::factions::crimson::active_breaches(self.state).contains(system)
+    }
+
+    /// Non-home systems containing a planet `player` controls, the count the Bastion flagship
+    /// reads. Public: control is on the board.
+    #[must_use]
+    pub fn non_home_systems_with_planets(&self, player: &PlayerId) -> usize {
+        crate::factions::bastion_units::non_home_systems_with_planets(
+            self.state,
+            self.content,
+            self.sources,
+            player,
+        )
     }
 
     /// A seat's public standing: what anybody at the table can count.
@@ -2152,6 +2225,8 @@ pub struct Table {
     auto_resolved: Vec<AutoResolved>,
     choice_failures: u64,
     last_choice_error: Option<IllegalChoice>,
+    /// Identical-choice counts for the current engine step, keyed by [`choice_fingerprint`].
+    asks_this_step: BTreeMap<u64, u32>,
 }
 
 /// Callback told that a reaction window opened for a seat that is not asked anything in it.
@@ -2206,6 +2281,7 @@ impl Default for Table {
             auto_resolved: Vec::new(),
             choice_failures: 0,
             last_choice_error: None,
+            asks_this_step: BTreeMap::new(),
         }
     }
 }
@@ -2246,6 +2322,7 @@ impl Table {
             auto_resolved,
             choice_failures,
             last_choice_error,
+            asks_this_step: _, // per-step scratch, cleared by `begin_step`; not game state
         } = self;
         TableState {
             log: if keep_log {
@@ -2385,12 +2462,47 @@ impl Table {
         std::mem::take(&mut self.auto_resolved)
     }
 
+    /// Start a new engine step: forget how often each choice was asked.
+    pub fn begin_step(&mut self) {
+        self.asks_this_step.clear();
+    }
+
+    /// Count this ask; `Err(NoProgress)` once the identical choice exceeds the per-step limit.
+    fn count_ask(&mut self, choice: &Choice) -> Result<(), IllegalChoice> {
+        let seen = self
+            .asks_this_step
+            .entry(choice_fingerprint(choice))
+            .or_insert(0);
+        *seen = seen.saturating_add(1);
+        // Ten times past the limit, the refusal is being swallowed and the choice re-asked: some
+        // effect turned the error into "no answer" and loops. Spinning on refusals is still a hang,
+        // so stop the process with the decision named rather than run on silently.
+        assert!(
+            *seen <= MAX_IDENTICAL_ASKS_PER_STEP.saturating_mul(10),
+            "{} was asked {:?} {} times in one engine step: a decision cycle is ignoring the NoProgress refusal",
+            choice.player,
+            choice.prompt,
+            *seen
+        );
+        if *seen > MAX_IDENTICAL_ASKS_PER_STEP {
+            let outcome = Err(IllegalChoice::NoProgress {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+                repeats: *seen,
+            });
+            self.remember_choice_error(&outcome);
+            return outcome.map(|_: ChoiceOption| ());
+        }
+        Ok(())
+    }
+
     /// Put a choice to its actor, validate the answer, and record it.
     ///
     /// # Errors
     /// [`IllegalChoice`] if the answer was not on offer — the boundary that stops a bot
     /// inventing a move.
     pub fn ask(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        self.count_ask(choice)?;
         let decider = self
             .deciders
             .get_mut(&choice.player)
@@ -2414,6 +2526,7 @@ impl Table {
         choice: &Choice,
         seen: &Observed<'_>,
     ) -> Result<ChoiceOption, IllegalChoice> {
+        self.count_ask(choice)?;
         let mut associated = choice.clone();
         if let Some(context) = associated.context.take() {
             associated.context = Some(context.about_invasion(seen.state));
@@ -2975,6 +3088,58 @@ mod tests {
 
         assert!(table.ask(&three()).is_err());
         assert!(table.log.is_empty(), "a rejected answer must not be logged");
+    }
+
+    #[test]
+    fn an_identical_choice_asked_past_the_limit_makes_no_progress() {
+        let mut table = Table::with_default(Box::new(AlwaysDecline));
+        let same = three();
+        for _ in 0..MAX_IDENTICAL_ASKS_PER_STEP {
+            table.ask(&same).unwrap();
+        }
+        let logged = table.log.len();
+        let err = table.ask(&same).expect_err("one ask too many");
+        assert_eq!(
+            err,
+            IllegalChoice::NoProgress {
+                player: pid("a"),
+                prompt: "pick one".to_owned(),
+                repeats: MAX_IDENTICAL_ASKS_PER_STEP + 1,
+            }
+        );
+        let text = err.to_string();
+        assert!(text.contains('a') && text.contains("pick one"), "{text}");
+        assert_eq!(
+            table.log.len(),
+            logged,
+            "the decider is not called or logged"
+        );
+        assert!(
+            table.choice_error_since(0).is_some(),
+            "recorded like other choice errors"
+        );
+
+        // A choice differing in one option id has its own count.
+        let other = choice(vec![
+            ChoiceOption::labelled("x", "action", "Do X"),
+            ChoiceOption::labelled("z", "action", "Do Z"),
+            ChoiceOption::decline(),
+        ]);
+        table.ask(&other).unwrap();
+
+        // A new step starts the count afresh.
+        table.begin_step();
+        table.ask(&same).unwrap();
+    }
+
+    #[test]
+    #[should_panic(expected = "ignoring the NoProgress refusal")]
+    fn a_cycle_that_swallows_the_refusal_is_stopped() {
+        let mut table = Table::with_default(Box::new(AlwaysDecline));
+        let same = three();
+        for _ in 0..=MAX_IDENTICAL_ASKS_PER_STEP * 10 {
+            let _ = table.ask(&same);
+        }
     }
 
     // -- the decision log -----------------------------------------------------------

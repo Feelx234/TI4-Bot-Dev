@@ -1,11 +1,11 @@
-import type { ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import type { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import {
   findActionCardByName,
   findActionCardMeta,
   findSecretObjectiveMeta,
   humanizeId,
 } from "../protocol/contentCatalog.ts";
-import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 
 export interface CardOptionInfo {
   title: string;
@@ -39,7 +39,7 @@ const FRAGMENT_TRAITS: Record<string, string> = {
 const NOTE_PICK_SUBTYPE = /_pick_promissory note$/;
 
 type NoteRecord = { name: string; text?: string };
-const NOTES = GENERATED_CONTENT_CATALOG.promissoryNotes as unknown as Record<string, NoteRecord>;
+const NOTES = CONTENT.promissoryNotes as unknown as Record<string, NoteRecord>;
 
 /** A note id is `alias:Owner faction` (Support for the Throne: `support:Owner`). */
 function describeNote(id: string): CardOptionInfo {
@@ -75,7 +75,7 @@ export function isHandCardDecision(subtype: string | undefined): boolean {
  */
 export function describeCardOption(
   subtype: string | undefined,
-  option: Pick<ChoiceOptionDto, "id" | "label">,
+  option: Pick<ChoiceOption, "id" | "label">,
 ): CardOptionInfo | null {
   if (!subtype) return null;
   if (NOTE_PICK_SUBTYPE.test(subtype)) return describeNote(option.id);

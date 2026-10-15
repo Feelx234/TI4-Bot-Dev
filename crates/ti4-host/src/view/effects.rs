@@ -18,6 +18,7 @@ use ti4_model::state::{GameState, Phase, TransientFlags};
 /// When a lingering effect ends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EffectExpiry {
     /// At the end of the current round of space combat.
     CombatRound,
@@ -38,6 +39,7 @@ pub enum EffectExpiry {
 /// One lingering effect of a played action card.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActiveEffectView {
     /// The seat the effect belongs to: the player who played the card, or the player it binds
     /// when the card marks another seat (`bars_retreat`, `duress`).

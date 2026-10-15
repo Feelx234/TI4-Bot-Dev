@@ -12,29 +12,28 @@ import {
 } from "./resilience.ts";
 import {
   ClientMessage,
-  InitialSnapshotMsg,
   PendingChoiceDto,
   PROTOCOL_VERSION,
   PublicTurnStatus,
   ServerMessage,
-  StateUpdateMsg,
   ViewerRole,
   HistoryStatus,
   ReactionModeSetting,
   ReactionIntentStateMsg,
   PreviewRefusal,
-  SecondaryPreviewBody,
+  SecondaryPreview,
   ReachOrigin,
   ReachRefusal,
 } from "./types.ts";
 import { readDeclaredTriggers, writeDeclaredTriggers } from "./bluffTriggers.ts";
 import {
   decodeDecisionTrigger,
-  decodeEffectPreviews,
   decodeInitialSnapshot,
   decodeServerMessage,
   isStaleServerMessage,
-} from "./decode.ts";
+} from "@ti4/shared/wire/decode.ts";
+import { gamePath, sessionHeaders } from "@ti4/shared/net/api.ts";
+import { decodeEffectPreviews } from "./decode.ts";
 import { SERVER_CAPABILITIES } from "./capabilities.ts";
 import type { GameTransport } from "./transport.ts";
 import { decodeSplicePreview, type SpliceEdit, type SplicePreview } from "./splice.ts";
@@ -44,20 +43,14 @@ import {
   type TurnRedoStatus,
 } from "./turnRedo.ts";
 
-/** Server messages of the planning/draft protocol, which this client does not use. */
-const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
-  "planning_status",
-  "planning_update",
-  "planning_result",
-  "draft_outcome",
-  "draft_applied",
-]);
+/** Server messages of the draft protocol, which this client does not use. */
+const IGNORED_SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["draft_outcome", "draft_applied"]);
 
 /** What the server answered to a `preview_secondary` request. */
 export type SecondaryPreviewReply =
   | {
       kind: "preview";
-      body: SecondaryPreviewBody;
+      body: SecondaryPreview;
       /** The game version and decision count the answer was computed at. */
       asOfVersion: number;
       asOfDecisions: number;
@@ -111,7 +104,7 @@ export const PREVIEW_TIMEOUT_MS = 4_000;
 
 export type ConnectionStatus =
   "connecting" | "connected" | "disconnected" | "error";
-export type SnapshotState = InitialSnapshotMsg | StateUpdateMsg;
+export type SnapshotState = Extract<ServerMessage, { type: "initial_snapshot" | "state_update" }>;
 export type GameLogEntry = import("./types.ts").GameEvent;
 export type HistoryChange =
   | "undo"
@@ -316,7 +309,7 @@ const initialState: GameSessionState = {
   fatal: null,
   reconnecting: false,
   events: [],
-  history: { cursor: 0, redo_count: 0 },
+  history: { cursor: 0, redo_count: 0, generation: 0 },
 };
 
 /** Keep the complete authoritative history, including early rounds and batches. */
@@ -355,6 +348,10 @@ function rejectionMessage(
       return "Rejected: No decision is currently pending";
     case "validation_failed":
       return `Rejected: ${message.reason.message}`;
+    case "undo_barrier":
+      return "Rejected: That decision can no longer be taken back";
+    case "answered_elsewhere":
+      return "Rejected: The decision was already answered";
   }
 }
 
@@ -373,7 +370,7 @@ function pendingChoice(
       context && ("trigger" in context || "previews" in context)
         ? {
             ...context,
-            ...("trigger" in context ? { trigger: decodeDecisionTrigger(context.trigger) } : {}),
+            ...("trigger" in context ? { trigger: decodeDecisionTrigger(context.trigger) ?? undefined } : {}),
             ...("previews" in context ? { previews: decodeEffectPreviews(context.previews) } : {}),
           }
         : context,
@@ -470,6 +467,11 @@ export function reduceServerMessage(
     case "secondary_preview":
     case "reach_into":
       // Answered to the asking call, never part of the shared projection.
+      return state;
+    case "draft_outcome":
+    case "draft_applied":
+    case "seat_staged":
+      // Answers to drafts and staged work, which this client never asks for.
       return state;
   }
 }
@@ -1445,8 +1447,8 @@ export class GameSessionClient implements GameTransport {
         this.settleReaches(new ReachUnsupportedError());
         return;
       }
-      // The server pushes the planning/draft protocol to every player connection. This client
-      // has no planning UI, so those messages are not for it and must not surface as errors.
+      // The answers of the draft protocol are not for this client, which has no draft UI: they
+      // must not surface as errors.
       if (
         typeof raw === "object" &&
         raw !== null &&
@@ -1635,10 +1637,10 @@ export class GameSessionClient implements GameTransport {
 
   private snapshotUrl(): string {
     if (!this.options.serverUrl)
-      return `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
+      return `${gamePath(this.options.gameId)}/snapshot`;
     const url = new URL(this.options.serverUrl, window.location.href);
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-    url.pathname = `/api/games/${encodeURIComponent(this.options.gameId)}/snapshot`;
+    url.pathname = `${gamePath(this.options.gameId)}/snapshot`;
     url.search = "";
     return url.toString();
   }
@@ -1646,7 +1648,7 @@ export class GameSessionClient implements GameTransport {
   private snapshotHeaders(): HeadersInit {
     return this.options.viewer.role === "player" &&
       this.options.viewer.playerSession
-      ? { "x-ti4-player-session": this.options.viewer.playerSession }
+      ? sessionHeaders(this.options.viewer.playerSession)
       : {};
   }
 }

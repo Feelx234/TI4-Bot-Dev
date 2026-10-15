@@ -34,7 +34,6 @@ fn game(game_id: &str) -> (Arc<GameRegistry>, PlayerId, String) {
             None,
             ti4_host::setup::card_set::DEFAULT,
             ti4_host::setup::SpeakerOrder::Seat,
-            ti4_server::session::table::SeatOrder::Join,
             None,
         )
         .expect("a started game");
@@ -58,9 +57,26 @@ fn steps(script: &[DraftStep]) -> Vec<PlanStep> {
         .collect()
 }
 
-#[test]
-fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
-    let game_id = "undo_action";
+/// A game in which the seat moved one ship, and what the test needs of it.
+struct Moved {
+    game_id: String,
+    registry: Arc<GameRegistry>,
+    seat: PlayerId,
+    credential: String,
+    session: Arc<GameSession>,
+    at_the_menu: Vec<ti4_engine::choice::DecisionRecord>,
+    script: Vec<DraftStep>,
+    target: String,
+    unit: String,
+    before: usize,
+    version: u64,
+}
+
+/// Plays the seat to its turn and sends the movement of one ship. In the game of the seed of
+/// [`game`] no other seat answers the movement (as Foresight of the Naalu could, whose ships are
+/// in the system): the seat may take back all of it. The seats that the server plays decide by
+/// their place, so the seed tells the game.
+fn moved_alone(game_id: &str) -> Moved {
     let (registry, seat, credential) = game(game_id);
     let session = registry.get_game(game_id).expect("the game runs");
     let (_, nonce, version) = to_the_turn_menu(&session, &seat);
@@ -75,6 +91,43 @@ fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
     );
     let (_, _, version) = asked(&session, &seat);
     assert_eq!(ships_at(&session, &target, &seat, &unit), before + 1);
+    assert!(
+        session.decision_log()[at_the_menu.len()..]
+            .iter()
+            .all(|record| record.player == seat),
+        "another seat answers the movement: the test needs a seed where none does"
+    );
+    Moved {
+        game_id: game_id.to_owned(),
+        registry,
+        seat,
+        credential,
+        session,
+        at_the_menu,
+        script,
+        target,
+        unit,
+        before,
+        version,
+    }
+}
+
+#[test]
+fn a_seat_takes_back_its_action_and_not_the_decision_of_another_seat() {
+    let Moved {
+        game_id,
+        registry,
+        seat,
+        credential,
+        session,
+        at_the_menu,
+        script,
+        target,
+        unit,
+        before,
+        version,
+    } = moved_alone("undo_action");
+    let game_id = game_id.as_str();
     assert!(can_undo(&session, &seat));
     // No other viewer may undo, and a version that is not the game's is refused.
     assert!(!can_undo(&session, &PlayerId::new("player_2")));

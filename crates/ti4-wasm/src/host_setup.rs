@@ -18,7 +18,7 @@ use ti4_content::galaxy::Galaxy;
 use ti4_engine::game::Game;
 use ti4_engine::seating;
 use ti4_host::maps::catalog::{self, MapChoice};
-use ti4_host::setup::{self, SeatOrder, SpeakerOrder, TableSeats, TableSetup, bot_kind, card_set};
+use ti4_host::setup::{self, SpeakerOrder, TableSeats, TableSetup, bot_kind, card_set};
 use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 use ti4_model::state::ReactionMode;
@@ -32,6 +32,7 @@ fn local_game_id() -> String {
 
 /// Who plays the seats of the others.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum Bots {
     /// The rule bot ([`setup::bot_kind::RULE`]). `"rule"` is its name in the form of `web/`.
     #[default]
@@ -45,6 +46,7 @@ pub enum Bots {
 /// The table of a game. Everything the game's opening state is made from; a save carries it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Setup {
     #[serde(default = "local_game_id")]
     pub game_id: String,
@@ -69,7 +71,8 @@ pub struct Setup {
     /// `"seat"` (the first seat opens) or `"random"`. Left out: random.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speaker: Option<SpeakerOrder>,
-    /// A prepared board of `ti4_host::view::scenario` (its seed and players win).
+    /// A prepared game of `ti4_host::view::scenario` (its players win, and its seed unless it
+    /// plays on any seed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<String>,
     /// Who plays the seats of the others. Left out: the rule bot.
@@ -83,10 +86,18 @@ pub struct Setup {
     pub bot_version: Option<u32>,
 }
 
-/// What a save brings to a new run of the same game.
+/// The format of the save of [`crate::host_session::HostSession::save_state`]. A save of another
+/// format is not read.
+pub const SAVE_FORMAT: u64 = 2;
+
+/// What a save (or the `restart` of a history change) brings to a new run of the same game.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct Resume {
-    /// The ids of the person's answers.
+    /// The game the save plays. A request that names no game of its own plays this one.
+    #[serde(default)]
+    pub game: Option<GameRequest>,
+    /// The person's answers to give again: a `restart` of a change of the history, which has no
+    /// `log`. A save has them too, and is played from its `decisions`.
     #[serde(default)]
     pub answers: Vec<String>,
     /// The answers after them that a redo can bring back.
@@ -106,15 +117,14 @@ pub struct Resume {
     pub version: u64,
     #[serde(default)]
     pub generation: u64,
-    /// How many decisions the saved game had, and their hash: checked when the replay ends.
-    #[serde(default)]
-    pub decisions: Option<usize>,
+    /// The hash of the saved decisions: checked when the replay ends.
     #[serde(default)]
     pub decisions_hash: Option<String>,
-    /// Every decision of the saved game, of every seat, in order. With it the game is given
-    /// each of them again, and no seat decides again (`answers` is then not read); without it
-    /// the person's `answers` are given, and the other seats decide again from the seed.
-    #[serde(default)]
+    /// Every decision of the saved game, of every seat, in order (`decisions` of a save, `log`
+    /// of a `restart`). With it the game is given each of them again, and no seat decides again
+    /// (`answers` is then not read); without it the person's `answers` are given, and the other
+    /// seats decide again from the seed.
+    #[serde(default, alias = "decisions")]
     pub log: Vec<String>,
     /// The changes of the seats that the page plays, in order.
     #[serde(default)]
@@ -126,10 +136,41 @@ pub struct Resume {
     /// the setup's own; see [`Start::settle_bot_version`]).
     #[serde(default)]
     pub bot_version: Option<u32>,
+    /// What each seat has staged and not sent (`ti4_host::staged`).
+    #[serde(default)]
+    pub staged: std::collections::BTreeMap<ti4_model::id::PlayerId, ti4_host::staged::SeatStaged>,
 }
 
-/// The request of `ti4_host_start`: one of `setup`, `table` and `local`, and what a save
-/// brings.
+/// The game of a request or of a save: one of `setup`, `table` and `local`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct GameRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup: Option<Setup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<TableRequest>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<Local>,
+}
+
+impl GameRequest {
+    /// The game this request asks for.
+    ///
+    /// # Errors
+    /// A message when the request names no game or two, or the game is not one the host offers.
+    pub fn build(&self) -> Result<Built, String> {
+        match (&self.setup, &self.table, &self.local) {
+            (Some(setup), None, None) => setup.build(),
+            (None, Some(table), None) => table.build(),
+            (None, None, Some(local)) => local.build(),
+            _ => Err("start: give one of setup, table and local".to_owned()),
+        }
+    }
+}
+
+/// The request of `ti4_host_start`: one of `setup`, `table` and `local` (or none, and a save
+/// that names its game), and what a save brings.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Start {
@@ -150,6 +191,10 @@ pub struct Start {
     /// command `stepping`.
     #[serde(default)]
     pub stepping: u32,
+    /// The page takes part in the staged work of its seats: it is sent `seat_staged` and may
+    /// send `put_staged`, as a connection of the server that subscribed with `staged`.
+    #[serde(default)]
+    pub staged: bool,
 }
 
 impl Start {
@@ -158,17 +203,22 @@ impl Start {
     /// # Errors
     /// A message when the request names no game or two, or the game is not one the host offers.
     pub fn build(&self) -> Result<Built, String> {
-        match (&self.setup, &self.table, &self.local) {
-            (Some(setup), None, None) => setup.build(),
-            (None, Some(table), None) => table.build(),
-            (None, None, Some(local)) => local.build(),
-            _ => Err("start: give one of setup, table and local".to_owned()),
+        let saved = self.resume.as_ref().and_then(|resume| resume.game.as_ref());
+        match (&self.setup, &self.table, &self.local, saved) {
+            (None, None, None, Some(game)) => game.build(),
+            _ => GameRequest {
+                setup: self.setup.clone(),
+                table: self.table.clone(),
+                local: self.local.clone(),
+            }
+            .build(),
         }
     }
 }
 
 /// Who plays a seat of a table ([`TableRequest`]), by the names of a lobby.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum SeatKind {
     /// The page answers the seat.
     #[default]
@@ -196,23 +246,28 @@ impl SeatKind {
 /// One player of a table: who plays the seat, and the faction that was chosen for it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatRequest {
+    /// `human` is played by the page, `smart` by the rule bot, `random` at random.
     #[serde(default)]
     pub kind: SeatKind,
+    /// The faction that was chosen for the player. Left out: drawn from the seed.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub faction: Option<String>,
     /// The name of the player at the table. With a name for every player, the updates of the
     /// game say who sits in each seat.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub name: Option<String>,
 }
 
 /// The table of web2's single player: what the host chose (`ti4_host::setup::TableSetup`), and
-/// its players in the order in which they came. The player who came as number `i` has the id
-/// of [`SEATS`]`[i]`, wherever the draw seats it: the masks of this host name a player by that
-/// letter.
+/// its players in the order of their seats. The player of seat `i` has the id of [`SEATS`]`[i]`:
+/// the masks of this host name a player by that letter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TableRequest {
     pub setup: TableSetup,
     /// Missing entries are seats of the page with no chosen faction.
@@ -241,7 +296,7 @@ impl TableRequest {
         Ok(table)
     }
 
-    /// The ids of the players in the order in which they came.
+    /// The ids of the players in the order of their seats.
     #[must_use]
     pub fn joined(&self) -> Vec<PlayerId> {
         SEATS[..self.setup.player_count]
@@ -250,7 +305,7 @@ impl TableRequest {
             .collect()
     }
 
-    /// What the start draws: who sits where, and the faction of every seat.
+    /// What the start draws: the faction of every seat.
     ///
     /// # Errors
     /// A message when a chosen faction is not offered.
@@ -298,8 +353,12 @@ impl TableRequest {
         let table = self.checked()?;
         let content = ContentStore::embedded();
         let drawn = table.drawn()?;
-        let players = drawn.seated(&table.joined());
+        let players = table.joined();
         let (state, galaxy) = setup::create(content, &table.setup, &players, &drawn)?;
+        let opening = table
+            .setup
+            .scenario()?
+            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
         let seed = table.setup.game_seed();
         let game = Game::with_seeded_random(state, content, seed)
             .with_sources(POK)
@@ -314,7 +373,13 @@ impl TableRequest {
             table: true,
             seats: table.seats(),
             game_id: local_game_id(),
-            request: serde_json::json!({ "table": table }),
+            setup: Some(table.setup.clone()),
+            scenario: table.setup.start_from.clone(),
+            request: GameRequest {
+                table: Some(table),
+                ..GameRequest::default()
+            },
+            opening,
         })
     }
 }
@@ -324,6 +389,7 @@ impl TableRequest {
 /// [`SEATS`]`[i]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct Local {
     #[serde(default)]
     pub seed: u64,
@@ -349,19 +415,19 @@ impl Local {
     /// # Errors
     /// A message when the scenario is not known, or the count is not one of a game.
     pub fn build(&self) -> Result<Built, String> {
-        let (seed, players) = match &self.scenario {
-            Some(id) => {
-                let scenario = ti4_host::view::scenario::find(id).ok_or_else(|| {
-                    let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
-                        .iter()
-                        .map(|scenario| scenario.id)
-                        .collect();
-                    format!("no scenario '{id}': the scenarios are {}", known.join(", "))
-                })?;
-                (scenario.seed, scenario.players)
-            }
-            None => (self.seed, self.players),
+        let scenario = match &self.scenario {
+            Some(id) => Some(ti4_host::view::scenario::find(id).ok_or_else(|| {
+                let known: Vec<&str> = ti4_host::view::scenario::SCENARIOS
+                    .iter()
+                    .map(|scenario| scenario.id)
+                    .collect();
+                format!("no scenario '{id}': the scenarios are {}", known.join(", "))
+            })?),
+            None => None,
         };
+        let (seed, players) = scenario.map_or((self.seed, self.players), |scenario| {
+            (scenario.seed, scenario.players)
+        });
         let game = crate::new_game(
             ContentStore::embedded(),
             seed,
@@ -369,6 +435,9 @@ impl Local {
             self.scenario.as_deref(),
         )
         .map_err(|error| error.to_string())?;
+        let opening = scenario.zip(game.galaxy()).and_then(|(scenario, galaxy)| {
+            ti4_host::view::scenario::opening(scenario, &game.state, galaxy)
+        });
         let all = (1_u32 << players) - 1;
         Ok(Built {
             galaxy: game.galaxy().cloned(),
@@ -380,7 +449,13 @@ impl Local {
             table: false,
             seats: None,
             game_id: local_game_id(),
-            request: serde_json::json!({ "local": self }),
+            setup: None,
+            scenario: self.scenario.clone(),
+            request: GameRequest {
+                local: Some(self.clone()),
+                ..GameRequest::default()
+            },
+            opening,
         })
     }
 }
@@ -441,13 +516,20 @@ pub struct Built {
     /// Who sits in each seat, when the game is of a table whose players have names.
     pub seats: Option<TableSeats>,
     pub game_id: String,
+    /// The table of `ti4_host::setup` that the game was made from; none for a game of a fixed
+    /// setup ([`Local`]).
+    pub setup: Option<TableSetup>,
+    /// The scenario the game starts from.
+    pub scenario: Option<String>,
     /// The request with the choices that were left open filled in: a save replays with it.
-    pub request: serde_json::Value,
+    pub request: GameRequest,
+    /// The opening of the scenario that the game starts from (`ti4_host::view::scenario`).
+    pub opening: Option<ti4_host::view::scenario::Opening>,
 }
 
 impl Setup {
-    /// The table of `ti4_host::setup` that this request asks for. The seats keep the order of the
-    /// join: the person sits at the place that they asked for.
+    /// The table of `ti4_host::setup` that this request asks for. The person sits at the place
+    /// that they asked for.
     #[must_use]
     pub fn table(&self) -> TableSetup {
         let map = match self.map.as_deref() {
@@ -462,7 +544,6 @@ impl Setup {
                 .card_set
                 .clone()
                 .unwrap_or_else(|| card_set::DEFAULT.to_owned()),
-            seat_order: SeatOrder::Join,
             speaker_order: self.speaker.unwrap_or_default(),
             start_from: self.scenario.clone(),
             preset: self.preset.clone(),
@@ -479,7 +560,7 @@ impl Setup {
         if let Some(id) = &setup.scenario {
             let scenario =
                 ti4_host::view::scenario::find(id).ok_or_else(|| format!("no scenario '{id}'"))?;
-            setup.seed = scenario.seed;
+            setup.seed = scenario.game_seed(setup.seed);
             setup.players = scenario.players;
         }
         setup.table().check()?;
@@ -525,7 +606,10 @@ impl Setup {
             .collect();
         let joined: Vec<PlayerId> = SEATS[..players].iter().map(|s| PlayerId::new(*s)).collect();
         let drawn = setup::draw(&table, &chosen)?;
-        let (state, galaxy) = setup::create(content, &table, &drawn.seated(&joined), &drawn)?;
+        let (state, galaxy) = setup::create(content, &table, &joined, &drawn)?;
+        let opening = table
+            .scenario()?
+            .and_then(|scenario| ti4_host::view::scenario::opening(scenario, &state, &galaxy));
         let rule_seats = if setup.bots == Some(Bots::Random) {
             0
         } else {
@@ -544,7 +628,13 @@ impl Setup {
             table: false,
             seats: None,
             game_id: setup.game_id.clone(),
-            request: serde_json::to_value(&setup).map_err(|error| error.to_string())?,
+            scenario: table.start_from.clone(),
+            setup: Some(table),
+            request: GameRequest {
+                setup: Some(setup),
+                ..GameRequest::default()
+            },
+            opening,
         })
     }
 }

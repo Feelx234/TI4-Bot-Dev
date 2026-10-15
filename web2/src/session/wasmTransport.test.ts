@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { loadCatalog } from "@ti4/shared/content/catalog.ts";
 import { expect, it } from "vitest";
 import { setLoad, setShip } from "./movementDraft";
 import {
@@ -36,12 +37,12 @@ import { selectSecrets } from "./select/secrets";
 import { factionSheet } from "./select/factionSheet";
 import { selectPlayers } from "./select/players";
 import type { TransportEvent } from "./transport";
-import type { LocalGame, SeatSwitch } from "./savedGame";
+import type { LocalGame } from "./savedGame";
 import {
   type Engine,
   type HostSave,
-  catalogOf,
   createWasmTransport,
+  engineQuery,
   scenariosOf,
   setupDrawOf,
   setupOptionsOf,
@@ -49,12 +50,13 @@ import {
 } from "./wasmTransport";
 import type {
   DraftOutcome,
-  DraftScope,
   DraftStep,
   InvasionFacts,
   MovementFacts,
+  PlanScope,
   ProductionFacts,
   ReactionModes,
+  SeatSwitch,
   SessionUpdate,
   TableRequest,
 } from "./wire";
@@ -126,7 +128,7 @@ async function play(
     }
   });
   /** Asks for a draft and waits for its answer: the script comes back with it. */
-  const draft = (script: DraftStep[], scope?: DraftScope) =>
+  const draft = (script: DraftStep[], scope?: PlanScope) =>
     new Promise<DraftOutcome | null>((answer) => {
       drafts.set(script, answer);
       transport.draft(script, scope);
@@ -148,7 +150,7 @@ async function play(
     never: () => never,
     modes: () => modes,
     save: () => save!,
-    decisions: (): readonly string[] => save?.log ?? [],
+    decisions: (): readonly string[] => save?.decisions ?? [],
     answers: (): readonly string[] => save?.answers ?? [],
     switches: (): readonly SeatSwitch[] => save?.switches ?? [],
   };
@@ -595,8 +597,8 @@ it.skipIf(!built)(
     }
     const open = await next();
     expect(subtype(open)).toBe("produce_unit");
+    expect(open.update.tactical?.kind).toBe("production");
     const facts = open.update.tactical as ProductionFacts;
-    expect(facts.kind).toBe("production");
     const unit = (id: string) => facts.units.findIndex((item) => item.unit === id);
     // The printed side of a unit, in the shape that the card reads. A failure here with an
     // engine that is older than `ti4-host/src/view`: run scripts/build-wasm.sh.
@@ -743,7 +745,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed exploration cards, and an update says what the decks hold",
   async () => {
-    const printed = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const printed = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const catalog = printed.exploration;
     expect(Object.keys(catalog.decks).sort()).toEqual([
       "CULTURAL",
@@ -785,7 +789,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed action cards, and an update says where the cards of the deck are",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.action_cards;
     const boosts = deck.filter((card) => card.name === "Morale Boost");
     expect(boosts).toHaveLength(4);
@@ -825,7 +831,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed secret objectives, and an update says what each seat has scored",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.secret_objectives;
     expect(deck).toHaveLength(40);
     for (const card of deck) {
@@ -870,7 +878,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed agendas, and an update says which laws are in play",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.agendas!;
     expect(deck).toHaveLength(50);
     // Every agenda is in the deck once.
@@ -954,7 +964,9 @@ it.skipIf(!built)("says where the points of every seat of the late game come fro
 it.skipIf(!built)(
   "has the printed cards of a play area, and an update says which are used",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const { transport, next } = await play(false, {
       seed: 42,
       players: 8,
@@ -1208,7 +1220,9 @@ async function toWindowOf(game: Awaited<ReturnType<typeof play>>, key: string): 
 it.skipIf(!built)(
   "says what a window of an ability offers as printed, and passes it for a seat that wants it in its turns only",
   async () => {
-    const catalog = await catalogOf(await WebAssembly.compile(readFileSync(WASM)));
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const game = await play(false, SARDAKK);
     const window = await toWindowOf(game, TRO);
     const { update } = window;
@@ -1383,7 +1397,7 @@ it.skipIf(!built)(
     const choose = (option_id: string): DraftStep => ({ kind: "choose", option_id });
     // Seat a takes the last card, so that another seat plays a strategy card before its turn.
     let event = await next();
-    let drafted: { scope: DraftScope; pass: string } | null = null;
+    let drafted: { scope: PlanScope; pass: string } | null = null;
     for (let turns = 0; turns < 600 && !drafted; turns += 1) {
       const action = event.update.secondary;
       if (event.update.pending_choice) {
@@ -1397,7 +1411,7 @@ it.skipIf(!built)(
         // was before the card was played.
         expect(action.primary).not.toBe("a");
         expect(action.followers.find((follower) => follower.seat === "a")?.state).toBe("waiting");
-        const scope: DraftScope = { kind: "secondary", primary: action.primary, card: action.card };
+        const scope: PlanScope = { kind: "secondary", primary: action.primary, card: action.card };
         const asked = await draft([], scope);
         if (asked?.stop.kind === "complete") {
           // A secondary that the seat cannot use asks nothing (Leadership with no influence).

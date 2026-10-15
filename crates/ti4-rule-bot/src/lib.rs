@@ -8,7 +8,10 @@
 //! and `None` for everything else, which keeps the random pick. An index is always one of the
 //! offered options, so the bot can never answer illegally or stall a game the random bot would
 //! finish. It reads only the seat's [`SeatObservation`] (public board plus its own hand), and is
-//! deterministic: the same position and seed give the same answer.
+//! deterministic: the same position and seed give the same answer. The stream of a decision is
+//! seeded by the game seed, the place of the seat in the seat order and the number of the
+//! decision ([`random::decision_rng`]), never by the id of the seat, so a table of a seed is the
+//! same game on the server and in the page.
 //!
 //! The opinions, deliberately few:
 //!
@@ -92,10 +95,13 @@ pub mod objectives;
 pub mod agents;
 
 pub mod answers;
+mod decider;
 pub mod faction_plans;
 pub mod planner;
 pub mod random;
 pub mod tuning;
+
+pub use decider::RuleBotDecider;
 
 /// A fight is taken only when the strength matchup (`ln` of the Lanchester strength ratio) is at
 /// least this: roughly a 1.6x edge, "clearly winning" rather than a coin flip.
@@ -133,8 +139,9 @@ const GRAVITY_DRIVE: &str = "gd";
 
 /// The answer of a bot seat to its decision number `index` of the game with `game_seed`: the
 /// index of one of the options, and the generator after the draws (for the host's think time).
-/// With `seen` the seat is a rule bot, without it a random bot. The choice must have at least
-/// one option.
+/// `seat` is the place of the seat in the seat order of the game, from 0 (see
+/// [`random::decision_rng`]). With `seen` the seat is a rule bot, without it a random bot. The
+/// choice must have at least one option.
 ///
 /// The random pick is always drawn first, so the stream is the same whether or not the
 /// heuristic overrides it.
@@ -143,7 +150,7 @@ pub fn choose(
     choice: &Choice,
     seen: Option<&SeatObservation<'_>>,
     game_seed: u64,
-    seat: &PlayerId,
+    seat: usize,
     index: usize,
 ) -> (usize, ChaCha8Rng) {
     let (picked, _, rng) = choose_explained(choice, seen, game_seed, seat, index);
@@ -157,7 +164,7 @@ pub fn choose_explained(
     choice: &Choice,
     seen: Option<&SeatObservation<'_>>,
     game_seed: u64,
-    seat: &PlayerId,
+    seat: usize,
     index: usize,
 ) -> (usize, bool, ChaCha8Rng) {
     let mut rng = random::decision_rng(game_seed, seat, index);

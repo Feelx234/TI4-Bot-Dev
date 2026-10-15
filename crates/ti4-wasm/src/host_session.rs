@@ -12,7 +12,7 @@
 //! | `ObservedDecider` (what was chosen)          | [`HostSession::selected`]              |
 //! | `RemoteHumanDecider::choose` (state update)  | [`HostSession::ask`]                   |
 //! | the code after `game.step()`                 | [`HostSession::after_step`]            |
-//! | `UndoTrack` / registry undo                  | checkpoints: [`HostSession::mark`], [`HostSession::took_back`] |
+//! | `UndoTrack` (table rules) / registry undo    | `UndoTrack` (local rules), checkpoints: [`HostSession::mark`], [`HostSession::took_back`] |
 //! | `SessionShared::*` commands                  | [`HostSession::command`]               |
 //!
 //! Differences from the server, all on purpose:
@@ -22,15 +22,22 @@
 //!   those updates.
 //! - The pending choice travels inside the `state_update` / `initial_snapshot` only; the separate
 //!   `pending_choice` message is not sent.
-//! - Undo is the engine checkpoint of this crate (no `UndoTrack` barriers: one person, and a
-//!   checkpoint restores the dice, so an undo cannot be used to re-roll).
+//! - Undo is the engine checkpoint of this crate. The track of the answers is the server's
+//!   `UndoTrack` under `UndoRules::Local`: only a change of the page's seats cuts it, so an undo
+//!   may go back over what other seats decided and over a die or a shuffle (a checkpoint restores
+//!   the dice, so an undo cannot be used to re-roll).
 //! - Redo and rewind are by replay: the session says what to replay ([`Restart`]); the host starts
 //!   the game again with those answers. So is an undo that goes back further than the
-//!   checkpoints. A local game has no undo barrier: an undo may go back over what other seats
-//!   decided, as far as the last change of the page's seats.
+//!   checkpoints.
 //! - A seat that the page does not play may wait for the page before it decides (stepping, or
 //!   the wait of a table): the session then sends an update with no pending choice, and the
 //!   page lets the seat go on ([`LocalCommand::Step`]).
+//! - The staged work of each seat (`ti4_host::staged`) is kept in the session and in its save.
+//!   The page is one connection: it is told the slots of the seat that it is shown as, with
+//!   `connection`, after each snapshot and when that seat changes. Revisions count up for the
+//!   whole page, so a write that was meant for another seat is stale. A ready draft of a
+//!   secondary is sent by the session when the game asks the seat, and when the seat marks it
+//!   ready while the game asks it (`ti4_host::staged::ready`).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -43,32 +50,45 @@ use ti4_host::batch::{LiveBatch, LiveStep, MovementPlan};
 use ti4_host::clock::Clock;
 use ti4_host::journal::{self, EventDraft};
 use ti4_host::map::GalaxyLayout;
-use ti4_host::planning::draft::{DraftStep, ScriptAnswer, needless, script_answer};
-use ti4_host::planning::fork::TACTICAL_COMPLETE;
-use ti4_host::planning::steps::{INTERRUPTED, PlanStep};
-use ti4_host::planning::undo::{self, Answered};
+use ti4_host::planning::audit::PlanScope;
+use ti4_host::planning::draft::{DraftOutcome, DraftStep};
+use ti4_host::planning::script::{
+    Check, Ended, First, OnMismatch, ScriptRuns, check_script, first_answer, refused,
+    tactical_complete,
+};
+use ti4_host::planning::steps::PlanStep;
+use ti4_host::planning::undo::{UndoEntry, UndoRules, UndoTrack};
+use ti4_host::preview::{Basis, Position, PreviewRequest, busy, eligibility};
 use ti4_host::projection::{project_initial_snapshot_with_map, project_turn_status};
+use ti4_host::protocol::check_submission;
 use ti4_host::protocol::client::ClientMessage;
 use ti4_host::protocol::error::ErrorKind;
 use ti4_host::protocol::reach::ReachIntoMsg;
 use ti4_host::protocol::server::{
     ActionAcceptedMsg, ActionRejectedMsg, AutoResolvedNote, DraftAppliedMsg, EventVisibility,
     GameEvent, GameEventKind, GameEventMsg, GameOverMsg, MovementFact, PongMsg, ProtocolErrorMsg,
-    ScriptStopped, SeatDecisionDetail, ServerMessage, StateUpdateMsg, current_log_path,
+    SeatDecisionDetail, SecondaryPreviewMsg, ServerMessage, StateUpdateMsg, current_log_path,
     public_roll, verified_decision_facts,
 };
+use ti4_host::protocol::staged::StagedSlot;
 use ti4_host::protocol::status::{RejectionReason, ViewerRole};
 use ti4_host::protocol::view::BoardTileView;
 use ti4_host::setup::TableSeats;
+use ti4_host::staged::ready::{self, Check as ReadyCheck};
+use ti4_host::staged::{Put, SeatStaged};
 use ti4_host::state_update::{
     StateUpdateInputs, answer_reach, queue_auto_resolved, state_update_for,
 };
-use ti4_host::view::reaction_modes::NeverSet;
-use ti4_model::id::PlayerId;
+use ti4_host::view::reaction_modes::{Modes, NeverSet};
+use ti4_host::view::scenario::{Opening, OpeningRun};
+use ti4_model::id::{PlayerId, StrategyCardId};
 use ti4_model::state::{GameState, Phase, ReactionMode};
 
 /// The most checkpoints (and so session marks) kept; see `CHECKPOINT_LIMIT` in `lib.rs`.
 pub const MARK_LIMIT: usize = 32;
+
+/// The id of the page as a connection: the `writer` of its writes of the staged work.
+pub const PAGE_CONNECTION: u64 = 1;
 
 /// What the host does with the answer of [`HostSession::command`] for the parked game.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +108,7 @@ pub enum Resume {
 /// From the decision with the number `decision` on, the page plays the seats of `humans` (bit 0
 /// is seat `a`). An undo does not go back before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatSwitch {
     pub decision: u64,
     pub humans: u32,
@@ -100,6 +121,17 @@ pub trait PlayLoop: Send {
     fn decided(&self) -> u64;
     /// Whether an undo through the checkpoints reaches the answer that had the number `asked`.
     fn reaches(&self, asked: u64) -> bool;
+    /// A copy of the game at its last finished step and how many decisions the log had there:
+    /// the check of a script before it is sent ([`check_script`]).
+    fn script_copy(&self) -> Option<(Game<'static>, usize)>;
+    /// `script` of `seat` played on a copy of the game at its last finished step, in `scope`:
+    /// the check of a ready draft of a secondary. `None` when there is no copy.
+    fn draft(
+        &self,
+        seat: &PlayerId,
+        scope: &PlanScope,
+        script: &[DraftStep],
+    ) -> Option<DraftOutcome>;
 }
 
 /// A history change that needs the game to be played again: the host ends the parked run and
@@ -130,6 +162,9 @@ pub struct Restart {
     /// run plays the same bot even when its request repeats a setup that leaves it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_version: Option<u32>,
+    /// What each seat has staged: a history change keeps it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub staged: BTreeMap<PlayerId, SeatStaged>,
 }
 
 /// The result of a command, besides the messages (those are in [`HostSession::drain`]).
@@ -185,21 +220,6 @@ pub enum HistoryAction {
     Restore { event_id: String },
 }
 
-/// A script (a draft or a batch) that answers the person's choices from the engine thread.
-#[derive(Debug, Clone)]
-pub struct ScriptRun {
-    nonce: String,
-    /// The script as it was sent: what a refusal says is not in the game.
-    sent: Vec<DraftStep>,
-    /// The number of the choice the script began at: a script that the game refuses goes back
-    /// to it, all or nothing.
-    start: u64,
-    script: Vec<DraftStep>,
-    next: usize,
-    /// Whose turn it was. The script does not outlive that turn.
-    active: Option<PlayerId>,
-}
-
 /// A batch (a staged movement, production or payment) that answers the person's choices.
 struct BatchRun {
     live: LiveBatch,
@@ -228,30 +248,6 @@ struct Selected {
     own: Option<u64>,
     /// The game declined the window for the Never cards of the page.
     passed: bool,
-}
-
-/// An answer of the page, as an undo reads it.
-#[derive(Debug, Clone)]
-struct Own {
-    /// Its place in the decision log.
-    decision: usize,
-    /// The number the play loop gave it.
-    asked: u64,
-    subtype: String,
-    kind: String,
-    /// A window that the game declined for the Never cards: no answer of the player.
-    passed: bool,
-    step: Option<PlanStep>,
-}
-
-impl Answered for Own {
-    fn subtype(&self) -> &str {
-        &self.subtype
-    }
-
-    fn kind(&self) -> &str {
-        &self.kind
-    }
 }
 
 /// An undo that goes back over several answers, through the checkpoints one at a time.
@@ -288,8 +284,15 @@ pub struct Identity {
     /// The seats that the page plays at the start (bit 0 is seat `a`).
     #[serde(default)]
     pub humans: u32,
-    /// The setup as the host was given it (card set, map, factions...): a save replays with it.
-    pub setup: serde_json::Value,
+    /// The game as the host was given it, with the choices that were left open filled in (card
+    /// set, map, factions...): a save replays with it.
+    pub game: crate::host_setup::GameRequest,
+    /// The table of `ti4_host::setup` the game was made from; none for a game of a fixed setup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<ti4_host::setup::TableSetup>,
+    /// The scenario the game starts from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
     /// Who sits in each seat, told with every update: the game of a table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seats: Option<TableSeats>,
@@ -314,9 +317,11 @@ pub struct HostSession {
     prev_phase: Phase,
     prev_round: u32,
     selected: VecDeque<Selected>,
-    /// The page's answers (ids), in order, and what an undo reads of each.
+    /// The page's answers (ids), in order.
     answers: Vec<String>,
-    own: Vec<Own>,
+    /// What an undo reads of each answer of the page (local rules: only a change of the page's
+    /// seats cuts).
+    undo: UndoTrack,
     /// The next decision of the page is a window that was declined for its Never cards.
     declined: bool,
     redo: Vec<String>,
@@ -342,7 +347,17 @@ pub struct HostSession {
     /// Notes of the game's auto-resolved single-option steps, for the next update.
     auto_resolved: Vec<(PlayerId, AutoResolvedNote)>,
     undone: Vec<PlanStep>,
-    script: Option<ScriptRun>,
+    /// The scripts that are being sent to the game. A refused entry takes the whole script back.
+    scripts: ScriptRuns,
+    /// The opening of the scenario that a new game starts from: it answers its seat until it
+    /// stops (`ti4_host::view::scenario::OpeningRun`).
+    opening: OpeningRun,
+    /// What each seat has staged and not sent.
+    staged: BTreeMap<PlayerId, SeatStaged>,
+    /// The page takes part in the staged work (`Start::staged`, or `subscribe` with `staged`).
+    staged_shared: bool,
+    /// The seat whose slots the page was told last.
+    staged_told: Option<PlayerId>,
     batch: Option<BatchRun>,
     /// How the last batch ended, for the host (taken by [`HostSession::take_batch_result`]).
     batch_result: Option<serde_json::Value>,
@@ -398,7 +413,13 @@ impl HostSession {
             prev_round: state.round,
             selected: VecDeque::new(),
             answers: Vec::new(),
-            own: Vec::new(),
+            undo: {
+                let mut undo = UndoTrack::new(UndoRules::Local);
+                if let Some(switch) = resume.switches.last() {
+                    undo.seats_changed(usize::try_from(switch.decision).unwrap_or(usize::MAX));
+                }
+                undo
+            },
             declined: false,
             redo: resume.redo.clone(),
             marks: VecDeque::new(),
@@ -415,7 +436,11 @@ impl HostSession {
             fresh: true,
             auto_resolved: Vec::new(),
             undone: resume.undone.clone(),
-            script: None,
+            scripts: ScriptRuns::new(OnMismatch::TakeBack),
+            opening: OpeningRun::default(),
+            staged: resume.staged.clone(),
+            staged_shared: false,
+            staged_told: None,
             batch: None,
             batch_result: None,
             quiet: if resume.log.is_empty() {
@@ -488,6 +513,18 @@ impl HostSession {
     #[must_use]
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// The position the page sees (the newest published one).
+    #[must_use]
+    pub fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    /// The map of the game, if it has one.
+    #[must_use]
+    pub fn galaxy(&self) -> Option<&Galaxy> {
+        self.galaxy.as_ref()
     }
 
     #[must_use]
@@ -699,20 +736,21 @@ impl HostSession {
     /// A decision of the page is in the log, at `index`.
     fn note_answer(&mut self, record: &DecisionRecord, index: usize, selected: Option<&Selected>) {
         self.answers.push(record.chosen.clone());
-        self.own.push(Own {
-            decision: index,
-            asked: selected.and_then(|selected| selected.own).unwrap_or(0),
-            subtype: record
-                .context
-                .as_ref()
-                .map(|context| context.subtype.clone())
-                .unwrap_or_default(),
-            kind: selected
-                .map(|selected| selected.option.kind.clone())
-                .unwrap_or_default(),
-            passed: selected.is_some_and(|selected| selected.passed),
-            step: selected.and_then(|selected| PlanStep::of_option(&selected.option)),
-        });
+        let entry = match selected {
+            Some(selected) => UndoEntry::new(&selected.choice, &selected.option, index)
+                .asked(selected.own.unwrap_or(0))
+                .passed(selected.passed),
+            None => UndoEntry::recorded(
+                record.player.clone(),
+                index,
+                record
+                    .context
+                    .as_ref()
+                    .map(|context| context.subtype.clone())
+                    .unwrap_or_default(),
+            ),
+        };
+        self.undo.push(entry, true);
         // A redo list survives only while the person plays it again (as the server's does). An
         // answer that is played again from a save or after an undo is no new decision.
         if self.quiet > 0 {
@@ -820,13 +858,11 @@ impl HostSession {
             self.state.clone_from(&game.state);
             self.finish(&game.state);
         }
-        let tactical_over = game
-            .events
-            .get(events_before..)
-            .unwrap_or_default()
-            .iter()
-            .any(|event| event == TACTICAL_COMPLETE);
-        self.script_after_step(tactical_over, &game.state);
+        let tactical_over = tactical_complete(game.events.get(events_before..).unwrap_or_default());
+        let ended = self
+            .scripts
+            .after_step(tactical_over, game.state.active.as_ref());
+        self.tell_scripts(ended);
     }
 
     fn finish(&mut self, state: &GameState) {
@@ -953,9 +989,10 @@ impl HostSession {
     pub fn ask(&mut self, choice: &Choice, nonce: &str, state: &GameState) -> Option<Resume> {
         self.resuming = false;
         if let Some(undoing) = &self.undoing {
-            let last = self.own.iter().rev().find(|own| !own.passed);
-            if self.own.len() > undoing.keep
-                && last.is_some_and(|own| self.play_loop.reaches(own.asked))
+            let entries = self.undo.entries();
+            let last = entries.iter().rev().find(|entry| !entry.passed);
+            if entries.len() > undoing.keep
+                && last.is_some_and(|entry| self.play_loop.reaches(entry.asked))
             {
                 return Some(Resume::Undo);
             }
@@ -970,8 +1007,14 @@ impl HostSession {
         self.viewer.clone_from(&choice.player);
         self.pending = Some((choice.clone(), nonce.to_owned()));
         self.waiting = None;
-        self.can_undo = self.undo_start().is_some();
         self.awaiting = None;
+        // A ready draft of the secondary that the seat is asked is sent: the seat is not asked.
+        if !self.replaying()
+            && let Some(index) = self.send_ready(choice, nonce)
+        {
+            return Some(Resume::Answer(index));
+        }
+        self.can_undo = self.undo_start().is_some();
         self.show();
         None
     }
@@ -1011,6 +1054,7 @@ impl HostSession {
             self.fresh = false;
             let snapshot = self.snapshot();
             self.out.push(snapshot);
+            self.tell_staged();
             // A snapshot has no notes: the windows that were passed before it come with an
             // update of the same version.
             if self.auto_resolved.is_empty() {
@@ -1019,6 +1063,9 @@ impl HostSession {
         }
         let update = self.state_update();
         self.out.push(update);
+        if self.staged_told.as_ref() != Some(&self.viewer) {
+            self.tell_staged();
+        }
     }
 
     /// The page answered: nothing is pending until the next `ask`.
@@ -1059,12 +1106,12 @@ impl HostSession {
             return;
         };
         let undone_answers: Vec<String> = self.answers.split_off(mark.answers);
-        let undone_steps = self.own.split_off(mark.answers);
+        let undone_steps = self.undo.take_back(mark.answers);
         if !rollback {
             if self.undoing.is_none() {
                 self.undone = undone_steps
                     .into_iter()
-                    .filter_map(|own| own.step)
+                    .filter_map(|entry| entry.step)
                     .collect();
             }
             let mut redo = undone_answers;
@@ -1086,7 +1133,7 @@ impl HostSession {
         self.waiting = None;
         self.resuming = true;
         self.awaiting = None;
-        self.script = None;
+        self.scripts.clear();
         self.auto_resolved.clear();
         self.batch = None;
         self.fresh = true;
@@ -1097,66 +1144,28 @@ impl HostSession {
     /// The answer of a running script to `choice` of the page, when it has one. A step that the
     /// game does not offer takes the whole script back: nothing of it stays in the game.
     fn script_answer(&mut self, choice: &Choice) -> Option<Scripted> {
-        let application = self.script.as_mut()?;
-        match script_answer(&application.script, application.next, choice, &self.viewer) {
-            ScriptAnswer::Answer {
-                option,
-                next,
-                script,
-            } => {
-                application.next = next;
-                if let Some(script) = script {
-                    application.script = script;
-                }
-                if application.next >= application.script.len() {
-                    self.end_script(|_| None);
-                }
-                Some(Scripted::Answer(option))
-            }
-            ScriptAnswer::Done => {
-                self.end_script(|_| None);
-                None
-            }
-            ScriptAnswer::Interrupted { reason } => {
-                // The entries before this one are in the game and stay there.
-                self.end_script(|application| Some(stopped(application, &reason)));
-                None
-            }
-            ScriptAnswer::Mismatch { reason, .. } => {
-                let application = self.script.take()?;
-                self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
-                    protocol_version: PROTOCOL_VERSION,
-                    game_id: self.identity.game_id.clone(),
-                    nonce: application.nonce,
-                    stopped: Some(refused(&application.sent, reason)),
-                }));
-                Some(Scripted::Rollback(application.start))
-            }
+        let (option, ended) = self.scripts.answer(choice);
+        // The script began at the choice that its nonce numbers.
+        let back = ended
+            .iter()
+            .find(|end| end.taken_back)
+            .map(|end| end.nonce.parse().unwrap_or(0));
+        self.tell_scripts(ended);
+        match back {
+            Some(start) => Some(Scripted::Rollback(start)),
+            None => option.map(Scripted::Answer),
         }
     }
 
-    fn end_script(&mut self, stop: impl FnOnce(&ScriptRun) -> Option<ScriptStopped>) {
-        if let Some(application) = self.script.take() {
-            let stopped = stop(&application);
+    /// Tells the page what became of its scripts.
+    fn tell_scripts(&mut self, ended: Vec<Ended>) {
+        for end in ended {
             self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
                 protocol_version: PROTOCOL_VERSION,
                 game_id: self.identity.game_id.clone(),
-                nonce: application.nonce,
-                stopped,
+                nonce: end.nonce,
+                stopped: end.stopped,
             }));
-        }
-    }
-
-    fn script_after_step(&mut self, tactical_over: bool, state: &GameState) {
-        let over = self
-            .script
-            .as_ref()
-            .is_some_and(|application| tactical_over || application.active != state.active);
-        if over {
-            self.end_script(|application| {
-                (!needless(&application.script[application.next..]))
-                    .then(|| stopped(application, ACTION_OVER))
-            });
         }
     }
 
@@ -1166,9 +1175,13 @@ impl HostSession {
     pub fn client_message(&mut self, message: ClientMessage) -> Handled {
         let mut handled = Handled::default();
         match message {
-            ClientMessage::Subscribe { .. } => {
+            ClientMessage::Subscribe { staged, .. } => {
                 let snapshot = self.snapshot();
                 self.out.push(snapshot);
+                if staged {
+                    self.share_staged();
+                    self.tell_staged();
+                }
             }
             ClientMessage::Ping { sequence, .. } => {
                 self.out.push(ServerMessage::Pong(PongMsg {
@@ -1231,27 +1244,31 @@ impl HostSession {
                 let reply = self.reach(request_id, &system_id);
                 self.out.push(ServerMessage::ReachInto(reply));
             }
-            ClientMessage::PreviewSecondary { .. } => {
-                self.protocol_error(
-                    ErrorKind::MalformedMessage,
-                    "preview_secondary is not available in an offline game",
-                );
+            ClientMessage::PreviewSecondary {
+                request_id,
+                card,
+                primary,
+                answers,
+                ..
+            } => {
+                let reply = self.preview(&PreviewRequest {
+                    request_id,
+                    card,
+                    primary,
+                    answers,
+                });
+                self.out.push(ServerMessage::SecondaryPreview(reply));
             }
             // A bluff hold needs a second person; there is none.
             ClientMessage::SetReactionIntent { .. } | ClientMessage::PassReactionHold { .. } => {}
-            // Staged work is kept by the server so that the tabs of one seat share it; an
-            // offline game lives in one page, which keeps its staged work itself. Ignored, as
-            // `Subscribe::staged` is (no `SeatStaged` is ever sent).
-            ClientMessage::PutStaged { .. } => {}
-            ClientMessage::RunDraft { .. }
-            | ClientMessage::StartPlanning { .. }
-            | ClientMessage::ResetPlanning { .. }
-            | ClientMessage::EditPlanningMovement { .. }
-            | ClientMessage::ApplyPlanning { .. }
-            | ClientMessage::SubmitPlanningChoice { .. }
-            | ClientMessage::SecondaryPlanning { .. } => {
-                // `RunDraft` is answered by the caller (it needs the copy of the game); the
-                // server-side planning protocol is replaced by drafts.
+            ClientMessage::PutStaged {
+                slot,
+                base_revision,
+                value,
+                ..
+            } => handled.resume = self.page_put(slot, base_revision, value),
+            ClientMessage::RunDraft { .. } => {
+                // `RunDraft` is answered by the caller (it needs the copy of the game).
                 self.protocol_error(
                     ErrorKind::MalformedMessage,
                     "this message is answered by the host, not by the session",
@@ -1273,57 +1290,85 @@ impl HostSession {
         )
     }
 
-    /// Checks the nonce and the version of a request against the pending choice. On success the
-    /// place of `option_id` in it (0 when none is asked for).
+    /// The answer of `ClientMessage::PreviewSecondary` for the seat the page is shown as
+    /// (`ti4_host::preview`). The game is live while it waits for the page (a question or a
+    /// step); the position is the one the page sees.
+    #[must_use]
+    pub fn preview(&self, request: &PreviewRequest) -> SecondaryPreviewMsg {
+        let seat = &self.viewer;
+        let live = !self.finished
+            && self.error.is_none()
+            && (self.pending.is_some() || self.waiting.is_some());
+        let basis = if live {
+            let position = Position {
+                state: &self.state,
+                decision_log: &self.decision_log,
+                asked: self
+                    .pending
+                    .as_ref()
+                    .map(|(choice, _)| (&choice.player, choice)),
+            };
+            eligibility(
+                &position,
+                seat,
+                &StrategyCardId::new(request.card.clone()),
+                &PlayerId::new(request.primary.clone()),
+            )
+            .map(|()| Basis {
+                state: &self.state,
+                galaxy: self.galaxy.as_ref(),
+                decisions: self.decision_log.len(),
+            })
+        } else {
+            Err(busy())
+        };
+        ti4_host::preview::answer(&self.identity.game_id, seat, request, self.version, basis)
+    }
+
+    /// Checks a request against the pending choice ([`check_submission`]). On success the place
+    /// of `option_id` among its options (0 when none is asked for).
     fn check_pending(
         &mut self,
         nonce: &str,
         expected_version: u64,
         option_id: Option<&str>,
     ) -> Option<usize> {
-        let Some((choice, pending_nonce)) = &self.pending else {
-            self.reject(RejectionReason::NoPendingChoice);
-            return None;
-        };
-        if pending_nonce != nonce {
-            self.reject(RejectionReason::StaleNonce);
-            return None;
-        }
-        if expected_version != self.version {
-            self.reject(RejectionReason::StaleVersion {
-                expected: expected_version,
-                current: self.version,
-            });
+        let checked = check_submission(
+            self.pending
+                .as_ref()
+                .map(|(choice, pending_nonce)| (choice, pending_nonce.as_str())),
+            nonce,
+            expected_version,
+            self.version,
+            option_id,
+        );
+        if let Err(reason) = checked {
+            self.reject(reason);
             return None;
         }
         let Some(option_id) = option_id else {
             return Some(0);
         };
-        match choice
-            .options
-            .iter()
-            .position(|option| option.id == option_id)
-        {
-            Some(index) => Some(index),
-            None if choice.answer_for(option_id).is_some() => {
-                // A free-form answer (a deal) has no place among the options, and the engine is
-                // answered by place.
-                self.reject(RejectionReason::ValidationFailed {
-                    message: "free-form answers are not available in an offline game".to_owned(),
-                });
-                None
-            }
-            None => {
-                self.reject(RejectionReason::UnknownOption {
-                    option_id: option_id.to_owned(),
-                });
-                None
-            }
+        let place = self.pending.as_ref().and_then(|(choice, _)| {
+            choice
+                .options
+                .iter()
+                .position(|option| option.id == option_id)
+        });
+        if place.is_none() {
+            // A free-form answer (a deal) has no place among the options, and the engine is
+            // answered by place.
+            self.reject(RejectionReason::ValidationFailed {
+                message: "free-form answers are not available in an offline game".to_owned(),
+            });
         }
+        place
     }
 
     /// Sends `script` to the game: the pending choice and the choices after it are answered
-    /// from it. A step that the game does not offer takes the script back whole
+    /// from it. A script that the game refuses on a copy ([`check_script`]) is refused before
+    /// anything of it is in the game. A step that the game does not offer all the same (the
+    /// copy cannot see past a decision of another seat) takes the script back whole
     /// ([`Scripted::Rollback`]), so a refused script leaves the game as it was.
     fn apply_script(
         &mut self,
@@ -1333,57 +1378,58 @@ impl HostSession {
     ) -> Option<Resume> {
         self.check_pending(nonce, expected_version, None)?;
         let (choice, _) = self.pending.clone()?;
-        let refuse = |this: &mut Self, reason: String| {
-            this.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
-                protocol_version: PROTOCOL_VERSION,
-                game_id: this.identity.game_id.clone(),
-                nonce: nonce.to_owned(),
-                stopped: Some(refused(&script, reason)),
-            }));
-        };
-        let first = script_answer(&script, 0, &choice, &self.viewer);
-        let (option, next, reordered) = match first {
-            ScriptAnswer::Answer {
-                option,
-                next,
-                script,
-            } => (option, next, script),
-            ScriptAnswer::Done => {
-                refuse(self, "The script has no answer for this choice.".to_owned());
-                return None;
+        let first = first_answer(&script, &choice, &choice.player).and_then(|first| {
+            match self.precheck(&choice, &script) {
+                Check::Refused { reason, .. } => Err(reason),
+                Check::Plays | Check::Unknown => Ok(first),
             }
-            ScriptAnswer::Interrupted { reason } | ScriptAnswer::Mismatch { reason, .. } => {
-                refuse(self, reason);
+        });
+        let First {
+            option,
+            next,
+            script: ordered,
+        } = match first {
+            Ok(first) => first,
+            Err(reason) => {
+                self.out.push(ServerMessage::DraftApplied(DraftAppliedMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    game_id: self.identity.game_id.clone(),
+                    nonce: nonce.to_owned(),
+                    stopped: Some(refused(&script, reason)),
+                }));
                 return None;
             }
         };
         let index = choice.options.iter().position(|o| o.id == option.id)?;
-        let script_vec = reordered.unwrap_or_else(|| script.clone());
-        let whole = next >= script_vec.len();
-        self.script = Some(ScriptRun {
-            nonce: nonce.to_owned(),
-            sent: script.clone(),
-            start: nonce.parse().unwrap_or(0),
-            script: script_vec,
-            next,
-            active: self.state.active.clone(),
-        });
+        let active = self.state.active.clone();
+        let ended = self
+            .scripts
+            .begin(&choice.player, nonce, script, ordered, next, active);
+        self.tell_scripts(ended);
         self.awaiting = Some(option.id);
-        if whole {
-            self.end_script(|_| None);
-        }
         Some(Resume::Answer(index))
     }
 
-    /// The place in [`Self::own`] of the first answer that one undo takes back: the last
-    /// answer of the page, or a movement, the landings or a purchase whole. An answer from before
-    /// the last change of the seats stays.
+    /// Plays `script` of the seat of `choice` on a copy of the game at its last finished step,
+    /// with the decisions since then played again ([`check_script`]). `Unknown` when there is
+    /// no copy, or the log of the session does not reach the step yet.
+    fn precheck(&self, choice: &Choice, script: &[DraftStep]) -> Check {
+        let Some((game, decisions)) = self.play_loop.script_copy() else {
+            return Check::Unknown;
+        };
+        let Some(tail) = self.decision_log.get(decisions..) else {
+            return Check::Unknown;
+        };
+        let never = self.never.lock().expect("never set lock").clone();
+        check_script(game, tail.to_vec(), choice, script, &choice.player, never)
+    }
+
+    /// The place in the entries of the track of the first answer that one undo takes back: the
+    /// last answer of the page, or a movement, the landings or a purchase whole. An answer from
+    /// before the last change of the seats stays. A window that was declined for the Never cards
+    /// is marked when it is answered, so no cards are read here.
     fn undo_start(&self) -> Option<usize> {
-        let since = self.switches.last().map_or(0, |switch| {
-            usize::try_from(switch.decision).unwrap_or(usize::MAX)
-        });
-        let fence = self.own.partition_point(|own| own.decision < since);
-        undo::start(&self.own, fence, |own| own.passed)
+        self.undo.start(&self.viewer, &Modes::new())
     }
 
     /// One undo of the page: through the checkpoints when they reach back far enough, else by
@@ -1394,11 +1440,8 @@ impl HostSession {
             self.reject(RejectionReason::NoPendingChoice);
             return;
         };
-        let first = &self.own[keep];
-        let steps: Vec<PlanStep> = self.own[keep..]
-            .iter()
-            .filter_map(|own| own.step.clone())
-            .collect();
+        let first = self.undo.entries()[keep].clone();
+        let steps = self.undo.steps_from(keep);
         if parked && !self.finished && self.play_loop.reaches(first.asked) {
             self.undoing = Some(Undoing { keep, steps });
             handled.resume = Some(Resume::Undo);
@@ -1419,6 +1462,7 @@ impl HostSession {
             switches: self.switches.clone(),
             undone: steps,
             bot_version: self.bot_version(),
+            staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
     }
@@ -1442,11 +1486,16 @@ impl HostSession {
             return;
         }
         let humans = (humans & !bit(self.viewer.as_str()).unwrap_or(0)) | wanted;
+        // The seat that is given up drops what it staged.
+        let left = self.viewer.clone();
+        self.drop_staged(&left);
         let switch = SeatSwitch {
             decision: self.play_loop.decided(),
             humans,
         };
         self.switches.push(switch);
+        self.undo
+            .seats_changed(usize::try_from(switch.decision).unwrap_or(usize::MAX));
         self.undoing = None;
         handled.switch = Some(switch);
         handled.resume = Some(Resume::Switch);
@@ -1490,6 +1539,7 @@ impl HostSession {
                             switches: self.switches.clone(),
                             undone: Vec::new(),
                             bot_version: self.bot_version(),
+                            staged: self.staged.clone(),
                         });
                         handled.resume = Some(Resume::Leave);
                     }
@@ -1524,7 +1574,10 @@ impl HostSession {
             });
             return;
         }
-        let keep = self.own.partition_point(|own| own.decision < cursor);
+        let keep = self
+            .undo
+            .entries()
+            .partition_point(|entry| entry.decision < cursor);
         let mut redo = self.answers[keep..].to_vec();
         redo.extend(self.redo.iter().cloned());
         handled.restart = Some(Restart {
@@ -1536,17 +1589,14 @@ impl HostSession {
             switches: self.switches.clone(),
             undone: Vec::new(),
             bot_version: self.bot_version(),
+            staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
     }
 
     /// The rule bot version of this game, as its setup records it.
     fn bot_version(&self) -> Option<u32> {
-        self.identity
-            .setup
-            .get("bot_version")
-            .and_then(serde_json::Value::as_u64)
-            .and_then(|v| u32::try_from(v).ok())
+        self.identity.game.setup.as_ref().and_then(|setup| setup.bot_version)
     }
 
     /// A staged plan of the page (`BatchPlan` of `web/`) sent as one request: the person's
@@ -1611,8 +1661,19 @@ impl HostSession {
         }
     }
 
-    /// What a running script or batch answers to `choice` of the person.
+    /// The game is new and starts from a scenario with this opening: its seat is not asked until
+    /// the opening stops. A game that is played again from a save has no opening: its answers
+    /// are in the save.
+    pub fn open(&mut self, opening: Option<Opening>) {
+        self.opening = OpeningRun::new(opening);
+    }
+
+    /// What the opening of a scenario, a running script or a batch answers to `choice` of the
+    /// person.
     pub fn scripted(&mut self, choice: &Choice) -> Scripted {
+        if let Some(option) = self.opening.answer(choice) {
+            return Scripted::Answer(option);
+        }
         if let Some(answer) = self.script_answer(choice) {
             return answer;
         }
@@ -1662,38 +1723,199 @@ impl HostSession {
         self.batch_result.take()
     }
 
-    /// The save of the game as it stands.
+    // --- staged work -----------------------------------------------------------------------
+
+    /// The page takes part in the staged work of its seats: it is told their slots.
+    pub fn share_staged(&mut self) {
+        self.staged_shared = true;
+    }
+
+    /// What `seat` has staged.
+    #[must_use]
+    pub fn seat_staged(&self, seat: &PlayerId) -> SeatStaged {
+        self.staged.get(seat).cloned().unwrap_or_default()
+    }
+
+    /// Tells the page the slots of the seat that it is shown as, as the message after a
+    /// snapshot (with `connection`): they replace what the page holds.
+    fn tell_staged(&mut self) {
+        if !self.staged_shared {
+            return;
+        }
+        self.staged_told = Some(self.viewer.clone());
+        let mut message = self
+            .seat_staged(&self.viewer)
+            .message(&self.identity.game_id);
+        message.connection = Some(PAGE_CONNECTION);
+        self.out.push(ServerMessage::SeatStaged(message));
+    }
+
+    /// Writes one slot of `seat` ([`SeatStaged::put`]). Revisions count up for the whole page.
+    /// A write is told to the page when it holds the slots of `seat`, with `writer`: the page,
+    /// or none for a write of the session.
+    fn put_staged(
+        &mut self,
+        seat: &PlayerId,
+        slot: StagedSlot,
+        base_revision: u64,
+        value: Option<serde_json::Value>,
+        writer: Option<u64>,
+    ) -> Put {
+        let top = self
+            .staged
+            .values()
+            .map(|seat| seat.revision)
+            .max()
+            .unwrap_or(0);
+        let mut entry = self.seat_staged(seat);
+        entry.revision = top;
+        let put = entry.put(slot, base_revision, value);
+        if put != Put::Written {
+            return put;
+        }
+        self.staged.insert(seat.clone(), entry.clone());
+        if self.staged_shared && self.staged_told.as_ref() == Some(seat) {
+            let mut message = entry.message(&self.identity.game_id);
+            message.writer = writer;
+            self.out.push(ServerMessage::SeatStaged(message));
+        }
+        put
+    }
+
+    /// A write of the page, for the seat that it is shown as. A stale write is answered with
+    /// what the seat has. A draft of a secondary that is marked ready while the game asks the
+    /// seat for it is sent now: the answer for the parked game.
+    fn page_put(
+        &mut self,
+        slot: StagedSlot,
+        base_revision: u64,
+        value: Option<serde_json::Value>,
+    ) -> Option<Resume> {
+        let seat = self.viewer.clone();
+        match self.put_staged(&seat, slot, base_revision, value, Some(PAGE_CONNECTION)) {
+            Put::Stale => {
+                let message = self.seat_staged(&seat).message(&self.identity.game_id);
+                self.out.push(ServerMessage::SeatStaged(message));
+                None
+            }
+            Put::Written if slot == StagedSlot::Secondary && !self.replaying() => {
+                let (choice, nonce) = self.pending.clone()?;
+                if choice.player != seat || self.finished {
+                    return None;
+                }
+                self.send_ready(&choice, &nonce).map(Resume::Answer)
+            }
+            Put::Written | Put::Unchanged => None,
+        }
+    }
+
+    /// Clears every slot of `seat` (a write of the session).
+    fn drop_staged(&mut self, seat: &PlayerId) {
+        let slots: Vec<(StagedSlot, u64)> = self
+            .staged
+            .get(seat)
+            .map(|staged| {
+                staged
+                    .slots
+                    .iter()
+                    .filter(|(_, value)| value.value.is_some())
+                    .map(|(slot, value)| (*slot, value.revision))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (slot, revision) in slots {
+            self.put_staged(seat, slot, revision, None, None);
+        }
+    }
+
+    /// The ready draft of the secondary that `choice` asks its seat, numbered `nonce`: when the
+    /// game plays it whole on a copy, it begins as a script, its slot is cleared, and the place
+    /// of its first answer is returned. A draft that no longer fits is written back not ready,
+    /// and the seat is asked.
+    fn send_ready(&mut self, choice: &Choice, nonce: &str) -> Option<usize> {
+        let seat = &choice.player;
+        let ready = ready::ready_draft(&self.staged, seat, choice, self.state.round)?;
+        let script = ready.draft.script();
+        let check = self
+            .play_loop
+            .draft(seat, &ready.scope(), &script)
+            .map_or(ReadyCheck::Unknown, |outcome| {
+                ready::judge(&outcome, script.len())
+            });
+        let first = match check {
+            ReadyCheck::Unknown => return None,
+            ReadyCheck::Unfit => None,
+            ReadyCheck::Fits => first_answer(&script, choice, seat).ok(),
+        };
+        let place = first.as_ref().and_then(|first| {
+            choice
+                .options
+                .iter()
+                .position(|option| option.id == first.option.id)
+        });
+        let (Some(first), Some(place)) = (first, place) else {
+            self.put_staged(
+                seat,
+                StagedSlot::Secondary,
+                ready.revision,
+                Some(ready::unready_value(ready.value)),
+                None,
+            );
+            return None;
+        };
+        let active = self.state.active.clone();
+        let ended = self
+            .scripts
+            .begin(seat, nonce, script, first.script, first.next, active);
+        self.tell_scripts(ended);
+        self.put_staged(seat, StagedSlot::Secondary, ready.revision, None, None);
+        Some(place)
+    }
+
+    /// The save of the game as it stands ([`HostSave`]), as JSON.
     #[must_use]
     pub fn save_state(&self, extra: serde_json::Value) -> serde_json::Value {
-        serde_json::json!({
-            "format": 1,
-            "game_id": self.identity.game_id,
-            "seed": self.identity.seed,
-            "players": self.identity.players,
-            "human_seat": self.identity.human_seat,
-            "humans": self.identity.humans,
-            "setup": self.identity.setup,
-            "bot_version": self.bot_version(),
-            "answers": self.answers,
-            "log": self.decision_log.iter().map(|record| record.chosen.as_str()).collect::<Vec<_>>(),
-            "switches": self.switches,
-            "redo": self.redo,
-            // A save names the cards that are never offered; an own-turn card is not kept.
-            "never": self.never.lock().expect("never set lock").iter()
+        let save = HostSave {
+            format: crate::host_setup::SAVE_FORMAT,
+            seed: self.identity.seed,
+            players: self.identity.players,
+            game: self.identity.game.clone(),
+            table: self.identity.table.clone(),
+            scenario: self.identity.scenario.clone(),
+            bot_version: self.bot_version(),
+            humans: self.identity.humans,
+            decisions: self
+                .decision_log
+                .iter()
+                .map(|record| record.chosen.clone())
+                .collect(),
+            answers: self.answers.clone(),
+            switches: self.switches.clone(),
+            redo: self.redo.clone(),
+            staged: self.staged.clone(),
+            never: self
+                .never
+                .lock()
+                .expect("never set lock")
+                .iter()
                 .filter(|(_, mode)| **mode == ReactionMode::Never)
-                .map(|(card, _)| card)
-                .collect::<BTreeSet<_>>(),
-            "event_times": self.events.iter().map(|event| event.timestamp.clone()).collect::<Vec<_>>(),
-            "event_versions": self.events.iter().map(|event| event.version).collect::<Vec<_>>(),
-            "version": self.version,
-            "generation": self.generation,
-            "decisions": self.decision_log.len(),
-            "decisions_hash": decisions_hash(&self.decision_log),
-            "finished": self.finished,
-            "round": self.state.round,
-            "phase": self.state.phase,
-            "engine": extra,
-        })
+                .map(|(card, _)| card.clone())
+                .collect(),
+            event_times: self
+                .events
+                .iter()
+                .map(|event| event.timestamp.clone())
+                .collect(),
+            event_versions: self.events.iter().map(|event| event.version).collect(),
+            version: self.version,
+            generation: self.generation,
+            decisions_hash: decisions_hash(&self.decision_log),
+            finished: self.finished,
+            round: self.state.round,
+            phase: self.state.phase,
+            engine: extra,
+        };
+        serde_json::to_value(save).expect("a save is JSON")
     }
 
     /// The turn status the game shows while it waits (for a host that wants to show who plays).
@@ -1711,30 +1933,57 @@ impl HostSession {
     }
 }
 
-const ACTION_OVER: &str = "The action is over before this.";
-
-fn stopped(application: &ScriptRun, reason: &str) -> ScriptStopped {
-    ScriptStopped {
-        applied: application.next,
-        remaining: application.script[application.next..].to_vec(),
-        interrupted: true,
-        reason: if reason.is_empty() {
-            INTERRUPTED
-        } else {
-            reason
-        }
-        .to_owned(),
-    }
-}
-
-/// A script that changes nothing: the game refuses it before its first answer.
-fn refused(script: &[DraftStep], reason: String) -> ScriptStopped {
-    ScriptStopped {
-        applied: 0,
-        remaining: script.to_vec(),
-        interrupted: false,
-        reason,
-    }
+/// The save of a game ([`HostSession::save_state`]), format [`crate::host_setup::SAVE_FORMAT`]:
+/// the game, and every decision of every seat in order, so that a resume gives each of them again
+/// and no seat decides again. An undo cuts `decisions` at the answer that it takes back.
+#[derive(Debug, Clone, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct HostSave {
+    /// [`crate::host_setup::SAVE_FORMAT`]: a save of another format is not read.
+    pub format: u64,
+    pub seed: u64,
+    pub players: usize,
+    /// The game as the host was given it, with the choices that were left open filled in (card
+    /// set, map, factions...): a save replays with it.
+    pub game: crate::host_setup::GameRequest,
+    /// The table of `ti4_host::setup` the game was made from; none for a game of a fixed setup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<ti4_host::setup::TableSetup>,
+    /// The scenario the game starts from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<String>,
+    /// The rule bot version the game was played with (left out: version 1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bot_version: Option<u32>,
+    /// The seats that the page plays at the start (bit 0 is seat `a`).
+    pub humans: u32,
+    /// The option id of every decision of every seat, in order.
+    pub decisions: Vec<String>,
+    /// The page's answers among them (ids), in order.
+    pub answers: Vec<String>,
+    /// The changes of the seats that the page plays, in order.
+    pub switches: Vec<SeatSwitch>,
+    /// The answers that a redo can bring back, next first.
+    pub redo: Vec<String>,
+    /// What each seat has staged and not sent (`ti4_host::staged`).
+    pub staged: BTreeMap<PlayerId, SeatStaged>,
+    /// The cards that are never offered, by printed name; an own-turn card is not kept.
+    pub never: BTreeSet<String>,
+    /// The time of each event of the game, in order.
+    pub event_times: Vec<String>,
+    /// The game version of each event, in order.
+    pub event_versions: Vec<Option<u64>>,
+    pub version: u64,
+    /// The history generation of the run.
+    pub generation: u64,
+    /// [`decisions_hash`] of the decisions: a replay tells that the engine still decides the same.
+    pub decisions_hash: String,
+    pub finished: bool,
+    pub round: u32,
+    pub phase: Phase,
+    /// The engine that saved: its build and the digest of its content.
+    #[cfg_attr(feature = "ts", ts(type = "{ build: string, content_digest: string }"))]
+    pub engine: serde_json::Value,
 }
 
 /// A short hash of the decisions of a game, to tell on replay that the engine still decides the

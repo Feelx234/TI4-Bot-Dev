@@ -208,7 +208,7 @@ impl SelfPlay {
                     choice,
                     Some(seen),
                     sh.seed,
-                    &choice.player,
+                    seat,
                     index,
                 );
                 (choice.options[picked].clone(), smart)

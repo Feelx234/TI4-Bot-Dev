@@ -2,7 +2,7 @@ import { PlagueTargetNote } from "./PlagueTargetNote.tsx";
 import { describePlagueTarget, isPlaguePick } from "../presentation/plagueTarget.ts";
 import React, { useState } from "react";
 import { ValueText } from "./PlanetValueIcons.tsx";
-import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import {
   ChoiceRendererModel,
   isDeclineOption,
@@ -165,7 +165,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
     setSubmissionError(null);
   };
 
-  const pickOption = (option: ChoiceOptionDto) => {
+  const pickOption = (option: ChoiceOption) => {
     setPlanet(optionPlanetId(option));
     onSelectOption?.(option.id);
     setSubmissionError(null);
@@ -190,7 +190,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
     setSubmissionError(null);
   };
 
-  const actionFor = (option: ChoiceOptionDto): React.ReactNode => {
+  const actionFor = (option: ChoiceOption): React.ReactNode => {
     const planetId = optionPlanetId(option);
     if (!planetId) return capitalize(optionActionLabel(option, sourceLabel));
     const planet = getPlanetDetails(planetId, boardView);
@@ -211,7 +211,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
     );
   };
 
-  const currentVotes = (option: ChoiceOptionDto) =>
+  const currentVotes = (option: ChoiceOption) =>
     typeof option.payload?.current_votes === "number" ? option.payload.current_votes : null;
 
   const errorMessage = submissionError || lastError;

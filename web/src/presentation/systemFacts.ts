@@ -1,4 +1,4 @@
-import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.ts";
+import { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import { isDeclineOption } from "./choiceModel.ts";
 import { getPlanetDetails } from "./planetSelection.ts";
@@ -172,7 +172,7 @@ const SYSTEM_PICK_SUBTYPE =
 const UNIT_PICK_SUBTYPE = /_pick_(ship|infantry|cruiser)$/;
 
 /** The system an option of a system pick stands for: payload.system, else the option id. */
-export function systemPickOptionSystem(opt: ChoiceOptionDto): string | null {
+export function systemPickOptionSystem(opt: ChoiceOption): string | null {
   if (isDeclineOption(opt)) return null;
   const p = opt.payload?.system;
   if (typeof p === "string" && p) return p;

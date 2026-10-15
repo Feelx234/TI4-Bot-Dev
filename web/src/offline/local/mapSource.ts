@@ -1,6 +1,6 @@
 import type { MapChoice } from "../../protocol/types.ts";
 import type { OfflineMapSource } from "../types.ts";
-import type { FromWorker, HostPort } from "./hostProtocol.ts";
+import type { FromWorker, HostPort } from "@ti4/shared/engine/protocol.ts";
 import { loadEngine, workerPort, type LoadedEngine } from "./session.ts";
 
 export interface MapSourceDeps {

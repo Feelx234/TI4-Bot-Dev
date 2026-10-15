@@ -1,12 +1,14 @@
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  type TestServer,
+  spawnTestServer,
+  testServerBinary,
+} from "../../../web-shared/test/server.ts";
 import { localTable } from "./localTable";
 import type { LocalGame } from "./savedGame";
-import { openSocket } from "./socket";
+import { openSocket } from "@ti4/shared/net/socket.ts";
 import { type Table, type TableState, createTable, serverTable } from "./table";
 
 // What a table promises, checked on both: the table in this page (single player, over the
@@ -17,7 +19,7 @@ import { type Table, type TableState, createTable, serverTable } from "./table";
 // Both are built outside this suite, and a case is skipped without its build:
 // `scripts/build-wasm.sh`, and `cargo b-web`.
 const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
-const SERVER = fileURLToPath(new URL("../../../target/debug/server", import.meta.url));
+const SERVER = testServerBinary();
 
 /** One table, as a test uses it. */
 interface Side {
@@ -104,7 +106,6 @@ function contract(make: () => Promise<Side>) {
     expect(lobby.phase).toBe("lobby");
     expect(lobby.slots).toHaveLength(4);
     expect(lobby.slots[0].occupant).toBe(viewer);
-    expect(lobby.seat_order).toBe("random");
     // The board has a place for each seat, and the table says which map it is.
     expect(preview!.player_count).toBe(4);
     expect(preview!.seats).toHaveLength(4);
@@ -198,6 +199,34 @@ function contract(make: () => Promise<Side>) {
     expect(chosen.lobby.map_revision).toBeGreaterThan(first.lobby.map_revision);
     at.table.setMap({ kind: "template", alias: "no-such-map" });
     expect(await at.refused()).not.toBe("");
+    at.table.close();
+  }, 30_000);
+
+  it("the host shuffles the rows, and the game seats the players in their order", async () => {
+    const at = await make();
+    const first = await at.until((state) => state.preview !== null);
+    const names = (state: TableState) => state.lobby.slots.map((slot) => slot.nickname).join();
+    let full = first;
+    if (open(first).length) {
+      at.table.addBots("smart", true);
+      full = await at.until((state) => open(state).length === 0);
+    }
+    at.table.shuffleSeats();
+    const shuffled = await at.until((state) => names(state) !== names(full));
+    expect([...names(shuffled).split(",")].sort()).toEqual([...names(full).split(",")].sort());
+    // The host is the person, wherever its row is.
+    const host = shuffled.lobby.slots.find((slot) => slot.occupant === shuffled.viewer);
+    expect(host?.bot).toBeUndefined();
+    expect(shuffled.lobby.host_player_id).toBe(shuffled.viewer);
+    at.table.start();
+    const running = await at.until((state) => state.lobby.phase === "running");
+    expect(names(running)).toBe(names(shuffled));
+    // The page plays the seat of the person, where its row is.
+    const game = at.game();
+    if (game) {
+      const place = shuffled.lobby.slots.findIndex((slot) => slot.occupant === shuffled.viewer);
+      expect(game.humans).toBe(1 << place);
+    }
     at.table.close();
   }, 30_000);
 
@@ -297,7 +326,6 @@ describe.skipIf(!existsSync(WASM))("the table in this page", () => {
     at.table.setSettings({ startFrom: scenario.id });
     const set = await at.until((state) => state.lobby.start_from === scenario.id);
     expect(set.lobby.slots).toHaveLength(scenario.players);
-    expect(set.lobby.seat_order).toBe("join");
     expect(set.preview!.player_count).toBe(scenario.players);
     expect(set.lobby.slots.every((slot) => !!slot.faction)).toBe(true);
     expect(new Set(set.lobby.slots.map((slot) => slot.faction)).size).toBe(scenario.players);
@@ -309,30 +337,18 @@ describe.skipIf(!existsSync(WASM))("the table in this page", () => {
   });
 });
 
-describe.skipIf(!existsSync(SERVER))("the table of a lobby on a server", () => {
-  const port = 20_000 + Math.floor(Math.random() * 30_000);
-  const data = mkdtempSync(join(tmpdir(), "ti4-table-contract-"));
-  let server: ChildProcess;
-  const fetcher: typeof fetch = (input, init) => fetch(`http://127.0.0.1:${port}${input}`, init);
+describe.skipIf(!SERVER)("the table of a lobby on a server", () => {
+  let server: TestServer;
+  const fetcher: typeof fetch = (input, init) => fetch(`${server.url}${input}`, init);
   beforeAll(async () => {
-    server = spawn(SERVER, [], {
-      env: { ...process.env, HOST: "127.0.0.1", PORT: String(port), TI4_DATA_DIR: data },
-      stdio: ["ignore", "pipe", "inherit"],
-    });
-    await new Promise<void>((ready, failed) => {
-      server.once("exit", (code) => failed(new Error(`The server stopped with ${code}.`)));
-      server.stdout?.on("data", (text) => String(text).includes("Listening on") && ready());
-    });
+    server = await spawnTestServer();
   }, 60_000);
-  afterAll(() => {
-    server?.kill();
-    rmSync(data, { recursive: true, force: true });
-  });
+  afterAll(() => server?.stop());
   contract(async () => {
     const made = await createTable({ playerCount: 4, nickname: "Contract", seed: 3 }, fetcher);
     return side(
       serverTable(made.gameId, made, {
-        open: (id) => openSocket(`ws://127.0.0.1:${port}/ws/tables/${id}`),
+        open: (id) => openSocket(`ws://127.0.0.1:${server.port}/ws/tables/${id}`),
         fetch: fetcher,
       }),
     );

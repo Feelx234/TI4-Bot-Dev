@@ -14,7 +14,7 @@ General points from the Objectives sheet (owner, 2026-10-11). Use them for the n
 - **Seats.** The viewer is first, then the other seats by their points. A seat on a card is a tag: the symbol and the faction. Eight seats are one row of a phone as symbol, number and faction in two lines. When a sheet can be seen for one seat, the row of the seats is the filter.
 - **A phone sheet has the whole pane**: no footer and no tab bar. It does not scroll to the side. A heading that stays in view has two lines at most; a caption goes into a line that is there already.
 - **Which rows a sheet shows is a flag of the view model** (`ScoreRowView.open`), set in `session/select`. The component does not decide it from names.
-- **How to work on a new sheet.** The owner looks at it on the phone, in a late-game scenario, after each step. The owner may ask for typechecks only while the layout changes; the tests are brought up to date with each step and are run before the commit. Format only the files that you changed (`npx oxfmt <files>`): a run on a folder changes other files.
+- **How to work on a new sheet.** The owner looks at it on the phone, in a late-game scenario, after each step. The owner may ask for typechecks only while the layout changes; the tests are brought up to date with each step and are run before the commit.
 
 ## Action cards
 

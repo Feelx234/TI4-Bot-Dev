@@ -17,6 +17,7 @@ use ti4_model::state::GameState;
 /// One public objective as printed, with the seats that scored it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PublicObjective {
     pub id: String,
     pub name: String,
@@ -30,6 +31,7 @@ pub struct PublicObjective {
 /// What kind of thing gave a point. The client words the row by it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PointSourceKind {
     /// Scored secret objectives, one point each.
     Secrets,
@@ -50,6 +52,7 @@ pub enum PointSourceKind {
 /// One source of points that is not a public objective, with what each seat has from it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PointSource {
     pub kind: PointSourceKind,
     /// The printed name of the agenda, relic, card or planet. Empty for the first four kinds:
@@ -68,6 +71,7 @@ pub struct PointSource {
 /// Where the points of every seat come from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ScoreFacts {
     /// The points that win the game.
     pub target: i32,

@@ -20,12 +20,14 @@ import { useCompactLayout } from "./hooks/useCompactLayout.ts";
 import { PlayerSheet } from "./components/PlayerSheet.tsx";
 import { rememberMyGame } from "./protocol/myGames.ts";
 import { CreateLobby, LobbyStatus } from "./components/Lobby.tsx";
+import { CatalogProvider } from "./components/CatalogProvider.tsx";
 import { OfflineRoutes, isOfflinePath } from "./offline/OfflineRoutes.tsx";
 import { useOfflineLauncher } from "./offline/useOfflineLauncher.ts";
 import { registerLocalLauncher } from "./offline/local/register.ts";
 import { useCapability } from "./offline/capabilities.ts";
 import type { GameTransport } from "./protocol/transport.ts";
 import { GameShell } from "./components/GameShell.tsx";
+import { OddsEngineProvider } from "./components/OddsEngine.tsx";
 import { usePresence } from "./hooks/usePresence.ts";
 import { logHistoryKey as logHistoryKeyFor } from "./components/eventLogScroll.ts";
 import { PlayerIdentityProvider } from "./presentation/PlayerIdentity.tsx";
@@ -120,7 +122,10 @@ const pathGameId = () =>
     ? decodeURIComponent(/^\/games\/([^/]+)$/.exec(window.location.pathname)![1])
     : null;
 
-/** The app, behind the playtest password screen and with the Feedback button on top. */
+/**
+ * The app, behind the playtest password screen and with the Feedback button on top. It renders once
+ * the printed cards are loaded (`CatalogProvider`).
+ */
 export const App: React.FC = () => {
   const accessRequired = useAccessRequired();
   useEffect(() => {
@@ -129,7 +134,9 @@ export const App: React.FC = () => {
   if (accessRequired) return <PasswordScreen />;
   return (
     <>
-      <AppRoutes />
+      <CatalogProvider offline={isOfflinePath(window.location.pathname)}>
+        <AppRoutes />
+      </CatalogProvider>
       <FeedbackLauncher />
     </>
   );
@@ -428,6 +435,7 @@ const GameViewContainer: React.FC<{
     submitBatch,
     previewSecondary,
     queryReach,
+    queryEngine,
     batchResume,
     resumeBatch,
     dismissBatchResume,
@@ -679,6 +687,7 @@ const GameViewContainer: React.FC<{
     setSelectedPlanetId(selection.planetId);
   };
   return (
+    <OddsEngineProvider local={queryEngine}>
     <PlayerIdentityProvider lobby={lobby} seatingOrder={snapshot?.view.seating_order ?? []}>
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <PublicStateProvider state={snapshot?.state}>
@@ -936,6 +945,9 @@ const GameViewContainer: React.FC<{
                 phase: snapshot.view.phase,
                 activePlayer: snapshot.view.active_player ?? null,
                 over: turnStatus?.kind === "game_over" || snapshot.view.finished === true,
+                othersDeciding:
+                  turnStatus?.kind === "waiting_for_reactions" ||
+                  (turnStatus?.kind === "waiting_for_decision" && turnStatus.seat !== userSeat),
               }
             : undefined
         }
@@ -1000,5 +1012,6 @@ const GameViewContainer: React.FC<{
     </PublicStateProvider>
     </SeatInfoProvider>
     </PlayerIdentityProvider>
+    </OddsEngineProvider>
   );
 };

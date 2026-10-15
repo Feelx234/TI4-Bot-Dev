@@ -60,8 +60,8 @@ size the map template fixes at creation, so the player-count limits are the lobb
   decisions are ordinary recorded decisions: history, replay, recovery, undo and redo, turn redo,
   splice and batches see nothing special. On a replay or recovery the recorded answers are used
   and only new decisions are random.
-- **Determinism.** Each pick is seeded from (game seed, seat id, decision index), where the
-  decision index counts every decision answered in the game (replayed ones included). The same
+- **Determinism.** Each pick is seeded from (game seed, seat place, decision index), where the
+  seat place is the index of the seat in the seat order of the game and the decision index counts every decision answered in the game (replayed ones included). The same
   position gets the same choice, in the same process and after a restart. Consequently, a bot
   that is asked the same question at the same index gives the same answer again.
 - **Undo.** Because of that determinism, an undo that would start with a bot's decision would be

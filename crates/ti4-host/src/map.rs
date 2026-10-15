@@ -16,6 +16,7 @@ use crate::protocol::view::{BoardTileView, PlanetMetaView};
 /// Stable, reconstructible galaxy geometry for stateless consumers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GalaxyLayout {
     pub version: u16,
     pub active_sources: Vec<String>,
@@ -27,6 +28,7 @@ pub struct GalaxyLayout {
 /// One main-map system placement in axial coordinates.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GalaxyPlacement {
     pub system_id: String,
     pub q: i32,

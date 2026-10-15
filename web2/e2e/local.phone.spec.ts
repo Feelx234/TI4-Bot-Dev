@@ -482,6 +482,8 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   await expect(row("Take a tactical action")).toBeVisible();
   await draft().click();
   await pane("Map").click();
+  // The systems are the choice once the engine answered the draft.
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
 
   // The system of the two space docks. Nothing moves, and AI Development Algorithm is kept.
   await system("72").click();
@@ -522,6 +524,7 @@ test("phone: a draft goes on to the landings and the production", async ({ page 
   // Another action: a carrier lands infantry, and the draft ends where the landing draws a card.
   await page.getByRole("button", { name: "Reference and more" }).click();
   await page.getByRole("menuitem", { name: "Start over" }).click();
+  await expect(page.locator("g.system.target:not(.plain)")).not.toHaveCount(0);
   await system("38").click();
   await send.click();
   await system("63").click();
@@ -646,10 +649,21 @@ test("phone: the draft of a secondary is the row of the viewer in the list of th
   await send.click();
   // Another seat plays Politics after some steps of the seats before it.
   const draft = panel.getByText("✎ Private draft");
+  const politics = panel.getByRole("heading", { name: "Politics" });
+  const done = async () => (await politics.isVisible()) && (await draft.isVisible());
   const step = page.getByRole("button", { name: /^Step/ });
-  for (let steps = 0; steps < 200 && !(await draft.isVisible()); steps++) {
+  const status = page.locator("header strong");
+  for (let steps = 0; steps < 200 && !(await done()); steps++) {
+    const before = await status.textContent();
     await step.click();
-    await page.waitForTimeout(100);
+    // The step is taken when the game says something else. A seat that decides twice says the
+    // same: then the next step is tried after a moment.
+    await expect
+      .poll(async () => (await done()) || (await status.textContent()) !== before, {
+        timeout: 300,
+      })
+      .toBe(true)
+      .catch(() => {});
   }
   await expect(draft).toBeVisible();
   await expect(panel.getByText("Strategy pool 2 → 1")).toBeVisible();

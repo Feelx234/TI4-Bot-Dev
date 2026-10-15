@@ -5,7 +5,7 @@ import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { PlanetResourcesContext } from "../presentation/PlanetResourcesContext.tsx";
 import type { PendingChoiceDto } from "../protocol/types.ts";
 
-const pool = (id: string) => ({ id, kind: "pool", label: id });
+const pool = (id: string) => ({ id, kind: "pool", label: id, payload: {} });
 const gainChoice = (toPlace = 2): PendingChoiceDto => ({
   actor: "seat_1",
   nonce: "gain-1",
@@ -24,7 +24,7 @@ const redistributeChoice = (): PendingChoiceDto => ({
   actor: "seat_1",
   nonce: "redis-1",
   prompt: "redistribute your command tokens",
-  options: ["3|4|2", "2|5|2", "2|4|3"].map((id) => ({ id, kind: "redistribute", label: id })),
+  options: ["3|4|2", "2|5|2", "2|4|3"].map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
   context: { subtype: "status_redistribute_tokens" } as PendingChoiceDto["context"],
   details: {
     kind: "command_tokens",
@@ -279,8 +279,8 @@ describe("command token panel (planet first: gain and buy)", () => {
       nonce: "secondary-1",
       prompt: "spend 3 influence for a command token",
       options: [
-        { id: "no", kind: "strategy", label: "spend nothing further" },
-        { id: "yes", kind: "strategy", label: "spend 3 influence" },
+        { id: "no", kind: "strategy", label: "spend nothing further", payload: {} },
+        { id: "yes", kind: "strategy", label: "spend 3 influence", payload: {} },
       ],
       context: { subtype: "buy_token_with_influence" } as PendingChoiceDto["context"],
       details: {
@@ -479,8 +479,8 @@ describe("command token panel (Predictive Intelligence restack)", () => {
     nonce,
     prompt: "Predictive Intelligence: redistribute command tokens",
     options: [
-      ...moves.map((id) => ({ id, kind: "redistribute", label: id })),
-      { id: "done", kind: "decline", label: "finish redistribution" },
+      ...moves.map((id) => ({ id, kind: "redistribute", label: id, payload: {} })),
+      { id: "done", kind: "decline", label: "finish redistribution", payload: {} },
     ],
     context: { subtype: "predictive_intelligence_redistribute" } as PendingChoiceDto["context"],
     details: { kind: "command_tokens", mode: "restack", pools, reinforcements: 7, total: 9 },

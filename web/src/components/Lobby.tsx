@@ -19,6 +19,7 @@ import {
   strategyCardSetLabel,
   strategyCardSetName,
 } from "../presentation/strategyCardSet.ts";
+import { ApiError, createTable } from "@ti4/shared/net/api.ts";
 import { decodeCreateGameResponse } from "../protocol/decode.ts";
 import { preferredNickname, rememberNickname, validNickname } from "../protocol/nickname.ts";
 import { SeatBadge } from "../presentation/PlayerIdentity.tsx";
@@ -79,21 +80,14 @@ export const CreateLobby: React.FC<{
     inFlight.current = true;
     setCreating(true);
     try {
-      const response = await fetch("/api/games", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          player_count: count,
-          seed: parsedSeed,
-          nickname,
-          strategy_card_set: cardSet,
-        }),
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        if (response.status === 429) {
+      let made: unknown;
+      try {
+        made = await createTable({ playerCount: count, seed: parsedSeed, nickname, cards: cardSet });
+      } catch (refused) {
+        if (!(refused instanceof ApiError)) throw refused;
+        if (refused.status === 429) {
           try {
-            const body = JSON.parse(text) as { error?: string; games?: OpenGameRow[] };
+            const body = JSON.parse(refused.body) as { error?: string; games?: OpenGameRow[] };
             if (body.error === "too_many_games") {
               setOverflow(Array.isArray(body.games) ? body.games : []);
               return;
@@ -102,9 +96,9 @@ export const CreateLobby: React.FC<{
             // Not JSON: fall through to the plain error.
           }
         }
-        throw new Error(`Create game failed (${response.status}): ${text}`);
+        throw new Error(`Create game failed (${refused.status}): ${refused.body}`);
       }
-      const created = decodeCreateGameResponse(await response.json());
+      const created = decodeCreateGameResponse(made);
       rememberNickname(nickname);
       rememberMyGame({
         gameId: created.game_id,

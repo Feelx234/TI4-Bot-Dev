@@ -16,6 +16,11 @@ ti4-rule-bot.workspace = true
 ti4-host.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+ts-rs = { workspace = true, optional = true }
+
+# The TypeScript types of the wire (`wire_ts`): off in the wasm build and in the server.
+[features]
+ts = ["dep:ts-rs", "ti4-host/ts"]
 
 # Not the workspace lints: the wasm boundary passes raw pointers, which `unsafe_code = "forbid"`
 # rules out.

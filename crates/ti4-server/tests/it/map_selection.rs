@@ -303,8 +303,8 @@ async fn the_lobby_preview_equals_the_started_games_board() {
         let (status, _) = made.choose(&made.host, map.clone()).await;
         assert_eq!(status, StatusCode::OK);
         let preview = made.get("/map-preview").await;
-        // A seat of the preview is a place: who sits there, and with which faction, is drawn at
-        // the start, and nothing of it is told before.
+        // A seat of the preview is a place: the faction of a seat is drawn at the start, and
+        // nothing of it is told before.
         let seats = preview["seats"].as_array().unwrap();
         assert_eq!(seats.len(), 4);
         for seat in seats {

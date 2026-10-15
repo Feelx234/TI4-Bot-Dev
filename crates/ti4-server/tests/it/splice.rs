@@ -7,10 +7,10 @@ use ti4_content::ContentStore;
 use ti4_content::galaxy::Galaxy;
 use ti4_engine::choice::{Choice, ChoiceOption, Decider, DecisionRecord, IllegalChoice, Table};
 use ti4_engine::game::Game;
+use ti4_host::history::splice::{SpliceBaseline, SpliceError, splice_preview};
 use ti4_host::protocol::splice::{AlignmentChange, ConflictKind, RngStatus, SpliceEdit};
 use ti4_model::id::PlayerId;
 use ti4_model::state::GameState;
-use ti4_server::session::splice::{SpliceBaseline, SpliceError, splice_preview};
 
 /// A tiny LCG picks options, so histories are varied but reproducible. The aggressive flavour
 /// marches fleets at each other, which is what makes dice.

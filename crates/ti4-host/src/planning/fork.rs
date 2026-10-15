@@ -1,7 +1,6 @@
 //! How a disposable fork is guarded before it plays a hypothetical turn.
 //!
-//! The server's planning runner and [`super::draft`] both prepare their copy here, so the two
-//! stop at the same boundaries.
+//! [`super::draft`] prepares its copy here.
 
 use std::sync::Arc;
 

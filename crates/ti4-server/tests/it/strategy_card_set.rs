@@ -87,22 +87,35 @@ fn temp(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("ti4_card_set_{tag}_{:016x}", rand::random::<u64>()))
 }
 
-/// Takes `picks` strategy cards in the draft by choosing the first offered card each time.
+/// Takes `picks` strategy cards in the draft by choosing the first offered card each time, then
+/// waits until the game asks its next question: an accepted choice returns before the game
+/// thread has advanced (the last pick ends the strategy phase), and a recovered game replays to
+/// that next question.
 fn draft(session: &Arc<GameSession>, picks: usize) {
     let deadline = Instant::now() + Duration::from_secs(20);
     let mut made = 0;
+    let mut answered = None;
     while made < picks {
         assert!(Instant::now() < deadline, "the draft stalled");
-        if let Some((actor, nonce, version)) = session.current_pending_decision() {
+        if let Some((actor, nonce, version)) = session.open_pending_decision() {
             let option = session.current_state().unclaimed_strategy_cards[0].to_string();
             if session
                 .submit_choice(&actor, &nonce, version, &option)
                 .is_ok()
             {
                 made += 1;
+                answered = Some(nonce);
             }
         }
         std::thread::sleep(Duration::from_millis(10));
+    }
+    while session
+        .open_pending_decision()
+        .is_none_or(|(_, nonce, _)| Some(nonce) == answered)
+    {
+        assert!(Instant::now() < deadline, "the game did not ask again");
+        assert!(session.error().is_none(), "{:?}", session.error());
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -193,7 +206,12 @@ async fn the_chosen_set_survives_a_restart_and_the_recovered_game_still_replays(
         reopened
             .recover_all_games()
             .expect("recover (replay hashes match)");
-        let after = reopened.get_game(&id).expect("recovered").current_state();
+        let recovered = reopened.get_game(&id).expect("recovered");
+        // Recovery starts the worker; it reaches the next question on its own thread.
+        recovered
+            .wait_replayed()
+            .expect("the recovered game replays");
+        let after = recovered.current_state();
         assert_eq!(
             after.unclaimed_strategy_cards,
             before.unclaimed_strategy_cards
@@ -313,7 +331,13 @@ async fn a_game_saved_before_the_option_existed_is_a_pok_game_and_replays_identi
     reopened
         .recover_all_games()
         .expect("legacy records recover and replay hashes match");
-    let after = reopened.get_game(&id).expect("recovered").current_state();
+    let recovered = reopened.get_game(&id).expect("recovered");
+    // Recovery starts the worker; it reaches the next question on its own thread.
+    recovered
+        .wait_replayed()
+        .expect("the recovered game replays");
+    let after = recovered.current_state();
+    drop(recovered);
     assert_eq!(
         after, before,
         "the legacy game replays to the identical state"

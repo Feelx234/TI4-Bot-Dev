@@ -16,6 +16,9 @@ struct Seen {
     asked: Option<String>,
     waiting: Option<String>,
     nonce: Option<String>,
+    /// The page may take an answer back.
+    can_undo: bool,
+    version: u64,
 }
 
 /// The last update of an envelope.
@@ -55,6 +58,8 @@ fn play(request: &Value, mut act: Act) -> (Vec<Seen>, Value) {
             asked: pending["choice"]["player"].as_str().map(str::to_owned),
             waiting: envelope["waiting"].as_str().map(str::to_owned),
             nonce: pending["nonce"].as_str().map(str::to_owned),
+            can_undo: update["history"]["can_undo"].as_bool().unwrap_or(false),
+            version: update["game_version"].as_u64().unwrap_or(0),
         };
         let count = {
             let mut seen = sink.lock().unwrap();
@@ -89,7 +94,7 @@ fn play(request: &Value, mut act: Act) -> (Vec<Seen>, Value) {
 }
 
 fn answer() -> Value {
-    json!({ "type": "submit_choice", "protocol_version": 3, "game_id": GAME })
+    json!({ "type": "submit_choice", "protocol_version": 4, "game_id": GAME })
 }
 
 fn save() -> Value {
@@ -141,10 +146,10 @@ fn the_page_plays_several_seats_and_changes_them_and_a_save_plays_the_same_game(
         "{}",
         saved["switches"]
     );
-    assert_eq!(
-        saved["log"].as_array().unwrap().len(),
-        saved["decisions"].as_u64().unwrap() as usize
-    );
+    assert_eq!(saved["format"], 2);
+    assert_eq!(saved["game"]["local"]["humans"], 0b101);
+    assert_eq!(saved["humans"], 0b101);
+    assert!(saved.get("table").is_none(), "a local game is no table");
 
     // The save gives every decision again, and the seat changes: the game asks the question
     // that was open, of the same seat, with the same number, and its decisions are the same.
@@ -154,7 +159,49 @@ fn the_page_plays_several_seats_and_changes_them_and_a_save_plays_the_same_game(
     let last = seen.last().unwrap();
     assert_eq!(again[0].asked, last.asked);
     assert_eq!(again[0].nonce, last.nonce);
-    assert_eq!(save()["log"], saved["log"]);
+    assert_eq!(save()["decisions"], saved["decisions"]);
+    ti4_wasm::set_round_limit_native(None);
+}
+
+#[test]
+fn an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them() {
+    let _serial = serial();
+    ti4_wasm::set_round_limit_native(Some(1));
+    // Seats a and c are played here (hot seat). At the tenth question seat e is played in place
+    // of the seat that is shown; at the twelfth the page undoes its answer of the eleventh.
+    let local = json!({ "local": { "seed": 3, "players": 8, "humans": 0b101 } });
+    let (seen, _) = play(
+        &local,
+        Box::new(|count, now| match count {
+            10 => Some(json!({ "type": "switch_seat", "seat": "e" })),
+            12 => {
+                assert!(now.can_undo, "an answer since the change: {now:?}");
+                Some(json!({
+                    "type": "undo", "protocol_version": 4, "game_id": GAME,
+                    "expected_version": now.version,
+                }))
+            }
+            13 => None,
+            _ => Some(answer()),
+        }),
+    );
+    assert_eq!(seen.len(), 13, "{seen:#?}");
+    // Before the change every question but the first has an answer of the page to take back,
+    // the answer of its other seat too: a die, a shuffle and the other seats do not cut.
+    assert!(!seen[0].can_undo);
+    for (index, now) in seen.iter().enumerate().take(10).skip(1) {
+        assert!(now.can_undo, "question {index}: {now:?}");
+    }
+    assert!(
+        (1..10).any(|index| seen[index].viewer != seen[index - 1].viewer),
+        "the page answers for both of its seats: {seen:#?}"
+    );
+    // The seat changed: the answers from before it stay.
+    assert!(!seen[10].can_undo, "{:?}", seen[10]);
+    // The undo opens the question of the eleventh again, and nothing is left to take back.
+    assert_eq!(seen[12].asked, seen[10].asked);
+    assert_eq!(seen[12].nonce, seen[10].nonce);
+    assert!(!seen[12].can_undo, "{:?}", seen[12]);
     ti4_wasm::set_round_limit_native(None);
 }
 
@@ -178,7 +225,7 @@ fn the_other_seats_wait_for_a_step_and_play_the_same_game() {
                 (*answers <= 6).then(answer)
             }),
         );
-        (seen, save()["log"].clone())
+        (seen, save()["decisions"].clone())
     };
     let (run, played) = game(0);
     let (stepped, again) = game(1);
@@ -200,7 +247,7 @@ fn a_saved_decision_that_the_game_does_not_offer_ends_the_run_and_says_where() {
     let _serial = serial();
     let request = json!({
         "local": { "seed": 3, "players": 8, "humans": 1 },
-        "resume": { "log": ["no-such"] },
+        "resume": { "decisions": ["no-such"] },
     });
     let (seen, end) = play(&request, Box::new(|_, _| None));
     assert!(seen.is_empty(), "the page is not asked: {seen:?}");

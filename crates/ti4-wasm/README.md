@@ -1,6 +1,7 @@
 # ti4-wasm
 
-The rules engine compiled to WebAssembly, for an offline hotseat mode in `web2/`.
+The rules engine compiled to WebAssembly, for the games in a page: web's offline game and web2's
+local play ("The hosted game").
 
 It began as a spike (2026-10-09) that answered three questions: how large the wasm file is, what
 could make it smaller, and whether the engine's blocking decisions work in a browser. `web2` now
@@ -108,8 +109,8 @@ the meantime is below.
 New code uses data structures that fit the use, with fixed or arena memory, so that it does not
 have to be migrated when the engine changes.
 
-- The exports that need no game (the setup of a table, the scenarios, the catalogue, the odds)
-  use fixed static buffers (`src/buffer.rs`): the result of an export (`RESPONSE_CAPACITY`,
+- The exports that need no game (the setup of a table, the scenarios) use fixed
+  static buffers (`src/buffer.rs`): the result of an export (`RESPONSE_CAPACITY`,
   256 KiB) and the request of the host (`REQUEST_CAPACITY`, 64 KiB). A game speaks through the
   input and output of `host_api` (JSON messages, see "The hosted game"), which grow as needed.
   Until 2026-10-14 web2 had exports of its own with a fixed update buffer and a draft buffer;
@@ -148,7 +149,8 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 A game is played through one host, for both pages: the hosted exports `ti4_host_*` (see "The
 hosted game" below), with `ClientMessage` in and `ServerMessage` out, as on the server. web2
 reads the messages with the code of its server transport (`web2/src/session/serverMessages.ts`).
-The questions that need no game are exports of their own:
+The host also answers the queries that need no game (`ti4_host_query`: the catalogue, the odds of
+a space or a ground combat). The setup of a table and the scenarios are exports of their own:
 
 | Export | |
 |---|---|
@@ -157,8 +159,6 @@ The questions that need no game are exports of their own:
 | `ti4_setup_preview(request_len) -> status` | The board of the table in the request buffer, with a place for each seat and no faction, and `map`: what the table says of its map. |
 | `ti4_setup_draw(request_len) -> status` | What the start draws for the table in the request buffer: `players` (the ids by seat), `order` and `factions`. |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
-| `ti4_catalog() -> status` | The printed cards as JSON in the response buffer: `content` (the digest of the corpus, which a page compares with the one of a server before it plays there), `exploration` (the exploration cards and the attachments) and `components` (abilities, leaders, technologies, relics, legendary planets). See "The exploration". |
-| `ti4_space_odds(request_len) -> status` | The odds of a space combat, from the sides alone. |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
 | `ti4_response_ptr()` | The address of the result or the error of the last export. |
 
@@ -208,20 +208,24 @@ exports of their own.
 - `table`: the table of web2's single player, `{ "setup": TableSetup, "seats": [...] }` (also
   the request of the setup exports). `setup` is `ti4_host::setup::TableSetup`: `player_count`
   and `seed`, and optional `map` (`{"kind":"template","alias"}` or `{"kind":"random"}`, the
-  default), `strategy_cards` (`te` by default, `pok`, `base_game_codex1`), `seat_order`
-  (`random` or `join`), `speaker_order` (`random` or `seat`) and `start_from` (the id of a
-  scenario). `seats` are the players in the order in which they came: `kind` (`human`, `smart`
-  for the rule bot, `random`), `faction` (or none, for one drawn from the seed) and `name`. The
-  player who came as number i has the id of the i-th letter (`a`, `b`, …) wherever the draw
-  seats it, so a mask names a player, not a place at the table. The game is started as the
-  server starts the table of a lobby (`ti4_host::setup::{draw, create}`), and a seat that the
-  page does not play decides as on the server, the random seats too: a table of a seed is the
-  same game on both hosts (`crates/ti4-server/tests/it/both_hosts.rs`). With a name for every
+  default), `strategy_cards` (`te` by default, `pok`, `base_game_codex1`), `speaker_order`
+  (`random` or `seat`) and `start_from` (the id of a scenario). `seats` are the players in the
+  order of their seats: `kind` (`human`, `smart` for the rule bot, `random`), `faction` (or
+  none, for one drawn from the seed) and `name`. The player of seat i has the id of the i-th
+  letter (`a`, `b`, …). The game is started as the server starts the table of a lobby
+  (`ti4_host::setup::{draw, create}`), and a seat that the page does not play decides as on the
+  server, the random seats too, by its place, not its id (`ti4_rule_bot::choose`): a table of a
+  seed is the same game on both hosts (`crates/ti4-server/tests/it/both_hosts.rs`). With a name for every
   player, each update says who sits where (`seats`).
 - `local`: a game of a fixed setup, `{ "seed", "players", "humans", "scenario"?,
   "rule_seats"? }`: web2's `?local=` and `?scenario=`. The game is on the recommended map
-  template for its count, with the factions of the seats in order; a scenario has its own seed
-  and count.
+  template for its count, with the factions of the seats in order; a scenario has its own seed,
+  count and map (`ti4_host::view::scenario::start`).
+
+A new game of a scenario with an opening (any of the three) plays the opening first: the
+answers of its seat up to the question of the scenario, when the page plays that seat. A game
+that is played again from a save, or a new run after a change of its history, does not: its
+answers are in the save.
 
 `modes` (the mode of each reaction card, by key) and `stepping` are given with the request.
 
@@ -252,17 +256,21 @@ stack is parked until the promise of the answer settles.
 played in the page.
 
 - `web2/scripts/build-wasm.sh` builds the file and copies it to `web2/src/session/ti4.wasm`
-  (not in the repository).
+  (not in the repository). It and web's `web/scripts/build-wasm.mjs` both run
+  `web-shared/scripts/build-wasm.mjs <out.wasm> [--dev]`: one cargo command
+  (`--profile wasm-release`, or `wasm-dev` with `--dev`), so both apps share one build.
 - `web2/src/session/` is the client side: `Transport` (updates in, `submitChoice` out),
-  `wasmTransport.ts` (the JSPI glue around the hosted exports), `wsTransport.ts` (the server),
+  `messageTransport.ts` (the `ServerMessage`s of a link as the events of the page),
+  `wasmTransport.ts` (the game in a Web Worker over `engineLink` of `web-shared/src/link/`, and
+  the questions that need no game), `wsTransport.ts` (the server over `socketLink`),
   `serverMessages.ts` (what both read of a `ServerMessage`), the selectors from an update to the
   view models of web2, and `useLiveSession`.
 - The activation, the movement and the landings of a tactical action have their screens (see
   "A tactical action" below). Every other decision is one list in the action panel.
-- `cargo run -p ti4-wasm --example record -- <seed> <players> <mask> <choice number> [option id ...]`
-  writes the update of one choice. The option ids answer the first choices, so that the game
-  reaches the choice that is wanted. The tests of web2 use five such files
-  (`web2/src/session/fixtures/`).
+- `tests/it/protocol_fixtures.rs` records the update of one choice of a game for each file of
+  `fixtures/protocol/update-*.json`: the game, the number of the choice, and the option ids that
+  answer the first choices so that the game reaches it. The tests of web2 read these files. The
+  test fails while a file differs from what the engine plays; `cargo wire-web` writes them again.
 
 ### A tactical action
 
@@ -344,8 +352,8 @@ staged them, each with its place; the payments follow them.
 - The cost and the limits of a staged build are sums in TypeScript over the facts
   (`productionDraft.ts`): the purchases at their printed cost, less the discount and the credit.
   The fleet pool and the capacity are plain sums, so they do not know what a rule excuses.
-- The record example plays a scenario when its first argument is the id of one:
-  `cargo run -p ti4-wasm --example record -- late-game 8 1 5 tactical 72 done_moving decline`.
+- A recording of `tests/it/protocol_fixtures.rs` plays a scenario when its game names one
+  (`update-production`: the scenario `late-game`, answers `tactical 72 done_moving decline`).
 
 Limits:
 
@@ -371,8 +379,10 @@ Every update has the field `exploration` (`ti4-host/src/view/exploration.rs`):
 - `explores`: the planets that no player controls, with the decks that they are explored into
   (`ti4_engine::planets::traits_now`). A seat that takes control of one explores it (35.1).
 
-An update names cards and attachments by id. `ti4_catalog` has what is printed on them, in
-`exploration`: the name, the deck, the kind and the text of each exploration card, the cards
+An update names cards and attachments by id. The catalogue (`{"query":"catalog"}` of
+`ti4_host_query`, see "The hosted game") has what is printed on them: `content` (the digest of the
+corpus, which a page compares with the one of a server before it plays there), and in
+`exploration` the name, the deck, the kind and the text of each exploration card, the cards
 that each deck begins with, and for each attachment its name, what it adds to the planet, and
 the text of the card that attaches it. `ti4-content` is compiled into the engine, so this costs
 no bytes.
@@ -383,6 +393,21 @@ technologies, the relics and the ability cards of the legendary planets. A techn
 or a legendary card has `used`: its text has an `ACTION` or it exhausts. The player view says
 which of them a seat has and which are exhausted (`leaders`, `exhausted_technologies`,
 `exhausted_relics`, `exhausted_legendary`).
+
+Its third part, `records` (`ti4_host::view::records`), is every record of the corpus that a page
+names by id, of every source (not only those of the game): the strategy cards, the secret and
+public objectives, the action cards, the technologies, the exploration cards, the planets, the
+attachments, the factions, the units, the leaders, the faction abilities, the promissory notes,
+the relics and the breakthroughs. Each kind is a list in the order of the corpus, each record
+with its id and the fields that a page shows, as printed (`UnitRecord` has the numbers of a unit
+card). It is about 250 KiB of the 410 KiB of the catalogue; a list, not a map by id, because 15
+maps cost 110 KB of wasm (2026-10-15).
+
+The server serves the same JSON at `GET /api/catalog` (`ti4_server::http::content`), so a page
+without an engine reads the same catalogue; `content` is the digest of its corpus. Both apps load
+it with `loadCatalog` of `web-shared/src/content/catalog.ts`: web2 from its engine, web from the
+server online and from its engine offline. `fixtures/catalog/catalog.json` is the answer of the
+engine, for the tests of web (`cargo wire-web` writes it, `cargo t-web` fails while it is stale).
 
 The relic fragments of a seat are in its player view (`relic_fragments`, by deck), and the
 attachments of a planet in its planet view. The values of a planet (`resources`, `influence`)
@@ -425,8 +450,8 @@ workspace.
 - What a draft may show is checked as on the server (`ti4-host/src/planning/audit.rs`): only
   audited offers, no dice, nothing that the seat did not know. The other seats take no optional
   reactions. These checks and the recorded-decision adapters were moved from `ti4-server`,
-  which imports them from there; its `PlanningRunner` is a worker thread around the same checks, and
-  guards its copy with the same code (`ti4-host/src/planning/fork.rs`).
+  which runs the same `run_draft` on a copy of its game, guarded by the same code
+  (`ti4-host/src/planning/fork.rs`).
 - The game at its last finished step is not kept: the checkpoints are made only after a step
   that asked the host. The base of a draft is the last checkpoint with the steps of the random
   seats since then played again on a copy of their stream, as an undo does. It is made for the
@@ -459,12 +484,20 @@ answers a run of a draft (`ti4_host::planning::draft::script_answer`): one copy 
 for the draft, for the live game and for the server.
 
 - The session answers each choice of the page from the script while it runs
-  (`HostSession::scripted`), and the page is not asked.
-- All or nothing: a step that the game does not offer takes the whole script back (the run goes
-  back to the checkpoint of the choice the script began at, as a failed `submit_batch` does),
-  and `draft_applied` says it was refused, with nothing applied. A question that is not of the
-  script (another seat, a reaction window) stops it with its earlier steps in the game
-  (`interrupted`).
+  (`HostSession::scripted`), and the page is not asked. The runs are the server's
+  (`ti4_host::planning::script::ScriptRuns`, one per seat); what differs is
+  `OnMismatch::TakeBack` below.
+- First the script is played on a copy of the game, as on the server
+  (`ti4_host::planning::script::check_script`): the copy is the game at its last finished step
+  (`script_copy` in `lib.rs`, the last checkpoint and the steps since it played again), with
+  the decisions since then played again. A script that the copy refuses is answered at once with
+  `draft_applied` (refused, nothing applied), and the game is not resumed.
+- All or nothing: a step that the game does not offer all the same (the copy stops at a decision
+  of another seat) takes the whole script back (the run goes back to the checkpoint of the choice
+  the script began at, as a failed `submit_batch` does), and `draft_applied` says it was refused,
+  with nothing applied. A question that is not of the
+  script (another seat, also another seat played by the page, a reaction window) stops it with
+  its earlier steps in the game (`interrupted`), and so does the end of its action or turn.
 - A window that the Never cards of the page decline is declined before the script sees it, so
   it does not stop the script.
 - Before a decision of another seat (stepping) the choice is that seat's, and a script never
@@ -493,10 +526,20 @@ of the rule.
 
 ### Scenarios
 
-A scenario is a board that a game only has after hours of play, for testing the screens
-(`ti4-host/src/view/scenario.rs`). It is not a stored state: it is a function over the state of a new
-game of a fixed seed, so a game that starts from one is saved, played again and taken back like
-any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet lists them.
+A scenario is a board that a game only has after hours of play, or a question that it only
+reaches after several answers, for testing the screens (`ti4-host/src/view/scenario/`, the one
+scenario system of both hosts; the server's `/api/dev/scenarios` lists the same). It is not a
+stored state: it is a function over the state of a new game, so a game that starts from one is
+saved, played again and taken back like any other. `web2/?scenario=<id>&humans=<mask>` plays
+one, and the Dev sheet lists them.
+
+- The scenarios of three seats (`three_seats.rs`: `research_tech_skips`, `tactical_action`, the
+  three productions, `space_combat`, `ongoing_combat`, `ongoing_combat_four_views`, the three
+  invasions, `endgame`, the two scores, `full_game`) are Sol, Hacan and Letnev in round 1 on the
+  seeded random board, and play on the seed of a table (`any_seed`; `?scenario=` plays seed 42).
+  Most have an opening: Sol's answers up to the question of the scenario (the research, the
+  production at Jord, the first retreat of the battle, the first question of the invasion). It
+  is played when the page plays seat `a`; the answers are ordinary decisions of the save.
 
 - `late-game`: round 4, seat `a` (Sol) has the turn with ten fleets, every ship type, every ship
   upgrade and Gravity Drive. Around them are a gravity rift, a nebula, a supernova, an asteroid
@@ -512,41 +555,43 @@ any other. `web2/?scenario=<id>&humans=<mask>` plays one, and the Dev sheet list
   three cultural relic fragments and one hazardous; seat `b` has a Paradise World on Loki and a frontier fragment. These
   nine cards are out of their decks. Planets of each type are free.
 - `late-game-deflectors`: the same, with Light/Wave Deflector and Antimass Deflectors.
-- The tests of `scenario.rs` ask the facts of a tactical action for each case (a move that needs
+- The tests of `scenario/mod.rs` ask the facts of a tactical action for each case (a move that needs
   Gravity Drive, a rift roll, the move of 1 out of the nebula, the way around the supernova, the
   wormhole, a pickup on the way, three places to load, the command token, out of range). A new
   case is added there with its test.
 - Found with it: the engine gives Antimass Deflectors no effect
   (`MovementRules::asteroid_fields_open` is only set in a test), so the asteroid field is closed
   in both scenarios. A test pins that, and fails when the engine changes.
-- The save of a scenario is kept under `ti4.local.scenario.<id>.<humans>`, and names the
+- The save of a scenario is kept under the slot `scenario.<id>.<humans>`, and names the
   scenario.
 
 ### The saved game
 
 A game is not kept as its state. It is kept as what plays it again: the save of `HostSession`
-(`save_state`), with **the option id of every decision, of every seat, in order** (`log`), the
-answers of the page among them (`answers`), the switches of its seats (`switches`), and the
-times of its events. The random seats and the dice follow the seed. The server keeps a game the
-same way: an init record and the decision log. web2 stores it with the address of the game and
-the SHA-256 of the engine file (`web2/src/session/savedGame.ts`, format 4).
+(`save_state`, format 2, see "Save and resume"), with its game, **the option id of every
+decision, of every seat, in order** (`decisions`), the answers of the page among them
+(`answers`), the switches of its seats (`switches`), and the times of its events. The random
+seats and the dice follow the seed. The server keeps a game the same way: an init record and the
+decision log. The apps keep it in the save store of `web-shared/src/storage/` (IndexedDB
+`ti4-offline`), with the SHA-256 of the engine file.
 
-- Where: `localStorage`, key `ti4.local.<seed>.<players>.<humans>` (a scenario and single
-  player have keys of their own), written whole at each question of the page. The Dev sheet has
-  New game, Export and Import (a JSON file).
-- **Playing it again.** The save is the `resume` of the start request. With `log` every
-  decision is given again, whoever the seat is: no seat decides, no bot runs, nothing is
-  projected, no seat waits and no card setting is applied. What the host counts is counted as
-  in the game that was never saved, so the first choice after the replay has the same number,
-  and an undo goes back into the saved decisions. A seat that draws from the random stream moves
-  the stream, so the seats decide the same after the replay. `progress` envelopes say how far
-  it is (every 20 decisions). Without `log` (a save of `web/` before 2026-10-14) the person's
-  `answers` are given, and the other seats decide again.
+- Where: web2 writes it at each question of the page, under the slot of the address of the game
+  (`local.<seed>.<players>.<humans>`, `scenario.<id>.<humans>`, `single`;
+  `web2/src/session/savedGame.ts`). The Dev sheet has New game, Export and Import (the export
+  file of the store).
+- **Playing it again.** The save is the `resume` of the start request. Every decision is given
+  again, whoever the seat is: no seat decides, no bot runs, nothing is projected, no seat waits
+  and no card setting is applied. What the host counts is counted as in the game that was never
+  saved, so the first choice after the replay has the same number, and an undo goes back into
+  the saved decisions. A seat that draws from the random stream moves the stream, so the seats
+  decide the same after the replay. `progress` envelopes say how far it is (every 20
+  decisions). A save of another format is not read.
 - A decision of the log that the game does not offer ends the run: the `end` envelope has
   `diverged`, which names its number, its id, the prompt and the ids that are offered.
 - **Undo.** One undo takes back one answer of the page, or a movement, the landings or a
-  purchase whole (`ti4_host::planning::undo`, the rule of the server's undo), back to the last
-  switch of the seats. The engine keeps a checkpoint (`Game::fork` and the position of the
+  purchase whole, back to the last switch of the seats. The answers are kept in the server's
+  track (`ti4_host::planning::undo::UndoTrack`) under `UndoRules::Local`: a die, a shuffle, a
+  revealed card and the decisions of the other seats do not cut it, only a switch. The engine keeps a checkpoint (`Game::fork` and the position of the
   random seats' stream) after each step that asked the page, the last 32 of them; when they
   reach back far enough, the run goes back one answer at a time (each without asking the page)
   and opens the choice again. Else, and when the game is over, the session replies `restart`
@@ -603,7 +648,7 @@ it is faster than the replays of this table.
 ### What a checkpoint is
 
 `Game::fork` in the engine copies a game at a step boundary: the state, the open windows, the
-dice streams, the counters and the resolver. The planning runner of the server uses it. The
+dice streams, the counters and the resolver. The drafts of both hosts use it. The
 test `a_fork_at_a_step_boundary_plays_the_same_game` checks it as a checkpoint for local play,
 on eight seats, seeds 3 and 11, 700 steps each, a copy every 7 steps, each played 30 steps on
 with a copy of the random seats' stream:
@@ -626,8 +671,8 @@ with a copy of the random seats' stream:
 
 Limits:
 
-- The random seats play on the main thread between two choices, and the page does not respond
-  in that time (see the table).
+- The random seats play in the Worker between two choices. The page responds in that time, but
+  its next question waits for them (see the table).
 - A reload late in a game takes as long as the game took the engine so far. So does an undo
   of an answer older than the 32 checkpoints, or after the game is over.
 - With `humans` naming more than one seat, the page shows the hand of the asked seat at once.
@@ -656,8 +701,8 @@ content does not have.
 
 - `ti4-server` does not compile to wasm (tokio, axum, threads, files). The views, the code
   that makes them from a state, the messages, the decision facts and event history, the presets
-  and the maps are in `ti4-host`, which both sides use. Still in the server: the planning runner
-  (a thread), storage, sockets and the lobby.
+  and the maps are in `ti4-host`, which both sides use. Still in the server: storage, sockets
+  and the lobby.
 - The view of a seat is as old as the last finished step, apart from the combat and invasion
   boundary, which is current. The server has the same limit.
 - The other workspace crates were not rebuilt after the `rand` change or the move to
@@ -670,8 +715,10 @@ content does not have.
 ## The hosted game (`web/` offline play, `web2/` local play)
 
 A game in a page, speaking the protocol of the server: the offline game of `web/` (one person
-against rule bots, in a Web Worker) and the local play of `web2/` (one seat or several, in the
-page; see "The seats of the page" and "The game of a request"). The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
+against rule bots) and the local play of `web2/` (one seat or several; see "The seats of the
+page" and "The game of a request"). Both run it in a Web Worker with the driver of
+`web-shared/src/engine/` (`Host`, `HostRunner`), and read it through `engineLink`
+(`web-shared/src/link/`). The code: `src/host_api.rs` (exports, JSON envelopes), `src/host_session.rs`
 (`HostSession`: what the server's `SessionShared` does around the engine), `src/host_setup.rs`
 (the request of a table → `ti4_host::setup::TableSetup`, the form's data). `js/host.mjs` is a working reference host and a smoke test.
 Chrome and Edge 137 and later only (JSPI); Node 24 has it too.
@@ -687,8 +734,8 @@ bytes: read both again after every call (the buffer can move).
 | `ti4_host_in(len) -> ptr` | Reserve the input buffer; write `len` bytes of request there. |
 | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
 | `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
-| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}`. |
-| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?}`. Returns when the game ends or is left; the output is an `end` envelope. |
+| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}` (the printed cards, the JSON of `GET /api/catalog` of the server; about 410 KiB, in the output of `host_api`), `{"query":"space_odds",...SpaceOddsRequest}` (`BattleResponse`: 2000 rollouts of `ti4_calc` from a fixed seed, so the same sides give the same numbers; `in_progress: true` starts at a combat round, with no space cannon or barrage before it), `{"query":"ground_odds",...GroundOddsRequest}` (`GroundOddsResponse` of `ti4_calc::odds::ground_odds`). Reads and changes nothing of a game: ask it with no game, or while the game is parked at a question (the Worker asks the instance of the running game). Both apps ask the odds with `spaceOdds`/`groundOdds` of `web-shared/src/engine/odds.ts`. |
+| `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}` (with none of the three, the game of the save). Returns when the game ends or is left; the output is an `end` envelope. |
 | `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
 
 The import is `host.ask() -> i32` (`WebAssembly.Suspending`).
@@ -717,7 +764,7 @@ stored in the save, so a save is self-contained.
   "progress": {"done","total"},        // progress: a saved game is being played again
   "waiting": "c",                      // ask: the game waits before a decision of this seat
   "resume": -1 | -2 | -3 | -4 | <option index>,  // command: what the parked game does now
-  "restart": {"answers","redo","generation","version","log"?,"switches"?,"undone"?},  // play again with these
+  "restart": {"answers","redo","generation","version","log"?,"switches"?,"undone"?,"staged"?},  // play again with these
   "batch": {...},                      // how a submit_batch ended (ask or command)
   "save": {...},                       // command save_state
   "resume_check": {"ok",...},          // first ask after a replayed save
@@ -743,13 +790,15 @@ stored in the save, so a save is self-contained.
 
 ### Commands (input of `ti4_host_command`)
 
-`ClientMessage` JSON as the page sends it today (`protocol_version: 3`, `game_id`):
-`subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`;
-resumes with the index of the option), `apply_draft` (a script; `draft_applied` when it ended),
+`ClientMessage` JSON as the page sends it today (`protocol_version: 4`, `game_id`):
+`subscribe` (a fresh `initial_snapshot`), `submit_choice` (`action_accepted` or `action_rejected`,
+checked as on the server by `ti4_host::protocol::check_submission`; resumes with the index of the
+option), `apply_draft` (a script; `draft_applied` when it ended),
 `run_draft` (`draft_outcome`), `undo` (resumes `-2`), `query_reach` (`reach_into`),
-`set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`).
-`preview_secondary` is answered with an `error` that names it (the page then falls back to its
-own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
+`set_reaction_mode` (`state_update` with `reaction_modes`), `ping` (`pong`), `put_staged` (see
+"Staged work"), `preview_secondary` (`secondary_preview` for the seat the page is shown as, on
+the position it sees, as the server answers it: `ti4_host::preview`; `busy` once the game is
+over). `set_reaction_intent` and `pass_reaction_hold` do nothing. Local commands:
 
 - `{"type":"submit_batch","nonce","expected_version","plan": BatchPlan}`: the `BatchPlan` of
   `web/` (`tactical_movement`, `production`, `payment`, `casualties`, `tokens`,
@@ -777,24 +826,68 @@ own estimate); `set_reaction_intent` and `pass_reaction_hold` do nothing. Local 
 whole. Through the checkpoints the reply resumes `-2`; when they do not reach, or the game is
 over, it replies `restart` (with `log`) and `resume: -1`, and the page plays the game again.
 
+### Staged work
+
+What each seat has staged and not sent (`ti4_host::staged`: the staged movement, landings or
+production, the private draft of a tactical action, the draft of a secondary) is kept by
+`HostSession`, in its save and in every `restart`, as the server keeps it for the seat. A page
+that starts the game with `"staged": true` (web2), or subscribes with `staged`, is one
+connection of the seat that it is shown as (`connection` 1):
+
+- After each snapshot, and when the seat that the page is shown as changes (another seat of the
+  page is asked), it is sent `seat_staged` with `connection`: the slots of that seat, which
+  replace what the page holds.
+- `put_staged {slot, base_revision, value?}` writes a slot of that seat by compare-and-set; the
+  write is told back as `seat_staged` with `writer` 1, a stale one with what the seat has.
+  Revisions count up for the whole page, so a write that was meant for another seat is stale.
+- A draft of a secondary that is ready is sent by the session when the game asks the seat that
+  secondary, and when the seat marks it ready while the game asks it (then the `put_staged`
+  reply resumes the game): the draft is played on a copy of the game (`run_draft` with the
+  scope of the secondary, `ti4_host::staged::ready`), it begins as a script, and its slot is
+  cleared. One that no longer fits is written back with `ready: false`, and the seat is asked.
+  These writes of the session have no `writer`.
+- `switch_seat` clears the slots of the seat that is given up.
+
+A page that does not ask for it (`web/`) is sent no `seat_staged`.
+
 ### Save and resume
 
-`save` is `{format:1, game_id, seed, players, human_seat, humans, setup, answers[], log[],
-switches[], redo[], never[], event_times[], event_versions[], version, generation, decisions,
-decisions_hash, finished, round, phase, engine:{build, content_digest}}`. `setup` is the request
-the game was started from. Resume: `ti4_host_start({"setup": save.setup, "resume": save})` (web2
-gives its own `table` or `local`). The game plays the `log` again without asking (a few hundred ms for 40
-answers, seconds for a late game), reporting `progress`; the first `ask` then has `resume_check`
-(`ok` is whether the decisions are the saved ones: false means the engine changed) and an
-`initial_snapshot` with the full event log, times of day included. The page adds the hash of
-the wasm file to what it stores.
+`save` (`HostSession::save_state`) has format 2:
+
+| Field | |
+|---|---|
+| `format` | `2`. A start whose `resume` has another `format` is refused: old saves are not read. |
+| `seed`, `players` | The seed the seats decide from; the count, `ti4_host::setup::PLAYER_COUNTS` (2 to 8). |
+| `game` | The game as it was asked for, with the choices that were left open filled in: `{"setup"}`, `{"table"}` or `{"local"}` (`host_setup::GameRequest`). |
+| `table`? | The `TableSetup` the game was made from (a game of `setup` or `table`; not of `local`). |
+| `scenario`? | The scenario the game starts from. |
+| `humans` | The seats the page plays at the start, a mask (bit 0 is seat `a`). |
+| `decisions` | The option id of every decision of the game, of every seat, in order. An undo cuts it at the answer that it takes back. |
+| `answers` | The page's answers among them. |
+| `switches` | The changes of the seats of the page: `{decision, humans}` each. |
+| `redo`, `never`, `staged`, `event_times`, `event_versions`, `version`, `generation`, `decisions_hash` | What the run goes on with: the redo list, the Never cards, the staged work of each seat (see "Staged work"), the time and version of each event, the counters, and the hash that the replay is checked against. |
+| `finished`, `round`, `phase` | Where the game is. |
+| `engine` | `{build, content_digest}`. |
+
+Resume: `ti4_host_start({"resume": save})`; the game is `save.game` (a request that names its own
+game, as web2's does, plays that one). The game plays the `decisions` again without asking (a few
+hundred ms for 40 answers, seconds for a late game), reporting `progress`; no seat decides one of
+them again. The first `ask` then has `resume_check` (`ok` is whether the decisions are the saved
+ones: false means the engine changed) and an `initial_snapshot` with the full event log, times of
+day included. The page adds the hash of the wasm file to what it stores.
 
 ### What differs from the server
 
 One `state_update` per question of the person (and one at the end), not per engine step; no
-separate `pending_choice` message; undo is the engine checkpoint (32 deep, no barriers); redo and
+separate `pending_choice` message; undo is the engine checkpoint (32 deep), and its track has the
+local rules (only a switch of the seats cuts, no barriers); redo and
 rewind are by replay; free-form answers (transaction deals) are refused; the splice preview, turn
-redo, planning-thread messages and bluff holds do not exist.
+redo (`ti4_host::history`, offered only by the server) and bluff holds do not exist; the page is one connection, so the staged work of a seat is
+told to it only while it is shown as that seat; a secondary preview is for the seat the page is
+shown as (the server: the seat of the connection), and it has no rate limit. The opening of a
+scenario is played as on the server (`ti4_host::view::scenario::OpeningRun`, asked before the
+page is asked); it answers only in a new game, and only when the page plays the seat of the
+opening.
 
 ### Tests
 
@@ -802,7 +895,12 @@ redo, planning-thread messages and bluff holds do not exist.
 `it/server_parity.rs` plays the same table through `ti4-server`'s own session and compares the
 decisions and the whole event log; `it/host_session.rs` checks every message against the
 `ServerMessage` types and the order a client relies on; `it/host_local.rs` the local play of
-web2 (several seats of the page, a change of them, stepping, a save with its log). `node js/host.mjs <wasm>` runs the same
+web2 (several seats of the page, a change of them, stepping, a save with its decisions);
+`it/host_history.rs` the history, and that a save plays again from itself alone with no seat
+deciding; `it/host_staged.rs` the staged work (`put_staged`, `seat_staged`, the save) and the ready
+secondary that the session sends; `it/host_preview.rs` that each secondary preview equals the
+server's answer at the same position; `it/host_scenario.rs` that each scenario of three seats
+opens at the same question, after the same opening, as the server's launch of it. `node js/host.mjs <wasm>` runs the same
 flow in a real WebAssembly instance (CI does). `node scripts/wasm-size-gate.mjs` checks the size
 against `size-budget.json`.
 
@@ -813,6 +911,8 @@ rustup target add wasm32-unknown-unknown
 
 # Build (about 2 minutes; the result is target/wasm32-unknown-unknown/wasm-release/ti4_wasm.wasm)
 cargo build -p ti4-wasm --target wasm32-unknown-unknown --profile wasm-release
+# The same build, copied to the file of an app (web2/scripts/build-wasm.sh, web's npm run build:wasm)
+node web-shared/scripts/build-wasm.mjs web2/src/session/ti4.wasm
 
 # The same seed and step count must print the same line in wasm and natively
 # (arguments: seed, steps, players)

@@ -1,4 +1,4 @@
-import { GENERATED_CONTENT_CATALOG } from "../protocol/generatedContentManifest.ts";
+import { CONTENT } from "../protocol/catalogStore.ts";
 import { humanizeId } from "../protocol/contentCatalog.ts";
 import type { PlayerView } from "../protocol/types.ts";
 import type { ActionToast } from "./actionToasts.ts";
@@ -10,7 +10,7 @@ interface LeaderRecord {
   abilityText?: string;
 }
 
-const LEADERS = GENERATED_CONTENT_CATALOG.leaders as unknown as Record<string, LeaderRecord>;
+const LEADERS = CONTENT.leaders as unknown as Record<string, LeaderRecord>;
 
 /** Each seat's leader statuses ("locked", "unlocked", "readied", ...), read from the public players. */
 export function readLeaderStatuses(

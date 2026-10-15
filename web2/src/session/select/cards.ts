@@ -5,7 +5,7 @@
 import type { ActionCardView, ActionCardsView } from "../../model";
 import type { Catalog, ReactionModes, SessionUpdate } from "../wire";
 import { plain, timing } from "./components";
-import { titleCase } from "./names";
+import { humanizeId } from "./names";
 
 /** What the player set for cards. Only `modes` changes what the viewer is asked. */
 export interface CardSettings {
@@ -42,7 +42,7 @@ export function selectActionCards(
   }
   const deck = catalog?.components.action_cards ?? [];
   const printed = new Map(deck.map((card) => [card.id, card]));
-  const nameOf = (id: string) => printed.get(id)?.name ?? titleCase(id);
+  const nameOf = (id: string) => printed.get(id)?.name ?? humanizeId(id);
   const count = (ids: string[]) => {
     const counts = new Map<string, number>();
     for (const id of ids) {

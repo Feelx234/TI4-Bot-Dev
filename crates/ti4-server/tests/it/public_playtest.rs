@@ -184,7 +184,7 @@ async fn password_gate_blocks_api_and_ws_until_the_cookie_is_held() {
         .unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
     let r = c
-        .get(format!("http://{base}/api/content/catalog"))
+        .get(format!("http://{base}/api/catalog"))
         .send()
         .await
         .unwrap();
@@ -613,12 +613,14 @@ async fn offline_feedback_is_stored_once_per_report_id_and_extractable() {
     let url = format!("http://{base}/api/feedback");
     let ids: Vec<String> = (0..2000).map(|i| format!("option_{i}")).collect();
     let times: Vec<String> = (0..20_000).map(|_| "10:00:00.000Z".to_owned()).collect();
+    let decisions: Vec<String> = (0..55).map(|i| format!("option_{i}")).collect();
     let local = json!({
-        "seed": 9, "setup": { "seed": 9, "players": 3 }, "answers": ids,
+        "seed": 9, "answers": ids,
         "engine": { "build": "b1", "content_digest": "cd" }, "wasm_sha256": "aa",
-        "save": { "seed": 9, "setup": { "seed": 9, "players": 3 }, "answers": ids, "redo": [],
-            "never": [], "event_times": times, "event_versions": [], "generation": 0,
-            "version": 3, "decisions": 55, "decisions_hash": "0123456789abcdef" }
+        "save": { "format": 2, "seed": 9, "game": { "setup": { "seed": 9, "players": 3 } },
+            "decisions": decisions, "answers": ids, "redo": [], "never": [],
+            "event_times": times, "event_versions": [], "generation": 0, "version": 3,
+            "decisions_hash": "0123456789abcdef" }
     });
     let body = json!({ "category": "bug", "text": "offline problem", "report_id": "client-rep-0001",
         "context": { "sender": { "nickname": "Ada" }, "local": local } });
@@ -647,7 +649,7 @@ async fn offline_feedback_is_stored_once_per_report_id_and_extractable() {
     let reports = ti4_server::feedback::list_recent(&dir, 10);
     assert_eq!(reports.len(), 1);
     let blob = ti4_server::feedback::save_blob(&reports[0].1).unwrap();
-    assert_eq!(blob["decisions"], 55);
+    assert_eq!(blob["decisions"].as_array().unwrap().len(), 55);
     assert_eq!(blob["answers"].as_array().unwrap().len(), 2000);
     assert!(
         ti4_server::feedback::render(&reports[0].1, false).contains("source: offline | seed 9")

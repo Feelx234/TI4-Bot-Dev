@@ -1,5 +1,5 @@
 //! How the rule bots score objectives, for tuning the objective layer
-//! (`session::smart_bot_objectives`): `cargo test --release --test smart_bot_objectives_survey --
+//! (`ti4_rule_bot::objectives`): `cargo test --release --test smart_bot_objectives_survey --
 //! --ignored --nocapture`.
 //!
 //! Plays all-smart tables (default 4 seats, seeds 1-24, `SURVEY_OBJ_SEEDS=1-24`,
@@ -13,7 +13,7 @@
 //! scoring window opened in a category the seat then did not score: a choice error, never a rule.
 //!
 //! The seats are rule bots exactly as `BotSmart` plays them (random pick drawn first, then
-//! [`ti4_server::session::smart_bot::pick`]); the driver is the engine's own `Game::step`.
+//! [`ti4_rule_bot::pick`]); the driver is the engine's own `Game::step`.
 //! `SURVEY_OBJ_LAYER=off` switches the objective layer off for a before/after comparison.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,7 +30,8 @@ use ti4_server::session::random_bot::{decision_rng, pick_index};
 
 /// A `BotSmart` seat without the session around it.
 struct SmartSeat {
-    seat: PlayerId,
+    /// The place of the seat in the seat order.
+    place: usize,
     seed: u64,
     counter: Arc<AtomicUsize>,
 }
@@ -38,10 +39,10 @@ struct SmartSeat {
 impl SmartSeat {
     fn answer(&self, choice: &Choice, seen: Option<&SeatObservation<'_>>) -> ChoiceOption {
         let index = self.counter.fetch_add(1, Ordering::SeqCst);
-        let mut rng = decision_rng(self.seed, &self.seat, index);
+        let mut rng = decision_rng(self.seed, self.place, index);
         let random = pick_index(choice, &mut rng);
         let picked = seen
-            .and_then(|seen| ti4_server::session::smart_bot::pick(choice, seen, &mut rng))
+            .and_then(|seen| ti4_rule_bot::pick(choice, seen, &mut rng))
             .filter(|&i| i < choice.options.len())
             .unwrap_or(random);
         choice.options[picked].clone()
@@ -156,11 +157,11 @@ fn play(seats: usize, seed: u64, max_round: u32) -> GameRecord {
     .expect("create game");
     let counter = Arc::new(AtomicUsize::new(0));
     let mut table = Table::new();
-    for id in &ids {
+    for (place, id) in ids.iter().enumerate() {
         table.seat(
             id.clone(),
             Box::new(SmartSeat {
-                seat: id.clone(),
+                place,
                 seed,
                 counter: counter.clone(),
             }),
@@ -350,11 +351,11 @@ fn survey_objectives() {
     // `SURVEY_OBJ_LAYER=p1,p3` plays it for those seats only.
     let layer = std::env::var("SURVEY_OBJ_LAYER").unwrap_or_else(|_| "on".to_owned());
     match layer.as_str() {
-        "on" => ti4_server::session::smart_bot::objectives::set_enabled(true),
-        "off" => ti4_server::session::smart_bot::objectives::set_enabled(false),
+        "on" => ti4_rule_bot::objectives::set_enabled(true),
+        "off" => ti4_rule_bot::objectives::set_enabled(false),
         seats => {
             let seats: Vec<&str> = seats.split(',').map(str::trim).collect();
-            ti4_server::session::smart_bot::objectives::set_enabled_for(&seats);
+            ti4_rule_bot::objectives::set_enabled_for(&seats);
         }
     }
     eprintln!("OBJ layer {layer}");

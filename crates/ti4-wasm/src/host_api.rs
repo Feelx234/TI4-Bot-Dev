@@ -10,7 +10,7 @@
 //! | `ti4_host_in(len)` | Reserve the input buffer; returns where to write `len` bytes. |
 //! | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output (re-read after every call). |
 //! | `ti4_host_set_time(unix_ms, monotonic_ms)` | Tell the engine the time (events carry it). |
-//! | `ti4_host_query(len)` | Stateless: `describe`, `map_preview`, `catalog`. |
+//! | `ti4_host_query(len)` | Stateless: `describe`, `map_preview`, `catalog`, `space_odds`, `ground_odds`. |
 //! | `ti4_host_start(len)` | Play a game (JSPI `promising`): returns when it ends or is left. |
 //! | `ti4_host_command(len)` | A command while the game waits for the person. |
 //!
@@ -121,6 +121,19 @@ impl PlayLoop for CrateLoop {
 
     fn reaches(&self, asked: u64) -> bool {
         crate::undo_reaches(asked)
+    }
+
+    fn script_copy(&self) -> Option<(Game<'static>, usize)> {
+        crate::script_copy()
+    }
+
+    fn draft(
+        &self,
+        seat: &PlayerId,
+        scope: &ti4_host::planning::audit::PlanScope,
+        script: &[ti4_host::planning::draft::DraftStep],
+    ) -> Option<ti4_host::planning::draft::DraftOutcome> {
+        crate::draft_outcome_of(seat, script, scope).ok()
     }
 }
 
@@ -260,13 +273,20 @@ pub fn put_input(text: &str) -> usize {
 
 // --- queries -------------------------------------------------------------------------------
 
-/// Stateless questions of the setup form. The input is `{"query": "...", ...}`:
+/// Stateless questions. The input is `{"query": "...", ...}`:
 ///
 /// - `{"query":"describe"}`: players, card sets, factions, bot kinds, maps per table size,
 ///   presets, scenarios (`host_setup::describe`).
 /// - `{"query":"map_preview","choice":{"kind":"template","alias":"..."}|{"kind":"random"},
 ///   "player_count":4,"variant":0}`: a pictured map (`MapPreview` of the server).
-/// - `{"query":"catalog"}`: the printed cards (as `ti4_catalog`).
+/// - `{"query":"catalog"}`: the printed cards (as `GET /api/catalog` of the server).
+/// - `{"query":"space_odds", ...SpaceOddsRequest}`: the odds of a space combat, a
+///   `ti4_calc::odds::BattleResponse` (2000 rollouts of `ti4_calc` from a fixed seed).
+/// - `{"query":"ground_odds", ...GroundOddsRequest}`: the odds of a ground combat, a
+///   `ti4_calc::odds::GroundOddsResponse` of `ti4_calc::odds::ground_odds`.
+///
+/// Nothing of a game is read or changed: the host may ask while a game waits for the page, and
+/// with no game at all.
 pub fn query(len: usize) -> i32 {
     #[derive(serde::Deserialize)]
     #[serde(tag = "query", rename_all = "snake_case")]
@@ -279,6 +299,8 @@ pub fn query(len: usize) -> i32 {
             variant: u32,
         },
         Catalog,
+        SpaceOdds(crate::SpaceOddsRequest),
+        GroundOdds(ti4_calc::odds::GroundOddsRequest),
     }
     let text = match input(len) {
         Ok(text) => text,
@@ -295,21 +317,50 @@ pub fn query(len: usize) -> i32 {
             player_count,
             variant,
         } => crate::host_setup::map_preview(&choice, player_count, variant),
-        Query::Catalog => serde_json::to_value(ti4_host::view::components::catalog(
-            ti4_content::ContentStore::embedded(),
-            ti4_model::content_types::POK,
-        ))
-        .map_err(|error| error.to_string()),
-    };
-    match value {
-        Ok(value) => {
+        Query::Catalog => {
+            // Written through `dyn Write`, not into a `Value`: a copy into a `Value` costs about
+            // 45 KB of wasm.
             let mut out = OUT.lock().expect("out lock");
             out.clear();
-            serde_json::to_writer(&mut *out, &value).expect("a value serializes");
-            length(out.len())
+            let writer: &mut dyn std::io::Write = &mut *out;
+            serde_json::to_writer(
+                writer,
+                &ti4_host::view::components::catalog(
+                    ti4_content::ContentStore::embedded(),
+                    ti4_model::content_types::POK,
+                ),
+            )
+            .expect("the catalogue serializes");
+            return length(out.len());
         }
+        Query::SpaceOdds(request) => {
+            return match crate::space_odds_of(&request) {
+                Ok(odds) => write_json(&odds),
+                Err(error) => write_error(format_args!("space odds: {error}")),
+            };
+        }
+        Query::GroundOdds(request) => {
+            return match ti4_calc::odds::ground_odds(
+                ti4_content::ContentStore::embedded(),
+                &request,
+            ) {
+                Ok(odds) => write_json(&odds),
+                Err(error) => write_error(format_args!("ground odds: {error}")),
+            };
+        }
+    };
+    match value {
+        Ok(value) => write_json(&value),
         Err(error) => write_error(error),
     }
+}
+
+/// Write `value` as the output; returns its length.
+fn write_json(value: &impl Serialize) -> i32 {
+    let mut out = OUT.lock().expect("out lock");
+    out.clear();
+    serde_json::to_writer(&mut *out, value).expect("a value serializes");
+    length(out.len())
 }
 
 // --- starting a game -------------------------------------------------------------------------
@@ -334,13 +385,22 @@ pub struct Prepared {
 /// Read the request of `ti4_host_start` and make the session and the game.
 pub fn prepare(len: usize) -> Result<Prepared, String> {
     let text = input(len)?;
-    let mut start: Start =
+    let start: serde_json::Value =
         serde_json::from_str(&text).map_err(|error| format!("start: {error}"))?;
-    let bot_version = start.settle_bot_version()?;
-    let mut built = start.build()?;
-    if let Some(request) = built.request.as_object_mut() {
-        request.insert("bot_version".to_owned(), bot_version.into());
+    // A save of another format is not read (a `restart` has no format).
+    if let Some(format) = start.pointer("/resume/format")
+        && format.as_u64() != Some(crate::host_setup::SAVE_FORMAT)
+    {
+        return Err(format!(
+            "the save has format {format}; this engine reads format {}",
+            crate::host_setup::SAVE_FORMAT
+        ));
     }
+    let mut start: Start = serde_json::from_value(start).map_err(|error| format!("start: {error}"))?;
+    let bot_version = start.settle_bot_version()?;
+    // TRIAL: a `table`/`local` game has no `setup`, so the version is not recorded in its request;
+    // the session must carry it itself (see docs/PP_MAIN_INTEGRATION_PLAN.md).
+    let built = start.build()?;
     // The rule seats of this game play the bot version it was made with (one game per host).
     ti4_rule_bot::tuning::set(ti4_rule_bot::tuning::for_version(bot_version));
     let mut resume: SavedGame = start.resume.unwrap_or_default();
@@ -354,7 +414,9 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         players: built.players,
         human_seat: built.humans.trailing_zeros().min(built.players as u32 - 1) as usize,
         humans: built.humans,
-        setup: built.request.clone(),
+        game: built.request.clone(),
+        table: built.setup.clone(),
+        scenario: built.scenario.clone(),
         seats: built.seats.clone(),
     };
     let tiles = built.galaxy.as_ref().map_or_else(Vec::new, |galaxy| {
@@ -392,12 +454,22 @@ pub fn prepare(len: usize) -> Result<Prepared, String> {
         (tiles, built.galaxy),
         &resume,
     );
+    let mut session = session;
+    // The opening of a scenario is played once, in a new game: a save and a new run after a
+    // change of the history (it goes on from a version) have its answers or take them back.
+    if resume.answers.is_empty() && resume.log.is_empty() && resume.version == 0 {
+        session.open(built.opening);
+    }
+    if start.staged {
+        session.share_staged();
+    }
     *session_lock() = Some(session);
     let replayed = resume.answers.len().max(resume.log.len());
+    let decisions = resume.decisions_hash.as_ref().map(|_| resume.log.len());
     *REPLAY.lock().expect("replay lock") = Some(Replay {
         total: replayed as u64,
         log: std::mem::take(&mut resume.log),
-        decisions: resume.decisions,
+        decisions,
         hash: resume.decisions_hash.clone(),
         modes: if deferred { modes } else { Vec::new() },
         checked: replayed == 0,

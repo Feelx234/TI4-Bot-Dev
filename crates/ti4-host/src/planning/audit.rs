@@ -1,8 +1,7 @@
 //! What a disposable attempt may show its planner.
 //!
 //! An offer is admitted by its producer and the meaning of its options, and a position by what
-//! the planner already knew. The server's planning runner and [`super::draft`] both ask here
-//! before they publish anything.
+//! the planner already knew. [`super::draft`] asks here before it publishes anything.
 
 use serde::{Deserialize, Serialize};
 use ti4_engine::choice::{Choice, ChoiceOption};
@@ -16,10 +15,12 @@ pub const ASSUMPTION: &str = "Other players take no optional reactions in this h
 pub const SECONDARY_ASSUMPTION: &str =
     "The primary ability and earlier players' secondaries may not have resolved yet.";
 
-/// What a disposable attempt previews. The scope picks the engine preparation
-/// and the audited offers; the gate, script and lifecycle are shared.
+/// What a disposable attempt previews: the next tactical action of the seat, or its secondary
+/// of the strategic action that is resolved (`secondary` of an update). The scope picks the
+/// engine preparation and the audited offers; the gate, script and lifecycle are shared.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PlanScope {
     /// The planner's next tactical action.
     #[default]
@@ -32,6 +33,7 @@ pub enum PlanScope {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum StopReason {
     Uncertainty,
     UnsupportedOffer,

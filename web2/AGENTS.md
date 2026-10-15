@@ -85,22 +85,23 @@ There are two layouts, and no others.
 
 The full rules are in `docs/agents/testing.md` ("Tests" and "Rust builds"). Read it before you run a build or a suite.
 
-- Rust: only the aliases `cargo l-web`, `cargo t-web`, `cargo b-web` (never `-p`, `--workspace` or `cargo c-web`). Before a commit of Rust: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`; when `ti4-host` or `ti4-wasm` changed, also `scripts/build-wasm.sh` and `npm test`; when the server changed, also `cargo b-web` and `npm test`.
-- A change of `web2/` only: `npm run typecheck`, `npm run lint`, `npm test`, then `npm run e2e -- -g "<the screen>"`; the whole `npm run e2e` before the commit. Not for each change: `npm run e2e:slow`, `npm run shots`, `cargo t-web-slow`.
+- Rust: only the aliases `cargo l-web`, `cargo t-web`, `cargo b-web`, and `cargo wire-web` to write the generated wire types of `web-shared` after a change of a Rust wire type (never `-p`, `--workspace` or `cargo c-web`). Before a commit of Rust: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`; when `ti4-host` or `ti4-wasm` changed, also `scripts/build-wasm.sh` (the shared build of both apps, `web-shared/scripts/build-wasm.mjs`) and `npm test`; when the server changed, also `cargo b-web` and `npm test`.
+- A change of `web2/` only: `npm run typecheck`, `npm run lint`, `npm run format:check` (oxfmt over web2 and web-shared; `npx oxfmt .` fixes it), `npm test`, then `npm run e2e -- -g "<the screen>"`; the whole `npm run e2e` before the commit. Not for each change: `npm run e2e:slow`, `npm run shots`, `cargo t-web-slow`.
 - With less than 4 GB of memory: one build or one suite at a time.
 
 ## Topics
 
 The rules of each feature are in `docs/agents/`. Before you change a feature, read the file of every topic that the change touches. A new rule goes into its topic file; only a rule for every screen goes into this file.
 
-| Read before you change… | File |
-|---|---|
-| A decision, the decision list, a reaction window, the action picker, shortcut keys | `docs/agents/decisions.md` |
-| A reference sheet: Cards, Secrets, Agendas, Objectives, the sheet of a player (`src/game/shell/Reference.tsx`) | `docs/agents/sheets.md` |
-| A strategy card, its primary or secondary, the draft of a secondary, the technology tree | `docs/agents/strategy-cards.md` |
-| The map, a system, the inspector, the payment bar, exploration (`src/game/board/`) | `docs/agents/board.md` |
-| Movement, invasion, production, the battle table, the space odds (`src/game/steps/`, `src/game/combat/`) | `docs/agents/tactical.md` |
-| Online play, the server transport, undo online, staged work of a seat (`wsTransport.ts`, `seatStore.ts`, `OnlineApp.tsx`) | `docs/agents/online.md` |
-| The lobby, single player, the setup of a table, the Table sheet (`src/game/lobby/`, `table.ts`, `localTable.ts`) | `docs/agents/lobby.md` |
-| A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game (`src/session/`, `LocalApp.tsx`) | `docs/agents/local-play.md` |
-| Tests, fixtures, screenshots, Rust builds, the wasm build | `docs/agents/testing.md` |
+| Read before you change…                                                                                                                                                      | File                            |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| A decision, the decision list, a reaction window, the action picker, shortcut keys                                                                                           | `docs/agents/decisions.md`      |
+| A reference sheet: Cards, Secrets, Agendas, Objectives, the sheet of a player (`src/game/shell/Reference.tsx`)                                                               | `docs/agents/sheets.md`         |
+| A strategy card, its primary or secondary, the draft of a secondary, the technology tree                                                                                     | `docs/agents/strategy-cards.md` |
+| The map, a system, the inspector, the payment bar, exploration (`src/game/board/`)                                                                                           | `docs/agents/board.md`          |
+| Movement, invasion, production, the battle table, the space odds (`src/game/steps/`, `src/game/combat/`)                                                                     | `docs/agents/tactical.md`       |
+| Online play, the server transport, undo online, staged work of a seat (`wsTransport.ts`, `seatStore.ts`, `OnlineApp.tsx`; in a local game also `local-play.md`)              | `docs/agents/online.md`         |
+| The lobby, single player, the setup of a table, the Table sheet (`src/game/lobby/`, `table.ts`, `localTable.ts`)                                                             | `docs/agents/lobby.md`          |
+| A local game, `Transport`, the Dev sheet, drafts of a tactical action, the saved game and the save list of the start screen (`src/session/`, `LocalApp.tsx`, `StartApp.tsx`) | `docs/agents/local-play.md`     |
+| Tests, fixtures, screenshots, Rust builds, the wasm build                                                                                                                    | `docs/agents/testing.md`        |
+| The code shared with web/: the engine driver (`@ti4/shared`, `../web-shared/`)                                                                                               | `../web-shared/AGENTS.md`       |

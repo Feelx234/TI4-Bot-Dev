@@ -18,12 +18,15 @@ pub use crate::projection::PendingChoiceEnvelope;
 /// Initial per-viewer snapshot sent upon subscription or reconnection.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct InitialSnapshotMsg {
     pub protocol_version: u16,
     pub game_id: String,
     pub game_version: u64,
     pub viewer: ViewerRole,
     pub view: GameView,
+    /// The engine's `GameState`, passed through without a projection.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub state: GameState,
     pub galaxy_layout: GalaxyLayout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,6 +87,7 @@ pub struct InitialSnapshotMsg {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct CurrentLogPath {
     pub round: u32,
     pub phase: Phase,
@@ -122,6 +126,7 @@ pub fn current_log_path(
 /// Public cursor counts decisions, not engine steps or wall-clock events.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct HistoryStatus {
     pub cursor: usize,
     pub redo_count: usize,
@@ -161,6 +166,7 @@ impl InitialSnapshotMsg {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(tag = "visibility", content = "seat", rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum EventVisibility {
     Public,
     Seat(PlayerId),
@@ -181,6 +187,7 @@ impl EventVisibility {
 /// Typed event payload. Visibility is never inferred from presentation text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum GameEventKind {
     GameInitialized {
         round: u32,
@@ -202,6 +209,7 @@ pub enum GameEventKind {
 /// Authoritative, auditable event log entry recorded during game execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GameEvent {
     pub id: String,
     pub timestamp: String,
@@ -255,6 +263,7 @@ pub struct GameEvent {
 /// public; see [`public_roll`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PublicRoll {
     /// Position in the game's roll history. A restart replays the same rolls; this is how the
     /// replay is told apart from a new roll.
@@ -362,6 +371,7 @@ impl PublicRoll {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SeatDecisionDetail {
     pub seat: PlayerId,
     pub detail: String,
@@ -996,6 +1006,7 @@ pub fn verified_decision_facts(
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MovementFact {
     pub actor: PlayerId,
     pub origin: String,
@@ -1600,7 +1611,7 @@ mod fact_tests {
     #[test]
     fn event_visibility_wire_shape_matches_the_client_fixture() {
         let fixture: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../ti4-server/fixtures/event_visibility.json"
+            "../../../../fixtures/protocol/event_visibility.json"
         ))
         .unwrap();
         let events: Vec<GameEvent> = serde_json::from_value(fixture.clone()).unwrap();
@@ -1738,6 +1749,7 @@ mod fact_tests {
 /// Server message carrying a new game event to all subscribers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GameEventMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1747,12 +1759,15 @@ pub struct GameEventMsg {
 /// Versioned state update or replacement snapshot after state transition.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct StateUpdateMsg {
     pub protocol_version: u16,
     pub game_id: String,
     pub game_version: u64,
     pub viewer: ViewerRole,
     pub view: GameView,
+    /// The engine's `GameState`, passed through without a projection.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub state: GameState,
     pub galaxy_layout: GalaxyLayout,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1806,6 +1821,7 @@ pub struct StateUpdateMsg {
 /// One decision made on a seat's behalf because it had a single legal option.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct AutoResolvedNote {
     /// Unique per note, so a client can drop a repeat.
     pub id: String,
@@ -1858,12 +1874,15 @@ impl StateUpdateMsg {
 /// Pending choice sent only to the acting seat.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PendingChoiceMsg {
     pub protocol_version: u16,
     pub game_id: String,
     pub game_version: u64,
     pub nonce: String,
     pub choice: Choice,
+    /// The engine's `GameState`, passed through without a projection.
+    #[cfg_attr(feature = "ts", ts(type = "Record<string, unknown>"))]
     pub state: GameState,
     pub galaxy_layout: GalaxyLayout,
 }
@@ -1872,6 +1891,7 @@ pub struct PendingChoiceMsg {
 /// stale-version filter never drops it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ReactionIntentStateMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1894,6 +1914,7 @@ pub struct ReactionIntentStateMsg {
 /// Why a secondary preview was refused (see [`SecondaryPreviewMsg`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PreviewRefusal {
     /// Only a seated player can ask.
     NotSeated,
@@ -1916,6 +1937,7 @@ pub enum PreviewRefusal {
     clippy::large_enum_variant,
     reason = "one short-lived value per request; the engine value is carried as it is"
 )]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum PreviewResult {
     /// The engine's answer: the question, "would not be asked", "complete" or "unavailable".
     Preview {
@@ -1934,6 +1956,7 @@ pub enum PreviewResult {
 /// computed at, and the client re-checks the plan against the real question when it opens.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct SecondaryPreviewMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1949,6 +1972,7 @@ pub struct SecondaryPreviewMsg {
 /// Public turn status update.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct TurnStatusMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1959,6 +1983,7 @@ pub struct TurnStatusMsg {
 /// Confirmation that an action was validated and accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActionAcceptedMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1969,6 +1994,7 @@ pub struct ActionAcceptedMsg {
 /// Notification that an action submission was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ActionRejectedMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1979,6 +2005,7 @@ pub struct ActionRejectedMsg {
 /// Protocol error notification.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ProtocolErrorMsg {
     pub protocol_version: u16,
     pub kind: ErrorKind,
@@ -1988,6 +2015,7 @@ pub struct ProtocolErrorMsg {
 /// Notification of game completion.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct GameOverMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -1999,123 +2027,16 @@ pub struct GameOverMsg {
 /// Keep-alive pong response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct PongMsg {
     pub protocol_version: u16,
     pub sequence: u64,
 }
 
-/// A gated planning publication delivered only to its owning player.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningStatusMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    pub checkpoint_id: u64,
-    pub available: bool,
-    pub can_start: bool,
-    pub has_draft: bool,
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    pub can_apply: bool,
-    pub application: Option<DraftApplication>,
-    /// The strategic action whose secondary this seat may draft, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secondary: Option<SecondaryDraftStatus>,
-}
-
-/// Which of a seat's two independent drafts a planning message is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DraftKind {
-    #[default]
-    Tactical,
-    Secondary,
-}
-
-impl DraftKind {
-    fn is_tactical(&self) -> bool {
-        *self == Self::Tactical
-    }
-}
-
-/// A follower's private view of the secondary they may draft while they wait.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SecondaryDraftStatus {
-    pub card: String,
-    pub played_by: PlayerId,
-    /// False while the primary ability is still resolving.
-    pub window_open: bool,
-    /// Followers the live window asks before this seat, once it is open.
-    pub seats_before: Option<usize>,
-    pub can_start: bool,
-    pub has_draft: bool,
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    /// The draft is submitted for the seat when the live window reaches it.
-    pub ready: bool,
-    pub application: Option<DraftApplication>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DraftApplicationState {
-    Applying,
-    WaitingForPlayer,
-    NeedsDecision,
-    Applied,
-}
-
-/// Seat-private live execution progress, retained across socket reconnects.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DraftApplication {
-    pub applied: usize,
-    pub total: usize,
-    pub state: DraftApplicationState,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningUpdateMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
-    pub draft: DraftKind,
-    pub envelope: crate::planning::wire::PlanningEnvelope,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanningRejection {
-    Unauthorized,
-    WrongGame,
-    Unavailable,
-    UnknownSeat,
-    ActivePlayer,
-    NotStarted,
-    Retired,
-    NotWaiting,
-    UnknownOption,
-    NoActionOpportunity,
-    ReplayMismatch,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanningResultMsg {
-    pub protocol_version: u16,
-    pub game_id: String,
-    #[serde(default, skip_serializing_if = "DraftKind::is_tactical")]
-    pub draft: DraftKind,
-    /// None identifies a start request; Some identifies an answer, reset, or apply request.
-    pub identity: Option<crate::planning::wire::AttemptIdentity>,
-    /// None means accepted by the controller. Application progress is seat-private status.
-    pub rejection: Option<PlanningRejection>,
-}
-
 /// The answer to `ClientMessage::RunDraft`: where the run of the script ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DraftOutcomeMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -2131,6 +2052,7 @@ pub struct DraftOutcomeMsg {
 /// Where a script that was sent to the live game stopped before its end.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct ScriptStopped {
     /// How many entries of the script are in the game. 0 when the script was refused: the game
     /// is as before.
@@ -2146,6 +2068,7 @@ pub struct ScriptStopped {
 /// What became of `ClientMessage::ApplyDraft`, for the seat that sent it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct DraftAppliedMsg {
     pub protocol_version: u16,
     pub game_id: String,
@@ -2161,10 +2084,8 @@ pub use super::staged::SeatStagedMsg;
 /// Messages emitted from server to client.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub enum ServerMessage {
-    PlanningUpdate(PlanningUpdateMsg),
-    PlanningStatus(PlanningStatusMsg),
-    PlanningResult(PlanningResultMsg),
     InitialSnapshot(InitialSnapshotMsg),
     StateUpdate(StateUpdateMsg),
     PendingChoice(PendingChoiceMsg),
@@ -2194,9 +2115,6 @@ impl ServerMessage {
     #[must_use]
     pub fn protocol_version(&self) -> u16 {
         match self {
-            Self::PlanningUpdate(m) => m.protocol_version,
-            Self::PlanningStatus(m) => m.protocol_version,
-            Self::PlanningResult(m) => m.protocol_version,
             Self::InitialSnapshot(m) => m.protocol_version,
             Self::StateUpdate(m) => m.protocol_version,
             Self::PendingChoice(m) => m.protocol_version,
@@ -2220,9 +2138,6 @@ impl ServerMessage {
     #[must_use]
     pub fn game_id(&self) -> Option<&str> {
         match self {
-            Self::PlanningUpdate(m) => Some(&m.game_id),
-            Self::PlanningStatus(m) => Some(&m.game_id),
-            Self::PlanningResult(m) => Some(&m.game_id),
             Self::InitialSnapshot(m) => Some(&m.game_id),
             Self::StateUpdate(m) => Some(&m.game_id),
             Self::PendingChoice(m) => Some(&m.game_id),
@@ -2257,9 +2172,6 @@ impl ServerMessage {
             // preview names its own `as_of_version`).
             Self::Error(_)
             | Self::Pong(_)
-            | Self::PlanningUpdate(_)
-            | Self::PlanningStatus(_)
-            | Self::PlanningResult(_)
             | Self::DraftOutcome(_)
             | Self::DraftApplied(_)
             | Self::ReactionIntentState(_)
