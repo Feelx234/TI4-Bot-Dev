@@ -17,7 +17,9 @@ const facts = update.tactical as MovementFacts;
 const WARSUN = "01|1";
 const CARRIER = "01|2";
 const FIGHTERS = facts.cargo.findIndex((pool) => pool.system === "01" && pool.unit === "fighter2");
-const INFANTRY = facts.cargo.findIndex((pool) => pool.source === "jord" && pool.unit === "sol_infantry2");
+const INFANTRY = facts.cargo.findIndex(
+  (pool) => pool.source === "jord" && pool.unit === "sol_infantry2",
+);
 
 const staged = (...changes: ((draft: MovementDraft) => MovementDraft)[]) =>
   changes.reduce((draft, change) => change(draft), {} as MovementDraft);
@@ -79,7 +81,12 @@ it("adds the ships that move in and the fighters in their holds to the attacker"
   });
   expect(asked?.key).toBe(JSON.stringify(asked?.request));
   // The same fleet staged in another order is the same question.
-  const again = staged(ship(CARRIER), ship(WARSUN), load(WARSUN, INFANTRY, 3), load(WARSUN, FIGHTERS, 2));
+  const again = staged(
+    ship(CARRIER),
+    ship(WARSUN),
+    load(WARSUN, INFANTRY, 3),
+    load(WARSUN, FIGHTERS, 2),
+  );
   expect(oddsRequest(facts, again)?.key).toBe(asked?.key);
   expect(oddsRequest(facts, staged(ship(WARSUN)))?.key).not.toBe(asked?.key);
 });
@@ -139,9 +146,9 @@ describe("the odds in the movement", () => {
       ],
     ]);
     // The active system has the same odds in its inspector.
-    expect(selectArrival(update, facts, draft, { key: asked.key, response: RESPONSE }).odds).toEqual(
-      odds,
-    );
+    expect(
+      selectArrival(update, facts, draft, { key: asked.key, response: RESPONSE }).odds,
+    ).toEqual(odds);
   });
 
   it("keeps the numbers of another movement as pending, with the ships of this one", () => {

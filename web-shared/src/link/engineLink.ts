@@ -33,7 +33,11 @@ type Waiter = { resolve: (envelope: Envelope | null) => void; reject: (error: Er
  * A crash, a fatal error and an end with an error are told as `fatal`. To play on after that, a
  * page makes a new port and a new link, from the last save.
  */
-export function engineLink(port: HostPort, config: StartConfig, options: EngineLinkOptions = {}): EngineLink {
+export function engineLink(
+  port: HostPort,
+  config: StartConfig,
+  options: EngineLinkOptions = {},
+): EngineLink {
   const all = listeners();
   const replies = new Map<number, Pending>();
   let waiters: Waiter[] = [];

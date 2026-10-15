@@ -51,14 +51,12 @@ export function inlinePort(module: WebAssembly.Module): HostPort {
   return {
     post: (message: ToWorker) =>
       later(() => {
-        void runner
-          .handle(message)
-          .catch((error: unknown) =>
-            listener({
-              t: "crash",
-              message: error instanceof Error ? error.message : String(error),
-            }),
-          );
+        void runner.handle(message).catch((error: unknown) =>
+          listener({
+            t: "crash",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
       }),
     listen: (next) => {
       listener = next;

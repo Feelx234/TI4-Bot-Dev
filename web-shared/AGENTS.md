@@ -14,7 +14,8 @@ is `web2/plans/2026-10-14-SHARED_TRANSPORT_PLAN.md`.
   - a new dependency.
 - Other changes need no agreement: additive changes, fixes and tests, as long as the gates of
   both apps are green.
-  - web2: `npm run typecheck`, `npm run lint`, `npm test`.
+  - web2: `npm run typecheck`, `npm run lint`, `npm run format:check` (it also checks the format of
+    web-shared), `npm test`.
   - web: `npx tsc --noEmit`, `npm test`.
 - Never in `web-shared/`: React, CSS, view models, text shown to a player, or the state model
   of an app.

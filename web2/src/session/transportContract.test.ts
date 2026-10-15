@@ -2,7 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { loadCatalog } from "@ti4/shared/content/catalog.ts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestServer, spawnTestServer, testServerBinary } from "../../../web-shared/test/server.ts";
+import {
+  type TestServer,
+  spawnTestServer,
+  testServerBinary,
+} from "../../../web-shared/test/server.ts";
 import { canMove, setLoad, setShip, shipId } from "./movementDraft";
 import { type PlanStep, stepsOf } from "./movementPlan";
 import type { Transport, TransportEvent } from "./transport";
@@ -409,7 +413,12 @@ describe.skipIf(!existsSync(WASM))("the engine in this page", () => {
   let engine: Engine;
   beforeAll(async () => {
     const module = await WebAssembly.compile(readFileSync(WASM));
-    engine = { module, hash: "test", scenarios: [], catalog: await loadCatalog({ query: engineQuery(module) }) };
+    engine = {
+      module,
+      hash: "test",
+      scenarios: [],
+      catalog: await loadCatalog({ query: engineQuery(module) }),
+    };
   });
   contract(async () => side(createWasmTransport(engine, { seed: 3, players: 8, humans: 1 })));
 });

@@ -54,15 +54,15 @@ Decisions (owner, 2026-10-15):
 A new crate with no `tch`, clean for wasm. It depends on `ti4-policy` (features, `Vocabulary`,
 `BattlePredictor`), `ti4-engine`, `ti4-model`, `serde_json`, `sha2`, `rand` and `rand_chacha`.
 
-| Module | What it holds |
-|---|---|
-| `format` | The `.ti4m` file: its reader and its writer (section B). |
-| `bundle` | The reader of a training bundle directory (`ti4-mlp/src/bundle.rs` layout): the `safetensors` header (u64 length, JSON, raw f32 LE) parsed by hand, and the checks of `manifest.json` (schema 7–12, `projection_abi`, the SHA-256 of each file, f32 only, shapes). It is only used by the pack tool and the tests. |
-| `simd/` | The `Lanes` trait and the three backends (section C). This is the only module with `#[allow(unsafe_code)]`. The crate restates the workspace lints with `unsafe_code = "deny"`, as `ti4-tensor` does. |
-| `kernel` | `bag`, `gemm` (packed panels), `readout`, generic over `Lanes`. |
-| `model` | `Model`: the sections of one file and `forward(faction, head, options) -> Vec<f32>` with a reused scratch buffer. It is `Send + Sync` and shared by `Arc` across seats and games. |
-| `policy` | The decision pipeline moved out of `ti4-mlp/src/bot.rs`, section D. |
-| `bin/pack.rs` | `ti4-pack <bundle dir> <name> <out.ti4m>`. |
+| Module        | What it holds                                                                                                                                                                                                                                                                                                      |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `format`      | The `.ti4m` file: its reader and its writer (section B).                                                                                                                                                                                                                                                           |
+| `bundle`      | The reader of a training bundle directory (`ti4-mlp/src/bundle.rs` layout): the `safetensors` header (u64 length, JSON, raw f32 LE) parsed by hand, and the checks of `manifest.json` (schema 7–12, `projection_abi`, the SHA-256 of each file, f32 only, shapes). It is only used by the pack tool and the tests. |
+| `simd/`       | The `Lanes` trait and the three backends (section C). This is the only module with `#[allow(unsafe_code)]`. The crate restates the workspace lints with `unsafe_code = "deny"`, as `ti4-tensor` does.                                                                                                              |
+| `kernel`      | `bag`, `gemm` (packed panels), `readout`, generic over `Lanes`.                                                                                                                                                                                                                                                    |
+| `model`       | `Model`: the sections of one file and `forward(faction, head, options) -> Vec<f32>` with a reused scratch buffer. It is `Send + Sync` and shared by `Arc` across seats and games.                                                                                                                                  |
+| `policy`      | The decision pipeline moved out of `ti4-mlp/src/bot.rs`, section D.                                                                                                                                                                                                                                                |
+| `bin/pack.rs` | `ti4-pack <bundle dir> <name> <out.ti4m>`.                                                                                                                                                                                                                                                                         |
 
 ### B. The model file `.ti4m` (the prepacking)
 
@@ -109,11 +109,11 @@ pub(crate) trait Lanes {            // 4 × f32 in every backend
 
 **The backends**
 
-| Backend | Selected by | Instructions |
-|---|---|---|
-| `Sse` | `cfg(target_arch = "x86_64")` | `core::arch::x86_64` `_mm_*_ps`. SSE2 is the baseline of x86-64, so there is no runtime detection. |
-| `Simd128` | `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | `core::arch::wasm32` `f32x4_*`. |
-| `Scalar` | every other target | `[f32; 4]` with the same lane arithmetic. Native tests also call it explicitly. |
+| Backend   | Selected by                                                    | Instructions                                                                                       |
+| --------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `Sse`     | `cfg(target_arch = "x86_64")`                                  | `core::arch::x86_64` `_mm_*_ps`. SSE2 is the baseline of x86-64, so there is no runtime detection. |
+| `Simd128` | `cfg(all(target_arch = "wasm32", target_feature = "simd128"))` | `core::arch::wasm32` `f32x4_*`.                                                                    |
+| `Scalar`  | every other target                                             | `[f32; 4]` with the same lane arithmetic. Native tests also call it explicitly.                    |
 
 **The same bits everywhere**
 
@@ -195,9 +195,7 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
   Each is a `BotKindOption` with the id `mlp:<name>` and the label of the model. The page still
   never writes a kind (`web2/docs/agents/lobby.md`).
 - **Wire.**
-  - The kinds of a seat become a string: `"human" | "smart" | "random" | \`mlp:${string}\`` via
-    `#[ts(type)]`. This changes `SeatKind`, `Bots` and `BotKindOption` in
-    `web-shared/src/wire/generated/`.
+  - The kinds of a seat become a string: `"human" | "smart" | "random" | \`mlp:${string}\``via`#[ts(type)]`. This changes `SeatKind`, `Bots`and`BotKindOption`in`web-shared/src/wire/generated/`.
   - `Local.rule_seats` (a mask) becomes `Local.bots: (string | null)[]`, the kind of each seat.
   - A save of format 2 with `rule_seats` is read as `smart` on those seats (serde default, a few
     lines).
@@ -269,6 +267,7 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
 ## Plan (one PR per step, in order)
 
 ### Step 1: `ti4-infer` with the scalar backend
+
 - The crate and its lints. Add it to the package set of `c-web`, `l-web`, `t-web`, `t-web-slow`,
   `wire-web` and `b-web` in `.cargo/config.toml`.
 - The safetensors and bundle reader, the `.ti4m` writer and reader, `ti4-pack`.
@@ -279,6 +278,7 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
   - the forward of the synthetic model against a plain triple-loop reference written in the test.
 
 ### Step 2: SSE and simd128 with packed panels
+
 - `Lanes` for `Sse` and `Simd128`, `gemm` on panels, the fused epilogues, and the rustflags of the
   wasm target.
 - Native tests assert **bit equality** of `Sse` and `Scalar` on random shapes: options 1–37 to cover
@@ -289,6 +289,7 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
 - The ignored bench, and its numbers in the PR.
 
 ### Step 3: one pipeline (section D)
+
 - Move the pipeline and `SparseOption` into `ti4-infer::policy`, and make `MlpBot` call it through
   `Scorer`.
 - A parity test in `ti4-mlp` (needs libtorch; a new alias `t-mlp-parity = "test -p ti4-mlp --test
@@ -299,6 +300,7 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
   - It also checks that `MlpBot`'s features equal the pipeline's.
 
 ### Step 4: MLP bot kinds in ti4-host, the server and the engine of the page (section E)
+
 - `BotKind`, `bots::choose`, `setup_options(models)`, the wire changes (`cargo wire-web`), `Local.bots`.
 - The server loads `TI4_MODEL_DIR`; in-process MLP seats; persistence.
 - The wasm registry and `ti4_model_load`.
@@ -309,7 +311,9 @@ evaluation temperature of `plans/MLP_TEMPERATURE_REGIME.md`).
     and `ti4-wasm/src/lib.rs:1850` gain the model of the test.
 
 ### Step 5: remove the advisor and the bot agent
+
 Remove:
+
 - `crates/ti4-advisor`, `crates/ti4-bot-agent` and their workspace entries;
 - `spawn_bot_for_lobby` and `active_bots` in `session/registry.rs`;
 - `POST /lobby/add-bot` and its password check (`http/games.rs:678-705`), and the `"mlp"` kind of
@@ -322,11 +326,13 @@ Update `docs/RANDOM_BOTS.md` and `docs/OFFLINE.md`. The removed tests are the on
 the "+ mlp" cases of `random_bot_lobby.rs`.
 
 ### Step 6: the routes, the pack script and the deploy (sections F, G)
+
 - `/api/models`, the file route, `models/index.json`, `scripts/pack-models.sh`, and the changes to
   `deploy.sh` and `env.example`.
 - A server test fetches the list and a file, checks the sha, and checks the cache header.
 
 ### Step 7: web2
+
 - The model list in `localTable.ts`, the Cache API fetch and the Worker load (`wasmTransport.ts`,
   `web-shared/src/engine/worker.ts`).
 - The wait of "Start game", the lobby kinds and sign, the player table sign, and the docs of

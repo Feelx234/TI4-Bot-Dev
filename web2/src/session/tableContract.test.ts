@@ -1,7 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestServer, spawnTestServer, testServerBinary } from "../../../web-shared/test/server.ts";
+import {
+  type TestServer,
+  spawnTestServer,
+  testServerBinary,
+} from "../../../web-shared/test/server.ts";
 import { localTable } from "./localTable";
 import type { LocalGame } from "./savedGame";
 import { openSocket } from "@ti4/shared/net/socket.ts";

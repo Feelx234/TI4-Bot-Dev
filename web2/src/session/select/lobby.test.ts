@@ -419,7 +419,12 @@ it("a change of the host is one sentence for the other players", () => {
   );
   // The same players in another order of the rows; a join is no shuffle.
   const shuffled = lobby();
-  shuffled.slots = [shuffled.slots[2], shuffled.slots[0], ...shuffled.slots.slice(3), shuffled.slots[1]];
+  shuffled.slots = [
+    shuffled.slots[2],
+    shuffled.slots[0],
+    ...shuffled.slots.slice(3),
+    shuffled.slots[1],
+  ];
   expect(hostChange(before, shuffled)).toBe("The host shuffled the seats");
   const joined = lobby();
   joined.slots[3] = person(4, "cy", "Cy");

@@ -26,12 +26,13 @@ hosts**; **fold `ti4-view` into `ti4-host`**.
 ## Findings
 
 **A. Two game-setup paths**
-| | `ti4_host::setup::{draw, create}` | `ti4_host::map::create_game_with_factions` |
-|---|---|---|
-| Users | server lobby (no preset), web2 local | server lobby **with preset** (`ti4-server/src/session/registry.rs:3416`), web/ offline (`ti4-wasm/src/host_setup.rs:203`) |
-| Seats | drawn (`seating::lobby_seat_order`), then factions for that order | factions by join index, no seat draw |
-| Counts | `PLAYER_COUNTS = 2..=8` | `MIN/MAX_PLAYERS = 3..=6` |
-| Rule bot id | `bot_kind::RULE = "smart"` | `"rule"` |
+
+|             | `ti4_host::setup::{draw, create}`                                 | `ti4_host::map::create_game_with_factions`                                                                                |
+| ----------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Users       | server lobby (no preset), web2 local                              | server lobby **with preset** (`ti4-server/src/session/registry.rs:3416`), web/ offline (`ti4-wasm/src/host_setup.rs:203`) |
+| Seats       | drawn (`seating::lobby_seat_order`), then factions for that order | factions by join index, no seat draw                                                                                      |
+| Counts      | `PLAYER_COUNTS = 2..=8`                                           | `MIN/MAX_PLAYERS = 3..=6`                                                                                                 |
+| Rule bot id | `bot_kind::RULE = "smart"`                                        | `"rule"`                                                                                                                  |
 
 **B. Three setup-option builders**: `ti4_host::setup::setup_options` (typed), its server wrapper
 `session::table::setup_options` (fine), and `ti4-wasm/src/host_setup.rs::describe()`, a
@@ -50,12 +51,13 @@ Stale doc: `ti4-server/src/planning.rs` says "defined in `ti4-view`".
 `ti4-host/src/map.rs`, all ending in `create_game_with_template_seated`.
 
 **F. Two wasm hosts** on the same `play` loop / `Host` checkpoint struct in `ti4-wasm/src/lib.rs`:
+
 - web2: bespoke C-ABI (`ti4_play*`, `ti4_draft`, `ti4_plan`, `ti4_journal`, `ti4_replay`,
   `ti4_switch_seats`, `ti4_set_stepping`, `ti4_set_rule_seats`, update buffer of view+choice);
   consumed by `web2/src/session/wasmTransport.ts`.
 - web/: `ti4_host_start/command/query` → `HostSession` → `ServerMessage` JSON (same as the server).
-web2 already has `wsTransport.ts` decoding `ServerMessage` behind the same `transport.ts`
-interface, so web2 can drive the `ServerMessage` host too.
+  web2 already has `wsTransport.ts` decoding `ServerMessage` behind the same `transport.ts`
+  interface, so web2 can drive the `ServerMessage` host too.
 
 **G. `ti4-view` no longer needs to be its own crate.** Its only dependents are `ti4-host`,
 `ti4-server` and `ti4-wasm`, and the last two depend on `ti4-host` anyway (`ti4-engine` only
@@ -68,6 +70,7 @@ crate split.
 **H. Server code that is not about hosting.** After Step 5, `HostSession` has several local human
 seats (hot seat). It then needs the per-seat logic that only the server has, and web2 drives
 both hosts through one `ServerMessage` transport. Still in `ti4-server`:
+
 - Re-export shims missed by Step 4: `session/mod.rs:20-21` (`smart_bot`,
   `smart_bot_faction_plans`), `:86-88` (`ti4_host::{batch, replay, rng_force, step_snapshot}`,
   `replay_session*`, `RngForce`, `RngMarks`). About 35 files use them.
@@ -106,6 +109,7 @@ game; a thread answers through `MockClient` with sleeps until the wanted questio
 ## Plan (one PR per step, in order)
 
 ### Step 1: fold `ti4-view` into `ti4-host` (G, host half of D)
+
 1. Mechanical move: `git mv crates/ti4-view/src/* crates/ti4-host/src/view/`, `lib.rs` →
    `view/mod.rs` (crate doc → module doc, keep `pub mod …` list). `ti4-host/src/lib.rs` gets
    `pub mod view;`. Add `ti4-calc` to `ti4-host/Cargo.toml`; drop `ti4-view` from the workspace
@@ -135,6 +139,7 @@ game; a thread answers through `MockClient` with sleeps until the wanted questio
    the engine comment. Old plans in `web2/plans/` stay as written (history).
 
 ### Step 2: one setup path (A, B, C)
+
 - `TableSetup` gains `preset: Option<String>`. `setup::create` applies the preset logic lifted
   from `map::create_game_with_factions` (`preset::rotation`, `roster`, `seat_roster`, `apply`);
   `setup::draw` uses `SeatOrder::Join` + preset roster when a preset is set. `SpeakerOrder` moves
@@ -152,12 +157,14 @@ game; a thread answers through `MockClient` with sleeps until the wanted questio
   Migrate their test/fixture callers to `TableSetup` or `create_game_with_template_seated`.
 
 ### Step 3: collapse `create_game_with_*` (E)
+
 Keep `create_game_with_template_seated` (the real builder) and one
 `create_game_with_template(content, ids, seed, template)` for tests/fixtures; replace
 `_rotated`, `_and_card_set`, `_map_*` variants at their call sites (mostly `ti4-server/tests`,
 `fixtures.rs`, `dev/scenarios.rs`; grep the workspace).
 
 ### Step 4: remove the server re-export layer (server half of D)
+
 - Delete `ti4-server/src/session/reaction_modes.rs`, the `pub use ti4_host::…` block of
   `ti4-server/src/lib.rs`, `ti4-server/src/planning.rs`'s re-exports (keep `runner`),
   `ti4-server/src/maps/` re-exports (move `variant_seed` next to its HTTP caller; keep
@@ -166,11 +173,12 @@ Keep `create_game_with_template_seated` (the real builder) and one
   `ti4_server::{…}::` → `ti4_host::…::`, then `cargo clippy --fix`. Fix stale module docs.
 
 ### Step 5: one wasm host (F)
+
 1. Extend `HostSession` to what web2 local play needs that it lacks: several local human seats
-   + seat switching (`ti4_switch_seats`/`humans` mask), rule-seat mask, stepping/pause between
-   bot decisions, the wait of the bots, scenario start (already in `Setup`), draft/plan
-   (`run_draft`/`apply_draft`, planning commands → `ti4_host::planning`). Expose them as
-   `ClientMessage` local commands (`HostSession::local`) rather than new C exports.
+   - seat switching (`ti4_switch_seats`/`humans` mask), rule-seat mask, stepping/pause between
+     bot decisions, the wait of the bots, scenario start (already in `Setup`), draft/plan
+     (`run_draft`/`apply_draft`, planning commands → `ti4_host::planning`). Expose them as
+     `ClientMessage` local commands (`HostSession::local`) rather than new C exports.
 2. Rewrite `web2/src/session/wasmTransport.ts` on `ti4_host_start/command/query` + the
    `ServerMessage` decoding already used by `wsTransport.ts` (share it). Keep
    `transportContract.test.ts` / `wasmTransport.test.ts` green; web2 saves switch to the
@@ -183,6 +191,7 @@ Keep `create_game_with_template_seated` (the real builder) and one
    format, `ti4_journal`, `ti4_set_stepping`).
 
 ### Step 6: the rest of the server's game logic into the host (H, I, J)
+
 One commit per item, in this order (planning deletion early, so `worker.rs`/`session/mod.rs` are
 smaller before the moves; scripts before undo, both touch `HostSession::selected`; scenarios last).
 Starts after Step 5 is committed.
@@ -240,15 +249,15 @@ Starts after Step 5 is committed.
    - `Local` (wasm): only a change of the page's seats cuts (`seats_changed`), because a
      checkpoint restores the dice; `observe` does nothing. The track keeps every answer of the
      page (the history counts them), and an undo starts no earlier than the last change.
-   `UndoEntry` keeps the seat, `decision`, `asked` (the checkpoint reach), subtype, kind,
-   `passed` and the plan step; under `Table` also a window that may be declined, read against
-   the Never cards at the undo. `start(seat, never)` is the place of the first answer one undo
-   takes back (`Table`: only the seat of the tail), `steps_from`, `take_back(keep)` for a
-   checkpoint. `Watched` (it holds `Arc<Mutex<SessionShared>>`) stays in the server
-   (`session/undo.rs`). `HostSession` pushes an entry for each answer of the page when its
-   record is published (`selected` → `after_step`/`offer`); `Own`, `HostSession::own` and the
-   server's `start` wrapper are gone. Tests: the track's own (moved from the server, plus the
-   local rules) and `host_local::an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them`.
+     `UndoEntry` keeps the seat, `decision`, `asked` (the checkpoint reach), subtype, kind,
+     `passed` and the plan step; under `Table` also a window that may be declined, read against
+     the Never cards at the undo. `start(seat, never)` is the place of the first answer one undo
+     takes back (`Table`: only the seat of the tail), `steps_from`, `take_back(keep)` for a
+     checkpoint. `Watched` (it holds `Arc<Mutex<SessionShared>>`) stays in the server
+     (`session/undo.rs`). `HostSession` pushes an entry for each answer of the page when its
+     record is published (`selected` → `after_step`/`offer`); `Own`, `HostSession::own` and the
+     server's `start` wrapper are gone. Tests: the track's own (moved from the server, plus the
+     local rules) and `host_local::an_undo_of_the_page_goes_over_its_other_seats_and_stops_at_a_change_of_them`.
 7. **Staged work and the ready secondary.** (Done.)
    - `ti4_host::staged` (`SeatStaged`, `Put`, `SecondaryDraft`, `DraftAnswer`) and
      `ti4_host::staged::ready` (`asked`, `Ready` with its `scope`, `ready_draft` over
@@ -328,8 +337,10 @@ lobby, reservations); `bluff`, `bluff_hold` (they hide a hand from remote people
 (Not in scope: moving server `SessionShared` onto `HostSession`; `server_parity` already guards it.)
 
 ## Verification
+
 Builds only through the aliases of `.cargo/config.toml` (no `-p` subsets, no `--workspace`; see
 `web2/AGENTS.md`, "Rust builds"); one build or suite at a time.
+
 - While working: `cargo l-web`, `cargo t-web <filter>` (e.g. `both_hosts`, `bot_lobby_factions`,
   `map_selection`, `player_lobby_admission`, `table_in_game`, `dev_scenarios`, `server_parity`).
 - Before each commit: `cargo fmt --all -- --check`, `cargo l-web`, `cargo t-web`;

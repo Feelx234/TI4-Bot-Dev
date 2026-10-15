@@ -18,7 +18,12 @@ import type {
 const PLAYERS = "abcdefgh";
 /** The player of the page, the host: the id of the seat of the person. */
 const viewerOf = (seats: { kind: Kind }[]) =>
-  PLAYERS[Math.max(0, seats.findIndex((seat) => seat.kind === "human"))];
+  PLAYERS[
+    Math.max(
+      0,
+      seats.findIndex((seat) => seat.kind === "human"),
+    )
+  ];
 /** The kind of a seat that is added with the count: the usual choice. */
 const USUAL_KIND = "smart";
 

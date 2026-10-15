@@ -745,7 +745,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed exploration cards, and an update says what the decks hold",
   async () => {
-    const printed = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const printed = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const catalog = printed.exploration;
     expect(Object.keys(catalog.decks).sort()).toEqual([
       "CULTURAL",
@@ -787,7 +789,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed action cards, and an update says where the cards of the deck are",
   async () => {
-    const catalog = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.action_cards;
     const boosts = deck.filter((card) => card.name === "Morale Boost");
     expect(boosts).toHaveLength(4);
@@ -827,7 +831,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed secret objectives, and an update says what each seat has scored",
   async () => {
-    const catalog = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.secret_objectives;
     expect(deck).toHaveLength(40);
     for (const card of deck) {
@@ -872,7 +878,9 @@ it.skipIf(!built)(
 it.skipIf(!built)(
   "has the printed agendas, and an update says which laws are in play",
   async () => {
-    const catalog = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const deck = catalog.components.agendas!;
     expect(deck).toHaveLength(50);
     // Every agenda is in the deck once.
@@ -956,7 +964,9 @@ it.skipIf(!built)("says where the points of every seat of the late game come fro
 it.skipIf(!built)(
   "has the printed cards of a play area, and an update says which are used",
   async () => {
-    const catalog = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const { transport, next } = await play(false, {
       seed: 42,
       players: 8,
@@ -1210,7 +1220,9 @@ async function toWindowOf(game: Awaited<ReturnType<typeof play>>, key: string): 
 it.skipIf(!built)(
   "says what a window of an ability offers as printed, and passes it for a seat that wants it in its turns only",
   async () => {
-    const catalog = await loadCatalog({ query: engineQuery(await WebAssembly.compile(readFileSync(WASM))) });
+    const catalog = await loadCatalog({
+      query: engineQuery(await WebAssembly.compile(readFileSync(WASM))),
+    });
     const game = await play(false, SARDAKK);
     const window = await toWindowOf(game, TRO);
     const { update } = window;

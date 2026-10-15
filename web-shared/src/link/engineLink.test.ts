@@ -74,7 +74,11 @@ describe("engineLink", () => {
     const { port, events } = open();
     expect(port.posted).toEqual([{ t: "start", config: CONFIG }]);
     port.emit({ t: "ready" });
-    port.emit({ t: "ask", envelope: envelope("ask", { messages: [{ type: "a" }, { type: "b" }] }), save: save() });
+    port.emit({
+      t: "ask",
+      envelope: envelope("ask", { messages: [{ type: "a" }, { type: "b" }] }),
+      save: save(),
+    });
     expect(events).toEqual([
       { kind: "message", message: { type: "a" } },
       { kind: "message", message: { type: "b" } },
@@ -95,7 +99,11 @@ describe("engineLink", () => {
     const { port, link, events } = open();
     port.onPost = (message) =>
       message.t === "command"
-        ? { t: "reply", id: message.id, envelope: envelope("command", { messages: [{ type: "ok" }], resume: 1 }) }
+        ? {
+            t: "reply",
+            id: message.id,
+            envelope: envelope("command", { messages: [{ type: "ok" }], resume: 1 }),
+          }
         : null;
     const reply = await link.request({ type: "submit_choice" });
     expect(reply.resume).toBe(1);
@@ -114,25 +122,38 @@ describe("engineLink", () => {
 
   it("rejects a request with the error of its reply", async () => {
     const { port, link } = open();
-    port.onPost = (message) => (message.t === "command" ? { t: "reply", id: message.id, error: "no game" } : null);
+    port.onPost = (message) =>
+      message.t === "command" ? { t: "reply", id: message.id, error: "no game" } : null;
     await expect(link.request({ type: "history" })).rejects.toThrow("no game");
   });
 
   it("answers a query with its value", async () => {
     const { port, link } = open();
-    port.onPost = (message) => (message.t === "query" ? { t: "reply", id: message.id, value: { n: 1 } } : null);
+    port.onPost = (message) =>
+      message.t === "query" ? { t: "reply", id: message.id, value: { n: 1 } } : null;
     await expect(link.query({ query: "catalog" })).resolves.toEqual({ n: 1 });
   });
 
   it("resolves the waiter of the next question, and of the end", async () => {
     const { port, link, events } = open();
     const first = link.nextQuestion();
-    port.emit({ t: "ask", envelope: envelope("ask", { batch: { status: "applied", applied: 2 } }), save: null });
+    port.emit({
+      t: "ask",
+      envelope: envelope("ask", { batch: { status: "applied", applied: 2 } }),
+      save: null,
+    });
     expect((await first.promise)?.batch?.applied).toBe(2);
     const last = link.nextQuestion();
-    port.emit({ t: "end", envelope: envelope("end", { messages: [{ type: "over" }] }), save: save() });
+    port.emit({
+      t: "end",
+      envelope: envelope("end", { messages: [{ type: "over" }] }),
+      save: save(),
+    });
     expect((await last.promise)?.kind).toBe("end");
-    expect(events.slice(1)).toEqual([{ kind: "save", save: save() }, { kind: "message", message: { type: "over" } }]);
+    expect(events.slice(1)).toEqual([
+      { kind: "save", save: save() },
+      { kind: "message", message: { type: "over" } },
+    ]);
   });
 
   it("does not resolve a cancelled waiter", async () => {
@@ -166,7 +187,9 @@ describe("engineLink", () => {
     const other = open();
     other.port.emit({
       t: "end",
-      envelope: envelope("end", { end: { finished: false, left: false, error: "trap", decisions: 0, answers: 0 } }),
+      envelope: envelope("end", {
+        end: { finished: false, left: false, error: "trap", decisions: 0, answers: 0 },
+      }),
       save: null,
     });
     expect(other.events).toEqual([{ kind: "fatal", message: "trap" }]);

@@ -9,7 +9,9 @@ export default defineConfig({
   // Cleanup: after a purge of the Cloudflare cache for this host, remove this line.
   cacheDir: "node_modules/.vite-web2",
   // The module shared with web/ (`web-shared/AGENTS.md`).
-  resolve: { alias: { "@ti4/shared": fileURLToPath(new URL("../web-shared/src", import.meta.url)) } },
+  resolve: {
+    alias: { "@ti4/shared": fileURLToPath(new URL("../web-shared/src", import.meta.url)) },
+  },
   server: {
     // The repo root: `web-shared/` is outside this app.
     fs: { allow: [".."] },

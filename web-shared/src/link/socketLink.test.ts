@@ -107,7 +107,13 @@ describe("socketLink", () => {
     last().receive({ type: "initial_snapshot" });
     last().lose();
     expect(waits).toEqual([0, 1, 0]);
-    expect(events.map((e) => e.kind)).toEqual(["opened", "offline", "opened", "message", "offline"]);
+    expect(events.map((e) => e.kind)).toEqual([
+      "opened",
+      "offline",
+      "opened",
+      "message",
+      "offline",
+    ]);
   });
 
   it("lets the page set the wait of a loss and keep it quiet", () => {
