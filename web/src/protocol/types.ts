@@ -327,6 +327,23 @@ export interface PlayerView {
   leaders: Record<string, string>;
   /** Other players' command tokens in this seat's fleet pool (Mahact), one entry per token. */
   held_foreign_tokens?: string[];
+  /** Relic fragments held, by trait (public). */
+  relic_fragments?: Record<string, number>;
+  /**
+   * The top agendas this seat was shown by Insider Information, top first, while they are still on
+   * top of the deck. Private: only ever sent to that seat.
+   */
+  agenda_peek?: AgendaPeekCardDto[];
+}
+
+/** One agenda as printed, shown to the seat that looked at it with Insider Information. */
+export interface AgendaPeekCardDto {
+  id: string;
+  name: string;
+  type: string;
+  target: string;
+  text1: string;
+  text2: string;
 }
 
 export interface ObjectiveProgressView {
