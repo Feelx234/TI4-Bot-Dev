@@ -85,6 +85,7 @@ pub mod objectives;
 // Agent layer (when to use a faction agent).
 pub mod agents;
 
+pub mod answers;
 pub mod faction_plans;
 pub mod random;
 pub mod tuning;
@@ -175,6 +176,12 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     {
         return Some(index);
     }
+    // -- answers to formerly random questions (answers.rs, bot version 2) --
+    if subtype != Some("ready_planet")
+        && let Some(index) = answers::pick(choice, observed, &me)
+    {
+        return Some(index);
+    }
     // -- objective layer hook (objectives.rs) --
     if let Some(index) = objectives::pick(choice, seen, &me, rng) {
         return Some(index);
@@ -217,7 +224,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             let warfare = subtype == Some("warfare_redistribute_tokens");
             return pick_redistribution(choice, observed, &me, warfare);
         }
-        Some("ready_planet") => return pick_ready_planet(choice, observed, &me),
+        Some("ready_planet") => {
+            return pick_ready_planet(choice, observed, &me)
+                .or_else(|| answers::pick(choice, observed, &me));
+        }
         // Round 1's trade goods pay for transports, not an action card.
         Some("functioning_base_choose_reward") if expanding(observed) => {
             return choice.options.iter().position(|o| o.id == "gain");
