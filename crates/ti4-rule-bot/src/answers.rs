@@ -337,3 +337,110 @@ fn retreat_to(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usi
         .max_by_key(|&(i, v)| (v, std::cmp::Reverse(i)))
         .map(|(i, _)| i)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ti4_content::ContentStore;
+    use ti4_engine::fixtures::game;
+    use ti4_model::POK;
+
+    fn seen(state: &ti4_model::state::GameState) -> Observed<'_> {
+        Observed::new(state, ContentStore::embedded(), POK, None)
+    }
+
+    fn with_subtype(mut choice: Choice, subtype: &str) -> Choice {
+        choice.context = Some(ti4_engine::decision_context::DecisionContext::new(
+            choice.player.clone(),
+            ti4_engine::decision_context::DecisionSource::Rule("test".to_owned()),
+            subtype,
+            ti4_model::state::Phase::Action,
+            3,
+        ));
+        choice
+    }
+
+    #[test]
+    fn casualties_and_sustain_take_the_cheapest_unit() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let casualty = with_subtype(
+            Choice::new(
+                me.clone(),
+                "assign a hit",
+                vec![
+                    ChoiceOption::labelled("destroy|0", "casualty", "destroy dreadnought")
+                        .with("unit", "dreadnought")
+                        .with("damaged", false),
+                    ChoiceOption::labelled("destroy|1", "casualty", "destroy fighter")
+                        .with("unit", "fighter")
+                        .with("damaged", false),
+                ],
+            ),
+            "assign_casualty",
+        );
+        let sustain = with_subtype(
+            Choice::new(
+                me.clone(),
+                "cancel a hit",
+                vec![
+                    ChoiceOption::labelled("sustain|a", "sustain", "sustain damage on flagship")
+                        .with("unit", "sol_flagship"),
+                    ChoiceOption::labelled("sustain|b", "sustain", "sustain damage on dreadnought")
+                        .with("unit", "dreadnought"),
+                    ChoiceOption::decline(),
+                ],
+            ),
+            "sustain_damage",
+        );
+        let on = crate::tuning::Tuning {
+            casualty_rule: true,
+            ..crate::tuning::Tuning::default()
+        };
+        crate::tuning::with(on, || {
+            assert_eq!(pick(&casualty, &seen(&state), &me), Some(1), "the fighter");
+            assert_eq!(pick(&sustain, &seen(&state), &me), Some(1), "the dreadnought sustains");
+        });
+        let off = crate::tuning::for_version(1);
+        crate::tuning::with(off, || assert_eq!(pick(&casualty, &seen(&state), &me), None));
+    }
+
+    #[test]
+    fn votes_for_itself_and_makes_itself_speaker() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let vote = with_subtype(
+            Choice::new(
+                me.clone(),
+                "vote for which outcome",
+                vec![
+                    ChoiceOption::labelled("b", "vote", "b"),
+                    ChoiceOption::labelled("a", "vote", "a"),
+                    ChoiceOption::decline(),
+                ],
+            )
+            .detailed("agenda", serde_json::json!({ "id": "minister_war" })),
+            "cast_vote",
+        );
+        let speaker = with_subtype(
+            Choice::new(
+                me.clone(),
+                "who becomes speaker",
+                vec![
+                    ChoiceOption::labelled("Sol", "speaker", "Sol becomes speaker"),
+                    ChoiceOption::labelled("Hacan", "speaker", "Hacan becomes speaker"),
+                ],
+            )
+            .detailed("seats", serde_json::json!({ "Sol": "b", "Hacan": "a" })),
+            "politics_choose_speaker",
+        );
+        let on = crate::tuning::Tuning {
+            vote_rule: true,
+            ..crate::tuning::Tuning::default()
+        };
+        crate::tuning::with(on, || {
+            assert_eq!(pick(&vote, &seen(&state), &me), Some(1));
+            assert_eq!(pick(&speaker, &seen(&state), &me), Some(1));
+        });
+    }
+}

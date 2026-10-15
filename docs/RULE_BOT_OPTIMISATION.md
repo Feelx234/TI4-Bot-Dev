@@ -232,9 +232,13 @@ Games are independent and the results do not depend on the number of workers (ch
   (the table shows them as `smart` < 100%).
 - `objectives.rs` - from round 3: which objectives to score and aim at, `gain` of an action, denying a rival near ten points.
 - `faction_plans.rs` - per faction technology order, unit weights, preferred strategy card.
+- `answers.rs` - (bot version 2) agenda votes, Politics' speaker and agenda placement, sustain damage and casualties,
+  readying planets, retreat destinations, Trade's free replenish.
+- `planner.rs` - (bot version 2) the objective planner's production weights.
 - `agents.rs` - when to use faction agents and other component actions.
 - `random.rs` - the seeded random pick under the rule bot (`decision_rng(seed, seat, n)`).
-- `tuning.rs` - the knobs.
+- `tuning.rs` - the knobs, `BOT_VERSION` and `for_version(v)` (version 1 written out in full; `--bot bot_version=1`
+  plays it).
 
 How the seats are driven elsewhere: `ti4-server/src/session/random_bot.rs` (online tables), `ti4-wasm/src/lib.rs`
 `Seat::decide` / `draw` (the offline game, the nightly offline mode) - this tool copies the latter.
