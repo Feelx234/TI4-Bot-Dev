@@ -281,7 +281,7 @@ pub fn put_input(text: &str) -> usize {
 ///   "player_count":4,"variant":0}`: a pictured map (`MapPreview` of the server).
 /// - `{"query":"catalog"}`: the printed cards (as `GET /api/catalog` of the server).
 /// - `{"query":"space_odds", ...SpaceOddsRequest}`: the odds of a space combat, a
-///   `ti4_calc::odds::BattleResponse` (as [`crate::ti4_space_odds`]).
+///   `ti4_calc::odds::BattleResponse` (2000 rollouts of `ti4_calc` from a fixed seed).
 /// - `{"query":"ground_odds", ...GroundOddsRequest}`: the odds of a ground combat, a
 ///   `ti4_calc::odds::GroundOddsResponse` of `ti4_calc::odds::ground_odds`.
 ///

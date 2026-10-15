@@ -1,12 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { pageQuery, spaceOdds } from "@ti4/shared/engine/odds.ts";
 import { describe, expect, it } from "vitest";
 import battleUpdate from "../../../fixtures/protocol/update-battle.json";
 import movementUpdate from "../../../fixtures/protocol/update-movement.json";
 import { type MovementDraft, setLoad, setShip } from "./movementDraft";
 import { type KeptOdds, oddsRequest } from "./movementOdds";
 import { percentages, selectArrival, selectMovement } from "./select/movement";
-import { spaceOddsOf } from "./wasmTransport";
 import type { BattleResponse, MovementFacts, SessionUpdate } from "./wire";
 
 // An update of a real game, written by the engine: in the late game, seat a (Sol) moves into
@@ -162,13 +162,13 @@ const WASM = fileURLToPath(new URL("./ti4.wasm", import.meta.url));
 
 describe.skipIf(!existsSync(WASM))("the odds of the engine in this page", () => {
   it("computes the odds of the staged movement, the same for the same sides", async () => {
-    const module = await WebAssembly.compile(readFileSync(WASM));
+    const query = pageQuery(await WebAssembly.compile(readFileSync(WASM)));
     const draft = staged(ship(WARSUN), load(WARSUN, FIGHTERS, 3), ship(CARRIER));
     const asked = oddsRequest(facts, draft)!;
-    const response = await spaceOddsOf(module, asked.request);
+    const response = await spaceOdds(query, asked.request);
     expect(response.attacker_fielded).toMatchObject({ warsun: 1, sol_carrier2: 1, fighter2: 3 });
     expect(response.defender_fielded).toMatchObject({ cruiser: 2, destroyer: 1 });
-    expect(await spaceOddsOf(module, asked.request)).toEqual(response);
+    expect(await spaceOdds(query, asked.request)).toEqual(response);
     const odds = selectMovement(update, facts, draft, [], { key: asked.key, response }).odds!;
     expect(odds.win! + odds.draw! + odds.loss!).toBe(100);
     // A war sun, a carrier and three fighters against two cruisers and a destroyer.

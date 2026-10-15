@@ -108,7 +108,7 @@ the meantime is below.
 New code uses data structures that fit the use, with fixed or arena memory, so that it does not
 have to be migrated when the engine changes.
 
-- The exports that need no game (the setup of a table, the scenarios, the odds) use fixed
+- The exports that need no game (the setup of a table, the scenarios) use fixed
   static buffers (`src/buffer.rs`): the result of an export (`RESPONSE_CAPACITY`,
   256 KiB) and the request of the host (`REQUEST_CAPACITY`, 64 KiB). A game speaks through the
   input and output of `host_api` (JSON messages, see "The hosted game"), which grow as needed.
@@ -148,7 +148,8 @@ Plain C ABI, no `wasm-bindgen`. The crate has its own `[lints]` because the boun
 A game is played through one host, for both pages: the hosted exports `ti4_host_*` (see "The
 hosted game" below), with `ClientMessage` in and `ServerMessage` out, as on the server. web2
 reads the messages with the code of its server transport (`web2/src/session/serverMessages.ts`).
-The questions that need no game are exports of their own:
+The host also answers the queries that need no game (`ti4_host_query`: the catalogue, the odds of
+a space or a ground combat). The setup of a table and the scenarios are exports of their own:
 
 | Export | |
 |---|---|
@@ -157,7 +158,6 @@ The questions that need no game are exports of their own:
 | `ti4_setup_preview(request_len) -> status` | The board of the table in the request buffer, with a place for each seat and no faction, and `map`: what the table says of its map. |
 | `ti4_setup_draw(request_len) -> status` | What the start draws for the table in the request buffer: `players` (the ids by seat), `order` and `factions`. |
 | `ti4_scenarios() -> status` | The scenarios, as a JSON list in the response buffer. |
-| `ti4_space_odds(request_len) -> status` | The odds of a space combat, from the sides alone (also `{"query":"space_odds"}` of `ti4_host_query`). |
 | `ti4_request_ptr()` | Where the host writes a request (`REQUEST_CAPACITY`, 64 KiB) before the export that reads it. |
 | `ti4_response_ptr()` | The address of the result or the error of the last export. |
 
@@ -732,7 +732,7 @@ bytes: read both again after every call (the buffer can move).
 | `ti4_host_in(len) -> ptr` | Reserve the input buffer; write `len` bytes of request there. |
 | `ti4_host_out_ptr()`, `ti4_host_out_len()` | The last output. |
 | `ti4_host_set_time(unix_ms: f64, monotonic_ms: f64)` | Tell the engine the time. Call before `ti4_host_start` and before each resume (events carry the time of day). |
-| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}` (the printed cards, the JSON of `GET /api/catalog` of the server; about 410 KiB, in the output of `host_api`), `{"query":"space_odds",...SpaceOddsRequest}` (`BattleResponse`, the numbers of `ti4_space_odds`), `{"query":"ground_odds",...GroundOddsRequest}` (`GroundOddsResponse` of `ti4_calc::odds::ground_odds`). Reads and changes nothing of a game: ask it with no game, or while the game is parked at a question (the Worker asks the instance of the running game). |
+| `ti4_host_query(len)` | No game needed: `{"query":"describe"}`, `{"query":"map_preview","choice":{"kind":"random"} or {"kind":"template","alias"},"player_count","variant"?}`, `{"query":"catalog"}` (the printed cards, the JSON of `GET /api/catalog` of the server; about 410 KiB, in the output of `host_api`), `{"query":"space_odds",...SpaceOddsRequest}` (`BattleResponse`: 2000 rollouts of `ti4_calc` from a fixed seed, so the same sides give the same numbers), `{"query":"ground_odds",...GroundOddsRequest}` (`GroundOddsResponse` of `ti4_calc::odds::ground_odds`). Reads and changes nothing of a game: ask it with no game, or while the game is parked at a question (the Worker asks the instance of the running game). Both apps ask the odds with `spaceOdds`/`groundOdds` of `web-shared/src/engine/odds.ts`. |
 | `ti4_host_start(len)` | **`WebAssembly.promising`.** Plays a game: `{"setup" \| "table" \| "local": ..., "resume": Save?, "modes"?, "stepping"?, "staged"?}` (with none of the three, the game of the save). Returns when the game ends or is left; the output is an `end` envelope. |
 | `ti4_host_command(len)` | A command while the game is parked (or after it ended). The output is a `command` envelope. |
 

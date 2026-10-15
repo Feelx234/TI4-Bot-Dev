@@ -9,6 +9,7 @@ import { loadCatalog } from "@ti4/shared/content/catalog.ts";
 import { type HostSave as EngineSave, Host, type StartConfig } from "@ti4/shared/engine/host.ts";
 import { sha256Hex } from "@ti4/shared/engine/identity.ts";
 import { hasJspi } from "@ti4/shared/engine/jspi.ts";
+import { spaceOdds } from "@ti4/shared/engine/odds.ts";
 import { inlinePort, workerPort } from "@ti4/shared/engine/port.ts";
 import type { HostPort } from "@ti4/shared/engine/protocol.ts";
 import { engineLink } from "@ti4/shared/link/engineLink.ts";
@@ -19,13 +20,11 @@ import type { LocalGame } from "./savedGame";
 import { SLOTS, type StagedSlot, sameStaged } from "./seatStore";
 import type { Capabilities, Transport } from "./transport";
 import type {
-  BattleResponse,
   Catalog,
   ClientMessage,
   ReactionModes,
   SeatStaged,
   SeatSwitch,
-  SpaceOddsRequest,
   TableDraw,
   TableOptions,
   TablePreview,
@@ -39,7 +38,6 @@ interface Exports {
   ti4_setup_preview(length: number): number;
   ti4_setup_draw(length: number): number;
   ti4_scenarios(): number;
-  ti4_space_odds(length: number): number;
   ti4_request_ptr(): number;
   ti4_response_ptr(): number;
 }
@@ -142,37 +140,6 @@ function askOn<T>(
     throw new Error(text);
   }
   return JSON.parse(text) as T;
-}
-
-/** The instance of a module that answers the questions that come often. It plays no game. */
-const kept = new WeakMap<WebAssembly.Module, Promise<Exports>>();
-
-function keptOf(module: WebAssembly.Module) {
-  let exports = kept.get(module);
-  if (!exports) {
-    exports = WebAssembly.instantiate(module, { host: { ask: () => LEAVE } }).then(
-      (instance) => instance.exports as unknown as Exports,
-    );
-    kept.set(module, exports);
-  }
-  return exports;
-}
-
-/**
- * The odds of a space combat (`ti4_space_odds`). It is asked for each change of a staged
- * movement, so one instance of the module answers all of them.
- */
-export async function spaceOddsOf(module: WebAssembly.Module, request: SpaceOddsRequest) {
-  const exports = await keptOf(module);
-  try {
-    return askOn<BattleResponse>(exports, (on, length) => on.ti4_space_odds(length), request);
-  } catch (error) {
-    // A trap may leave the instance broken: the next question makes a new one.
-    if (error instanceof WebAssembly.RuntimeError) {
-      kept.delete(module);
-    }
-    throw error;
-  }
 }
 
 /** Asks the engine for its scenarios. */
@@ -486,7 +453,8 @@ export function createWasmTransport(
   core = messageTransport(linked, {
     gameId: GAME_ID,
     catalog: engine.catalog,
-    odds: (request) => spaceOddsOf(engine.module, request),
+    // The odds are asked of the Worker: of the instance of the game, also while it waits.
+    odds: (request) => spaceOdds(link.query, request),
     capabilities,
     player: true,
     ready: () => parked || ended,

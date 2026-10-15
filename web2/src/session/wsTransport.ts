@@ -1,10 +1,10 @@
 // The game on the server: `crates/ti4-server`, behind a websocket at the address of the page.
+import { pageQuery, spaceOdds } from "@ti4/shared/engine/odds.ts";
 import { socketLink } from "@ti4/shared/link/socketLink.ts";
 import { type Socket, backoff, pageSocket } from "@ti4/shared/net/socket.ts";
 import { type MessageCore, messageTransport } from "./messageTransport";
 import type { LegacyStaged } from "./seatStore";
 import type { Transport } from "./transport";
-import { spaceOddsOf } from "./wasmTransport";
 import { type Catalog, PROTOCOL_VERSION, type SpaceOddsRequest } from "./wire";
 
 /** Which game of the server, and as whom. */
@@ -53,7 +53,7 @@ const pageKnows = (gameId: string): Promise<boolean> =>
  * the snapshot that the server sends after the subscription. `catalog` is the one of the engine
  * of this page (`Engine.catalog`): the server sends ids, and the game is played only when both
  * have the same corpus. The odds of a combat are computed by `module`, the engine of this page,
- * as in a local game.
+ * on the main thread (`pageQuery`): one instance of it answers every question.
  */
 export function createWsTransport(
   engine: { catalog: Catalog | null; module?: WebAssembly.Module },
@@ -103,7 +103,7 @@ export function createWsTransport(
     catalog: engine.catalog,
     odds: (request: SpaceOddsRequest) =>
       engine.module
-        ? spaceOddsOf(engine.module, request)
+        ? spaceOdds(pageQuery(engine.module), request)
         : Promise.reject(new Error("This page has no engine for the odds.")),
     // The tools of a local game are not on the server.
     capabilities: {},

@@ -51,6 +51,8 @@ src/engine/  host.ts      Host: one wasm instance plays one game (JSPI), Envelop
              port.ts      workerPort (a HostPort on a Worker that the app made), inlinePort (the engine in
                           this thread, for Node and the tests)
              identity.ts  sha256Hex/sha256 of the engine file, EngineIdentity {build, contentDigest, wasmSha256}
+             odds.ts      spaceOdds, groundOdds (queries of the engine of the page), pageQuery (an engine on the
+                          main thread)
 src/net/     socket.ts    Socket, openSocket, pageSocket, connect (reopens a lost socket), backoff, HEARTBEAT_MS
 src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEvent, HostCommand; a game at the level of
                            its messages: `ClientMessage` (or a command of the host) in, `ServerMessage` out
@@ -154,6 +156,26 @@ What is printed on the cards, from `ti4-content` through the engine: `Catalog`
     first), `BASE_FACTION_IDS`, `POK_FACTION_IDS`, `POK_FACTIONS`. A test checks them against
     the Rust source. web's `OFFLINE_FACTION_IDS` and `POK_FACTIONS` are these.
 
+## Odds
+
+The odds of a space combat and of a ground combat, from the engine of the page
+(`ti4_calc::odds`): the same numbers online and offline, with no server. Import from
+`@ti4/shared/engine/odds.ts`.
+
+- `spaceOdds(query, request)` asks `{"query":"space_odds", ...SpaceOddsRequest}` and gives a
+  `BattleResponse` (2000 rollouts from a fixed seed: the same sides give the same numbers).
+  `groundOdds(query, request)` asks `{"query":"ground_odds", ...GroundOddsRequest}` and gives a
+  `GroundOddsResponse`. Sides that the engine does not read reject with its error (`space odds:
+  …`, `ground odds: …`, `query: …`): the app shows its own text.
+- `query` is the engine of the page:
+  - while a game runs in a Worker, `EngineLink.query`: the Worker asks the instance of the
+    running game, also while it waits at a question (web2's `wasmTransport.ts`);
+  - else `pageQuery(module)`: one instance of the module on the main thread, kept for the page
+    and made again after a trap (web2's online game, `wsTransport.ts`). It needs JSPI, as every
+    engine of a page.
+- A query waits while the game in the Worker computes (a bot decides); it is answered when the
+  game waits for the page again.
+
 ## Protocol fixtures
 
 `fixtures/protocol/` of the repository holds messages for the tests of both apps, written by the
@@ -233,6 +255,8 @@ The single player games of both apps, in one IndexedDB database of the origin. I
   are current.
 - The storage tests (`src/storage/storage.test.ts`) run on `fake-indexeddb`, a fresh
   `IDBFactory` for each test.
+- The odds tests (`src/engine/odds.test.ts`) ask web2's engine file (`web2/src/session/ti4.wasm`)
+  when it is built, and skip that part otherwise.
 - web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`), without the
   `*.test.ts` files; its vitest does not run the tests here.
 - web's `npm run test:e2e:offline` and web2's `npm run e2e` play games through the Worker of

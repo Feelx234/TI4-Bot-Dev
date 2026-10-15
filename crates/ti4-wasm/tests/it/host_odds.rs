@@ -117,11 +117,6 @@ fn the_odds_queries_give_the_numbers_of_ti4_calc() {
     assert_eq!(answers, ask_all());
     assert_eq!(answers[0]["attacker_fielded"]["cruiser"], 1);
     assert_eq!(answers[5]["simulations"], 500);
-    // The space query gives what the export gives.
-    let sides = space_requests()[1].to_string();
-    let export: Value =
-        serde_json::from_str(&ti4_wasm::space_odds_native(&sides).unwrap()).unwrap();
-    assert_eq!(export, answers[1]);
 }
 
 #[test]
