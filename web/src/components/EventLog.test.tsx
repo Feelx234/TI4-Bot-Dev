@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GameLogEntry } from "../protocol/client.ts";
-import { EventLog, HISTORY_BUSY_REASON, buildEventTree } from "./EventLog.tsx";
+import { EventLog, HISTORY_BUSY_REASON, buildEventTree, newestFirstTree } from "./EventLog.tsx";
 import { PlayerIdentityProvider } from "../presentation/PlayerIdentity.tsx";
 import type { LobbyDto } from "../protocol/types.ts";
 
@@ -534,5 +534,80 @@ describe("event log scroll following (mocked layout)", () => {
     rerender(wrap(many(40), { currentPath: path, isOpen: false }));
     rerender(wrap(many(44), { currentPath: path }));
     expect(gap()).toBe(0);
+  });
+});
+
+describe("newest first (single player)", () => {
+  const events = [
+    decision(1, "movement"),
+    decision(2, "movement"),
+    { ...decision(3, "invasion"), action_id: "action_2" } as GameLogEntry,
+    { ...decision(4, "invasion"), action_id: "action_2" } as GameLogEntry,
+  ];
+
+  it("reverses rounds, phases, sections and events but keeps each heading above its events", () => {
+    const tree = newestFirstTree(buildEventTree(events));
+    const phase = tree[0].children[0];
+    const shape = phase.children.map((n) => (n.kind === "decision" ? `#${n.entry!.decision_count}` : n.label));
+    expect(shape).toEqual(["Tactical action", "Invasion", "#4", "#3", "Tactical action", "Movement", "#2", "#1"]);
+  });
+
+  it("puts the latest round first", () => {
+    const later: GameLogEntry = { ...decision(5), round: 2, phase: "strategy", action_id: undefined, action_type: undefined, stage: undefined };
+    const first = newestFirstTree(buildEventTree([...events, { ...later, event: { kind: "decision_resolved" } }]))[0];
+    expect(first.label).toBe("Round 2");
+  });
+
+  it("renders the newest entry on top and leaves the default order alone", () => {
+    const { unmount } = render(wrap(events, { newestFirst: true, currentPath: { round: 1, phase: "action" } }));
+    const numbers = (el: HTMLElement[]) => el.map((row) => row.querySelector(".event-log__index")!.textContent);
+    expect(numbers(screen.getAllByTestId("event-log-entry"))).toEqual(["#4", "#3", "#2", "#1"]);
+    unmount();
+    render(wrap(events, { currentPath: { round: 1, phase: "action" } }));
+    expect(numbers(screen.getAllByTestId("event-log-entry"))).toEqual(["#1", "#2", "#3", "#4"]);
+  });
+});
+
+describe("undo last decision (single player)", () => {
+  const events = [decision(1), decision(2)];
+
+  it("is absent without the control (games with other people)", () => {
+    render(wrap(events));
+    expect(screen.queryByTestId("event-log-undo-last")).toBeNull();
+  });
+
+  it("is disabled, with a reason, when nothing can be taken back", () => {
+    const onUndo = vi.fn();
+    render(wrap(events, { undoLast: { available: false, busy: false, onUndo } }));
+    const button = screen.getByTestId("event-log-undo-last");
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("title", expect.stringContaining("Nothing to undo"));
+    expect(screen.getByTestId("event-log-undo-status")).toHaveTextContent("Nothing to undo yet.");
+    fireEvent.click(button);
+    expect(onUndo).not.toHaveBeenCalled();
+  });
+
+  it("is disabled while a history change runs", () => {
+    render(wrap(events, { undoLast: { available: true, busy: true, onUndo: vi.fn() } }));
+    expect(screen.getByTestId("event-log-undo-last")).toBeDisabled();
+    expect(screen.getByTestId("event-log-undo-last")).toHaveAttribute("title", HISTORY_BUSY_REASON);
+  });
+
+  it("asks once, and says in a polite live region what happened", async () => {
+    const onUndo = vi.fn().mockResolvedValue(true);
+    render(wrap(events, { undoLast: { available: true, busy: false, onUndo } }));
+    const status = screen.getByTestId("event-log-undo-status");
+    expect(status).toHaveAttribute("role", "status");
+    expect(status).toHaveAttribute("aria-live", "polite");
+    fireEvent.click(screen.getByTestId("event-log-undo-last"));
+    expect(onUndo).toHaveBeenCalledTimes(1);
+    expect(status).toHaveTextContent("Undoing your last decision");
+    expect(await screen.findByText(/Undid your last decision/)).toBeInTheDocument();
+  });
+
+  it("reports a failed undo", async () => {
+    render(wrap(events, { undoLast: { available: true, busy: false, onUndo: vi.fn().mockResolvedValue(false) } }));
+    fireEvent.click(screen.getByTestId("event-log-undo-last"));
+    expect(await screen.findByText("Could not undo your last decision.")).toBeInTheDocument();
   });
 });

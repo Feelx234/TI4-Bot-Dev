@@ -391,6 +391,8 @@ export function reduceServerMessage(
                   message.entry.decision_count,
                 ),
                 redo_count: 0,
+                // The game moved on: the next question's update says again whether it can be taken back.
+                ...(state.history.can_undo ? { can_undo: false } : {}),
               },
       };
     case "pending_choice":

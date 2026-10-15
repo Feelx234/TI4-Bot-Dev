@@ -1,6 +1,7 @@
-import React, { useLayoutEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useState } from "react";
 import { AutoResolveToastContainer } from "./AutoResolveToast.tsx";
 import { ToastHistory } from "./ToastHistory.tsx";
+import { useNotificationLog } from "./NotificationLog.tsx";
 import { CornerToastsInput, useCornerToasts } from "../hooks/useCornerToasts.ts";
 
 // Fixed bars at the bottom edge the toasts must clear: the turn action bar, the event log toggle
@@ -28,6 +29,13 @@ export function measureBottomOffset(): number {
 export const CornerToastLayer: React.FC<CornerToastsInput> = (props) => {
   const { notifications, dismiss, history } = useCornerToasts(props);
   const [offset, setOffset] = useState(GAP);
+  // A single-player game keeps its notification log behind an icon beside the Objectives button;
+  // the pill under the toasts is only for games that have no such button row to share.
+  const log = useNotificationLog();
+  const { inline, setEntries } = log;
+  useEffect(() => {
+    if (inline) setEntries(history);
+  }, [inline, history, setEntries]);
   const count = notifications.length;
 
   useLayoutEffect(() => {
@@ -36,9 +44,24 @@ export const CornerToastLayer: React.FC<CornerToastsInput> = (props) => {
     window.addEventListener("resize", update);
     // Bars appear and disappear with decisions; keep tracking while something is on screen.
     const timer = count > 0 ? window.setInterval(update, 500) : undefined;
+    // ... and react in the next frame when the page changes (a bar growing is not a 500 ms matter).
+    let frame = 0;
+    const observer =
+      count > 0 && typeof MutationObserver !== "undefined"
+        ? new MutationObserver(() => {
+            if (frame) return;
+            frame = window.requestAnimationFrame(() => {
+              frame = 0;
+              update();
+            });
+          })
+        : undefined;
+    observer?.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style", "hidden"] });
     return () => {
       window.removeEventListener("resize", update);
       if (timer !== undefined) window.clearInterval(timer);
+      observer?.disconnect();
+      if (frame) window.cancelAnimationFrame(frame);
     };
   }, [count]);
 
@@ -47,7 +70,8 @@ export const CornerToastLayer: React.FC<CornerToastsInput> = (props) => {
       notifications={notifications}
       onDismiss={dismiss}
       bottomOffset={offset}
-      footer={<ToastHistory history={history} />}
+      underControls={inline}
+      footer={inline ? undefined : <ToastHistory history={history} />}
     />
   );
 };

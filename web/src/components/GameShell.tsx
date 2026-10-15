@@ -11,6 +11,7 @@ import {
   ObjectiveProgressView,
 } from "../protocol/types.ts";
 import { EventLog } from "./EventLog.tsx";
+import { NotificationLogButton } from "./NotificationLog.tsx";
 import { TurnRedoBar } from "./TurnRedoBar.tsx";
 import type { TurnRedoRequestControls } from "./EventLog.tsx";
 import type { TurnRedoBusy } from "../hooks/useTurnRedo.ts";
@@ -89,6 +90,10 @@ export interface GameShellProps {
     steps?: number,
   ) => void;
   historyBusy?: boolean;
+  /** Single-player undo: takes back the viewer's last answer; resolves true when it worked. Absent: no button. */
+  onUndoLast?: () => Promise<boolean>;
+  /** Single-player games list the event log newest first. */
+  newestFirst?: boolean;
   /** Told when the client answered a lone strategic action / activation, for the corner toast. */
   onAutoSubmitNotice?: (note: { id: string; text: string; prompt?: string }) => void;
   /** Loads the replay JSON for the event log's "Copy replay" button (seated players). */
@@ -1012,6 +1017,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   logHistoryKey,
   onChangeHistory,
   historyBusy,
+  onUndoLast,
+  newestFirst,
   onAutoSubmitNotice,
   onFetchReplay,
   turnRedo,
@@ -1427,6 +1434,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             Objectives
           </button>
         )}
+        <NotificationLogButton testId="toast-history-mobile-toggle" />
         <button
           type="button"
           data-testid="event-log-mobile-toggle"
@@ -1463,6 +1471,12 @@ export const GameShell: React.FC<GameShellProps> = ({
             onChangeHistory ? (action) => onChangeHistory(action) : undefined
           }
           onFetchReplay={onFetchReplay}
+          newestFirst={newestFirst}
+          undoLast={
+            onUndoLast
+              ? { available: history?.can_undo === true, busy: historyBusy ?? false, onUndo: onUndoLast }
+              : undefined
+          }
           turnRedo={
             turnRedo
               ? {

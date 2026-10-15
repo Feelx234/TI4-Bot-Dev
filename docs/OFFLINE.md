@@ -105,6 +105,27 @@ format. The UI hides these through the transport capabilities rather than showin
 Known engine gaps apply (7 and 8 players are not offered; Creuss and Antimass limits as in the
 engine).
 
+## Notifications, event log and undo (single player)
+
+* The notification log is an icon-only button (`toast-history-toggle`, bell, small unread count) in
+  the row of the Technologies / Objectives buttons (phone: the Players / Objectives / Events
+  buttons, `toast-history-mobile-toggle`). Its list is newest first. Games with other people keep
+  the "Recent notifications" pill under the corner toasts.
+* Corner toasts can be swiped away (touch or mouse drag, sideways), or dismissed with a click or
+  Escape/Delete; a dismissed toast stays in the log. In a single-player game the toast column sits
+  below the turn bar, its menus and dialogs, so it never covers a control.
+* The event log lists the newest entry first (new entries appear at the top) and has an
+  **Undo last decision** button: the engine's live undo (`history` action `undo`), i.e. exactly the
+  human's last answer; the bots' decisions after it are replayed from the seed. It is enabled while
+  `history.can_undo` is set (the last 32 checkpoints), announced through a polite live region, and
+  the autosave follows (the save holds seed + the remaining human answers).
+* The browser/system **Back** button does the same thing (`hooks/useBackUndo.ts`): one sentinel
+  history entry sits on top of the game's entry; Back with something to undo undoes one decision
+  and re-pushes the sentinel (the player stays on the game screen, a short note says so). Back
+  with nothing to undo goes back once more, i.e. leaves the game for the previous page (no trap;
+  the game is autosaved). A reload keeps the sentinel of its entry, so none is pushed twice.
+  Forward onto a sentinel is ignored; nothing is redone.
+
 ## Size and performance
 
 * wasm: 6.5 MB raw, 1.6 MB gzip, 1.1 MB brotli (`--profile wasm-release`, `opt-level = "z"`, no
