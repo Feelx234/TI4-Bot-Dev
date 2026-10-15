@@ -5,7 +5,7 @@
  * Values are plain JSON-able objects (structured-cloneable). Nothing here validates content;
  * `saveStore.ts` does that on every read.
  */
-import type { StoredFeedbackItem } from "./types.ts";
+import type { FeedbackRow } from "./types.ts";
 
 export interface Backend {
   readonly kind: "indexeddb" | "memory";
@@ -13,7 +13,7 @@ export interface Backend {
   putGame(record: { id: string }): Promise<void>;
   deleteGame(id: string): Promise<void>;
   getAllFeedback(): Promise<unknown[]>;
-  putFeedback(item: StoredFeedbackItem): Promise<void>;
+  putFeedback(item: FeedbackRow): Promise<void>;
   deleteFeedback(localId: string): Promise<void>;
   getMeta(key: string): Promise<unknown>;
   setMeta(key: string, value: unknown): Promise<void>;
@@ -22,7 +22,7 @@ export interface Backend {
 
 export const DB_NAME = "ti4-offline";
 /** Bump together with a new entry in MIGRATIONS. */
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 /**
  * `MIGRATIONS[n]` upgrades a database from version n to n + 1. Run in order inside the
@@ -35,6 +35,10 @@ export const MIGRATIONS: Array<(db: IDBDatabase, tx: IDBTransaction) => void> = 
     games.createIndex("updatedAt", "updatedAt");
     db.createObjectStore("feedback", { keyPath: "localId" });
     db.createObjectStore("meta");
+  },
+  // 1 -> 2: a game's fixed address in an app (`SavedGameRecord.slot`).
+  (_db, tx) => {
+    tx.objectStore("games").createIndex("slot", "slot");
   },
 ];
 
@@ -70,21 +74,31 @@ export class IdbBackend implements Backend {
   }
 
   static async open(factory: IDBFactory | undefined, name = DB_NAME): Promise<IdbBackend> {
-    if (!factory) throw new BackendOpenError("unavailable", "IndexedDB is not available in this browser.");
+    if (!factory) {
+      throw new BackendOpenError("unavailable", "IndexedDB is not available in this browser.");
+    }
     try {
       const open = factory.open(name, DB_VERSION);
       open.onupgradeneeded = (ev) => {
         const tx = open.transaction!;
-        for (let v = ev.oldVersion; v < DB_VERSION; v++) MIGRATIONS[v]!(open.result, tx);
+        for (let v = ev.oldVersion; v < DB_VERSION; v++) {
+          MIGRATIONS[v]!(open.result, tx);
+        }
       };
       open.onblocked = () => undefined; // waits for the other tab to close; the open then continues
       return new IdbBackend(await req(open));
     } catch (e) {
       const err = e as { name?: string };
       if (err?.name === "VersionError") {
-        throw new BackendOpenError("newer-version", "These saved games were written by a newer version of the app.");
+        throw new BackendOpenError(
+          "newer-version",
+          "These saved games were written by a newer version of the app.",
+        );
       }
-      throw new BackendOpenError("unavailable", `Browser storage is not available (${err?.name ?? "error"}).`);
+      throw new BackendOpenError(
+        "unavailable",
+        `Browser storage is not available (${err?.name ?? "error"}).`,
+      );
     }
   }
 
@@ -107,7 +121,7 @@ export class IdbBackend implements Backend {
   getAllFeedback() {
     return req(this.db.transaction("feedback").objectStore("feedback").getAll());
   }
-  putFeedback(item: StoredFeedbackItem) {
+  putFeedback(item: FeedbackRow) {
     return this.write("feedback", (s) => void s.put(item));
   }
   deleteFeedback(localId: string) {
@@ -141,7 +155,7 @@ export class MemoryBackend implements Backend {
   async getAllFeedback() {
     return [...this.feedback.values()].map((v) => structuredClone(v));
   }
-  async putFeedback(i: StoredFeedbackItem) {
+  async putFeedback(i: FeedbackRow) {
     this.feedback.set(i.localId, structuredClone(i));
   }
   async deleteFeedback(id: string) {

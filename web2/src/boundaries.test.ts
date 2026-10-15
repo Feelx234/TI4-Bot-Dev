@@ -46,16 +46,19 @@ it.each(Object.keys(ALLOWED))("%s imports @ti4/shared only if it is session", (l
   expect(bad.map((file) => relative(root, file))).toEqual([]);
 });
 
-// `web-shared` imports no app, and no package but `node:` and vitest (a new dependency needs
-// both maintainers).
+// `web-shared` imports no app, and no package but `node:` and vitest, and `fake-indexeddb` in
+// its tests (a new dependency needs both maintainers).
 it("web-shared imports no app", () => {
   const shared = resolve(root, "../../web-shared");
   const bad: string[] = [];
   for (const file of files(shared)) {
-    for (const [, target] of readFileSync(file, "utf8").matchAll(/(?:from|import\() ?"([^"]+)"/g)) {
+    const test = file.endsWith(".test.ts");
+    for (const [, target] of readFileSync(file, "utf8").matchAll(
+      /(?:from|import\(|^import) ?"([^"]+)"/gm,
+    )) {
       const outside = target.startsWith(".")
         ? relative(shared, resolve(dirname(file), target)).startsWith("..")
-        : !/^(node:|vitest$)/.test(target);
+        : !/^(node:|vitest$)/.test(target) && !(test && /^fake-indexeddb(\/|$)/.test(target));
       if (outside) {
         bad.push(`${relative(shared, file)} -> ${target}`);
       }

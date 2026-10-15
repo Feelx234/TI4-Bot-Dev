@@ -8,7 +8,9 @@ export interface AutosaveOptions {
   onError?: (id: string, error: unknown) => void;
   /** Where `pagehide` / `visibilitychange` are listened for; default window/document when present. */
   windowTarget?: Pick<EventTarget, "addEventListener" | "removeEventListener"> | null;
-  documentTarget?: (Pick<EventTarget, "addEventListener" | "removeEventListener"> & { visibilityState?: string }) | null;
+  documentTarget?:
+    | (Pick<EventTarget, "addEventListener" | "removeEventListener"> & { visibilityState?: string })
+    | null;
 }
 
 export interface Autosave {
@@ -26,12 +28,17 @@ export interface Autosave {
 export function createAutosave(store: OfflineSaveStore, opts: AutosaveOptions = {}): Autosave {
   const debounceMs = opts.debounceMs ?? 300;
   const maxWaitMs = opts.maxWaitMs ?? 2000;
-  const pending = new Map<string, { save: HostSave; meta: GameMeta; firstAt: number; timer: ReturnType<typeof setTimeout> }>();
+  const pending = new Map<
+    string,
+    { save: HostSave; meta: GameMeta; firstAt: number; timer: ReturnType<typeof setTimeout> }
+  >();
   const inflight = new Set<Promise<void>>();
 
   const writeNow = (id: string) => {
     const p = pending.get(id);
-    if (!p) return;
+    if (!p) {
+      return;
+    }
     clearTimeout(p.timer);
     pending.delete(id);
     const job: Promise<void> = store
@@ -42,23 +49,39 @@ export function createAutosave(store: OfflineSaveStore, opts: AutosaveOptions = 
   };
 
   const flush = async () => {
-    for (const id of [...pending.keys()]) writeNow(id);
+    for (const id of [...pending.keys()]) {
+      writeNow(id);
+    }
     await Promise.all([...inflight]);
   };
 
   const onHide = () => void flush();
   const onVisibility = () => {
-    if (doc?.visibilityState === "hidden") void flush();
+    if (doc?.visibilityState === "hidden") {
+      void flush();
+    }
   };
-  const win = opts.windowTarget === undefined ? (typeof window !== "undefined" ? window : null) : opts.windowTarget;
-  const doc = opts.documentTarget === undefined ? (typeof document !== "undefined" ? document : null) : opts.documentTarget;
+  const win =
+    opts.windowTarget === undefined
+      ? typeof window !== "undefined"
+        ? window
+        : null
+      : opts.windowTarget;
+  const doc =
+    opts.documentTarget === undefined
+      ? typeof document !== "undefined"
+        ? document
+        : null
+      : opts.documentTarget;
   win?.addEventListener("pagehide", onHide);
   doc?.addEventListener("visibilitychange", onVisibility);
 
   return {
     schedule(id, save, meta) {
       const old = pending.get(id);
-      if (old) clearTimeout(old.timer);
+      if (old) {
+        clearTimeout(old.timer);
+      }
       const firstAt = old?.firstAt ?? Date.now();
       const wait = Math.max(0, Math.min(debounceMs, firstAt + maxWaitMs - Date.now()));
       pending.set(id, { save, meta, firstAt, timer: setTimeout(() => writeNow(id), wait) });

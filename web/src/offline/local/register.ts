@@ -4,7 +4,9 @@ import { registerOfflineLauncher } from "../registry.ts";
 import {
   createDurableFeedbackQueue,
   httpFeedbackSender,
+  listSummaries,
   openOfflineSaveStore,
+  shellStatus,
   type OfflineSaveStore,
 } from "../storage/index.ts";
 import type { OfflineFeedbackQueue, OfflineLauncher } from "../types.ts";
@@ -25,7 +27,7 @@ export function createLazyLauncher(store: OfflineSaveStore, feedback: OfflineFee
     capabilities: OFFLINE_CAPABILITIES,
     factions: OFFLINE_FACTION_IDS,
     supported: () => (hasJspi() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
-    list: () => store.listSummaries(),
+    list: () => listSummaries(store),
     create: async (setup, onProgress, signal) => (await launcher()).create(setup, onProgress, signal),
     resume: async (gameId, onProgress, signal, options) =>
       (await launcher()).resume(gameId, onProgress, signal, options),
@@ -33,7 +35,7 @@ export function createLazyLauncher(store: OfflineSaveStore, feedback: OfflineFee
     exportGame: (gameId) => store.exportGame(gameId),
     feedback,
     storage: {
-      status: () => store.status(),
+      status: () => shellStatus(store),
       subscribe: (listener) => store.subscribe(listener),
       importGame: async (file) => {
         const outcome = await store.importGame(file);

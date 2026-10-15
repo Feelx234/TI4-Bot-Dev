@@ -3,7 +3,11 @@ import { setLoadedEngine } from "../engineInfo.ts";
 import { OFFLINE_FACTION_IDS } from "../factions.ts";
 import {
   engineMismatchPrompt,
+  firstHumanSeat,
+  listSummaries,
+  offlineSummary,
   replayDivergedPrompt,
+  shellStatus,
   type EngineIdentity,
   type OfflineSaveStore,
   type SavedGameRecord,
@@ -87,9 +91,13 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
   const persist = (entry: Entry, save: HostSave): Promise<void> => {
     if (entry.viewOnly) return Promise.resolve();
     const run = async () => {
+      // web knows the faction of the person's seat only.
+      const factions: Array<string | null> = Array.from({ length: save.players }, () => null);
+      factions[firstHumanSeat(save.humans) - 1] =
+        (save.game.setup?.human_faction as string | undefined) ?? entry.humanFaction;
       await store.put(entry.id, save as never, {
         nickname: entry.nickname,
-        humanFaction: (save.game.setup?.human_faction as string | undefined) ?? entry.humanFaction,
+        factions,
         engine: {
           build: save.engine?.build ?? "unknown",
           contentDigest: save.engine?.content_digest ?? "unknown",
@@ -195,7 +203,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
     capabilities: OFFLINE_CAPABILITIES,
     factions: OFFLINE_FACTIONS,
     supported: () => (hasJspi() ? { ok: true } : { ok: false, reason: JSPI_MISSING }),
-    list: () => store.listSummaries(),
+    list: () => listSummaries(store),
     async create(setup, onProgress, signal) {
       if (!hasJspi()) throw new Error(JSPI_MISSING);
       const gameId = newGameId();
@@ -229,7 +237,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
       const entry: Entry = {
         id: gameId,
         nickname: record.nickname,
-        humanFaction: record.summary.humanFaction,
+        humanFaction: offlineSummary(record).humanFaction,
         createdAt: record.createdAt,
         resumeMs: record.resumeEstimateMs,
         wasmSha256: engine.wasmSha256,
@@ -264,7 +272,7 @@ export function createLocalLauncher(options: LocalLauncherOptions): OfflineLaunc
     },
     feedback,
     storage: {
-      status: () => store.status(),
+      status: () => shellStatus(store),
       subscribe: (listener) => store.subscribe(listener),
       importGame: async (file) => {
         const outcome = await store.importGame(file, currentEngine);

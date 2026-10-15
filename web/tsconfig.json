@@ -21,5 +21,6 @@
     },
     "types": ["node"]
   },
-  "include": ["src", "../web-shared/src"]
+  "include": ["src", "../web-shared/src"],
+  "exclude": ["../web-shared/src/**/*.test.ts"]
 }

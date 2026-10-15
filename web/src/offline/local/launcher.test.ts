@@ -105,7 +105,7 @@ describe("the local launcher", () => {
 
     const file = await launcher.exportGame(handle.gameId);
     const body = JSON.parse(await file.blob.text());
-    expect(body).toMatchObject({ kind: "ti4-offline-game", version: 1 });
+    expect(body).toMatchObject({ kind: "ti4-offline-game", version: 2 });
     expect(JSON.stringify(body)).toContain(ENGINE.wasmSha256);
 
     await launcher.remove(handle.gameId);
@@ -129,7 +129,7 @@ describe("the local launcher", () => {
     const launcher = createLocalLauncher({ store: slow, feedback, session: fakeSession(ports, [stored([])]) });
     await store.put(GAME, stored([]) as never, {
       nickname: "Ada",
-      humanFaction: "hacan",
+      factions: [null, "hacan", null],
       engine: { build: "b", contentDigest: "d", wasmSha256: ENGINE.wasmSha256 },
     });
     const handle = await launcher.resume(GAME, () => undefined, new AbortController().signal);
@@ -208,7 +208,7 @@ describe("a saved game of another engine", () => {
     const store = await openStore(factory);
     await store.put(GAME, stored(["a", "b"]) as never, {
       nickname: "Ada",
-      humanFaction: "hacan",
+      factions: [null, "hacan", null],
       engine: { build: "b", contentDigest: "d", wasmSha256: "old".repeat(20) },
     });
     return store;
@@ -269,7 +269,7 @@ describe("a saved game of another engine", () => {
     const store = await openStore();
     await store.put(GAME, stored(["a", "b"]) as never, {
       nickname: "Ada",
-      humanFaction: "hacan",
+      factions: [null, "hacan", null],
       engine: { build: "b", contentDigest: "d", wasmSha256: ENGINE.wasmSha256 },
     });
     const launcher = createLocalLauncher({

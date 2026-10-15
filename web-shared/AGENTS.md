@@ -30,9 +30,11 @@ is `web2/plans/2026-10-14-SHARED_TRANSPORT_PLAN.md`.
   (`resolve.alias`, and `..` in `server.fs.allow`) and `tsconfig.json` (`paths`, and
   `../web-shared/src` in `include`).
 - `web-shared/` has no `package.json` and no `node_modules`. `vitest` resolves through the
-  `paths` of each app's `tsconfig.json`.
+  `paths` of each app's `tsconfig.json`, and `fake-indexeddb` (a dev dependency of web2 only)
+  through web2's.
 - In web2 only `src/session/` imports it. `web2/src/boundaries.test.ts` checks that, and that
-  nothing here imports an app or a package other than `node:` and `vitest`.
+  nothing here imports an app or a package other than `node:` and `vitest` (and
+  `fake-indexeddb` in a `*.test.ts`).
 - A Worker is started with a relative `new URL(".../web-shared/src/engine/worker.ts",
   import.meta.url)`: vite bundles a Worker only from a literal path, not from the alias.
 
@@ -54,10 +56,60 @@ src/link/    link.ts       GameLink (send, request?, subscribe, close), LinkEven
                            `again`); web2's `wsTransport` runs on it
              engineLink.ts engineLink: the engine over a HostPort (start, replies, the next question, a gate, saves);
                            web's `LocalTransport` and web2's local game (`wasmTransport`) run on it
+src/storage/ types.ts     HostSave (format 2), SavedGameRecord, GameMeta, StoreStatus, StoreError, LIMITS,
+                          OfflineSaveStore, FeedbackBackend
+             backend.ts   Backend: IdbBackend (DB `ti4-offline`, DB_VERSION, MIGRATIONS), MemoryBackend
+             saveStore.ts openOfflineSaveStore: the games, a memory fallback, import and export
+             autosave.ts  createAutosave: debounced writes, flushed on pagehide and a hidden tab
+             validate.ts  validateSave, the record and the export file (EXPORT_KIND, EXPORT_VERSION),
+                          engineDifferences
+             index.ts     the public exports
 ```
 
 The engine file stays where each app keeps it (`web/src/offline/local/engineAsset.ts`,
 `web2/src/session/ti4.wasm`).
+
+## Save store
+
+The single player games of both apps, in one IndexedDB database of the origin. Import from
+`@ti4/shared/storage/index.ts`.
+
+- `await openOfflineSaveStore()` never throws for a storage problem. Without IndexedDB (a
+  private window), with a database newer than the build, or when a write fails, it keeps the
+  games in memory and says why in `status().warningKind` (`unavailable`, `newer-version`,
+  `quota`, `write-failed`). The app shows a visible notice with its own text.
+- `put(id, save, meta)` resolves when the write committed; call it before the game goes on
+  (write-ahead). `createAutosave(store).schedule(...)` is the debounced path (300 ms, at most
+  2 s, the newest save wins).
+- `meta = {nickname, factions, engine, slot?, createdAt?, resumeEstimateMs?}`. `factions` has one
+  entry per seat, null where the app does not know it. `engine` is `{build, contentDigest,
+  wasmSha256}`: the first two from `save.engine`, the hash of the wasm file that the page loaded.
+  A later write keeps `createdAt`, `resumeEstimateMs` and `slot` when it does not give them.
+- `list()` (newest first, no save), `load(id)`, `findSlot(slot)` (the newest game with the slot),
+  `remove(id)`, `exportGame(id)`, `importGame(file, currentEngine?)` (always a fresh id, and no
+  slot; `engineDiffers` says whether the file's engine is another one).
+- **The record** (`SavedGameRecord`, schema 2): `id`, `slot?`, `nickname`, `createdAt`,
+  `updatedAt`, `status`, `summary {playerCount, humans, factions, seed, round, phase, answers}`,
+  `engine`, `resumeEstimateMs`, `imported`, `sizeBytes`, `save`.
+- **The slot** is the fixed address of a game in an app: `"single"`,
+  `"local.<seed>.<players>.<mask>"`, `"scenario.<id>.<mask>"`. A game found by its id only has
+  none.
+- **The save** is the engine's `HostSave`, format 2 (`crates/ti4-wasm/README.md`). `validateSave`
+  checks what the store and the lists rely on (2 to 8 players, the humans mask, every seat's
+  decisions, the limits); the engine checks the rest when it resumes. A record that fails
+  (an older save format or record schema, a broken row) is not shown and is counted in
+  `status().unreadable`.
+- **The export file** is the one export format of both apps: `{kind: "ti4-offline-game",
+  version: 2, exportedAt, game: {nickname, factions, createdAt, engine, save}}`.
+- **The schema.** Database `ti4-offline`, version 2: `games` (key `id`, indexes `updatedAt` and
+  `slot`), `feedback` (key `localId`), `meta`. A change adds a step to `MIGRATIONS` and bumps
+  `DB_VERSION`; an old step is never edited. A database newer than the build is not touched (the
+  memory fallback).
+- **The limits** (`LIMITS`): 8 MiB a save, 100 games, 128 MiB in all, 20000 answers, 200000
+  decisions, a nickname of 40 characters.
+- **Feedback.** The object store `feedback` belongs to web's feedback queue
+  (`web/src/offline/storage/feedbackQueue.ts`), through `store.feedbackBackend`. It is part of
+  this schema because it is one database; the queue's code and its rows are web's.
 
 ## Tests
 
@@ -65,8 +117,10 @@ The engine file stays where each app keeps it (`web/src/offline/local/engineAsse
   `cd web2 && npm test`.
 - web2's biome lints this dir: `web-shared/biome.json` extends `web2/biome.json`, and web2's
   `npm run lint` runs it here too.
-- web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`); its vitest does not
-  run the tests here.
+- The storage tests (`src/storage/storage.test.ts`) run on `fake-indexeddb`, a fresh
+  `IDBFactory` for each test.
+- web type-checks this dir with its own `tsconfig.json` (`npx tsc --noEmit`), without the
+  `*.test.ts` files; its vitest does not run the tests here.
 - web's `npm run test:e2e:offline` and web2's `npm run e2e` play games through the Worker of
   `src/engine/`. web2's `transportContract.test.ts` checks its transport over both links (the
   engine on `inlinePort`, and a real server).

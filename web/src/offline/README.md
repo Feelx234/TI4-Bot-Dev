@@ -51,9 +51,33 @@ runs it as `prebuild`, and a build without cargo or the wasm target just has no 
 | `LocalTransport.ts` | `GameTransport` on an `engineLink` (`web-shared/src/link/`) over a `HostPort` (the Worker, or a fake in tests); decodes and reduces like `GameSessionClient`; keeps the batch, history, write-ahead of saves, view-only and divergence handling (the link's `gate`) |
 | `session.ts` | lazy chunk: fetch and compile the wasm once, spawn the Worker |
 | `launcher.ts`, `register.ts` | `OfflineLauncher`; `register.ts` is the only part in the main bundle (flags, JSPI check, feedback queue, a lazy proxy) |
-| `store.ts` | `OfflineGameStore` interface, `MemoryGameStore`, `SessionGameStore` (placeholder, `sessionStorage`; T6 brings IndexedDB) |
-| `localFeedbackQueue.ts` | placeholder queue (in memory, sends in the background); T10 replaces it |
 | `OfflineGameScreen.tsx` | synthesises the roster (the human is the host of a table of bots), marks the game active for feedback, renders the app's game view |
+
+## Saves and the feedback queue (`storage/`)
+
+The save store lives in `web-shared/src/storage/` and is shared with web2: the IndexedDB database
+`ti4-offline`, the records, autosave, the limits, import and export. Its rules are in
+`web-shared/AGENTS.md` ("Save store"). `storage/index.ts` re-exports it together with web's own
+parts:
+
+| File | What |
+|---|---|
+| `shell.ts` | the store's records as `OfflineGameSummary` (the person's seat is the first of the humans mask), and the text of the storage warning (`StorageNotice`) |
+| `engineCheck.ts` | the data of the "saved with another engine" dialog (`engineMismatchPrompt`, `replayDivergedPrompt`) |
+| `feedbackQueue.ts` | the durable feedback queue (`createDurableFeedbackQueue`, `httpFeedbackSender`) on the store's `feedbackBackend` |
+| `ImportGameButton.tsx` | the "Import a game" button |
+
+The launcher writes the faction of the person's seat only; the other seats are null in
+`summary.factions`.
+
+Feedback queue: every report gets a `reportId` at enqueue, sent as `report_id` with every attempt,
+so the server stores a re-sent report once (`duplicate: true` counts as sent). Backoff from 30 s,
+doubling to 1 h with jitter; 12 attempts, then `failed` until `retry()`; an `online` event makes
+everything due. A crash while "sending" reverts to "queued". Caps mirror the server (4000
+characters, 200 KiB), 50 waiting reports.
+
+Tests: `storage/feedbackQueue.test.ts` (the queue, the sender, the engine check); the store's own
+tests run in web2 (`web-shared/AGENTS.md`, "Tests").
 
 Capabilities: `LocalTransport.capabilities` (`splicePreview`, `turnRedo`, `advisor`, `multiplayer` off,
 `feedback` on) and the shell's `useCapability` both gate the UI: turn redo (GameShell prop and hook), the

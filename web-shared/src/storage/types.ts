@@ -1,8 +1,4 @@
-/**
- * Types of the offline save store. Self-contained: nothing here imports another offline file
- * except the two shapes of ../types.ts that the store has to agree with.
- */
-import type { OfflineGameSummary, OfflineFeedbackQueue, QueuedFeedbackItem } from "../types.ts";
+/** Types of the save store of single player games. Self-contained: nothing here imports another file. */
 
 /** Hard limits. Everything that comes from outside (a file, a stored record) is checked against them. */
 export const LIMITS = {
@@ -19,10 +15,8 @@ export const LIMITS = {
   maxAnswerChars: 200,
   maxNicknameChars: 40,
   maxIdChars: 80,
-  /** Feedback: mirrors the server (`MAX_TEXT_CHARS`, `MAX_CONTEXT_BYTES`). */
-  maxFeedbackTextChars: 4000,
-  maxFeedbackPayloadBytes: 200 * 1024,
-  maxFeedbackItems: 50,
+  maxSlotChars: 120,
+  maxFactionChars: 80,
 } as const;
 
 /** Which engine produced a save. `wasmSha256` is what the page hashed; the other two come from the save. */
@@ -53,12 +47,17 @@ export interface HostSave {
   [extra: string]: unknown;
 }
 
-export const RECORD_SCHEMA = 1;
+export const RECORD_SCHEMA = 2;
 
 /** One stored game (object store `games`). */
 export interface SavedGameRecord {
   schema: typeof RECORD_SCHEMA;
   id: string;
+  /**
+   * The fixed address of the game in an app: `"single"`, `"local.<seed>.<players>.<mask>"`,
+   * `"scenario.<id>.<mask>"`. Absent for a game that the app finds by its id only.
+   */
+  slot?: string;
   nickname: string;
   createdAt: number;
   updatedAt: number;
@@ -66,9 +65,10 @@ export interface SavedGameRecord {
   /** Setup summary, for the list without opening the save. */
   summary: {
     playerCount: number;
-    /** 1-based, like `OfflineGameSummary`. */
-    humanSeat: number;
-    humanFaction: string | null;
+    /** The seats that the person plays at the start, as a mask (bit 0 is seat `a`). */
+    humans: number;
+    /** The faction of each seat, null while it is not known; `playerCount` entries. */
+    factions: Array<string | null>;
     seed: number;
     round: number | null;
     phase: string | null;
@@ -85,11 +85,10 @@ export interface SavedGameRecord {
 
 export type SavedGameSummary = Omit<SavedGameRecord, "save">;
 
-/** Why the store is not (fully) persistent. `null` warning = all is well. */
+/** Why the store is not (fully) persistent. A null `warningKind` means all is well. */
 export interface StoreStatus {
   persistence: "indexeddb" | "memory";
-  /** Text for a visible notice; null when nothing is wrong. */
-  warning: string | null;
+  /** Why a visible notice is due (the app has the text); null when nothing is wrong. */
   warningKind: null | "unavailable" | "quota" | "write-failed" | "newer-version";
   /** Result of navigator.storage.persist(); null = not asked yet or not supported. */
   persisted: boolean | null;
@@ -101,7 +100,14 @@ export interface StoreStatus {
 
 export class StoreError extends Error {
   constructor(
-    readonly code: "quota" | "too-many-games" | "too-large" | "invalid" | "not-found" | "write-failed" | "closed",
+    readonly code:
+      | "quota"
+      | "too-many-games"
+      | "too-large"
+      | "invalid"
+      | "not-found"
+      | "write-failed"
+      | "closed",
     message: string,
   ) {
     super(message);
@@ -112,8 +118,11 @@ export class StoreError extends Error {
 /** What the creator of a game tells the store besides the save. */
 export interface GameMeta {
   nickname: string;
-  humanFaction: string | null;
+  /** The faction of each seat, null while it is not known. */
+  factions: Array<string | null>;
   engine: EngineIdentity;
+  /** The game's slot (`SavedGameRecord.slot`); a later write without it keeps the old one. */
+  slot?: string;
   /** Only the first write of a game needs it; later writes keep the old value. */
   createdAt?: number;
   resumeEstimateMs?: number | null;
@@ -126,20 +135,6 @@ export interface ImportOutcome {
   engineDiffers: boolean;
 }
 
-export type EngineMismatchChoice = "view-only" | "try-anyway" | "delete";
-
-/** Data for the dialog "this game was saved with another version of the engine". */
-export interface EngineMismatchPrompt {
-  /** `engine-changed`: known before replaying; `replay-diverged`: the replay gave other decisions (resume_check.ok false). */
-  reason: "engine-changed" | "replay-diverged";
-  differs: Array<"build" | "contentDigest" | "wasmSha256">;
-  saved: EngineIdentity;
-  current: EngineIdentity;
-  title: string;
-  message: string;
-  choices: ReadonlyArray<{ id: EngineMismatchChoice; label: string; destructive: boolean }>;
-}
-
 /** The persistent part: games, status, import/export. */
 export interface OfflineSaveStore {
   status(): StoreStatus;
@@ -147,9 +142,9 @@ export interface OfflineSaveStore {
 
   /** Newest first. Records that fail validation are left out (counted in `status().unreadable`). */
   list(): Promise<SavedGameSummary[]>;
-  /** The list in the shape the T2 shell shows. */
-  listSummaries(): Promise<OfflineGameSummary[]>;
   load(id: string): Promise<SavedGameRecord | null>;
+  /** The newest game with this slot, or null. */
+  findSlot(slot: string): Promise<SavedGameRecord | null>;
   remove(id: string): Promise<void>;
 
   /**
@@ -167,47 +162,20 @@ export interface OfflineSaveStore {
   requestPersistence(): Promise<boolean | null>;
   estimate(): Promise<{ usage: number; quota: number } | null>;
 
-  /** The feedback queue's own storage (same database). */
+  /** The storage of an app's feedback queue (same database, object store `feedback`). */
   feedbackBackend: FeedbackBackend;
   close(): void;
 }
 
-/** Low level storage of the feedback queue. */
+/** Low level storage of an app's feedback queue. The rows are the app's; the store only keys them. */
 export interface FeedbackBackend {
-  getAll(): Promise<StoredFeedbackItem[]>;
-  put(item: StoredFeedbackItem): Promise<void>;
+  /** Unchecked rows: the app validates them. */
+  getAll(): Promise<unknown[]>;
+  put(item: FeedbackRow): Promise<void>;
   delete(localId: string): Promise<void>;
 }
 
-/** A queue item plus the retry state the UI type does not show. */
-export interface StoredFeedbackItem extends QueuedFeedbackItem {
-  /** Idempotency key: sent with every attempt; the same report is never created twice. */
-  reportId: string;
-  /** Not before this time (ms since epoch). */
-  nextAttemptAt: number;
-  lastError?: string;
-  lastAttemptAt?: number;
-}
-
-export type FeedbackSendResult =
-  | { ok: true; serverId: string }
-  | { ok: false; retryable: boolean; message: string };
-
-export type FeedbackSender = (payload: FeedbackPayload) => Promise<FeedbackSendResult>;
-
-/** What the sender gets. `reportId` goes with every attempt of the same report. */
-export interface FeedbackPayload {
-  reportId: string;
-  category: QueuedFeedbackItem["report"]["category"];
-  text: string;
-  context: Record<string, unknown>;
-  local?: QueuedFeedbackItem["report"]["local"];
-}
-
-export interface DurableFeedbackQueue extends OfflineFeedbackQueue {
-  /** Loads the stored items; call once before use. */
-  start(): Promise<void>;
-  /** Tries every due item now (also called on `online` and by the timer). */
-  flush(): Promise<void>;
-  dispose(): void;
+/** A row of the object store `feedback`. */
+export interface FeedbackRow {
+  localId: string;
 }

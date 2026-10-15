@@ -17,7 +17,8 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@ti4/shared/*": ["../web-shared/src/*"],
-      "vitest": ["./node_modules/vitest"]
+      "vitest": ["./node_modules/vitest"],
+      "fake-indexeddb": ["./node_modules/fake-indexeddb"]
     },
     "types": ["node", "vite/client"]
   },

@@ -1,4 +1,3 @@
-import type { OfflineGameSummary } from "../types.ts";
 import { type Backend, BackendOpenError, IdbBackend, MemoryBackend } from "./backend.ts";
 import {
   type EngineIdentity,
@@ -12,10 +11,15 @@ import {
   type SavedGameSummary,
   type StoreStatus,
   StoreError,
-  type StoredFeedbackItem,
 } from "./types.ts";
-import { engineDifferences } from "./engineCheck.ts";
-import { buildExport, buildRecord, parseExport, validateRecord, validateSave } from "./validate.ts";
+import {
+  buildExport,
+  buildRecord,
+  engineDifferences,
+  parseExport,
+  validateRecord,
+  validateSave,
+} from "./validate.ts";
 
 export interface OpenStoreOptions {
   /** Default: `globalThis.indexedDB`. Pass `undefined` explicitly via `backend` to force memory. */
@@ -27,25 +31,15 @@ export interface OpenStoreOptions {
   newId?: () => string;
 }
 
-const UNAVAILABLE_WARNING =
-  "Saving to this browser is not available (a private window, or storage is blocked). " +
-  "Your game is kept only while this tab stays open; export it to keep a copy.";
-const NEWER_WARNING =
-  "The saved games on this device were written by a newer version of the app. " +
-  "They cannot be opened here, and new games are kept only while this tab stays open.";
-const QUOTA_WARNING =
-  "This device is out of storage space, so the latest moves are not saved. Free up space or delete old games.";
-const WRITE_WARNING = "The game could not be saved to this browser just now. It will try again after your next move.";
-
 const isQuota = (e: unknown) => (e as { name?: string })?.name === "QuotaExceededError";
 
 /**
  * Opens the store. Never throws for a storage problem: it falls back to memory and says so in
- * `status().warning` (the UI shows it as a visible notice).
+ * `status().warningKind` (the app shows it as a visible notice).
  */
 export async function openOfflineSaveStore(opts: OpenStoreOptions = {}): Promise<OfflineSaveStore> {
   let backend: Backend;
-  let openProblem: { kind: "unavailable" | "newer-version"; text: string } | null = null;
+  let openProblem: "unavailable" | "newer-version" | null = null;
   if (opts.backend) {
     backend = opts.backend;
   } else {
@@ -60,34 +54,51 @@ export async function openOfflineSaveStore(opts: OpenStoreOptions = {}): Promise
       }
       backend = await IdbBackend.open(factory, opts.dbName);
     } catch (e) {
-      const kind = e instanceof BackendOpenError ? e.kind : "unavailable";
-      openProblem = { kind, text: kind === "newer-version" ? NEWER_WARNING : UNAVAILABLE_WARNING };
+      openProblem = e instanceof BackendOpenError ? e.kind : "unavailable";
       backend = new MemoryBackend();
     }
   }
-  return new SaveStore(backend, openProblem, opts.now ?? Date.now, opts.newId ?? (() => crypto.randomUUID()));
+  return new SaveStore(
+    backend,
+    openProblem,
+    opts.now ?? Date.now,
+    opts.newId ?? (() => crypto.randomUUID()),
+  );
 }
+
+/** What the store keeps of every game between reads: the limits and the fields a later write keeps. */
+interface IndexEntry {
+  sizeBytes: number;
+  createdAt: number;
+  slot?: string;
+}
+
+const indexEntry = (r: SavedGameRecord): IndexEntry => ({
+  sizeBytes: r.sizeBytes,
+  createdAt: r.createdAt,
+  ...(r.slot !== undefined ? { slot: r.slot } : {}),
+});
 
 class SaveStore implements OfflineSaveStore {
   private listeners = new Set<() => void>();
   /** Records whose last write failed: the truth until a write succeeds. */
   private shadow = new Map<string, SavedGameRecord>();
   private deleted = new Set<string>();
-  private index: Map<string, { sizeBytes: number; createdAt: number }> | null = null;
+  private index: Map<string, IndexEntry> | null = null;
   private unreadable = 0;
   private persisted: boolean | null = null;
-  private warning: { kind: NonNullable<StoreStatus["warningKind"]>; text: string } | null;
+  private warning: StoreStatus["warningKind"];
   /** Writes of one game go one after the other. */
   private chains = new Map<string, Promise<unknown>>();
   private closed = false;
 
   constructor(
     private backend: Backend,
-    openProblem: { kind: "unavailable" | "newer-version"; text: string } | null,
+    openProblem: "unavailable" | "newer-version" | null,
     private now: () => number,
     private newId: () => string,
   ) {
-    this.warning = openProblem && { kind: openProblem.kind, text: openProblem.text };
+    this.warning = openProblem;
   }
 
   // --- status ---------------------------------------------------------------------------
@@ -95,8 +106,7 @@ class SaveStore implements OfflineSaveStore {
   status(): StoreStatus {
     return {
       persistence: this.backend.kind,
-      warning: this.warning?.text ?? null,
-      warningKind: this.warning?.kind ?? null,
+      warningKind: this.warning,
       persisted: this.persisted,
       unreadable: this.unreadable,
       unsynced: this.shadow.size,
@@ -107,14 +117,20 @@ class SaveStore implements OfflineSaveStore {
     return () => void this.listeners.delete(listener);
   }
   private emit() {
-    for (const l of [...this.listeners]) l();
+    for (const l of [...this.listeners]) {
+      l();
+    }
   }
-  private setWarning(kind: NonNullable<StoreStatus["warningKind"]> | null, text?: string) {
-    const prev = this.warning?.kind ?? null;
+  private setWarning(kind: StoreStatus["warningKind"]) {
+    const prev = this.warning;
     // An open-time problem stays; write problems come and go.
-    if (this.warning && (this.warning.kind === "unavailable" || this.warning.kind === "newer-version")) return;
-    this.warning = kind ? { kind, text: text! } : null;
-    if (prev !== kind) this.emit();
+    if (prev === "unavailable" || prev === "newer-version") {
+      return;
+    }
+    this.warning = kind;
+    if (prev !== kind) {
+      this.emit();
+    }
   }
 
   // --- reading --------------------------------------------------------------------------
@@ -131,20 +147,24 @@ class SaveStore implements OfflineSaveStore {
     for (const row of rows) {
       try {
         const rec = validateRecord(row);
-        if (!this.deleted.has(rec.id)) out.set(rec.id, rec);
+        if (!this.deleted.has(rec.id)) {
+          out.set(rec.id, rec);
+        }
       } catch {
         unreadable++;
       }
     }
     for (const [id, rec] of this.shadow) {
       const stored = out.get(id);
-      if (!stored || stored.updatedAt <= rec.updatedAt) out.set(id, rec);
+      if (!stored || stored.updatedAt <= rec.updatedAt) {
+        out.set(id, rec);
+      }
     }
     if (unreadable !== this.unreadable) {
       this.unreadable = unreadable;
       this.emit();
     }
-    this.index = new Map([...out].map(([id, r]) => [id, { sizeBytes: r.sizeBytes, createdAt: r.createdAt }]));
+    this.index = new Map([...out].map(([id, r]) => [id, indexEntry(r)]));
     return out;
   }
 
@@ -155,24 +175,18 @@ class SaveStore implements OfflineSaveStore {
       .map(({ save: _save, ...summary }) => summary);
   }
 
-  async listSummaries(): Promise<OfflineGameSummary[]> {
-    return (await this.list()).map((r) => ({
-      gameId: r.id,
-      playerCount: r.summary.playerCount,
-      humanFaction: r.summary.humanFaction,
-      humanSeat: r.summary.humanSeat,
-      round: r.summary.round,
-      phase: r.summary.phase,
-      answers: r.summary.answers,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      status: r.status,
-      resumeEstimateMs: r.resumeEstimateMs,
-    }));
-  }
-
   async load(id: string): Promise<SavedGameRecord | null> {
     return (await this.readAll()).get(id) ?? null;
+  }
+
+  async findSlot(slot: string): Promise<SavedGameRecord | null> {
+    let found: SavedGameRecord | null = null;
+    for (const rec of (await this.readAll()).values()) {
+      if (rec.slot === slot && (!found || rec.updatedAt > found.updatedAt)) {
+        found = rec;
+      }
+    }
+    return found;
   }
 
   // --- writing --------------------------------------------------------------------------
@@ -180,7 +194,10 @@ class SaveStore implements OfflineSaveStore {
   private serial<T>(id: string, fn: () => Promise<T>): Promise<T> {
     const prev = this.chains.get(id) ?? Promise.resolve();
     const next = prev.then(fn, fn);
-    this.chains.set(id, next.catch(() => undefined));
+    this.chains.set(
+      id,
+      next.catch(() => undefined),
+    );
     return next;
   }
 
@@ -188,16 +205,28 @@ class SaveStore implements OfflineSaveStore {
     return this.putRecord(id, save, meta, false);
   }
 
-  private async putRecord(id: string, save: HostSave, meta: GameMeta, imported: boolean): Promise<void> {
-    if (this.closed) throw new StoreError("closed", "The store is closed.");
+  private async putRecord(
+    id: string,
+    save: HostSave,
+    meta: GameMeta,
+    imported: boolean,
+  ): Promise<void> {
+    if (this.closed) {
+      throw new StoreError("closed", "The store is closed.");
+    }
     validateSave(save); // our own caller, but a bad save must never overwrite a good one
     return this.serial(id, async () => {
-      if (!this.index) await this.readAll();
+      if (!this.index) {
+        await this.readAll();
+      }
       const known = this.index!.get(id);
       const previous = this.shadow.get(id);
       if (!known) {
         if (this.index!.size >= LIMITS.maxGames) {
-          throw new StoreError("too-many-games", `Up to ${LIMITS.maxGames} games can be kept. Delete some first.`);
+          throw new StoreError(
+            "too-many-games",
+            `Up to ${LIMITS.maxGames} games can be kept. Delete some first.`,
+          );
         }
       }
       const total = [...this.index!].reduce((n, [k, v]) => n + (k === id ? 0 : v.sizeBytes), 0);
@@ -206,15 +235,18 @@ class SaveStore implements OfflineSaveStore {
         save,
         {
           nickname: meta.nickname,
-          humanFaction: meta.humanFaction,
+          factions: meta.factions,
           engine: meta.engine,
+          slot: meta.slot ?? previous?.slot ?? known?.slot,
           createdAt: known?.createdAt ?? previous?.createdAt ?? meta.createdAt ?? this.now(),
           resumeEstimateMs: meta.resumeEstimateMs ?? previous?.resumeEstimateMs ?? null,
           imported: imported || (previous?.imported ?? false),
         },
         this.now(),
       );
-      if (rec.sizeBytes > LIMITS.maxSaveBytes) throw new StoreError("too-large", "The saved game is too large.");
+      if (rec.sizeBytes > LIMITS.maxSaveBytes) {
+        throw new StoreError("too-large", "The saved game is too large.");
+      }
       if (total + rec.sizeBytes > LIMITS.maxTotalBytes) {
         throw new StoreError("quota", "The saved games take too much space. Delete some first.");
       }
@@ -227,16 +259,21 @@ class SaveStore implements OfflineSaveStore {
     this.deleted.delete(rec.id);
     try {
       await this.backend.putGame(rec);
-      this.index?.set(rec.id, { sizeBytes: rec.sizeBytes, createdAt: rec.createdAt });
-      if (this.shadow.delete(rec.id) || this.warning?.kind === "quota" || this.warning?.kind === "write-failed") {
-        if (this.shadow.size === 0) this.setWarning(null);
+      this.index?.set(rec.id, indexEntry(rec));
+      if (
+        this.shadow.delete(rec.id) ||
+        this.warning === "quota" ||
+        this.warning === "write-failed"
+      ) {
+        if (this.shadow.size === 0) {
+          this.setWarning(null);
+        }
         this.emit();
       }
     } catch (e) {
       this.shadow.set(rec.id, rec);
-      this.index?.set(rec.id, { sizeBytes: rec.sizeBytes, createdAt: rec.createdAt });
-      if (isQuota(e)) this.setWarning("quota", QUOTA_WARNING);
-      else this.setWarning("write-failed", WRITE_WARNING);
+      this.index?.set(rec.id, indexEntry(rec));
+      this.setWarning(isQuota(e) ? "quota" : "write-failed");
       this.emit();
     }
   }
@@ -250,7 +287,7 @@ class SaveStore implements OfflineSaveStore {
         this.deleted.delete(id);
       } catch {
         this.deleted.add(id); // hidden for this session at least
-        this.setWarning("write-failed", WRITE_WARNING);
+        this.setWarning("write-failed");
       }
       this.emit();
     });
@@ -260,8 +297,14 @@ class SaveStore implements OfflineSaveStore {
 
   async exportGame(id: string): Promise<{ filename: string; blob: Blob }> {
     const rec = await this.load(id);
-    if (!rec) throw new StoreError("not-found", "This game is not stored on this device.");
-    const slug = rec.nickname.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 24);
+    if (!rec) {
+      throw new StoreError("not-found", "This game is not stored on this device.");
+    }
+    const slug = rec.nickname
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24);
     const file = buildExport(rec, this.now());
     return {
       filename: `ti4-offline-${slug ? `${slug}-` : ""}${rec.id.slice(0, 8)}.json`,
@@ -280,26 +323,39 @@ class SaveStore implements OfflineSaveStore {
     await this.putRecord(
       id,
       game.save,
-      { nickname: game.nickname, humanFaction: game.humanFaction, engine: game.engine, createdAt: game.createdAt },
+      {
+        nickname: game.nickname,
+        factions: game.factions,
+        engine: game.engine,
+        createdAt: game.createdAt,
+      },
       true,
     );
     const rec = await this.load(id);
-    if (!rec) throw new StoreError("write-failed", "The game could not be stored.");
+    if (!rec) {
+      throw new StoreError("write-failed", "The game could not be stored.");
+    }
     const { save: _s, ...summary } = rec;
     return {
       id,
       record: summary,
-      engineDiffers: currentEngine ? engineDifferences(rec.engine, currentEngine).length > 0 : false,
+      engineDiffers: currentEngine
+        ? engineDifferences(rec.engine, currentEngine).length > 0
+        : false,
     };
   }
 
   // --- persistence ----------------------------------------------------------------------
 
   async requestPersistence(): Promise<boolean | null> {
-    if (this.persisted !== null) return this.persisted;
+    if (this.persisted !== null) {
+      return this.persisted;
+    }
     try {
       const storage = navigator.storage;
-      if (!storage?.persist) return null;
+      if (!storage?.persist) {
+        return null;
+      }
       this.persisted = (await storage.persisted?.()) || (await storage.persist());
       this.emit();
     } catch {
@@ -311,7 +367,9 @@ class SaveStore implements OfflineSaveStore {
   async estimate() {
     try {
       const e = await navigator.storage?.estimate?.();
-      return e && typeof e.usage === "number" && typeof e.quota === "number" ? { usage: e.usage, quota: e.quota } : null;
+      return e && typeof e.usage === "number" && typeof e.quota === "number"
+        ? { usage: e.usage, quota: e.quota }
+        : null;
     } catch {
       return null;
     }
@@ -322,7 +380,7 @@ class SaveStore implements OfflineSaveStore {
   feedbackBackend: FeedbackBackend = {
     getAll: async () => {
       try {
-        return (await this.backend.getAllFeedback()) as StoredFeedbackItem[];
+        return await this.backend.getAllFeedback();
       } catch {
         return [];
       }
@@ -332,7 +390,7 @@ class SaveStore implements OfflineSaveStore {
         await this.backend.putFeedback(item);
       } catch (e) {
         // The queue keeps the item in memory; only the warning tells it is not durable.
-        this.setWarning(isQuota(e) ? "quota" : "write-failed", isQuota(e) ? QUOTA_WARNING : WRITE_WARNING);
+        this.setWarning(isQuota(e) ? "quota" : "write-failed");
       }
     },
     delete: async (id) => {
@@ -351,7 +409,9 @@ class SaveStore implements OfflineSaveStore {
 }
 
 function readText(blob: Blob): Promise<string> {
-  if (typeof blob.text === "function") return blob.text();
+  if (typeof blob.text === "function") {
+    return blob.text();
+  }
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));
