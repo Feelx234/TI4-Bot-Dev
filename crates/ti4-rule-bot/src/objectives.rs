@@ -1191,6 +1191,13 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
         }
     }
     let me = me.clone();
+    // Backward planning, technology preps: the technology a chosen plan's prep needs.
+    if let Some(v) = crate::backward::verdict(seen, &me) {
+        let wanted = v.techs();
+        if let Some(index) = choice.options.iter().position(|o| wanted.contains(&o.id)) {
+            return Some(index);
+        }
+    }
     let before = goals(seen, &me, &Imagined::NONE);
     // Backward planning (backward/technology.rs): the technologies on the routes of the
     // technology objectives in view, up to three researches deep.

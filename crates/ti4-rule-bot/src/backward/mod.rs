@@ -77,6 +77,8 @@ pub struct Steer {
     pub cards: Vec<String>,
     /// Strategy cards to play at the next opportunity (the prep step of a two-step plan).
     pub play: Vec<String>,
+    /// Technologies to pick when a research is offered (the prep of a technology step).
+    pub techs: Vec<String>,
     /// Systems where ships and their cargo gather for the next activation (the movement hook
     /// moves everything there).
     pub gather: Vec<SystemId>,
@@ -392,6 +394,7 @@ impl PlanCtx {
                 steer.cards.extend(p.cards.iter().cloned());
                 steer.play.extend(p.play.iter().cloned());
                 steer.gather.extend(p.gather.iter().cloned());
+                steer.techs.extend(p.techs.iter().cloned());
                 cost.tokens += p.tokens + p.strategic;
                 cost.resources += p.resources;
                 cost.activations += u32::try_from(p.tokens).unwrap_or(0);
@@ -581,6 +584,18 @@ impl Verdict {
         self.chosen
             .iter()
             .flat_map(|&i| self.plans[i].plan.steer.builds.iter().cloned())
+            .collect()
+    }
+
+    /// Technologies the chosen plans want researched.
+    #[must_use]
+    pub fn techs(&self) -> Vec<String> {
+        if self.fallback {
+            return Vec::new();
+        }
+        self.chosen
+            .iter()
+            .flat_map(|&i| self.plans[i].plan.steer.techs.iter().cloned())
             .collect()
     }
 
@@ -1296,6 +1311,7 @@ mod tests {
             builds: Vec::new(),
             cards: Vec::new(),
             play: Vec::new(),
+            techs: Vec::new(),
             odds: 0.9,
         };
         let step = |name: &str, prep: Option<prep::PrepInfo>| Step {
@@ -1317,6 +1333,80 @@ mod tests {
         ctx.tactic_tokens = 2;
         assert!(!ctx.affordable(&[0, 2]), "the prep's token counts");
         assert!(ctx.affordable(&[1, 2]));
+    }
+
+    fn tech_plan<'v>(v: &'v Verdict, label: &str) -> Option<&'v Weighed> {
+        v.plans.iter().find(|w| w.plan.reason.starts_with(label))
+    }
+
+    fn give(state: &mut GameState, techs: &[&str], card: Option<&str>) {
+        let seat = state.player_mut(&me()).expect("seat");
+        for t in techs {
+            seat.technologies
+                .insert(ti4_model::id::TechnologyId::new(*t));
+        }
+        if let Some(card) = card {
+            seat.strategy_cards
+                .push(ti4_model::id::StrategyCardId::new(card));
+        }
+    }
+
+    #[test]
+    fn tech_range_brings_a_far_carrier_into_reach_with_gravity_drive() {
+        let tuned = tuning::Tuning {
+            bw_prep_tech_range: true,
+            ..on()
+        };
+        tuning::with(tuned, || {
+            let (mut state, hub) = far_position(2, 1, 3);
+            // Without a technology to research nothing changes.
+            assert!(
+                tech_plan(&verdict_of(&state, &hub).expect("on"), "technology range").is_none()
+            );
+            give(&mut state, &["amd"], Some("pok7technology"));
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = tech_plan(&v, "technology range + act (Gravity Drive)").expect("a plan");
+            assert_eq!(w.plan.steer.techs, vec!["gd".to_owned()]);
+            assert!(w.plan.steer.cards.iter().any(|c| c == "Technology"));
+            assert_eq!(w.plan.steer.play, vec!["Technology".to_owned()]);
+            // A carrier already next to Mecatol Rex needs no range.
+            let (mut near, hub) = far_position(2, 1, 1);
+            give(&mut near, &["amd"], Some("pok7technology"));
+            assert!(tech_plan(&verdict_of(&near, &hub).expect("on"), "technology range").is_none());
+        });
+    }
+
+    #[test]
+    fn tech_strength_wins_the_fight_a_better_cruiser_decides() {
+        let tuned = tuning::Tuning {
+            bw_prep_tech_strength: true,
+            ..on()
+        };
+        tuning::with(tuned, || {
+            let find = |techs: &[&str]| {
+                (1..12).find_map(|k| {
+                    let (mut state, hub) = mecatol_position(2, 1);
+                    let mr = SystemId::new("18");
+                    put(&mut state, &mr, "cruiser", &PlayerId::new("b"), k);
+                    let home = state
+                        .board
+                        .iter()
+                        .find(|(s, r)| {
+                            s.as_str() != "18" && r.planet_control.values().any(|o| o == &me())
+                        })
+                        .map(|(s, _)| s.clone())
+                        .expect("home");
+                    put(&mut state, &home, "cruiser", &me(), 4);
+                    give(&mut state, techs, Some("pok7technology"));
+                    let v = verdict_of(&state, &hub).expect("on");
+                    tech_plan(&v, "technology strength").map(|w| (k, w.plan.steer.techs.clone()))
+                })
+            };
+            let (_, techs) =
+                find(&["nm", "st", "ps"]).expect("some fleet is decided by cruiser II");
+            assert_eq!(techs, vec!["cr2".to_owned()]);
+            assert!(find(&[]).is_none(), "no technology to research, no plan");
+        });
     }
 
     #[test]

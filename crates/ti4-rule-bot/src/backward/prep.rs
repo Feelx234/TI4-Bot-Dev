@@ -57,6 +57,8 @@ pub struct PrepInfo {
     pub cards: Vec<String>,
     /// Strategy card to play now.
     pub play: Vec<String>,
+    /// Technologies to pick when a research is offered.
+    pub techs: Vec<String>,
     /// Probability that the prep itself works.
     pub odds: f64,
 }
@@ -394,6 +396,7 @@ fn build_prep(
             builds: units.iter().map(|(u, _)| u.clone()).collect(),
             cards: card.map(str::to_owned).into_iter().collect(),
             play: card.map(str::to_owned).into_iter().collect(),
+            techs: Vec::new(),
             odds,
         },
     ))
@@ -534,6 +537,7 @@ fn warfare_prep(
             } else {
                 Vec::new()
             },
+            techs: Vec::new(),
             odds: if use_warfare { 0.95 * 0.85 } else { 0.85 },
         },
     ))
@@ -543,7 +547,10 @@ fn warfare_prep(
 /// the kinds switched on. A prepared step is kept only where it does more than the plain step.
 #[must_use]
 pub fn prepared(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<Step> {
-    let any = tuning::bw_prep_build() || tuning::bw_prep_warfare();
+    let any = tuning::bw_prep_build()
+        || tuning::bw_prep_warfare()
+        || tuning::bw_prep_tech_range()
+        || tuning::bw_prep_tech_strength();
     let Some(galaxy) = seen.galaxy().filter(|_| any) else {
         return Vec::new();
     };
@@ -576,6 +583,9 @@ pub fn prepared(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<Step> 
         if tuning::bw_prep_warfare() {
             options.extend(warfare_prep(seen, me, ctx, &case, plain.as_ref()));
         }
+        if tuning::bw_prep_tech_range() || tuning::bw_prep_tech_strength() {
+            options.extend(tech_preps(seen, me, ctx, &case, plain.as_ref()));
+        }
         let best = options.into_iter().max_by(|a, b| {
             let key = |o: &(Outcome, PrepInfo)| o.0.success * o.1.odds;
             key(a).total_cmp(&key(b))
@@ -591,5 +601,333 @@ pub fn prepared(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<Step> 
             });
         }
     }
+    out
+}
+
+// -- technology preps ----------------------------------------------------------------------------
+
+/// A researchable unit upgrade: the unit type it replaces, the one it makes, and the technology.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Upgrade {
+    alias: String,
+    from: String,
+    to: String,
+}
+
+/// Colours of the seat's owned technologies (printed prerequisites only).
+fn owned_colours(seen: &Observed<'_>, me: &PlayerId) -> [usize; 4] {
+    let mut have = [0usize; 4];
+    let Some(seat) = seen.seat(me) else {
+        return have;
+    };
+    for t in seat.technologies {
+        if let Some(name) = ti4_engine::technology::colour_type(seen.content(), t)
+            && let Some(c) = ["BIOTIC", "CYBERNETIC", "PROPULSION", "WARFARE"]
+                .iter()
+                .position(|n| *n == name)
+        {
+            have[c] += 1;
+        }
+    }
+    have
+}
+
+/// Whether the seat can research `alias` now: not owned, its faction's, prerequisites met.
+fn researchable(seen: &Observed<'_>, me: &PlayerId, alias: &str) -> bool {
+    let Some(seat) = seen.seat(me) else {
+        return false;
+    };
+    let id = ti4_model::id::TechnologyId::new(alias);
+    let content = seen.content();
+    if seat.technologies.contains(&id)
+        || !ti4_engine::technology::active_aliases(content, seen.sources()).contains(&id)
+        || ti4_engine::technology::faction_of(content, &id)
+            .is_some_and(|f| f != seat.faction.as_str())
+    {
+        return false;
+    }
+    let have = owned_colours(seen, me);
+    let needs = ti4_engine::technology::prerequisites(content, &id);
+    ["BIOTIC", "CYBERNETIC", "PROPULSION", "WARFARE"]
+        .iter()
+        .enumerate()
+        .all(|(c, name)| have[c] >= needs.get(*name).copied().unwrap_or(0))
+}
+
+/// The unit upgrades the seat could research, for unit types it owns.
+fn upgrades(seen: &Observed<'_>, me: &PlayerId) -> Vec<Upgrade> {
+    let mut kinds: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for board in seen.board().values() {
+        for u in board.units.iter().filter(|u| &u.owner == me) {
+            kinds.insert(u.type_id.to_string());
+        }
+    }
+    kinds
+        .into_iter()
+        .filter_map(|from| {
+            let to = crate::unit_type(seen, &from)?.upgrades_to()?.to_owned();
+            let alias = crate::unit_type(seen, &to)?
+                .required_technology()?
+                .to_owned();
+            researchable(seen, me, &alias).then_some(Upgrade { alias, from, to })
+        })
+        .collect()
+}
+
+/// The best research open to the seat before the status phase (B's technology model: own card
+/// 95 percent, a rival's secondary 70 percent for a strategy token and four resources).
+fn research_source(seen: &Observed<'_>, me: &PlayerId) -> Option<super::technology::Source> {
+    let seat = seen.seat(me)?;
+    let is_tech = |c: &ti4_model::id::StrategyCardId| {
+        ti4_engine::strategy_cards::card_name(seen.content(), c.as_str()).as_deref()
+            == Some("Technology")
+    };
+    let own_open = seat
+        .strategy_cards
+        .iter()
+        .any(|c| is_tech(c) && !seat.exhausted_strategy_cards.contains(c));
+    let rivals = seen
+        .players()
+        .into_iter()
+        .filter(|p| *p != me)
+        .filter_map(|p| seen.seat(p))
+        .filter(|s| !s.passed)
+        .filter(|s| {
+            s.strategy_cards
+                .iter()
+                .any(|c| is_tech(c) && !s.exhausted_strategy_cards.contains(c))
+        })
+        .count();
+    super::technology::sources(
+        own_open,
+        rivals,
+        seen.available_spend(me, ti4_engine::production::Spend::Resources),
+        seat.strategic_tokens,
+    )
+    .into_iter()
+    .next()
+}
+
+fn replaced(fleet: &[(String, usize)], from: &str, to: &str) -> Vec<(String, usize)> {
+    let mut out: Vec<(String, usize)> = Vec::new();
+    for (k, c) in fleet {
+        let key = if k == from { to } else { k.as_str() };
+        match out.iter_mut().find(|(o, _)| o == key) {
+            Some((_, n)) => *n += c,
+            None => out.push((key.to_owned(), *c)),
+        }
+    }
+    out
+}
+
+/// Ships that could reach `case.system` if the technology gave them move `mv(type)`: those not
+/// reaching it now, as (origin, type id, count).
+fn newly_in_range(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    case: &SysCase,
+    mv: impl Fn(&str) -> Option<i32>,
+) -> Vec<(SystemId, String, usize)> {
+    let movable = seen.movable_into(me, &case.system);
+    let mut out = Vec::new();
+    for (origin, board) in seen.board() {
+        if origin == &case.system {
+            continue;
+        }
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for u in board.units.iter().filter(|u| {
+            &u.owner == me
+                && crate::is_ship(seen, u)
+                && !crate::unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_fighter())
+        }) {
+            *counts.entry(u.type_id.to_string()).or_default() += 1;
+        }
+        for (kind, n) in counts {
+            let reaching = movable
+                .iter()
+                .filter(|m| &m.origin == origin && m.unit.type_id.as_str() == kind)
+                .count();
+            let missing = n.saturating_sub(reaching);
+            if missing > 0
+                && let Some(v) = mv(&kind)
+                && seen.can_reach(me, origin, &case.system, v)
+            {
+                out.push((origin.clone(), kind, missing));
+            }
+        }
+    }
+    out
+}
+
+/// Ground the carriers reaching `case.system` bring once `extra` ships (origin, type, count) join.
+fn ground_with(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    case: &SysCase,
+    extra: &[(SystemId, String, usize)],
+    capacity_of: impl Fn(&str) -> i64,
+) -> usize {
+    let movable = seen.movable_into(me, &case.system);
+    let mut capacity: i64 = movable
+        .iter()
+        .filter(|m| m.capacity > 0 && crate::is_ship(seen, &m.unit))
+        .map(|m| m.capacity)
+        .sum();
+    let mut origins: std::collections::BTreeSet<SystemId> = movable
+        .iter()
+        .filter(|m| m.capacity > 0 && crate::is_ship(seen, &m.unit))
+        .map(|m| m.origin.clone())
+        .collect();
+    for (origin, kind, n) in extra {
+        let cap = capacity_of(kind);
+        if cap > 0 {
+            capacity += cap * i64::try_from(*n).unwrap_or(0);
+            origins.insert(origin.clone());
+        }
+    }
+    let loadable: usize = origins
+        .iter()
+        .map(|o| {
+            seen.loadable(me, o)
+                .iter()
+                .filter(|c| crate::is_ground(seen, &c.unit))
+                .count()
+        })
+        .sum();
+    let there = seen
+        .system(&case.system)
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && crate::is_ground(seen, u))
+        .count();
+    loadable.min(usize::try_from(capacity).unwrap_or(0)) + there
+}
+
+/// Technology preps for `case`: a movement technology (range) or a unit upgrade (strength).
+fn tech_preps(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    ctx: &PlanCtx,
+    case: &SysCase,
+    plain: Option<&Outcome>,
+) -> Vec<(Outcome, PrepInfo)> {
+    let Some(source) = research_source(seen, me) else {
+        return Vec::new();
+    };
+    let have_taken = plain.map_or(0, |o| o.planets.len());
+    let better =
+        |o: &Outcome| o.planets.len() > have_taken || (o.ship && !plain.is_some_and(|p| p.ship));
+    let upgrades = upgrades(seen, me);
+    let mut out: Vec<(Outcome, PrepInfo)> = Vec::new();
+    let info = |kind: PrepKind, label: String, alias: &str| PrepInfo {
+        kind,
+        label,
+        tokens: 0,
+        strategic: source.tokens,
+        resources: source.resources,
+        systems: Vec::new(),
+        gather: Vec::new(),
+        builds: Vec::new(),
+        cards: vec!["Technology".to_owned()],
+        play: if source.own_card {
+            vec!["Technology".to_owned()]
+        } else {
+            Vec::new()
+        },
+        techs: vec![alias.to_owned()],
+        odds: source.probability,
+    };
+    if tuning::bw_prep_tech_range() {
+        // Gravity Drive: one ship of the activation moves one hex further.
+        if researchable(seen, me, "gd") {
+            let extra = newly_in_range(seen, me, case, |kind| {
+                crate::unit_type(seen, kind).map(|t| i32::try_from(t.move_value()).unwrap_or(1) + 1)
+            });
+            // One ship only, a carrier first.
+            let one: Vec<(SystemId, String, usize)> = extra
+                .into_iter()
+                .max_by_key(|(_, k, _)| crate::unit_type(seen, k).map_or(0, |t| t.capacity()))
+                .map(|(o, k, _)| vec![(o, k, 1)])
+                .unwrap_or_default();
+            if !one.is_empty() {
+                let cap = |k: &str| crate::unit_type(seen, k).map_or(0, |t| t.capacity());
+                let ground = ground_with(seen, me, case, &one, cap);
+                let mut own = case.own.clone();
+                for (_, k, n) in &one {
+                    own = with_added(&own, k, *n);
+                }
+                if let Some(o) = case.outcome(seen, ground, &own, true).filter(|o| better(o)) {
+                    out.push((
+                        o,
+                        info(
+                            PrepKind::TechRange,
+                            "technology range + act (Gravity Drive)".to_owned(),
+                            "gd",
+                        ),
+                    ));
+                }
+            }
+        }
+        // A faster unit upgrade moves every ship of that type.
+        for up in &upgrades {
+            let Some(to) = crate::unit_type(seen, &up.to) else {
+                continue;
+            };
+            let Some(from) = crate::unit_type(seen, &up.from) else {
+                continue;
+            };
+            if to.move_value() <= from.move_value() {
+                continue;
+            }
+            let extra = newly_in_range(seen, me, case, |kind| {
+                (kind == up.from).then(|| i32::try_from(to.move_value()).unwrap_or(1))
+            });
+            if extra.is_empty() {
+                continue;
+            }
+            let cap = |k: &str| {
+                let k = if k == up.from { up.to.as_str() } else { k };
+                crate::unit_type(seen, k).map_or(0, |t| t.capacity())
+            };
+            let ground = ground_with(seen, me, case, &extra, cap);
+            let mut own = replaced(&case.own, &up.from, &up.to);
+            for (_, k, n) in &extra {
+                own = with_added(&own, &up.to, *n);
+                let _ = k;
+            }
+            if let Some(o) = case.outcome(seen, ground, &own, true).filter(|o| better(o)) {
+                out.push((
+                    o,
+                    info(
+                        PrepKind::TechRange,
+                        format!("technology range + act ({})", up.alias),
+                        &up.alias,
+                    ),
+                ));
+            }
+        }
+    }
+    if tuning::bw_prep_tech_strength() && case.hostile {
+        for up in &upgrades {
+            if !case.own.iter().any(|(k, _)| k == &up.from) {
+                continue;
+            }
+            let own = replaced(&case.own, &up.from, &up.to);
+            if let Some(o) = case
+                .outcome(seen, case.ground, &own, case.ships)
+                .filter(|o| better(o))
+            {
+                out.push((
+                    o,
+                    info(
+                        PrepKind::TechStrength,
+                        format!("technology strength + act ({})", up.alias),
+                        &up.alias,
+                    ),
+                ));
+            }
+        }
+    }
+    let _ = ctx;
     out
 }
