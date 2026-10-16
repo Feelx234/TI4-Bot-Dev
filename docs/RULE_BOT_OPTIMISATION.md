@@ -767,8 +767,8 @@ Findings (verdicts of the earlier analyses stand):
   0.34 / 0.84 / 1.17 after rounds 3 / 5 / 7 in 4p; custodians 0.41 after round 3, flat afterwards); stage-I objectives 1.43 / 3.52 / 4.94.
 - Per faction (4p, 6p tables in `/root/rb2-ctrl/faction.txt`): the ranking by controllable VP per round hardly differs from the win-rate
   ranking. The one real shift is the **Nekro: 0.62 (4p) / 0.67 (6p) noisy VP per seat against 0.8 to 1.1 for everyone else** (they cannot vote,
-  so no agenda points); on controllable VP per round they sit at 0.847 (4p, rank 17 of 24) and 0.733 (6p, rank 13), above their win-rate rank (21 of 24 and
-  19 of 24). Their weakness is partly the missing agenda income, not play; Xxcha and Argent are the reverse (1.09 / 1.18 noisy VP, rank falls on
+  so no agenda points); on controllable VP per round they sit at 0.847 (4p, rank 17 of 24) and 0.733 (6p, rank 13), above their win-rate rank (20 of 24 and
+  17 of 24). Their weakness is partly the missing agenda income, not play; Xxcha and Argent are the reverse (1.09 / 1.18 noisy VP, rank falls on
   controllable).
 
 ### Uniform golden set (200 games, seeds 1..100, all seats one bot)
