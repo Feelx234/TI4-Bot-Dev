@@ -497,6 +497,10 @@
   border-top: 1px solid #1e293b;
 }
 
+.technology-modal__status-line {
+  display: contents; /* phones turn it into one line holding Available and Selected */
+}
+
 .technology-modal__resources-bar {
   display: flex;
   align-items: center;
@@ -817,5 +821,93 @@
   }
   .technology-filter__chip--available {
     margin-left: 0;
+  }
+}
+
+/* ---- Phones: a compact top area (heading, skips, status line + button, one scrolling filter row) ----
+   Before: roster row, subtitle, per-card descriptions, a tall skips block with its own divider, Available and
+   Selected on separate lines, and wrapping filter chips pushed the cards far down the screen. */
+@media (max-width: 720px) and (min-height: 501px), (max-height: 500px) {
+  .technology-modal__roster,
+  .technology-modal__subtitle,
+  .technology-card__effect {
+    display: none;
+  }
+  .technology-modal__header {
+    padding: 4px 12px;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .technology-modal__title {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .technology-modal__research-panel {
+    padding: 6px 12px;
+    gap: 4px;
+  }
+  .technology-modal__skips-title {
+    white-space: nowrap;
+  }
+  .technology-modal__research-footer {
+    border-top: 0;
+    padding-top: 0;
+    gap: 4px 8px;
+  }
+  .technology-modal__status-line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 12px;
+    flex: 1 1 100%;
+  }
+  .technology-modal__resources-bar,
+  .technology-modal__selection-status {
+    font-size: 12.5px;
+    gap: 6px;
+  }
+  .technology-modal__resources-detail {
+    display: none;
+  }
+  .technology-card {
+    gap: 4px;
+  }
+  .technology-filter {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    padding-bottom: 2px;
+  }
+  .technology-filter::-webkit-scrollbar {
+    display: none;
+  }
+  .technology-filter__chip {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    padding: 0 12px;
+  }
+}
+@media (max-width: 720px) and (min-height: 501px), (max-height: 500px) {
+  .tech-cost-badge {
+    margin-left: 6px;
+  }
+}
+@media (max-width: 520px) and (min-height: 501px) {
+  .technology-modal__research-footer {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .technology-modal__second-hint {
+    flex: 1 1 100%;
+  }
+}
+/* Landscape phones keep their own two-column layout; the filter chips stay as they were there. */
+@media (max-height: 500px) {
+  .technology-filter {
+    flex-wrap: wrap;
+    overflow-x: visible;
   }
 }
