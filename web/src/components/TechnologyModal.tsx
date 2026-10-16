@@ -651,9 +651,11 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 
               {/* Resources & Decision Actions */}
               <div className="technology-modal__research-footer">
+                <div className="technology-modal__status-line">
                 <div
                   className="technology-modal__resources-bar"
                   data-testid="tech-available-resources"
+                  title={`${availableResources.planet} planet + ${availableResources.tradeGoods} TG`}
                 >
                   <span>Available:</span>
                   <span className="technology-modal__resources-tag">
@@ -693,6 +695,8 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
                       )}
                     </span>
                   )}
+                </div>
+
                 </div>
 
                 {secondPickOpen && selectedTechs.length === 1 && !secondPickAffordable && (
@@ -1062,8 +1066,20 @@ const TechFilterBar: React.FC<{
   filter: TechFilter;
   onChange: (next: TechFilter) => void;
   canFilterAvailable: boolean;
-}> = ({ filter, onChange, canFilterAvailable }) => (
-  <div className="technology-filter" role="group" aria-label="Filter technologies" data-testid="tech-filter">
+}> = ({ filter, onChange, canFilterAvailable }) => {
+  const rowRef = useRef<HTMLDivElement>(null);
+  // On a phone the chips are one scrolling row: keep the pressed chip in view (also after a restore).
+  useEffect(() => {
+    const row = rowRef.current;
+    const pressed = row?.querySelector<HTMLElement>('[aria-pressed="true"]:not([data-testid="tech-filter-all"])');
+    if (!row || !pressed || row.scrollWidth <= row.clientWidth) return;
+    const left = pressed.getBoundingClientRect().left - row.getBoundingClientRect().left + row.scrollLeft;
+    const right = left + pressed.offsetWidth;
+    if (left < row.scrollLeft) row.scrollLeft = Math.max(0, left - 12);
+    else if (right > row.scrollLeft + row.clientWidth) row.scrollLeft = right - row.clientWidth + 12;
+  }, [filter.color, filter.availableOnly]);
+  return (
+  <div ref={rowRef} className="technology-filter" role="group" aria-label="Filter technologies" data-testid="tech-filter">
     <button
       type="button"
       className="technology-filter__chip"
@@ -1098,4 +1114,5 @@ const TechFilterBar: React.FC<{
       </button>
     )}
   </div>
-);
+  );
+};
