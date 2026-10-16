@@ -8,6 +8,11 @@
 //! stands) and 0.6 of Imperial's primary point. The plan names the prep's card in `steer.cards`
 //! so the draft picks it, and the prep's systems and builds steer activation and production.
 
+//! # Objectives and preps
+//!
+//! Serves the virtual `mecatol` plan only (no card alias; see [`super::mecatol`]). All four prep
+//! kinds apply ([`KINDS`]).
+
 use ti4_engine::choice::SeatObservation;
 
 use super::{Cost, Plan, PlanCtx, Steer};
@@ -122,4 +127,22 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         payment: false,
         secret: false,
     })
+}
+
+/// The prep kinds a Mecatol two-step plan can use, with their knobs.
+pub const KINDS: &[(&str, &str)] = &[
+    ("build", "bw_prep_build"),
+    ("warfare", "bw_prep_warfare"),
+    ("tech_range", "bw_prep_tech_range"),
+    ("tech_strength", "bw_prep_tech_strength"),
+];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_documented_prep_kind_has_its_knob() {
+        for (_, knob) in super::KINDS {
+            assert!(crate::tuning::KEYS.iter().any(|(k, _)| k == knob), "{knob}");
+        }
+    }
 }

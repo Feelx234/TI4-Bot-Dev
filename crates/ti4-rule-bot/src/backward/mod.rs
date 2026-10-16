@@ -769,12 +769,79 @@ mod tests {
     use rand_chacha::ChaCha8Rng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
-    use ti4_engine::fixtures::{game, hub_from, plain_systems, put};
+    use ti4_engine::fixtures::{game, hub_from, hub_with_centre, plain_systems, put};
     use ti4_model::POK;
     use ti4_model::state::{GameState, Phase};
 
     fn me() -> PlayerId {
         PlayerId::new("a")
+    }
+
+    /// The family token of every public and secret objective that has a running count (or a
+    /// cost), by alias; event objectives are absent.
+    pub(crate) fn alias_families() -> BTreeMap<String, String> {
+        let content = ContentStore::embedded();
+        let state = game(&["a", "b"]);
+        let hub = hub_with_centre("18");
+        let player = me();
+        let mut position = ti4_engine::objectives::Position::new(&state, content, POK, &player);
+        position.galaxy = Some(&hub.galaxy);
+        let secret_position = ti4_engine::secrets::Position {
+            state: &state,
+            content,
+            sources: POK,
+            player: &player,
+            galaxy: Some(&hub.galaxy),
+            imagined: ti4_engine::objectives::Imagined::NONE,
+        };
+        let mut out = BTreeMap::new();
+        for file in ["public_objectives", "secret_objectives"] {
+            let secret = file.starts_with("secret");
+            for record in content.records(if secret {
+                ti4_model::content_types::ContentType::SecretObjectives
+            } else {
+                ti4_model::content_types::ContentType::PublicObjectives
+            }) {
+                let Some(alias) = record.text("alias") else {
+                    continue;
+                };
+                let family = if secret {
+                    ti4_engine::secrets::progress(
+                        &ti4_model::id::SecretObjectiveId::new(alias),
+                        &secret_position,
+                    )
+                    .map(|p| ti4_engine::objectives::family_token(&p.family))
+                } else {
+                    let id = ti4_model::id::ObjectiveId::new(alias);
+                    ti4_engine::objectives::counting_progress(&id, &position)
+                        .or_else(|| {
+                            ti4_engine::objectives::remaining_position_progress(&id, &position)
+                        })
+                        .map(|p| ti4_engine::objectives::family_token(&p.family))
+                        .or_else(|| {
+                            ti4_engine::objectives::bought_progress_at(&position, &id)
+                                .map(|p| ti4_engine::objectives::cost_family_token(&p.family))
+                        })
+                };
+                out.insert(alias.to_owned(), family.unwrap_or_default());
+            }
+        }
+        out
+    }
+
+    /// The aliases (public and secret) a planner would take, by alias or by family token.
+    pub(crate) fn matched_aliases(
+        planner: &dyn ObjectivePlanner,
+    ) -> std::collections::BTreeSet<String> {
+        let ids = planner.objective_ids();
+        alias_families()
+            .into_iter()
+            .filter(|(alias, family)| {
+                ids.iter()
+                    .any(|id| id == alias || (!family.is_empty() && id == family))
+            })
+            .map(|(alias, _)| alias)
+            .collect()
     }
 
     fn plan(

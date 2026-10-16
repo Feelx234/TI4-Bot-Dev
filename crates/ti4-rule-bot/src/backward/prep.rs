@@ -18,6 +18,13 @@
 //! success x 0.9 for the extra step. A route holds at most one prepared step, and all steps and
 //! preps together stay within the seat's tactic tokens and three activations.
 
+//! # Which objectives get which prep
+//!
+//! Every objective of the route-shaped planners: [`super::territory::ALIASES`] and
+//! [`super::fleet::ALIASES`] (all four kinds, [`APPLIES_TO`]), and the `mecatol` plan
+//! ([`super::mecatol_two_step`]). Planners with their own logic (payment, technology, combat,
+//! structures) read `ctx.steps` themselves if they want the prepared steps.
+
 use std::collections::BTreeMap;
 
 use ti4_engine::choice::Observed;
@@ -930,4 +937,23 @@ fn tech_preps(
     }
     let _ = ctx;
     out
+}
+
+/// The planner modules whose goals see the prepared steps through `route_plan`.
+pub const APPLIES_TO: &[&str] = &["territory", "fleet", "mecatol_two_step"];
+
+#[cfg(test)]
+mod tests {
+    use super::super::{ObjectivePlanner, fleet, territory};
+
+    #[test]
+    fn the_route_planners_the_docs_name_are_the_ones_without_own_logic() {
+        // Territory and Fleet are route_plan users: their aliases are disjoint.
+        let t: std::collections::BTreeSet<_> = territory::ALIASES.iter().collect();
+        let f: std::collections::BTreeSet<_> = fleet::ALIASES.iter().collect();
+        assert!(t.is_disjoint(&f));
+        assert_eq!(super::APPLIES_TO.len(), 3);
+        assert!(!territory::Territory.objective_ids().is_empty());
+        assert!(!fleet::Fleet.objective_ids().is_empty());
+    }
 }
