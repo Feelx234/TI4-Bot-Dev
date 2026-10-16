@@ -96,12 +96,37 @@ Fixed starting technologies were therefore already right for all 24 other factio
 
 ## 4. Replay safety evidence
 
-PREFLIGHT_PLACEHOLDER
+- `deploy/public/deploy.sh --preflight-only --ref f1e43db0` (read-only copy of `/var/lib/ti4-public`, own target dir): **22 saved games, recovered=21, failed=1, the failed id is `game_a36f40db3b5cc50fabaabcd66a6bad01`** (the known one, "canonical hashes differ"; the script reports it as unexpected only because `--allow-failed` was not given). No other game changed. Nothing was installed.
+- Rule bot on this engine: `selfplay.sh bench-v2` (bot version 2, golden seeds, no choice) against `baseline-v2.json` (the baseline recorded before this branch): **200 identical, 0 different**.
+- `bot_version_check` (offline saves): new game saved with bot version 3 resumes; Winnu human at bot version 2 is made and resumed without the choice (`starting_tech` not recorded); at version 3 with it; version-1 save without the field resumes as version 1. At stop points 59 and 80 all 15 lines OK. At some stop points (e.g. 61, 62) the example prints a null resume check for one of its cases, also with a non-Winnu faction; this is the example's stop position, not a replay failure, and it is not new.
+- Offline Playwright (`npm run test:e2e:offline`, production wasm build): 11 of 11 passed.
+- Server test `starting_tech`: the Winnu seat is asked first, the others wait, the answers are log decisions and `replay_session` reproduces the hashes; a state made without the choice has no `starting_tech_picks` key.
 
 ## 5. Rule bot A/B
 
-AB_PLACEHOLDER
+Self-play, `--factions winnu,argent` (seats a and b, the rest drawn), 4 and 6 players, seeds 1..450 each, **900 paired games** (same seeds, all victories), 4 workers. O = old (bot version 2, no choice: they start with nothing), R = choice offered, bot version 2 picks at random, N = choice offered, version 3 picks by plan. Paired difference per seed, mean with 95% interval:
+
+| | Winnu VP | Winnu VP/round | Winnu win rate | Argent VP | Argent VP/round | Argent win rate |
+|---|---|---|---|---|---|---|
+| O (nothing) | 5.79 | 0.868 | 10.2% | 7.67 | 1.179 | 31.8% |
+| R (random pick) | 5.96 | 0.907 | 13.7% | 7.70 | 1.205 | 33.9% |
+| N (plan pick) | 5.98 | 0.901 | 11.3% | 7.87 | 1.222 | 35.4% |
+| N - O | +0.19 +-0.19 | +0.033 +-0.027 | +1.1 +-2.7 pts | +0.19 +-0.18 | +0.042 +-0.032 | +3.7 +-4.0 pts |
+| N - R | +0.02 +-0.18 | -0.006 +-0.026 | -2.3 +-2.8 pts | +0.17 +-0.15 | +0.016 +-0.027 | +1.6 +-3.6 pts |
+
+Both factions improve in the point estimate when they get a technology (Winnu +0.19 VP, Argent +0.19 VP, about +4% VP per round), but no difference is larger than its 95% interval at 900 games: the effect of one or two level-0 technologies is small against the noise of a seven-round game. The plan pick beats a random pick only for Argent (Plasma Scoring plus Sarween Tools; +0.17 VP, interval just includes 0). The bot picks Sarween Tools for the Winnu every time and Plasma Scoring plus Sarween Tools for the Argent; other factions' mean VP did not move (6.71 O, 6.62 N). Rounds 6.68 O, 6.63 N.
+
+Golden benchmark (200 games, the 4p/6p set): old `baseline-v2.json` against the re-recorded `baseline.json` (bot version 3, `"starting_tech": true` in `golden.json`): 136 games hash-identical; the 64 games with a Winnu or Argent seat all differ and no other game does. Mean rounds 6.885 to 6.910, mean decisions 2262.9 to 2271.6, tied-at-top 6 to 6, 200 of 200 victories in both. Winnu (26 seat-games) mean VP 5.46 to 6.00, wins 2 to 4; Argent (44) 6.86 to 7.11, wins 8 to 11. `baseline-v2.json` is kept (`selfplay.sh bench-v2`, `golden-v2.json`); `baseline.json` is the new one, to be committed with this explanation.
+
+Not simulated: the Keleres (the lobby does not draw them; the Tribuni rule needs the base faction unseated) and the Thunder's Edge factions (cannot be seated).
 
 ## 6. Open decisions
 
-OPEN_PLACEHOLDER
+- Start presets (the test tables of the server and the smoke sweep: `combat`, `world`, ...) keep the fixed start and do not ask. Say if the nightly sweep should exercise the question; then `ti4_host::setup::create` should call `starting_tech::open` for presets too (their cases are applied after it).
+- Picks are asked one seat at a time in seat order, Keleres last. Alternative: ask all choosing seats at once (needs a multi-seat pending state, which the engine does not have).
+- Keleres: the rule comes from the Codex III wiki transcription ("any 2 non-faction technologies owned by other players", after the others, fewer if fewer exist). The printed sheet and the Thunder's Edge rules reference were not reachable; worth a look at the physical card, especially whether Thunder's Edge changed it.
+- Deepwrought "research twice during setup" is modelled as two free picks with prerequisites (no Carrina window, no research triggers, no Propagation). Not exercised by a seatable game here.
+- The bot always takes Sarween Tools with the Winnu. The effect is within noise; a faction-specific table (for example Antimass Deflectors for a fleet plan) could be tuned later with more games.
+- `web2` has no dedicated screen for the question (its generic choice list shows it); the page of `web/` has the technology-pick panel (screenshots EH).
+- The shared screenshot helper `openMockedGame` now routes `/api/catalog` to `fixtures/catalog/catalog.json`; without it every capture on this branch stops at "The cards could not be loaded" (the catalog fetch came with the PP merge).
+- Existing e2e specs that assume the draft is the first question (`empty_movement`, `multiplayer_invariants`, `gameplay_workflows`, `tactical_movement_combat`) use seeds whose drawn factions (nomad/muaat/letnev, nekro/l1z1x/naaz, yssaril/sardakk/nomad) do not choose, so they are unaffected; a new seed that draws a Winnu, Argent or Keleres seat would need to answer the question first.
