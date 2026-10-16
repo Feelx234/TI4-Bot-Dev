@@ -80,6 +80,7 @@ pub mod secondary_preview;
 pub mod secrets;
 pub mod setup;
 pub mod space_stations;
+pub mod starting_tech;
 pub mod status;
 pub mod strategy;
 pub mod strategy_cards;

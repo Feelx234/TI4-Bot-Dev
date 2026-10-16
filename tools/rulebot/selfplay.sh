@@ -3,7 +3,8 @@
 # See docs/RULE_BOT_OPTIMISATION.md.
 #
 #   tools/rulebot/selfplay.sh smoke            10 games, about a minute
-#   tools/rulebot/selfplay.sh bench            the golden set (200 games), checked against baseline.json
+#   tools/rulebot/selfplay.sh bench            the golden set (200 games, starting-technology choices on), checked against baseline.json
+#   tools/rulebot/selfplay.sh bench-v2         the same seeds as bot version 2 played them (no choice), checked against baseline-v2.json
 #   tools/rulebot/selfplay.sh ab k=v[,k=v] [N] candidate bot against the shipped bot on N tables (default 200)
 #   tools/rulebot/selfplay.sh complete         time to completion, 3..8 players, several maps, no cutoff
 #   tools/rulebot/selfplay.sh replay ARGS...   one game: --seed S --players N [--map M --factions ...] --text
@@ -42,6 +43,13 @@ case "$cmd" in
     # decides differently from the recorded baseline (expected only after a deliberate change).
     "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$out/bench.json" \
       --verify "$here/baseline.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench: hashes differ from baseline.json (see above)"; exit $rc; }
+    ;;
+  bench-v2)
+    build
+    # The shipped bot of version 2 on the golden seeds without the starting-technology choice:
+    # identical to baseline-v2.json proves the engine and the old bot still play the old games.
+    "$bin" run --config "$here/golden-v2.json" --bot bot_version=2 "${workers[@]}" --out "$out/bench-v2.json" \
+      --verify "$here/baseline-v2.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v2: hashes differ from baseline-v2.json (see above)"; exit $rc; }
     ;;
   ab)
     build

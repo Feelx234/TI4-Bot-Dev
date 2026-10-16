@@ -10,7 +10,15 @@ export const TechnologyPickPanel: React.FC<{ choice: PendingChoiceDto }> = ({ ch
   return (
     <div className="politics-panel" data-testid="technology-pick-panel">
       <div className="politics-panel__title">
-        {choice.prompt.split(":")[0]} <span className="politics-panel__tag">{stage.title}</span>
+        {choice.context?.subtype === "starting_technology" ? (
+          <span className="politics-panel__tag" data-testid="starting-technology-title">
+            {stage.title}
+          </span>
+        ) : (
+          <>
+            {choice.prompt.split(":")[0]} <span className="politics-panel__tag">{stage.title}</span>
+          </>
+        )}
       </div>
       <p className="text-muted">{stage.text}</p>
     </div>
@@ -26,6 +34,17 @@ export const TechnologyPickOptionNote: React.FC<{ choice: PendingChoiceDto; opti
   if (!info) return null;
   return (
     <div data-testid="technology-pick-note" style={{ fontSize: 12 }}>
+      {info.holders.length > 0 && (
+        <div className="text-muted" data-testid="technology-pick-holders">
+          Held by{" "}
+          {info.holders.map((seat, index) => (
+            <React.Fragment key={seat}>
+              {index > 0 ? ", " : ""}
+              <SeatTag seat={seat} />
+            </React.Fragment>
+          ))}
+        </div>
+      )}
       {info.owner && (
         <div className="text-muted" data-testid="technology-pick-owner">
           Owned by <SeatTag seat={info.owner} /> · you gain it, they keep theirs

@@ -94,19 +94,27 @@ tuning! {
     end_turn_rule: bool = false, "v2: end the turn when nothing else is wanted; always use a legendary planet's end-of-turn ability";
     secondary_rule: bool = false, "v2: from round 3, Diplomacy/Trade/Construction/Politics secondaries only with a spare token and where they pay";
     misc_rule: bool = true, "v2: ready the best planet, retreat to own systems, Trade replenishes nobody";
+    starting_tech_rule: bool = true, "v3: the starting technology of Winnu, Argent and the Keleres is chosen by the faction plan (v2: at random)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
 /// `v2:` knobs; a saved offline game records the version it was played with
 /// (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
-pub const BOT_VERSION: u32 = 2;
+pub const BOT_VERSION: u32 = 3;
 
-/// The tuning of bot version `version` (1 or 2; anything else: the current one).
+/// The tuning of bot version `version` (1, 2 or 3; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
-/// with a changed default: the compiler asks for its version-1 value.
+/// with a changed default: the compiler asks for its version-1 value. Version 2 is the current
+/// bot less the `v3:` knobs.
 #[must_use]
 pub fn for_version(version: u32) -> Tuning {
+    if version == 2 {
+        return Tuning {
+            starting_tech_rule: false,
+            ..Tuning::default()
+        };
+    }
     if version != 1 {
         return Tuning::default();
     }
@@ -148,6 +156,7 @@ pub fn for_version(version: u32) -> Tuning {
         end_turn_rule: false,
         secondary_rule: false,
         misc_rule: false,
+        starting_tech_rule: false,
     }
 }
 

@@ -412,6 +412,7 @@ pub fn action_id_for(
 pub fn stage_for(subtype: &str) -> Option<&'static str> {
     Some(match subtype {
         "draft_strategy_card" => "draft",
+        "starting_technology" => "setup",
         "score_objective" | "score_secret_objective" => "scoring",
         "cast_vote" | "vote_exhaust_planet" | "vote_tiebreak" => "voting",
         "propose_transaction" | "answer_transaction" => "transactions",
@@ -481,6 +482,14 @@ fn public_choice_detail(
         "draft_strategy_card" if option.kind == "strategy_card" => {
             format!("{actor} picked {}", strategy_card_name(id)?)
         }
+        // Technology cards lie face up in the play area from the start: a public fact.
+        "starting_technology" if option.kind == "starting_technology" => format!(
+            "{actor} starts with {}",
+            ti4_engine::technology::name(
+                ti4_content::ContentStore::embedded(),
+                &ti4_model::id::TechnologyId::new(id)
+            )
+        ),
         "activate_system" if option.kind == "activate" => format!("{actor} activated #{id}"),
         "gain_command_token" if option.kind == "pool" => {
             let pool = match id {

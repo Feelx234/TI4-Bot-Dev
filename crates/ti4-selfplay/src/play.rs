@@ -150,6 +150,7 @@ fn usage_key(subtype: &str, option: &ChoiceOption) -> Option<String> {
     const NAMED: &[&str] = &[
         "action_menu",
         "draft_strategy_card",
+        "starting_technology",
         "research_technology",
         "score_objective",
         "score_secret_objective",

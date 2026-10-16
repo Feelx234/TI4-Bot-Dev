@@ -1127,6 +1127,31 @@ pub struct ActiveInvasion {
     pub last_step: Option<InvasionStep>,
 }
 
+/// Where a starting-technology pick draws its options from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "from", content = "technologies", rename_all = "snake_case")]
+pub enum StartingTechSource {
+    /// One of these technologies (the faction sheet names them, or "any technology with no
+    /// prerequisites" was resolved to the cards in play when the game was made).
+    Listed(Vec<TechnologyId>),
+    /// A non-faction technology that another player owns (the Council Keleres).
+    OwnedByOthers,
+    /// A technology the seat could research now, prerequisites met, price waived ("research
+    /// technology twice" during setup: the Deepwrought Scholarate).
+    Researchable,
+}
+
+/// One starting technology a seat still has to pick: `remaining` of them from `source`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StartingTechPick {
+    pub player: PlayerId,
+    /// How many are to be picked in all (the Argent Flight: 2), for the prompt.
+    pub of: u8,
+    /// How many are still to pick.
+    pub remaining: u8,
+    pub source: StartingTechSource,
+}
+
 /// The whole game, as a value.
 ///
 /// `initiative_order` is derived from held strategy cards rather than stored, so it cannot
@@ -1217,6 +1242,13 @@ pub struct GameState {
     /// reproduces the recorded offers. Never set for a new game. Not compared.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub legacy_device_ids: bool,
+    /// Starting-technology picks still to make at the start of the game (the Winnu, the Argent
+    /// Flight, the Council Keleres, Thunder's Edge factions), first in line first. Empty for every
+    /// game that does not offer the choice -- all games made before it existed, whose seats were
+    /// dealt their fixed technologies at setup -- and not written then, so an `init.json` saved
+    /// earlier keeps its checksum. Compared.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub starting_tech_picks: Vec<StartingTechPick>,
     /// Every agenda vote that finished, in order, and how it came out. History for viewers (the
     /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1658,6 +1690,7 @@ impl PartialEq for GameState {
             && self.activation_seq == other.activation_seq
             && self.turn_seq == other.turn_seq
             && self.action_turn == other.action_turn
+            && self.starting_tech_picks == other.starting_tech_picks
             && self.feat_occurrence_seq == other.feat_occurrence_seq
             && self.scored_feat_occurrences == other.scored_feat_occurrences
             && self.combat_draw_round == other.combat_draw_round
@@ -1769,6 +1802,7 @@ impl GameState {
             planet_attachments: BTreeMap::new(),
             exploration_log: Vec::new(),
             legacy_device_ids: false,
+            starting_tech_picks: Vec::new(),
             agenda_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),

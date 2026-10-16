@@ -1283,6 +1283,14 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Starting technology (Winnu, Argent Flight, Keleres, Thunder's Edge picks): the front
+        // pick of `GameState::starting_tech_picks`, asked by the driver before the first draft.
+        module: "starting_tech.rs",
+        function: "choice",
+        count: 1,
+        delivery: Delivery::ObservedVia("game.rs::step"),
+    },
+    Producer {
         module: "strategy.rs",
         function: "secondary_question",
         count: 3,

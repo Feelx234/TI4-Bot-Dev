@@ -14,7 +14,8 @@
         "4pOuterRim"
       ],
       "map_policy": "cycle",
-      "seeds": "1..101"
+      "seeds": "1..101",
+      "starting_tech": true
     },
     {
       "name": "6p",
@@ -24,7 +25,8 @@
         "6pOuterRim"
       ],
       "map_policy": "cycle",
-      "seeds": "1..101"
+      "seeds": "1..101",
+      "starting_tech": true
     }
   ]
 }

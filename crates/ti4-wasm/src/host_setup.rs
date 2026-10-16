@@ -84,6 +84,12 @@ pub struct Setup {
     /// existed played version 1 ([`Start::settle_bot_version`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_version: Option<u32>,
+    /// Whether the seats that choose their starting technology are asked
+    /// ([`ti4_host::setup::TableSetup::starting_tech`]). Left out: on for a game that plays a
+    /// bot of version 3 or later ([`Start::settle_bot_version`]), so a save made before the choice
+    /// (bot version 2 or less) resumes without it. Not written while off, like the table's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub starting_tech: Option<bool>,
 }
 
 /// The format of the save of [`crate::host_session::HostSession::save_state`]. A save of another
@@ -460,6 +466,10 @@ impl Local {
     }
 }
 
+/// The first rule bot version of the games that ask for a starting technology (a new game plays
+/// the current version; a save records the one it was made with).
+pub const STARTING_TECH_FROM_BOT_VERSION: u32 = 3;
+
 /// Whether this build plays the rule bot of `version`.
 fn check_bot_version(version: u32) -> Result<(), String> {
     if (1..=ti4_rule_bot::tuning::BOT_VERSION).contains(&version) {
@@ -486,8 +496,19 @@ impl Start {
             None => ti4_rule_bot::tuning::BOT_VERSION,
         });
         check_bot_version(version)?;
+        // The starting-technology choice came with bot version 3: a game of an older bot is
+        // played as it was recorded, without it.
+        let choice = version >= STARTING_TECH_FROM_BOT_VERSION;
         if let Some(setup) = &mut self.setup {
             setup.bot_version = Some(version);
+            if setup.starting_tech.is_none() && choice {
+                setup.starting_tech = Some(true);
+            }
+        }
+        if let Some(table) = &mut self.table
+            && choice
+        {
+            table.setup.starting_tech = true;
         }
         Ok(version)
     }
@@ -547,6 +568,7 @@ impl Setup {
             speaker_order: self.speaker.unwrap_or_default(),
             start_from: self.scenario.clone(),
             preset: self.preset.clone(),
+            starting_tech: self.starting_tech == Some(true),
             seed: self.seed,
         }
     }

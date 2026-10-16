@@ -755,6 +755,27 @@ pub fn research_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opt
     None
 }
 
+/// The starting technology (bot version 3): the offered technology that comes first in the
+/// faction's plan, then in [`GENERAL`]; a technology on neither list comes last, by id.
+#[must_use]
+pub fn starting_tech_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    let own_list = seat_plan(seen, me).map_or(&[][..], |plan| plan.techs);
+    let order: Vec<&str> = own_list.iter().chain(GENERAL).copied().collect();
+    let rank = |alias: &str| {
+        order
+            .iter()
+            .position(|entry| entry.split('|').any(|a| a == alias))
+            .unwrap_or(usize::MAX)
+    };
+    choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| !o.is_decline())
+        .min_by_key(|(_, o)| (rank(&o.id), o.id.as_str()))
+        .map(|(index, _)| index)
+}
+
 // -- production ----------------------------------------------------------------------------------
 
 /// How many of the seat's units of `base` type are on the board (ships and ground forces).
