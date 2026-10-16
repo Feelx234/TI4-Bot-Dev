@@ -16737,7 +16737,30 @@ mod tests {
         ti4_model::id::SystemId,
         ti4_model::id::PlanetId,
     ) {
+        infiltrate_invasion_at(
+            ti4_model::state::RULES_VERSION,
+            b_structures,
+            holds_card,
+            spent_pds,
+            None,
+        )
+    }
+
+    /// [`infiltrate_invasion`] under rules version `rules_version`; with `script`, the game is
+    /// answered from that recorded list of choices (a replay) instead of the usual decider.
+    fn infiltrate_invasion_at(
+        rules_version: u32,
+        b_structures: &[&str],
+        holds_card: bool,
+        spent_pds: usize,
+        script: Option<Vec<String>>,
+    ) -> (
+        Game<'static>,
+        ti4_model::id::SystemId,
+        ti4_model::id::PlanetId,
+    ) {
         let (mut state, galaxy, system, planet) = invasion_fixture();
+        state.rules_version = rules_version;
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
         crate::fixtures::put(&mut state, &system, "destroyer", &a, 1);
@@ -16762,11 +16785,17 @@ mod tests {
             a.clone(),
             "reaction:generic:PLANET_CONTROL_GAINED:when".to_owned(),
         );
-        let table = Table::with_default(Box::new(InvasionDecider {
-            system: system.clone(),
-            commit: planet.clone(),
-            reactions,
-        }));
+        let decider: Box<dyn crate::choice::Decider> = match script {
+            Some(chosen) => Box::new(ScriptedDecider {
+                script: chosen.into(),
+            }),
+            None => Box::new(InvasionDecider {
+                system: system.clone(),
+                commit: planet.clone(),
+                reactions,
+            }),
+        };
+        let table = Table::with_default(decider);
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
         game.dice = Dice::from_faces([4; 24]);
         let mut guard = 0;
@@ -16775,6 +16804,115 @@ mod tests {
             guard += 1;
         }
         (game, system, planet)
+    }
+
+    /// Answers each ask with the next recorded choice, as a replay of a saved log does; fails
+    /// when that choice is not among the options offered.
+    struct ScriptedDecider {
+        script: std::collections::VecDeque<String>,
+    }
+
+    impl crate::choice::Decider for ScriptedDecider {
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            let wanted = self.script.pop_front().unwrap_or_default();
+            choice
+                .options
+                .iter()
+                .find(|o| o.id == wanted)
+                .cloned()
+                .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: format!("replay wanted {wanted:?}, offered {:?}", choice.options),
+                })
+        }
+    }
+
+    const INFILTRATE_WINDOW: &str = "reaction:generic:PLANET_CONTROL_GAINED:when";
+
+    fn recorded_choices(game: &Game) -> Vec<String> {
+        game.table
+            .log
+            .records
+            .iter()
+            .map(|r| r.chosen.clone())
+            .collect()
+    }
+
+    /// Rules version 0 (a game recorded before the Infiltrate fix) is offered the card after any
+    /// capture, even one with no rival structure, and spends it for nothing.
+    #[test]
+    fn legacy_infiltrate_is_offered_after_a_capture_without_rival_structures() {
+        let (game, system, planet) = infiltrate_invasion_at(0, &[], true, 0, None);
+        assert!(
+            recorded_choices(&game)
+                .iter()
+                .any(|c| c == INFILTRATE_WINDOW),
+            "offered and answered; log {:?}",
+            game.events
+        );
+        assert!(!a_holds_infiltrate(&game), "spent; log {:?}", game.events);
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry")]
+        );
+    }
+
+    /// Version 0 destroys the rival structures before the window opens, so the card replaces
+    /// the invader's own (none here) and the rival PDS and dock are simply gone.
+    #[test]
+    fn legacy_infiltrate_finds_no_rival_structure_to_replace() {
+        let (game, system, planet) =
+            infiltrate_invasion_at(0, &["pds", "spacedock"], true, 0, None);
+        assert!(!a_holds_infiltrate(&game), "offered and spent");
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry")],
+            "log {:?}",
+            game.events
+        );
+    }
+
+    /// Version 0 is offered it with the box empty too (no supply check on the offer).
+    #[test]
+    fn legacy_infiltrate_is_offered_with_the_box_empty() {
+        let (game, _, _) = infiltrate_invasion_at(0, &["pds"], true, 6, None);
+        assert!(!a_holds_infiltrate(&game), "offered and spent");
+    }
+
+    /// A version 0 log with the offer answered replays to the same events and state.
+    #[test]
+    fn a_legacy_log_with_an_infiltrate_offer_replays_identically() {
+        let (first, _, _) = infiltrate_invasion_at(0, &[], true, 0, None);
+        let log = recorded_choices(&first);
+        assert!(log.iter().any(|c| c == INFILTRATE_WINDOW));
+        let (again, _, _) = infiltrate_invasion_at(0, &[], true, 0, Some(log.clone()));
+        assert_eq!(again.events, first.events);
+        assert!(again.state == first.state, "same state after the replay");
+        assert_eq!(recorded_choices(&again), log);
+    }
+
+    /// A new game has the current rules version; a state saved without the field reads as 0, and
+    /// a version 0 state is written without it (so a legacy `init.json` keeps its bytes).
+    #[test]
+    fn rules_version_is_current_for_new_games_and_zero_for_old_saves() {
+        let (state, _, _, _) = invasion_fixture();
+        assert_eq!(state.rules_version, ti4_model::state::RULES_VERSION);
+        let mut json = serde_json::to_value(&state).unwrap();
+        assert_eq!(json["rules_version"], 1);
+        json.as_object_mut().unwrap().remove("rules_version");
+        let old: GameState = serde_json::from_value(json).unwrap();
+        assert_eq!(old.rules_version, 0);
+        let mut zero = state.clone();
+        zero.rules_version = 0;
+        assert!(
+            serde_json::to_value(&zero)
+                .unwrap()
+                .get("rules_version")
+                .is_none()
+        );
     }
 
     fn planet_units_of(

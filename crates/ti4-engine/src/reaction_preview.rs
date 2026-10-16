@@ -236,17 +236,33 @@ pub fn preview_for(
             let mut p = preview("replace_structures");
             let (system, planet, _, _) = state.last_control_gained.clone()?;
             // The rival PDS and space docks the card would swap out, as the effect reads them.
-            let standing: Vec<Unit> = crate::action_cards::infiltrate_swaps(
-                state,
-                content,
-                ti4_model::content_types::SourceSet::all(),
-                player,
-                &system,
-                &planet,
-            )
-            .into_iter()
-            .map(|(old, _)| old)
-            .collect();
+            let standing: Vec<Unit> = if state.rules_version
+                >= ti4_model::state::RULES_INFILTRATE_FIX
+            {
+                crate::action_cards::infiltrate_swaps(
+                    state,
+                    content,
+                    ti4_model::content_types::SourceSet::all(),
+                    player,
+                    &system,
+                    &planet,
+                )
+                .into_iter()
+                .map(|(old, _)| old)
+                .collect()
+            } else {
+                // Rules version 0: the card replaced the player's own structures.
+                state
+                    .system_state(&system)
+                    .on_planet(&planet)
+                    .iter()
+                    .filter(|unit| {
+                        &unit.owner == player
+                            && base(unit).is_some_and(|kind| kind == "pds" || kind == "spacedock")
+                    })
+                    .cloned()
+                    .collect()
+            };
             p.units = tally(&standing);
             if standing.is_empty() {
                 p.fizzles = Some("nothing_there".to_owned());

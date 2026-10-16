@@ -3935,6 +3935,39 @@ impl InvasionWindow {
         self.stage = Stage::Done;
     }
 
+    /// LRR 49: the rival structures left on a captured planet are destroyed as control changes
+    /// hands — whatever Assimilate did not convert. No rival ground force can stand here: the
+    /// invader holds the planet only because every one of them is dead.
+    fn destroy_rival_structures(
+        &self,
+        state: &mut GameState,
+        content: &ContentStore,
+        sources: SourceSet,
+        planet: &PlanetId,
+    ) {
+        let types = catalogue(content, sources);
+        let standing = state
+            .system_state(&self.system)
+            .planet_units
+            .get(planet)
+            .cloned()
+            .unwrap_or_default();
+        let doomed: Vec<Unit> = standing
+            .into_iter()
+            .filter(|unit| {
+                unit.owner != self.invader
+                    && types
+                        .get(unit.type_id.as_str())
+                        .is_some_and(UnitType::is_structure)
+            })
+            .collect();
+        if !doomed.is_empty() {
+            state
+                .system_mut(&self.system)
+                .remove_from_planet(planet, &doomed);
+        }
+    }
+
     fn finish_control_gain(
         &mut self,
         state: &mut GameState,
@@ -3953,6 +3986,9 @@ impl InvasionWindow {
             &self.system,
             planet,
         );
+        if state.rules_version < ti4_model::state::RULES_INFILTRATE_FIX {
+            self.destroy_rival_structures(state, content, sources, planet);
+        }
 
         // Two printed windows read "when you gain control of a planet", so a capture is
         // announced before the exploration that follows it. The former holder is named for
@@ -3975,31 +4011,11 @@ impl InvasionWindow {
         }
         let _ = ctx.emit(state, "PLANET_CONTROL_GAINED", payload);
 
-        // LRR 49: the rival structures left on a captured planet are destroyed as control
-        // changes hands — whatever Assimilate did not convert above. This waits for the capture
-        // window to close, because Infiltrate ("when you gain control") replaces them and so
-        // they must still stand while it is offered. No rival ground force can stand here: the
-        // invader holds the planet only because every one of them is dead.
-        let types = catalogue(content, sources);
-        let standing = state
-            .system_state(&self.system)
-            .planet_units
-            .get(planet)
-            .cloned()
-            .unwrap_or_default();
-        let doomed: Vec<Unit> = standing
-            .into_iter()
-            .filter(|unit| {
-                unit.owner != self.invader
-                    && types
-                        .get(unit.type_id.as_str())
-                        .is_some_and(UnitType::is_structure)
-            })
-            .collect();
-        if !doomed.is_empty() {
-            state
-                .system_mut(&self.system)
-                .remove_from_planet(planet, &doomed);
+        // This waits for the capture window to close, because Infiltrate ("when you gain
+        // control") replaces the rival structures and so they must still stand while it is
+        // offered (rules version 1; a version 0 game destroyed them before the window).
+        if state.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX {
+            self.destroy_rival_structures(state, content, sources, planet);
         }
 
         // Technology AFTER windows resolve before exploration. Integrated Economy is the first.

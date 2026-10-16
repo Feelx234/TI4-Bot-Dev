@@ -142,6 +142,11 @@ pub struct Resume {
     /// the setup's own; see [`Start::settle_bot_version`]).
     #[serde(default)]
     pub bot_version: Option<u32>,
+    /// The rules version the game was played with ([`ti4_model::state::GameState::rules_version`]).
+    /// A save made before the field existed has none: version 0, the rules it was recorded with.
+    /// Only a start without a resume (a new game) plays the current version.
+    #[serde(default)]
+    pub rules_version: Option<u32>,
     /// What each seat has staged and not sent (`ti4_host::staged`).
     #[serde(default)]
     pub staged: std::collections::BTreeMap<ti4_model::id::PlayerId, ti4_host::staged::SeatStaged>,

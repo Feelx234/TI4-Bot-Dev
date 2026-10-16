@@ -582,7 +582,8 @@ pub fn reaction_can_matter(
         // system" -- only a damaged unit gains anything.
         // Infiltrate: "When you gain control of a planet" -- the window only matters while the
         // planet holds somebody else's PDS or space dock and the box can replace one of them.
-        "infiltrate" => {
+        // Games of rules version 0 (recorded before this fix) are offered it after every capture.
+        "infiltrate" if state.rules_version >= ti4_model::state::RULES_INFILTRATE_FIX => {
             let Some(planet) = event.text("planet").map(ti4_model::id::PlanetId::new) else {
                 return true;
             };
@@ -1187,6 +1188,10 @@ fn infiltrate(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
     else {
         return;
     };
+    if context.state.rules_version < ti4_model::state::RULES_INFILTRATE_FIX {
+        infiltrate_legacy(context, player, &system, &planet);
+        return;
+    }
     let swaps = infiltrate_swaps(
         context.state,
         context.content,
@@ -1200,6 +1205,51 @@ fn infiltrate(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId)
             &planet,
             &old,
             Unit::new(new, player.clone()),
+        );
+    }
+}
+
+/// Infiltrate as games of rules version 0 played it, kept so their logs replay. The capture had
+/// already destroyed every structure that was not the new controller's, so the only PDS or space
+/// dock standing on the planet was the controller's own, and those were the units replaced, one
+/// for one (when the box still held that kind of unit).
+fn infiltrate_legacy(
+    context: &mut crate::timing::TimingContext<'_>,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+) {
+    let types = ti4_content::units::catalogue(context.content, context.sources);
+    let standing: Vec<ti4_model::units::Unit> = context
+        .state
+        .system_state(system)
+        .on_planet(planet)
+        .iter()
+        .filter(|unit| &unit.owner == player)
+        .filter(|unit| {
+            types
+                .get(unit.type_id.as_str())
+                .is_some_and(|kind| kind.base_type() == "pds" || kind.base_type() == "spacedock")
+        })
+        .cloned()
+        .collect();
+    for unit in standing {
+        if crate::supply::allowed(
+            context.state,
+            context.content,
+            context.sources,
+            player,
+            &unit.type_id,
+            1,
+        ) == 0
+        {
+            continue;
+        }
+        let kind = unit.type_id.clone();
+        context.state.system_mut(system).replace_planet_unit(
+            planet,
+            &unit,
+            ti4_model::units::Unit::new(kind, player.clone()),
         );
     }
 }

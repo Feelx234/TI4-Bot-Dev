@@ -1152,6 +1152,16 @@ pub struct StartingTechPick {
     pub source: StartingTechSource,
 }
 
+/// The rules version of a new game. Raise it when an engine decision changes in a way that an
+/// older game log would not replay under (and gate the change on
+/// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
+pub const RULES_VERSION: u32 = 1;
+
+/// The first rules version with the Infiltrate fix: offered only to the gaining player and only
+/// when a rival PDS or space dock can be replaced; the previous holder's structures are
+/// destroyed after the control-gain window closes; the card replaces the rival's structures.
+pub const RULES_INFILTRATE_FIX: u32 = 1;
+
 /// The whole game, as a value.
 ///
 /// `initiative_order` is derived from held strategy cards rather than stored, so it cannot
@@ -1395,6 +1405,14 @@ pub struct GameState {
     /// checksum covers its bytes) must serialize back to the bytes it was checksummed over.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub action_turn: u32,
+    /// The rules version this game is played with ([`RULES_VERSION`] for a new game). A game saved
+    /// before the field existed has none and is version 0: it keeps the rules it was recorded
+    /// with, so its log replays. See `docs/RULES_VERSION.md`.
+    ///
+    /// Not written while zero, so a legacy `init.json` serializes back to the bytes it was
+    /// checksummed over.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub rules_version: u32,
     /// Allocator for typed secret-objective trigger occurrences.
     ///
     /// This sequence affects replay-visible event identity and is included in structural equality.
@@ -1690,6 +1708,7 @@ impl PartialEq for GameState {
             && self.activation_seq == other.activation_seq
             && self.turn_seq == other.turn_seq
             && self.action_turn == other.action_turn
+            && self.rules_version == other.rules_version
             && self.starting_tech_picks == other.starting_tech_picks
             && self.feat_occurrence_seq == other.feat_occurrence_seq
             && self.scored_feat_occurrences == other.scored_feat_occurrences
@@ -1837,6 +1856,7 @@ impl GameState {
             negotiations_this_round: BTreeMap::new(),
             turn_seq: 0,
             action_turn: 0,
+            rules_version: RULES_VERSION,
             feat_occurrence_seq: 0,
             scored_feat_occurrences: BTreeSet::new(),
             vp_ledger: Vec::new(),
