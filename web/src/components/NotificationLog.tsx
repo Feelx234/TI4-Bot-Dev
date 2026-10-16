@@ -4,11 +4,11 @@ import type { ToastHistoryEntry } from "../presentation/toastHistory.ts";
 import "./NotificationLog.css";
 
 /**
- * The notification log of a single-player (offline) game: an icon button in the row of the
+ * The notification log of a game (offline or online, seat or spectator): an icon button in the row of the
  * Technologies / Objectives buttons that opens the list of every toast of the session, newest
  * first. The corner toasts feed it; the button and the list can sit anywhere in the page, so the
- * state lives in a context. Without the provider (online games) nothing here renders and the
- * "Recent notifications" pill under the corner toasts stays as it was.
+ * state lives in a context. Without the provider (isolated tests, embeds) nothing here renders and the
+ * "Recent notifications" pill under the corner toasts is the fallback.
  */
 
 interface Anchor {
@@ -19,7 +19,7 @@ interface Anchor {
 }
 
 interface NotificationLogState {
-  /** True inside the provider of a single-player game. */
+  /** True inside the provider of a game page. */
   inline: boolean;
   entries: readonly ToastHistoryEntry[];
   setEntries: (entries: readonly ToastHistoryEntry[]) => void;
@@ -93,7 +93,7 @@ export const NotificationLogProvider: React.FC<{ inline: boolean; children: Reac
   );
 };
 
-/** The icon-only toggle. Renders nothing outside a single-player game. */
+/** The icon-only toggle. Renders nothing outside the provider. */
 export const NotificationLogButton: React.FC<{ testId?: string }> = ({ testId = "toast-history-toggle" }) => {
   const log = useNotificationLog();
   if (!log.inline) return null;
