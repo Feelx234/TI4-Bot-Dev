@@ -189,7 +189,7 @@ impl SysCase {
     }
 }
 
-fn with_added(fleet: &[(String, usize)], id: &str, n: usize) -> Vec<(String, usize)> {
+pub(super) fn with_added(fleet: &[(String, usize)], id: &str, n: usize) -> Vec<(String, usize)> {
     let mut out = fleet.to_vec();
     match out.iter_mut().find(|(k, _)| k == id) {
         Some((_, c)) => *c += n,
@@ -199,7 +199,7 @@ fn with_added(fleet: &[(String, usize)], id: &str, n: usize) -> Vec<(String, usi
 }
 
 /// Production slots of the home system (docks' production values, as the engine counts them).
-fn home_slots(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
+pub(super) fn home_slots(seen: &Observed<'_>, me: &PlayerId, home: &SystemId) -> i64 {
     seen.system(home)
         .planet_units
         .iter()
@@ -245,7 +245,11 @@ impl Source {
 }
 
 /// The ways to get a production, as (source, tactic tokens, strategy tokens, odds).
-fn sources(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<(Source, i32, i32, f64)> {
+pub(super) fn sources(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    ctx: &PlanCtx,
+) -> Vec<(Source, i32, i32, f64)> {
     let mut out = Vec::new();
     if let Some(home) = crate::home_system(seen, me)
         && ctx.tactic_tokens >= 2
@@ -441,7 +445,7 @@ pub fn warfare(seen: &Observed<'_>, me: &PlayerId) -> WarfareAccess {
 
 /// Ground and fleet the seat has at `case.system` after gathering at `gather` (an activation next
 /// to it): the ships that could reach `gather` join those that reach the system.
-fn gathered(
+pub(super) fn gathered(
     seen: &Observed<'_>,
     me: &PlayerId,
     case: &SysCase,

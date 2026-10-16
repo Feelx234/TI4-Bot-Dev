@@ -130,6 +130,7 @@ tuning! {
     bw_prep_tech_strength: bool = false, "v4: prep layer, technology strength: a combat/upgrade technology wins the Mecatol fight, then act";
     bw_build_weight: f64 = 3.0, "v4: production weight added to a unit type a chosen backward plan wants built";
     bw_card_weight: f64 = 8.0, "v4: draft score per expected VP of a strategy card a chosen backward plan wants";
+    bw_fleet_shape: bool = false, "v4: planners of the fleet-shape group: fleet in one system, flagship placement, ground pile (with bw_enabled)";
     bw_territory: bool = true, "v4: planners of the territory group (with bw_enabled)";
     bw_fleet: bool = true, "v4: planners of the fleet group (with bw_enabled)";
     bw_payment: bool = true, "v4: planners of the spend group (with bw_enabled)";
@@ -244,6 +245,7 @@ fn v1() -> Tuning {
         bw_prep_tech_strength: false,
         bw_build_weight: 3.0,
         bw_card_weight: 8.0,
+        bw_fleet_shape: false,
         bw_territory: true,
         bw_fleet: true,
         bw_payment: true,

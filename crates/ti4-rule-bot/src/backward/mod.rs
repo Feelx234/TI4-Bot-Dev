@@ -47,6 +47,7 @@ use crate::tuning;
 
 pub mod combat;
 pub mod fleet;
+pub mod fleet_shape;
 pub mod mecatol;
 pub mod mecatol_two_step;
 pub mod payment;
@@ -79,6 +80,8 @@ pub struct Steer {
     pub play: Vec<String>,
     /// Technologies to pick when a research is offered (the prep of a technology step).
     pub techs: Vec<String>,
+    /// Systems whose invasion piles every ground force on one planet.
+    pub pile: Vec<SystemId>,
     /// Systems where ships and their cargo gather for the next activation (the movement hook
     /// moves everything there).
     pub gather: Vec<SystemId>,
@@ -181,6 +184,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     }
     if tuning::bw_fleet() {
         out.push(Box::new(fleet::Fleet));
+    }
+    if tuning::bw_fleet_shape() {
+        out.push(Box::new(fleet_shape::FleetShape));
     }
     if tuning::bw_payment() {
         out.push(Box::new(payment::Payment));
@@ -688,6 +694,7 @@ pub fn weigh(ctx: &PlanCtx, plans: Vec<Plan>) -> Verdict {
 
 thread_local! {
     static GATHER: std::cell::RefCell<Vec<SystemId>> = const { std::cell::RefCell::new(Vec::new()) };
+    static PILE: std::cell::RefCell<Vec<SystemId>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Whether `system` is a gather step of the plans chosen by the last [`verdict`] (the movement
@@ -695,6 +702,12 @@ thread_local! {
 #[must_use]
 pub fn gathering(system: &SystemId) -> bool {
     tuning::bw_enabled() && GATHER.with(|g| g.borrow().contains(system))
+}
+
+/// Whether `system` is a system whose invasion the last [`verdict`] wants piled on one planet.
+#[must_use]
+pub fn piling(system: &SystemId) -> bool {
+    tuning::bw_enabled() && PILE.with(|g| g.borrow().contains(system))
 }
 
 /// Plan the seat's turn. `None` when the layer is off or it is too early.
@@ -733,6 +746,17 @@ pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
                 .chosen
                 .iter()
                 .flat_map(|&i| verdict.plans[i].plan.steer.gather.iter().cloned())
+                .collect()
+        };
+    });
+    PILE.with(|g| {
+        *g.borrow_mut() = if verdict.fallback {
+            Vec::new()
+        } else {
+            verdict
+                .chosen
+                .iter()
+                .flat_map(|&i| verdict.plans[i].plan.steer.pile.iter().cloned())
                 .collect()
         };
     });
@@ -1473,6 +1497,158 @@ mod tests {
                 find(&["nm", "st", "ps"]).expect("some fleet is decided by cruiser II");
             assert_eq!(techs, vec!["cr2".to_owned()]);
             assert!(find(&[]).is_none(), "no technology to research, no plan");
+        });
+    }
+
+    // -- fleet shape --
+
+    fn shape_on() -> tuning::Tuning {
+        tuning::Tuning {
+            bw_fleet_shape: true,
+            bw_prep_build: true,
+            ..on()
+        }
+    }
+
+    /// Mecatol Rex in the centre, the Sol home with its dock and `home_ships` cruisers on the
+    /// ring, `other` cruisers on the next ring system, `alias` revealed.
+    fn shape_position(
+        alias: &str,
+        home_ships: usize,
+        other: usize,
+        trade_goods: i32,
+    ) -> (GameState, ti4_engine::fixtures::Hub) {
+        let (mut state, hub) = mecatol_position(0, 0);
+        state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new(alias)];
+        let mr = SystemId::new("18");
+        state.system_mut(&mr).planet_control.clear();
+        state.system_mut(&mr).planet_units.clear();
+        let home = state
+            .board
+            .iter()
+            .find(|(s, r)| s.as_str() != "18" && r.planet_control.values().any(|o| o == &me()))
+            .map(|(s, _)| s.clone())
+            .expect("home");
+        state.system_mut(&home).units.clear();
+        put(&mut state, &home, "cruiser", &me(), home_ships);
+        let next = SystemId::new(hub.outer[2].clone());
+        put(&mut state, &next, "cruiser", &me(), other);
+        let seat = state.player_mut(&me()).expect("seat");
+        seat.fleet_tokens = 9;
+        seat.trade_goods = trade_goods;
+        seat.faction = ti4_model::id::FactionId::new("sol");
+        (state, hub)
+    }
+
+    fn plan_for<'v>(v: &'v Verdict, alias: &str) -> Option<&'v Weighed> {
+        v.plans.iter().find(|w| w.plan.objective == alias)
+    }
+
+    #[test]
+    fn raise_a_fleet_gathers_the_ships_in_one_system() {
+        tuning::with(shape_on(), || {
+            let (state, hub) = shape_position("raise_fleet", 3, 2, 0);
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = plan_for(&v, "raise_fleet").expect("a plan");
+            assert_eq!(w.plan.steer.gather.len(), 1);
+            assert!(w.plan.reason.starts_with("gather"), "{:?}", w.plan);
+        });
+    }
+
+    #[test]
+    fn raise_a_fleet_builds_the_missing_ships_or_has_no_plan() {
+        tuning::with(shape_on(), || {
+            // Four ships all together: one more is built at the dock.
+            let (state, hub) = shape_position("raise_fleet", 4, 0, 0);
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = plan_for(&v, "raise_fleet").expect("a plan");
+            assert!(!w.plan.steer.builds.is_empty(), "{:?}", w.plan);
+            // Nothing within reach, nothing to build with.
+            let off = tuning::Tuning {
+                bw_prep_build: false,
+                ..shape_on()
+            };
+            tuning::with(off, || {
+                let (state, hub) = shape_position("raise_fleet", 2, 1, 0);
+                assert!(plan_for(&verdict_of(&state, &hub).expect("on"), "raise_fleet").is_none());
+            });
+        });
+    }
+
+    #[test]
+    fn a_flagship_is_built_when_it_can_be_paid() {
+        tuning::with(shape_on(), || {
+            let (state, hub) = shape_position("engineer_marvel", 1, 0, 8);
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = plan_for(&v, "engineer_marvel").expect("a plan");
+            assert!(
+                w.plan
+                    .steer
+                    .builds
+                    .iter()
+                    .any(|b| b.contains("flagship") || !b.is_empty())
+            );
+            let (poor, hub) = shape_position("engineer_marvel", 1, 0, 0);
+            assert!(plan_for(&verdict_of(&poor, &hub).expect("on"), "engineer_marvel").is_none());
+        });
+    }
+
+    #[test]
+    fn supremacy_moves_an_existing_flagship_to_mecatol_rex() {
+        tuning::with(shape_on(), || {
+            let (mut state, hub) = shape_position("supremacy", 1, 0, 0);
+            let flagship = ti4_content::units::catalogue(ContentStore::embedded(), POK)
+                .values()
+                .find(|t| t.base_type() == "flagship" && t.faction() == Some("sol"))
+                .map(|t| t.id().to_owned())
+                .expect("sol flagship");
+            put(
+                &mut state,
+                &SystemId::new(hub.outer[2].clone()),
+                &flagship,
+                &me(),
+                1,
+            );
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = plan_for(&v, "supremacy").expect("a plan");
+            assert!(
+                w.plan.steer.systems.iter().any(|s| s.as_str() == "18"),
+                "{:?}",
+                w.plan
+            );
+            // The same position without the flagship and without the means to build one.
+            let (poor, hub) = shape_position("supremacy", 1, 0, 0);
+            assert!(plan_for(&verdict_of(&poor, &hub).expect("on"), "supremacy").is_none());
+        });
+    }
+
+    #[test]
+    fn a_ground_pile_is_planned_from_the_forces_the_carriers_bring() {
+        tuning::with(shape_on(), || {
+            let (mut state, hub) = mecatol_position(0, 0);
+            let home = state
+                .board
+                .iter()
+                .find(|(s, r)| s.as_str() != "18" && r.planet_control.values().any(|o| o == &me()))
+                .map(|(s, _)| s.clone())
+                .expect("home");
+            put(&mut state, &home, "carrier", &me(), 2);
+            put(&mut state, &home, "infantry", &me(), 9);
+            state
+                .player_mut(&me())
+                .expect("seat")
+                .secret_objectives
+                .push(ti4_model::id::SecretObjectiveId::new("otf"));
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = plan_for(&v, "otf").expect("a plan");
+            assert_eq!(w.plan.steer.pile.len(), 1);
+            let (few, hub) = mecatol_position(3, 0);
+            let mut few = few;
+            few.player_mut(&me())
+                .expect("seat")
+                .secret_objectives
+                .push(ti4_model::id::SecretObjectiveId::new("otf"));
+            assert!(plan_for(&verdict_of(&few, &hub).expect("on"), "otf").is_none());
         });
     }
 
