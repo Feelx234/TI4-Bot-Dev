@@ -104,6 +104,7 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         play: prep.play.clone(),
         gather: prep.gather.clone(),
         techs: prep.techs.clone(),
+        ..Steer::default()
     };
     steer.systems.push(system);
     steer.cards.push("Imperial".to_owned());

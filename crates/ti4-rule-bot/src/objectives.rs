@@ -139,6 +139,15 @@ pub fn pick(
             crate::backward::mecatol_two_step::gather_move(choice, observed)
         };
     }
+    // Backward planning, ground pile: every ground force on one planet of the planned system.
+    if subtype == Some("commit_ground_forces")
+        && observed
+            .active_system()
+            .is_some_and(crate::backward::piling)
+        && let Some(index) = choice.options.iter().position(|o| o.kind == "commit")
+    {
+        return Some(index);
+    }
     match subtype {
         Some("activate_system") => return pick_activation(choice, seen, me),
         Some("movement_step") => return pick_move(choice, seen, me),

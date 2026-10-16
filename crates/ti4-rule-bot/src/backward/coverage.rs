@@ -152,12 +152,13 @@ pub fn sorted(covers: &[&str]) -> Vec<String> {
 /// Every planner with its file name, in dispatcher order.
 pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
     use super::{
-        abilities, agenda, combat, fleet, holdings, payment, production, structures, technology,
-        territory,
+        abilities, agenda, combat, fleet, fleet_shape, holdings, payment, production, structures,
+        technology, territory,
     };
     vec![
         ("territory", Box::new(territory::Territory)),
         ("fleet", Box::new(fleet::Fleet)),
+        ("fleet_shape", Box::new(fleet_shape::FleetShape)),
         ("payment", Box::new(payment::Payment)),
         ("technology", Box::new(technology::Technology)),
         ("combat", Box::new(combat::Combat)),
@@ -184,6 +185,7 @@ fn the_registry_is_the_planner_list() {
     all.bw_combat_abilities = true;
     all.bw_agenda = true;
     all.bw_holdings = true;
+    all.bw_fleet_shape = true;
     assert_eq!(
         crate::tuning::with(all, || registry().len()),
         planners().len()
@@ -209,7 +211,17 @@ fn print_coverage_table() {
             if r.public { "public" } else { "secret" },
             r.points,
             r.family.as_deref().unwrap_or("(no progress)"),
-            covered_by(&r).unwrap_or("NONE"),
+            covered_by(&r).map_or_else(
+                || {
+                    crate::backward::unsteerable::UNSTEERABLE
+                        .iter()
+                        .find(|(a, _)| *a == r.alias)
+                        .map_or("NONE".to_owned(), |(_, why)| {
+                            format!("NONE: unsteerable ({why})")
+                        })
+                },
+                str::to_owned,
+            ),
         );
     }
 }
