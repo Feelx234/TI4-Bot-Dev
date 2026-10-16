@@ -61,6 +61,7 @@ pub mod production;
 pub mod structures;
 pub mod technology;
 pub mod territory;
+pub mod ttfd;
 pub mod unsteerable;
 
 /// What a plan costs this turn.
@@ -214,6 +215,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     if tuning::bw_holdings() {
         out.push(Box::new(holdings::Holdings));
     }
+    if tuning::bw_ttfd() {
+        out.push(Box::new(ttfd::Ttfd));
+    }
     if tuning::bw_production() {
         out.push(Box::new(production::Production));
     }
@@ -247,6 +251,9 @@ impl PlanCtx {
                 }
                 if tuning::bw_agenda() {
                     goals.extend(agenda::event_goals(seen));
+                }
+                if tuning::bw_ttfd() {
+                    goals.extend(ttfd::event_goals(seen));
                 }
                 goals
             },

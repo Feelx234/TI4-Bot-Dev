@@ -285,6 +285,7 @@ fn snapshot(sn: &Snap, round: u32, label: &str) -> Value {
             "tac": p.tactic_tokens, "fleet": p.fleet_tokens, "strat": p.strategic_tokens,
             "tg": p.trade_goods, "comm": p.commodities, "ac": p.action_cards.len(),
             "secrets_held": p.secret_objectives.len(),
+            "secret_ids": p.secret_objectives.iter().map(|s| s.as_str().to_owned()).collect::<Vec<_>>(),
             "home_ctrl": p.home_planets.iter().filter(|hp| state.board.values().any(|sy| sy.planet_control.get(*hp).is_some_and(|o| *o == p.id))).count(),
             "home_total": p.home_planets.len(),
             "scored": scored.iter().map(|o| o.as_str().to_owned()).collect::<Vec<_>>(),

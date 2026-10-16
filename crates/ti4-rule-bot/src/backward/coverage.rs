@@ -153,7 +153,7 @@ pub fn sorted(covers: &[&str]) -> Vec<String> {
 pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
     use super::{
         abilities, agenda, combat, fleet, fleet_shape, holdings, payment, production, structures,
-        technology, territory,
+        technology, territory, ttfd,
     };
     vec![
         ("territory", Box::new(territory::Territory)),
@@ -166,6 +166,7 @@ pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
         ("abilities", Box::new(abilities::Abilities)),
         ("agenda", Box::new(agenda::Agenda)),
         ("holdings", Box::new(holdings::Holdings)),
+        ("ttfd", Box::new(ttfd::Ttfd)),
         ("production", Box::new(production::Production)),
     ]
 }
@@ -185,6 +186,7 @@ fn the_registry_is_the_planner_list() {
     all.bw_combat_abilities = true;
     all.bw_agenda = true;
     all.bw_holdings = true;
+    all.bw_ttfd = true;
     all.bw_fleet_shape = true;
     assert_eq!(
         crate::tuning::with(all, || registry().len()),

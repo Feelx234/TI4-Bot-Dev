@@ -139,6 +139,7 @@ tuning! {
     bw_combat_abilities: bool = false, "v4 (B): planners of the ability secrets (uf, baf, fwp, mew; with bw_enabled)";
     bw_agenda: bool = false, "v4 (B): the agenda secrets' votes and planner (dtd, dp; with bw_enabled)";
     bw_holdings: bool = false, "v4 (B): the holding secrets' hooks and planner (fsn, dhw, sb; with bw_enabled)";
+    bw_ttfd: bool = false, "v4 (B): a PDS on or beside Mecatol Rex for Turn Their Fleets to Dust (with bw_enabled)";
     bw_production: bool = false, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
 }
 
@@ -258,6 +259,7 @@ fn v1() -> Tuning {
         bw_combat_abilities: false,
         bw_agenda: false,
         bw_holdings: false,
+        bw_ttfd: false,
         bw_production: false,
     }
 }

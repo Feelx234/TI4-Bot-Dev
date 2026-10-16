@@ -6,16 +6,11 @@
 //! | alias | name | kind | points | why it is unsteerable |
 //! |---|---|---|---|---|
 //! | `bam` | Become a Martyr | secret | 1 | "Lose control of a planet in a home system": an anti-goal; the only route is to lose a home planet to a rival, which costs more than the point |
-//! | `ttfd` | Turn Their Fleets to Dust | secret | 1 | space cannon offense destroys the last non-fighters of a rival that activates a system with the seat's PDS; the rival's move decides, the seat can only own PDS (the structure choice already values them) |
 //! | `pe` | Prove Endurance | secret | 1 | "Be the last player to pass": scored 41% of the time unsteered; outlasting the table means spending command tokens on actions worth nothing, which costs more than the point |
 
 /// Alias and reason of every unsteerable secret, as documented at the top of the file.
 pub const UNSTEERABLE: &[(&str, &str)] = &[
     ("bam", "anti-goal: scored only by losing a home planet"),
-    (
-        "ttfd",
-        "depends on a rival activating a system with the seat's PDS",
-    ),
     (
         "pe",
         "outlasting the table wastes command tokens; already scored 41% unsteered",
@@ -31,7 +26,7 @@ mod tests {
     fn lists_exactly_the_documented_objectives() {
         let mut listed: Vec<&str> = UNSTEERABLE.iter().map(|(a, _)| *a).collect();
         listed.sort_unstable();
-        assert_eq!(listed, ["bam", "pe", "ttfd"]);
+        assert_eq!(listed, ["bam", "pe"]);
         // And no planner covers them.
         for row in rows() {
             if listed.contains(&row.alias.as_str()) {
