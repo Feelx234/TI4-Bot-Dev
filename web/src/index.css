@@ -4167,6 +4167,21 @@ select:focus-visible,
     padding: 12px;
     flex-wrap: wrap;
   }
+  /* The drawer is a column: with wrap, a bounded height spills the planet list and footer into a
+     second column off the right edge of the screen. */
+  .decision-modal .payment-drawer {
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .decision-modal .payment-drawer > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .payment-drawer__problem,
+  .payment-drawer__planet,
+  .payment-drawer__tally .workflow-card--row {
+    overflow-wrap: anywhere;
+  }
   .choice-workflow-modal {
     padding: 12px;
   }

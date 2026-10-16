@@ -219,6 +219,10 @@
   .payment-drawer__footer {
     flex-wrap: wrap;
     justify-content: stretch;
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: var(--color-surface);
   }
   .payment-drawer__footer .button {
     flex: 1 1 140px;
