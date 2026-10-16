@@ -201,6 +201,18 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             .and_then(|i| keep.get(i).copied())
             .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
     }
+    // -- backward planning, holdings (backward/holdings.rs, knob bw_holdings): spend nothing a held
+    // secret needs, accept a rival's Support for the Throne for Strengthen Bonds --
+    if let Some(index) = backward::holdings::answer(choice, seen, &me) {
+        return Some(index);
+    }
+    if let Some(keep) = backward::holdings::keep(choice, seen, &me) {
+        let mut narrowed = choice.clone();
+        narrowed.options = keep.iter().map(|&i| choice.options[i].clone()).collect();
+        return pick(&narrowed, seen, rng)
+            .and_then(|i| keep.get(i).copied())
+            .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
+    }
     // -- answers to formerly random questions (answers.rs, bot version 2) --
     if subtype != Some("ready_planet")
         && let Some(index) = answers::pick_with(

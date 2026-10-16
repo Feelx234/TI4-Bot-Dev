@@ -51,6 +51,7 @@ pub mod combat;
 #[cfg(test)]
 mod coverage;
 pub mod fleet;
+pub mod holdings;
 pub mod mecatol;
 pub mod mecatol_two_step;
 pub mod payment;
@@ -59,6 +60,7 @@ pub mod production;
 pub mod structures;
 pub mod technology;
 pub mod territory;
+pub mod unsteerable;
 
 /// What a plan costs this turn.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -202,6 +204,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     }
     if tuning::bw_agenda() {
         out.push(Box::new(agenda::Agenda));
+    }
+    if tuning::bw_holdings() {
+        out.push(Box::new(holdings::Holdings));
     }
     if tuning::bw_production() {
         out.push(Box::new(production::Production));
