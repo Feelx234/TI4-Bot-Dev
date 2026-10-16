@@ -53,6 +53,7 @@ pub mod mecatol;
 pub mod mecatol_two_step;
 pub mod payment;
 pub mod prep;
+pub mod production;
 pub mod structures;
 pub mod technology;
 pub mod territory;
@@ -193,6 +194,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     if tuning::bw_combat() {
         out.push(Box::new(combat::Combat));
         out.push(Box::new(structures::Structures));
+    }
+    if tuning::bw_production() {
+        out.push(Box::new(production::Production));
     }
     out
 }

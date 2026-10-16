@@ -135,6 +135,7 @@ tuning! {
     bw_payment: bool = true, "v4: planners of the spend group (with bw_enabled)";
     bw_technology: bool = true, "v4: planners of the technology group (with bw_enabled)";
     bw_combat: bool = true, "v4: planners of the combat and other group (with bw_enabled)";
+    bw_production: bool = false, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -249,6 +250,7 @@ fn v1() -> Tuning {
         bw_payment: true,
         bw_technology: true,
         bw_combat: true,
+        bw_production: false,
     }
 }
 

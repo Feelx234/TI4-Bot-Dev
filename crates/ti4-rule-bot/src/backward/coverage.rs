@@ -151,7 +151,7 @@ pub fn sorted(covers: &[&str]) -> Vec<String> {
 
 /// Every planner with its file name, in dispatcher order.
 pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
-    use super::{combat, fleet, payment, structures, technology, territory};
+    use super::{combat, fleet, payment, production, structures, technology, territory};
     vec![
         ("territory", Box::new(territory::Territory)),
         ("fleet", Box::new(fleet::Fleet)),
@@ -159,6 +159,7 @@ pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
         ("technology", Box::new(technology::Technology)),
         ("combat", Box::new(combat::Combat)),
         ("structures", Box::new(structures::Structures)),
+        ("production", Box::new(production::Production)),
     ]
 }
 
@@ -172,7 +173,12 @@ pub fn covered_by(row: &Row) -> Option<&'static str> {
 
 #[test]
 fn the_registry_is_the_planner_list() {
-    assert_eq!(registry().len(), planners().len());
+    let mut all = crate::tuning::Tuning::default();
+    all.bw_production = true;
+    assert_eq!(
+        crate::tuning::with(all, || registry().len()),
+        planners().len()
+    );
 }
 
 #[test]

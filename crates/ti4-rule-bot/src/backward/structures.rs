@@ -138,7 +138,7 @@ fn room_of(seen: &Observed<'_>, me: &PlayerId) -> Room {
     room
 }
 
-fn construction_open(seen: &Observed<'_>, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
+pub fn construction_open(seen: &Observed<'_>, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
     seat.strategy_cards.iter().any(|c| {
         !seat.exhausted_strategy_cards.contains(c)
             && ti4_engine::strategy_cards::card_name(seen.content(), c.as_str()).as_deref()
