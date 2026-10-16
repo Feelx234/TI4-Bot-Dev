@@ -25,7 +25,7 @@
 use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_model::id::{PlayerId, SystemId};
 
-use super::{Cost, ObjectivePlanner, Plan, PlanCtx, Steer, Step};
+use super::{ObjectivePlanner, Plan, PlanCtx, Route, Step};
 use crate::objectives::Goal;
 use crate::{home_system, is_ship};
 
@@ -184,37 +184,24 @@ impl ObjectivePlanner for Combat {
     fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         let observed = obs.observed();
         let alias = ctx.goal.alias.as_str();
-        if ctx.tactic_tokens < 1 {
-            return None;
-        }
+        // A prepared step (build or Warfare move first) also needs its tactic tokens.
         let staged: Vec<(usize, f64, f64)> = ctx
             .steps
             .iter()
             .enumerate()
+            .filter(|(_, step)| ctx.tactic_tokens >= 1 + step.prep.as_ref().map_or(0, |p| p.tokens))
             .filter_map(|(i, step)| {
                 factor(observed, &ctx.me, alias, step).map(|f| (i, step.success, f))
             })
             .collect();
         let pairs: Vec<(f64, f64)> = staged.iter().map(|&(_, s, f)| (s, f)).collect();
         let (i, success, f) = staged[best_option(&pairs)?];
-        let step = &ctx.steps[i];
-        Some(Plan {
-            objective: ctx.goal.alias.clone(),
-            points: ctx.goal.points,
+        let route = Route {
+            steps: vec![i],
             probability: success * f,
-            cost: Cost {
-                tokens: 1,
-                resources: 0,
-                activations: 1,
-            },
-            steer: Steer {
-                systems: vec![step.system.clone()],
-                ..Steer::default()
-            },
-            reason: format!("{alias}: fight in {}", step.system),
-            payment: false,
-            secret: true,
-        })
+        };
+        let system = &ctx.steps[i].system;
+        Some(ctx.plan_of(&route, format!("{alias}: fight in {system}")))
     }
 }
 
