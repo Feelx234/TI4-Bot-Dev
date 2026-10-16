@@ -3,7 +3,7 @@ import { BoardView, ChoiceOptionDto, PendingChoiceDto } from "../protocol/types.
 import { Dialog } from "../primitives/index.ts";
 import { usePipelineRunner, SemanticIntent } from "../hooks/usePipelineRunner.ts";
 import { ChoiceRendererModel, isDeclineOption } from "../presentation/choiceModel.ts";
-import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
+import { useParticipantText, useIsSeat, usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { findStrategyCardMeta } from "../protocol/contentCatalog.ts";
 import {
   describeCardOption,
@@ -84,7 +84,18 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
   onSelectOptions,
   boardView,
 }) => {
-  const present = useParticipantText();
+  const presentText = useParticipantText();
+  const isSeat = useIsSeat();
+  const seatName = usePlayerIdentity();
+  /** A player option ("elect a") names the player rather than the raw seat id. */
+  const present = (text: string) => presentText(text);
+  const presentOption = (opt: { id: string; kind?: string; label: string }) =>
+    (opt.kind === "player" || opt.kind === "vote") && isSeat(opt.id)
+      ? opt.label.replace(
+          new RegExp(`(^|\\s)${opt.id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|\\s)`),
+          (_m, lead: string) => `${lead}${seatName(opt.id).label}`,
+        )
+      : present(opt.label);
   const planetResources = usePlanetResources();
   const [uncontrolledSelectedOptionId, setUncontrolledSelectedOptionId] = useState<string>("");
   const [uncontrolledSelectedOptionIds, setUncontrolledSelectedOptionIds] = useState<string[]>([]);
@@ -562,7 +573,7 @@ export const PendingChoiceModal: React.FC<PendingChoiceModalProps> = ({
                           style={{ fontWeight: 600, color: isChecked ? "#38bdf8" : "#e2e8f0" }}
                         >
                           <span>
-                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? present(opt.label))}
+                            {card ? `${card.initiative}. ${card.name}` : (handCard?.title ?? pickOptionTitle(choice, opt, boardView) ?? describeRemoveUnit(choice, boardView)?.option(opt).title ?? describeUnitAbilityOption(choice, opt, boardView)?.title ?? presentOption(opt))}
                           </span>
                           {card && showGoods && <StrategyGoodsBadge option={opt} />}
                         </div>
