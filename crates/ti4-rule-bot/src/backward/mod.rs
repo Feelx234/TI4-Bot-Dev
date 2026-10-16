@@ -48,6 +48,7 @@ use crate::tuning;
 pub mod fleet;
 pub mod mecatol;
 pub mod payment;
+pub mod technology;
 pub mod territory;
 
 /// What a plan costs this turn.
@@ -170,6 +171,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     }
     if tuning::bw_payment() {
         out.push(Box::new(payment::Payment));
+    }
+    if tuning::bw_technology() {
+        out.push(Box::new(technology::Technology));
     }
     out
 }
