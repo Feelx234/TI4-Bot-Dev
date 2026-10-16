@@ -151,7 +151,7 @@ pub fn sorted(covers: &[&str]) -> Vec<String> {
 
 /// Every planner with its file name, in dispatcher order.
 pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
-    use super::{combat, fleet, payment, production, structures, technology, territory};
+    use super::{abilities, combat, fleet, payment, production, structures, technology, territory};
     vec![
         ("territory", Box::new(territory::Territory)),
         ("fleet", Box::new(fleet::Fleet)),
@@ -159,6 +159,7 @@ pub fn planners() -> Vec<(&'static str, Box<dyn ObjectivePlanner>)> {
         ("technology", Box::new(technology::Technology)),
         ("combat", Box::new(combat::Combat)),
         ("structures", Box::new(structures::Structures)),
+        ("abilities", Box::new(abilities::Abilities)),
         ("production", Box::new(production::Production)),
     ]
 }
@@ -175,6 +176,7 @@ pub fn covered_by(row: &Row) -> Option<&'static str> {
 fn the_registry_is_the_planner_list() {
     let mut all = crate::tuning::Tuning::default();
     all.bw_production = true;
+    all.bw_combat_abilities = true;
     assert_eq!(
         crate::tuning::with(all, || registry().len()),
         planners().len()
@@ -203,4 +205,49 @@ fn print_coverage_table() {
             covered_by(&r).unwrap_or("NONE"),
         );
     }
+}
+
+struct PlanProbe<'p>(&'p dyn ObjectivePlanner, Vec<super::Plan>);
+impl Decider for PlanProbe<'_> {
+    fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+        Ok(choice.options[0].clone())
+    }
+    fn choose_seeing(
+        &mut self,
+        choice: &Choice,
+        seen: &SeatObservation<'_>,
+    ) -> Result<ChoiceOption, IllegalChoice> {
+        let mut ctx = super::PlanCtx::new(seen, &PlayerId::new("a"));
+        for goal in ctx.goals.clone() {
+            ctx.goal = goal;
+            if let Some(plan) = self.0.plan(seen, &ctx) {
+                self.1.push(plan);
+            }
+        }
+        Ok(choice.options[0].clone())
+    }
+}
+
+/// The plans `planner` makes for every goal of seat `a` in `state`.
+pub fn plans_of(
+    planner: &dyn ObjectivePlanner,
+    state: &ti4_model::state::GameState,
+    galaxy: Option<&ti4_content::galaxy::Galaxy>,
+) -> Vec<super::Plan> {
+    let mut probe = PlanProbe(planner, Vec::new());
+    let choice = Choice::new(
+        PlayerId::new("a"),
+        "x",
+        vec![ChoiceOption::labelled("o", "o", "o")],
+    );
+    ti4_engine::choice::ask_private(
+        &choice,
+        state,
+        ContentStore::embedded(),
+        POK,
+        galaxy,
+        &mut probe,
+    )
+    .expect("legal");
+    probe.1
 }

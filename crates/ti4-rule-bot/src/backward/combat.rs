@@ -43,10 +43,16 @@ pub const THREE_SHIPS: f64 = 0.8;
 /// [`crate::objectives::goals`].
 #[must_use]
 pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<Goal> {
+    event_goals_of(seen, IDS)
+}
+
+/// The held secrets among `ids` as event goals (see [`event_goals`]).
+#[must_use]
+pub fn event_goals_of(seen: &SeatObservation<'_>, ids: &[&str]) -> Vec<Goal> {
     seen.held_secrets()
         .iter()
         .map(ti4_model::id::SecretObjectiveId::as_str)
-        .filter(|alias| IDS.contains(alias))
+        .filter(|alias| ids.contains(alias))
         .map(|alias| Goal {
             alias: alias.to_owned(),
             secret: true,
@@ -60,7 +66,7 @@ pub fn event_goals(seen: &SeatObservation<'_>) -> Vec<Goal> {
         .collect()
 }
 
-fn others_in(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<PlayerId> {
+pub(crate) fn others_in(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<PlayerId> {
     let board = seen.system(system);
     let mut out: Vec<PlayerId> = board
         .units
@@ -92,7 +98,7 @@ fn leader(seen: &Observed<'_>, me: &PlayerId) -> Option<PlayerId> {
     }
 }
 
-fn hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
+pub(crate) fn hostile_ships(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> bool {
     seen.system(system)
         .units
         .iter()
@@ -182,27 +188,38 @@ impl ObjectivePlanner for Combat {
     }
 
     fn plan(&self, obs: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
-        let observed = obs.observed();
-        let alias = ctx.goal.alias.as_str();
-        // A prepared step (build or Warfare move first) also needs its tactic tokens.
-        let staged: Vec<(usize, f64, f64)> = ctx
-            .steps
-            .iter()
-            .enumerate()
-            .filter(|(_, step)| ctx.tactic_tokens >= 1 + step.prep.as_ref().map_or(0, |p| p.tokens))
-            .filter_map(|(i, step)| {
-                factor(observed, &ctx.me, alias, step).map(|f| (i, step.success, f))
-            })
-            .collect();
-        let pairs: Vec<(f64, f64)> = staged.iter().map(|&(_, s, f)| (s, f)).collect();
-        let (i, success, f) = staged[best_option(&pairs)?];
-        let route = Route {
-            steps: vec![i],
-            probability: success * f,
-        };
-        let system = &ctx.steps[i].system;
-        Some(ctx.plan_of(&route, format!("{alias}: fight in {system}")))
+        stage_plan(obs, ctx, factor)
     }
+}
+
+/// The one-step plan of an event secret: the step (plain or prepared) whose system stages the
+/// event with the best `success x factor`, where `factor` says whether and how well a step
+/// stages the goal's alias.
+pub fn stage_plan(
+    obs: &SeatObservation<'_>,
+    ctx: &PlanCtx,
+    factor: impl Fn(&Observed<'_>, &PlayerId, &str, &Step) -> Option<f64>,
+) -> Option<Plan> {
+    let observed = obs.observed();
+    let alias = ctx.goal.alias.as_str();
+    // A prepared step (build or Warfare move first) also needs its tactic tokens.
+    let staged: Vec<(usize, f64, f64)> = ctx
+        .steps
+        .iter()
+        .enumerate()
+        .filter(|(_, step)| ctx.tactic_tokens >= 1 + step.prep.as_ref().map_or(0, |p| p.tokens))
+        .filter_map(|(i, step)| {
+            factor(observed, &ctx.me, alias, step).map(|f| (i, step.success, f))
+        })
+        .collect();
+    let pairs: Vec<(f64, f64)> = staged.iter().map(|&(_, s, f)| (s, f)).collect();
+    let (i, success, f) = staged[best_option(&pairs)?];
+    let route = Route {
+        steps: vec![i],
+        probability: success * f,
+    };
+    let system = &ctx.steps[i].system;
+    Some(ctx.plan_of(&route, format!("{alias}: fight in {system}")))
 }
 
 #[cfg(test)]

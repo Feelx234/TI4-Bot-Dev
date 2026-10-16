@@ -45,6 +45,7 @@ use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use crate::objectives::{self, Goal};
 use crate::tuning;
 
+pub mod abilities;
 pub mod combat;
 #[cfg(test)]
 mod coverage;
@@ -195,6 +196,9 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
         out.push(Box::new(combat::Combat));
         out.push(Box::new(structures::Structures));
     }
+    if tuning::bw_combat_abilities() {
+        out.push(Box::new(abilities::Abilities));
+    }
     if tuning::bw_production() {
         out.push(Box::new(production::Production));
     }
@@ -222,6 +226,9 @@ impl PlanCtx {
                 // Event secrets have no progress in the engine; the combat group lists them.
                 if tuning::bw_combat() {
                     goals.extend(combat::event_goals(seen));
+                }
+                if tuning::bw_combat_abilities() {
+                    goals.extend(abilities::event_goals(seen));
                 }
                 goals
             },
