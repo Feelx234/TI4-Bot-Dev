@@ -86,7 +86,8 @@ fn main() -> Result<(), String> {
 
         // A `local` game (the page's own table) has no `setup` to record the version in: the
         // save must still carry it.
-        let local = json!({ "local": { "seed": seed, "players": 3, "humans": 1, "rule_seats": 6 } });
+        let local =
+            json!({ "local": { "seed": seed, "players": 3, "humans": 1, "rule_seats": 6 } });
         let (_, _, save, _) = play(&local, Some(asks))?;
         let version = save.get("bot_version").cloned().unwrap_or(Value::Null);
         let (_, _, _, check) = play(&json!({ "resume": save }), Some(0))?;
@@ -125,7 +126,10 @@ fn main() -> Result<(), String> {
         if let Some(object) = save.as_object_mut() {
             object.remove("bot_version");
         }
-        if let Some(setup) = save.pointer_mut("/game/setup").and_then(Value::as_object_mut) {
+        if let Some(setup) = save
+            .pointer_mut("/game/setup")
+            .and_then(Value::as_object_mut)
+        {
             setup.remove("bot_version");
         }
         let (_, _, _, check) = play(&json!({ "resume": save }), Some(0))?;

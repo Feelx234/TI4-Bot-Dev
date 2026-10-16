@@ -184,10 +184,7 @@ fn a_new_game_asks_the_winnu_for_their_starting_technology_and_a_version_2_game_
     let (seat, subtype, ids) = first_question(&base);
     assert_eq!(subtype, "starting_technology");
     assert_eq!(seat, "a");
-    assert_eq!(
-        ids,
-        ["aida", "amd", "det", "nm", "pa", "ps", "sdn", "st"]
-    );
+    assert_eq!(ids, ["aida", "amd", "det", "nm", "pa", "ps", "sdn", "st"]);
     // A game of bot version 2 (a save made before the choice) is played as it was: the first
     // question is the strategy card draft.
     let mut old = base.clone();

@@ -103,21 +103,19 @@ pub fn options(
                 .filter(|t| crate::technology::faction_of(content, t).is_none())
                 .collect()
         }
-        StartingTechSource::Researchable => {
-            crate::technology::active_aliases(content, sources)
-                .into_iter()
-                .filter(|t| {
-                    crate::technology::can_research(state, content, sources, &pick.player, t)
-                        && crate::technology::prerequisites_met(
-                            state,
-                            content,
-                            sources,
-                            &pick.player,
-                            t,
-                        )
-                })
-                .collect()
-        }
+        StartingTechSource::Researchable => crate::technology::active_aliases(content, sources)
+            .into_iter()
+            .filter(|t| {
+                crate::technology::can_research(state, content, sources, &pick.player, t)
+                    && crate::technology::prerequisites_met(
+                        state,
+                        content,
+                        sources,
+                        &pick.player,
+                        t,
+                    )
+            })
+            .collect(),
     };
     open.retain(|t| !me.technologies.contains(t));
     open.sort();
@@ -167,11 +165,8 @@ pub fn choice(state: &GameState, content: &ContentStore, sources: SourceSet) -> 
     let mut options: Vec<ChoiceOption> = open
         .iter()
         .map(|id| {
-            let mut option = ChoiceOption::labelled(
-                id.to_string(),
-                KIND,
-                crate::technology::name(content, id),
-            );
+            let mut option =
+                ChoiceOption::labelled(id.to_string(), KIND, crate::technology::name(content, id));
             if let Some(colour) = crate::technology::colour_type(content, id) {
                 option = option.with("colour", colour);
             }
@@ -339,11 +334,29 @@ mod tests {
             offered.ids(),
             vec!["aida", "amd", "det", "nm", "pa", "ps", "sdn", "st"]
         );
-        assert!(offered.options.iter().all(|o| o.payload["prerequisites"] == 0));
-        assert!(state.player(&PlayerId::new("a")).unwrap().technologies.is_empty());
+        assert!(
+            offered
+                .options
+                .iter()
+                .all(|o| o.payload["prerequisites"] == 0)
+        );
+        assert!(
+            state
+                .player(&PlayerId::new("a"))
+                .unwrap()
+                .technologies
+                .is_empty()
+        );
         answer(&mut state, POK, "det");
         assert!(owns(&state, "a", "det"));
-        assert_eq!(state.player(&PlayerId::new("a")).unwrap().technologies.len(), 1);
+        assert_eq!(
+            state
+                .player(&PlayerId::new("a"))
+                .unwrap()
+                .technologies
+                .len(),
+            1
+        );
         assert!(state.starting_tech_picks.is_empty());
     }
 
@@ -366,7 +379,10 @@ mod tests {
         assert_eq!(second.details["pick"], 2);
         answer(&mut state, POK, "nm");
         assert!(owns(&state, "a", "st") && owns(&state, "a", "nm"));
-        assert!(!owns(&state, "a", "ps"), "the one left behind stays in the deck");
+        assert!(
+            !owns(&state, "a", "ps"),
+            "the one left behind stays in the deck"
+        );
         assert!(state.starting_tech_picks.is_empty());
     }
 
@@ -395,7 +411,11 @@ mod tests {
         assert!(owns(&state, "k", "dxa"));
         assert!(!owns(&state, "k", "vax") && !owns(&state, "k", "vay"));
         assert_eq!(
-            state.player(&PlayerId::new("k")).unwrap().technologies.len(),
+            state
+                .player(&PlayerId::new("k"))
+                .unwrap()
+                .technologies
+                .len(),
             1
         );
     }
@@ -437,12 +457,20 @@ mod tests {
         let mut state = table(&[("d", "deepwrought"), ("s", "sol")], FULL);
         let first = ask(&state, FULL);
         assert_eq!(first.player, PlayerId::new("d"));
-        assert!(first.options.iter().all(|o| o.payload["prerequisites"] == 0));
+        assert!(
+            first
+                .options
+                .iter()
+                .all(|o| o.payload["prerequisites"] == 0)
+        );
         assert!(first.option("nm").is_some() && first.option("dxa").is_none());
         answer(&mut state, FULL, "nm");
         let second = ask(&state, FULL);
         assert_eq!(second.details["pick"], 2);
-        assert!(second.option("dxa").is_some(), "Neural Motivator opens the green track");
+        assert!(
+            second.option("dxa").is_some(),
+            "Neural Motivator opens the green track"
+        );
         assert!(second.option("nm").is_none());
         answer(&mut state, FULL, "dxa");
         assert!(owns(&state, "d", "nm") && owns(&state, "d", "dxa"));
