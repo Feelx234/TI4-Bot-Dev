@@ -14,6 +14,17 @@
 //! The prerequisite model is the printed colours only (technology skips from planets and faction
 //! waivers are ignored, which only makes the planner cautious); the options a research offers are
 //! the engine's own, so the model can only rank them, never offer one.
+//!
+//! # Objectives (exactly; checked by `covers_exactly_the_documented_objectives`)
+//!
+//! | alias | name | kind | points | family |
+//! |---|---|---|---|---|
+//! | `develop` | Develop Weaponry | public | 1 | `unit_upgrades` |
+//! | `diversify` | Diversify Research | public | 1 | `colours_2` |
+//! | `revolutionize` | Revolutionize Warfare | public | 2 | `unit_upgrades` |
+//! | `master_science` | Master the Sciences | public | 2 | `colours_2` |
+//! | `ans` | Adapt New Strategies | secret | 1 | `faction_technologies` |
+//! | `mlp` | Master the Laws of Physics | secret | 1 | `same_colour_technologies` |
 
 use std::collections::BTreeSet;
 
@@ -429,6 +440,16 @@ fn threshold(goal: &Goal) -> usize {
     t
 }
 
+/// The aliases this group plans, as documented at the top of the file.
+pub const COVERS: &[&str] = &[
+    "develop",
+    "diversify",
+    "revolutionize",
+    "master_science",
+    "ans",
+    "mlp",
+];
+
 /// The technology group.
 pub struct Technology;
 
@@ -639,5 +660,13 @@ mod tests {
         assert!((p - 0.7).abs() < 1e-9 && !own && cost.tokens == 1);
         // Three researches need three sources.
         assert!(route_of(&sources(true, 0, 5, 0), 2).is_none());
+    }
+
+    #[test]
+    fn covers_exactly_the_documented_objectives() {
+        assert_eq!(
+            crate::backward::coverage::matched(&Technology),
+            crate::backward::coverage::sorted(COVERS)
+        );
     }
 }

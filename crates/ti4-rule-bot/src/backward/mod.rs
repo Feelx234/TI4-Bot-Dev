@@ -46,6 +46,8 @@ use crate::objectives::{self, Goal};
 use crate::tuning;
 
 pub mod combat;
+#[cfg(test)]
+mod coverage;
 pub mod fleet;
 pub mod mecatol;
 pub mod mecatol_two_step;

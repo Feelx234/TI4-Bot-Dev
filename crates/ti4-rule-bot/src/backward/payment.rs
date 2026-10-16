@@ -11,6 +11,21 @@
 //! helped by a strategy card (Trade for trade goods, Leadership for tokens). Each plan carries
 //! the reserve of its own price; the weighing between plans (and the payment discount) is the
 //! framework's.
+//!
+//! # Objectives (exactly; checked by `covers_exactly_the_documented_objectives`)
+//!
+//! | alias | name | kind | points | family |
+//! |---|---|---|---|---|
+//! | `monument` | Erect a Monument | public | 1 | `cost_spend_resources` |
+//! | `sway_council` | Sway the Council | public | 1 | `cost_spend_influence` |
+//! | `trade_routes` | Negotiate Trade Routes | public | 1 | `cost_trade_goods` |
+//! | `lead` | Lead From the Front | public | 1 | `cost_tokens` |
+//! | `amass_wealth` | Amass Wealth | public | 1 | `cost_all_three` |
+//! | `golden_age` | Found a Golden Age | public | 2 | `cost_spend_resources` |
+//! | `manipulate_law` | Manipulate Galactic Law | public | 2 | `cost_spend_influence` |
+//! | `centralize_trade` | Centralize Galactic Trade | public | 2 | `cost_trade_goods` |
+//! | `galvanize` | Galvanize the People | public | 2 | `cost_tokens` |
+//! | `vast_reserves` | Hold Vast Reserves | public | 2 | `cost_all_three` |
 
 use ti4_engine::choice::SeatObservation;
 use ti4_engine::objectives::Cost as Price;
@@ -95,6 +110,20 @@ pub fn plan_for(goal: &Goal) -> Option<Plan> {
     })
 }
 
+/// The aliases this group plans, as documented at the top of the file.
+pub const COVERS: &[&str] = &[
+    "monument",
+    "sway_council",
+    "trade_routes",
+    "lead",
+    "amass_wealth",
+    "golden_age",
+    "manipulate_law",
+    "centralize_trade",
+    "galvanize",
+    "vast_reserves",
+];
+
 /// The payment group.
 pub struct Payment;
 
@@ -152,5 +181,13 @@ mod tests {
         let mut g = goal("corner", 1.0, 4.0, 4.0);
         g.bought = false;
         assert!(plan_for(&g).is_none());
+    }
+
+    #[test]
+    fn covers_exactly_the_documented_objectives() {
+        assert_eq!(
+            crate::backward::coverage::matched(&Payment),
+            crate::backward::coverage::sorted(COVERS)
+        );
     }
 }

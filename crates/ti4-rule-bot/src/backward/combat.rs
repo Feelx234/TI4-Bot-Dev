@@ -11,6 +11,16 @@
 //! The cost is the tactic token of the activation. Secrets of the group whose event needs
 //! something the planner cannot see (a promissory note held, a flagship that survives, space
 //! cannon or bombardment) are left to the default logic.
+//!
+//! # Objectives (exactly; checked by `covers_exactly_the_documented_objectives`)
+//!
+//! | alias | name | kind | points | family |
+//! |---|---|---|---|---|
+//! | `dts` | Darken the Skies | secret | 1 | none (event) |
+//! | `sar` | Spark a Rebellion | secret | 1 | none (event) |
+//! | `dtgs` | Destroy Their Greatest Ship | secret | 1 | none (event) |
+//! | `btv` | Brave the Void | secret | 1 | none (event) |
+//! | `dyp` | Demonstrate Your Power | secret | 1 | none (event) |
 
 use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_model::id::{PlayerId, SystemId};
@@ -160,6 +170,9 @@ pub fn best_option(options: &[(f64, f64)]) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// The aliases this group plans, as documented at the top of the file.
+pub const COVERS: &[&str] = &["dts", "sar", "dtgs", "btv", "dyp"];
+
 /// The combat group.
 pub struct Combat;
 
@@ -289,5 +302,13 @@ mod tests {
         assert_eq!(best_option(&[]), None);
         assert_eq!(best_option(&[(0.9, 0.6), (0.7, 1.0)]), Some(1));
         assert_eq!(best_option(&[(0.7, 1.0), (0.7, 1.0)]), Some(0));
+    }
+
+    #[test]
+    fn covers_exactly_the_documented_objectives() {
+        assert_eq!(
+            crate::backward::coverage::matched(&Combat),
+            crate::backward::coverage::sorted(COVERS)
+        );
     }
 }
