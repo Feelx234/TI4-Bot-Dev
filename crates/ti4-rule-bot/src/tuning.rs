@@ -113,7 +113,22 @@ tuning! {
     early_margin: f64 = 0.0, "v3: extra matchup needed for a fight in rounds 1-2";
     mecatol_early: f64 = 0.0, "v3: extra worth of Mecatol Rex in rounds 2-3 while the custodians token is on it";
     ground_margin: f64 = 0.0, "v3: extra ground forces for an invasion, as a share of the defenders' hit points";
-    bw_spend: bool = false, "backward planning (B): the spend objectives' planner (reserve, card help) is on";
+    bw_enabled: bool = false, "v4: backward planning (backward/): plans per objective, weighed with Mecatol/Imperial, steers activation and the Imperial draft";
+    bw_round: u32 = 3, "v4: first round of backward planning";
+    bw_threshold: f64 = 0.35, "v4: expected VP the best plan must reach, else the default logic plays unchanged";
+    bw_steer: f64 = 6.0, "v4: activation worth per expected VP of a chosen plan, for the systems on its route";
+    bw_likely: f64 = 0.5, "v4: probability from which a plan counts as likely (Imperial synergy)";
+    bw_imperial_bonus: f64 = 0.4, "v4: expected VP added to each likely public plan while two are likely (Imperial scores the second)";
+    bw_payment_discount: f64 = 0.5, "v4: share of a spend-N objective's value dropped (easy to score unsteered)";
+    bw_token_cost: f64 = 0.15, "v4: expected VP charged per command token a plan uses";
+    bw_resource_cost: f64 = 0.05, "v4: expected VP charged per resource a plan spends";
+    bw_mecatol: bool = true, "v4: the Mecatol Rex / Imperial plan competes with the objective plans";
+    bw_mecatol_weight: f64 = 1.0, "v4: scale of the Mecatol plan's points";
+    bw_territory: bool = true, "v4: planners of the territory group (with bw_enabled)";
+    bw_fleet: bool = true, "v4: planners of the fleet group (with bw_enabled)";
+    bw_payment: bool = true, "v4: planners of the spend group (with bw_enabled)";
+    bw_technology: bool = true, "v4: planners of the technology group (with bw_enabled)";
+    bw_combat: bool = true, "v4: planners of the combat and other group (with bw_enabled)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -206,7 +221,22 @@ fn v1() -> Tuning {
         early_margin: 0.0,
         mecatol_early: 0.0,
         ground_margin: 0.0,
-        bw_spend: false,
+        bw_enabled: false,
+        bw_round: 3,
+        bw_threshold: 0.35,
+        bw_steer: 6.0,
+        bw_likely: 0.5,
+        bw_imperial_bonus: 0.4,
+        bw_payment_discount: 0.5,
+        bw_token_cost: 0.15,
+        bw_resource_cost: 0.05,
+        bw_mecatol: true,
+        bw_mecatol_weight: 1.0,
+        bw_territory: true,
+        bw_fleet: true,
+        bw_payment: true,
+        bw_technology: true,
+        bw_combat: true,
     }
 }
 

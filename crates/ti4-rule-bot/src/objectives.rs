@@ -611,7 +611,7 @@ fn pick_secret_return(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usi
 
 /// Ground forces the seat could have in `system` after activating it, and whether a ship could
 /// get there (the same reach as [`activation_value`]).
-fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
+pub(crate) fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
     let movable = seen.movable_into(me, system);
     let ships = movable.iter().any(|m| is_ship(seen, &m.unit));
     let capacity: i64 = movable
@@ -646,7 +646,7 @@ fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize)
 }
 
 /// The planets an activation of `system` would take, greedily as [`super::takeable_value`] does.
-fn taken_planets(
+pub(crate) fn taken_planets(
     seen: &Observed<'_>,
     me: &PlayerId,
     system: &SystemId,
@@ -772,12 +772,17 @@ fn values<'s>(
 ) -> Vec<(SystemId, f64)> {
     let before = goals(seen, me, &Imagined::NONE);
     let leaders = rivals_about_to_win(seen.observed(), me);
+    // Backward planning (backward/, knob bw_enabled): systems on the chosen plans' routes.
+    let bonus = crate::backward::verdict(seen, me)
+        .map(|v| v.bonus())
+        .unwrap_or_default();
     systems
         .into_iter()
         .map(|system| {
+            let steer = bonus.get(system).copied().unwrap_or(0.0);
             (
                 system.clone(),
-                system_value(seen, me, system, &before, &leaders),
+                system_value(seen, me, system, &before, &leaders) + steer,
             )
         })
         .collect()
@@ -1117,11 +1122,21 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
 
 fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
     let goals = goals(seen, me, &Imagined::NONE);
+    let imperial_wanted = crate::backward::verdict(seen, me).is_some_and(|v| v.imperial);
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
         .enumerate()
-        .map(|(i, o)| (i, card_score(seen, me, &o.id, &goals)))
+        .map(|(i, o)| {
+            let mut score = card_score(seen, me, &o.id, &goals);
+            if imperial_wanted
+                && ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id)
+                    .is_some_and(|n| n == "Imperial")
+            {
+                score += 20.0;
+            }
+            (i, score)
+        })
         .collect();
     // Without an objective or trade goods to tip it, the rule bot's own draft decides.
     if scored.iter().all(|(_, s)| *s < 1.0) {
