@@ -32,6 +32,7 @@ setup flags (one setup per --players value; or --config FILE for a matrix)
   --faction-pool a,b,c   draw the free seats from this pool
   --rotate none|cyclic|all  play each table with the factions rotated over the seats
   --speaker seat|random|N   (default random)        --card-set pok|te|...
+  --starting-tech        the seats that choose a starting technology are asked (bot version 3 chooses by plan)
 limits
   --max-rounds 50  --max-steps 400000  --max-seconds 300  --loop-steps 5000
 run flags
@@ -47,7 +48,7 @@ struct Args {
 
 impl Args {
     fn parse(raw: &[String]) -> Result<Self, String> {
-        const SWITCHES: &[&str] = &["quiet", "no-table", "text", "help"];
+        const SWITCHES: &[&str] = &["quiet", "no-table", "text", "help", "starting-tech"];
         let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
         let mut positional = Vec::new();
         let mut it = raw.iter();
@@ -213,6 +214,7 @@ fn setups_of(args: &Args) -> Result<Vec<SetupSpec>, String> {
                     .unwrap_or_default(),
                 speaker: args.get("speaker").unwrap_or("random").to_owned(),
                 card_set: args.get("card-set").map(str::to_owned),
+                starting_tech: args.has("starting-tech"),
                 seeds: seeds.clone(),
             })
         })
@@ -421,6 +423,7 @@ fn cmd_replay(args: &Args) -> Result<ExitCode, String> {
             rotate: Rotate::None,
             speaker: args.get("speaker").unwrap_or("random").to_owned(),
             card_set: args.get("card-set").map(str::to_owned),
+            starting_tech: args.has("starting-tech"),
             seeds: Seeds::List(vec![seed]),
         };
         setup.expand()?.0.into_iter().next().ok_or("no game")?

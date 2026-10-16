@@ -73,6 +73,10 @@
 //!   objectives within reach ([`planner`]); Mecatol Rex held by a rival worth more; rivals denied
 //!   from six points; reworked plans for the weakest factions ([`faction_plans::PLANS_V2`]).
 //!
+//! - **Bot version 3**: the starting technology of the Winnu, the Argent Flight, the Council Keleres
+//!   and the Thunder's Edge factions ([`faction_plans::starting_tech_pick`]): the first technology
+//!   of the faction's plan, then of the general order, that is offered.
+//!
 //! Other technology choices, action cards, the other secondaries and every other window stay
 //! random.
 
@@ -235,6 +239,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         Some("commit_ground_forces") => return pick_commit(choice, observed, &me),
         Some("announce_retreat") => return pick_retreat(choice, observed, &me),
         Some("draft_strategy_card") => return pick_strategy_card(choice, observed, &me),
+        // v3: the faction plan's order; v2 and older leave the pick to the seeded random one.
+        Some("starting_technology") if tuning::starting_tech_rule() => {
+            return faction_plans::starting_tech_pick(choice, observed, &me);
+        }
         Some("gain_command_token") => return pick_token_pool(choice, observed, &me),
         Some("research_technology") => {
             return pick_research(choice, observed, &me)

@@ -2011,6 +2011,11 @@ impl<'a> Game<'a> {
         if let Some(window) = &self.tactical {
             return self.tactical_choice(window);
         }
+        // Starting technology is chosen before anything else in the game (setup, before the first
+        // card is drafted); a game made without the choice has no picks.
+        if !self.state.starting_tech_picks.is_empty() {
+            return crate::starting_tech::choice(&self.state, self.content, self.sources);
+        }
         match self.state.phase {
             Phase::Strategy => strategy_options(&self.state, self.content),
             Phase::Action => self.action_options(),
@@ -2043,6 +2048,9 @@ impl<'a> Game<'a> {
     pub fn step(&mut self) -> StepResult {
         // Identical-ask counts are per step: a cycle inside one step is what trips the guard.
         self.table.begin_step();
+        if !self.state.starting_tech_picks.is_empty() {
+            crate::starting_tech::settle(&mut self.state, self.content, self.sources);
+        }
         // Rolls are stamped with the system in play, for the public roll feed only.
         let scene = self
             .state
@@ -2197,6 +2205,7 @@ impl<'a> Game<'a> {
         if self.state.phase == Phase::Strategy
             && self.state.round == 1
             && !self.strategy_phase_announced
+            && self.state.starting_tech_picks.is_empty()
         {
             self.strategy_phase_announced = true;
             self.sync_timing_context();
@@ -2627,6 +2636,15 @@ impl<'a> Game<'a> {
         reason = "one arm per kind of turn action, read as a table of what a turn may be"
     )]
     fn apply_choice(&mut self, choice: &Choice, answer: ChoiceOption) -> Result<(), GameError> {
+        if choice
+            .context
+            .as_ref()
+            .is_some_and(|context| context.subtype == crate::starting_tech::SUBTYPE)
+        {
+            crate::starting_tech::apply(&mut self.state, self.content, self.sources, answer)?;
+            self.emit("STARTING_TECHNOLOGY_CHOSEN");
+            return Ok(());
+        }
         match self.state.phase {
             Phase::Strategy => {
                 let player = self.take_timed_strategy_card(&choice.player, answer)?;

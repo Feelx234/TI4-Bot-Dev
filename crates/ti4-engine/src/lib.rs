@@ -86,6 +86,7 @@ pub mod strategy_cards;
 pub mod supply;
 pub mod synergy;
 pub mod tactical;
+pub mod starting_tech;
 pub mod technology;
 pub mod thunders_edge;
 pub mod timing;

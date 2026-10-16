@@ -51,6 +51,11 @@ pub struct GameSpec {
     /// Which rotation of the base factions this game plays (`rotate`), if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<usize>,
+    /// The seats that choose their starting technology are asked (Winnu, Argent Flight, Council
+    /// Keleres, Thunder's Edge factions; `ti4_engine::starting_tech`). Left out: off, the game
+    /// every summary recorded before the choice was played.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub starting_tech: bool,
 }
 
 impl GameSpec {
@@ -67,6 +72,9 @@ impl GameSpec {
         );
         if let Some(set) = &self.card_set {
             line.push_str(&format!(" --card-set {set}"));
+        }
+        if self.starting_tech {
+            line.push_str(" --starting-tech");
         }
         line
     }
@@ -126,6 +134,9 @@ impl GameSpec {
                     .cloned()
                     .ok_or(format!("speaker seat {seat} is not at the table"))?;
             }
+        }
+        if self.starting_tech {
+            ti4_engine::starting_tech::open(&mut state, content, POK);
         }
         Ok(Game::with_seeded_random(state, content, self.seed)
             .with_sources(POK)
@@ -263,6 +274,9 @@ pub struct SetupSpec {
     pub speaker: String,
     #[serde(default)]
     pub card_set: Option<String>,
+    /// The games ask for the starting technology ([`GameSpec::starting_tech`]).
+    #[serde(default)]
+    pub starting_tech: bool,
     pub seeds: Seeds,
 }
 
@@ -405,6 +419,7 @@ impl SetupSpec {
                         speaker: self.speaker.clone(),
                         card_set: self.card_set.clone(),
                         rotation,
+                        starting_tech: self.starting_tech,
                     });
                 }
             }
@@ -518,6 +533,7 @@ mod tests {
             rotate: Rotate::None,
             speaker: "random".to_owned(),
             card_set: None,
+            starting_tech: false,
             seeds: Seeds::Text(seeds.to_owned()),
         }
     }
