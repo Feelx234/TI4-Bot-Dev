@@ -6,7 +6,7 @@ use std::time::Instant;
 use ti4_rule_bot::tuning::Tuning;
 
 use crate::play::{GameResult, PlayOptions, TraceLine};
-use crate::run::{Job, OnDone, run_jobs};
+use crate::run::{Job, OnDone, run_jobs_cached};
 use crate::spec::{GameSpec, Matrix};
 use crate::stats::{GameLine, Meta, Summary, aggregate, problems};
 
@@ -16,8 +16,15 @@ use crate::stats::{GameLine, Meta, Summary, aggregate, problems};
 /// For an unknown key or a value that does not parse.
 pub fn tuning_from(overrides: &BTreeMap<String, String>) -> Result<Tuning, String> {
     let mut t = Tuning::default();
+    // `bot_version` first: it replaces every number, later keys override it (map order is
+    // alphabetical, which would let it clobber keys sorted before it).
+    if let Some(v) = overrides.get("bot_version") {
+        t.set_key("bot_version", v)?;
+    }
     for (k, v) in overrides {
-        t.set_key(k, v)?;
+        if k != "bot_version" {
+            t.set_key(k, v)?;
+        }
     }
     Ok(t)
 }
@@ -79,11 +86,12 @@ pub fn run_matrix(
                 tunings: vec![tuning],
                 candidate_seats: None,
                 trace,
+                timeline: true,
             },
         })
         .collect();
     let started = Instant::now();
-    let results = run_jobs(&jobs, workers, progress, on_done);
+    let results = run_jobs_cached(&jobs, workers, progress, on_done);
     let wall = started.elapsed().as_secs_f64();
     Ok((summarise(matrix, &results, skipped, workers, wall), results))
 }

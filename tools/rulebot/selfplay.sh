@@ -5,6 +5,7 @@
 #   tools/rulebot/selfplay.sh smoke            10 games, about a minute
 #   tools/rulebot/selfplay.sh bench            the golden set (200 games, starting-technology choices on), checked against baseline.json
 #   tools/rulebot/selfplay.sh bench-v2         the same seeds as bot version 2 played them (no choice), checked against baseline-v2.json
+#   tools/rulebot/selfplay.sh bench-v3         the same seeds as bot version 3 played them (no choice), checked against baseline-v3.json
 #   tools/rulebot/selfplay.sh ab k=v[,k=v] [N] candidate bot against the shipped bot on N tables (default 200)
 #   tools/rulebot/selfplay.sh complete         time to completion, 3..8 players, several maps, no cutoff
 #   tools/rulebot/selfplay.sh replay ARGS...   one game: --seed S --players N [--map M --factions ...] --text
@@ -20,6 +21,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 export CARGO_TARGET_DIR="${SELFPLAY_TARGET:-${CARGO_TARGET_DIR:-$repo/target}}"
 out="${SELFPLAY_OUT:-$CARGO_TARGET_DIR/selfplay-out}"
+# Every run/compare keeps its games (with per-round timelines) here and is never played twice;
+# see tools/rulebot/README.md. SELFPLAY_RESULTS=off disables.
+export SELFPLAY_RESULTS="${SELFPLAY_RESULTS:-$repo/tools/rulebot/results}"
 mkdir -p "$out"
 bin="$CARGO_TARGET_DIR/release/selfplay"
 workers=()
@@ -41,7 +45,7 @@ case "$cmd" in
     build
     # Hashes of the shipped bot on the golden seeds: a difference means the engine or the bot
     # decides differently from the recorded baseline (expected only after a deliberate change).
-    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$out/bench.json" \
+    "$bin" run --config "$here/golden.json" --no-cache "${workers[@]}" --out "$out/bench.json" \
       --verify "$here/baseline.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench: hashes differ from baseline.json (see above)"; exit $rc; }
     ;;
   bench-v2)
@@ -50,6 +54,12 @@ case "$cmd" in
     # identical to baseline-v2.json proves the engine and the old bot still play the old games.
     "$bin" run --config "$here/golden-v2.json" --bot bot_version=2 "${workers[@]}" --out "$out/bench-v2.json" \
       --verify "$here/baseline-v2.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v2: hashes differ from baseline-v2.json (see above)"; exit $rc; }
+    ;;
+  bench-v3)
+    build
+    # Version 3 on the same seeds (no starting-technology choice): identical to baseline-v3.json.
+    "$bin" run --config "$here/golden-v2.json" --bot bot_version=3 "${workers[@]}" --out "$out/bench-v3.json" \
+      --verify "$here/baseline-v3.json" "$@" || { rc=$?; [[ $rc -eq 2 ]] && echo "bench-v3: hashes differ from baseline-v3.json (see above)"; exit $rc; }
     ;;
   ab)
     build
@@ -79,7 +89,7 @@ case "$cmd" in
     ;;
   baseline)
     build
-    "$bin" run --config "$here/golden.json" "${workers[@]}" --out "$here/baseline.json" --quiet "$@"
+    "$bin" run --config "$here/golden.json" --no-cache "${workers[@]}" --out "$here/baseline.json" --quiet "$@"
     ;;
   *)
     sed -n '2,16p' "${BASH_SOURCE[0]}"

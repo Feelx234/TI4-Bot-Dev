@@ -647,6 +647,16 @@ fn seat_plan(seen: &Observed<'_>, me: &PlayerId) -> Option<&'static Plan> {
     if !tuning::faction_plans_enabled() {
         return None;
     }
+    if tuning::plan_off() == 1
+        && seen.seat(me).is_some_and(|seat| {
+            matches!(
+                seat.faction.as_str(),
+                "ghost" | "hacan" | "empyrean" | "naaz" | "winnu"
+            )
+        })
+    {
+        return None;
+    }
     seen.seat(me)
         .and_then(|seat| plan_for(seat.faction.as_str()))
 }
@@ -774,6 +784,31 @@ pub fn starting_tech_pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -
         .filter(|(_, o)| !o.is_decline())
         .min_by_key(|(_, o)| (rank(&o.id), o.id.as_str()))
         .map(|(index, _)| index)
+}
+
+/// Bot version 3: of technologies offered outside a research (a stolen or copied one), the index
+/// of the best by the seat's own order (its plan, then [`GENERAL`]); one it already owns never.
+/// `candidates` are `(option index, technology alias)`.
+#[must_use]
+pub fn best_technology(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    candidates: &[(usize, &str)],
+) -> Option<usize> {
+    let seat = seen.seat(me)?;
+    let own_list = seat_plan(seen, me).map_or(&[][..], |plan| plan.techs);
+    let order: Vec<&str> = own_list.iter().chain(GENERAL).copied().collect();
+    let rank = |alias: &str| {
+        order
+            .iter()
+            .position(|entry| entry.split('|').any(|a| a == alias))
+            .unwrap_or(order.len())
+    };
+    candidates
+        .iter()
+        .filter(|(_, alias)| !seat.technologies.contains(&TechnologyId::new(*alias)))
+        .min_by_key(|(index, alias)| (rank(alias), *index))
+        .map(|(index, _)| *index)
 }
 
 // -- production ----------------------------------------------------------------------------------

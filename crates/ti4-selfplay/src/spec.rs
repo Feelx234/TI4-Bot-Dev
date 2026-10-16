@@ -20,7 +20,7 @@ use ti4_model::content_types::POK;
 use ti4_model::id::PlayerId;
 
 /// The factions the lobby's draw seats, one per seat (`chosen`: `None` for "any").
-fn lobby_seat_factions(
+pub(crate) fn lobby_seat_factions(
     chosen: &[Option<String>],
     seed: u64,
 ) -> Result<Vec<ti4_model::id::FactionId>, String> {

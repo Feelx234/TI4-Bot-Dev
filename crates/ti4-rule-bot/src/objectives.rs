@@ -126,6 +126,28 @@ pub fn pick(
     if !active(observed) {
         return None;
     }
+    // Backward planning, Warfare variant: the gather step beside Mecatol Rex moves and loads
+    // everything that can then reach it.
+    if matches!(subtype, Some("movement_step" | "load_cargo"))
+        && observed
+            .active_system()
+            .is_some_and(crate::backward::gathering)
+    {
+        return if subtype == Some("load_cargo") {
+            crate::backward::mecatol_two_step::gather_load(choice, observed)
+        } else {
+            crate::backward::mecatol_two_step::gather_move(choice, observed)
+        };
+    }
+    // Backward planning, ground pile: every ground force on one planet of the planned system.
+    if subtype == Some("commit_ground_forces")
+        && observed
+            .active_system()
+            .is_some_and(crate::backward::piling)
+        && let Some(index) = choice.options.iter().position(|o| o.kind == "commit")
+    {
+        return Some(index);
+    }
     match subtype {
         Some("activate_system") => return pick_activation(choice, seen, me),
         Some("movement_step") => return pick_move(choice, seen, me),
@@ -379,7 +401,7 @@ fn cost_rank(cost: ti4_engine::objectives::Cost) -> u8 {
 }
 
 /// A ready planet's (resources, influence).
-fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
+pub(crate) fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| seen.planet_is_ready(planet))
@@ -439,11 +461,11 @@ fn spare_after_influence(
     (rest, trade_goods - reserve.trade_goods - need.max(0))
 }
 
-fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+pub(crate) fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
     seen.seat(me).map_or(0, |seat| i64::from(seat.trade_goods))
 }
 
-fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+pub(crate) fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
     seen.seat(me)
         .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens)
 }
@@ -611,7 +633,7 @@ fn pick_secret_return(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usi
 
 /// Ground forces the seat could have in `system` after activating it, and whether a ship could
 /// get there (the same reach as [`activation_value`]).
-fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
+pub(crate) fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
     let movable = seen.movable_into(me, system);
     let ships = movable.iter().any(|m| is_ship(seen, &m.unit));
     let capacity: i64 = movable
@@ -646,7 +668,7 @@ fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize)
 }
 
 /// The planets an activation of `system` would take, greedily as [`super::takeable_value`] does.
-fn taken_planets(
+pub(crate) fn taken_planets(
     seen: &Observed<'_>,
     me: &PlayerId,
     system: &SystemId,
@@ -772,12 +794,17 @@ fn values<'s>(
 ) -> Vec<(SystemId, f64)> {
     let before = goals(seen, me, &Imagined::NONE);
     let leaders = rivals_about_to_win(seen.observed(), me);
+    // Backward planning (backward/, knob bw_enabled): systems on the chosen plans' routes.
+    let bonus = crate::backward::verdict(seen, me)
+        .map(|v| v.bonus())
+        .unwrap_or_default();
     systems
         .into_iter()
         .map(|system| {
+            let steer = bonus.get(system).copied().unwrap_or(0.0);
             (
                 system.clone(),
-                system_value(seen, me, system, &before, &leaders),
+                system_value(seen, me, system, &before, &leaders) + steer,
             )
         })
         .collect()
@@ -826,6 +853,11 @@ fn pick_action(
     };
     if observed.scoreable_public(me) > 0
         && let Some(index) = play("Imperial")
+    {
+        return Some(index);
+    }
+    if crate::backward::verdict(seen, me).is_some_and(|v| v.plays("Warfare"))
+        && let Some(index) = play("Warfare")
     {
         return Some(index);
     }
@@ -1117,11 +1149,24 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
 
 fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
     let goals = goals(seen, me, &Imagined::NONE);
+    let verdict = crate::backward::verdict(seen, me);
+    let imperial_wanted = verdict.as_ref().is_some_and(|v| v.imperial);
+    let wanted_cards = verdict.map(|v| v.cards()).unwrap_or_default();
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
         .enumerate()
-        .map(|(i, o)| (i, card_score(seen, me, &o.id, &goals)))
+        .map(|(i, o)| {
+            let mut score = card_score(seen, me, &o.id, &goals);
+            let name = ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id);
+            if imperial_wanted && name.as_deref() == Some("Imperial") {
+                score += 20.0;
+            }
+            if let Some(expected) = name.and_then(|n| wanted_cards.get(&n).copied()) {
+                score += tuning::bw_card_weight() * expected.max(0.0);
+            }
+            (i, score)
+        })
         .collect();
     // Without an objective or trade goods to tip it, the rule bot's own draft decides.
     if scored.iter().all(|(_, s)| *s < 1.0) {
@@ -1155,7 +1200,30 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
         }
     }
     let me = me.clone();
+    // Backward planning, technology preps: the technology a chosen plan's prep needs.
+    if let Some(v) = crate::backward::verdict(seen, &me) {
+        let wanted = v.techs();
+        if let Some(index) = choice.options.iter().position(|o| wanted.contains(&o.id)) {
+            return Some(index);
+        }
+    }
     let before = goals(seen, &me, &Imagined::NONE);
+    // Backward planning (backward/technology.rs): the technologies on the routes of the
+    // technology objectives in view, up to three researches deep.
+    if tuning::bw_enabled()
+        && tuning::bw_technology()
+        && observed.round() >= tuning::bw_round()
+        && let Some(index) =
+            crate::backward::technology::research_pick(choice, seen, &me, &before, |narrowed| {
+                if tuning::faction_plans_enabled() {
+                    crate::faction_plans::research_pick(narrowed, observed, &me)
+                } else {
+                    None
+                }
+            })
+    {
+        return Some(index);
+    }
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
@@ -1181,6 +1249,10 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
 /// dock counted for secrets that count them; none, no opinion.
 fn pick_structure(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> {
     let me = seen.bound_seat().clone();
+    // Turn Their Fleets to Dust (backward/ttfd.rs): a PDS that covers Mecatol Rex first.
+    if let Some(index) = crate::backward::ttfd::placement(choice, seen, &me) {
+        return Some(index);
+    }
     let before = goals(seen, &me, &Imagined::NONE);
     let scored: Vec<(usize, f64)> = choice
         .options
@@ -1522,6 +1594,39 @@ mod tests {
         assert_eq!(picked(&state, None, &choice), Some(1));
         state.player_mut(&me()).expect("seat").trade_goods = 12;
         assert_eq!(picked(&state, None, &choice), Some(0));
+    }
+
+    #[test]
+    fn backward_research_follows_the_route_of_a_technology_objective() {
+        use ti4_model::id::TechnologyId;
+        let mut state = game(&["a", "b"]);
+        round_three(&mut state);
+        state.revealed_objectives.push(ObjectiveId::new("develop"));
+        // One upgrade, a red and a yellow owned: Planetary Shield II (RY) scores Develop Weaponry.
+        {
+            let seat = state.player_mut(&me()).expect("seat");
+            seat.technologies.clear();
+            for t in ["dd2", "st", "ps"] {
+                seat.technologies.insert(TechnologyId::new(t));
+            }
+        }
+        let choice = contextual(
+            Choice::new(
+                me(),
+                "research a technology",
+                vec![
+                    ChoiceOption::labelled("amd", "research", "amd").with("cost", 0i64),
+                    ChoiceOption::labelled("pds2", "research", "pds2").with("cost", 0i64),
+                ],
+            ),
+            "research_technology",
+            3,
+        );
+        // The existing one-step gain already finds a completing technology; the backward route
+        // must agree, and with the knob off nothing changes.
+        let mut on = tuning::Tuning::default();
+        on.bw_enabled = true;
+        assert_eq!(tuning::with(on, || picked(&state, None, &choice)), Some(1));
     }
 
     #[test]

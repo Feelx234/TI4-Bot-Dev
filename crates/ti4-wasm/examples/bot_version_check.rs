@@ -9,7 +9,7 @@
 //! stopped after `asks` questions, saved, and resumed from the save: the replay must reach the
 //! saved position (`resume_check.ok`) and the save must record the current bot version; (3) the
 //! same with a version-1 game whose save has the field removed (a save made before the field
-//! existed): resumed, it must replay as version 1. Exit code 1 on any failure.
+//! existed): resumed, it must replay as version 1; (4) a version-2 save must replay as version 2. Exit code 1 on any failure.
 
 use std::sync::{Arc, Mutex};
 
@@ -136,6 +136,42 @@ fn main() -> Result<(), String> {
         let ok = check["ok"] == true && version_1;
         println!(
             "seed {seed}: version-1 save without the field (recorded as 1: {version_1}), resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
+        failed |= !ok;
+        // A version-2 save (recorded explicitly) must replay as version 2 under the current bot.
+        let mut v2 = setup.clone();
+        v2["bot_version"] = json!(2);
+        let (_, _, save2, _) = play(&json!({ "setup": v2 }), Some(asks))?;
+        let recorded = save2
+            .pointer("/setup/bot_version")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let (_, _, _, check) = play(
+            &json!({ "setup": save2["setup"], "resume": save2 }),
+            Some(0),
+        )?;
+        let ok = check["ok"] == true && recorded == json!(2);
+        println!(
+            "seed {seed}: version-2 save (bot_version {recorded}), resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
+        failed |= !ok;
+        // A version-3 save (recorded explicitly) must replay as version 3 under the current bot.
+        let mut v3 = setup.clone();
+        v3["bot_version"] = json!(3);
+        let (_, _, save3, _) = play(&json!({ "setup": v3 }), Some(asks))?;
+        let recorded = save3
+            .pointer("/setup/bot_version")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let (_, _, _, check) = play(
+            &json!({ "setup": save3["setup"], "resume": save3 }),
+            Some(0),
+        )?;
+        let ok = check["ok"] == true && recorded == json!(3);
+        println!(
+            "seed {seed}: version-3 save (bot_version {recorded}), resumed: {check} -> {}",
             if ok { "OK" } else { "FAIL" }
         );
         failed |= !ok;

@@ -73,9 +73,23 @@
 //!   objectives within reach ([`planner`]); Mecatol Rex held by a rival worth more; rivals denied
 //!   from six points; reworked plans for the weakest factions ([`faction_plans::PLANS_V2`]).
 //!
-//! - **Bot version 3**: the starting technology of the Winnu, the Argent Flight, the Council Keleres
-//!   and the Thunder's Edge factions ([`faction_plans::starting_tech_pick`]): the first technology
-//!   of the faction's plan, then of the general order, that is offered.
+//! - **Bot version 3** ([`tuning::BOT_VERSION`]; version 2 is [`tuning::for_version`]`(2)`): a technology gained
+//!   outside a research is chosen by the seat's order and the Nekro always use Technological Singularity
+//!   (`tech_pick_rule`, [`answers`]); Technology first in round 1 for the Arborec, Naalu and L1Z1X (`r1_tech`)
+//!   and in every round for the Nekro (`nekro_tech`). The rejected round-2 candidates stay behind their knobs.
+//!
+//! - **Bot version 4** ([`tuning::BOT_VERSION`]; version 3 is [`tuning::for_version`]`(3)`): version 3 without
+//!   `nekro_tech`, `planner_gap` 5 (the objective planner weighs objectives up to five steps short), and
+//!   backward planning ([`backward`], knobs `bw_*`): from round 3 each seat plans backwards from the
+//!   objectives it can still score and Mecatol Rex / Imperial, weighs the plans and steers activation, the
+//!   Imperial draft, production and a few hooks; with the prep layer (build, Warfare move, technology range
+//!   and strength), the ability, agenda, holding and Turn Their Fleets to Dust planners and the production
+//!   secrets. `bw_fleet_shape` stays off (a net loss in the direct A/B).
+//!
+//!   Both versions also choose the starting technology of the Winnu, the Argent Flight, the Council
+//!   Keleres and the Thunder's Edge factions ([`faction_plans::starting_tech_pick`]): the first
+//!   technology of the faction's plan, then of the general order, that is offered
+//!   (`starting_tech_rule`).
 //!
 //! Other technology choices, action cards, the other secondaries and every other window stay
 //! random.
@@ -99,6 +113,7 @@ pub mod objectives;
 pub mod agents;
 
 pub mod answers;
+pub mod backward;
 mod decider;
 pub mod faction_plans;
 pub mod planner;
@@ -206,9 +221,26 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
             .and_then(|i| keep.get(i).copied())
             .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
     }
+    // -- backward planning, holdings (backward/holdings.rs, knob bw_holdings): spend nothing a held
+    // secret needs, accept a rival's Support for the Throne for Strengthen Bonds --
+    if let Some(index) = backward::holdings::answer(choice, seen, &me) {
+        return Some(index);
+    }
+    if let Some(keep) = backward::holdings::keep(choice, seen, &me) {
+        let mut narrowed = choice.clone();
+        narrowed.options = keep.iter().map(|&i| choice.options[i].clone()).collect();
+        return pick(&narrowed, seen, rng)
+            .and_then(|i| keep.get(i).copied())
+            .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
+    }
     // -- answers to formerly random questions (answers.rs, bot version 2) --
     if subtype != Some("ready_planet")
-        && let Some(index) = answers::pick(choice, observed, &me)
+        && let Some(index) = answers::pick_with(
+            choice,
+            observed,
+            &me,
+            &backward::agenda::AgendaBias::of(seen),
+        )
     {
         return Some(index);
     }
@@ -461,8 +493,18 @@ fn planet_worth(seen: &Observed<'_>, planet: &str) -> f64 {
         reason = "printed values are single digits"
     )]
     let mut worth = (record.resources() + record.influence()) as f64 + 0.5;
+    // Bot version 3: while the custodians token stands, influence is what lifts it (six to
+    // remove it, the point it scores): planets that bring it are worth more early on.
+    if !seen.custodians_removed() && seen.round() <= 3 {
+        worth += tuning::influence_early() * record.influence() as f64;
+    }
     if planet == MECATOL && !seen.custodians_removed() {
         worth += tuning::mecatol_bonus();
+        // Bot version 3: Mecatol Rex is the strongest marker of a won game (analysis of 2000
+        // 4p games); a push in rounds 2 and 3, when its custodians can be lifted.
+        if (2..=3).contains(&seen.round()) {
+            worth += tuning::mecatol_early();
+        }
     }
     worth
 }
@@ -504,7 +546,9 @@ fn mecatol_in_reach(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// it has the six influence for them, and carriers that can reach the system bring ground forces
 /// past any defence there (no hostile fleet it cannot clearly beat).
 fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
-    if seen.custodians_removed() || seen.available_spend(me, Spend::Influence) < 6 {
+    if seen.custodians_removed()
+        || (!blood_ties(seen, me) && seen.available_spend(me, Spend::Influence) < 6)
+    {
         return false;
     }
     let Some(mr) = mecatol_system(seen) else {
@@ -515,6 +559,11 @@ fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
         return false;
     }
     activation_value(seen, me, &mr) >= tuning::mecatol_bonus()
+}
+
+/// Bot version 3: the Winnu's Blood Ties lift the custodians without influence.
+fn blood_ties(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    tuning::winnu_mecatol() && faction(seen, me) == "winnu"
 }
 
 /// Whether the seat holds Mecatol Rex (Imperial's point).
@@ -544,7 +593,15 @@ fn ground_needed(
             1 + usize::from(sustains)
         })
         .sum();
-    defenders + 1
+    // Bot version 3: a margin over the defenders (a ground combat is two dice rolls a round).
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        reason = "small counts"
+    )]
+    let margin = (tuning::ground_margin() * defenders as f64) as usize;
+    defenders + 1 + margin
 }
 
 /// Planets in `system` worth invading, best value per ground force first: (planet, worth, ground
@@ -560,6 +617,7 @@ fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(Planet
             .filter(|planet| {
                 planet.as_str() != MECATOL
                     || seen.custodians_removed()
+                    || blood_ties(seen, me)
                     || seen.available_spend(me, Spend::Influence) >= 6
             })
             .map(|planet| {
@@ -567,6 +625,10 @@ fn targets(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<(Planet
                 // Bot version 2: Mecatol Rex in a rival's hands scores them Imperial's point.
                 if planet.as_str() == MECATOL && board.planet_control.contains_key(&planet) {
                     worth += tuning::mecatol_rival_bonus();
+                }
+                // Reclamation: a free dock and PDS there.
+                if planet.as_str() == MECATOL && blood_ties(seen, me) {
+                    worth += 2.0;
                 }
                 let need = ground_needed(seen, me, system, &planet);
                 (planet, worth, need)
@@ -691,6 +753,9 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
             return -10.0;
         }
         value += 1.0 + 0.5 * enemy.cost;
+        if tuning::tech_hunt() > 0.0 && faction(seen, me) == "nekro" {
+            value += tuning::tech_hunt() * technologies_to_take(seen, me, system);
+        }
     }
 
     // Ground: what carriers coming from the reachable origins could bring. Only ships: a unit
@@ -737,6 +802,9 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
             value = 0.0;
         }
         value += taken;
+        if taken > 0.0 && tuning::adjacent_bonus() > 0.0 {
+            value += tuning::adjacent_bonus() * own_neighbours(seen, me, system);
+        }
     }
 
     // Production at home when short of units and able to pay, or an empty transport to fetch the
@@ -767,6 +835,56 @@ pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -
         }
     }
     value
+}
+
+/// Bot version 3: how many systems next to `system` hold a planet of the seat (at most three).
+fn own_neighbours(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+    let Some(galaxy) = seen.galaxy() else {
+        return 0.0;
+    };
+    let n = galaxy
+        .adjacent(system.as_str())
+        .into_iter()
+        .filter(|s| {
+            seen.system(&SystemId::new(*s))
+                .planet_control
+                .values()
+                .any(|owner| owner == me)
+        })
+        .count();
+    #[expect(clippy::cast_precision_loss, reason = "tiny count")]
+    {
+        n.min(3) as f64
+    }
+}
+
+/// Bot version 3, the Nekro: technologies of the rivals in `system` the seat lacks, each one a
+/// Technological Singularity pick (a destroyed unit is enough).
+fn technologies_to_take(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
+    let Some(mine) = seen.seat(me) else {
+        return 0.0;
+    };
+    let mut owners: BTreeSet<&PlayerId> = BTreeSet::new();
+    let board = seen.system(system);
+    for unit in &board.units {
+        if &unit.owner != me && is_ship(seen, unit) {
+            owners.insert(&unit.owner);
+        }
+    }
+    let mut lacking: BTreeSet<&str> = BTreeSet::new();
+    for owner in owners {
+        if let Some(seat) = seen.seat(owner) {
+            for tech in seat.technologies {
+                if !mine.technologies.contains(tech) {
+                    lacking.insert(tech.as_str());
+                }
+            }
+        }
+    }
+    #[expect(clippy::cast_precision_loss, reason = "tiny count")]
+    {
+        lacking.len().min(4) as f64
+    }
 }
 
 // -- the expansion plan --------------------------------------------------------------------------
@@ -1831,14 +1949,21 @@ fn fight_margin(seen: &Observed<'_>, system: &SystemId) -> f64 {
     let nebula = tuning::nebula_margin() > 0.0
         && ti4_content::galaxy::system(seen.content(), system.as_str(), seen.sources())
             .is_some_and(|s| s.is_nebula());
-    tuning::win_margin() + if nebula { tuning::nebula_margin() } else { 0.0 }
+    // Bot version 3: a bigger edge for a fight in the first two rounds (analysis: bad seats lose
+    // the fleet in an early fight and never catch up).
+    let early = if seen.round() <= 2 {
+        tuning::early_margin()
+    } else {
+        0.0
+    };
+    tuning::win_margin() + early + if nebula { tuning::nebula_margin() } else { 0.0 }
 }
 
 /// Bot version 2 ([`tuning::home_guard`]): the move options to keep when a ship leaving its home
 /// system would leave it to a fleet a rival could bring there now ([`Observed::movable_into`],
 /// which follows the map's anomalies, wormholes and hyperlanes); `None` when nothing is held back.
 fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
-    if !tuning::home_guard() || seen.round() < 2 {
+    if !(tuning::home_guard() || tuning::home_last_ship()) || seen.round() < 2 {
         return None;
     }
     let home = home_system(seen, me)?;
@@ -1878,6 +2003,24 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
         .iter()
         .filter(|u| &u.owner == me && is_ship(seen, u))
         .collect();
+    // Bot version 3 (narrow guard): only the last warship stays, and only from round 3.
+    if !tuning::home_guard() {
+        let warships = ships
+            .iter()
+            .filter(|u| unit_type(seen, u.type_id.as_str()).is_some_and(|t| !t.is_fighter()))
+            .count();
+        if warships > 1 || seen.round() < 3 {
+            return None;
+        }
+        let keep: Vec<usize> = choice
+            .options
+            .iter()
+            .enumerate()
+            .filter(|(_, o)| !leaving(o))
+            .map(|(i, _)| i)
+            .collect();
+        return (keep.len() < choice.options.len()).then_some(keep);
+    }
     let mut guard = fleet(seen, me, ships.iter().copied());
     guard.cannon += hostile_fleet_cannon(seen, me, &home);
     // Leaving one warship: does the home still hold?
@@ -2478,6 +2621,17 @@ fn pick_produce_biased(
         worth *= faction_plans::unit_weight(seen, me, kind);
         // Objectives within reach that more of this unit would meet (bot version 2).
         worth *= bias.weight(kind);
+        // Bot version 3: ground forces idle at the docks that no ship lifts want a transport.
+        if tuning::lift_rule() > 0.0
+            && kind.is_ship()
+            && !kind.is_fighter()
+            && kind.capacity() >= 2
+            && lift < i64::try_from(idle).unwrap_or(i64::MAX)
+        {
+            #[expect(clippy::cast_precision_loss, reason = "small counts")]
+            let over = ((idle as f64 - lift as f64) / 6.0).min(1.0);
+            worth *= 1.0 + tuning::lift_rule() * over;
+        }
         // With resources to spare, production slots are what runs out: value per slot.
         let rich =
             payload_f64(option, "available_resources").unwrap_or(0.0) >= tuning::rich_resources();
@@ -2577,7 +2731,16 @@ fn pick_strategy_card(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Op
             .iter()
             .position(|o| card_is(seen, &o.id, "Imperial"))
             .filter(|_| holds_mecatol(seen, me) || mecatol_takeable(seen, me));
+        let nekro_tech = (tuning::nekro_tech() && faction(seen, me) == "nekro")
+            .then(|| {
+                choice
+                    .options
+                    .iter()
+                    .position(|o| card_is(seen, &o.id, "Technology"))
+            })
+            .flatten();
         return imperial
+            .or(nekro_tech)
             .or_else(|| {
                 let scored: Vec<(usize, f64)> = choice
                     .options
@@ -2606,6 +2769,28 @@ fn card_goods(seen: &Observed<'_>, card: &str) -> i32 {
     seen.strategy_card_goods(&ti4_model::id::StrategyCardId::new(card))
 }
 
+/// Bot version 3: the first-round card order of the community guides for the factions whose
+/// openings differ from the generic one (`crates/ti4-server/docs/COMMUNITY_FACTION_STRATEGIES.md`).
+fn r1_card(faction: &str, card: &str) -> Option<f64> {
+    match (faction, card) {
+        // Trade first: Nekro, Ghosts, Cabal, Empyrean, Titans ("Trade in round 1 and play it early").
+        ("nekro" | "ghost" | "cabal" | "empyrean" | "titans", "Trade") if tuning::r1_trade() => {
+            Some(12.0)
+        }
+        // Technology first for the Arborec (Sarween Tools), Naalu and L1Z1X (the 5-resource home).
+        ("arborec" | "naalu" | "l1z1x", "Technology") if tuning::r1_tech() => Some(11.0),
+        // Factions that start without a technology here: Gravity Drive via the first card.
+        ("winnu" | "sardakk" | "argent", "Technology") if tuning::r1_tech2() => Some(11.0),
+        ("muaat" | "mahact" | "cabal", "Leadership") if tuning::r1_leadership() => Some(9.0),
+        // The Nekro's research is three command tokens (Propagation): Technology is a free
+        // Leadership.
+        ("nekro", "Technology") if tuning::nekro_tech() => Some(11.0),
+        // Peace Accords after Diplomacy readies the planets the carrier took.
+        ("xxcha", "Diplomacy") if tuning::r1_diplomacy() => Some(9.0),
+        _ => None,
+    }
+}
+
 /// What a strategy card is worth to the seat in the opening rounds (see [`pick_strategy_card`]).
 fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
     let hacan = faction(seen, me) == "hacan";
@@ -2618,6 +2803,9 @@ fn opening_card_score(seen: &Observed<'_>, me: &PlayerId, card: &str) -> f64 {
         })
     };
     let name = ti4_engine::strategy_cards::card_name(seen.content(), card).unwrap_or_default();
+    if first_round && let Some(score) = r1_card(&faction(seen, me), &name) {
+        return score + f64::from(card_goods(seen, card));
+    }
     let base = match name.as_str() {
         "Trade" if hacan => 20.0,
         "Trade" if first_round => -10.0,
@@ -2726,7 +2914,13 @@ fn fleet_wanted(seen: &Observed<'_>, me: &PlayerId) -> i32 {
         })
         .max()
         .unwrap_or(0);
-    tuning::fleet_tokens_wanted().max(i32::try_from(stack).unwrap_or(i32::MAX))
+    // Bot version 3: the Letnev's Armada of Fire holds two more ships than tokens.
+    let armada = if tuning::letnev_armada() && faction(seen, me) == "letnev" {
+        2
+    } else {
+        0
+    };
+    tuning::fleet_tokens_wanted().max(i32::try_from(stack).unwrap_or(i32::MAX) - armada)
 }
 
 /// Redistribution ("tactic|fleet|strategy"): the fleet pool at [`fleet_wanted`], the rest split

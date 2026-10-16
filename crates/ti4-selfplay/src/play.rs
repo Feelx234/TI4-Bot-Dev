@@ -79,6 +79,13 @@ pub struct GameResult {
     /// seat's home system), `ships` (non-fighter ships). A diagnostic (ground forces piling up).
     #[serde(default)]
     pub end_counts: BTreeMap<String, i32>,
+    /// Victory points of every seat at the end of each round played before the last one
+    /// (`vp_by_round[r - 1]` after round `r`); the final points are `vp`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vp_by_round: Vec<Vec<i32>>,
+    /// The per-round record of the game ([`crate::timeline`]), when it was recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<serde_json::Value>,
     /// A/B: the seats that played the candidate bot.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub candidate_seats: Option<Vec<bool>>,
@@ -93,6 +100,8 @@ pub struct PlayOptions {
     pub candidate_seats: Option<Vec<bool>>,
     /// Keep every decision for a text trace.
     pub trace: bool,
+    /// Record the per-round timeline of the game ([`crate::timeline`]).
+    pub timeline: bool,
 }
 
 impl Default for PlayOptions {
@@ -102,6 +111,7 @@ impl Default for PlayOptions {
             tunings: vec![Tuning::default()],
             candidate_seats: None,
             trace: false,
+            timeline: true,
         }
     }
 }
@@ -297,6 +307,28 @@ pub fn play_guarded(
     }
 }
 
+/// A result with nothing in it, for tests of code that reads results.
+#[cfg(test)]
+pub(crate) fn empty_for_tests() -> GameResult {
+    let spec = GameSpec {
+        setup: "t".to_owned(),
+        seed: 1,
+        players: 2,
+        map: "random".to_owned(),
+        factions: vec!["sol".to_owned(), "hacan".to_owned()],
+        speaker: "seat".to_owned(),
+        card_set: None,
+        rotation: None,
+    };
+    empty_result(
+        &spec,
+        "victory",
+        None,
+        Instant::now(),
+        &PlayOptions::default(),
+    )
+}
+
 fn empty_result(
     spec: &GameSpec,
     termination: &str,
@@ -323,6 +355,8 @@ fn empty_result(
         scored: vec![Vec::new(); spec.players],
         vp_sources: BTreeMap::new(),
         end_counts: BTreeMap::new(),
+        vp_by_round: Vec::new(),
+        timeline: None,
         candidate_seats: options.candidate_seats.clone(),
     }
 }
@@ -367,7 +401,21 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
     let mut phase_ns: BTreeMap<String, u128> = BTreeMap::new();
     let mut steps = 0usize;
     let mut round_log: Vec<(usize, u32, String)> = Vec::new();
+    let mut vp_by_round: Vec<Vec<i32>> = Vec::new();
+    let mut recorder = options
+        .timeline
+        .then(|| crate::timeline::Recorder::new(spec, &game.state))
+        .flatten();
     let (termination, detail) = loop {
+        while vp_by_round.len() + 1 < game.state.round as usize {
+            vp_by_round.push(
+                game.state
+                    .players
+                    .iter()
+                    .map(|p| p.victory_points)
+                    .collect(),
+            );
+        }
         if game.state.finished {
             break ("victory", None);
         }
@@ -406,6 +454,9 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
         let result = game.step();
         *phase_ns.entry(phase.clone()).or_default() += t.elapsed().as_nanos();
         steps += 1;
+        if let Some(recorder) = recorder.as_mut() {
+            recorder.observe(&game.state);
+        }
         if options.trace {
             round_log.push((shared.borrow().decided, game.state.round, phase));
         }
@@ -419,6 +470,7 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
             );
         }
     };
+    let timeline = recorder.map(|r| r.finish(&game.state));
     let state = &game.state;
     let vp: Vec<i32> = state.players.iter().map(|p| p.victory_points).collect();
     let winner = (termination == "victory")
@@ -527,6 +579,8 @@ fn play(spec: &GameSpec, options: &PlayOptions) -> (GameResult, Option<Vec<Trace
         scored,
         vp_sources,
         end_counts,
+        vp_by_round,
+        timeline,
         candidate_seats: options.candidate_seats.clone(),
     };
     (result, trace)
