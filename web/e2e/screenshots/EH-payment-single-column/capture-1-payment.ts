@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 import { shot } from "../_shared/shot";
-import { assertConfirmReachable, assertNoHorizontalOverflow, assertSingleColumn, isPhone, newPage, openPaymentOf, prefix, SIZES } from "./scene";
+import { assertConfirmReachable, assertFooterGrid, assertNoHorizontalOverflow, assertSingleColumn, isPhone, newPage, openPaymentOf, prefix, SIZES } from "./scene";
 
 const VARIANTS = [
   { name: "influence-short", kind: "influence", owed: 8, planets: 4, stage: 1 },
@@ -22,6 +22,7 @@ for (const v of VARIANTS) {
         await assertNoHorizontalOverflow(page);
         await assertSingleColumn(page);
         await assertConfirmReachable(page);
+        if (s.label === "390x844" || s.label === "360x740") await assertFooterGrid(page);
       }
       await shot(page, testInfo, `${prefix}-${v.name}-${s.label}`);
       await context.close();

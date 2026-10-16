@@ -79,3 +79,23 @@ export async function assertConfirmReachable(page: Page) {
   });
   expect(ok, "confirm button fully visible").toBe(true);
 }
+
+/** Phone portrait footer: secondary buttons in two columns, 44 px tall, Pay on its own full-width row. */
+export async function assertFooterGrid(page: Page) {
+  const r = await page.evaluate(() => {
+    const footer = document.querySelector(".payment-drawer__footer")!.getBoundingClientRect();
+    const boxes = Array.from(document.querySelectorAll(".payment-drawer__footer .button")).map((b) => {
+      const x = b.getBoundingClientRect();
+      return { left: Math.round(x.left), top: Math.round(x.top), width: Math.round(x.width), height: Math.round(x.height), primary: b.classList.contains("button--primary") };
+    });
+    return { footerWidth: footer.width, boxes };
+  });
+  const secondary = r.boxes.filter((b) => !b.primary);
+  const pay = r.boxes.find((b) => b.primary)!;
+  expect(secondary.length).toBeGreaterThanOrEqual(2);
+  expect(secondary[0].top, "first two secondary buttons share a row").toBe(secondary[1].top);
+  expect(secondary[1].left, "second button sits to the right").toBeGreaterThan(secondary[0].left);
+  for (const b of r.boxes) expect(b.height, "44 px tap target").toBeGreaterThanOrEqual(44);
+  expect(pay.width, "Pay spans the footer").toBeGreaterThan(r.footerWidth - 30);
+  expect(pay.top, "Pay is below the secondary rows").toBeGreaterThan(secondary[secondary.length - 1].top);
+}
