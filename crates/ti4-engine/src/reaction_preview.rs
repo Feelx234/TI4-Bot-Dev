@@ -235,16 +235,18 @@ pub fn preview_for(
         "Infiltrate" => {
             let mut p = preview("replace_structures");
             let (system, planet, _, _) = state.last_control_gained.clone()?;
-            let standing: Vec<Unit> = state
-                .system_state(&system)
-                .on_planet(&planet)
-                .iter()
-                .filter(|unit| {
-                    &unit.owner == player
-                        && base(unit).is_some_and(|kind| kind == "pds" || kind == "spacedock")
-                })
-                .cloned()
-                .collect();
+            // The rival PDS and space docks the card would swap out, as the effect reads them.
+            let standing: Vec<Unit> = crate::action_cards::infiltrate_swaps(
+                state,
+                content,
+                ti4_model::content_types::SourceSet::all(),
+                player,
+                &system,
+                &planet,
+            )
+            .into_iter()
+            .map(|(old, _)| old)
+            .collect();
             p.units = tally(&standing);
             if standing.is_empty() {
                 p.fizzles = Some("nothing_there".to_owned());
