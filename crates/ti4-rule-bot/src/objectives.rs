@@ -126,6 +126,19 @@ pub fn pick(
     if !active(observed) {
         return None;
     }
+    // Backward planning, Warfare variant: the gather step beside Mecatol Rex moves and loads
+    // everything that can then reach it.
+    if matches!(subtype, Some("movement_step" | "load_cargo"))
+        && observed
+            .active_system()
+            .is_some_and(crate::backward::gathering)
+    {
+        return if subtype == Some("load_cargo") {
+            crate::backward::mecatol_two_step::gather_load(choice, observed)
+        } else {
+            crate::backward::mecatol_two_step::gather_move(choice, observed)
+        };
+    }
     match subtype {
         Some("activate_system") => return pick_activation(choice, seen, me),
         Some("movement_step") => return pick_move(choice, seen, me),
@@ -834,6 +847,11 @@ fn pick_action(
     {
         return Some(index);
     }
+    if crate::backward::verdict(seen, me).is_some_and(|v| v.plays("Warfare"))
+        && let Some(index) = play("Warfare")
+    {
+        return Some(index);
+    }
     let out_of_tokens = observed
         .seat(me)
         .is_some_and(|seat| seat.tactic_tokens <= 0);
@@ -1122,18 +1140,21 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
 
 fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
     let goals = goals(seen, me, &Imagined::NONE);
-    let imperial_wanted = crate::backward::verdict(seen, me).is_some_and(|v| v.imperial);
+    let verdict = crate::backward::verdict(seen, me);
+    let imperial_wanted = verdict.as_ref().is_some_and(|v| v.imperial);
+    let wanted_cards = verdict.map(|v| v.cards()).unwrap_or_default();
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
         .enumerate()
         .map(|(i, o)| {
             let mut score = card_score(seen, me, &o.id, &goals);
-            if imperial_wanted
-                && ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id)
-                    .is_some_and(|n| n == "Imperial")
-            {
+            let name = ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id);
+            if imperial_wanted && name.as_deref() == Some("Imperial") {
                 score += 20.0;
+            }
+            if let Some(expected) = name.and_then(|n| wanted_cards.get(&n).copied()) {
+                score += tuning::bw_card_weight() * expected.max(0.0);
             }
             (i, score)
         })
@@ -1170,6 +1191,13 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
         }
     }
     let me = me.clone();
+    // Backward planning, technology preps: the technology a chosen plan's prep needs.
+    if let Some(v) = crate::backward::verdict(seen, &me) {
+        let wanted = v.techs();
+        if let Some(index) = choice.options.iter().position(|o| wanted.contains(&o.id)) {
+            return Some(index);
+        }
+    }
     let before = goals(seen, &me, &Imagined::NONE);
     // Backward planning (backward/technology.rs): the technologies on the routes of the
     // technology objectives in view, up to three researches deep.

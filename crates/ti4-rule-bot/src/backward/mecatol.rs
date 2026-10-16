@@ -6,6 +6,14 @@
 //! Mecatol Rex's system succeeds (a fight won, ground forces to land); its points are
 //! `custodians + imperial_share`, scaled by [`tuning::bw_mecatol_weight`].
 
+//! # Objectives
+//!
+//! `mecatol` is not a card of the objective decks but the plan for Mecatol Rex itself (no alias in
+//! `public_objectives.json` or `secret_objectives.json`; [`ALIASES`] is empty on purpose).
+//! The secret `ose` (Occupy the Seat of the Empire, `mecatol_ships_while_controlling`) is a ship
+//! placement goal and planned by [`super::fleet`]. Prep kinds: all four, through
+//! [`super::mecatol_two_step`] when the one-step plan is not likely.
+
 use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_model::id::{PlanetId, PlayerId};
 
@@ -83,4 +91,16 @@ pub fn plan(_seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
         payment: false,
         secret: false,
     })
+}
+
+/// The objective-deck aliases this plan serves (none; see the module docs).
+pub const ALIASES: &[&str] = &[];
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn mecatol_is_no_card_and_the_documented_alias_list_is_empty() {
+        assert!(super::ALIASES.is_empty());
+        assert!(!super::super::tests::alias_families().contains_key("mecatol"));
+    }
 }
