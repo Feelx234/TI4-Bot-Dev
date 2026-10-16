@@ -158,8 +158,8 @@ A sweep is a loop over `selfplay compare`; the JSON (`--out`) has the estimate a
 ## Golden benchmark and baseline
 
 - `tools/rulebot/golden.json`: 200 games, 4 players seeds 1..100 on `4pHyperlanes` / `4pOuterRim`, 6 players seeds 1..100 on `6pStandard` / `6pOuterRim`.
-- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 3 since round 2; `baseline-v2.json` and `baseline-v1.json` are
-  versions 2 and 1, which `--bot bot_version=2` / `=1` still reproduce hash for hash, 200/200), recorded on the build named in `meta.git_rev`
+- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 4 since round 3; `baseline-v3.json`, `baseline-v2.json` and `baseline-v1.json` are
+  versions 3, 2 and 1, which `--bot bot_version=3|2|1` still reproduce hash for hash, 200/200), recorded on the build named in `meta.git_rev`
   (AMD EPYC-Genoa, 8 cores, release build, 7 workers, 82 s, other jobs running on the machine).
 - `tools/rulebot/selfplay.sh bench` runs the set and compares every game's hash, termination and points with the baseline
   (`--verify`): **identical** is the gate for "I did not change the bot or the engine"; **different** is expected
@@ -709,6 +709,99 @@ resume identically, a version-2 save and a version-1 save without the field repl
 2. The objective-dependent Mecatol/Imperial/Custodians plan and the end-of-round fleet stack deserve their own round with movement planning.
 3. The dominant lever left is territory by round 2 (BOT_V2_ANALYSIS_4P): needs opening work, not knobs.
 
+
+## Round 3: bot version 4 (2026-10-16)
+
+Branch `bot-v4` (from `backward-a` + `backward-b`). Felix's decision: ship ONE improvement containing (a) the round-2
+recommendation (v3 content minus `nekro_tech`, plus `planner_gap=5`; `tech_pick_rule` and `r1_tech` stay) and (b) backward planning
+(`docs/BACKWARD_PLANNING.md`, `BACKWARD_PLANNING_B.md`) with everything on except the fleet shape.
+
+### What v4 contains (`tuning::for_version(4)` = `Tuning::default()`)
+
+| knob | v3 | v4 |
+|---|---|---|
+| `nekro_tech` | on | **off** |
+| `planner_gap` | 3 | **5** |
+| `bw_enabled`, `bw_prep_build`, `bw_prep_warfare`, `bw_prep_tech_range`, `bw_prep_tech_strength` | off | **on** |
+| `bw_combat_abilities`, `bw_agenda`, `bw_holdings`, `bw_ttfd`, `bw_production` | off | **on** |
+| `bw_territory`, `bw_fleet`, `bw_payment`, `bw_technology`, `bw_combat` | on (inert without `bw_enabled`) | on |
+| `bw_fleet_shape` | off | **off** (direct A/B: build + fleet shape against build only: -0.013 ctrl VP/round [-0.023, -0.003]) |
+
+Replay safety: `for_version(3)` is written out (`v3()` in `tuning.rs`: version 2 plus the three `v3:` knobs, the old `nekro_tech` and
+`planner_gap`, all `bw_*` switches off), so versions 1, 2 and 3 play exactly as before. `BOT_VERSION` is 4; new games, the offline host
+(`Start::settle_bot_version`), the server's bot seats (they run `Tuning::default()`) and `selfplay` default to it. A save records its
+`bot_version` (HostSave format 2) and resumes with it; a save without the field is version 1. `bot_version_check` now also resumes a
+version-3 save as version 3. The server records no version: a saved server game replayed on a build with v4 plays its bot seats as v4
+(the same as at every earlier bump). The alpha release (609a5bad) has no v4.
+
+### Version 4 against 2 and 3 (fresh seeds, mixed seat-swapped pairs, 400 tables; candidate minus baseline, 95% CI paired by table)
+
+Seeds: 110000.. for (i) and (ii) (200 tables 4p + 200 6p, maps 4pHyperlanes, 4pOuterRim, 6pStandard, 6pOuterRim cycled), 130000.. for (iii)
+(100 seeds x 4 cyclic rotations of sol/letnev/jolnar/mentak on 4pBgaBalancedD). None used before. Games, logs and scripts in
+`/root/rulebot-results/bot-v4/`.
+
+| | (i) v4 vs v2, mixed | (ii) v4 vs v3, mixed | (iii) v4 vs v2, fixed table |
+|---|---|---|---|
+| win share | +2.6 pp [-0.3, +5.5] | +3.6 pp [+0.4, +6.8] | +5.4 pp [+2.4, +8.3] |
+| VP per seat | +0.203 [+0.071, +0.335] | +0.169 [+0.041, +0.296] | +0.394 [+0.264, +0.524] |
+| total VP per round | +0.031 [+0.011, +0.052] | +0.024 [+0.005, +0.044] | +0.064 [+0.043, +0.085] |
+| **ctrl VP per round** | **+0.028 [+0.009, +0.046]** | **+0.015 [-0.003, +0.033]** | **+0.046 [+0.026, +0.065]** |
+| ctrl after R3 | +0.021 [-0.020, +0.061] | +0.005 [-0.028, +0.038] | +0.048 [+0.010, +0.085] |
+| ctrl after R4 | +0.100 [+0.038, +0.163] | +0.044 [-0.011, +0.100] | +0.102 [+0.041, +0.164] |
+| ctrl after R5 | +0.128 [+0.039, +0.217] | +0.050 [-0.030, +0.130] | +0.163 [+0.074, +0.251] |
+| total VP after R3 / R4 / R5 | +0.042 / +0.100 / +0.123 | +0.031 / +0.066 / +0.075 | +0.068 / +0.155 / +0.257 |
+| imperial_primary | +0.106 [+0.064, +0.148] | +0.064 [+0.026, +0.102] | +0.060 [+0.026, +0.094] |
+| objective (public) | +0.011 [-0.078, +0.100] | -0.028 [-0.118, +0.062] | +0.106 [+0.012, +0.201] |
+| secret_objective | +0.038 [-0.014, +0.089] | +0.052 [+0.006, +0.098] | +0.104 [+0.055, +0.154] |
+| custodians | +0.025 [+0.008, +0.041] | +0.020 [+0.006, +0.033] | +0.005 [-0.001, +0.011] |
+| rounds | -0.037 [-0.153, +0.078] | n/a | +0.003 [-0.104, +0.109] |
+
+ctrl VP gained per round (candidate minus baseline per seat; full series with CIs in `ser_i.txt`, `ser_ii.txt`, `ser_iii.txt`):
+(i) R1 -0.011, R2 -0.001, R3 +0.032, R4 +0.080, R5 +0.028, R6 +0.026, R7 +0.025 (cumulative +0.180 [+0.058, +0.301]);
+(iii) R1 0.000, R2 +0.002, R3 +0.046, R4 +0.055, R5 +0.060, R6 +0.046, R7 +0.067 (cumulative +0.276 [+0.155, +0.397]).
+The gain is made in rounds 3 to 5, when backward planning starts.
+
+Per table size and map (win pp, ctrl VP per round):
+
+| group | n | (i) win pp | (i) ctrl/rd | (ii) win pp | (ii) ctrl/rd |
+|---|---|---|---|---|---|
+| 4p | 200 | +6.8 [+2.9, +10.6] | +0.049 [+0.021, +0.077] | +6.8 [+2.6, +10.9] | +0.031 [+0.003, +0.059] |
+| 4pHyperlanes | 100 | +4.5 [-1.1, +10.1] | +0.011 [-0.030, +0.052] | +3.0 [-2.9, +8.9] | +0.001 [-0.038, +0.040] |
+| 4pOuterRim | 100 | +9.0 [+3.7, +14.3] | +0.087 [+0.050, +0.124] | +10.5 [+4.7, +16.3] | +0.061 [+0.023, +0.099] |
+| 6p | 200 | -1.5 [-5.8, +2.8] | +0.007 [-0.017, +0.031] | +0.5 [-4.3, +5.3] | -0.001 [-0.023, +0.022] |
+| 6pStandard | 100 | -4.0 [-10.0, +2.0] | -0.005 [-0.036, +0.026] | +2.0 [-5.0, +9.0] | +0.002 [-0.029, +0.033] |
+| 6pOuterRim | 100 | +1.0 [-5.2, +7.2] | +0.019 [-0.018, +0.056] | -1.0 [-7.7, +5.7] | -0.003 [-0.036, +0.029] |
+
+Reading: the gain is a 4-player gain (the outer-rim map most of all); at 6 players v4 is level with v2 and v3 (no loss, no gain). Over the
+mix v4 is at or above v3 on every ctrl measure (point estimates positive, none significantly negative) and clearly above v2.
+Against v3 the mixed-table ctrl VP per round (+0.015) is not significant by itself; win share and total VP are. The fixed table (iii),
+the one the planners were developed on, shows the largest effect and is an upper bound for other maps.
+
+### Cost
+
+Golden set (200 games, all seats one bot, 6 workers, back to back): v3 3.08 s a game, bot 24% of it (0.74 s, 0.32 ms a decision);
+v4 5.08 s a game, bot 50% (2.52 s, 1.08 ms a decision): **bot time 3.4x, game time 1.65x**; games per hour 6915 -> 4182. The cost is in
+`action_menu` (1.9 -> 5.4 ms), `activate_system` (2.9 -> 6.3 ms), `produce_unit` (0.14 -> 3.7 ms), `draft_strategy_card` (0.06 -> 5.6 ms),
+`research_technology` (0.6 -> 4.9 ms) per question: the plans are rebuilt for every one of those questions (no cache across the questions
+of one turn). Completion set (104 games, 3 to 8 players, 1 worker, v3 and v4 run in parallel): v4 5.96 s a game against 3.57 s (bot share
+51% against 24%), 8 players 16.8 s a game. Not blown up, but a per-turn plan cache is the obvious next speed-up.
+
+### Gates run
+
+- `cargo test -p ti4-rule-bot -p ti4-selfplay -p ti4-wasm`, clippy `-D warnings`, fmt: clean (see the final report of the branch).
+- Golden `bench`: `--bot bot_version=1|2|3` identical to `baseline-v1.json`, `baseline-v2.json`, `baseline-v3.json` (200/200 each); the
+  default bot is the new `baseline.json` (version 4; the games differ from v3 by design).
+- Stress (340 games, every template 3 to 8 players plus random maps), all bw knobs on: 340 victories, no stuck, panic, engine error or cutoff.
+- Completion set (104 games, 3 to 8 players): 104 victories, 7.07 rounds (`completion-baseline.json` is the version-4 run,
+  `completion-baseline-v3.json` the version-3 run).
+- Uniform golden set, VP per game by source (v3 -> v4): objective 18.74 -> 19.41, secret_objective 7.39 -> 8.02, imperial_primary 1.69 -> 1.50,
+  agenda 0.84 -> 0.63, support_for_the_throne 3.29 -> 3.44.
+
+### Open
+
+1. Speed: cache the plans within a turn (bot time 3.4x).
+2. 6p shows no gain; the planners were developed on one 4p map. A 6p-specific round (more steps, a different `bw_steer`) is the next lever.
+3. Not in v4: fleet shape (`bw_fleet_shape`), which lost directly against build alone; the other rejected knobs keep their old defaults.
 
 ## Controllable VP (analysis on what is already stored; no new games)
 

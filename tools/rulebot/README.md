@@ -3,7 +3,7 @@
 Rule-bot self-play (`selfplay.sh`, see `docs/RULE_BOT_OPTIMISATION.md`).
 
 - `golden.json` / `baseline*.json`: the golden benchmark (200 games) and its recorded summaries
-  (`baseline-v1.json` is bot version 1; `baseline.json` the shipped bot).
+  (`baseline-v1.json`, `-v2`, `-v3` are bot versions 1 to 3; `baseline.json` the shipped bot, version 4).
 - `completion*.json`, `stress.json`: time-to-completion and stuck/panic hunting sets.
 - `results/` (git-ignored): **stored games**. Every `selfplay run` and `compare` (so `selfplay.sh ab`)
   writes its games, one JSON line each, with the per-round timeline (snapshots of every seat at the end

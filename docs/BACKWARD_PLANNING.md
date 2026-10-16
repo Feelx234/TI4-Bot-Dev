@@ -1,7 +1,7 @@
-# Backward planning for the rule bot (experimental, bot version 4 candidate)
+# Backward planning for the rule bot (shipped in bot version 4)
 
 Code: `crates/ti4-rule-bot/src/backward/` (module docs there). All knobs `bw_*` in `tuning.rs`;
-`bw_enabled` defaults to **false**, so v1/v2/v3 are unchanged and hash-identical.
+the `bw_*` knobs are **on in bot version 4** (see Final decisions) and off in versions 1 to 3, which stay unchanged and hash-identical.
 
 ## Idea
 
@@ -108,3 +108,13 @@ tech strength smaller; the preps do not add up and fleet shape is a net loss. Ga
 - Fleet-supply check for builds; Magen/Plasma-type combat technologies as strength preps.
 - Draft-phase modelling of which card a rival will take (Warfare secondary odds are a constant 0.6).
 - Reorder Imperial's play after the plan's steps are done.
+
+## Final decisions (bot version 4, 2026-10-16)
+
+Felix decided to ship everything except the fleet shape. Bot version 4 turns on `bw_enabled`, the four preps (`bw_prep_build`, `bw_prep_warfare`,
+`bw_prep_tech_range`, `bw_prep_tech_strength`), the group switches (territory, fleet, payment, technology, combat) and Agent B's second-round
+knobs (`bw_combat_abilities`, `bw_agenda`, `bw_holdings`, `bw_ttfd`, `bw_production`). **`bw_fleet_shape` stays off**: in the direct A/B
+(build + fleet shape against build alone, 400 tables) it cost -0.013 ctrl VP per round [-0.023, -0.003] and -0.049 ctrl VP after R5; the
+code and its tests stay behind the knob. The preps do not add up in the fixed-table A/Bs above, but the combination is what v4 measures
+(`docs/RULE_BOT_OPTIMISATION.md`, Round 3: +0.046 ctrl VP per round, +5.4 pp win share against v2 on the fixed table; +0.028 / +2.6 pp on the
+mixed 4p+6p tables, a gain at 4 players and none at 6; cost: bot time 3.4x).

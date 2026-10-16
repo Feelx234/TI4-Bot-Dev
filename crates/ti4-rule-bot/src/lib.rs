@@ -75,6 +75,14 @@
 //!   (`tech_pick_rule`, [`answers`]); Technology first in round 1 for the Arborec, Naalu and L1Z1X (`r1_tech`)
 //!   and in every round for the Nekro (`nekro_tech`). The rejected round-2 candidates stay behind their knobs.
 //!
+//! - **Bot version 4** ([`tuning::BOT_VERSION`]; version 3 is [`tuning::for_version`]`(3)`): version 3 without
+//!   `nekro_tech`, `planner_gap` 5 (the objective planner weighs objectives up to five steps short), and
+//!   backward planning ([`backward`], knobs `bw_*`): from round 3 each seat plans backwards from the
+//!   objectives it can still score and Mecatol Rex / Imperial, weighs the plans and steers activation, the
+//!   Imperial draft, production and a few hooks; with the prep layer (build, Warfare move, technology range
+//!   and strength), the ability, agenda, holding and Turn Their Fleets to Dust planners and the production
+//!   secrets. `bw_fleet_shape` stays off (a net loss in the direct A/B).
+//!
 //! Other technology choices, action cards, the other secondaries and every other window stay
 //! random.
 

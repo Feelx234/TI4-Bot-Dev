@@ -118,6 +118,24 @@ fn main() -> Result<(), String> {
             if ok { "OK" } else { "FAIL" }
         );
         failed |= !ok;
+        // A version-3 save (recorded explicitly) must replay as version 3 under the current bot.
+        let mut v3 = setup.clone();
+        v3["bot_version"] = json!(3);
+        let (_, _, save3, _) = play(&json!({ "setup": v3 }), Some(asks))?;
+        let recorded = save3
+            .pointer("/setup/bot_version")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let (_, _, _, check) = play(
+            &json!({ "setup": save3["setup"], "resume": save3 }),
+            Some(0),
+        )?;
+        let ok = check["ok"] == true && recorded == json!(3);
+        println!(
+            "seed {seed}: version-3 save (bot_version {recorded}), resumed: {check} -> {}",
+            if ok { "OK" } else { "FAIL" }
+        );
+        failed |= !ok;
         // For information: the same save resumed with the current bot (what every old save
         // would do without the field), usually a different game.
         let mut forced = save.clone();

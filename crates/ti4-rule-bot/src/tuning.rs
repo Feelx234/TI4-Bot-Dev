@@ -84,7 +84,7 @@ tuning! {
     empty_fight_rule: bool = false, "v2: rounds 1-2, no fight that takes no planet away from its own systems";
     mecatol_rival_bonus: f64 = 4.0, "v2: extra worth of Mecatol Rex while a rival holds it";
     planner_weight: f64 = 1.0, "v2: production weight per point of an objective within planner_gap that more of a unit meets";
-    planner_gap: f64 = 3.0, "v2: steps short within which the planner weighs an objective";
+    planner_gap: f64 = 5.0, "v2 (v4 default 5; v1-v3: 3): steps short within which the planner weighs an objective";
     progress_gap: f64 = 2.0, "steps short within which progress toward an objective is worth activating for";
     nebula_margin: f64 = 0.0, "v2: extra matchup needed to attack a fleet in a nebula (defender +1)";
     home_guard: bool = false, "v2: no warship leaves home when the rest could not hold it against a fleet a rival can bring";
@@ -104,7 +104,7 @@ tuning! {
     adjacent_bonus: f64 = 0.0, "v3: worth per own system next to a system whose planets it can take";
     tech_hunt: f64 = 0.0, "v3: the Nekro: worth per rival technology it lacks in a fight it takes (Technological Singularity)";
     tech_pick_rule: bool = true, "v3: a stolen or copied technology by the seat's order; the Nekro always use Technological Singularity";
-    nekro_tech: bool = true, "v3: the Nekro draft Technology first in every round (its research is three command tokens)";
+    nekro_tech: bool = false, "v3 (off again in v4): the Nekro draft Technology first in every round (its research is three command tokens)";
     plan_off: i64 = 0, "v3: 1 = no faction plan for ghost, hacan, empyrean, naaz, winnu (they win least in self-play)";
     empyrean_rule: bool = false, "v3: the Empyrean allow Aetherpassage only to themselves";
     home_last_ship: bool = false, "v3: from round 3 the last warship does not leave home while a rival fleet could reach it";
@@ -113,7 +113,7 @@ tuning! {
     early_margin: f64 = 0.0, "v3: extra matchup needed for a fight in rounds 1-2";
     mecatol_early: f64 = 0.0, "v3: extra worth of Mecatol Rex in rounds 2-3 while the custodians token is on it";
     ground_margin: f64 = 0.0, "v3: extra ground forces for an invasion, as a share of the defenders' hit points";
-    bw_enabled: bool = false, "v4: backward planning (backward/): plans per objective, weighed with Mecatol/Imperial, steers activation and the Imperial draft";
+    bw_enabled: bool = true, "v4: backward planning (backward/): plans per objective, weighed with Mecatol/Imperial, steers activation and the Imperial draft";
     bw_round: u32 = 3, "v4: first round of backward planning";
     bw_threshold: f64 = 0.35, "v4: expected VP the best plan must reach, else the default logic plays unchanged";
     bw_steer: f64 = 6.0, "v4: activation worth per expected VP of a chosen plan, for the systems on its route";
@@ -124,10 +124,10 @@ tuning! {
     bw_resource_cost: f64 = 0.05, "v4: expected VP charged per resource a plan spends";
     bw_mecatol: bool = true, "v4: the Mecatol Rex / Imperial plan competes with the objective plans";
     bw_mecatol_weight: f64 = 1.0, "v4: scale of the Mecatol plan's points";
-    bw_prep_build: bool = false, "v4: prep layer, build: a production (dock, Construction, Warfare secondary) adds what the activation lacks, then act";
-    bw_prep_warfare: bool = false, "v4: prep layer, Warfare move: Warfare's extra activation gathers ships beside Mecatol Rex, then act";
-    bw_prep_tech_range: bool = false, "v4: prep layer, technology range: a movement technology brings the ships in reach, then act";
-    bw_prep_tech_strength: bool = false, "v4: prep layer, technology strength: a combat/upgrade technology wins the Mecatol fight, then act";
+    bw_prep_build: bool = true, "v4: prep layer, build: a production (dock, Construction, Warfare secondary) adds what the activation lacks, then act";
+    bw_prep_warfare: bool = true, "v4: prep layer, Warfare move: Warfare's extra activation gathers ships beside Mecatol Rex, then act";
+    bw_prep_tech_range: bool = true, "v4: prep layer, technology range: a movement technology brings the ships in reach, then act";
+    bw_prep_tech_strength: bool = true, "v4: prep layer, technology strength: a combat/upgrade technology wins the Mecatol fight, then act";
     bw_build_weight: f64 = 3.0, "v4: production weight added to a unit type a chosen backward plan wants built";
     bw_card_weight: f64 = 8.0, "v4: draft score per expected VP of a strategy card a chosen backward plan wants";
     bw_fleet_shape: bool = false, "v4: planners of the fleet-shape group: fleet in one system, flagship placement, ground pile (with bw_enabled)";
@@ -136,19 +136,19 @@ tuning! {
     bw_payment: bool = true, "v4: planners of the spend group (with bw_enabled)";
     bw_technology: bool = true, "v4: planners of the technology group (with bw_enabled)";
     bw_combat: bool = true, "v4: planners of the combat and other group (with bw_enabled)";
-    bw_combat_abilities: bool = false, "v4 (B): planners of the ability secrets (uf, baf, fwp, mew; with bw_enabled)";
-    bw_agenda: bool = false, "v4 (B): the agenda secrets' votes and planner (dtd, dp; with bw_enabled)";
-    bw_holdings: bool = false, "v4 (B): the holding secrets' hooks and planner (fsn, dhw, sb; with bw_enabled)";
-    bw_ttfd: bool = false, "v4 (B): a PDS on or beside Mecatol Rex for Turn Their Fleets to Dust (with bw_enabled)";
-    bw_production: bool = false, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
+    bw_combat_abilities: bool = true, "v4 (B): planners of the ability secrets (uf, baf, fwp, mew; with bw_enabled)";
+    bw_agenda: bool = true, "v4 (B): the agenda secrets' votes and planner (dtd, dp; with bw_enabled)";
+    bw_holdings: bool = true, "v4 (B): the holding secrets' hooks and planner (fsn, dhw, sb; with bw_enabled)";
+    bw_ttfd: bool = true, "v4 (B): a PDS on or beside Mecatol Rex for Turn Their Fleets to Dust (with bw_enabled)";
+    bw_production: bool = true, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
-/// `v2:` knobs, version 2 the bot before the `v3:` knobs, version 3 adds them; a saved offline game records the
+/// `v2:` knobs, version 2 the bot before the `v3:` knobs, version 3 adds them, version 4 adds the `v4:` knobs (backward planning) and changes `planner_gap` and `nekro_tech`; a saved offline game records the
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
-pub const BOT_VERSION: u32 = 3;
+pub const BOT_VERSION: u32 = 4;
 
-/// The tuning of bot version `version` (1, 2 or 3; anything else: the current one).
+/// The tuning of bot version `version` (1 to 4; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
 /// with a changed default: the compiler asks for its version-1 value. Version 2 is version 1 plus
@@ -158,7 +158,31 @@ pub fn for_version(version: u32) -> Tuning {
     match version {
         1 => v1(),
         2 => v2(),
+        3 => v3(),
         _ => Tuning::default(),
+    }
+}
+
+/// Version 3: version 2 plus the `v3:` knobs (`tech_pick_rule`, `r1_tech`, `nekro_tech`). The `v4:`
+/// knobs (backward planning, `planner_gap` 5, no `nekro_tech`) are named here with their old values
+/// so a later default cannot change a version-3 game.
+fn v3() -> Tuning {
+    Tuning {
+        tech_pick_rule: true,
+        r1_tech: true,
+        nekro_tech: true,
+        planner_gap: 3.0,
+        bw_enabled: false,
+        bw_prep_build: false,
+        bw_prep_warfare: false,
+        bw_prep_tech_range: false,
+        bw_prep_tech_strength: false,
+        bw_combat_abilities: false,
+        bw_agenda: false,
+        bw_holdings: false,
+        bw_ttfd: false,
+        bw_production: false,
+        ..v2()
     }
 }
 
@@ -318,6 +342,19 @@ mod tests {
                 && for_version(3).nekro_tech
                 && !for_version(2).nekro_tech
         );
-        assert_eq!(for_version(3), Tuning::default());
+        assert!(
+            for_version(3).nekro_tech
+                && !for_version(3).bw_enabled
+                && (for_version(3).planner_gap - 3.0).abs() < f64::EPSILON
+                && !for_version(3).bw_ttfd
+        );
+        let v4 = for_version(4);
+        assert_eq!(v4, Tuning::default());
+        assert!(!v4.nekro_tech && v4.tech_pick_rule && v4.r1_tech);
+        assert!((v4.planner_gap - 5.0).abs() < f64::EPSILON);
+        assert!(v4.bw_enabled && v4.bw_prep_build && v4.bw_prep_warfare && v4.bw_agenda);
+        assert!(v4.bw_prep_tech_range && v4.bw_prep_tech_strength && v4.bw_combat_abilities);
+        assert!(v4.bw_holdings && v4.bw_ttfd && v4.bw_production);
+        assert!(!v4.bw_fleet_shape);
     }
 }

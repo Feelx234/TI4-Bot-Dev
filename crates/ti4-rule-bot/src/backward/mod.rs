@@ -930,7 +930,7 @@ mod tests {
     fn on() -> tuning::Tuning {
         tuning::Tuning {
             bw_enabled: true,
-            ..tuning::Tuning::default()
+            ..tuning::for_version(3)
         }
     }
 
@@ -1108,7 +1108,7 @@ mod tests {
         tuning::with(
             tuning::Tuning {
                 bw_enabled: true,
-                ..tuning::Tuning::default()
+                ..tuning::for_version(3)
             },
             || {
                 let (mut state, hub) = position(1, 2);
@@ -1407,7 +1407,9 @@ mod tests {
     fn every_planner_sees_the_prepared_steps_of_the_layer() {
         let (state, hub) = mecatol_position(2, 3);
         // Layer off: Mecatol Rex has no step (two troops against three defenders).
-        assert!(steps_of(&state, &hub).iter().all(|s| s.prep.is_none()));
+        tuning::with(on(), || {
+            assert!(steps_of(&state, &hub).iter().all(|s| s.prep.is_none()));
+        });
         tuning::with(build_on(), || {
             let steps = steps_of(&state, &hub);
             let prepared = steps
@@ -1685,8 +1687,13 @@ mod tests {
     }
 
     #[test]
-    fn off_by_default() {
+    fn off_before_version_4() {
         let (state, hub) = position(3, 2);
-        assert!(verdict_of(&state, &hub).is_none());
+        tuning::with(tuning::for_version(3), || {
+            assert!(verdict_of(&state, &hub).is_none());
+        });
+        tuning::with(tuning::for_version(4), || {
+            assert!(verdict_of(&state, &hub).is_some());
+        });
     }
 }
