@@ -306,6 +306,28 @@ pub fn play_guarded(
     }
 }
 
+/// A result with nothing in it, for tests of code that reads results.
+#[cfg(test)]
+pub(crate) fn empty_for_tests() -> GameResult {
+    let spec = GameSpec {
+        setup: "t".to_owned(),
+        seed: 1,
+        players: 2,
+        map: "random".to_owned(),
+        factions: vec!["sol".to_owned(), "hacan".to_owned()],
+        speaker: "seat".to_owned(),
+        card_set: None,
+        rotation: None,
+    };
+    empty_result(
+        &spec,
+        "victory",
+        None,
+        Instant::now(),
+        &PlayOptions::default(),
+    )
+}
+
 fn empty_result(
     spec: &GameSpec,
     termination: &str,

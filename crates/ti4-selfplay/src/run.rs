@@ -177,6 +177,14 @@ pub struct Comparison {
     pub vp_r4: Estimate,
     #[serde(default)]
     pub vp_r5: Estimate,
+    /// Controllable victory points ([`crate::controllable`]), paired like the VP metrics above,
+    /// from the stored timelines: keys `ctrl_vp_per_round`, `ctrl_r3`, `ctrl_r4`, `ctrl_r5`,
+    /// `noisy_final` (the other sources) and `cat:<category>:r3|r5|final`.
+    #[serde(default)]
+    pub controllable: std::collections::BTreeMap<String, Estimate>,
+    /// Tables whose games have no per-source split (no stored timeline).
+    #[serde(default)]
+    pub no_split: usize,
     /// `candidate` stronger / weaker / not distinguishable at 95%.
     pub verdict: String,
     pub wall_s: f64,
@@ -202,6 +210,76 @@ fn mean_metric(g: &GameResult, want: Option<(&[bool], bool)>, which: usize) -> f
         .filter(|&s| want.is_none_or(|(mask, w)| mask[s] == w))
         .collect();
     seats.iter().map(|&s| seat_metric(g, s, which)).sum::<f64>() / seats.len().max(1) as f64
+}
+
+/// Controllable-VP metrics of one pair of games (`a` before, `b` after): seat metrics, averaged
+/// over the candidate seats minus the baseline seats (mixed; over both games), or the mean seat
+/// of `b` minus that of `a` (uniform tables).
+fn controllable_pair(
+    a: &GameResult,
+    b: &GameResult,
+    ta: &crate::controllable::Table,
+    tb: &crate::controllable::Table,
+    mixed: bool,
+) -> Vec<(String, f64)> {
+    use crate::controllable::CATEGORIES;
+    type Metric = Box<dyn Fn(&crate::controllable::Table, &GameResult, usize) -> f64>;
+    let end = |r: usize| {
+        move |t: &crate::controllable::Table, g: &GameResult, s: usize| {
+            t.at(s, Some(r.min(g.rounds as usize)), None, false)
+        }
+    };
+    let mut metrics: Vec<(String, Metric)> = vec![
+        (
+            "ctrl_vp_per_round".to_owned(),
+            Box::new(|t, g, s| t.at(s, None, None, false) / f64::from(g.rounds.max(1))),
+        ),
+        ("ctrl_r3".to_owned(), Box::new(end(3))),
+        ("ctrl_r4".to_owned(), Box::new(end(4))),
+        ("ctrl_r5".to_owned(), Box::new(end(5))),
+        (
+            "noisy_final".to_owned(),
+            Box::new(|t, _, s| t.at(s, None, None, true)),
+        ),
+    ];
+    for (i, name) in CATEGORIES.iter().enumerate() {
+        for (label, round) in [("r3", Some(3usize)), ("r5", Some(5)), ("final", None)] {
+            metrics.push((
+                format!("cat:{name}:{label}"),
+                Box::new(move |t, g, s| {
+                    t.at(s, round.map(|r| r.min(g.rounds as usize)), Some(i), false)
+                }),
+            ));
+        }
+    }
+    let seat_mean = |g: &GameResult,
+                     t: &crate::controllable::Table,
+                     want: Option<(&[bool], bool)>,
+                     m: &Metric| {
+        let seats: Vec<usize> = (0..g.vp.len())
+            .filter(|&s| want.is_none_or(|(mask, w)| mask[s] == w))
+            .collect();
+        seats.iter().map(|&s| m(t, g, s)).sum::<f64>() / seats.len().max(1) as f64
+    };
+    metrics
+        .iter()
+        .map(|(name, m)| {
+            let value = if mixed {
+                [(a, ta), (b, tb)]
+                    .iter()
+                    .map(|(g, t)| {
+                        let mask = g.candidate_seats.as_deref().expect("mask");
+                        seat_mean(g, t, Some((mask, true)), m)
+                            - seat_mean(g, t, Some((mask, false)), m)
+                    })
+                    .sum::<f64>()
+                    / 2.0
+            } else {
+                seat_mean(b, tb, None, m) - seat_mean(a, ta, None, m)
+            };
+            (name.clone(), value)
+        })
+        .collect()
 }
 
 fn seats_mask(n: usize, shift: usize) -> Vec<bool> {
@@ -273,6 +351,8 @@ pub fn comparison_from(
     let (mut win_share, mut vp_adv, mut rounds, mut decisions, mut wall) =
         (vec![], vec![], vec![], vec![], vec![]);
     let mut metric: [Vec<f64>; 4] = Default::default();
+    let mut ctrl: std::collections::BTreeMap<String, Vec<f64>> = std::collections::BTreeMap::new();
+    let mut no_split = 0usize;
     let (mut excluded, mut cand_games, mut cand_wins) = (0usize, 0usize, 0usize);
     let (mut base_done, mut cand_done) = (0usize, 0usize);
     type Series = std::collections::BTreeMap<String, (Vec<f64>, Vec<f64>)>;
@@ -303,6 +383,17 @@ pub fn comparison_from(
                 mean_metric(b, None, which) - mean_metric(a, None, which)
             };
             metric[slot].push(diff);
+        }
+        match (
+            crate::controllable::Table::of(a),
+            crate::controllable::Table::of(b),
+        ) {
+            (Some(ta), Some(tb)) => {
+                for (key, value) in controllable_pair(a, b, &ta, &tb, mixed) {
+                    ctrl.entry(key).or_default().push(value);
+                }
+            }
+            _ => no_split += 1,
         }
         rounds.push(f64::from(b.rounds) - f64::from(a.rounds));
         decisions.push(b.decisions as f64 - a.decisions as f64);
@@ -414,6 +505,8 @@ pub fn comparison_from(
                 )
             })
             .collect(),
+        controllable: ctrl.into_iter().map(|(k, v)| (k, estimate(&v))).collect(),
+        no_split,
         vp_per_round: estimate(&metric[0]),
         vp_r3: estimate(&metric[1]),
         vp_r4: estimate(&metric[2]),
@@ -493,6 +586,41 @@ pub fn render_comparison(c: &Comparison) -> String {
         );
     }
     row(&mut out, "VP per round (paired)", &c.vp_per_round, 1.0, "");
+    if !c.controllable.is_empty() {
+        let _ = writeln!(
+            out,
+            "controllable VP (objectives, custodians, Imperial's Mecatol point; not agenda, Support for the Throne, riders, relics){}:",
+            if c.no_split > 0 {
+                format!(", {} tables without a split skipped", c.no_split)
+            } else {
+                String::new()
+            }
+        );
+        for key in [
+            "ctrl_vp_per_round",
+            "ctrl_r3",
+            "ctrl_r4",
+            "ctrl_r5",
+            "noisy_final",
+        ] {
+            if let Some(e) = c.controllable.get(key) {
+                row(&mut out, &format!("  {key}"), e, 1.0, "");
+            }
+        }
+        for (key, e) in c
+            .controllable
+            .iter()
+            .filter(|(k, _)| k.starts_with("cat:") && k.ends_with(":final"))
+        {
+            row(&mut out, &format!("  {key}"), e, 1.0, "");
+        }
+    } else if c.no_split > 0 {
+        let _ = writeln!(
+            out,
+            "controllable VP: no stored per-source split in these games ({} tables)",
+            c.no_split
+        );
+    }
     row(&mut out, "VP after round 3", &c.vp_r3, 1.0, "");
     row(&mut out, "VP after round 4", &c.vp_r4, 1.0, "");
     row(&mut out, "VP after round 5", &c.vp_r5, 1.0, "");
@@ -539,4 +667,45 @@ pub fn render_comparison(c: &Comparison) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod controllable_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn game(mask: [bool; 2], events: serde_json::Value) -> GameResult {
+        GameResult {
+            vp: vec![2, 1],
+            rounds: 4,
+            candidate_seats: Some(mask.to_vec()),
+            timeline: Some(json!({ "vp_events": events })),
+            ..crate::play::empty_for_tests()
+        }
+    }
+
+    #[test]
+    fn controllable_pair_ignores_agenda_and_swaps() {
+        // Game one: seat a is the candidate and scores an objective and an agenda point; game
+        // two: the seats swap and the candidate (seat b) scores nothing.
+        let one = game(
+            [true, false],
+            json!([
+                {"round": 1, "seat": "a", "d": 1, "src": "objective"},
+                {"round": 2, "seat": "a", "d": 1, "src": "agenda:mutiny"},
+            ]),
+        );
+        let two = game([false, true], json!([]));
+        let (ta, tb) = (
+            crate::controllable::Table::of(&one).unwrap(),
+            crate::controllable::Table::of(&two).unwrap(),
+        );
+        let m: std::collections::BTreeMap<_, _> = controllable_pair(&one, &two, &ta, &tb, true)
+            .into_iter()
+            .collect();
+        // (1 - 0 + 0 - 0) / 2 controllable points, the agenda point is noisy.
+        assert!((m["ctrl_r5"] - 0.5).abs() < 1e-9);
+        assert!((m["noisy_final"] - 0.5).abs() < 1e-9);
+        assert!((m["ctrl_vp_per_round"] - 0.125).abs() < 1e-9);
+    }
 }

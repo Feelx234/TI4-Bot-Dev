@@ -708,3 +708,92 @@ resume identically, a version-2 save and a version-1 save without the field repl
    in the sense that they only touch Nekro technology picks, the Arborec/Naalu/L1Z1X first card and the Nekro's cards.
 2. The objective-dependent Mecatol/Imperial/Custodians plan and the end-of-round fleet stack deserve their own round with movement planning.
 3. The dominant lever left is territory by round 2 (BOT_V2_ANALYSIS_4P): needs opening work, not knobs.
+
+
+## Controllable VP (analysis on what is already stored; no new games)
+
+**Definition.** Controllable VP = what a seat earns by playing: public objectives (stage I and II, including the extra
+one Imperial scores), secret objectives, the custodians, Imperial's Mecatol point. **Noisy / not controllable** (ledger sources seen in
+4000+ stored games): `agenda:*` (mutiny, censure, ...), `support_for_the_throne` (a swap two bots both accept, +1 each),
+`imperial_rider`, relic points (`shard` of the Throne, `emphidia` Crown, `bookoflatvinia`) and any other source (`relic_other`;
+exploration/frontier rewards give no VP on their own in the ledger). Share of final VP: 13% (4p) and 15% (6p) of a seat's points.
+
+**Harness.** `compare` and `selfplay metrics` print a *controllable* block next to the total-VP metrics, computed from the stored
+timelines (`vp_events` by source): `ctrl_vp_per_round`, `ctrl_r3/r4/r5`, `noisy_final` and `cat:<category>:r3|r5|final` for the eight
+categories, all paired by table with 95% CIs (mixed: candidate seats minus baseline seats; `--mode separate`: all-candidate minus
+all-baseline table). `--exclude-sources a,b` makes everything except the named categories controllable (names:
+`objective secret_objective custodians imperial_primary support_for_the_throne agenda imperial_rider relic_other`). Games without a
+stored timeline are skipped and counted (`no_split`). Code: `crates/ti4-selfplay/src/controllable.rs`, `run.rs` (`controllable_pair`),
+unit tests for both.
+
+**What could be re-judged.** Only data with the per-source split can: (a) the v2 self-play timelines of the analyses
+(`/root/scratch-bpa/a4.jsonl` 2000 games 4p, `/root/scratch-ba6/a6.jsonl` 1800 games 6p; all seats v2), (b) the golden baselines
+(per-source means per game for v1, v2, v3). **Every A/B result of rounds 1 and 2 has no split and is listed under "needs rerun"
+below.** The stored games of this round's own A/B runs were deleted with the private result directory at the end of the round
+(my cleanup; the harness now keeps them, and a rerun is a cache fill).
+
+### Good against bad on controllable VP (v2 self-play, paired within game: seat class means)
+
+Mean cumulative controllable VP per seat after rounds (objective + secret + custodians + Imperial point), and the noisy VP:
+
+| class (4p, 2000 games) | VP/round total | VP/round controllable | ctrl after R3 | R5 | final | noisy at R3 / final |
+|---|---|---|---|---|---|---|
+| winners | 1.562 +-0.012 | 1.367 +-0.011 | 2.90 | 6.35 | 8.47 | 0.72 / 1.19 |
+| bad (<=3 total VP, winner 10) | 0.438 +-0.010 | 0.360 +-0.011 | 1.06 | 1.93 | 2.03 | 0.58 / 0.43 |
+| bad on controllable (<=3 ctrl VP) | 0.551 +-0.011 | 0.409 +-0.008 | 1.21 | 2.22 | 2.34 | 0.70 / 0.82 |
+| all seats | 1.067 +-0.009 | 0.922 +-0.008 | 2.23 | 4.69 | 5.90 | 0.69 / 0.92 |
+
+| class (6p, 1800 games) | VP/round total | VP/round controllable | ctrl after R3 | R5 | final | noisy at R3 / final |
+|---|---|---|---|---|---|---|
+| winners | 1.366 +-0.010 | 1.180 +-0.010 | 2.13 | 4.93 | 7.72 | 0.75 / 1.22 |
+| bad | 0.361 +-0.006 | 0.278 +-0.007 | 0.78 | 1.57 | 1.84 | 0.59 / 0.59 |
+| bad on controllable | 0.462 +-0.007 | 0.327 +-0.005 | 0.90 | 1.82 | 2.20 | 0.68 / 0.93 |
+| all seats | 0.860 +-0.007 | 0.728 +-0.006 | 1.57 | 3.50 | 5.00 | 0.70 / 0.95 |
+
+Cumulative controllable VP by category (4p winners / bad / all seats), after round 3 / 5 / final (7): objectives 1.43 / 3.52 / 4.94 against
+0.76 / 1.37 / 1.43 against 1.26 / 2.84 / 3.62; secrets 0.71 / 1.55 / 1.92 against 0.24 / 0.49 / 0.53 against 0.57 / 1.25 / 1.54; custodians
+0.41 / 0.43 / 0.44 against 0.04 / 0.04 / 0.04 against 0.24 / 0.25 / 0.25; Imperial Mecatol point 0.34 / 0.84 / 1.17 against 0.01 / 0.02 / 0.02
+against 0.16 / 0.35 / 0.49. 6p winners: objectives 1.24 / 3.03 / 4.89, secrets 0.46 / 1.17 / 1.75, custodians 0.28 / 0.30 / 0.31, Imperial
+0.15 / 0.43 / 0.76 (bad: 0.57 / 1.12 / 1.28, 0.17 / 0.38 / 0.49, 0.04 / 0.04 / 0.04, 0.01 / 0.02 / 0.02).
+
+Findings (verdicts of the earlier analyses stand):
+- The gap between good and bad seats is controllable VP: winners 8.47 against 2.03 (4p) at the end, and the *noisy* VP is nearly the same for
+  both (1.19 against 0.43 final, 0.72 against 0.58 at round 3). Excluding noise changes the winners' pace from 1.56 to 1.37 VP per round and
+  does not narrow the gap (3.6x total, 3.8x controllable).
+- The winner is not the top seat on controllable VP in 4.8% (4p) / 6.3% (6p) of games, and the winners' final points drop 9.99 -> 8.77
+  (4p), 9.94 -> 8.61 (6p) without the noisy sources, so about 1.2 to 1.3 VP of a win come from noise (mostly Support for the Throne, 0.66 per seat in
+  4p, 0.72 in 6p, then agenda 0.23/0.21).
+- Pace targets of THEORETICAL_VP_PACE.md on controllable VP: custodians and Imperial's Mecatol point are where the winners lag (Mecatol point
+  0.34 / 0.84 / 1.17 after rounds 3 / 5 / 7 in 4p; custodians 0.41 after round 3, flat afterwards); stage-I objectives 1.43 / 3.52 / 4.94.
+- Per faction (4p, 6p tables in `/root/rb2-ctrl/faction.txt`): the ranking by controllable VP per round hardly differs from the win-rate
+  ranking. The one real shift is the **Nekro: 0.62 (4p) / 0.67 (6p) noisy VP per seat against 0.8 to 1.1 for everyone else** (they cannot vote,
+  so no agenda points); on controllable VP per round they sit at 0.847 (4p, rank 17 of 24) and 0.733 (6p, rank 13), above their win-rate rank (21 of 24 and
+  19 of 24). Their weakness is partly the missing agenda income, not play; Xxcha and Argent are the reverse (1.09 / 1.18 noisy VP, rank falls on
+  controllable).
+
+### Uniform golden set (200 games, seeds 1..100, all seats one bot)
+
+| version | rounds | total VP / seat-round | controllable VP / seat-round | noisy share |
+|---|---|---|---|---|
+| v1 | 6.890 | 0.953 | 0.838 | 12.0% |
+| v2 | 6.805 | 0.969 | 0.841 | 13.2% |
+| v3 | 6.925 | 0.956 | 0.832 | 13.0% |
+
+(per-game sums by source over all seats, five seats on average; means, no per-seat pairing, so no confidence intervals.) **Verdict change:**
+v2's apparent gain in total pace (+1.7%) is almost entirely noisy VP (agenda 0.41 -> 0.77 per game from `vote_rule`); controllable pace is
+unchanged (+0.4%). That is the all-seats-equal view; v2's head-to-head gain (casualties, votes, the planner) is a different quantity and cannot be re-judged
+without the split. v3 against v2 in uniform tables: controllable -1.0%, i.e. nothing, as the total-VP result already said.
+
+### Needs rerun (no per-source split stored)
+
+All of these were judged on total VP and win share; their controllable-VP verdicts are unknown until they are rerun with the stored-games
+harness (a rerun fills the cache, ~6 min for 200 tables at 6 workers):
+- Round 1 (`ab-results/*.json` of the round-1 session): casualty_rule, vote_rule, misc_rule, ground_rule (+ no empty fights), mecatol_rival_bonus, planner_weight,
+  progress_gap=3, objective_round=2, nebula_margin, home_guard, plans_v2, rift_caution (6pGravity and mix), complete_value=9, sftt_rule, empty_fight_rule,
+  end_turn_rule, deny_within=4, win_margin=0.4, secondary_rule, progress_value=4.5, deny_value=5; v2 against v1 (overall, cyclic, maps, Latin squares).
+- Round 2 (`/root/rb2-out/*.json`, aggregates only): tech_pick_rule, r1_tech, nekro_tech, early_margin 0.3/0.6, r1_tech2, short_bonus 2/3, ground_margin, lift_rule,
+  activation_threshold, plan_off, planner_weight/planner_gap, progress_gap, complete_value, influence_early, home_last_ship, r1_trade, r1_leadership, r1_diplomacy,
+  winnu_mecatol, letnev_armada, tech_hunt, empyrean_rule, adjacent_bonus, mecatol_early, the numeric sweeps, v3 against v2 (mixed, uniform, per map).
+Expected effects by mechanism (not measured): the agenda and Support for the Throne rules (`vote_rule`, `sftt_rule`, Politics) are the ones whose
+verdict is most likely to change under controllable VP; tech_pick_rule, r1_tech, nekro_tech touch only research and cards, so their controllable
+effect should track the total effect. BOT_VERSION 3 content is unchanged pending the reruns.

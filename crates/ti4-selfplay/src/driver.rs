@@ -16,8 +16,15 @@ use crate::stats::{GameLine, Meta, Summary, aggregate, problems};
 /// For an unknown key or a value that does not parse.
 pub fn tuning_from(overrides: &BTreeMap<String, String>) -> Result<Tuning, String> {
     let mut t = Tuning::default();
+    // `bot_version` first: it replaces every number, later keys override it (map order is
+    // alphabetical, which would let it clobber keys sorted before it).
+    if let Some(v) = overrides.get("bot_version") {
+        t.set_key("bot_version", v)?;
+    }
     for (k, v) in overrides {
-        t.set_key(k, v)?;
+        if k != "bot_version" {
+            t.set_key(k, v)?;
+        }
     }
     Ok(t)
 }

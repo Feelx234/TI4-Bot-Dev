@@ -540,6 +540,11 @@ fn main() -> ExitCode {
         _ => ("run", raw.clone()),
     };
     let result = Args::parse(&rest).and_then(|args| {
+        if let Some(list) = args.get("exclude-sources") {
+            ti4_selfplay::controllable::configure(Some(
+                list.split(',').map(|s| s.trim().to_owned()).collect(),
+            ));
+        }
         ti4_selfplay::store::configure(if args.has("no-cache") {
             None
         } else {

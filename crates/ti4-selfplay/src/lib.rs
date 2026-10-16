@@ -1,5 +1,6 @@
 //! Headless rule-bot self-play. See `docs/RULE_BOT_OPTIMISATION.md`.
 
+pub mod controllable;
 pub mod driver;
 pub mod play;
 pub mod run;
