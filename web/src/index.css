@@ -2209,19 +2209,43 @@ html,
   }
 
   .app-shell {
-    display: block;
+    display: flex;
+    flex-direction: column;
     min-height: 100vh;
+    min-height: 100dvh;
     height: auto;
     overflow: visible;
   }
 
+  /* The content row takes what the header leaves, so the map reaches the bottom of the screen. */
   .app-shell__content {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
     overflow: visible;
   }
 
+  /* The column has no definite height here, so the board's own height: 100% fell back to its content
+     (the map's aspect ratio) and left the rest of the 55vh column as an empty dark band; a zoomed or
+     panned map was then cut off by a straight edge above that band. A flex column lets the board
+     fill the whole column. */
   .app-shell__board {
     min-height: 55vh;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell__board > .board-container {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .app-shell__board .board-stage {
+    display: flex;
+    flex-direction: column;
+  }
+  .app-shell__board .board-stage > svg {
+    flex: 1 1 auto;
+    min-height: 0;
   }
 
   .app-shell__player-sheet,
