@@ -28,12 +28,7 @@ fn table(with_choice: bool) -> TableSetup {
     }
 }
 
-fn opening(
-    with_choice: bool,
-) -> (
-    ti4_model::state::GameState,
-    ti4_content::galaxy::Galaxy,
-) {
+fn opening(with_choice: bool) -> (ti4_model::state::GameState, ti4_content::galaxy::Galaxy) {
     let table = table(with_choice);
     let chosen = vec![
         Some("winnu".to_owned()),
@@ -48,7 +43,11 @@ fn opening(
 fn the_winnu_seat_is_asked_first_and_the_answers_are_decisions_of_the_log() {
     let ps = players();
     let (state, galaxy) = opening(true);
-    assert_eq!(state.starting_tech_picks.len(), 2, "Winnu and Argent owe picks");
+    assert_eq!(
+        state.starting_tech_picks.len(),
+        2,
+        "Winnu and Argent owe picks"
+    );
     let tiles = ti4_host::map::build_board_tiles(ContentStore::embedded(), &galaxy);
     let config = SessionConfig::new("game_starting_tech", state.clone())
         .with_seed(77)
@@ -111,7 +110,9 @@ fn the_winnu_seat_is_asked_first_and_the_answers_are_decisions_of_the_log() {
     // Recovery replays the opening state and the log to the same state and hashes.
     let log = session.decision_log();
     assert_eq!(
-        log.iter().filter(|r| r.prompt.contains("starting technology")).count(),
+        log.iter()
+            .filter(|r| r.prompt.contains("starting technology"))
+            .count(),
         3
     );
     let report = replay_session(&state, Some(&galaxy), &log).expect("replay");
@@ -128,11 +129,18 @@ fn an_opening_state_made_without_the_choice_is_the_game_it_always_was() {
     let (state, _) = opening(false);
     assert!(state.starting_tech_picks.is_empty());
     let winnu = state.player(&players()[0]).unwrap();
-    assert!(winnu.technologies.is_empty(), "no choice, no technology: as before");
+    assert!(
+        winnu.technologies.is_empty(),
+        "no choice, no technology: as before"
+    );
     // The key is absent from the serialized state, so a stored `init.json` of an older game
     // keeps the bytes (and the checksum) it was written with.
     let json = serde_json::to_string(&state).unwrap();
     assert!(!json.contains("starting_tech_picks"));
     let (with, _) = opening(true);
-    assert!(serde_json::to_string(&with).unwrap().contains("starting_tech_picks"));
+    assert!(
+        serde_json::to_string(&with)
+            .unwrap()
+            .contains("starting_tech_picks")
+    );
 }
