@@ -20,7 +20,7 @@
 //! [`tuning::bw_likely`]. The plan's probability is prep feasibility x act success x 0.9 for the
 //! extra step; it competes in [`super::weigh`] as the Mecatol plan.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
@@ -62,6 +62,17 @@ impl Case {
     #[must_use]
     pub fn works(&self, seen: &Observed<'_>, ground: usize, own: &[(String, usize)]) -> bool {
         self.ships && ground >= self.need && self.matchup_of(seen, own) >= self.margin
+    }
+
+    /// [`Self::works`] for a fleet that is assumed to be able to get there.
+    #[must_use]
+    pub fn works_if_reached(
+        &self,
+        seen: &Observed<'_>,
+        ground: usize,
+        own: &[(String, usize)],
+    ) -> bool {
+        !own.is_empty() && ground >= self.need && self.matchup_of(seen, own) >= self.margin
     }
 
     /// Probability that the fight and the landing go well with fleet `own`.
@@ -321,6 +332,7 @@ fn build_and_act(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx, case: &Case)
             systems,
             builds: units.iter().map(|(u, _)| u.clone()).collect(),
             cards,
+            ..Steer::default()
         },
         reason: format!(
             "build + act: {} adds {:?}, then take Mecatol Rex",
@@ -336,7 +348,7 @@ fn build_and_act(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx, case: &Case)
 /// best by probability x points less its tokens.
 #[must_use]
 pub fn plan(seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
-    if !(tuning::bw_mr_build()) {
+    if !(tuning::bw_mr_build() || tuning::bw_mr_warfare()) {
         return None;
     }
     let observed = seen.observed();
@@ -354,11 +366,227 @@ pub fn plan(seen: &SeatObservation<'_>, ctx: &PlanCtx) -> Option<Plan> {
     if tuning::bw_mr_build() {
         plans.extend(build_and_act(observed, me, ctx, &case));
     }
-    let _ = BTreeSet::<()>::new();
+    if tuning::bw_mr_warfare() {
+        plans.extend(warfare_and_act(observed, me, ctx, &case));
+    }
     plans.into_iter().max_by(|a, b| {
         let key = |p: &Plan| {
             p.probability * p.points - tuning::bw_token_cost() * f64::from(p.cost.tokens)
         };
         key(a).total_cmp(&key(b))
     })
+}
+
+// -- Warfare ------------------------------------------------------------------------------------
+
+/// What the seat's Warfare card gives this turn (shared by the build and move variants).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WarfareAccess {
+    /// The seat's own ready Warfare card.
+    pub own: Option<String>,
+    /// Playing it gives one more activation: Thunder's Edge's free tactical action, or the
+    /// printed card's recalled token (needs a token on the board).
+    pub extra_activation: bool,
+    /// Another seat's Warfare is still to come: its secondary produces at home.
+    pub secondary: bool,
+}
+
+/// The seat's Warfare options.
+#[must_use]
+pub fn warfare(seen: &Observed<'_>, me: &PlayerId) -> WarfareAccess {
+    let own = crate::ready_card(seen, me, "Warfare");
+    let extra_activation = own
+        .as_ref()
+        .is_some_and(|c| c.starts_with("te") || !seen.systems_with_token(me).is_empty());
+    WarfareAccess {
+        secondary: crate::secondary_to_come(seen, me, "Warfare"),
+        extra_activation,
+        own,
+    }
+}
+
+/// Whether gathering at `gather` (an activation next to Mecatol Rex) makes the act step work, and
+/// with what ground and fleet.
+#[must_use]
+pub fn gathered(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    case: &Case,
+    gather: &SystemId,
+) -> Option<(usize, Vec<(String, usize)>)> {
+    if gather == &case.system || crate::has_hostile_ships(seen, me, gather) {
+        return None;
+    }
+    let mut set: BTreeMap<(SystemId, usize), ti4_engine::tactical::Movable> = BTreeMap::new();
+    for m in seen
+        .movable_into(me, gather)
+        .into_iter()
+        .chain(seen.movable_into(me, &case.system))
+    {
+        set.entry((m.origin.clone(), m.index)).or_insert(m);
+    }
+    let carriers: Vec<_> = set
+        .values()
+        .filter(|m| m.capacity > 0 && crate::is_ship(seen, &m.unit))
+        .collect();
+    let capacity: i64 = carriers.iter().map(|m| m.capacity).sum();
+    let origins: std::collections::BTreeSet<&SystemId> =
+        carriers.iter().map(|m| &m.origin).collect();
+    let loadable: usize = origins
+        .into_iter()
+        .map(|o| {
+            seen.loadable(me, o)
+                .iter()
+                .filter(|c| crate::is_ground(seen, &c.unit))
+                .count()
+        })
+        .sum();
+    let board = seen.system(&case.system);
+    let there = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && crate::is_ground(seen, u))
+        .count();
+    let ground = loadable.min(usize::try_from(capacity).unwrap_or(0)) + there;
+    let present = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && crate::is_ship(seen, u));
+    let (own, _) = crate::tally(present.chain(set.values().map(|m| &m.unit)));
+    case.works_if_reached(seen, ground, &own)
+        .then_some((ground, own))
+}
+
+/// Variant 2: gather beside Mecatol Rex (Warfare's extra activation if tokens are short), then act.
+fn warfare_and_act(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx, case: &Case) -> Option<Plan> {
+    let access = warfare(seen, me);
+    let use_warfare = ctx.tactic_tokens < 2;
+    if use_warfare && !(access.extra_activation && ctx.tactic_tokens >= 1) {
+        return None;
+    }
+    if ctx.tactic_tokens < 1 {
+        return None;
+    }
+    let galaxy = seen.galaxy()?;
+    let tokened = seen.systems_with_token(me);
+    let best = galaxy
+        .adjacent(case.system.as_str())
+        .into_iter()
+        .map(SystemId::new)
+        .filter(|x| !tokened.contains(x))
+        .filter_map(|x| gathered(seen, me, case, &x).map(|(_, own)| (x, own)))
+        .map(|(x, own)| {
+            let p = case.act_success(seen, &own);
+            (x, p)
+        })
+        .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.cmp(&a.0)))?;
+    let (gather, act) = best;
+    let odds = if use_warfare { 0.95 } else { 1.0 };
+    let steer = Steer {
+        systems: vec![gather.clone(), case.system.clone()],
+        cards: if use_warfare {
+            vec!["Warfare".to_owned()]
+        } else {
+            Vec::new()
+        },
+        play: if use_warfare {
+            vec!["Warfare".to_owned()]
+        } else {
+            Vec::new()
+        },
+        ..Steer::default()
+    };
+    Some(Plan {
+        objective: "mecatol".to_owned(),
+        points: tuning::bw_mecatol_weight()
+            * (if ctx.mecatol.custodians_removed {
+                0.0
+            } else {
+                1.0
+            } + 0.6),
+        probability: odds * 0.85 * act * 0.9,
+        cost: Cost {
+            tokens: if use_warfare { 1 } else { 2 },
+            resources: 0,
+            activations: 2,
+        },
+        steer,
+        reason: format!(
+            "warfare move + act: gather in {gather}{}, then take Mecatol Rex",
+            if use_warfare {
+                " (Warfare gives the activation)"
+            } else {
+                " (tokens enough, no Warfare)"
+            }
+        ),
+        payment: false,
+        secret: false,
+    })
+}
+
+/// While a gather step of the Warfare variant is under way (the active system is the one the
+/// plan gathers in), the movement option to take: carriers and the strongest ships first.
+#[must_use]
+pub fn gather_active(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    if !tuning::bw_enabled() || !tuning::bw_mr_warfare() || seen.round() < tuning::bw_round() {
+        return false;
+    }
+    let Some(active) = seen.active_system() else {
+        return false;
+    };
+    let mut ctx = PlanCtx::blank(me);
+    ctx.mecatol = super::mecatol::state(seen, me);
+    let Some(case) = case(seen, me, &ctx) else {
+        return false;
+    };
+    if case.works(seen, case.ground, &case.own) {
+        return false;
+    }
+    seen.galaxy().is_some_and(|g| {
+        g.adjacent(case.system.as_str())
+            .iter()
+            .any(|s| *s == active.as_str())
+    }) && gathered(seen, me, &case, active).is_some()
+}
+
+/// The movement option of a gather step: carriers (most capacity) first, then the strongest
+/// ships; `done` once nothing useful is left to move.
+#[must_use]
+pub fn gather_move(choice: &ti4_engine::choice::Choice, seen: &Observed<'_>) -> Option<usize> {
+    let done = choice
+        .options
+        .iter()
+        .position(ti4_engine::choice::ChoiceOption::is_decline)?;
+    let best = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.kind == "move")
+        .filter_map(|(i, o)| {
+            let kind = crate::unit_type(seen, crate::payload_str(o, "unit")?)?;
+            (kind.is_ship() && !kind.is_fighter()).then_some((
+                i,
+                kind.capacity(),
+                kind.combat_dice(),
+            ))
+        })
+        .max_by_key(|&(i, cap, dice)| (cap, dice, std::cmp::Reverse(i)))
+        .map(|(i, _, _)| i);
+    Some(best.unwrap_or(done))
+}
+
+/// The load option of a gather step: ground forces while any are offered.
+#[must_use]
+pub fn gather_load(choice: &ti4_engine::choice::Choice, seen: &Observed<'_>) -> Option<usize> {
+    let done = choice
+        .options
+        .iter()
+        .position(ti4_engine::choice::ChoiceOption::is_decline)?;
+    let ground = choice.options.iter().position(|o| {
+        o.kind == "load"
+            && crate::payload_str(o, "unit")
+                .and_then(|id| crate::unit_type(seen, id))
+                .is_some_and(|t| t.is_ground_force())
+    });
+    Some(ground.unwrap_or(done))
 }

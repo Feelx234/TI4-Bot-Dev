@@ -126,6 +126,17 @@ pub fn pick(
     if !active(observed) {
         return None;
     }
+    // Backward planning, Warfare variant: the gather step beside Mecatol Rex moves and loads
+    // everything that can then reach it.
+    if matches!(subtype, Some("movement_step" | "load_cargo"))
+        && crate::backward::mecatol_two_step::gather_active(observed, me)
+    {
+        return if subtype == Some("load_cargo") {
+            crate::backward::mecatol_two_step::gather_load(choice, observed)
+        } else {
+            crate::backward::mecatol_two_step::gather_move(choice, observed)
+        };
+    }
     match subtype {
         Some("activate_system") => return pick_activation(choice, seen, me),
         Some("movement_step") => return pick_move(choice, seen, me),
@@ -831,6 +842,11 @@ fn pick_action(
     };
     if observed.scoreable_public(me) > 0
         && let Some(index) = play("Imperial")
+    {
+        return Some(index);
+    }
+    if crate::backward::verdict(seen, me).is_some_and(|v| v.plays("Warfare"))
+        && let Some(index) = play("Warfare")
     {
         return Some(index);
     }

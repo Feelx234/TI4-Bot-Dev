@@ -70,6 +70,8 @@ pub struct Steer {
     pub builds: Vec<String>,
     /// Strategy card names worth taking or playing (e.g. "Imperial", "Technology").
     pub cards: Vec<String>,
+    /// Strategy cards to play at the next opportunity (the prep step of a two-step plan).
+    pub play: Vec<String>,
 }
 
 /// One plan: the cheapest route found to score one objective, and how it weighs.
@@ -485,6 +487,16 @@ impl Verdict {
 }
 
 impl Verdict {
+    /// Whether a chosen plan wants `card` played now.
+    #[must_use]
+    pub fn plays(&self, card: &str) -> bool {
+        !self.fallback
+            && self
+                .chosen
+                .iter()
+                .any(|&i| self.plans[i].plan.steer.play.iter().any(|c| c == card))
+    }
+
     /// Unit types the chosen plans want produced.
     #[must_use]
     pub fn builds(&self) -> Vec<String> {
@@ -1006,6 +1018,122 @@ mod tests {
             let (state, hub) = mecatol_position(4, 3);
             let v = verdict_of(&state, &hub).expect("on");
             assert!(build_plan(&v).is_none(), "{v:?}");
+        });
+    }
+
+    /// Empty centre, Mecatol Rex on the ring at 0 (`defenders` rival infantry, custodians gone),
+    /// the Sol home opposite (3) with a carrier and `troops` infantry: two hexes from Mecatol Rex
+    /// through the centre, one move short for the carrier.
+    fn far_position(
+        troops: usize,
+        defenders: usize,
+        at: usize,
+    ) -> (GameState, ti4_engine::fixtures::Hub) {
+        let home_id = ti4_content::galaxy::planet(ContentStore::embedded(), "jord", POK)
+            .and_then(|p| p.system_id())
+            .expect("sol home")
+            .to_owned();
+        let mut empties = empty_systems(6).into_iter();
+        let mut ids = vec![empties.next().expect("centre"), "18".to_owned()];
+        for ring in 1..6 {
+            ids.push(if ring == 3 {
+                home_id.clone()
+            } else {
+                empties.next().expect("ring")
+            });
+        }
+        let hub = hub_from(&ids);
+        let mut state = game(&["a", "b"]);
+        state.round = 3;
+        state.phase = Phase::Action;
+        state.custodians_removed = true;
+        state.revealed_objectives.clear();
+        for seat in &mut state.players {
+            seat.secret_objectives.clear();
+        }
+        let home = SystemId::new(home_id);
+        let jord = PlanetId::new("jord");
+        state
+            .system_mut(&home)
+            .planet_control
+            .insert(jord.clone(), me());
+        let from = SystemId::new(hub.outer[at].clone());
+        put(&mut state, &from, "carrier", &me(), 1);
+        ti4_engine::fixtures::put_on_planet(&mut state, &home, &jord, "infantry", &me(), troops);
+        let mr = SystemId::new("18");
+        ti4_engine::fixtures::put_on_planet(
+            &mut state,
+            &mr,
+            &PlanetId::new("mr"),
+            "infantry",
+            &PlayerId::new("b"),
+            defenders,
+        );
+        state
+            .system_mut(&mr)
+            .planet_control
+            .insert(PlanetId::new("mr"), PlayerId::new("b"));
+        (state, hub)
+    }
+
+    fn warfare_plan(v: &Verdict) -> Option<&Weighed> {
+        v.plans
+            .iter()
+            .find(|w| w.plan.reason.starts_with("warfare move + act"))
+    }
+
+    fn warfare_on() -> tuning::Tuning {
+        tuning::Tuning {
+            bw_mr_warfare: true,
+            ..on()
+        }
+    }
+
+    #[test]
+    fn warfare_variant_gathers_beside_mecatol_when_tokens_suffice() {
+        tuning::with(warfare_on(), || {
+            // The carrier sits on the home ring slot 3; troops are on the home planet there.
+            let (state, hub) = far_position(2, 1, 3);
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = warfare_plan(&v).expect("a two-step plan");
+            assert_eq!(w.plan.steer.systems.len(), 2);
+            assert!(w.plan.steer.play.is_empty(), "{:?}", w.plan);
+            assert_eq!(w.plan.steer.systems[0].as_str(), hub.centre);
+        });
+    }
+
+    #[test]
+    fn warfare_variant_plays_the_card_when_one_token_is_left() {
+        tuning::with(warfare_on(), || {
+            let (mut state, hub) = far_position(2, 1, 3);
+            let seat = state.player_mut(&me()).expect("seat");
+            seat.tactic_tokens = 1;
+            seat.strategy_cards
+                .push(ti4_model::id::StrategyCardId::new("te6warfare"));
+            let v = verdict_of(&state, &hub).expect("on");
+            let w = warfare_plan(&v).expect("a two-step plan");
+            assert_eq!(w.plan.steer.play, vec!["Warfare".to_owned()]);
+            // Without the card the single token cannot do both steps.
+            state
+                .player_mut(&me())
+                .expect("seat")
+                .strategy_cards
+                .clear();
+            let v = verdict_of(&state, &hub).expect("on");
+            assert!(warfare_plan(&v).is_none());
+        });
+    }
+
+    #[test]
+    fn warfare_variant_is_not_offered_without_enough_troops_or_when_one_step_suffices() {
+        tuning::with(warfare_on(), || {
+            let (state, hub) = far_position(1, 3, 3);
+            assert!(warfare_plan(&verdict_of(&state, &hub).expect("on")).is_none());
+            // Carrier next to Mecatol Rex already: the one-step plan is enough.
+            let (state, hub) = far_position(2, 1, 1);
+            let seat_home_troops = state.clone();
+            let _ = seat_home_troops;
+            assert!(warfare_plan(&verdict_of(&state, &hub).expect("on")).is_none());
         });
     }
 
