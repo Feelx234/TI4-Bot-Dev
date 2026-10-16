@@ -129,7 +129,9 @@ pub fn pick(
     // Backward planning, Warfare variant: the gather step beside Mecatol Rex moves and loads
     // everything that can then reach it.
     if matches!(subtype, Some("movement_step" | "load_cargo"))
-        && crate::backward::mecatol_two_step::gather_active(observed, me)
+        && observed
+            .active_system()
+            .is_some_and(crate::backward::gathering)
     {
         return if subtype == Some("load_cargo") {
             crate::backward::mecatol_two_step::gather_load(choice, observed)

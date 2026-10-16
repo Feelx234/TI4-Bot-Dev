@@ -50,6 +50,7 @@ pub mod fleet;
 pub mod mecatol;
 pub mod mecatol_two_step;
 pub mod payment;
+pub mod prep;
 pub mod structures;
 pub mod technology;
 pub mod territory;
@@ -76,6 +77,9 @@ pub struct Steer {
     pub cards: Vec<String>,
     /// Strategy cards to play at the next opportunity (the prep step of a two-step plan).
     pub play: Vec<String>,
+    /// Systems where ships and their cargo gather for the next activation (the movement hook
+    /// moves everything there).
+    pub gather: Vec<SystemId>,
 }
 
 /// One plan: the cheapest route found to score one objective, and how it weighs.
@@ -112,6 +116,8 @@ pub struct Step {
     pub spare_ship: bool,
     /// Probability that the step does what it says (fight won, landing succeeds, ship comes).
     pub success: f64,
+    /// The prep a prepared step starts with ([`prep`]); `None` for a plain activation.
+    pub prep: Option<prep::PrepInfo>,
 }
 
 /// Mecatol Rex as the planners see it.
@@ -202,7 +208,7 @@ impl PlanCtx {
         let observed = seen.observed();
         let seat = observed.seat(me);
         let mecatol = mecatol::state(observed, me);
-        Self {
+        let mut ctx = Self {
             goals: {
                 let mut goals = objectives::goals(seen, me, &Imagined::NONE);
                 // Event secrets have no progress in the engine; the combat group lists them.
@@ -221,7 +227,10 @@ impl PlanCtx {
             steps: steps(seen, me),
             round: observed.round(),
             ..Self::blank(me)
-        }
+        };
+        let extra = prep::prepared(observed, me, &ctx);
+        ctx.steps.extend(extra);
+        ctx
     }
 
     /// A context with nothing in it (tests, and the base of [`Self::new`]).
@@ -278,19 +287,29 @@ impl PlanCtx {
         if max_steps == 0 {
             return None;
         }
-        let mut pool: Vec<usize> = (0..self.steps.len())
-            .filter(|&i| useful(&self.steps[i]))
+        let mut plain: Vec<usize> = (0..self.steps.len())
+            .filter(|&i| self.steps[i].prep.is_none() && useful(&self.steps[i]))
             .collect();
-        pool.sort_by(|&a, &b| {
-            self.steps[b]
-                .success
-                .total_cmp(&self.steps[a].success)
-                .then(a.cmp(&b))
-        });
-        pool.truncate(7);
+        let mut prepared: Vec<usize> = (0..self.steps.len())
+            .filter(|&i| self.steps[i].prep.is_some() && useful(&self.steps[i]))
+            .collect();
+        for list in [&mut plain, &mut prepared] {
+            list.sort_by(|&a, &b| {
+                self.steps[b]
+                    .success
+                    .total_cmp(&self.steps[a].success)
+                    .then(a.cmp(&b))
+            });
+        }
+        plain.truncate(6);
+        prepared.truncate(3);
+        let pool: Vec<usize> = plain.into_iter().chain(prepared).collect();
         for size in 1..=max_steps.min(pool.len()) {
             let mut best: Option<Route> = None;
             for combo in combinations(&pool, size) {
+                if !self.affordable(&combo) {
+                    continue;
+                }
                 if self.meets(seen, alias, &combo) {
                     let p = combo
                         .iter()
@@ -310,6 +329,29 @@ impl PlanCtx {
             }
         }
         None
+    }
+
+    /// Whether the steps `combo` fit together: one prepared step at most, no system twice, and
+    /// all activations (preps included) within the tactic tokens, strategy tokens and resources.
+    #[must_use]
+    pub fn affordable(&self, combo: &[usize]) -> bool {
+        let steps: Vec<&Step> = combo.iter().map(|&i| &self.steps[i]).collect();
+        if steps.iter().filter(|s| s.prep.is_some()).count() > 1 {
+            return false;
+        }
+        let systems: std::collections::BTreeSet<&SystemId> =
+            steps.iter().map(|s| &s.system).collect();
+        if systems.len() != steps.len() {
+            return false;
+        }
+        let prep = |f: fn(&prep::PrepInfo) -> i64| -> i64 {
+            steps.iter().filter_map(|s| s.prep.as_ref()).map(f).sum()
+        };
+        let tokens = i64::try_from(steps.len()).unwrap_or(0) + prep(|p| i64::from(p.tokens));
+        tokens <= i64::from(self.tactic_tokens)
+            && tokens <= 3
+            && prep(|p| i64::from(p.strategic)) <= i64::from(self.strategic_tokens)
+            && prep(|p| p.resources) <= self.resources
     }
 
     /// Whether goal `alias` is met after the steps `combo` all happened.
@@ -340,24 +382,35 @@ impl PlanCtx {
     /// The route as a plan skeleton: cost, steer and the steps' probability.
     #[must_use]
     pub fn plan_of(&self, route: &Route, reason: String) -> Plan {
-        let systems: Vec<SystemId> = route
+        let mut steer = Steer::default();
+        let mut cost = Cost::default();
+        for &i in &route.steps {
+            let step = &self.steps[i];
+            if let Some(p) = &step.prep {
+                steer.systems.extend(p.systems.iter().cloned());
+                steer.builds.extend(p.builds.iter().cloned());
+                steer.cards.extend(p.cards.iter().cloned());
+                steer.play.extend(p.play.iter().cloned());
+                steer.gather.extend(p.gather.iter().cloned());
+                cost.tokens += p.tokens + p.strategic;
+                cost.resources += p.resources;
+                cost.activations += u32::try_from(p.tokens).unwrap_or(0);
+            }
+            steer.systems.push(step.system.clone());
+            cost.tokens += 1;
+            cost.activations += 1;
+        }
+        let prepared = route
             .steps
             .iter()
-            .map(|&i| self.steps[i].system.clone())
-            .collect();
+            .find_map(|&i| self.steps[i].prep.as_ref().map(|p| p.label.clone()));
+        let reason = prepared.map_or(reason.clone(), |label| format!("{label}: {reason}"));
         Plan {
             objective: self.goal.alias.clone(),
             points: self.goal.points,
             probability: route.probability,
-            cost: Cost {
-                tokens: i32::try_from(route.steps.len()).unwrap_or(1),
-                resources: 0,
-                activations: u32::try_from(route.steps.len()).unwrap_or(1),
-            },
-            steer: Steer {
-                systems,
-                ..Steer::default()
-            },
+            cost,
+            steer,
             reason,
             payment: self.goal.bought,
             secret: self.goal.secret,
@@ -464,6 +517,7 @@ fn steps(seen: &SeatObservation<'_>, me: &PlayerId) -> Vec<Step> {
             ship,
             spare_ship,
             success,
+            prep: None,
         });
     }
     out
@@ -617,6 +671,17 @@ pub fn weigh(ctx: &PlanCtx, plans: Vec<Plan>) -> Verdict {
     }
 }
 
+thread_local! {
+    static GATHER: std::cell::RefCell<Vec<SystemId>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Whether `system` is a gather step of the plans chosen by the last [`verdict`] (the movement
+/// hook then moves every ship and its cargo that can go on).
+#[must_use]
+pub fn gathering(system: &SystemId) -> bool {
+    tuning::bw_enabled() && GATHER.with(|g| g.borrow().contains(system))
+}
+
 /// Plan the seat's turn. `None` when the layer is off or it is too early.
 #[must_use]
 pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
@@ -644,7 +709,19 @@ pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
         plans.extend(mecatol::plan(seen, &ctx));
         plans.extend(mecatol_two_step::plan(seen, &ctx));
     }
-    Some(weigh(&ctx, plans))
+    let verdict = weigh(&ctx, plans);
+    GATHER.with(|g| {
+        *g.borrow_mut() = if verdict.fallback {
+            Vec::new()
+        } else {
+            verdict
+                .chosen
+                .iter()
+                .flat_map(|&i| verdict.plans[i].plan.steer.gather.iter().cloned())
+                .collect()
+        };
+    });
+    Some(verdict)
 }
 
 impl PlanCtx {
@@ -1004,7 +1081,7 @@ mod tests {
 
     fn build_on() -> tuning::Tuning {
         tuning::Tuning {
-            bw_mr_build: true,
+            bw_prep_build: true,
             ..on()
         }
     }
@@ -1105,7 +1182,7 @@ mod tests {
 
     fn warfare_on() -> tuning::Tuning {
         tuning::Tuning {
-            bw_mr_warfare: true,
+            bw_prep_warfare: true,
             ..on()
         }
     }
@@ -1156,6 +1233,90 @@ mod tests {
             let _ = seat_home_troops;
             assert!(warfare_plan(&verdict_of(&state, &hub).expect("on")).is_none());
         });
+    }
+
+    /// The steps of the context built at a decision.
+    fn steps_of(state: &GameState, hub: &ti4_engine::fixtures::Hub) -> Vec<Step> {
+        struct Grab(Vec<Step>);
+        impl Decider for Grab {
+            fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+                Ok(choice.options[0].clone())
+            }
+            fn choose_seeing(
+                &mut self,
+                choice: &Choice,
+                seen: &SeatObservation<'_>,
+            ) -> Result<ChoiceOption, IllegalChoice> {
+                self.0 = PlanCtx::new(seen, &me()).steps;
+                Ok(choice.options[0].clone())
+            }
+        }
+        let options = vec![ChoiceOption::labelled("x", "activate", "x")];
+        let mut grab = Grab(Vec::new());
+        ti4_engine::choice::ask_private(
+            &Choice::new(me(), "activate a system", options),
+            state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut grab,
+        )
+        .expect("legal");
+        grab.0
+    }
+
+    #[test]
+    fn every_planner_sees_the_prepared_steps_of_the_layer() {
+        let (state, hub) = mecatol_position(2, 3);
+        // Layer off: Mecatol Rex has no step (two troops against three defenders).
+        assert!(steps_of(&state, &hub).iter().all(|s| s.prep.is_none()));
+        tuning::with(build_on(), || {
+            let steps = steps_of(&state, &hub);
+            let prepared = steps
+                .iter()
+                .find(|s| s.prep.is_some() && s.system.as_str() == "18")
+                .expect("a prepared step");
+            let prep = prepared.prep.as_ref().expect("prep");
+            assert_eq!(prep.kind, prep::PrepKind::Build);
+            assert!(prepared.success < 1.0 && prepared.success > 0.3);
+        });
+    }
+
+    #[test]
+    fn a_route_holds_one_prepared_step_and_stays_within_the_tokens() {
+        let mut ctx = PlanCtx::blank(&me());
+        let prep = |tokens| prep::PrepInfo {
+            kind: prep::PrepKind::Build,
+            label: String::new(),
+            tokens,
+            strategic: 0,
+            resources: 0,
+            systems: Vec::new(),
+            gather: Vec::new(),
+            builds: Vec::new(),
+            cards: Vec::new(),
+            play: Vec::new(),
+            odds: 0.9,
+        };
+        let step = |name: &str, prep: Option<prep::PrepInfo>| Step {
+            system: SystemId::new(name),
+            planets: Vec::new(),
+            ship: true,
+            spare_ship: true,
+            success: 0.8,
+            prep,
+        };
+        ctx.steps = vec![
+            step("a", Some(prep(1))),
+            step("b", Some(prep(0))),
+            step("c", None),
+        ];
+        ctx.tactic_tokens = 3;
+        assert!(ctx.affordable(&[0, 2]));
+        assert!(!ctx.affordable(&[0, 1]), "two prepared steps");
+        ctx.tactic_tokens = 2;
+        assert!(!ctx.affordable(&[0, 2]), "the prep's token counts");
+        assert!(ctx.affordable(&[1, 2]));
     }
 
     #[test]

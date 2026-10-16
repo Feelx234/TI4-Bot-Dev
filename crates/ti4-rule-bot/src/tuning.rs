@@ -124,10 +124,10 @@ tuning! {
     bw_resource_cost: f64 = 0.05, "v4: expected VP charged per resource a plan spends";
     bw_mecatol: bool = true, "v4: the Mecatol Rex / Imperial plan competes with the objective plans";
     bw_mecatol_weight: f64 = 1.0, "v4: scale of the Mecatol plan's points";
-    bw_mr_build: bool = false, "v4: Mecatol two-step plan 1: production (dock, Construction, Warfare secondary) adds what the activation lacks, then act";
-    bw_mr_warfare: bool = false, "v4: Mecatol two-step plan 2: Warfare's extra activation gathers ships beside Mecatol Rex, then act";
-    bw_mr_tech_range: bool = false, "v4: Mecatol two-step plan 3: a movement technology brings the ships in reach, then act";
-    bw_mr_tech_strength: bool = false, "v4: Mecatol two-step plan 4: a combat/upgrade technology wins the Mecatol fight, then act";
+    bw_prep_build: bool = false, "v4: prep layer, build: a production (dock, Construction, Warfare secondary) adds what the activation lacks, then act";
+    bw_prep_warfare: bool = false, "v4: prep layer, Warfare move: Warfare's extra activation gathers ships beside Mecatol Rex, then act";
+    bw_prep_tech_range: bool = false, "v4: prep layer, technology range: a movement technology brings the ships in reach, then act";
+    bw_prep_tech_strength: bool = false, "v4: prep layer, technology strength: a combat/upgrade technology wins the Mecatol fight, then act";
     bw_build_weight: f64 = 3.0, "v4: production weight added to a unit type a chosen backward plan wants built";
     bw_card_weight: f64 = 8.0, "v4: draft score per expected VP of a strategy card a chosen backward plan wants";
     bw_territory: bool = true, "v4: planners of the territory group (with bw_enabled)";
@@ -238,10 +238,10 @@ fn v1() -> Tuning {
         bw_resource_cost: 0.05,
         bw_mecatol: true,
         bw_mecatol_weight: 1.0,
-        bw_mr_build: false,
-        bw_mr_warfare: false,
-        bw_mr_tech_range: false,
-        bw_mr_tech_strength: false,
+        bw_prep_build: false,
+        bw_prep_warfare: false,
+        bw_prep_tech_range: false,
+        bw_prep_tech_strength: false,
         bw_build_weight: 3.0,
         bw_card_weight: 8.0,
         bw_territory: true,
