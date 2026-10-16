@@ -186,8 +186,26 @@ impl PlanCtx {
         let seat = observed.seat(me);
         let mecatol = mecatol::state(observed, me);
         Self {
-            me: me.clone(),
+            goals: objectives::goals(seen, me, &Imagined::NONE),
+            tactic_tokens: seat.as_ref().map_or(0, |s| s.tactic_tokens),
+            strategic_tokens: seat.as_ref().map_or(0, |s| s.strategic_tokens),
+            fleet_tokens: seat.as_ref().map_or(0, |s| s.fleet_tokens),
+            resources: observed.available_spend(me, ti4_engine::production::Spend::Resources),
+            influence: observed.available_spend(me, ti4_engine::production::Spend::Influence),
+            trade_goods: objectives::trade_goods(observed, me),
+            mecatol,
+            steps: steps(seen, me),
             round: observed.round(),
+            ..Self::blank(me)
+        }
+    }
+
+    /// A context with nothing in it (tests, and the base of [`Self::new`]).
+    #[must_use]
+    pub fn blank(me: &PlayerId) -> Self {
+        Self {
+            me: me.clone(),
+            round: 3,
             goal: Goal {
                 alias: String::new(),
                 secret: false,
@@ -198,15 +216,15 @@ impl PlanCtx {
                 satisfied: false,
                 family: String::new(),
             },
-            goals: objectives::goals(seen, me, &Imagined::NONE),
-            tactic_tokens: seat.as_ref().map_or(0, |s| s.tactic_tokens),
-            strategic_tokens: seat.as_ref().map_or(0, |s| s.strategic_tokens),
-            fleet_tokens: seat.as_ref().map_or(0, |s| s.fleet_tokens),
-            resources: observed.available_spend(me, ti4_engine::production::Spend::Resources),
-            influence: observed.available_spend(me, ti4_engine::production::Spend::Influence),
-            trade_goods: objectives::trade_goods(observed, me),
-            mecatol,
-            steps: steps(seen, me),
+            goals: Vec::new(),
+            tactic_tokens: 3,
+            strategic_tokens: 2,
+            fleet_tokens: 3,
+            resources: 0,
+            influence: 0,
+            trade_goods: 0,
+            mecatol: MecatolState::default(),
+            steps: Vec::new(),
         }
     }
 
@@ -563,4 +581,315 @@ pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
         plans.extend(mecatol::plan(seen, &ctx));
     }
     Some(weigh(&ctx, plans))
+}
+
+impl PlanCtx {
+    /// The usual plan of a route-shaped goal: the cheapest route of at most `max_steps` of the
+    /// steps `useful` accepts, or `None` when there is none (nothing reachable this turn).
+    pub fn route_plan(
+        &self,
+        seen: &SeatObservation<'_>,
+        max_steps: usize,
+        useful: impl Fn(&Step) -> bool,
+        what: &str,
+    ) -> Option<Plan> {
+        let route = self.route(seen, &self.goal.alias, max_steps, useful)?;
+        let names: Vec<&str> = route
+            .steps
+            .iter()
+            .map(|&i| self.steps[i].system.as_str())
+            .collect();
+        Some(self.plan_of(
+            &route,
+            format!("{}: {what} via {}", self.goal.alias, names.join(", ")),
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+    use ti4_content::ContentStore;
+    use ti4_engine::choice::{Choice, ChoiceOption, Decider, IllegalChoice};
+    use ti4_engine::fixtures::{game, hub_from, plain_systems, put};
+    use ti4_model::POK;
+    use ti4_model::state::{GameState, Phase};
+
+    fn me() -> PlayerId {
+        PlayerId::new("a")
+    }
+
+    fn plan(
+        objective: &str,
+        points: f64,
+        probability: f64,
+        tokens: i32,
+        secret: bool,
+        payment: bool,
+    ) -> Plan {
+        Plan {
+            objective: objective.to_owned(),
+            points,
+            probability,
+            cost: Cost {
+                tokens,
+                resources: 0,
+                activations: 0,
+            },
+            steer: Steer {
+                systems: vec![SystemId::new(objective)],
+                ..Steer::default()
+            },
+            reason: String::new(),
+            payment,
+            secret,
+        }
+    }
+
+    fn on() -> tuning::Tuning {
+        tuning::Tuning {
+            bw_enabled: true,
+            ..tuning::Tuning::default()
+        }
+    }
+
+    #[test]
+    fn nothing_reachable_falls_back() {
+        tuning::with(on(), || {
+            let v = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("x", 1.0, 0.1, 1, false, false)],
+            );
+            assert!(v.fallback && v.chosen.is_empty() && v.bonus().is_empty());
+            assert!(weigh(&PlanCtx::blank(&me()), Vec::new()).fallback);
+        });
+    }
+
+    #[test]
+    fn a_likely_plan_is_chosen_and_steers_its_systems() {
+        tuning::with(on(), || {
+            let v = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("x", 1.0, 0.9, 1, false, false)],
+            );
+            assert!(!v.fallback && v.chosen == vec![0] && v.bonus().len() == 1);
+        });
+    }
+
+    #[test]
+    fn two_likely_publics_want_imperial_and_a_payment_goal_is_discounted() {
+        tuning::with(on(), || {
+            let one = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("x", 1.0, 0.9, 1, false, false)],
+            );
+            assert!(!one.imperial);
+            let two = weigh(
+                &PlanCtx::blank(&me()),
+                vec![
+                    plan("x", 1.0, 0.9, 1, false, false),
+                    plan("y", 1.0, 0.8, 1, false, false),
+                ],
+            );
+            assert!(two.imperial);
+            // The second public only counts a quarter without Imperial; with it, full.
+            assert!(two.plans[1].expected > one.plans[0].expected - 0.2);
+            let paid = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("p", 1.0, 0.9, 0, false, true)],
+            );
+            let free = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("p", 1.0, 0.9, 0, false, false)],
+            );
+            assert!(paid.plans[0].expected < free.plans[0].expected);
+        });
+    }
+
+    #[test]
+    fn the_mecatol_plan_competes_and_asks_for_imperial() {
+        tuning::with(on(), || {
+            let mut mecatol = plan("mecatol", 1.6, 0.8, 1, false, false);
+            mecatol.steer.cards = vec!["Imperial".to_owned()];
+            let v = weigh(
+                &PlanCtx::blank(&me()),
+                vec![plan("x", 1.0, 0.5, 1, false, false), mecatol],
+            );
+            assert_eq!(v.plans[v.chosen[0]].plan.objective, "mecatol");
+            assert!(v.imperial);
+        });
+    }
+
+    // -- positions --
+
+    fn planets(system: &str) -> Vec<ti4_content::galaxy::Planet<'static>> {
+        ti4_content::galaxy::planets_in(ContentStore::embedded(), system, POK)
+    }
+
+    fn cultural() -> Vec<String> {
+        plain_systems(200)
+            .into_iter()
+            .filter(|id| {
+                let p = planets(id);
+                p.len() == 1 && p[0].has_trait("cultural")
+            })
+            .collect()
+    }
+
+    fn empty_systems(count: usize) -> Vec<String> {
+        plain_systems(200)
+            .into_iter()
+            .filter(|id| planets(id).is_empty())
+            .take(count)
+            .collect()
+    }
+
+    struct Probe(Option<Verdict>);
+    impl Decider for Probe {
+        fn choose(&mut self, choice: &Choice) -> Result<ChoiceOption, IllegalChoice> {
+            Ok(choice.options[0].clone())
+        }
+        fn choose_seeing(
+            &mut self,
+            choice: &Choice,
+            seen: &SeatObservation<'_>,
+        ) -> Result<ChoiceOption, IllegalChoice> {
+            self.0 = verdict(seen, &me());
+            let _ = ChaCha8Rng::seed_from_u64(1);
+            Ok(choice.options[0].clone())
+        }
+    }
+
+    fn verdict_of(state: &GameState, hub: &ti4_engine::fixtures::Hub) -> Option<Verdict> {
+        let options = vec![ChoiceOption::labelled("x", "activate", "x")];
+        let mut probe = Probe(None);
+        ti4_engine::choice::ask_private(
+            &Choice::new(me(), "activate a system", options),
+            state,
+            ContentStore::embedded(),
+            POK,
+            Some(&hub.galaxy),
+            &mut probe,
+        )
+        .expect("legal");
+        probe.0
+    }
+
+    /// Round three; the seat holds `held` cultural planets off the map, has carrier and troops at
+    /// the first outer system, and `targets` cultural systems are around; Form an Alliance
+    /// (`faa`, four cultural planets) is its secret.
+    fn position(held: usize, targets: usize) -> (GameState, ti4_engine::fixtures::Hub) {
+        let cul = cultural();
+        let empty = empty_systems(7 - targets);
+        let mut ids = vec![empty[0].clone()];
+        ids.extend(cul[..targets].iter().cloned());
+        ids.extend(empty[1..].iter().cloned());
+        let hub = hub_from(&ids);
+        let mut state = game(&["a", "b"]);
+        state.round = 3;
+        state.phase = Phase::Action;
+        state.revealed_objectives.clear();
+        for seat in &mut state.players {
+            seat.secret_objectives.clear();
+        }
+        let start = SystemId::new(hub.outer.last().expect("outer").clone());
+        put(&mut state, &start, "carrier", &me(), 1);
+        put(&mut state, &start, "infantry", &me(), 2);
+        for system in &cul[targets..targets + held] {
+            let planet = PlanetId::new(planets(system)[0].id());
+            state
+                .system_mut(&SystemId::new(system.clone()))
+                .planet_control
+                .insert(planet, me());
+        }
+        state
+            .player_mut(&me())
+            .expect("seat")
+            .secret_objectives
+            .push(ti4_model::id::SecretObjectiveId::new("faa"));
+        (state, hub)
+    }
+
+    #[test]
+    fn territory_plans_the_planet_that_completes_the_secret() {
+        tuning::with(on(), || {
+            let (state, hub) = position(3, 2);
+            let v = verdict_of(&state, &hub).expect("on");
+            let best = &v.plans.first().expect("a plan");
+            assert_eq!(best.plan.objective, "faa");
+            assert!(best.plan.probability > 0.5 && !v.fallback, "{v:?}");
+            assert_eq!(best.plan.steer.systems.len(), 1);
+        });
+    }
+
+    #[test]
+    fn territory_is_not_reachable_two_planets_short_with_one_token() {
+        tuning::with(
+            tuning::Tuning {
+                bw_enabled: true,
+                ..tuning::Tuning::default()
+            },
+            || {
+                let (mut state, hub) = position(1, 2);
+                state.player_mut(&me()).expect("seat").tactic_tokens = 1;
+                let v = verdict_of(&state, &hub).expect("on");
+                assert!(v.plans.iter().all(|w| w.plan.objective != "faa"), "{v:?}");
+                assert!(v.fallback);
+            },
+        );
+    }
+
+    /// Seven empty systems, Deep Space (ships in three planetless systems) revealed, the seat's
+    /// cruisers placed as `(index of the outer system, count)`.
+    fn deep_space(ships: &[(usize, usize)]) -> (GameState, ti4_engine::fixtures::Hub) {
+        let hub = hub_from(&empty_systems(7));
+        let mut state = game(&["a", "b"]);
+        state.round = 3;
+        state.phase = Phase::Action;
+        state.revealed_objectives = vec![ti4_model::id::ObjectiveId::new("deep_space")];
+        for seat in &mut state.players {
+            seat.secret_objectives.clear();
+        }
+        for (at, count) in ships {
+            put(
+                &mut state,
+                &SystemId::new(hub.outer[*at].clone()),
+                "cruiser",
+                &me(),
+                *count,
+            );
+        }
+        (state, hub)
+    }
+
+    #[test]
+    fn fleet_plans_the_third_planetless_system_from_a_spare_ship() {
+        tuning::with(on(), || {
+            let (state, hub) = deep_space(&[(0, 1), (2, 3)]);
+            let v = verdict_of(&state, &hub).expect("on");
+            let best = v.plans.first().expect("a plan");
+            assert_eq!(best.plan.objective, "deep_space");
+            assert_eq!(best.plan.cost.activations, 1);
+            assert!(!v.fallback, "{v:?}");
+        });
+    }
+
+    #[test]
+    fn fleet_has_no_plan_when_two_systems_are_missing_and_one_token_is_left() {
+        tuning::with(on(), || {
+            let (mut state, hub) = deep_space(&[(2, 3)]);
+            state.player_mut(&me()).expect("seat").tactic_tokens = 1;
+            let v = verdict_of(&state, &hub).expect("on");
+            assert!(v.plans.iter().all(|w| w.plan.objective != "deep_space"));
+            assert!(v.fallback);
+        });
+    }
+
+    #[test]
+    fn off_by_default() {
+        let (state, hub) = position(3, 2);
+        assert!(verdict_of(&state, &hub).is_none());
+    }
 }
