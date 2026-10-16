@@ -53,6 +53,7 @@ All flags below are fields of a setup in the file (`tools/rulebot/matrix-example
 | `--faction-pool a,b,c,...` | the free seats are drawn from this pool |
 | `--rotate cyclic` (alias `latin`) / `all` / `none` | each table is also played with its factions shifted over the seats: `n` games per seed (every faction in every seat once), or all `n!` permutations (up to 6 seats). Separates seat from faction effects |
 | `--speaker seat` / `random` / `2` | opening speaker (default `random`: drawn from the seed, as in the product) |
+| `--starting-tech` (`"starting_tech": true` in a setup) | the seats that choose a starting technology are asked (Winnu, Argent, Keleres, Thunder's Edge picks; see `docs/STARTING_TECH_CHOICES.md`). Left out: not asked, the game every summary before bot version 3 recorded |
 | `--card-set te|pok|base_game_codex1` | strategy card set (default: the host's default) |
 | `--max-rounds 50 --max-steps 400000 --max-seconds 300 --loop-steps 5000` | limits (below) |
 
@@ -158,7 +159,8 @@ A sweep is a loop over `selfplay compare`; the JSON (`--out`) has the estimate a
 ## Golden benchmark and baseline
 
 - `tools/rulebot/golden.json`: 200 games, 4 players seeds 1..100 on `4pHyperlanes` / `4pOuterRim`, 6 players seeds 1..100 on `6pStandard` / `6pOuterRim`.
-- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 2 since 2026-10-15; `baseline-v1.json` is
+- `tools/rulebot/baseline.json`: its summary for the shipped bot (version 3 since the starting-technology choice, played with `"starting_tech": true`;
+  `baseline-v2.json` is version 2 on the same seeds without the choice (`golden-v2.json`, `selfplay.sh bench-v2`, `--bot bot_version=2`), and `baseline-v1.json` is
   version 1, which `--bot bot_version=1` still reproduces hash for hash), recorded on the build named in `meta.git_rev`
   (AMD EPYC-Genoa, 8 cores, release build, 7 workers, 82 s, other jobs running on the machine).
 - `tools/rulebot/selfplay.sh bench` runs the set and compares every game's hash, termination and points with the baseline

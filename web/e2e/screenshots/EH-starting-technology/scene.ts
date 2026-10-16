@@ -1,6 +1,8 @@
 import type { Page } from "@playwright/test";
 import { openMockedGame } from "../_shared/mockGame";
-import { opponent, playerWithHand } from "../_shared/players";
+import { opponent, playerWithHand, withPlayer } from "../_shared/players";
+
+const third = withPlayer(opponent, { id: "third_seat", faction: "yssaril" });
 
 export const SIZES = {
   desktop: { width: 1440, height: 900 },
@@ -71,7 +73,7 @@ export const KELERES: Scene = {
   prompt: "choose a starting technology (1 of 2)",
   ids: ["amd", "nm", "ps", "st"],
   details: { pick: 1, of: 2, rule: "owned_by_others", faction: "keleresm", held: [] },
-  owners: { amd: ["b"], nm: ["c"], ps: ["c"], st: ["b", "c"] },
+  owners: { amd: ["other_seat"], nm: ["third_seat"], ps: ["third_seat"], st: ["other_seat", "third_seat"] },
 };
 
 export async function openScene(page: Page, size: SizeName, scene: Scene) {
@@ -79,7 +81,7 @@ export async function openScene(page: Page, size: SizeName, scene: Scene) {
   await openMockedGame(page, {
     phase: "strategy",
     round: 1,
-    players: [playerWithHand({ strategy_cards: [], technologies: scene.details.held as string[] }), opponent],
+    players: [playerWithHand({ strategy_cards: [], technologies: scene.details.held as string[] }), opponent, third],
     choice: {
       prompt: scene.prompt,
       context,

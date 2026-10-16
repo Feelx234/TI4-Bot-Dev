@@ -40,7 +40,7 @@ for (const size of Object.keys(SIZES) as SizeName[]) {
   test(`selected option and confirm ${size}`, async ({ page }, testInfo) => {
     await openScene(page, size, WINNU);
     await page.locator('[data-option-id="st"]').click();
-    await expect(page.locator('[data-option-id="st"]')).toHaveAttribute("aria-checked", "true");
+    await expect(page.locator('[data-option-id="st"]')).toHaveClass(/card--selected/);
     await expect(page.getByTestId("submit-choice-button")).toBeEnabled();
     await shot(page, testInfo, `5-confirm-${size}`);
   });
