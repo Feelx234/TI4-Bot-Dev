@@ -16725,17 +16725,18 @@ mod tests {
         );
     }
 
-    #[test]
-    fn infiltrate_is_played_when_the_planet_changes_hands() {
-        // Infiltrate: "When you gain control of a planet: Replace each PDS and space
-        // dock that is on that planet with a matching unit from your reinforcements."
-        // a holds its own PDS on the planet it is about to capture (b holds one
-        // infantry); a's war sun disables the planet's shield so the bombardment
-        // reaches the infantry. a plays the card in the When window as the planet
-        // changes hands; with a full box the replacement is the same unit for the
-        // unit-less model, so the test pins the play, the spend, and that the capture
-        // proceeds undisturbed: the PDS a owned is still standing (LRR 49 destroys
-        // only rival structures), and a owns the planet.
+    /// Plays an invasion in which a captures b's planet; `b_structures` stand on it (unit ids
+    /// owned by b), `holds_card` gives a Infiltrate, and `spent_pds` places that many of a's
+    /// six PDS elsewhere (to empty a's box). Returns the finished game and the planet.
+    fn infiltrate_invasion(
+        b_structures: &[&str],
+        holds_card: bool,
+        spent_pds: usize,
+    ) -> (
+        Game<'static>,
+        ti4_model::id::SystemId,
+        ti4_model::id::PlanetId,
+    ) {
         let (mut state, galaxy, system, planet) = invasion_fixture();
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
@@ -16746,9 +16747,16 @@ mod tests {
             .system_mut(&system)
             .set_control(planet.clone(), b.clone());
         crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &b, 1);
-        crate::fixtures::put_on_planet(&mut state, &system, &planet, "pds", &a, 1);
-        state.player_mut(&a).unwrap().action_cards =
-            vec![ti4_model::id::ActionCardId::new("infiltrate")];
+        for kind in b_structures {
+            crate::fixtures::put_on_planet(&mut state, &system, &planet, kind, &b, 1);
+        }
+        if spent_pds > 0 {
+            crate::fixtures::put(&mut state, &system, "pds", &a, spent_pds);
+        }
+        if holds_card {
+            state.player_mut(&a).unwrap().action_cards =
+                vec![ti4_model::id::ActionCardId::new("infiltrate")];
+        }
         let mut reactions = std::collections::BTreeMap::new();
         reactions.insert(
             a.clone(),
@@ -16760,39 +16768,126 @@ mod tests {
             reactions,
         }));
         let mut game = Game::with_table(state, ContentStore::embedded(), table).with_galaxy(galaxy);
-        game.dice = Dice::from_faces([4, 4, 4]);
+        game.dice = Dice::from_faces([4; 24]);
         let mut guard = 0;
         while !game.events.iter().any(|e| e == "TACTICAL_ACTION_COMPLETE") && guard < 60 {
             assert_eq!(game.step().error, None, "log: {:?}", game.events);
             guard += 1;
         }
-        let events = &game.events;
-        let state = &game.state;
-        assert!(
-            state.system_state(&system).planet_control.get(&planet) == Some(&a),
-            "a took the planet; log {events:?}"
-        );
-        let units: Vec<(String, String)> = state
-            .system_state(&system)
+        (game, system, planet)
+    }
+
+    fn planet_units_of(
+        game: &Game,
+        system: &ti4_model::id::SystemId,
+        planet: &ti4_model::id::PlanetId,
+    ) -> Vec<(String, String)> {
+        let mut units: Vec<(String, String)> = game
+            .state
+            .system_state(system)
             .planet_units
-            .get(&planet)
+            .get(planet)
             .map(|list| {
                 list.iter()
                     .map(|unit| (unit.owner.to_string(), unit.type_id.to_string()))
                     .collect()
             })
             .unwrap_or_default();
+        units.sort();
+        units
+    }
+
+    fn a_holds_infiltrate(game: &Game) -> bool {
+        !game
+            .state
+            .player(&PlayerId::new("a"))
+            .unwrap()
+            .action_cards
+            .is_empty()
+    }
+
+    fn owned(owner: &str, kind: &str) -> (String, String) {
+        (owner.to_owned(), kind.to_owned())
+    }
+
+    #[test]
+    fn infiltrate_is_not_offered_when_the_planet_has_no_pds_or_space_dock() {
+        // The defender held only infantry: nothing to replace, so the card is not offered
+        // (a still holds it) and the capture proceeds.
+        let (game, system, planet) = infiltrate_invasion(&[], true, 0);
+        assert!(a_holds_infiltrate(&game), "log {:?}", game.events);
         assert_eq!(
-            units,
-            vec![
-                ("a".to_owned(), "pds".to_owned()),
-                ("a".to_owned(), "infantry".to_owned()),
-            ],
-            "a's own PDS stood through the capture and its committed infantry landed on it; log {events:?}"
+            game.state.system_state(&system).planet_control.get(&planet),
+            Some(&PlayerId::new("a"))
         );
+    }
+
+    #[test]
+    fn infiltrate_replaces_the_defenders_pds() {
+        let (game, system, planet) = infiltrate_invasion(&["pds"], true, 0);
         assert!(
-            state.player(&a).unwrap().action_cards.is_empty(),
-            "infiltrate was spent on the play; log {events:?}"
+            !a_holds_infiltrate(&game),
+            "offered and spent; log {:?}",
+            game.events
+        );
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry"), owned("a", "pds")],
+            "log {:?}",
+            game.events
+        );
+    }
+
+    #[test]
+    fn infiltrate_replaces_the_defenders_space_dock() {
+        let (game, system, planet) = infiltrate_invasion(&["spacedock"], true, 0);
+        assert!(!a_holds_infiltrate(&game), "log {:?}", game.events);
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry"), owned("a", "spacedock")],
+            "log {:?}",
+            game.events
+        );
+    }
+
+    #[test]
+    fn infiltrate_replaces_both_a_pds_and_a_space_dock() {
+        let (game, system, planet) = infiltrate_invasion(&["pds", "spacedock"], true, 0);
+        assert!(!a_holds_infiltrate(&game), "log {:?}", game.events);
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![
+                owned("a", "infantry"),
+                owned("a", "pds"),
+                owned("a", "spacedock")
+            ],
+            "log {:?}",
+            game.events
+        );
+    }
+
+    #[test]
+    fn without_the_card_the_defenders_structures_are_destroyed() {
+        let (game, system, planet) = infiltrate_invasion(&["pds", "spacedock"], false, 0);
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry")],
+            "log {:?}",
+            game.events
+        );
+    }
+
+    #[test]
+    fn infiltrate_is_not_offered_when_the_box_has_no_pds_left() {
+        // a already has all six PDS on the board: the only structure is a PDS, no
+        // replacement is possible, so the card stays in hand.
+        let (game, system, planet) = infiltrate_invasion(&["pds"], true, 6);
+        assert!(a_holds_infiltrate(&game), "log {:?}", game.events);
+        assert_eq!(
+            planet_units_of(&game, &system, &planet),
+            vec![owned("a", "infantry")],
+            "log {:?}",
+            game.events
         );
     }
 

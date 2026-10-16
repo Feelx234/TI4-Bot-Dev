@@ -580,6 +580,16 @@ pub fn reaction_can_matter(
         "intercept" => !is_actor && has_own_ship,
         // Emergency Repairs: "Repair all of your units that have SUSTAIN DAMAGE in the active
         // system" -- only a damaged unit gains anything.
+        // Infiltrate: "When you gain control of a planet" -- the window only matters while the
+        // planet holds somebody else's PDS or space dock and the box can replace one of them.
+        "infiltrate" => {
+            let Some(planet) = event.text("planet").map(ti4_model::id::PlanetId::new) else {
+                return true;
+            };
+            is_actor
+                && !infiltrate_swaps(state, content, SourceSet::all(), player, &system, &planet)
+                    .is_empty()
+        }
         "emergency" => board
             .units
             .iter()
@@ -1168,50 +1178,73 @@ fn blackmarketdealings(context: &mut crate::timing::TimingContext<'_>, _player: 
 /// Infiltrate: "When you gain control of a planet: Replace each PDS and space dock that is on
 /// that planet with a matching unit from your reinforcements."
 ///
-/// The frame names the capture it reacts to in `last_control_gained`, because the card cannot
-/// read the event that summoned it. The capture has already destroyed every structure that was
-/// not the new controller's, so the only PDS or space dock still standing on the planet is the
-/// controller's own, and those are the units the card replaces, one for one. "From your
-/// reinforcements" is the box's supply: a replacement arrives only if the game still has that
-/// kind of unit to give, otherwise the unit that was there stays.
+/// The capture window opens before the rival structures are destroyed (the invasion removes
+/// them once the window has closed), so the PDS and space docks standing on the planet are the
+/// previous holder's, and those are the units the card replaces. The frame names the capture in
+/// `last_control_gained`, because the card cannot read the event that summoned it.
 fn infiltrate(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
     let Some((system, planet, _gained, _previous)) = context.state.last_control_gained.clone()
     else {
         return;
     };
-    let types = ti4_content::units::catalogue(context.content, context.sources);
-    let standing: Vec<ti4_model::units::Unit> = context
-        .state
-        .system_state(&system)
-        .on_planet(&planet)
-        .iter()
-        .filter(|unit| &unit.owner == player)
-        .filter(|unit| {
-            types
-                .get(unit.type_id.as_str())
-                .is_some_and(|kind| kind.base_type() == "pds" || kind.base_type() == "spacedock")
-        })
-        .cloned()
-        .collect();
-    for unit in standing {
-        if crate::supply::allowed(
-            context.state,
-            context.content,
-            context.sources,
-            player,
-            &unit.type_id,
-            1,
-        ) == 0
-        {
-            continue; // the box holds no more of this kind: nothing to replace it with
-        }
-        let kind = unit.type_id.clone();
+    let swaps = infiltrate_swaps(
+        context.state,
+        context.content,
+        context.sources,
+        player,
+        &system,
+        &planet,
+    );
+    for (old, new) in swaps {
         context.state.system_mut(&system).replace_planet_unit(
             &planet,
-            &unit,
-            ti4_model::units::Unit::new(kind, player.clone()),
+            &old,
+            Unit::new(new, player.clone()),
         );
     }
+}
+
+/// The replacements Infiltrate would make on `planet` for `player`: each PDS or space dock that
+/// belongs to somebody else, paired with the unit `player` puts in its place.
+///
+/// "From your reinforcements" is the box's supply (31.4): a replacement is only possible while
+/// the player still has that kind of plastic left, counted as it goes so two docks do not both
+/// pass a check made once. A structure with no plastic to replace it stays (and is destroyed by
+/// the capture as usual).
+pub(crate) fn infiltrate_swaps(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+    planet: &ti4_model::id::PlanetId,
+) -> Vec<(Unit, ti4_model::id::UnitTypeId)> {
+    let types = ti4_content::units::catalogue(content, sources);
+    let mut taken: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    let mut swaps = Vec::new();
+    for unit in state.system_state(system).on_planet(planet) {
+        if &unit.owner == player {
+            continue;
+        }
+        let Some(base) = types
+            .get(unit.type_id.as_str())
+            .map(|kind| kind.base_type().to_owned())
+            .filter(|base| base == "pds" || base == "spacedock")
+        else {
+            continue;
+        };
+        let base_id = ti4_model::id::UnitTypeId::new(&base);
+        let used = taken.get(&base).copied().unwrap_or(0);
+        if crate::supply::allowed(state, content, sources, player, &base_id, 1) == 0
+            || crate::supply::remaining(state, content, sources, player, &base_id) - used <= 0
+        {
+            continue;
+        }
+        let own = placed_unit_id(state, content, sources, player, &base).unwrap_or(base_id);
+        *taken.entry(base).or_default() += 1;
+        swaps.push((unit.clone(), own));
+    }
+    swaps
 }
 
 /// Reparations: "After another player gains control of a planet you control: Exhaust 1 planet
