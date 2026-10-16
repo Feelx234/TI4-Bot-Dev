@@ -322,7 +322,7 @@ fn technology_card(seen: &Observed<'_>, card: &ti4_model::id::StrategyCardId) ->
 }
 
 /// The researches before the status phase for the seat.
-fn seat_sources(seen: &Observed<'_>, me: &PlayerId) -> Vec<Source> {
+pub fn seat_sources(seen: &Observed<'_>, me: &PlayerId) -> Vec<Source> {
     let Some(seat) = seen.seat(me) else {
         return Vec::new();
     };
@@ -348,6 +348,75 @@ fn seat_sources(seen: &Observed<'_>, me: &PlayerId) -> Vec<Source> {
         seen.available_spend(me, ti4_engine::production::Spend::Resources),
         seat.strategic_tokens,
     )
+}
+
+/// Researches (at most [`MAX_RESEARCH`]) after which the seat owns every technology of `wanted`,
+/// prerequisites included, with their probability and cost: the prep step of a plan that needs a
+/// technology for reach (Gravity Drive) or strength (a unit upgrade). `Some((0, 1.0, ..))` when
+/// it owns them all, `None` when out of reach before the status phase.
+#[must_use]
+pub fn reach_by_research(
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    wanted: &[&str],
+) -> Option<(usize, f64, Cost)> {
+    let (owned, cands) = model(seen, me)?;
+    let have: BTreeSet<&str> = owned.iter().map(|t| t.id.as_str()).collect();
+    let missing: Vec<&str> = wanted
+        .iter()
+        .copied()
+        .filter(|w| !have.contains(w))
+        .collect();
+    if missing.is_empty() {
+        return Some((0, 1.0, Cost::default()));
+    }
+    let srcs = seat_sources(seen, me);
+    let k = steps_to_own(&owned, &cands, &missing, srcs.len().min(MAX_RESEARCH))?;
+    let (p, cost, _) = route_of(&srcs, k)?;
+    Some((k, p, cost))
+}
+
+/// The fewest researches (at most `max`) after which every id of `missing` is owned.
+#[must_use]
+pub fn steps_to_own(owned: &[Tech], cands: &[Tech], missing: &[&str], max: usize) -> Option<usize> {
+    let targets: Vec<usize> = missing
+        .iter()
+        .map(|id| cands.iter().position(|t| t.id == *id))
+        .collect::<Option<Vec<_>>>()?;
+    // Smallest superset of the targets (enablers from the candidates) that can be ordered.
+    for size in targets.len()..=max {
+        let extra = size - targets.len();
+        let others: Vec<usize> = (0..cands.len()).filter(|i| !targets.contains(i)).collect();
+        let mut found = false;
+        let mut idx: Vec<usize> = (0..extra).collect();
+        loop {
+            if extra <= others.len() {
+                let mut combo: Vec<&Tech> = targets.iter().map(|&i| &cands[i]).collect();
+                combo.extend(idx.iter().map(|&j| &cands[others[j]]));
+                if orderable(owned, &combo) {
+                    found = true;
+                }
+            }
+            if found || extra == 0 || extra > others.len() {
+                break;
+            }
+            let mut k = extra;
+            while k > 0 && idx[k - 1] == others.len() - extra + k - 1 {
+                k -= 1;
+            }
+            if k == 0 {
+                break;
+            }
+            idx[k - 1] += 1;
+            for j in k..extra {
+                idx[j] = idx[j - 1] + 1;
+            }
+        }
+        if found {
+            return Some(size);
+        }
+    }
+    None
 }
 
 fn threshold(goal: &Goal) -> usize {
@@ -537,6 +606,23 @@ mod tests {
             min_sets(&owned, &[], Metric::UnitUpgrades, 2, 3).unwrap().0,
             0
         );
+    }
+
+    #[test]
+    fn reaching_a_technology_counts_its_enablers() {
+        // Gravity-Drive-like: needs two blues; one owned, one more blue tech is the enabler.
+        let owned = vec![colour("b1", 2, [0; 4])];
+        let cands = vec![
+            colour("gd", 2, [0, 0, 2, 0]),
+            colour("b2", 2, [0; 4]),
+            colour("r1", 3, [0; 4]),
+        ];
+        assert_eq!(steps_to_own(&owned, &cands, &["gd"], 3), Some(2));
+        let owned2 = vec![colour("b1", 2, [0; 4]), colour("b2", 2, [0; 4])];
+        let cands2 = vec![colour("gd", 2, [0, 0, 2, 0])];
+        assert_eq!(steps_to_own(&owned2, &cands2, &["gd"], 3), Some(1));
+        assert_eq!(steps_to_own(&owned, &cands, &["gd"], 1), None);
+        assert_eq!(steps_to_own(&owned, &cands, &["nope"], 3), None);
     }
 
     #[test]
