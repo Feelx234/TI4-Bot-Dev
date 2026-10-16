@@ -45,9 +45,13 @@ use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use crate::objectives::{self, Goal};
 use crate::tuning;
 
+pub mod combat;
 pub mod fleet;
 pub mod mecatol;
 pub mod mecatol_two_step;
+pub mod payment;
+pub mod structures;
+pub mod technology;
 pub mod territory;
 
 /// What a plan costs this turn.
@@ -170,6 +174,16 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
     if tuning::bw_fleet() {
         out.push(Box::new(fleet::Fleet));
     }
+    if tuning::bw_payment() {
+        out.push(Box::new(payment::Payment));
+    }
+    if tuning::bw_technology() {
+        out.push(Box::new(technology::Technology));
+    }
+    if tuning::bw_combat() {
+        out.push(Box::new(combat::Combat));
+        out.push(Box::new(structures::Structures));
+    }
     out
 }
 
@@ -189,7 +203,14 @@ impl PlanCtx {
         let seat = observed.seat(me);
         let mecatol = mecatol::state(observed, me);
         Self {
-            goals: objectives::goals(seen, me, &Imagined::NONE),
+            goals: {
+                let mut goals = objectives::goals(seen, me, &Imagined::NONE);
+                // Event secrets have no progress in the engine; the combat group lists them.
+                if tuning::bw_combat() {
+                    goals.extend(combat::event_goals(seen));
+                }
+                goals
+            },
             tactic_tokens: seat.as_ref().map_or(0, |s| s.tactic_tokens),
             strategic_tokens: seat.as_ref().map_or(0, |s| s.strategic_tokens),
             fleet_tokens: seat.as_ref().map_or(0, |s| s.fleet_tokens),

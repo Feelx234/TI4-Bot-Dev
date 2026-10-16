@@ -390,7 +390,7 @@ fn cost_rank(cost: ti4_engine::objectives::Cost) -> u8 {
 }
 
 /// A ready planet's (resources, influence).
-fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
+pub(crate) fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| seen.planet_is_ready(planet))
@@ -454,7 +454,7 @@ pub(crate) fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
     seen.seat(me).map_or(0, |seat| i64::from(seat.trade_goods))
 }
 
-fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+pub(crate) fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
     seen.seat(me)
         .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens)
 }
@@ -1190,6 +1190,22 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
     }
     let me = me.clone();
     let before = goals(seen, &me, &Imagined::NONE);
+    // Backward planning (backward/technology.rs): the technologies on the routes of the
+    // technology objectives in view, up to three researches deep.
+    if tuning::bw_enabled()
+        && tuning::bw_technology()
+        && observed.round() >= tuning::bw_round()
+        && let Some(index) =
+            crate::backward::technology::research_pick(choice, seen, &me, &before, |narrowed| {
+                if tuning::faction_plans_enabled() {
+                    crate::faction_plans::research_pick(narrowed, observed, &me)
+                } else {
+                    None
+                }
+            })
+    {
+        return Some(index);
+    }
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
@@ -1556,6 +1572,39 @@ mod tests {
         assert_eq!(picked(&state, None, &choice), Some(1));
         state.player_mut(&me()).expect("seat").trade_goods = 12;
         assert_eq!(picked(&state, None, &choice), Some(0));
+    }
+
+    #[test]
+    fn backward_research_follows_the_route_of_a_technology_objective() {
+        use ti4_model::id::TechnologyId;
+        let mut state = game(&["a", "b"]);
+        round_three(&mut state);
+        state.revealed_objectives.push(ObjectiveId::new("develop"));
+        // One upgrade, a red and a yellow owned: Planetary Shield II (RY) scores Develop Weaponry.
+        {
+            let seat = state.player_mut(&me()).expect("seat");
+            seat.technologies.clear();
+            for t in ["dd2", "st", "ps"] {
+                seat.technologies.insert(TechnologyId::new(t));
+            }
+        }
+        let choice = contextual(
+            Choice::new(
+                me(),
+                "research a technology",
+                vec![
+                    ChoiceOption::labelled("amd", "research", "amd").with("cost", 0i64),
+                    ChoiceOption::labelled("pds2", "research", "pds2").with("cost", 0i64),
+                ],
+            ),
+            "research_technology",
+            3,
+        );
+        // The existing one-step gain already finds a completing technology; the backward route
+        // must agree, and with the knob off nothing changes.
+        let mut on = tuning::Tuning::default();
+        on.bw_enabled = true;
+        assert_eq!(tuning::with(on, || picked(&state, None, &choice)), Some(1));
     }
 
     #[test]
