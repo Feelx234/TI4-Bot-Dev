@@ -19,6 +19,7 @@ fn setup(players: usize, seeds: Vec<u64>) -> SetupSpec {
         rotate: Rotate::None,
         speaker: "random".to_owned(),
         card_set: None,
+        starting_tech: false,
         seeds: Seeds::List(seeds),
     }
 }
@@ -94,6 +95,33 @@ fn same_seeds_give_identical_games_on_any_number_of_workers_and_the_summary_has_
     assert!(one.problems.is_empty());
     let text = ti4_selfplay::stats::render(&one, 5);
     assert!(text.contains("time to completion") && text.contains("win rate by seat"));
+}
+
+#[test]
+fn starting_technology_is_asked_only_when_the_spec_says_so_and_the_bot_chooses_by_plan() {
+    let mut asked = setup(4, vec![3]);
+    asked.factions = vec!["winnu".to_owned(), "argent".to_owned()];
+    let mut matrix = Matrix {
+        setups: vec![asked.clone()],
+        limits: Limits {
+            max_rounds: 2,
+            ..Limits::default()
+        },
+        bot: BTreeMap::new(),
+    };
+    let (plain, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    let unasked = plain.combined.by_subtype.get("starting_technology");
+    assert!(unasked.is_none(), "a spec without the flag asks nothing");
+    matrix.setups[0].starting_tech = true;
+    let (with, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    let question = &with.combined.by_subtype["starting_technology"];
+    assert_eq!(question.n, 3, "one Winnu pick, two Argent picks");
+    assert_eq!(question.smart, 3, "the version 3 bot chooses by its plan");
+    assert_ne!(plain.games[0].hash, with.games[0].hash);
+    // Bot version 2 answers the same questions at random, as it answered every unruled one.
+    matrix.bot.insert("bot_version".to_owned(), "2".to_owned());
+    let (old, _) = run_matrix(&matrix, 1, false, false, None).unwrap();
+    assert_eq!(old.combined.by_subtype["starting_technology"].smart, 0);
 }
 
 #[test]
