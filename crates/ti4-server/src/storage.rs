@@ -1756,6 +1756,60 @@ mod player_record_tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// `GameState::rules_version` (2026-10-16) is not written while zero: an `init.json` of a game
+    /// made before rules versions keeps its bytes and its checksum, loads as version 0 (the legacy
+    /// rules) and its snapshots' state checksums are unchanged; a new game records the current
+    /// version, and recovery reads it back.
+    #[test]
+    fn rules_version_is_absent_for_legacy_games_and_recorded_for_new_ones() {
+        let (store, dir) = store();
+        let id = "game_00000000000000000000000000000003";
+        let mut init = GameInitRecord {
+            game_id: id.into(),
+            seed: Some(7),
+            player_ids: vec![PlayerId::new("p1")],
+            initial_state: crate::fixtures::create_sample_game(),
+            seats: BTreeMap::new(),
+            seat_tokens: BTreeMap::new(),
+            map_tiles: Vec::new(),
+            map_template: None,
+        };
+        assert_eq!(
+            init.initial_state.rules_version,
+            ti4_model::state::RULES_VERSION,
+            "a new game plays the current rules"
+        );
+        // The legacy shape: version 0 writes no key, and the checksum covers those bytes.
+        init.initial_state.rules_version = 0;
+        let old = persist(&init).unwrap();
+        let old_text = serde_json::to_string_pretty(&old).unwrap();
+        let key = |text: &str| {
+            let value: serde_json::Value = serde_json::from_str(text).unwrap();
+            value["payload"]["initial_state"].get("rules_version").cloned()
+        };
+        assert_eq!(key(&old_text), None);
+        let game = store.game_dir(id).unwrap();
+        fs::create_dir_all(&game).unwrap();
+        fs::write(game.join("init.json"), &old_text).unwrap();
+        let loaded = store.load_init(id).expect("legacy init loads");
+        assert_eq!(loaded.initial_state.rules_version, 0);
+        let legacy_checksum = state_checksum(&loaded.initial_state).unwrap();
+        // The same state with the current version records it and reads it back.
+        let mut fresh = init.clone();
+        fresh.initial_state.rules_version = ti4_model::state::RULES_VERSION;
+        store.save_init(&fresh).unwrap();
+        let text = fs::read_to_string(game.join("init.json")).unwrap();
+        assert_eq!(key(&text), Some(serde_json::json!(1)));
+        assert_eq!(
+            store.load_init(id).unwrap().initial_state.rules_version,
+            ti4_model::state::RULES_VERSION
+        );
+        let mut again = loaded.initial_state.clone();
+        again.rules_version = 0;
+        assert_eq!(state_checksum(&again).unwrap(), legacy_checksum);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A snapshot written before Insider Information left a private mark must still match the replay
     /// of the same decisions, which now carries it.
     #[test]

@@ -162,6 +162,10 @@ pub struct Restart {
     /// run plays the same bot even when its request repeats a setup that leaves it out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_version: Option<u32>,
+    /// The rules version the game is played with (`GameState::rules_version`); left out for
+    /// version 0, the legacy rules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_version: Option<u32>,
     /// What each seat has staged: a history change keeps it.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub staged: BTreeMap<PlayerId, SeatStaged>,
@@ -299,6 +303,9 @@ pub struct Identity {
     /// The rule bot version the game is played with. A `table` or `local` game has no `setup`
     /// to record it in, so the session carries it ([`crate::host_setup::Start::settle_bot_version`]).
     pub bot_version: u32,
+    /// The rules version of the game (`GameState::rules_version`); 0 for a game recorded before
+    /// rules versions existed. A resume gives it back, so the game replays under its own rules.
+    pub rules_version: u32,
 }
 
 /// The session of one game.
@@ -1465,6 +1472,7 @@ impl HostSession {
             switches: self.switches.clone(),
             undone: steps,
             bot_version: self.bot_version(),
+            rules_version: self.rules_version(),
             staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
@@ -1542,6 +1550,7 @@ impl HostSession {
                             switches: self.switches.clone(),
                             undone: Vec::new(),
                             bot_version: self.bot_version(),
+                            rules_version: self.rules_version(),
                             staged: self.staged.clone(),
                         });
                         handled.resume = Some(Resume::Leave);
@@ -1592,6 +1601,7 @@ impl HostSession {
             switches: self.switches.clone(),
             undone: Vec::new(),
             bot_version: self.bot_version(),
+            rules_version: self.rules_version(),
             staged: self.staged.clone(),
         });
         handled.resume = Some(Resume::Leave);
@@ -1600,6 +1610,12 @@ impl HostSession {
     /// The rule bot version of this game, as its setup records it.
     fn bot_version(&self) -> Option<u32> {
         Some(self.identity.bot_version)
+    }
+
+    /// The rules version of this game as a save or restart records it (left out for 0, so a
+    /// legacy game is saved as it always was).
+    fn rules_version(&self) -> Option<u32> {
+        (self.identity.rules_version != 0).then_some(self.identity.rules_version)
     }
 
     /// A staged plan of the page (`BatchPlan` of `web/`) sent as one request: the person's
@@ -1886,6 +1902,7 @@ impl HostSession {
             table: self.identity.table.clone(),
             scenario: self.identity.scenario.clone(),
             bot_version: self.bot_version(),
+            rules_version: self.rules_version(),
             humans: self.identity.humans,
             decisions: self
                 .decision_log
@@ -1958,6 +1975,10 @@ pub struct HostSave {
     /// The rule bot version the game was played with (left out: version 1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bot_version: Option<u32>,
+    /// The rules version the game was played with (`GameState::rules_version`; left out:
+    /// version 0, the rules of a save made before the field existed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules_version: Option<u32>,
     /// The seats that the page plays at the start (bit 0 is seat `a`).
     pub humans: u32,
     /// The option id of every decision of every seat, in order.

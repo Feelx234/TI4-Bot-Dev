@@ -214,6 +214,58 @@ fn a_save_names_its_game_and_every_decision_and_plays_again_with_no_seat_decidin
     assert_eq!(again["decisions_hash"], save["decisions_hash"]);
 }
 
+/// A new game records the rules version it plays; a format 2 save made before the field existed
+/// has none and resumes as version 0 (the legacy rules), and saves again without it.
+#[test]
+fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
+    let _serial = crate::common::serial();
+    let seed = 11;
+    let first = page(vec![
+        Act::Answer(8),
+        Act::Cmd(json!({ "type": "save_state" })),
+        Act::Leave,
+    ]);
+    install(&first, seed, "a");
+    start(&setup(seed, 4), None);
+    let mut save = {
+        let first = first.lock().unwrap();
+        first
+            .replies
+            .iter()
+            .find(|reply| reply["save"].is_object())
+            .map(|reply| reply["save"].clone())
+            .expect("a save")
+    };
+    assert_eq!(save["rules_version"], ti4_model::state::RULES_VERSION);
+
+    // A save of the current game resumes as the current game.
+    let current = page(vec![Act::Leave]);
+    install(&current, seed, "a");
+    let end = crate::common::resume(&save);
+    assert_eq!(end["end"]["left"], true, "{end}");
+    let again = send(&json!({ "type": "save_state" }))["save"].clone();
+    assert_eq!(again["rules_version"], ti4_model::state::RULES_VERSION);
+    assert_eq!(
+        current.lock().unwrap().messages[0]["state"]["rules_version"],
+        ti4_model::state::RULES_VERSION
+    );
+
+    // The same save as an older build wrote it: no field.
+    save.as_object_mut().unwrap().remove("rules_version");
+    let legacy = page(vec![Act::Leave]);
+    install(&legacy, seed, "a");
+    let end = crate::common::resume(&save);
+    assert_eq!(end["end"]["left"], true, "{end}");
+    let again = send(&json!({ "type": "save_state" }))["save"].clone();
+    assert!(again.get("rules_version").is_none(), "{again}");
+    let legacy = legacy.lock().unwrap();
+    assert!(
+        legacy.messages[0]["state"].get("rules_version").is_none(),
+        "a legacy game's state is written without the field"
+    );
+    assert_eq!(legacy.asks[0]["resume_check"]["ok"], true);
+}
+
 #[test]
 fn a_save_of_another_format_is_not_read() {
     let _serial = crate::common::serial();
