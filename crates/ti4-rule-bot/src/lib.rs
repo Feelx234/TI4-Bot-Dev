@@ -203,7 +203,12 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     }
     // -- answers to formerly random questions (answers.rs, bot version 2) --
     if subtype != Some("ready_planet")
-        && let Some(index) = answers::pick(choice, observed, &me)
+        && let Some(index) = answers::pick_with(
+            choice,
+            observed,
+            &me,
+            &backward::agenda::AgendaBias::of(seen),
+        )
     {
         return Some(index);
     }

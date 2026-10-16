@@ -136,6 +136,7 @@ tuning! {
     bw_technology: bool = true, "v4: planners of the technology group (with bw_enabled)";
     bw_combat: bool = true, "v4: planners of the combat and other group (with bw_enabled)";
     bw_combat_abilities: bool = false, "v4 (B): planners of the ability secrets (uf, baf, fwp, mew; with bw_enabled)";
+    bw_agenda: bool = false, "v4 (B): the agenda secrets' votes and planner (dtd, dp; with bw_enabled)";
     bw_production: bool = false, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
 }
 
@@ -252,6 +253,7 @@ fn v1() -> Tuning {
         bw_technology: true,
         bw_combat: true,
         bw_combat_abilities: false,
+        bw_agenda: false,
         bw_production: false,
     }
 }

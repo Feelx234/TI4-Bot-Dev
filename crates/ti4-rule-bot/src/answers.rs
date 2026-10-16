@@ -18,14 +18,25 @@
 use ti4_engine::choice::{Choice, ChoiceOption, Observed};
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 
+use crate::backward::agenda::{AgendaBias, agenda_kind};
 use crate::{is_ship, payload_str, planet_worth, tuning};
 
 /// The answer for one of the questions above, or `None` to keep the random pick.
 pub fn pick(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+    pick_with(choice, seen, me, &AgendaBias::default())
+}
+
+/// [`pick`] with the agenda secrets' vote bias (`backward/agenda.rs`).
+pub fn pick_with(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    bias: &AgendaBias,
+) -> Option<usize> {
     let subtype = choice.context.as_ref().map(|c| c.subtype.as_str())?;
     match subtype {
-        "cast_vote" | "vote_tiebreak" if tuning::vote_rule() => cast_vote(choice, seen, me),
-        "vote_exhaust_planet" if tuning::vote_rule() => exhaust_for_vote(choice, seen, me),
+        "cast_vote" | "vote_tiebreak" if tuning::vote_rule() => cast_vote(choice, seen, me, bias),
+        "vote_exhaust_planet" if tuning::vote_rule() => exhaust_for_vote(choice, seen, me, bias),
         "vote_spend_trade_goods" if tuning::vote_rule() => {
             choice.options.iter().position(ChoiceOption::is_decline)
         }
@@ -169,8 +180,12 @@ fn preferred_outcome(
     outcomes: &[&str],
     seen: &Observed<'_>,
     me: &PlayerId,
+    bias: &AgendaBias,
 ) -> Option<String> {
     let offered = |id: &str| outcomes.contains(&id).then(|| id.to_owned());
+    if let Some(want) = secret_outcome(agenda, outcomes, seen, me, bias) {
+        return Some(want);
+    }
     if GOOD_FOR_ELECTED.contains(&agenda) {
         return offered(me.as_str());
     }
@@ -221,6 +236,26 @@ fn preferred_outcome(
     offered(side)
 }
 
+/// What the seat's agenda secrets want on `agenda`: Dictate Policy For on a law that is no
+/// election (backward/agenda.rs). Drive the Debate needs nothing here: the vote rule above already
+/// elects the seat or its planet in every election that does not harm the elected.
+fn secret_outcome(
+    agenda: &str,
+    outcomes: &[&str],
+    seen: &Observed<'_>,
+    _me: &PlayerId,
+    bias: &AgendaBias,
+) -> Option<String> {
+    if !bias.dp {
+        return None;
+    }
+    let (kind, target) = agenda_kind(seen, agenda)?;
+    if bias.dp && kind == "Law" && target == "For/Against" && outcomes.contains(&"for") {
+        return Some("for".to_owned());
+    }
+    None
+}
+
 fn outcome_ids(choice: &Choice) -> Vec<&str> {
     choice
         .options
@@ -232,10 +267,15 @@ fn outcome_ids(choice: &Choice) -> Vec<&str> {
 
 /// Vote for the preferred outcome, else abstain (a tie-break, which cannot abstain, keeps the
 /// random pick when the seat does not care).
-fn cast_vote(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn cast_vote(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    bias: &AgendaBias,
+) -> Option<usize> {
     let agenda = agenda_of(choice)?;
     let outcomes = outcome_ids(choice);
-    if let Some(want) = preferred_outcome(agenda, &outcomes, seen, me) {
+    if let Some(want) = preferred_outcome(agenda, &outcomes, seen, me, bias) {
         return choice.options.iter().position(|o| o.id == want);
     }
     choice.options.iter().position(ChoiceOption::is_decline)
@@ -254,7 +294,12 @@ fn votes_of(option: &ChoiceOption) -> i64 {
 
 /// Every planet for the outcome it wants (they are readied after the agenda phase), the biggest
 /// first; none for any other outcome.
-fn exhaust_for_vote(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
+fn exhaust_for_vote(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    bias: &AgendaBias,
+) -> Option<usize> {
     let outcome = choice
         .prompt
         .strip_prefix("exhaust a planet to vote ")?
@@ -263,7 +308,7 @@ fn exhaust_for_vote(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Opti
     let agenda = agenda_of(choice)?;
     // The outcomes are not listed here; the preference only needs the one being voted.
     let outcomes = [outcome.as_str()];
-    let wanted = preferred_outcome(agenda, &outcomes, seen, me).is_some_and(|w| w == outcome);
+    let wanted = preferred_outcome(agenda, &outcomes, seen, me, bias).is_some_and(|w| w == outcome);
     if !wanted {
         return choice.options.iter().position(ChoiceOption::is_decline);
     }
@@ -511,5 +556,28 @@ mod tests {
             assert_eq!(pick(&vote, &seen(&state), &me), Some(1));
             assert_eq!(pick(&speaker, &seen(&state), &me), Some(1));
         });
+    }
+
+    #[test]
+    fn dictate_policy_votes_for_a_law() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let vote = with_subtype(
+            Choice::new(
+                me.clone(),
+                "vote for which outcome",
+                vec![
+                    ChoiceOption::labelled("against", "vote", "against"),
+                    ChoiceOption::labelled("for", "vote", "for"),
+                    ChoiceOption::decline(),
+                ],
+            )
+            .detailed("agenda", serde_json::json!({ "id": "conventions" })),
+            "cast_vote",
+        );
+        // Without the secret the seat abstains on an agenda it has no opinion on.
+        assert_eq!(pick(&vote, &seen(&state), &me), Some(2));
+        let bias = AgendaBias { dp: true };
+        assert_eq!(pick_with(&vote, &seen(&state), &me, &bias), Some(1));
     }
 }
