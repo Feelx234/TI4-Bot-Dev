@@ -146,3 +146,7 @@ Fixtures are synthetic, not captured engine states. Playwright starts and stops 
 ## Alpha feedback 15 October (EG-alpha-feedback-0415)
 
 `EG-alpha-feedback-0415` shows Plague's planet chips with infantry counts, the commander/hero unlock toast and the lobby's Back to start button (before-* PNGs in `before/`, taken with `TI4_SHOT_PREFIX=before`). Regenerate with `npm run screenshots -- EG`. The folder was created as `EF-alpha-feedback-0415` and renamed to EG when merged with the nightly fixes (which also used EF).
+
+## Score Public Objective on a phone (EK-score-objective-compact)
+
+`EK-score-objective-compact` shows the scoring window (objectives modal in scoring mode, with and without the Imperial note) on 390x844, 360x740 and landscape 844x390, plus desktop unchanged. The `before-*` PNGs were taken with `TI4_SHOT_PREFIX=before` on the commit without the change; `npm run screenshots -- EK` regenerates the `after-*` PNGs and asserts a one-row header (<= 52 px, Minimize on it), >= 3 visible objective rows (2 in landscape), the footer inside the viewport and no horizontal overflow.
