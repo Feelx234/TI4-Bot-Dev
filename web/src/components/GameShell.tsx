@@ -20,6 +20,7 @@ import { BoardPrepSlotContext } from "../presentation/BoardPrepSlot.tsx";
 import { PausedPlanBanner } from "./PausedPlanBanner.tsx";
 import { PendingChoiceModal } from "./PendingChoiceModal.tsx";
 import { TechnologyModal } from "./TechnologyModal.tsx";
+import { FeedbackDockButton, useFeedbackDock } from "../feedback/FeedbackDockButton.tsx";
 import { ObjectivesModal } from "./ObjectivesModal.tsx";
 import { PaymentDrawer } from "./PaymentDrawer.tsx";
 import { PaymentBar } from "./PaymentBar.tsx";
@@ -82,6 +83,9 @@ export interface GameShellProps {
   detail?: React.ReactNode;
   /** Phone bottom buttons: opens the Objectives dialog (absent: no Objectives button). */
   onOpenObjectives?: () => void;
+  /** The Objectives window is open: on a phone it is a sheet like the drawers (toggled by its button). */
+  objectivesOpen?: boolean;
+  onCloseObjectives?: () => void;
   events: GameLogEntry[];
   history?: HistoryStatus;
   currentPath?: CurrentLogPath;
@@ -1018,6 +1022,8 @@ export const GameShell: React.FC<GameShellProps> = ({
   playerSheet,
   detail,
   onOpenObjectives,
+  objectivesOpen,
+  onCloseObjectives,
   events,
   history,
   currentPath,
@@ -1361,7 +1367,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   // Like the dialogs: a tap outside an open phone drawer closes it. The drawers and the panel buttons
   // (which toggle them) are left alone, and so is anything stacked above (a dialog or a card).
   useEffect(() => {
-    if (!openDrawer) return;
+    if (!openDrawer && !objectivesOpen) return;
     const onPointerDown = (event: PointerEvent) => {
       // Only where the drawers overlay the game (phones); on a desktop the log is a docked panel.
       if (!window.matchMedia?.("(max-width: 720px)").matches) return;
@@ -1369,15 +1375,18 @@ export const GameShell: React.FC<GameShellProps> = ({
       if (!target?.closest) return;
       if (
         target.closest(
-          "#player-sheet-drawer, #event-log-drawer, .app-shell__mobile-actions, [role='dialog'], .detail-panel, .corner-toast-layer",
+          "#player-sheet-drawer, #event-log-drawer, #objectives-drawer, .app-shell__mobile-actions, [role='dialog'], .detail-panel, .corner-toast-layer",
         )
       )
         return;
       setOpenDrawer(null);
+      onCloseObjectives?.();
     };
     window.addEventListener("pointerdown", onPointerDown, true);
     return () => window.removeEventListener("pointerdown", onPointerDown, true);
-  }, [openDrawer]);
+  }, [openDrawer, objectivesOpen, onCloseObjectives]);
+
+  const feedbackInDock = useFeedbackDock();
 
   const [prepSlot, setPrepSlot] = useState<HTMLElement | null>(null);
   const prepSlotValue = useMemo(() => ({ slot: prepSlot, setSlot: setPrepSlot }), [prepSlot]);
@@ -1424,9 +1433,10 @@ export const GameShell: React.FC<GameShellProps> = ({
           className="button button--secondary"
           aria-expanded={openDrawer === "players"}
           aria-controls="player-sheet-drawer"
-          onClick={() =>
-            setOpenDrawer((drawer) => (drawer === "players" ? null : "players"))
-          }
+          onClick={() => {
+            onCloseObjectives?.();
+            setOpenDrawer((drawer) => (drawer === "players" ? null : "players"));
+          }}
         >
           Players
         </button>
@@ -1435,9 +1445,13 @@ export const GameShell: React.FC<GameShellProps> = ({
             type="button"
             data-testid="objectives-mobile-button"
             className="button button--secondary"
+            aria-expanded={Boolean(objectivesOpen)}
+            aria-controls="objectives-drawer"
             onClick={() => {
               setOpenDrawer(null);
-              onOpenObjectives();
+              // Pressing it again closes the sheet, like Players / Events.
+              if (objectivesOpen && onCloseObjectives) onCloseObjectives();
+              else onOpenObjectives();
             }}
           >
             Objectives
@@ -1450,12 +1464,14 @@ export const GameShell: React.FC<GameShellProps> = ({
           className="button button--secondary"
           aria-expanded={openDrawer === "events"}
           aria-controls="event-log-drawer"
-          onClick={() =>
-            setOpenDrawer((drawer) => (drawer === "events" ? null : "events"))
-          }
+          onClick={() => {
+            onCloseObjectives?.();
+            setOpenDrawer((drawer) => (drawer === "events" ? null : "events"));
+          }}
         >
           Events
         </button>
+        {feedbackInDock && <FeedbackDockButton />}
       </div>
 
       <section
