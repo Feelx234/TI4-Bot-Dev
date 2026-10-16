@@ -113,6 +113,7 @@ tuning! {
     early_margin: f64 = 0.0, "v3: extra matchup needed for a fight in rounds 1-2";
     mecatol_early: f64 = 0.0, "v3: extra worth of Mecatol Rex in rounds 2-3 while the custodians token is on it";
     ground_margin: f64 = 0.0, "v3: extra ground forces for an invasion, as a share of the defenders' hit points";
+    bw_spend: bool = false, "backward planning (B): the spend objectives' planner (reserve, card help) is on";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -205,6 +206,7 @@ fn v1() -> Tuning {
         early_margin: 0.0,
         mecatol_early: 0.0,
         ground_margin: 0.0,
+        bw_spend: false,
     }
 }
 

@@ -379,7 +379,7 @@ fn cost_rank(cost: ti4_engine::objectives::Cost) -> u8 {
 }
 
 /// A ready planet's (resources, influence).
-fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
+pub(crate) fn ready_planets(seen: &Observed<'_>, me: &PlayerId) -> Vec<(i64, i64)> {
     seen.controlled_planets(me)
         .into_iter()
         .filter(|(_, planet)| seen.planet_is_ready(planet))
@@ -439,11 +439,11 @@ fn spare_after_influence(
     (rest, trade_goods - reserve.trade_goods - need.max(0))
 }
 
-fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
+pub(crate) fn trade_goods(seen: &Observed<'_>, me: &PlayerId) -> i64 {
     seen.seat(me).map_or(0, |seat| i64::from(seat.trade_goods))
 }
 
-fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
+pub(crate) fn pool_tokens(seen: &Observed<'_>, me: &PlayerId) -> i32 {
     seen.seat(me)
         .map_or(0, |seat| seat.tactic_tokens + seat.strategic_tokens)
 }
