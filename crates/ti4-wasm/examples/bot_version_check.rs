@@ -97,6 +97,27 @@ fn main() -> Result<(), String> {
         );
         failed |= !ok;
 
+        // The starting-technology choice (bot version 3): the person plays the Winnu. A version-2
+        // game is made and resumed without the choice, a current game with it, and both replay.
+        for (version, choice) in [(2_u32, false), (ti4_rule_bot::tuning::BOT_VERSION, true)] {
+            let mut winnu = setup.clone();
+            winnu["human_faction"] = json!("winnu");
+            winnu["bot_version"] = json!(version);
+            let (_, _, save, _) = play(&json!({ "setup": winnu }), Some(asks))?;
+            let recorded = save.pointer("/game/setup/starting_tech") == Some(&json!(true));
+            let resumed = play(&json!({ "resume": save }), Some(0));
+            if let Err(error) = &resumed {
+                println!("  resume error: {error}");
+            }
+            let (_, _, _, check) = resumed?;
+            let ok = check["ok"] == true && recorded == choice;
+            println!(
+                "seed {seed}: Winnu, bot version {version}, choice recorded {recorded} (wanted {choice}), resumed: {check} -> {}",
+                if ok { "OK" } else { "FAIL" }
+            );
+            failed |= !ok;
+        }
+
         let mut old = setup.clone();
         old["bot_version"] = json!(1);
         let (_, _, mut save, _) = play(&json!({ "setup": old }), Some(asks))?;

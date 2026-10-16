@@ -175,6 +175,16 @@ pub fn choice(state: &GameState, content: &ContentStore, sources: SourceSet) -> 
             if let Some(colour) = crate::technology::colour_type(content, id) {
                 option = option.with("colour", colour);
             }
+            // Whose card it is, for the Keleres: the seats that hold it.
+            let owners: Vec<String> = state
+                .players
+                .iter()
+                .filter(|seat| seat.id != pick.player && seat.technologies.contains(id))
+                .map(|seat| seat.id.to_string())
+                .collect();
+            if !owners.is_empty() {
+                option = option.with("owners", owners);
+            }
             option.with(
                 "prerequisites",
                 crate::technology::prerequisites(content, id)
@@ -204,6 +214,18 @@ pub fn choice(state: &GameState, content: &ContentStore, sources: SourceSet) -> 
             .detailed("of", u64::from(pick.of))
             .detailed("rule", rule)
             .detailed("faction", faction)
+            .detailed(
+                "held",
+                state
+                    .player(&pick.player)
+                    .map(|seat| {
+                        seat.technologies
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
+            )
             .contextualized(DecisionContext::new(
                 pick.player.clone(),
                 DecisionSource::Content("starting_technology".to_owned()),

@@ -54,3 +54,37 @@ describe("technology picks (Divert Funding, Plagiarize, ...)", () => {
     expect(splitTechnologyOptionId("pa")).toEqual({ owner: null, technology: "pa" });
   });
 });
+
+describe("starting technology", () => {
+  const start = (details: Record<string, unknown>, options = 8) =>
+    ({
+      context: { subtype: "starting_technology" } as never,
+      prompt: "choose a starting technology",
+      details,
+      options: Array.from({ length: options }, (_, i) => ({ id: `t${i}`, kind: "starting_technology", label: "" })) as never,
+    }) as const;
+
+  it("is a technology pick that reads the engine's options", () => {
+    const winnu = start({ pick: 1, of: 1, rule: "listed", held: [] });
+    expect(isTechnologyPick(winnu)).toBe(true);
+    const view = describeTechnologyPickOption(winnu, { id: "det", kind: "starting_technology" });
+    expect(view?.name).toBe("Dark Energy Tap");
+    expect(view?.prereqs).toEqual([]);
+    const keleres = describeTechnologyPickOption(
+      winnu,
+      { id: "st", kind: "starting_technology", payload: { owners: ["a", "b"] } },
+    );
+    expect(keleres?.holders).toEqual(["a", "b"]);
+  });
+
+  it("says what a Winnu, an Argent and a Keleres pick is", () => {
+    expect(technologyPickStage(start({ pick: 1, of: 1, rule: "listed", held: [] }))?.text).toMatch(/Choose one technology/);
+    const argent = technologyPickStage(start({ pick: 2, of: 2, rule: "listed", held: ["st"] }, 2));
+    expect(argent?.title).toBe("Starting technology · 2 of 2");
+    expect(argent?.text).toMatch(/stays in the technology deck/);
+    expect(argent?.text).toMatch(/Sarween Tools/);
+    expect(technologyPickStage(start({ pick: 1, of: 2, rule: "owned_by_others", held: [] }))?.text).toMatch(
+      /another player starts with/,
+    );
+  });
+});
