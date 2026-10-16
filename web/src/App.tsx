@@ -570,6 +570,7 @@ const GameViewContainer: React.FC<{
   const [cardSubject, setCardSubject] = useState<CardSubject | null>(null);
   const [isTechModalOpen, setIsTechModalOpen] = useState(false);
   const [isObjectivesModalOpen, setIsObjectivesModalOpen] = useState(false);
+  const closeObjectives = useCallback(() => setIsObjectivesModalOpen(false), []);
   // Phones: one slim top bar and a menu sheet; the board portals its controls into the sheet.
   const compactLayout = useCompactLayout();
   const [menuSlotElement, setMenuSlotElement] = useState<HTMLElement | null>(null);
@@ -885,6 +886,8 @@ const GameViewContainer: React.FC<{
           ) : null
         }
         onOpenObjectives={() => setIsObjectivesModalOpen(true)}
+        objectivesOpen={isObjectivesModalOpen}
+        onCloseObjectives={closeObjectives}
         detail={
           cardSubject &&
           cardIsVisible && (

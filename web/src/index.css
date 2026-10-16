@@ -2274,6 +2274,48 @@ html,
     z-index: var(--layer-header);
   }
 
+  /* The icon-only dock buttons (Feedback): a 44px square tap target like the rest of the dock. */
+  .app-shell__dock-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  /* The Objectives window as a bottom sheet over the map, like the Players / Events drawers; the
+     dock (--layer-header) stays above it so the buttons keep working. */
+  .objectives-dialog--sheet {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: calc(var(--layer-modal) + 1);
+    max-height: min(70vh, 560px);
+    display: flex;
+    flex-direction: column;
+    background: var(--color-canvas);
+    box-shadow: var(--shadow-panel);
+  }
+  .objectives-dialog--sheet .objectives-modal-panel {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    min-height: 35vh;
+    max-height: min(70vh, 560px);
+    border-radius: 0;
+    border-width: 1px 0 0;
+    box-shadow: none;
+  }
+  .objectives-dialog--sheet .objectives-modal__header {
+    padding: 10px 14px;
+  }
+  /* Clear the dock so the last row is reachable. */
+  .objectives-dialog--sheet .objectives-modal__scroll-body {
+    padding: 12px 14px calc(72px + env(safe-area-inset-bottom, 0px));
+  }
+
   .app-shell__overlays {
     position: fixed;
   }
