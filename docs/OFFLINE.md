@@ -63,6 +63,11 @@ COOP/COEP, no SharedArrayBuffer).
   engine build and content digest, plus the sha-256 of the wasm file that played it. Size is small
   (about 60 KiB at 5000 answers, more with the decisions of all seats). Limits: 8 MiB per game,
   100 games, 128 MiB in all. One IndexedDB (`ti4-offline`, version 2) serves both apps.
+* **Starting technology** (Winnu, Argent Flight, Council Keleres): a new game asks for it before the
+  first strategy card. The save records it as `game.setup.starting_tech: true` (or
+  `game.table.setup.starting_tech`); a game of bot version 2 or less (every save made before the
+  choice) has no such key, is made without the choice and replays as it was played. See
+  `docs/STARTING_TECH_CHOICES.md`.
 * **Format 2 replaces format 1.** Saves of format 1 (the old `web/` store, and web2's formats 1 to 3)
   are not read and not migrated: the page lists them as "older version" and offers to delete them.
   Exported files changed too (an export of the old format is refused on import). Testers lose their
