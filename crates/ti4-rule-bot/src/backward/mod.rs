@@ -45,16 +45,24 @@ use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use crate::objectives::{self, Goal};
 use crate::tuning;
 
+pub mod abilities;
+pub mod agenda;
 pub mod combat;
+#[cfg(test)]
+mod coverage;
 pub mod fleet;
 pub mod fleet_shape;
+pub mod holdings;
 pub mod mecatol;
 pub mod mecatol_two_step;
 pub mod payment;
 pub mod prep;
+pub mod production;
 pub mod structures;
 pub mod technology;
 pub mod territory;
+pub mod ttfd;
+pub mod unsteerable;
 
 /// What a plan costs this turn.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -198,6 +206,21 @@ pub fn registry() -> Vec<Box<dyn ObjectivePlanner>> {
         out.push(Box::new(combat::Combat));
         out.push(Box::new(structures::Structures));
     }
+    if tuning::bw_combat_abilities() {
+        out.push(Box::new(abilities::Abilities));
+    }
+    if tuning::bw_agenda() {
+        out.push(Box::new(agenda::Agenda));
+    }
+    if tuning::bw_holdings() {
+        out.push(Box::new(holdings::Holdings));
+    }
+    if tuning::bw_ttfd() {
+        out.push(Box::new(ttfd::Ttfd));
+    }
+    if tuning::bw_production() {
+        out.push(Box::new(production::Production));
+    }
     out
 }
 
@@ -222,6 +245,15 @@ impl PlanCtx {
                 // Event secrets have no progress in the engine; the combat group lists them.
                 if tuning::bw_combat() {
                     goals.extend(combat::event_goals(seen));
+                }
+                if tuning::bw_combat_abilities() {
+                    goals.extend(abilities::event_goals(seen));
+                }
+                if tuning::bw_agenda() {
+                    goals.extend(agenda::event_goals(seen));
+                }
+                if tuning::bw_ttfd() {
+                    goals.extend(ttfd::event_goals(seen));
                 }
                 goals
             },

@@ -9,6 +9,17 @@
 //! one dock at most on a planet), and the placements it has before the status phase; the steer is
 //! the Construction card, the cost the strategy tokens of the secondaries. Where the placements
 //! go is the existing structure choice's business (`objectives::pick_structure`).
+//!
+//! # Objectives (exactly; checked by `covers_exactly_the_documented_objectives`)
+//!
+//! | alias | name | kind | points | family |
+//! |---|---|---|---|---|
+//! | `build_defenses` | Build Defenses | public | 1 | `structures` |
+//! | `infrastructure` | Improve Infrastructure | public | 1 | `structures_away` |
+//! | `massive_cities` | Construct Massive Cities | public | 2 | `structures` |
+//! | `protect_border` | Protect the Border | public | 2 | `structures_away` |
+//! | `eap` | Establish a Perimeter | secret | 1 | `units_pds` |
+//! | `fwm` | Fuel the War Machine | secret | 1 | `units_spacedock` |
 
 use ti4_engine::choice::{Observed, SeatObservation};
 use ti4_model::id::PlayerId;
@@ -127,13 +138,23 @@ fn room_of(seen: &Observed<'_>, me: &PlayerId) -> Room {
     room
 }
 
-fn construction_open(seen: &Observed<'_>, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
+pub fn construction_open(seen: &Observed<'_>, seat: &ti4_engine::choice::PublicSeat<'_>) -> bool {
     seat.strategy_cards.iter().any(|c| {
         !seat.exhausted_strategy_cards.contains(c)
             && ti4_engine::strategy_cards::card_name(seen.content(), c.as_str()).as_deref()
                 == Some("Construction")
     })
 }
+
+/// The aliases this group plans, as documented at the top of the file.
+pub const COVERS: &[&str] = &[
+    "build_defenses",
+    "infrastructure",
+    "massive_cities",
+    "protect_border",
+    "eap",
+    "fwm",
+];
 
 /// The structures group.
 pub struct Structures;
@@ -223,5 +244,13 @@ mod tests {
         assert_eq!(capacity("units_pds", room), 5);
         assert_eq!(capacity("units_spacedock", room), 1);
         assert_eq!(capacity("fleet_in_one_system", room), 0);
+    }
+
+    #[test]
+    fn covers_exactly_the_documented_objectives() {
+        assert_eq!(
+            crate::backward::coverage::matched(&Structures),
+            crate::backward::coverage::sorted(COVERS)
+        );
     }
 }

@@ -1249,6 +1249,10 @@ fn pick_research(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> 
 /// dock counted for secrets that count them; none, no opinion.
 fn pick_structure(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usize> {
     let me = seen.bound_seat().clone();
+    // Turn Their Fleets to Dust (backward/ttfd.rs): a PDS that covers Mecatol Rex first.
+    if let Some(index) = crate::backward::ttfd::placement(choice, seen, &me) {
+        return Some(index);
+    }
     let before = goals(seen, &me, &Imagined::NONE);
     let scored: Vec<(usize, f64)> = choice
         .options
