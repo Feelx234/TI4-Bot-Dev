@@ -2308,6 +2308,28 @@ html,
     padding: 0;
   }
 
+  /* Five buttons (Players, Objectives, bell, Events, Feedback) must fit one row on a 360 px phone. */
+  @media (max-width: 400px) {
+    .app-shell__mobile-actions {
+      left: 8px;
+      right: 8px;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+    .app-shell__mobile-actions > .button:not(.app-shell__dock-icon):not(.notification-log-button) {
+      padding-left: 10px;
+      padding-right: 10px;
+      min-height: 44px;
+    }
+  }
+
+  .app-shell__mobile-actions .notification-log-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
   /* The Objectives window as a bottom sheet over the map, like the Players / Events drawers; the
      dock (--layer-header) stays above it so the buttons keep working. */
   .objectives-dialog--sheet {

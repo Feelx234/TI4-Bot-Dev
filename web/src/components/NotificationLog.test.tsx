@@ -137,10 +137,61 @@ describe("corner toasts and the notification log", () => {
     expect(screen.getByTestId("corner-toasts")).toHaveClass("auto-resolve-toast-container--under");
   });
 
-  it("keeps the corner pill in a game with other people", () => {
-    const { rerender } = render(layer(false, []));
-    rerender(layer(false, [ev("1", "played Sabotage")]));
+  it("keeps the corner pill only where there is no provider", () => {
+    const bare = (events: GameEvent[]) => (
+      <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2"]}>
+        <CornerToastLayer events={events} viewerSeat="p1" ready />
+      </PlayerIdentityProvider>
+    );
+    const { rerender } = render(bare([]));
+    rerender(bare([ev("1", "played Sabotage")]));
     expect(screen.getByText(/Recent notifications \(1\)/)).toBeInTheDocument();
     expect(screen.getByTestId("corner-toasts")).not.toHaveClass("auto-resolve-toast-container--under");
+  });
+
+  describe("in a multiplayer game", () => {
+    const from = (id: string, actor: string, detail: string): GameEvent => ({ ...ev(id, detail), actor, detail: `${actor} ${detail}` }) as GameEvent;
+    const mp = (events: GameEvent[], viewerSeat: string | undefined) => (
+      <PlayerIdentityProvider lobby={lobby} seatingOrder={["p1", "p2"]}>
+        <NotificationLogProvider inline>
+          <NotificationLogButton />
+          <CornerToastLayer events={events} viewerSeat={viewerSeat} ready />
+        </NotificationLogProvider>
+      </PlayerIdentityProvider>
+    );
+
+    it("lists the actions newest first with the actor's label and counts them unread (spectator sees every seat)", () => {
+      const { rerender } = render(mp([], undefined));
+      rerender(mp([from("1", "p2", "played Sabotage")], undefined));
+      rerender(mp([from("1", "p2", "played Sabotage"), from("2", "p1", "played Mutiny")], undefined));
+      expect(screen.queryByText(/Recent notifications \(/)).toBeNull();
+      expect(screen.getByTestId("toast-history-unread")).toHaveTextContent("2");
+      fireEvent.click(screen.getByTestId("toast-history-toggle"));
+      const items = screen.getAllByTestId("toast-history-item");
+      expect(items).toHaveLength(2);
+      expect(items[0]).toHaveTextContent("played Mutiny");
+      expect(items[1]).toHaveTextContent("played Sabotage");
+      expect(items[0].querySelector(".toast-history__actor")).not.toBeNull();
+      expect(screen.queryByTestId("toast-history-unread")).toBeNull();
+    });
+
+    it("a seat's log holds other seats' actions only", () => {
+      const { rerender } = render(mp([], "p1"));
+      rerender(mp([from("1", "p1", "played Sabotage"), from("2", "p2", "played Mutiny")], "p1"));
+      fireEvent.click(screen.getByTestId("toast-history-toggle"));
+      const items = screen.getAllByTestId("toast-history-item");
+      expect(items).toHaveLength(1);
+      expect(items[0]).toHaveTextContent("played Mutiny");
+    });
+
+    it("does not repeat entries when a resync delivers the same log again, nor on a reload", () => {
+      const log = [from("1", "p2", "played Sabotage")];
+      const { rerender } = render(mp([], "p1"));
+      rerender(mp(log, "p1"));
+      rerender(mp([...log], "p1"));
+      rerender(mp(log.map((e) => ({ ...e })), "p1"));
+      fireEvent.click(screen.getByTestId("toast-history-toggle"));
+      expect(screen.getAllByTestId("toast-history-item")).toHaveLength(1);
+    });
   });
 });

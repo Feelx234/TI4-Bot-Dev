@@ -50,8 +50,8 @@ export const CornerToastLayer: React.FC<CornerToastsInput> = (props) => {
   const { notifications, dismiss, history } = useCornerToasts(props);
   const [offset, setOffset] = useState(GAP);
   const [maxHeight, setMaxHeight] = useState<number | null>(null);
-  // A single-player game keeps its notification log behind an icon beside the Objectives button;
-  // the pill under the toasts is only for games that have no such button row to share.
+  // A game keeps its notification log behind an icon beside the Objectives button (offline and
+  // online alike); the pill under the toasts is only the fallback without a provider.
   const log = useNotificationLog();
   const { inline, setEntries } = log;
   useEffect(() => {

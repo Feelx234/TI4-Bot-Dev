@@ -693,7 +693,7 @@ const GameViewContainer: React.FC<{
     <SeatInfoProvider players={snapshot?.view.players} viewerSeat={userSeat}>
     <PublicStateProvider state={snapshot?.state}>
     <DecisionTableProvider table={snapshot?.view ?? null}>
-    <NotificationLogProvider inline={!multiplayerOn}>
+    <NotificationLogProvider inline>
     <BluffScope
       gameId={gameId}
       seat={multiplayerOn ? userSeat : undefined}
