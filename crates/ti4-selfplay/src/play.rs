@@ -319,6 +319,7 @@ pub(crate) fn empty_for_tests() -> GameResult {
         speaker: "seat".to_owned(),
         card_set: None,
         rotation: None,
+        starting_tech: false,
     };
     empty_result(
         &spec,
