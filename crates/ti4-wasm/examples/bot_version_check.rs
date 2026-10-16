@@ -143,14 +143,8 @@ fn main() -> Result<(), String> {
         let mut v2 = setup.clone();
         v2["bot_version"] = json!(2);
         let (_, _, save2, _) = play(&json!({ "setup": v2 }), Some(asks))?;
-        let recorded = save2
-            .pointer("/setup/bot_version")
-            .cloned()
-            .unwrap_or(Value::Null);
-        let (_, _, _, check) = play(
-            &json!({ "setup": save2["setup"], "resume": save2 }),
-            Some(0),
-        )?;
+        let recorded = save2.get("bot_version").cloned().unwrap_or(Value::Null);
+        let (_, _, _, check) = play(&json!({ "resume": save2 }), Some(0))?;
         let ok = check["ok"] == true && recorded == json!(2);
         println!(
             "seed {seed}: version-2 save (bot_version {recorded}), resumed: {check} -> {}",
@@ -161,14 +155,8 @@ fn main() -> Result<(), String> {
         let mut v3 = setup.clone();
         v3["bot_version"] = json!(3);
         let (_, _, save3, _) = play(&json!({ "setup": v3 }), Some(asks))?;
-        let recorded = save3
-            .pointer("/setup/bot_version")
-            .cloned()
-            .unwrap_or(Value::Null);
-        let (_, _, _, check) = play(
-            &json!({ "setup": save3["setup"], "resume": save3 }),
-            Some(0),
-        )?;
+        let recorded = save3.get("bot_version").cloned().unwrap_or(Value::Null);
+        let (_, _, _, check) = play(&json!({ "resume": save3 }), Some(0))?;
         let ok = check["ok"] == true && recorded == json!(3);
         println!(
             "seed {seed}: version-3 save (bot_version {recorded}), resumed: {check} -> {}",
