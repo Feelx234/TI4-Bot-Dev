@@ -131,15 +131,13 @@ impl Source {
 
 /// What a build adds.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Build {
-    pub source: Source,
+pub struct Boost {
     /// Units bought as (type, count).
     pub units: Vec<(String, usize)>,
     pub resources: i64,
     /// Fleet counts and ground forces the act step then has.
     pub fleet: Vec<(String, usize)>,
     pub ground: usize,
-    pub odds: f64,
 }
 
 fn with_added(fleet: &[(String, usize)], id: &str, n: usize) -> Vec<(String, usize)> {
@@ -177,7 +175,7 @@ pub fn build_boost(
     me: &PlayerId,
     ctx: &PlanCtx,
     case: &Case,
-) -> Option<(Vec<(String, usize)>, i64, Vec<(String, usize)>, usize)> {
+) -> Option<Boost> {
     let home = crate::home_system(seen, me)?;
     let slots = home_slots(seen, me, &home);
     if slots <= 0 {
@@ -253,7 +251,12 @@ pub fn build_boost(
     }
     #[expect(clippy::cast_possible_truncation, reason = "a handful of resources")]
     let spent = (ctx.resources as f64 - budget).ceil() as i64;
-    Some((units, spent, fleet, ground))
+    Some(Boost {
+        units,
+        resources: spent,
+        fleet,
+        ground,
+    })
 }
 
 /// The ways the seat can get a production before the act step.
@@ -282,7 +285,12 @@ fn sources(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx) -> Vec<(Source, i3
 
 /// Variant 1: build, then act.
 fn build_and_act(seen: &Observed<'_>, me: &PlayerId, ctx: &PlanCtx, case: &Case) -> Option<Plan> {
-    let (units, resources, fleet, _ground) = build_boost(seen, me, ctx, case)?;
+    let Boost {
+        units,
+        resources,
+        fleet,
+        ..
+    } = build_boost(seen, me, ctx, case)?;
     let (source, prep_tokens, odds) = sources(seen, me, ctx)
         .into_iter()
         .max_by(|a, b| a.2.total_cmp(&b.2).then(b.1.cmp(&a.1)))?;
