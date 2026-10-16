@@ -47,6 +47,7 @@ use crate::tuning;
 
 pub mod fleet;
 pub mod mecatol;
+pub mod mecatol_two_step;
 pub mod territory;
 
 /// What a plan costs this turn.
@@ -483,6 +484,35 @@ impl Verdict {
     }
 }
 
+impl Verdict {
+    /// Unit types the chosen plans want produced.
+    #[must_use]
+    pub fn builds(&self) -> Vec<String> {
+        if self.fallback {
+            return Vec::new();
+        }
+        self.chosen
+            .iter()
+            .flat_map(|&i| self.plans[i].plan.steer.builds.iter().cloned())
+            .collect()
+    }
+
+    /// Strategy cards the chosen plans want, with the expected VP behind each.
+    #[must_use]
+    pub fn cards(&self) -> BTreeMap<String, f64> {
+        let mut out: BTreeMap<String, f64> = BTreeMap::new();
+        if self.fallback {
+            return out;
+        }
+        for &i in &self.chosen {
+            for card in &self.plans[i].plan.steer.cards {
+                *out.entry(card.clone()).or_default() += self.plans[i].expected;
+            }
+        }
+        out
+    }
+}
+
 /// Weigh `plans` (see the module docs) and choose.
 #[must_use]
 pub fn weigh(ctx: &PlanCtx, plans: Vec<Plan>) -> Verdict {
@@ -579,6 +609,7 @@ pub fn verdict(seen: &SeatObservation<'_>, me: &PlayerId) -> Option<Verdict> {
     }
     if tuning::bw_mecatol() {
         plans.extend(mecatol::plan(seen, &ctx));
+        plans.extend(mecatol_two_step::plan(seen, &ctx));
     }
     Some(weigh(&ctx, plans))
 }
@@ -884,6 +915,97 @@ mod tests {
             let v = verdict_of(&state, &hub).expect("on");
             assert!(v.plans.iter().all(|w| w.plan.objective != "deep_space"));
             assert!(v.fallback);
+        });
+    }
+
+    // -- Mecatol two-step plans --
+
+    /// Mecatol Rex in the centre, the Sol home (`1`, with its dock) on the ring holding a
+    /// carrier with `troops` infantry, `defenders` rival infantry on Mecatol Rex, custodians gone.
+    fn mecatol_position(troops: usize, defenders: usize) -> (GameState, ti4_engine::fixtures::Hub) {
+        let home_id = ti4_content::galaxy::planet(ContentStore::embedded(), "jord", POK)
+            .and_then(|p| p.system_id())
+            .expect("sol home")
+            .to_owned();
+        let mut ids = vec!["18".to_owned(), home_id.clone()];
+        ids.extend(empty_systems(5));
+        let hub = hub_from(&ids);
+        let mut state = game(&["a", "b"]);
+        state.round = 3;
+        state.phase = Phase::Action;
+        state.custodians_removed = true;
+        state.revealed_objectives.clear();
+        for seat in &mut state.players {
+            seat.secret_objectives.clear();
+        }
+        let home = SystemId::new(home_id);
+        let jord = PlanetId::new("jord");
+        state
+            .system_mut(&home)
+            .planet_control
+            .insert(jord.clone(), me());
+        ti4_engine::fixtures::put_on_planet(&mut state, &home, &jord, "spacedock", &me(), 1);
+        put(&mut state, &home, "carrier", &me(), 1);
+        ti4_engine::fixtures::put_on_planet(&mut state, &home, &jord, "infantry", &me(), troops);
+        let mr = SystemId::new("18");
+        ti4_engine::fixtures::put_on_planet(
+            &mut state,
+            &mr,
+            &PlanetId::new("mr"),
+            "infantry",
+            &PlayerId::new("b"),
+            defenders,
+        );
+        state
+            .system_mut(&mr)
+            .planet_control
+            .insert(PlanetId::new("mr"), PlayerId::new("b"));
+        (state, hub)
+    }
+
+    fn build_plan(v: &Verdict) -> Option<&Weighed> {
+        v.plans
+            .iter()
+            .find(|w| w.plan.reason.starts_with("build + act"))
+    }
+
+    fn build_on() -> tuning::Tuning {
+        tuning::Tuning {
+            bw_mr_build: true,
+            ..on()
+        }
+    }
+
+    #[test]
+    fn build_and_act_adds_the_troops_a_home_dock_can_make() {
+        tuning::with(build_on(), || {
+            let (state, hub) = mecatol_position(2, 3);
+            let v = verdict_of(&state, &hub).expect("on");
+            let plan = &build_plan(&v).expect("a two-step plan").plan;
+            assert_eq!(plan.steer.systems.len(), 2);
+            assert!(
+                plan.steer.builds.iter().any(|b| b == "infantry"),
+                "{plan:?}"
+            );
+            assert!(plan.cost.tokens == 2 && plan.probability > 0.3, "{plan:?}");
+        });
+    }
+
+    #[test]
+    fn build_and_act_is_not_offered_when_no_production_can_close_the_gap() {
+        tuning::with(build_on(), || {
+            let (state, hub) = mecatol_position(2, 12);
+            let v = verdict_of(&state, &hub).expect("on");
+            assert!(build_plan(&v).is_none(), "{v:?}");
+        });
+    }
+
+    #[test]
+    fn build_and_act_leaves_a_one_step_take_alone() {
+        tuning::with(build_on(), || {
+            let (state, hub) = mecatol_position(4, 3);
+            let v = verdict_of(&state, &hub).expect("on");
+            assert!(build_plan(&v).is_none(), "{v:?}");
         });
     }
 

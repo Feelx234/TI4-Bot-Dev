@@ -1122,18 +1122,21 @@ fn card_score(seen: &SeatObservation<'_>, me: &PlayerId, card: &str, goals: &[Go
 
 fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId) -> Option<usize> {
     let goals = goals(seen, me, &Imagined::NONE);
-    let imperial_wanted = crate::backward::verdict(seen, me).is_some_and(|v| v.imperial);
+    let verdict = crate::backward::verdict(seen, me);
+    let imperial_wanted = verdict.as_ref().is_some_and(|v| v.imperial);
+    let wanted_cards = verdict.map(|v| v.cards()).unwrap_or_default();
     let scored: Vec<(usize, f64)> = choice
         .options
         .iter()
         .enumerate()
         .map(|(i, o)| {
             let mut score = card_score(seen, me, &o.id, &goals);
-            if imperial_wanted
-                && ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id)
-                    .is_some_and(|n| n == "Imperial")
-            {
+            let name = ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id);
+            if imperial_wanted && name.as_deref() == Some("Imperial") {
                 score += 20.0;
+            }
+            if let Some(expected) = name.and_then(|n| wanted_cards.get(&n).copied()) {
+                score += tuning::bw_card_weight() * expected.max(0.0);
             }
             (i, score)
         })

@@ -25,6 +25,8 @@ pub struct Bias {
     mech: f64,
     pds: f64,
     dock: f64,
+    /// Unit types a chosen backward plan wants built (bot version 4).
+    steered: Vec<String>,
 }
 
 impl Bias {
@@ -33,11 +35,20 @@ impl Bias {
     pub fn of(seen: &SeatObservation<'_>, me: &PlayerId) -> Self {
         let w = tuning::planner_weight();
         let observed = seen.observed();
+        let steered = crate::backward::verdict(seen, me)
+            .map(|v| v.builds())
+            .unwrap_or_default();
         if w <= 0.0 || observed.round() < tuning::objective_round() || !tuning::objectives_enabled()
         {
-            return Self::default();
+            return Self {
+                steered,
+                ..Self::default()
+            };
         }
-        let mut bias = Self::default();
+        let mut bias = Self {
+            steered,
+            ..Self::default()
+        };
         for goal in objectives::goals(seen, me, &Imagined::NONE) {
             if goal.satisfied || goal.bought || goal.gap() > tuning::planner_gap() {
                 continue;
@@ -70,6 +81,9 @@ impl Bias {
     pub fn weight(&self, kind: UnitType<'_>) -> f64 {
         let id = kind.id();
         let mut w = 1.0;
+        if self.steered.iter().any(|b| b == id) {
+            w += crate::tuning::bw_build_weight();
+        }
         if kind.is_ship() && !kind.is_fighter() {
             w += self.warship;
         }
