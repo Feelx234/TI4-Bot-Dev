@@ -92,7 +92,15 @@ candidate minus baseline, 95% intervals, n = paired tables.
 | + `bw_prep_tech_range` | 400 | +0.028 [+0.009, +0.047] | +0.041 | +0.106 [+0.054, +0.159] | +0.162 | +0.199 | +2.6 [-0.3, +5.5] | secret +0.062 |
 | + `bw_prep_tech_strength` | 400 | +0.019 [+0.001, +0.038] | +0.037 | +0.099 [+0.046, +0.151] | +0.127 | +0.158 | +1.5 [-1.4, +4.4] | secret +0.062 |
 
-(fleet shape and the all-kinds run below)
+| + `bw_fleet_shape` + build | 400 | +0.021 [+0.002, +0.040] | +0.039 | +0.105 | +0.128 | +0.156 | +0.9 [-2.0, +3.7] | no gain over build alone |
+| all four preps + fleet shape | 400 | +0.027 [+0.008, +0.047] | +0.050 | +0.125 | +0.161 | +0.188 | +2.1 [-1.0, +5.2] | preps do not stack |
+| **direct**: build + fleet shape vs build only | 400 | **-0.013 [-0.023, -0.003]** | -0.002 | +0.002 | -0.049 [-0.086, -0.011] | -0.077 | -0.25 [-2.0, +1.5] | objective -0.061, secret -0.024: fleet shape hurts, keep off |
+
+Reading: the base framework gives a small early gain (mostly Imperial's Mecatol point); the build prep is the strongest
+single addition (ctrl +0.032 per round, +0.17 after R5, objective and secret VP both up); tech range is close, warfare and
+tech strength smaller; the preps do not add up and fleet shape is a net loss. Gates: golden bench identical to
+`baseline.json` (200/200) with the knobs off; `bot_version_check` fails on seed 2 identically on the unmodified base
+(pre-existing).
 
 ## Open ideas
 
