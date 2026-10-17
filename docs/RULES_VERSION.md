@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 5): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
 
@@ -42,6 +42,18 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 5 = the Enigmatic Device researches (`RULES_ENIGMATIC_DEVICE`, branch
+`enigmatic-device-tech-dialog`; versions 2 to 4 are other branches, merge in that order):
+
+1. The relic (`relics::grant_chosen_technology`, only for `enigmaticdevice`) and both exploration
+   cards (`exploration::enigmatic_device_technologies`) offer `technology::researchable_by_prerequisites`
+   (not owned, own faction, not purged, prerequisites met) instead of every unowned technology.
+   Waiver-only technologies (Inheritance Systems, faction waivers) are not offered: they charge a
+   second price. The relic action is not offered when that list is empty.
+2. The pick is researched (`technology::research_chosen`: specialties exhausted, unit upgrades,
+   research consequences), not just inserted. Maw of Worlds (*gain*) is unchanged.
+Version < 5 keeps the unfiltered list and the plain insert / `gain`.
 
 ## Adding the next gate
 

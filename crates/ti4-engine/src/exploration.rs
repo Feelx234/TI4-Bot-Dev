@@ -418,6 +418,11 @@ fn enigmatic_device_technologies(
                 .collect()
         })
         .unwrap_or_default();
+    // Rules version `RULES_ENIGMATIC_DEVICE`: the card says *research*, so only what the player
+    // could research now (prerequisites included). Earlier games keep the unfiltered list.
+    if state.rules_version >= ti4_model::state::RULES_ENIGMATIC_DEVICE {
+        return crate::technology::researchable_by_prerequisites(state, content, sources, player);
+    }
     let faction = state.player(player).map(|seat| seat.faction.to_string());
     let mut technologies: Vec<TechnologyId> = content
         .from_sources(ContentType::Technologies, sources)
@@ -612,7 +617,11 @@ pub fn perform_action(
     {
         seat.exploration_cards.remove(at); // purged
     }
-    crate::technology::gain(state, content, sources, player, &technology);
+    if state.rules_version >= ti4_model::state::RULES_ENIGMATIC_DEVICE {
+        crate::technology::research_chosen(state, content, sources, player, &technology);
+    } else {
+        crate::technology::gain(state, content, sources, player, &technology);
+    }
     true
 }
 
