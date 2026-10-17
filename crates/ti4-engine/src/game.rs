@@ -13065,6 +13065,7 @@ mod tests {
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
         state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+        state.rules_version = ti4_model::state::RULES_INFILTRATE_FIX; // legacy: paid at the round start
         state.player_mut(&a).unwrap().trade_goods = 4;
         state.player_mut(&a).unwrap().secret_objectives =
             vec![ti4_model::id::SecretObjectiveId::new("fwp")];
@@ -16901,7 +16902,7 @@ mod tests {
         let (state, _, _, _) = invasion_fixture();
         assert_eq!(state.rules_version, ti4_model::state::RULES_VERSION);
         let mut json = serde_json::to_value(&state).unwrap();
-        assert_eq!(json["rules_version"], 1);
+        assert_eq!(json["rules_version"], ti4_model::state::RULES_VERSION);
         json.as_object_mut().unwrap().remove("rules_version");
         let old: GameState = serde_json::from_value(json).unwrap();
         assert_eq!(old.rules_version, 0);

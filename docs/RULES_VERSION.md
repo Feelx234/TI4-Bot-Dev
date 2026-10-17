@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 2): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MUNITIONS_AFTER_ROLL = 2`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -42,6 +42,19 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 2 = Munitions Reserves after the roll (`fb-munitions-timing`; the number is provisional,
+other branches use 2..6 and the merge renumbers):
+
+1. `faction_abilities::space_combat_round_started`: from version 2 it no longer asks Letnev for
+   Munitions Reserves at the round's start (version 1: asks blind, before any dice, and sets
+   `munitions_round`, after which `combat::reroll_munitions_misses` redraws every miss).
+2. `combat::reroll_window` (fleet rolls only): from version 2 it calls
+   `faction_abilities::munitions_after_roll` once the fleet's dice are staged. The question
+   (`munitions_reserves_reroll`, with `details.dice` and `details.misses`) offers `munitions`
+   (pay 2, re-roll every missed die), `munitions_choose` (pay 2, then one `munitions_reroll_die`
+   question per die) and decline; it is skipped with no miss or fewer than 2 trade goods.
+   Re-rolled dice are recorded under the reason `munitions:<player>`.
 
 ## Adding the next gate
 

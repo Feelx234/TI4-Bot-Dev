@@ -46,6 +46,38 @@ pub fn pick_with(
         "politics_place_agenda" if tuning::vote_rule() => place_agenda(choice),
         "sustain_damage" if tuning::casualty_rule() => sustain(choice, seen),
         "assign_casualty" if tuning::casualty_rule() => casualty(choice, seen),
+        // Munitions Reserves after the roll (rules version 2; the question shows the dice, which
+        // the legacy blind offer does not, so this never reaches a legacy game): 2 trade goods are
+        // worth it for two or more misses -- about one hit regained on average -- and a chosen
+        // die is always a re-roll, the question only asks about misses.
+        "munitions_reserves_reroll" if choice.details.contains_key("dice") => {
+            let misses = choice
+                .details
+                .get("misses")
+                .and_then(serde_json::Value::as_u64);
+            if misses.is_some_and(|misses| misses >= 2) {
+                choice.options.iter().position(|o| o.id == "munitions")
+            } else {
+                choice.options.iter().position(ChoiceOption::is_decline)
+            }
+        }
+        "munitions_reroll_die" => {
+            // Only a die that misses is worth redrawing; a hit can only be lost.
+            let misses = |o: &ChoiceOption| {
+                let (Some(face), Some(on)) = (
+                    o.payload.get("face").and_then(serde_json::Value::as_i64),
+                    o.payload.get("hits_on").and_then(serde_json::Value::as_i64),
+                ) else {
+                    return false;
+                };
+                face < on
+            };
+            choice
+                .options
+                .iter()
+                .position(|o| o.kind == "reroll_die" && misses(o))
+                .or_else(|| choice.options.iter().position(ChoiceOption::is_decline))
+        }
         "ready_planet" if tuning::misc_rule() => ready_best_planet(choice, seen),
         "retreat_to" if tuning::misc_rule() => retreat_to(choice, seen, me),
         "trade_choose_replenish" if tuning::misc_rule() => {
@@ -466,6 +498,62 @@ mod tests {
             3,
         ));
         choice
+    }
+
+    #[test]
+    fn munitions_reserves_is_bought_for_two_or_more_misses_and_re_rolls_them_all() {
+        let state = game(&["a", "b"]);
+        let me = PlayerId::new("a");
+        let offer = |misses: u64| {
+            with_subtype(
+                Choice::new(
+                    me.clone(),
+                    "spend 2 trade goods for Munitions Reserves",
+                    vec![
+                        ChoiceOption::labelled("munitions", "ability", "reroll all"),
+                        ChoiceOption::labelled("munitions_choose", "ability", "choose"),
+                        ChoiceOption::decline(),
+                    ],
+                )
+                .detailed("dice", serde_json::json!([]))
+                .detailed("misses", misses),
+                "munitions_reserves_reroll",
+            )
+        };
+        assert_eq!(pick(&offer(3), &seen(&state), &me), Some(0));
+        assert_eq!(
+            pick(&offer(1), &seen(&state), &me),
+            Some(2),
+            "one miss: not worth 2"
+        );
+        let die = with_subtype(
+            Choice::new(
+                me.clone(),
+                "reroll die 1 of cruiser",
+                vec![
+                    ChoiceOption::labelled("reroll|0:0", "reroll_die", "reroll")
+                        .with("face", 3)
+                        .with("hits_on", 7),
+                    ChoiceOption::decline(),
+                ],
+            ),
+            "munitions_reroll_die",
+        );
+        assert_eq!(pick(&die, &seen(&state), &me), Some(0), "a miss is redrawn");
+        let hit = with_subtype(
+            Choice::new(
+                me.clone(),
+                "reroll die 2 of cruiser",
+                vec![
+                    ChoiceOption::labelled("reroll|0:1", "reroll_die", "reroll")
+                        .with("face", 9)
+                        .with("hits_on", 7),
+                    ChoiceOption::decline(),
+                ],
+            ),
+            "munitions_reroll_die",
+        );
+        assert_eq!(pick(&hit, &seen(&state), &me), Some(1), "a hit is kept");
     }
 
     #[test]
