@@ -14,6 +14,7 @@ import {
   canAddToken,
   canConfirmTokens,
   canRemoveToken,
+  ARMADA_TEXT,
   confirmBlocker,
   chooseTokenCount,
   initialStaging,
@@ -381,6 +382,16 @@ export const CommandTokenPanel: React.FC<CommandTokenPanelProps> = ({
               <span className="token-panel__name">
                 {label}
                 <span className="token-panel__purpose">{POOL_PURPOSE[pool]}</span>
+                {pool === "fleet" && view.fleetSupplyBonus > 0 && (
+                  <span
+                    className="token-panel__armada"
+                    data-testid="token-armada"
+                    title={ARMADA_TEXT}
+                    aria-label={ARMADA_TEXT}
+                  >
+                    +{view.fleetSupplyBonus} supply
+                  </span>
+                )}
               </span>
               <span className="token-panel__stepper">
                 <button

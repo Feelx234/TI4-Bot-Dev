@@ -1,3 +1,4 @@
+import { ARMADA_TEXT, readFleetSupply } from "../presentation/commandTokens.ts";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { PendingChoiceDto, PlayerView, BoardView, MovementFacts } from "../protocol/types.ts";
 import {
@@ -490,7 +491,11 @@ export const TacticalMovementOverlay: React.FC<
     }
   }, [choice?.nonce]);
 
-  const fleetTokens = player?.fleet_tokens;
+  // The engine's enforced limit for the active system (pool, laws and Letnev's Armada included);
+  // the seat's token count only stands in when a choice carries no such detail.
+  const engineSupply = readFleetSupply(choice?.details?.fleet_supply);
+  const fleetTokens = engineSupply?.limit ?? player?.fleet_tokens;
+  const armadaBonus = engineSupply?.armada ?? 0;
 
   // Existing non-fighter ships already in active destination system
   const existingNonFightersInDestination = useMemo(() => {
@@ -1122,12 +1127,24 @@ export const TacticalMovementOverlay: React.FC<
           >
             <div className="workflow-card--row">
               <span className="text-muted">Fleet Supply:</span>
+              <span className="token-panel__armada-group">
               <span
                 className="fleet-rally-tray__status"
                 data-warning={isOverFleetSupply}
                 data-alert={false}
               >
                 {totalProjectedFleet} / {fleetTokens ?? "unknown"} Ships
+              </span>
+              {armadaBonus > 0 && (
+                <span
+                  className="token-panel__armada"
+                  data-testid="movement-armada"
+                  title={ARMADA_TEXT}
+                  aria-label={ARMADA_TEXT}
+                >
+                  incl. +{armadaBonus} Armada
+                </span>
+              )}
               </span>
             </div>
             {isOverFleetSupply && (

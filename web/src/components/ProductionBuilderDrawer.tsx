@@ -1,3 +1,4 @@
+import { ARMADA_TEXT, readFleetSupply } from "../presentation/commandTokens.ts";
 import React, { useEffect, useMemo, useState } from "react";
 import { ValueUnit } from "./PlanetValueIcons.tsx";
 import { ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
@@ -285,12 +286,24 @@ export const ProductionBuilderDrawer: React.FC<ProductionBuilderDrawerProps> = (
                     <div className="workflow-card production-drawer__meter">
                       <div className="workflow-card--row">
                         <span className="text-muted">Fleet Supply:</span>
+                        <span className="token-panel__armada-group">
                         <span data-testid="fleet-supply-counter" className="text-success">
                           {fleetSupply && typeof fleetSupply === "object" && "used" in fleetSupply && "limit" in fleetSupply
                             ? "unlimited" in fleetSupply && fleetSupply.unlimited === true
                               ? `${fleetSupply.used} / unlimited`
                               : `${fleetSupply.used} / ${fleetSupply.limit}`
                             : "Data unavailable"}
+                        </span>
+                        {(readFleetSupply(fleetSupply)?.armada ?? 0) > 0 && (
+                          <span
+                            className="token-panel__armada"
+                            data-testid="production-armada"
+                            title={ARMADA_TEXT}
+                            aria-label={ARMADA_TEXT}
+                          >
+                            incl. +{readFleetSupply(fleetSupply)?.armada} Armada
+                          </span>
+                        )}
                         </span>
                       </div>
                     </div>

@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 3): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 4): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -69,6 +69,12 @@ window had declared anything. Version 3: **declaration round first**.
   list up front); a card declared earlier is not recalled if a later declaration makes it moot
   (e.g. two Public Disgraces); a card played in `ACTION_CARD_PLAYED` (Sabotage, Instinct Training)
   and component-action plays stay immediate. A Sabotage cancels only the one play it answers.
+
+Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`, `RULES_LETNEV_FLEET_POOL`):
+
+1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
+   also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
+   policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
 
 ## Adding the next gate
 
