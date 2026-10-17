@@ -163,6 +163,19 @@ describe("TechnologyModal", () => {
     expect(cr2Prereqs.textContent).toContain("R");
   });
 
+  it("renders every technology card's own text (never an empty effect), and a CSS-independent clamp hook", () => {
+    renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
+
+    const effects = screen.getAllByTestId(/^tech-effect-(?!more-)/);
+    expect(effects.length).toBeGreaterThan(20);
+    for (const el of effects) {
+      expect(el.textContent?.trim().length, el.getAttribute("data-testid") ?? "").toBeGreaterThan(5);
+      expect(el).toHaveAttribute("data-expanded", "false");
+    }
+    // jsdom has no layout, so nothing counts as clamped: no More button on a card.
+    expect(screen.queryByTestId("tech-effect-more-amd")).toBeNull();
+  });
+
   it("displays player markers with symbol, position/nickname, and seat color for researched tech", () => {
     renderWithIdentity(<TechnologyModal isOpen={true} onClose={vi.fn()} players={mockPlayers} />);
 

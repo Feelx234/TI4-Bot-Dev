@@ -1022,9 +1022,7 @@ const TechCard: React.FC<TechCardProps> = ({
         </div>
       </div>
 
-      <div className="technology-card__effect" data-testid={`tech-effect-${tech.id}`}>
-        {tech.meta.description}
-      </div>
+      <TechEffectText id={tech.id} text={tech.meta.description} />
 
       <div className="technology-card__researched" data-testid={`tech-researched-${tech.id}`}>
         <span className="technology-card__researched-label">Researched:</span>
@@ -1114,5 +1112,53 @@ const TechFilterBar: React.FC<{
       </button>
     )}
   </div>
+  );
+};
+
+/**
+ * A technology's own text. On phones the CSS clamps it to a few lines; when the text really is cut off,
+ * a small More / Less button (a card tap would select the technology instead) shows the rest. On desktop
+ * nothing is clamped and the button never appears.
+ */
+const TechEffectText: React.FC<{ id: string; text: string }> = ({ id, text }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [clamped, setClamped] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      if (!expanded) setClamped(el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [text, expanded]);
+  return (
+    <div className="technology-card__effect-wrap">
+      <div
+        ref={ref}
+        className="technology-card__effect"
+        data-testid={`tech-effect-${id}`}
+        data-expanded={expanded}
+      >
+        {text}
+      </div>
+      {(clamped || expanded) && (
+        <button
+          type="button"
+          className="technology-card__more"
+          data-testid={`tech-effect-more-${id}`}
+          aria-expanded={expanded}
+          onClick={(e) => {
+            e.stopPropagation();
+            setExpanded((v) => !v);
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+        >
+          {expanded ? "Less" : "More"}
+        </button>
+      )}
+    </div>
   );
 };
