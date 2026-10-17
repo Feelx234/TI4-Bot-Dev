@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 4): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 5): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -75,6 +75,17 @@ Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`, `RULES_LETNEV_FLEET_POOL
 1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
    also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
    policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
+Version 5 = the Enigmatic Device researches (`RULES_ENIGMATIC_DEVICE`, branch
+`enigmatic-device-tech-dialog`; versions 2 to 4 are other branches, merge in that order):
+
+1. The relic (`relics::grant_chosen_technology`, only for `enigmaticdevice`) and both exploration
+   cards (`exploration::enigmatic_device_technologies`) offer `technology::researchable_by_prerequisites`
+   (not owned, own faction, not purged, prerequisites met) instead of every unowned technology.
+   Waiver-only technologies (Inheritance Systems, faction waivers) are not offered: they charge a
+   second price. The relic action is not offered when that list is empty.
+2. The pick is researched (`technology::research_chosen`: specialties exhausted, unit upgrades,
+   research consequences), not just inserted. Maw of Worlds (*gain*) is unchanged.
+Version < 5 keeps the unfiltered list and the plain insert / `gain`.
 
 ## Adding the next gate
 

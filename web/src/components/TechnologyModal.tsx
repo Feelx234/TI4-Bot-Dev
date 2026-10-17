@@ -1,7 +1,10 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { PlanetValue, ValueText } from "./PlanetValueIcons.tsx";
 import type { BoardView, PlayerView, PendingChoiceDto } from "../protocol/types.ts";
-import type { ChoiceRendererModel } from "../presentation/choiceModel.ts";
+import {
+  isEnigmaticDeviceResearch,
+  type ChoiceRendererModel,
+} from "../presentation/choiceModel.ts";
 import { Dialog } from "../primitives/index.ts";
 import { usePlayerIdentity } from "../presentation/PlayerIdentity.tsx";
 import { SEAT_INK_LIGHT, seatInk } from "../presentation/playerDisplay.ts";
@@ -101,6 +104,7 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
     Boolean(
       choice &&
       (choice.context?.subtype === "research_technology" ||
+        isEnigmaticDeviceResearch(choice.context?.subtype) ||
         choice.options.some((o) => o.kind === "research")),
     );
 
@@ -196,7 +200,10 @@ export const TechnologyModal: React.FC<TechnologyModalProps> = ({
 
   const legalOptionIds = useMemo(() => {
     if (choice?.options) {
-      return choice.options.filter((o) => o.kind === "research").map((o) => o.id);
+      // The Enigmatic Device's list is `technology` options; every other research is `research`.
+      const kind =
+        isEnigmaticDeviceResearch(choice.context?.subtype) ? "technology" : "research";
+      return choice.options.filter((o) => o.kind === kind).map((o) => o.id);
     }
     return selectableTechIds ?? null;
   }, [choice?.options, selectableTechIds]);
