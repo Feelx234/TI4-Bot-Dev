@@ -563,6 +563,14 @@ fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
     activation_value(seen, me, &mr) >= tuning::mecatol_bonus()
 }
 
+/// Bot version 5 candidate ([`tuning::mecatol_imperial_priority`]): the seat holds Mecatol Rex
+/// now or could take it, so Imperial's primary scores a point for it. The controller of the
+/// planet is what is known at draft time (round 1 nobody holds it; the plan to take it counts
+/// through [`mecatol_takeable`]).
+pub(crate) fn mecatol_imperial_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    holds_mecatol(seen, me) || mecatol_takeable(seen, me)
+}
+
 /// Bot version 3: the Winnu's Blood Ties lift the custodians without influence.
 fn blood_ties(seen: &Observed<'_>, me: &PlayerId) -> bool {
     tuning::winnu_mecatol() && faction(seen, me) == "winnu"
@@ -1652,6 +1660,12 @@ fn pick_action(
     let play = |name: &str| {
         ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
     };
+    if tuning::mecatol_imperial_priority()
+        && holds_mecatol(seen, me)
+        && let Some(index) = play("Imperial")
+    {
+        return Some(index);
+    }
     let tokens = seen.systems_with_token(me);
     let worth = galaxy
         .system_ids()
@@ -2049,31 +2063,33 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
     (keep.len() < choice.options.len()).then_some(keep)
 }
 
-/// Bot version 5 candidate ([`tuning::mecatol_guard`]): whether the seat's warships on Mecatol Rex
-/// are a garrison that stays. They are when the seat holds the planet, a rival could bring a
-/// fleet there now ([`Observed::movable_into`]) and the ships there (with the seat's space
-/// cannon on the planet) are not beaten by it by more than [`tuning::win_margin`], the matchup a
-/// rule-bot attacker needs; a garrison already too weak to deter is not held back (staying would
-/// not save the planet). Feedback fb_1792225201_7d70d5bd: the Muaat warsun, the only ship on
-/// Mecatol Rex, left it for a planet two jumps away and a rival took Mecatol Rex that round.
-fn mecatol_garrison(seen: &Observed<'_>, me: &PlayerId) -> bool {
+/// Bot version 5 candidate ([`tuning::mecatol_guard`]): the warships on Mecatol Rex that may
+/// leave, by unit type and count; `None` when nothing is held back (knob off, planet not held,
+/// no rival fleet in reach, or the ships there would not deter it anyway, in which case staying
+/// would not save the planet).
+///
+/// The garrison is the smallest set of ships (with the seat's space cannon on the planet) that
+/// still has `matchup >= -win_margin` against the strongest fleet a rival can bring now, the
+/// matchup a rule-bot attacker needs. Ships are given up one at a time, always the one whose
+/// leaving costs the least matchup, while the rest still deters; those are the surplus that may
+/// move out for tactical actions. Fighters always stay. Feedback fb_1792225201_7d70d5bd: the
+/// Muaat warsun, the only ship on Mecatol Rex, left it for Thibah and a rival took the planet.
+fn mecatol_surplus(seen: &Observed<'_>, me: &PlayerId) -> Option<BTreeMap<String, usize>> {
     if !tuning::mecatol_guard() || seen.round() < 2 || !holds_mecatol(seen, me) {
-        return false;
+        return None;
     }
-    let Some(mecatol) = mecatol_system(seen) else {
-        return false;
-    };
+    let mecatol = mecatol_system(seen)?;
     let board = seen.system(&mecatol);
     let ships: Vec<&Unit> = board
         .units
         .iter()
         .filter(|u| &u.owner == me && is_ship(seen, u))
         .collect();
-    if !ships
-        .iter()
-        .any(|u| unit_type(seen, u.type_id.as_str()).is_some_and(|t| !t.is_fighter()))
-    {
-        return false;
+    let removable = |u: &&Unit| {
+        unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_ship() && !t.is_fighter())
+    };
+    if !ships.iter().any(removable) {
+        return None;
     }
     let threat = seen
         .players()
@@ -2087,71 +2103,103 @@ fn mecatol_garrison(seen: &Observed<'_>, me: &PlayerId) -> bool {
                 movable.iter().map(|m| &m.unit).filter(|u| is_ship(seen, u)),
             )
         })
-        .max_by(|a, b| a.firepower.total_cmp(&b.firepower));
-    let Some(threat) = threat.filter(|t| t.firepower > 0.0) else {
-        return false;
+        .max_by(|a, b| a.firepower.total_cmp(&b.firepower))
+        .filter(|t| t.firepower > 0.0)?;
+    let cannon = hostile_fleet_cannon(seen, me, &mecatol);
+    let value = |set: &[&Unit]| {
+        let mut guard = fleet(seen, me, set.iter().copied());
+        guard.cannon += cannon;
+        matchup(&guard, &threat)
     };
-    let mut guard = fleet(seen, me, ships.iter().copied());
-    guard.cannon += hostile_fleet_cannon(seen, me, &mecatol);
-    matchup(&guard, &threat) >= -tuning::win_margin()
-}
-
-/// Whether a unit of `me` at `origin` is a warship of the Mecatol Rex garrison.
-fn garrison_ship(seen: &Observed<'_>, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
-    origin == mecatol && unit_type(seen, unit).is_some_and(|t| t.is_ship() && !t.is_fighter())
+    let floor = -tuning::win_margin();
+    let mut stay = ships.clone();
+    if value(&stay) < floor {
+        return None;
+    }
+    let mut surplus: BTreeMap<String, usize> = BTreeMap::new();
+    loop {
+        let best = (0..stay.len())
+            .filter(|&i| removable(&stay[i]))
+            .map(|i| {
+                let mut rest = stay.clone();
+                rest.remove(i);
+                (i, value(&rest))
+            })
+            .filter(|(_, v)| *v >= floor)
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        let Some((i, _)) = best else { break };
+        let gone = stay.remove(i);
+        *surplus.entry(gone.type_id.as_str().to_owned()).or_default() += 1;
+    }
+    Some(surplus)
 }
 
 /// The ships that could move into `system` ([`Observed::movable_into`]), less the Mecatol Rex
-/// garrison ([`without_garrison`]).
+/// garrison ([`mecatol_surplus`]).
 pub(crate) fn movable_for(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
-    without_garrison(seen, me, system, seen.movable_into(me, system))
-}
-
-/// `movable` without the Mecatol Rex garrison ([`mecatol_garrison`]), for an activation of
-/// any system other than Mecatol Rex itself.
-fn without_garrison(
-    seen: &Observed<'_>,
-    me: &PlayerId,
-    system: &SystemId,
-    movable: Vec<Movable>,
-) -> Vec<Movable> {
+    let movable = seen.movable_into(me, system);
     if !tuning::mecatol_guard() {
         return movable;
     }
     let Some(mecatol) = mecatol_system(seen) else {
         return movable;
     };
-    if system == &mecatol
-        || !movable.iter().any(|m| m.origin == mecatol)
-        || !mecatol_garrison(seen, me)
-    {
+    if system == &mecatol || !movable.iter().any(|m| m.origin == mecatol) {
         return movable;
     }
+    let Some(mut surplus) = mecatol_surplus(seen, me) else {
+        return movable;
+    };
     movable
         .into_iter()
-        .filter(|m| !garrison_ship(seen, &mecatol, &m.origin, m.unit.type_id.as_str()))
+        .filter(|m| {
+            if !garrison_ship(seen, &mecatol, &m.origin, m.unit.type_id.as_str()) {
+                return true;
+            }
+            take_one(&mut surplus, m.unit.type_id.as_str())
+        })
         .collect()
 }
 
-/// Bot version 5 candidate ([`tuning::mecatol_guard`]): the move options that do not take the
-/// Mecatol Rex garrison away; `None` when none is dropped.
+/// Whether a unit of `me` at `origin` is a warship (not a fighter) of the Mecatol Rex system.
+fn garrison_ship(seen: &Observed<'_>, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
+    origin == mecatol && unit_type(seen, unit).is_some_and(|t| t.is_ship() && !t.is_fighter())
+}
+
+/// Use up one unit of `kind` from `surplus`; false when none is left.
+fn take_one(surplus: &mut BTreeMap<String, usize>, kind: &str) -> bool {
+    match surplus.get_mut(kind) {
+        Some(n) if *n > 0 => {
+            *n -= 1;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Bot version 5 candidate ([`tuning::mecatol_guard`]): the move options that do not take more
+/// ships from Mecatol Rex than [`mecatol_surplus`] allows; `None` when none is dropped.
 fn mecatol_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
     if !tuning::mecatol_guard() {
         return None;
     }
     let mecatol = mecatol_system(seen)?;
-    if seen.active_system()? == &mecatol || !mecatol_garrison(seen, me) {
+    if seen.active_system()? == &mecatol {
         return None;
     }
+    let mut surplus = mecatol_surplus(seen, me)?;
     let keep: Vec<usize> = choice
         .options
         .iter()
         .enumerate()
         .filter(|(_, o)| {
-            !(o.kind == "move"
-                && payload_str(o, "origin") == Some(mecatol.as_str())
-                && payload_str(o, "unit")
-                    .is_some_and(|u| garrison_ship(seen, &mecatol, &mecatol, u)))
+            if o.kind != "move" || payload_str(o, "origin") != Some(mecatol.as_str()) {
+                return true;
+            }
+            match payload_str(o, "unit") {
+                Some(u) if garrison_ship(seen, &mecatol, &mecatol, u) => take_one(&mut surplus, u),
+                _ => true,
+            }
         })
         .map(|(i, _)| i)
         .collect();
@@ -3546,7 +3594,7 @@ mod tests {
     }
 
     #[test]
-    fn the_mecatol_garrison_stays_only_with_the_knob_and_only_while_it_deters() {
+    fn only_the_surplus_of_the_mecatol_garrison_may_leave_and_only_with_the_knob() {
         let on = Tuning {
             mecatol_guard: true,
             ..Tuning::default()
@@ -3558,17 +3606,35 @@ mod tests {
         assert!(all.iter().any(|m| m.origin == mr));
 
         // Bot version 4 (knob off): nothing is held back.
-        assert!(!mecatol_garrison(&seen, &me()));
+        assert_eq!(mecatol_surplus(&seen, &me()), None);
         assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), None);
-        // Knob on: the two dreadnoughts hold against one, so neither move is offered and the
-        // activation no longer counts them.
+        // Knob on: two dreadnoughts against one; one of them is surplus, one stays.
         tuning::with(on, || {
-            assert!(mecatol_garrison(&seen, &me()));
-            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), Some(vec![2]));
-            let left = without_garrison(&seen, &me(), &outer(&hub, 0), all.clone());
-            assert!(left.iter().all(|m| m.origin != mr));
+            assert_eq!(
+                mecatol_surplus(&seen, &me()),
+                Some(BTreeMap::from([("dreadnought".to_owned(), 1)]))
+            );
+            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), Some(vec![0, 2]));
+            let left = movable_for(&seen, &me(), &outer(&hub, 0));
+            assert_eq!(
+                left.iter().filter(|m| m.origin == mr).count(),
+                1,
+                "one leaves, one stays"
+            );
             // Activating Mecatol Rex itself is not affected.
-            assert!(without_garrison(&seen, &me(), &mr, all.clone()).len() == all.len());
+            assert_eq!(
+                movable_for(&seen, &me(), &mr).len(),
+                seen.movable_into(&me(), &mr).len()
+            );
+        });
+
+        // Two against two: nothing to spare.
+        let (state, hub, mr) = mecatol_hub(2);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("dreadnought", 0), ("dreadnought", 0)]);
+        tuning::with(on, || {
+            assert_eq!(mecatol_surplus(&seen, &me()), Some(BTreeMap::new()));
+            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), Some(vec![2]));
         });
 
         // A fleet the garrison cannot deter: staying would not save the planet.
@@ -3576,14 +3642,42 @@ mod tests {
         let seen = observe(&state, &hub);
         let choice = move_choice(&mr, &[("dreadnought", 0), ("dreadnought", 0)]);
         tuning::with(on, || {
-            assert!(!mecatol_garrison(&seen, &me()));
+            assert_eq!(mecatol_surplus(&seen, &me()), None);
             assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), None);
         });
 
         // No rival fleet in reach: free to go.
         let (state, hub, _) = mecatol_hub(0);
         let seen = observe(&state, &hub);
-        tuning::with(on, || assert!(!mecatol_garrison(&seen, &me())));
+        tuning::with(on, || assert_eq!(mecatol_surplus(&seen, &me()), None));
+    }
+
+    #[test]
+    fn a_warsun_with_two_cruisers_keeps_the_warsun_and_frees_the_cruisers() {
+        let on = Tuning {
+            mecatol_guard: true,
+            ..Tuning::default()
+        };
+        let (mut state, hub, mr) = mecatol_hub(1);
+        state.system_mut(&mr).units.clear();
+        put(&mut state, &mr, "muaat_warsun", &me(), 1);
+        put(&mut state, &mr, "cruiser", &me(), 2);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("muaat_warsun", 6), ("cruiser", 0), ("cruiser", 0)]);
+        tuning::with(on, || {
+            let surplus = mecatol_surplus(&seen, &me()).expect("a garrison");
+            assert!(!surplus.contains_key("muaat_warsun"), "{surplus:?}");
+            assert_eq!(surplus.get("cruiser"), Some(&2), "{surplus:?}");
+            assert_eq!(
+                mecatol_guard_keep(&choice, &seen, &me()),
+                Some(vec![1, 2, 3])
+            );
+            let left = movable_for(&seen, &me(), &outer(&hub, 0));
+            assert!(
+                left.iter()
+                    .all(|m| m.unit.type_id.as_str() != "muaat_warsun" || m.origin != mr)
+            );
+        });
     }
 
     fn load_choice(loaded_ground: i64) -> Choice {

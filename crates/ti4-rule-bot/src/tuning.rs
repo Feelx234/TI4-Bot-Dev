@@ -143,6 +143,7 @@ tuning! {
     bw_ttfd: bool = true, "v4 (B): a PDS on or beside Mecatol Rex for Turn Their Fleets to Dust (with bw_enabled)";
     bw_production: bool = true, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
     mecatol_guard: bool = false, "v5 candidate (off in v1-v4): the warships on a held Mecatol Rex stay while they deter the fleet a rival can bring (no activation counts them as movable, no move takes them away)";
+    mecatol_imperial_priority: bool = false, "v5 candidate (off in v1-v4): a seat that holds Mecatol Rex (or could take it) drafts an unclaimed Imperial before anything else, and plays it at once when it holds it";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -290,6 +291,7 @@ fn v1() -> Tuning {
         bw_ttfd: false,
         bw_production: false,
         mecatol_guard: false,
+        mecatol_imperial_priority: false,
     }
 }
 
