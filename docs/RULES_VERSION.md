@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 5): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 6): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -86,6 +86,11 @@ Version 5 = the Enigmatic Device researches (`RULES_ENIGMATIC_DEVICE`, branch
 2. The pick is researched (`technology::research_chosen`: specialties exhausted, unit upgrades,
    research consequences), not just inserted. Maw of Worlds (*gain*) is unchanged.
 Version < 5 keeps the unfiltered list and the plain insert / `gain`.
+
+Version 6 = `RULES_TECH_PAYMENT_CHOICE` (`tech-payment-choose-planets`): `strategy_cards::paid_research` (Technology secondary, and the primary's second
+technology) asks the researcher the ordinary `pay_resources` question after the technology is
+picked (`production::pay_seeing`). Version 0..5: the cheapest `payment::plans` entry is spent
+automatically. Inheritance Systems' 2 resources (`technology::research`, no table) stay automatic.
 
 ## Adding the next gate
 

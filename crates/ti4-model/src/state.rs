@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 5;
+pub const RULES_VERSION: u32 = 6;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1177,11 +1177,17 @@ pub const RULES_SABOTAGE_TIMING: u32 = 3;
 /// tokens in the fleet pool (down to none; Armada lifts the per-system ship limit by 2 over the
 /// pool). Older games keep the floor of two in every redistribution they offer.
 pub const RULES_LETNEV_FLEET_POOL: u32 = 4;
+
 /// The first rules version where the Enigmatic Device (relic and both exploration cards) follows
 /// the normal research rules: it offers only technologies the player could research (not held,
 /// own faction's, prerequisites met) and the pick is researched, not merely inserted. Versions 2,
 /// 3 and 4 belong to other gated changes; 5 is this one.
 pub const RULES_ENIGMATIC_DEVICE: u32 = 5;
+
+/// The first rules version where the Technology strategy card's paid research (the secondary, and
+/// the primary's second technology) asks the researcher which planets and trade goods pay, as every
+/// other resource cost does (`pay_resources`). Before it the cheapest plan was spent automatically.
+pub const RULES_TECH_PAYMENT_CHOICE: u32 = 6;
 
 /// The whole game, as a value.
 ///

@@ -4784,6 +4784,29 @@ mod tests {
         assert_eq!(pick_pay(&choice, &seen, &me()), Some(1));
     }
 
+    /// The Technology secondary's price is asked as an ordinary `pay_resources` choice (rules
+    /// version `RULES_TECH_PAYMENT_CHOICE`): its options are `pay` options, so the bot's payment
+    /// logic answers it and spends the least wasteful face on the 4-resource bill.
+    #[test]
+    fn a_technology_payment_is_answered_like_any_resource_payment() {
+        let pay = |id: &str, worth: i64, owed: i64| {
+            ChoiceOption::labelled(id, "pay", id)
+                .with("worth", worth)
+                .with("owed", owed)
+                .with("kind", "resources")
+        };
+        let choice = Choice::new(
+            me(),
+            "pay 4 more resources",
+            vec![pay("trade_good", 1, 4), pay("exhaust|big", 5, 4), pay("exhaust|fit", 4, 4)],
+        );
+        assert!(choice.options.iter().all(|o| o.kind == "pay"));
+        let (state, hub, _, _) = board();
+        let seen = observe(&state, &hub);
+        let picked = pick_pay(&choice, &seen, &me()).expect("an answer");
+        assert_ne!(picked, 1, "the five-resource face wastes one");
+    }
+
     #[test]
     fn trades_are_taken_only_slightly_in_its_favour_and_proposed_only_when_both_gain() {
         let answer = |net: f64| {
