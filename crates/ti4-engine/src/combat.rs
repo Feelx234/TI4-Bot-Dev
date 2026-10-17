@@ -3611,6 +3611,33 @@ pub(crate) fn choose_casualty_owing(
     Ok(units.get(index).unwrap_or(&units[0]).clone())
 }
 
+/// Whether a retreat may end in `destination` under the movement rules: no asteroid field
+/// without Antimass Deflectors (11.1), no supernova (86.1) except where a faction lifts it. A
+/// nebula is fine (a retreat is one step into the "active" system, 59.1). Older games
+/// (`rules_version` below `RULES_RETREAT_HAZARDS`) never checked, so they replay unchanged.
+fn retreat_may_enter(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: &ti4_content::galaxy::Galaxy,
+    player: &PlayerId,
+    destination: &SystemId,
+) -> bool {
+    if state.rules_version < ti4_model::state::RULES_RETREAT_HAZARDS {
+        return true;
+    }
+    let board = crate::movement::Board::for_player(state, content, sources, player);
+    crate::movement::MovementRules::with_laws(
+        galaxy,
+        content,
+        sources,
+        destination.as_str(),
+        board,
+        Some(state),
+    )
+    .can_enter(destination.as_str())
+}
+
 /// The choice kind for announcing a retreat.
 pub const RETREAT_KIND: &str = "retreat";
 /// The choice kind for picking where to retreat to.
@@ -3635,6 +3662,7 @@ pub fn eligible_retreats(
         .into_iter()
         .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
+        .filter(|adjacent| retreat_may_enter(state, content, sources, &galaxy, player, adjacent))
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
             let enemy_ship = board.units.iter().any(|unit| {
@@ -3686,6 +3714,7 @@ pub fn skilled_retreat_destinations(
         .into_iter()
         .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
+        .filter(|adjacent| retreat_may_enter(state, content, sources, galaxy, player, adjacent))
         .filter(|adjacent| {
             !state.system_state(adjacent).units.iter().any(|unit| {
                 &unit.owner != player
@@ -3708,6 +3737,8 @@ pub fn skilled_retreat_destinations(
 #[must_use]
 pub fn det_retreat_destinations(
     state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
     galaxy: &ti4_content::galaxy::Galaxy,
     player: &PlayerId,
     system: &SystemId,
@@ -3717,6 +3748,7 @@ pub fn det_retreat_destinations(
         .into_iter()
         .filter(|adjacent| !galaxy.is_hyperlane(adjacent)) // not a system: never a retreat
         .map(SystemId::new)
+        .filter(|adjacent| retreat_may_enter(state, content, sources, galaxy, player, adjacent))
         .filter(|adjacent| {
             let board = state.system_state(adjacent);
             !board.units.iter().any(|unit| &unit.owner != player)
@@ -4111,7 +4143,9 @@ impl CombatWindow {
             // in that system." The holder alone gets the union with the technology's looser
             // set; everyone else still retreats by 78.7c only.
             if crate::technology::owns_det(state, player) {
-                for spot in det_retreat_destinations(state, galaxy, player, &self.system) {
+                for spot in
+                    det_retreat_destinations(state, content, sources, galaxy, player, &self.system)
+                {
                     if !spots.contains(&spot) {
                         spots.push(spot);
                     }
@@ -7843,6 +7877,43 @@ mod tests {
             .collect();
         assert!(damage.contains(&("letnev_flagship".to_owned(), false)));
         assert!(damage.contains(&("dreadnought".to_owned(), true)));
+    }
+
+    #[test]
+    fn a_retreat_cannot_enter_an_asteroid_field_without_antimass_deflectors() {
+        let asteroid = crate::fixtures::a_system_where("asteroid field");
+        let hub = crate::fixtures::hub_with_outer(&asteroid);
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let centre = SystemId::new(hub.centre.clone());
+        let field = SystemId::new(asteroid.clone());
+        let me = attacker();
+        put(&mut state, &centre, "cruiser", &me, 1);
+        put(&mut state, &field, "carrier", &me, 1);
+        let options = |state: &GameState| {
+            eligible_retreats(
+                state,
+                ContentStore::embedded(),
+                POK,
+                &hub.galaxy,
+                &me,
+                &centre,
+            )
+        };
+        assert!(!options(&state).contains(&field), "no technology");
+
+        state.rules_version = ti4_model::state::RULES_RETREAT_HAZARDS - 1;
+        assert!(
+            options(&state).contains(&field),
+            "legacy games keep the old set"
+        );
+
+        state.rules_version = ti4_model::state::RULES_VERSION;
+        state
+            .player_mut(&me)
+            .expect("seat")
+            .technologies
+            .insert(ti4_model::TechnologyId::new("amd"));
+        assert!(options(&state).contains(&field), "with Antimass Deflectors");
     }
 
     #[test]
