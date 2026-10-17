@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 4): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
 
@@ -42,6 +42,13 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`; 2 and 3 are taken by other branches, so
+expect to renumber on merge):
+
+1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
+   also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
+   policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
 
 ## Adding the next gate
 

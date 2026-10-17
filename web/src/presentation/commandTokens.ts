@@ -37,8 +37,19 @@ export const POOL_PURPOSE: Record<TokenPool, string> = {
   strategic: "strategy secondaries and abilities",
 };
 
-/** A fleet pool of 0 or 1 leaves a faction unable to move; the engine never offers it. */
-export const MIN_FLEET_POOL = 2;
+/**
+ * The fewest fleet tokens any arrangement the engine offers keeps. Two for most factions (a fleet
+ * pool of 0 or 1 leaves them unable to move); Letnev's Armada may go lower, so this reads it from
+ * the offered arrangements instead of assuming a number.
+ */
+export function minFleetOffered(view: CommandTokenView): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (const id of view.arrangements) {
+    const fleet = Number(id.split("|")[1]);
+    if (Number.isFinite(fleet)) min = Math.min(min, fleet);
+  }
+  return Number.isFinite(min) ? min : 0;
+}
 
 const gainOptionId = (pool: TokenPool) => `${pool}_tokens`;
 
@@ -260,8 +271,9 @@ export function confirmBlocker(
     return `Assign ${remaining} more token${remaining === 1 ? "" : "s"} to confirm.`;
   }
   if (view.mode === "redistribute" && arrangementId(view, staging) === null) {
-    return view.total >= MIN_FLEET_POOL
-      ? `Keep at least ${MIN_FLEET_POOL} tokens in the fleet pool.`
+    const floor = minFleetOffered(view);
+    return floor > 0 && staging.fleet < floor
+      ? `Keep at least ${floor} tokens in the fleet pool.`
       : "That arrangement is not allowed.";
   }
   return null;

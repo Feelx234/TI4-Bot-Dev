@@ -155,7 +155,11 @@ describe("redistribution staging", () => {
   it("refuses an arrangement the engine does not offer, with a reason", () => {
     const bad = { tactic: 8, fleet: 1, strategic: 0 };
     expect(arrangementId(view, bad)).toBeNull();
-    expect(confirmBlocker(view, bad)).toContain("fleet pool");
+    // Only the fleet floor the engine's arrangements keep is named (here 4); with a 0 on offer
+    // (Letnev) the message is the generic one.
+    const floored = describeCommandTokens(redistribute(["3|4|2", "2|5|2"]), false)!;
+    expect(confirmBlocker(floored, bad)).toContain("at least 4 tokens in the fleet pool");
+    expect(confirmBlocker(view, bad)).toBe("That arrangement is not allowed.");
     expect(tokenOutcome(view, bad)).toBeNull();
   });
 
