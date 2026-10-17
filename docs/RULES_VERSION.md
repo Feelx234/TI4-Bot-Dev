@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 2): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
+- `RULES_<CHANGE>` (`RULES_INFILTRATE_FIX = 1`, `RULES_BRIBERY_PER_PLAYER = 2`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -42,6 +42,14 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 2 = Bribery asked once per voter (`fb-bribery-per-player`; numbered 2 on this branch, a
+merge agent renumbers it against the other branches):
+
+1. `Game::step_vote`: `VOTES_CAST` ("after you cast votes", "after the speaker votes": Bribery,
+   Distinguished Councilor) fires once per voter, when they have named their outcome or abstained.
+   Version 0/1: after every answer of the vote (the outcome, each planet exhausted, the trade
+   goods), so a Bribery holder was asked again after every planet.
 
 ## Adding the next gate
 

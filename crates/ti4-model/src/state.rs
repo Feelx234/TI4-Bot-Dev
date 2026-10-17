@@ -1155,12 +1155,18 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 2;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
 /// destroyed after the control-gain window closes; the card replaces the rival's structures.
 pub const RULES_INFILTRATE_FIX: u32 = 1;
+
+/// The first rules version where the "after votes cast" window (Bribery, Distinguished Councilor)
+/// opens once per voter, when they have named their outcome, instead of after every single answer
+/// of the vote (the outcome, then each planet exhausted). NOTE: numbered 2 on this branch; other
+/// branches use 2..6 too, a merge agent renumbers.
+pub const RULES_BRIBERY_PER_PLAYER: u32 = 2;
 
 /// The whole game, as a value.
 ///

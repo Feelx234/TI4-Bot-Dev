@@ -1043,6 +1043,13 @@ impl VoteWindow {
         Ok(())
     }
 
+    /// Whether the pending question is a voter naming an outcome (or abstaining), as opposed to
+    /// the planets, trade goods, Genetic Recombination or tribute questions after it.
+    #[must_use]
+    pub fn is_outcome_question(&self) -> bool {
+        matches!(self.stage, Stage::Outcome(index) if index < self.order.len())
+    }
+
     /// Advance past players and stages with nothing to decide, before the first question.
     pub fn open(&mut self, state: &GameState, content: &ContentStore, sources: SourceSet) {
         self.settle(state, content, sources);
