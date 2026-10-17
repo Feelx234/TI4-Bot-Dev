@@ -1801,7 +1801,10 @@ mod player_record_tests {
         fresh.initial_state.rules_version = ti4_model::state::RULES_VERSION;
         store.save_init(&fresh).unwrap();
         let text = fs::read_to_string(game.join("init.json")).unwrap();
-        assert_eq!(key(&text), Some(serde_json::json!(ti4_model::state::RULES_VERSION)));
+        assert_eq!(
+            key(&text),
+            Some(serde_json::json!(ti4_model::state::RULES_VERSION))
+        );
         assert_eq!(
             store.load_init(id).unwrap().initial_state.rules_version,
             ti4_model::state::RULES_VERSION

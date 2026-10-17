@@ -901,16 +901,28 @@ mod tests {
     #[test]
     fn letnev_may_redistribute_below_two_fleet_tokens() {
         let (mut state, players) = game();
-        state.player_mut(&players[0]).unwrap().faction =
-            ti4_model::id::FactionId::new("letnev");
+        state.player_mut(&players[0]).unwrap().faction = ti4_model::id::FactionId::new("letnev");
         let window = TokenRedistribution::new(players[0].clone());
         let choice = window.pending_choice(&state).unwrap();
-        assert!(choice.option("0|0|8").is_some(), "an empty fleet pool is offered");
+        assert!(
+            choice.option("0|0|8").is_some(),
+            "an empty fleet pool is offered"
+        );
         assert!(choice.option("4|1|3").is_some());
-        assert_eq!(choice.options.len(), 45, "C(10, 2) splits of 8 tokens, no floor");
+        assert_eq!(
+            choice.options.len(),
+            45,
+            "C(10, 2) splits of 8 tokens, no floor"
+        );
         // Everyone else keeps the floor, and so does a legacy Letnev game.
         let other = TokenRedistribution::new(players[1].clone());
-        assert!(other.pending_choice(&state).unwrap().option("4|1|3").is_none());
+        assert!(
+            other
+                .pending_choice(&state)
+                .unwrap()
+                .option("4|1|3")
+                .is_none()
+        );
         state.rules_version = ti4_model::state::RULES_LETNEV_FLEET_POOL - 1;
         let legacy = window.pending_choice(&state).unwrap();
         assert!(legacy.option("4|1|3").is_none());
@@ -920,17 +932,26 @@ mod tests {
     #[test]
     fn only_letnev_reports_the_armada_fleet_supply_bonus() {
         let (mut state, players) = game();
-        state.player_mut(&players[0]).unwrap().faction =
-            ti4_model::id::FactionId::new("letnev");
+        state.player_mut(&players[0]).unwrap().faction = ti4_model::id::FactionId::new("letnev");
         let choice = |player: &PlayerId| {
             let window = TokenRedistribution::new(player.clone());
-            with_pool_details(window.pending_choice(&state).unwrap(), &state, "redistribute", None)
+            with_pool_details(
+                window.pending_choice(&state).unwrap(),
+                &state,
+                "redistribute",
+                None,
+            )
         };
         assert_eq!(
             choice(&players[0]).details.get("fleet_supply_bonus"),
             Some(&serde_json::json!(2))
         );
-        assert!(choice(&players[1]).details.get("fleet_supply_bonus").is_none());
+        assert!(
+            choice(&players[1])
+                .details
+                .get("fleet_supply_bonus")
+                .is_none()
+        );
     }
 
     #[test]
