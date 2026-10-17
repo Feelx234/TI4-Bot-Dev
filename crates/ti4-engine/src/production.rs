@@ -133,6 +133,15 @@ fn placement_facts(option: ChoiceOption, before: &Standing, after: &Standing) ->
         .with("capacity_excess_after", after.capacity_excess)
 }
 
+/// Ships a build adds to the fleet pool: the non-fighter ships among the `placed` units (37.1).
+fn fleet_ships(kind: &UnitType<'_>, placed: usize) -> i64 {
+    if crate::fleet::counts_against_supply(kind) {
+        i64::try_from(placed).unwrap_or(0)
+    } else {
+        0
+    }
+}
+
 /// What may be produced at all. Structures arrive through Construction, not PRODUCTION.
 pub const BUILDABLE: [&str; 9] = [
     "fighter",
@@ -2711,7 +2720,10 @@ impl ProductionWindow {
                 .with("owed", cost - credit_used)
                 .with("production_spent", production_spent)
                 .with("unit", id.clone())
-                .with("system", self.system.to_string());
+                .with("system", self.system.to_string())
+                // Display only: ships this option adds to the fleet pool (37.1), so a client
+                // can preview `used + staged` without re-deriving which units count.
+                .with("fleet_ships", fleet_ships(kind, placed));
                 // A ship has one destination and no placement question follows, so its fleet and
                 // transport aftermath is settled here. A unit with a choice of destinations does
                 // not have one yet, and says so rather than reporting a consequence it cannot know.
@@ -2766,6 +2778,7 @@ impl ProductionWindow {
                 .with("production_spent", self.remaining - limit_after)
                 .with("unit", id.clone())
                 .with("system", self.system.to_string())
+                .with("fleet_ships", fleet_ships(kind, 1))
                 .with("exchange", true);
                 let mut deltas = vec![
                     Delta::new(Quantity::ProductionRemaining, self.remaining, limit_after),
@@ -5448,6 +5461,30 @@ mod tests {
             Some(i64::from(crate::fleet::limit(&state, content, &player())))
         );
         assert!(supply.get("unlimited").is_none());
+    }
+
+    #[test]
+    fn build_options_name_the_ships_they_add_to_the_fleet_pool() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        let window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        let choice = window
+            .pending_choice(&state, content, POK)
+            .expect("production choice");
+        let ships = |unit: &str| {
+            choice
+                .options
+                .iter()
+                .find(|o| o.payload.get("unit").and_then(|u| u.as_str()) == Some(unit))
+                .and_then(|o| o.payload.get("fleet_ships").and_then(serde_json::Value::as_i64))
+        };
+        assert_eq!(ships("cruiser"), Some(1));
+        assert_eq!(ships("fighter"), Some(0), "fighters are not in the pool");
+        assert_eq!(ships("infantry"), Some(0), "ground forces are not in the pool");
     }
 
     #[test]
