@@ -12,7 +12,7 @@ playable.
 
 - `RULES_VERSION` (now 11): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -135,6 +135,13 @@ Version 11 = Retreat hazards (`fb-retreat-asteroids`, `RULES_RETREAT_HAZARDS`):
 1. `combat::retreat_may_enter`: retreat destinations (78.7c, Dark Energy Tap, Skilled Retreat) must
    pass `MovementRules::can_enter`: no asteroid field without Antimass Deflectors (11.1), no
    supernova (86.1) except faction exceptions. Nebulae stay allowed. Version < 11: no check.
+
+Version 12 = Command token pool choice (`RULES_COMMAND_TOKEN_POOL`): a command token gained without a
+named pool (52.4) is asked through `strategy_cards::gain_tokens` ("gain a command token into which
+pool", one question per token). Applies to the exploration cards that gain tokens (Volatile Fuel
+Source, the Entropic Field frontier rewards, the Keleres ship cards: all went to the strategy pool) and to
+Leadership Rider (three tokens, went to the fleet pool). Version < 12: unchanged. Cards naming a pool
+(Regulations, Rally, Hacan breakthrough, Ralnel/Naaz and others already asking) are untouched.
 
 ## Adding the next gate
 
