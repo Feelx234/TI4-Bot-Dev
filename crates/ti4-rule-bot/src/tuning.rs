@@ -144,6 +144,14 @@ tuning! {
     bw_production: bool = true, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
     mecatol_guard: bool = false, "v5 candidate (off in v1-v4): the warships on a held Mecatol Rex stay while they deter the fleet a rival can bring (no activation counts them as movable, no move takes them away)";
     mecatol_imperial_priority: bool = false, "v5 candidate (off in v1-v4): a seat that holds Mecatol Rex (or could take it) drafts an unclaimed Imperial before anything else, and plays it at once when it holds it";
+    agenda_value: bool = false, "v5 candidate: every agenda outcome valued for the seat (agenda_vote.rs); a small margin is no opinion";
+    agenda_budget: bool = false, "v5 candidate: cast only the votes that make the outcome likely, keep planets for the second agenda";
+    agenda_riders: bool = false, "v5 candidate: rider cards played only when the outcome is predictable and the seat's votes are not needed";
+    agenda_rival_weight: f64 = 0.5, "v5 candidate: weight of the rivals' change in an outcome's value (agenda_value)";
+    agenda_min_margin: f64 = 1.5, "v5 candidate: value points the best outcome must lead by, else no opinion (agenda_value)";
+    agenda_rival_share: f64 = 0.6, "v5 candidate: chance that a rival without an opinion votes against the seat";
+    agenda_second_prior: f64 = 2.0, "v5 candidate: assumed stake of an unknown second agenda, in value points (agenda_budget)";
+    rider_min_p: f64 = 0.7, "v5 candidate: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -292,6 +300,14 @@ fn v1() -> Tuning {
         bw_production: false,
         mecatol_guard: false,
         mecatol_imperial_priority: false,
+        agenda_value: false,
+        agenda_budget: false,
+        agenda_riders: false,
+        agenda_rival_weight: 0.5,
+        agenda_min_margin: 1.5,
+        agenda_rival_share: 0.6,
+        agenda_second_prior: 2.0,
+        rider_min_p: 0.7,
     }
 }
 

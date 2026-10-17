@@ -113,6 +113,7 @@ pub mod objectives;
 // Agent layer (when to use a faction agent).
 pub mod agents;
 
+pub mod agenda_vote;
 pub mod answers;
 pub mod backward;
 mod decider;
@@ -234,6 +235,10 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
         return pick(&narrowed, seen, rng)
             .and_then(|i| keep.get(i).copied())
             .or_else(|| choice.options.iter().position(ChoiceOption::is_decline));
+    }
+    // -- agenda riders (agenda_vote.rs, knob agenda_riders) --
+    if let Some(index) = agenda_vote::rider_pick(choice, seen) {
+        return Some(index);
     }
     // -- answers to formerly random questions (answers.rs, bot version 2) --
     if subtype != Some("ready_planet")
