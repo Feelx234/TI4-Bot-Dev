@@ -1861,6 +1861,24 @@ describe("GameSessionClient ingress lifecycle", () => {
     }
   });
 
+  it("ignores a no-pending-choice rejection that arrives after a newer version", async () => {
+    const { client, send } = await connectedPlayer();
+    send({
+      type: "pending_choice",
+      game_version: 6,
+      nonce: "nonce-6",
+      choice: { player: "player_a", prompt: "Next", options: [{ id: "opt-6", label: "Next" }] },
+      state: {},
+      galaxy_layout: snapshot.galaxy_layout,
+    });
+    send({ type: "action_rejected", game_version: 4, reason: { reason: "no_pending_choice" } });
+    expect(client.getState().lastError).toBeNull();
+    // A real validation failure at the current version is still shown.
+    send({ type: "action_rejected", game_version: 6, reason: { reason: "validation_failed", message: "bad" } });
+    expect(client.getState().lastError).toBe("Rejected: bad");
+    client.stop();
+  });
+
   it("routes the HTTP snapshot through the same validated reducer and closes its socket on stop", async () => {
     vi.stubGlobal("WebSocket", FakeWebSocket);
     vi.stubGlobal(

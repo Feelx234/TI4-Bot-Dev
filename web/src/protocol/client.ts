@@ -495,6 +495,8 @@ export class GameSessionClient implements GameTransport {
   // An engine step may offer another human reaction before acknowledging the
   // previous choice. Keep its promise until the step commits, but allow the
   // newly offered choice to be submitted meanwhile.
+  /** Version of the snapshot a turn redo/history handoff switched to, until a newer one arrives. */
+  private redoHandoffVersion: number | null = null;
   private priorSubmissions: NonNullable<GameSessionClient["submission"]>[] = [];
   private heartbeat: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
@@ -1059,6 +1061,7 @@ export class GameSessionClient implements GameTransport {
       ? result.interrupted
       : undefined;
     this.rejectSubmission("Game history changed");
+    this.redoHandoffVersion = snapshot.game_version;
     this.detachSocket();
     this.clearTimers();
     this.setState(
@@ -1562,6 +1565,18 @@ export class GameSessionClient implements GameTransport {
         return;
       }
     }
+    if (
+      message.type === "action_rejected" &&
+      !this.submission &&
+      SUPERSEDED.has(message.reason.reason) &&
+      (this.redoHandoffVersion !== null || message.game_version < this.state.gameVersion) &&
+      !this.priorSubmissions.some((pending) => pending.version === message.game_version)
+    ) {
+      // A late "too late" answer to something sent before a turn redo handoff or before a newer
+      // version arrived: nothing the person can act on, so it must not reach the bar.
+      console.info(`[submit] ignored late rejection: ${rejectionMessage(message)}`);
+      return;
+    }
     if (message.type === "action_rejected") {
       const index = this.priorSubmissions.findIndex(
         (pending) => pending.version === message.game_version,
@@ -1590,6 +1605,13 @@ export class GameSessionClient implements GameTransport {
       return;
     }
     this.setState(reduceServerMessage(this.state, message));
+    if (
+      this.redoHandoffVersion !== null &&
+      "game_version" in message &&
+      message.type !== "action_rejected" &&
+      message.game_version > this.redoHandoffVersion
+    )
+      this.redoHandoffVersion = null;
     const submission = this.submission;
     // The worker can announce the next choice at a newer version without sending
     // a state update at that version. That choice is itself confirmation of progress.
