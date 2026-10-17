@@ -494,3 +494,22 @@
   line-height: 1.45;
   white-space: pre-line;
 }
+
+/* Production drawer: staged ships against the fleet supply. */
+.production-drawer__fleet-staged {
+  color: var(--color-accent, #5cc8ff);
+  font-weight: 700;
+}
+.production-drawer__fleet--over {
+  color: var(--color-alert-orange, #f97316);
+  font-weight: 700;
+}
+.production-drawer__fleet--over .production-drawer__fleet-staged {
+  color: inherit;
+}
+.button.production-drawer__build--over,
+.button--primary.production-drawer__build--over {
+  background: var(--color-alert-orange, #f97316);
+  border-color: var(--color-alert-orange, #f97316);
+  color: #1a0f00;
+}
