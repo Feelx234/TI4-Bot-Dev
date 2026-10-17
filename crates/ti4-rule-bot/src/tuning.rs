@@ -142,6 +142,7 @@ tuning! {
     bw_holdings: bool = true, "v4 (B): the holding secrets' hooks and planner (fsn, dhw, sb; with bw_enabled)";
     bw_ttfd: bool = true, "v4 (B): a PDS on or beside Mecatol Rex for Turn Their Fleets to Dust (with bw_enabled)";
     bw_production: bool = true, "v4 (B): planners of the production secrets (gamf, mtm, pem; with bw_enabled)";
+    land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -288,6 +289,7 @@ fn v1() -> Tuning {
         bw_holdings: false,
         bw_ttfd: false,
         bw_production: false,
+        land_all: false,
     }
 }
 
