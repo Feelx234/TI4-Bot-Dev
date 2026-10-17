@@ -486,7 +486,84 @@ pub fn is_playable(
         return !jamming_systems(state, content, sources, galaxy, player).is_empty()
             && state.players.len() > 1;
     }
+    // Rules version 10: a component action whose card has no legal target is not offered.
+    if state.rules_version >= ti4_model::state::RULES_ACTION_CARD_TARGETS {
+        return has_legal_target(state, content, sources, player, alias);
+    }
     true
+}
+
+/// Whether a component-action card (window "Action") has anything to act on right now. Only
+/// cards whose effect starts by picking a target are listed, and each mirrors the candidate list
+/// its effect builds; every other card has no requirement here and stays offered. Rules version 10.
+fn has_legal_target(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+    alias: &ActionCardId,
+) -> bool {
+    let rival_seat = |keep: &dyn Fn(&ti4_model::state::Player) -> bool| {
+        state
+            .players
+            .iter()
+            .any(|seat| &seat.id != player && keep(seat))
+    };
+    match alias.as_str() {
+        "meltdown" => !meltdown_docks(state, content, sources).is_empty(),
+        "cripple" => !planets_holding(state, content, sources, "pds").is_empty(),
+        "lucky" => {
+            let types = ti4_content::units::catalogue(content, sources);
+            state.board.values().any(|board| {
+                board.controls_a_planet(player)
+                    && board.units.iter().any(|unit| {
+                        &unit.owner != player
+                            && types.get(unit.type_id.as_str()).is_some_and(|kind| {
+                                matches!(kind.base_type(), "dreadnought" | "cruiser" | "destroyer")
+                            })
+                    })
+            })
+        }
+        "plague" => !rival_planets(state, player).is_empty(),
+        "uprising" => !uprising_targets(state, content, sources, player).is_empty(),
+        "insub" => rival_seat(&|seat| seat.tokens(ti4_model::state::TokenPool::Tactic) > 0),
+        "spy" => rival_seat(&|seat| !seat.action_cards.is_empty()),
+        "repeal" => !crate::laws::in_play(state).is_empty(),
+        "tactical" => state.board.values().any(|board| {
+            !board.units_of(player).is_empty()
+                && board.planet_control.values().any(|owner| owner != player)
+        }),
+        "unstable" => {
+            let catalogue = ti4_content::galaxy::all_planets(content, sources);
+            state.board.values().any(|board| {
+                board.planet_units.keys().any(|planet| {
+                    catalogue
+                        .get(planet.as_str())
+                        .is_some_and(|record| record.has_trait("hazardous"))
+                })
+            })
+        }
+        "unexpected" => !state.systems_with_token(player).is_empty(),
+        "seize" => neighbors(state, player).iter().any(|neighbour| {
+            state
+                .player(neighbour)
+                .is_some_and(|seat| seat.relic_fragments.values().sum::<i32>() > 0)
+        }),
+        "messiah" | "f_deployment" => !controlled_spots(state, player).is_empty(),
+        "war_effort" => !systems_with_my_ships(state, content, sources, player).is_empty(),
+        "scuttle" => {
+            let types = ti4_content::units::catalogue(content, sources);
+            state.board.values().any(|board| {
+                board.units.iter().any(|unit| {
+                    &unit.owner == player
+                        && types
+                            .get(unit.type_id.as_str())
+                            .is_none_or(|kind| kind.is_ship() && !kind.is_fighter())
+                })
+            })
+        }
+        _ => true,
+    }
 }
 
 /// 22.3 for reaction cards: whether this card's effect could act on anything in the window
@@ -2679,7 +2756,7 @@ fn rider_payoff(
     player: &PlayerId,
     card: Option<&str>,
 ) {
-    // Rules version 10 (`RULES_TECH_RIDER`): with a table and the game's sources in hand, the
+    // Rules version 9 (`RULES_TECH_RIDER`): with a table and the game's sources in hand, the
     // rewards that need a decision (Technology Rider's research, the placement riders' choice
     // of planet or system) are asked instead of recorded or skipped.
     if state.rules_version >= ti4_model::state::RULES_TECH_RIDER
@@ -6560,21 +6637,25 @@ fn rival_planets(state: &GameState, player: &PlayerId) -> Vec<(String, String)> 
     found
 }
 
+/// The `system|planet` spots holding a space dock outside every home system.
+fn meltdown_docks(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+) -> Vec<(String, String)> {
+    planets_holding(state, content, sources, "spacedock")
+        .into_iter()
+        .filter(|(id, _)| {
+            spot(id).is_some_and(|(system, _)| {
+                !ti4_content::galaxy::is_home_system(content, system.as_str(), sources)
+            })
+        })
+        .collect()
+}
+
 /// Reactor Meltdown: destroy one space dock in a non-home system (79).
 fn reactor_meltdown(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let docks: Vec<(String, String)> =
-        planets_holding(context.state, context.content, context.sources, "spacedock")
-            .into_iter()
-            .filter(|(id, _)| {
-                spot(id).is_some_and(|(system, _)| {
-                    !ti4_content::galaxy::is_home_system(
-                        context.content,
-                        system.as_str(),
-                        context.sources,
-                    )
-                })
-            })
-            .collect();
+    let docks = meltdown_docks(context.state, context.content, context.sources);
     let Some(chosen) = pick(
         context,
         player,
@@ -6640,20 +6721,26 @@ fn unstable_planet(context: &mut crate::timing::TimingContext<'_>, player: &Play
     );
 }
 
-/// Uprising: exhaust a rival's non-home planet and take its resource value in trade goods.
-fn uprising(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
-    let targets: Vec<(String, String)> = rival_planets(context.state, player)
+/// Uprising's candidates: planets a rival controls outside every home system.
+fn uprising_targets(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    player: &PlayerId,
+) -> Vec<(String, String)> {
+    rival_planets(state, player)
         .into_iter()
         .filter(|(id, _)| {
             spot(id).is_some_and(|(system, _)| {
-                !ti4_content::galaxy::is_home_system(
-                    context.content,
-                    system.as_str(),
-                    context.sources,
-                )
+                !ti4_content::galaxy::is_home_system(content, system.as_str(), sources)
             })
         })
-        .collect();
+        .collect()
+}
+
+/// Uprising: exhaust a rival's non-home planet and take its resource value in trade goods.
+fn uprising(context: &mut crate::timing::TimingContext<'_>, player: &PlayerId) {
+    let targets = uprising_targets(context.state, context.content, context.sources, player);
     let Some(chosen) = pick(
         context,
         player,
@@ -9338,14 +9425,10 @@ mod tests {
 
     /// A card whose printed window makes it a component action.
     fn a_component_action_card() -> ActionCardId {
-        ContentStore::embedded()
-            .from_sources(
-                ti4_model::content_types::ContentType::ActionCards,
-                ti4_model::content_types::POK,
-            )
-            .find(|record| record.text("window") == Some("Action"))
-            .and_then(|record| record.text("alias").map(ActionCardId::new))
-            .expect("the corpus has component-action cards")
+        // One with no target requirement (see `has_legal_target`), so it is offered on a bare board.
+        let card = ActionCardId::new("f_researched");
+        assert!(is_component_action(ContentStore::embedded(), &card));
+        card
     }
 
     /// Any action card in the corpus this engine does not model yet.
@@ -10453,6 +10536,49 @@ mod tests {
         resolve_card(&mut state, "meltdown", &player, &[]);
 
         assert_eq!(on_planet(&state, &planet), 1, "the card says 1 space dock");
+    }
+
+    /// Reactor Meltdown with no space dock outside a home system is not offered (version 10);
+    /// games of version 8 and below are still offered it, so their logs replay.
+    #[test]
+    fn reactor_meltdown_is_offered_only_with_a_target() {
+        let content = ContentStore::embedded();
+        let me = PlayerId::new("a");
+        let alias = ActionCardId::new("meltdown");
+        let offered = |state: &GameState| {
+            state
+                .player(&me)
+                .unwrap()
+                .action_cards
+                .iter()
+                .enumerate()
+                .any(|(index, _)| {
+                    available_actions(state, content, POK, None, &me)
+                        .iter()
+                        .any(|option| option.id == format!("{PLAY_PREFIX}{index}"))
+                })
+        };
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.player_mut(&me).unwrap().action_cards = vec![alias.clone()];
+        state.rules_version = ti4_model::state::RULES_ACTION_CARD_TARGETS;
+        assert!(!offered(&state), "no non-home space dock: not offered");
+        assert!(!is_playable(&state, content, POK, None, &me, &alias));
+        state.rules_version = ti4_model::state::RULES_ACTION_CARD_TARGETS - 1;
+        assert!(offered(&state), "the old rules offered it anyway");
+        state.rules_version = 0;
+        assert!(offered(&state), "legacy too");
+
+        let (system, planet) = a_neutral_spot();
+        crate::fixtures::put_on_planet(
+            &mut state,
+            &system,
+            &planet,
+            "spacedock",
+            &PlayerId::new("b"),
+            1,
+        );
+        state.rules_version = ti4_model::state::RULES_ACTION_CARD_TARGETS;
+        assert!(offered(&state), "a dock outside a home system: offered");
     }
 
     #[test]

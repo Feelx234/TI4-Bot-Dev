@@ -16057,7 +16057,7 @@ mod tests {
         // readied strategy card: If that player's next action is not a strategic
         // action, they discard all of their action cards, give you all of their trade
         // goods, and show you all of their secret objectives." b arms it at the start
-        // of a's turn; a's first action is a played action card (Spy — a card whose
+        // of a's turn; a's first action is a played action card (Economic Initiative — a card whose
         // window is "Action", so it is offered on a plain turn), not a strategic
         // one, so the punishment settles: the goods move to b, the rest of the hand
         // is discarded, the duress is spent, and the turn passes on.
@@ -16074,7 +16074,7 @@ mod tests {
             .player_mut(&a)
             .unwrap()
             .action_cards
-            .push(ti4_model::id::ActionCardId::new("spy"));
+            .push(ti4_model::id::ActionCardId::new("economic_initiative"));
         // A card the punishment will discard, proving the hand is lost wholesale.
         state
             .player_mut(&a)
@@ -16141,7 +16141,7 @@ mod tests {
             .player_mut(&a)
             .unwrap()
             .action_cards
-            .push(ti4_model::id::ActionCardId::new("spy"));
+            .push(ti4_model::id::ActionCardId::new("economic_initiative"));
         state
             .player_mut(&a)
             .unwrap()

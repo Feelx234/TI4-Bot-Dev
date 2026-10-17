@@ -1,6 +1,6 @@
 {
   "title": "Technology Rider: the research reward",
-  "description": "Feedback fb_1792235794_f7d819ff. A correct Technology Rider used to be recorded and never paid. From rules version 10 the vote close asks the rider's player to research a technology: a research_technology question whose source is the action card, shown in the ordinary technology dialog (one free pick, prerequisites apply). No client code changed; the dialog is the existing TechnologyModal, these shots show how the new question looks in it. Synthetic fixtures through a mocked server.",
+  "description": "Feedback fb_1792235794_f7d819ff. A correct Technology Rider used to be recorded and never paid. From rules version 9 the vote close asks the rider's player to research a technology: a research_technology question whose source is the action card, shown in the ordinary technology dialog (one free pick, prerequisites apply). No client code changed; the dialog is the existing TechnologyModal, these shots show how the new question looks in it. Synthetic fixtures through a mocked server.",
   "tag": "web/e2e/screenshots/FG-technology-rider",
   "shots": [
     { "file": "out/rider-research-desktop.png", "heading": "Technology Rider reward: desktop", "caption": "The technology dialog opened by the rider's research question (source ActionCard tech_rider): single free pick." },

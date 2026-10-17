@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 9): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 10): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -121,6 +121,15 @@ Version 9 = Technology Rider and friends (`fb-technology-rider`, `RULES_TECH_RID
    when several qualify. Version < 9: paid only when exactly one choice existed, else skipped.
 
 Not a change: Elder Qanoj (Xxcha commander) lets its owner vote after playing a rider, as printed.
+
+Version 10 = action card targets (`fb-spacedock-card-targets`, `RULES_ACTION_CARD_TARGETS`):
+`action_cards::is_playable` (so `available_actions` and `perform`) no longer offers a component
+action ("Action" window) card that has no legal target: Reactor Meltdown (no space dock outside a
+home system), Cripple Defenses, Lucky Shot, Plague, Uprising, Insubordination, Spy, Repeal Law,
+Tactical Bombardment, Unstable Planet, Unexpected Action, Seize Artifact, Rise of a Messiah,
+Frontline Deployment, War Effort, Scuttle (`has_legal_target`). Version < 10: always offered. Cards
+with other conditions (Refit Troops, Ghost Ship, Fighter Conscription, the Pirate cards, Exploration
+Probe, ...) are unchanged. Reaction windows are unchanged (Sabotage and bluffs stay).
 
 ## Adding the next gate
 
