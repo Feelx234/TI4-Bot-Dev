@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 4;
+pub const RULES_VERSION: u32 = 10;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1177,6 +1177,12 @@ pub const RULES_SABOTAGE_TIMING: u32 = 3;
 /// tokens in the fleet pool (down to none; Armada lifts the per-system ship limit by 2 over the
 /// pool). Older games keep the floor of two in every redistribution they offer.
 pub const RULES_LETNEV_FLEET_POOL: u32 = 4;
+
+/// The first rules version where a correct Technology Rider researches (a free technology, asked
+/// through the technology dialog) and where the Construction, Diplomacy and Warfare Riders ask
+/// for their planet or system when several qualify. Before, the research was only recorded and
+/// those three paid out only when exactly one choice existed.
+pub const RULES_TECH_RIDER: u32 = 10;
 
 /// The whole game, as a value.
 ///

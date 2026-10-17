@@ -1116,6 +1116,36 @@ mod tests {
         assert!(asked.contains(&PlayerId::new("a")), "a still votes");
     }
 
+    /// Feedback fb_1792235794_f7d819ff: an Xxcha player with Elder Qanoj unlocked kept voting
+    /// after playing a rider. That is the commander's text ("Game effects cannot prevent you
+    /// from voting on an agenda"), not a missing ban: without it the same player is barred.
+    #[test]
+    fn elder_qanoj_keeps_a_rider_player_voting_and_nobody_else() {
+        let (mut state, _) = game(&["a", "b", "c"]);
+        state.speaker = PlayerId::new("c");
+        for who in ["a", "b"] {
+            state
+                .agenda_predictions
+                .insert(PlayerId::new(who), "for|tech_rider".to_owned());
+        }
+        state
+            .player_mut(&PlayerId::new("a"))
+            .expect("a sits at the table")
+            .leaders
+            .insert(
+                ti4_model::id::LeaderId::new("xxchacommander"),
+                ti4_model::state::LeaderStatus::Unlocked,
+            );
+
+        let vote = VoteWindow::new(&state, "some_agenda", for_against());
+
+        assert_eq!(
+            vote.order(),
+            [PlayerId::new("a"), PlayerId::new("c")],
+            "Qanoj's owner votes despite the rider; b, who has no such commander, does not"
+        );
+    }
+
     /// A speaker who paid the Imperial Rider's cost gives up their vote too. The old
     /// rotation unseated the speaker and then re-seated them, so a barred speaker ended up
     /// voting last anyway while the player on their left was dropped.

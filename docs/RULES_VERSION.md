@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 4): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 10): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_TECH_RIDER = 10`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -75,6 +75,18 @@ Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`, `RULES_LETNEV_FLEET_POOL
 1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
    also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
    policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
+
+Version 10 = Technology Rider and friends (`fb-technology-rider`, `RULES_TECH_RIDER`; 5 to 9 are
+taken by other branches, a merge renumbers):
+
+1. `action_cards::asked_rider_payoff`, reached from the vote close (`resolve_predictions_asking`):
+   a correct Technology Rider researches 1 technology through the Technology primary's free
+   research (`research_technology` question, source `ActionCard("tech_rider")`; prerequisites
+   apply, nothing is paid). Version < 10: recorded, never performed.
+2. Construction, Diplomacy and Warfare Riders ask for their planet (no space dock yet) or system
+   when several qualify. Version < 10: paid only when exactly one choice existed, else skipped.
+
+Not a change: Elder Qanoj (Xxcha commander) lets its owner vote after playing a rider, as printed.
 
 ## Adding the next gate
 

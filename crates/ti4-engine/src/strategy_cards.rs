@@ -491,6 +491,7 @@ fn offer_research(
     galaxy: Option<&Galaxy>,
     table: &mut Table,
     player: &PlayerId,
+    source: DecisionSource,
 ) -> Result<Option<TechnologyId>, IllegalChoice> {
     use crate::factions::deepwrought_research as carrina;
     let window = carrina::open(
@@ -498,7 +499,7 @@ fn offer_research(
         player,
         &carrina::any,
     )?;
-    let result = offer_research_inner(state, content, sources, galaxy, table, player);
+    let result = offer_research_inner(state, content, sources, galaxy, table, player, source);
     carrina::settle(
         &mut carrina::Host::new(&mut *state, content, sources, galaxy, &mut *table),
         player,
@@ -508,6 +509,29 @@ fn offer_research(
     result
 }
 
+/// The source of the Technology primary's research question.
+fn technology_primary() -> DecisionSource {
+    DecisionSource::StrategyCard {
+        card: "Technology".to_owned(),
+        secondary: false,
+    }
+}
+
+/// A free research of 1 technology granted by `source` (an action card's reward, e.g. Technology
+/// Rider): the Technology primary's first research, asked as a `research_technology` question so
+/// the client shows its technology dialog. Prerequisites apply; nothing is paid.
+pub(crate) fn offer_free_research(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    source: DecisionSource,
+) -> Result<Option<TechnologyId>, IllegalChoice> {
+    offer_research(state, content, sources, galaxy, table, player, source)
+}
+
 fn offer_research_inner(
     state: &mut GameState,
     content: &ContentStore,
@@ -515,6 +539,7 @@ fn offer_research_inner(
     galaxy: Option<&Galaxy>,
     table: &mut Table,
     player: &PlayerId,
+    source: DecisionSource,
 ) -> Result<Option<TechnologyId>, IllegalChoice> {
     // A technology whose optional faction waiver was declined is not offered again in this
     // research. Re-offering it let a player select it and decline the waiver forever: an
@@ -549,10 +574,7 @@ fn offer_research_inner(
         )
         .contextualized(DecisionContext::new(
             player.clone(),
-            DecisionSource::StrategyCard {
-                card: "Technology".to_owned(),
-                secondary: false,
-            },
+            source.clone(),
             "research_technology",
             state.phase,
             state.round,
@@ -1835,7 +1857,7 @@ pub(crate) fn structure_options(
 /// The unit Construction places for `kind` (`pds` / `spacedock`): the faction unit or upgrade, as
 /// an action card placement resolves it. Construction puts the structure on a planet, so a
 /// space-only form (Saar's Floating Factory) falls back to the generic planet unit.
-fn construction_unit(
+pub(crate) fn construction_unit(
     state: &GameState,
     content: &ContentStore,
     sources: SourceSet,
@@ -2599,7 +2621,15 @@ pub fn primary(
         "Trade" => trade_primary(state, content, sources, galaxy, table, player)?,
         "Warfare" => warfare_primary(state, content, sources, galaxy, table, player)?,
         "Technology" => {
-            offer_research(state, content, sources, galaxy, table, player)?;
+            offer_research(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                technology_primary(),
+            )?;
             paid_research(
                 state,
                 content,
@@ -2910,7 +2940,15 @@ mod tests {
         // research; now the third offer lacks it and the script diverges there.
         assert!(
             matches!(
-                offer_research_inner(&mut again, content, POK, None, &mut repeat, &player),
+                offer_research_inner(
+                    &mut again,
+                    content,
+                    POK,
+                    None,
+                    &mut repeat,
+                    &player,
+                    technology_primary()
+                ),
                 Err(IllegalChoice::ScriptDiverged { .. })
             ),
             "the declined technology was offered again"
@@ -2922,8 +2960,16 @@ mod tests {
             alternative.to_string(),
         ])));
         assert_eq!(
-            offer_research_inner(&mut state, content, POK, None, &mut table, &player)
-                .expect("researches another"),
+            offer_research_inner(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut table,
+                &player,
+                technology_primary()
+            )
+            .expect("researches another"),
             Some(alternative)
         );
     }
@@ -3068,7 +3114,16 @@ mod tests {
         state.player_mut(&player).unwrap().trade_goods = 20;
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut table = Table::with_default(Box::new(FirstOptionCapturing { seen: seen.clone() }));
-        offer_research(&mut state, content, POK, None, &mut table, &player).unwrap();
+        offer_research(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &player,
+            technology_primary(),
+        )
+        .unwrap();
         let primary_context = seen.borrow()[0].context.clone().expect("typed context");
         assert_eq!(primary_context.subtype, "research_technology");
         assert_eq!(
@@ -3152,7 +3207,16 @@ mod tests {
             .insert(TechnologyId::new("gd"));
         let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let mut table = Table::with_default(Box::new(FirstOptionCapturing { seen: seen.clone() }));
-        offer_research(&mut state, content, POK, None, &mut table, &player).unwrap();
+        offer_research(
+            &mut state,
+            content,
+            POK,
+            None,
+            &mut table,
+            &player,
+            technology_primary(),
+        )
+        .unwrap();
         let research_choice = &seen.borrow()[0];
         match &research_choice.options[0]
             .preview

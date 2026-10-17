@@ -6230,9 +6230,11 @@ impl<'a> Game<'a> {
         // Imperial Rider pays out before the agenda's own effect, and clears the
         // predictions. A prediction left behind would pay again on the next agenda,
         // for a card that was spent on this one.
-        for player in crate::action_cards::resolve_predictions_with(
+        for player in crate::action_cards::resolve_predictions_asking(
             &mut self.state,
             self.content,
+            self.sources,
+            self.galaxy.as_ref(),
             &mut self.table,
             outcome,
         ) {
@@ -9624,6 +9626,39 @@ mod tests {
             game.state.promissory_notes.get(&note),
             Some(&b),
             "the card went home"
+        );
+    }
+
+    /// Feedback fb_1792235794_f7d819ff: the closing vote of the driven game pays a correct
+    /// Technology Rider with a research question, not silence.
+    #[test]
+    fn a_correct_technology_rider_asks_for_its_research_when_the_vote_closes() {
+        let a = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .agenda_predictions
+            .insert(a.clone(), "for|tech_rider".to_owned());
+        let before = state.player(&a).unwrap().technologies.len();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let table = Table::with_default(Box::new(decider));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+
+        game.resolve_agenda_outcome("nonexistent_agenda", "for", &crate::vote::Ballot::default());
+
+        assert_eq!(
+            game.state.player(&a).unwrap().technologies.len(),
+            before + 1
+        );
+        assert!(
+            seen.borrow()
+                .iter()
+                .any(|choice| choice.context.as_ref().map(|c| c.subtype.as_str())
+                    == Some("research_technology")),
+            "the research was asked as a technology pick"
+        );
+        assert!(
+            game.events
+                .contains(&format!("AGENDA_PREDICTION_CORRECT:{a}"))
         );
     }
 
