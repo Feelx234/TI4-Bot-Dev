@@ -519,10 +519,13 @@ export async function playOfflineGame(
             report.recoveries = recoveries;
             lastMessageAt = Date.now();
             log("  recovery: reload the page (resume)");
-            await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
-            await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 }).catch(() => undefined);
+            // Forget the old question BEFORE the reload: the resumed engine's question can arrive before the game
+            // screen is up, and clearing afterwards threw it away (a false "engine sent nothing for 90 s", F3).
             handledSeq = 0; // the resumed game asks again
             ask = null;
+            await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+            await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 }).catch(() => undefined);
+            lastMessageAt = Date.now();
             continue;
           }
           outcome = "stuck";
@@ -622,10 +625,12 @@ export async function playOfflineGame(
             if (recoveries === 1) {
               await page.keyboard.press("Escape").catch(() => undefined);
             } else {
-              await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
-              await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 }).catch(() => undefined);
+              // Clear before the reload (see the stall recovery above): the resumed question may arrive early.
               handledSeq = 0;
               ask = null;
+              await page.reload({ waitUntil: "domcontentloaded" }).catch(() => undefined);
+              await page.waitForSelector('[data-testid="offline-game"]', { timeout: 120_000 }).catch(() => undefined);
+              lastMessageAt = Date.now();
               reloaded = true;
               break;
             }
@@ -669,6 +674,11 @@ export async function playOfflineGame(
               emptyPolls = 0;
               continue;
             }
+          }
+          if (emptyPolls === 6 || emptyPolls === 20) {
+            // The mouse rests where the last click was; a hover card of a unit chip that came to lie under it can sit
+            // over the only control. A player moves the pointer away.
+            await page.mouse.move(1, 1).catch(() => undefined);
           }
           if (emptyPolls === 14 || emptyPolls === 30) {
             // Controls of the question that are covered by something else (a toast history, a banner): a real
