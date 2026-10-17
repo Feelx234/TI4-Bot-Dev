@@ -6151,6 +6151,7 @@ impl<'a> Game<'a> {
             unreachable!("a vote is open");
         };
         let voter = choice.player.clone();
+        let answered_outcome = window.is_outcome_question();
         let outcome = window.resolve(&mut self.state, self.content, self.sources, answer);
         if let Some((spender, _)) = &goods_window {
             crate::supply::close_goods_window(&mut self.state, spender, true);
@@ -6158,12 +6159,19 @@ impl<'a> Game<'a> {
         let complete = window.is_complete();
         self.voting = Some((window, queue));
         // "After you cast votes on an outcome of an agenda", and "after the speaker votes".
-        let mut payload = BTreeMap::new();
-        payload.insert(
-            "player".to_owned(),
-            serde_json::Value::String(voter.to_string()),
-        );
-        let _ = self.emit_typed("VOTES_CAST", payload);
+        // Before RULES_BRIBERY_PER_PLAYER this fired after every answer of the vote (the outcome,
+        // each planet exhausted, the trade goods), asking a Bribery holder again at each; now it
+        // fires once per voter, when they have named their outcome.
+        if answered_outcome
+            || self.state.rules_version < ti4_model::state::RULES_BRIBERY_PER_PLAYER
+        {
+            let mut payload = BTreeMap::new();
+            payload.insert(
+                "player".to_owned(),
+                serde_json::Value::String(voter.to_string()),
+            );
+            let _ = self.emit_typed("VOTES_CAST", payload);
+        }
 
         match outcome {
             Ok(()) => {
@@ -13964,6 +13972,102 @@ mod tests {
             game.state.feat_occurrence_seq > occurrence_before,
             "a resolved For/Against agenda receives an occurrence even without an elected player"
         );
+    }
+
+    /// Declines every reaction window but counts the "after votes cast" offers made to `holder`;
+    /// answers everything else with the first option.
+    struct CountingDecider {
+        holder: PlayerId,
+        offers: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    impl crate::choice::Decider for CountingDecider {
+        fn choose(
+            &mut self,
+            choice: &crate::choice::Choice,
+        ) -> Result<crate::choice::ChoiceOption, crate::choice::IllegalChoice> {
+            if choice.player == self.holder
+                && choice
+                    .options
+                    .iter()
+                    .any(|o| o.id.contains("VOTES_CAST") && o.id.starts_with("reaction:"))
+            {
+                self.offers.set(self.offers.get() + 1);
+            }
+            if let Some(decline) = choice.options.iter().find(|o| o.is_decline()) {
+                if choice.options.iter().any(|o| o.id.starts_with("reaction:")) {
+                    return Ok(decline.clone());
+                }
+            }
+            choice.options.first().cloned().ok_or_else(|| {
+                crate::choice::IllegalChoice::NoOptions {
+                    player: choice.player.clone(),
+                    prompt: choice.prompt.clone(),
+                }
+            })
+        }
+    }
+
+    /// How often the Bribery holder (seat b, voting second) is offered the "votes cast" window
+    /// during one agenda in which the other seat exhausts three planets, under `rules_version`.
+    fn votes_cast_offers_to_bribery_holder(rules_version: u32) -> usize {
+        let players = [PlayerId::new("a"), PlayerId::new("b")];
+        let mut state = start_game(ContentStore::embedded(), &players, POK, None).unwrap();
+        state.rules_version = rules_version;
+        state.phase = Phase::Agenda;
+        state.custodians_removed = true;
+        let law = ContentStore::embedded()
+            .records(ti4_model::content_types::ContentType::Agendas)
+            .iter()
+            .find(|record| {
+                record.text("type") == Some("Law") && record.text("target") == Some("For/Against")
+            })
+            .and_then(|record| record.text("alias"))
+            .expect("the corpus has a For/Against law")
+            .to_owned();
+        state.agenda_deck = vec![law];
+        let catalogue = ti4_content::galaxy::all_planets(ContentStore::embedded(), POK);
+        for (index, (id, record)) in catalogue
+            .iter()
+            .filter(|(_, p)| p.influence() > 0 && !p.is_placed_during_play())
+            .take(4)
+            .enumerate()
+        {
+            let owner = if index < 3 { &players[0] } else { &players[1] };
+            state
+                .system_mut(&ti4_model::id::SystemId::new(
+                    record.system_id().unwrap_or("18"),
+                ))
+                .set_control(ti4_model::id::PlanetId::new(*id), owner.clone());
+        }
+        state.player_mut(&players[1]).unwrap().action_cards =
+            vec![ti4_model::id::ActionCardId::new("bribery")];
+        let offers = std::rc::Rc::new(std::cell::Cell::new(0));
+        let table = Table::with_default(Box::new(CountingDecider {
+            holder: players[1].clone(),
+            offers: offers.clone(),
+        }));
+        let mut game = Game::with_table(state, ContentStore::embedded(), table);
+        let mut guard = 0;
+        while game.state.phase == Phase::Agenda && guard < 120 {
+            assert_eq!(game.step().error, None, "no agenda step should refuse");
+            guard += 1;
+        }
+        offers.get()
+    }
+
+    #[test]
+    fn bribery_is_offered_once_per_voter_not_once_per_planet() {
+        // Two voters: the holder is asked once after each of them.
+        assert_eq!(
+            votes_cast_offers_to_bribery_holder(ti4_model::state::RULES_BRIBERY_PER_PLAYER),
+            2
+        );
+    }
+
+    #[test]
+    fn legacy_games_still_offer_votes_cast_after_every_planet() {
+        assert!(votes_cast_offers_to_bribery_holder(1) > 2);
     }
 
     #[test]

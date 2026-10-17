@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 6): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 7): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -75,8 +75,9 @@ Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`, `RULES_LETNEV_FLEET_POOL
 1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
    also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
    policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
+
 Version 5 = the Enigmatic Device researches (`RULES_ENIGMATIC_DEVICE`, branch
-`enigmatic-device-tech-dialog`; versions 2 to 4 are other branches, merge in that order):
+`enigmatic-device-tech-dialog`):
 
 1. The relic (`relics::grant_chosen_technology`, only for `enigmaticdevice`) and both exploration
    cards (`exploration::enigmatic_device_technologies`) offer `technology::researchable_by_prerequisites`
@@ -91,6 +92,13 @@ Version 6 = `RULES_TECH_PAYMENT_CHOICE` (`tech-payment-choose-planets`): `strate
 technology) asks the researcher the ordinary `pay_resources` question after the technology is
 picked (`production::pay_seeing`). Version 0..5: the cheapest `payment::plans` entry is spent
 automatically. Inheritance Systems' 2 resources (`technology::research`, no table) stay automatic.
+
+Version 7 = Bribery asked once per voter (`fb-bribery-per-player`, `RULES_BRIBERY_PER_PLAYER`):
+
+1. `Game::step_vote`: `VOTES_CAST` ("after you cast votes", "after the speaker votes": Bribery,
+   Distinguished Councilor) fires once per voter, when they have named their outcome or abstained.
+   Version 0/1: after every answer of the vote (the outcome, each planet exhausted, the trade
+   goods), so a Bribery holder was asked again after every planet.
 
 ## Adding the next gate
 

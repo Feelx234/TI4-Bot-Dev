@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 6;
+pub const RULES_VERSION: u32 = 7;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1188,6 +1188,11 @@ pub const RULES_ENIGMATIC_DEVICE: u32 = 5;
 /// the primary's second technology) asks the researcher which planets and trade goods pay, as every
 /// other resource cost does (`pay_resources`). Before it the cheapest plan was spent automatically.
 pub const RULES_TECH_PAYMENT_CHOICE: u32 = 6;
+
+/// The first rules version where the "after votes cast" window (Bribery, Distinguished Councilor)
+/// opens once per voter, when they have named their outcome, instead of after every single answer
+/// of the vote (the outcome, then each planet exhausted).
+pub const RULES_BRIBERY_PER_PLAYER: u32 = 7;
 
 /// The whole game, as a value.
 ///
