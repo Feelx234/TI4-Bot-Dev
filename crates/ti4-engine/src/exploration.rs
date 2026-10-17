@@ -2474,6 +2474,7 @@ mod tests {
     #[test]
     fn legacy_per_technology_device_ids_still_replay() {
         let (mut state, planet) = holder(0, 0);
+        state.rules_version = 0; // per-technology ids belong to games recorded before version 5
         resolve_card(&mut state, &player(), Some(&planet), "ed2", &[]);
         if let Some(seat) = state.player_mut(&player()) {
             seat.trade_goods = 6;
