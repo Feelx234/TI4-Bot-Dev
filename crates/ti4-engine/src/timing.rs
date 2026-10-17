@@ -1007,6 +1007,16 @@ impl Resolver {
                 passed.clear();
             }
         })();
+        // Rules version 3 (`RULES_SABOTAGE_TIMING`): the cards the players declared in this
+        // window are announced only now, once every declaration is in, each in declaration
+        // order and each opening its own Sabotage window.
+        let result = result.and_then(|()| {
+            let declared = std::mem::take(&mut context.state.declared_card_plays);
+            for (player, alias) in declared {
+                crate::reactions::announce(context, self, &player, &alias)?;
+            }
+            Ok(())
+        });
         self.relation_being_resolved = previous;
         result
     }

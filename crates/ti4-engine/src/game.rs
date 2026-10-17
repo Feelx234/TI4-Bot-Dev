@@ -16902,6 +16902,8 @@ mod tests {
         assert_eq!(state.rules_version, ti4_model::state::RULES_VERSION);
         let mut json = serde_json::to_value(&state).unwrap();
         assert_eq!(json["rules_version"], ti4_model::state::RULES_VERSION);
+        // The declaration queue of rules version 3 is not written while empty.
+        assert!(json.get("declared_card_plays").is_none());
         json.as_object_mut().unwrap().remove("rules_version");
         let old: GameState = serde_json::from_value(json).unwrap();
         assert_eq!(old.rules_version, 0);

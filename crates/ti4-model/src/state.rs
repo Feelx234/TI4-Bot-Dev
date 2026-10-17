@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 2;
+pub const RULES_VERSION: u32 = 3;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1166,6 +1166,12 @@ pub const RULES_INFILTRATE_FIX: u32 = 1;
 /// and the count of that kind at the origin) rather than its position in the system's ship list,
 /// and where equal ships are offered once.
 pub const RULES_MENDOSA_SHIP: u32 = 2;
+
+/// The first rules version with Sabotage timing: the players in a reaction window first declare
+/// every card they play, and only then are the declared plays announced one by one, each opening
+/// its Sabotage window. Before, a play was announced (and Sabotage offered) the moment it was
+/// declared, before the other players had declared theirs.
+pub const RULES_SABOTAGE_TIMING: u32 = 3;
 
 /// The whole game, as a value.
 ///
@@ -1507,6 +1513,11 @@ pub struct GameState {
     /// Aliases here are public only after the card is played; unopened hands are not recorded.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub action_card_plays: Vec<(PlayerId, ActionCardId)>,
+    /// Cards declared (already spent) in the reaction window being collected, in declaration
+    /// order, not yet announced (rules version 3, `RULES_SABOTAGE_TIMING`). Empty outside a
+    /// window and not written while empty, so a state's bytes and checksum are unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub declared_card_plays: Vec<(PlayerId, ActionCardId)>,
     /// Set by the combat driver while a space battle (including its victory window) is open.
     /// Cleared before the hand-off to invasion. Unlike ship ownership this is an explicit boundary.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1875,6 +1886,7 @@ impl GameState {
             last_control_gained: None,
             last_combat_sides: None,
             action_card_plays: Vec::new(),
+            declared_card_plays: Vec::new(),
             active_space_combat: None,
             active_invasion: None,
             combat_round_hits: BTreeMap::new(),

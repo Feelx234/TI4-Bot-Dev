@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 2): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 3): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -50,7 +50,25 @@ Version 2 = the Captain Mendosa fix (`fix-nightly-f2-mendosa`), `factions::saar`
    `seq|origin|index|bonus`, matched to the list position, which shifts when an earlier ship leaves).
 2. `agent_ships` offers equal ships (same type, damage, origin) once.
 
-A game created at version 1 keeps playing the old behaviour.
+A game created at version 0 or 1 keeps playing the old behaviour.
+
+Version 3 = Sabotage timing (`fix-sabotage-timing`, `RULES_SABOTAGE_TIMING`). Version 0/1/2: the
+moment a player picked a card in a reaction window (e.g. "after you activate a system"), the card
+was announced and every Sabotage holder was asked at once, before the other players of the same
+window had declared anything. Version 3: **declaration round first**.
+
+- In every reaction window except Sabotage's own (`ACTION_CARD_PLAYED`), choosing a card only
+  *declares* it: the card is spent (hand to discard) and queued in `GameState::declared_card_plays`
+  (not serialized while empty, so legacy checksums are byte-identical). The window keeps asking
+  the seats in order, as before, until all have passed.
+- Then, still inside the window and before the event resolves, the declared plays are announced
+  in declaration order; each opens its own `ACTION_CARD_PLAYED` Sabotage window, offered to the
+  holders in table order, never to the player themself and not for a Sabotage.
+- Interpretation chosen (flag): "the declaration round" is one reaction window of one event; the
+  Sabotage holder sees every declared card only as it is announced (it is not shown the whole
+  list up front); a card declared earlier is not recalled if a later declaration makes it moot
+  (e.g. two Public Disgraces); a card played in `ACTION_CARD_PLAYED` (Sabotage, Instinct Training)
+  and component-action plays stay immediate. A Sabotage cancels only the one play it answers.
 
 ## Adding the next gate
 

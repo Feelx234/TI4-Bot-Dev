@@ -1785,7 +1785,9 @@ mod player_record_tests {
         let old_text = serde_json::to_string_pretty(&old).unwrap();
         let key = |text: &str| {
             let value: serde_json::Value = serde_json::from_str(text).unwrap();
-            value["payload"]["initial_state"].get("rules_version").cloned()
+            value["payload"]["initial_state"]
+                .get("rules_version")
+                .cloned()
         };
         assert_eq!(key(&old_text), None);
         let game = store.game_dir(id).unwrap();
