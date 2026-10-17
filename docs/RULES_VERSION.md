@@ -10,10 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 8): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 9): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`): the first version with one gated change.
-
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -111,6 +110,17 @@ Version 8 = Munitions Reserves after the roll (`fb-munitions-timing`, `RULES_MUN
    (pay 2, re-roll every missed die), `munitions_choose` (pay 2, then one `munitions_reroll_die`
    question per die) and decline; it is skipped with no miss or fewer than 2 trade goods.
    Re-rolled dice are recorded under the reason `munitions:<player>`.
+
+Version 9 = Technology Rider and friends (`fb-technology-rider`, `RULES_TECH_RIDER`):
+
+1. `action_cards::asked_rider_payoff`, reached from the vote close (`resolve_predictions_asking`):
+   a correct Technology Rider researches 1 technology through the Technology primary's free
+   research (`research_technology` question, source `ActionCard("tech_rider")`; prerequisites
+   apply, nothing is paid). Version < 9: recorded, never performed.
+2. Construction, Diplomacy and Warfare Riders ask for their planet (no space dock yet) or system
+   when several qualify. Version < 9: paid only when exactly one choice existed, else skipped.
+
+Not a change: Elder Qanoj (Xxcha commander) lets its owner vote after playing a rider, as printed.
 
 ## Adding the next gate
 

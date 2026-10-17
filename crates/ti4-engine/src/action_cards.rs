@@ -2445,6 +2445,225 @@ fn diplomatic_pressure(context: &mut crate::timing::TimingContext<'_>, player: &
     };
     crate::promissory::take(context.state, context.content, player, &note);
 }
+/// Ask `player` to pick one of `ids` (a rider reward's planet or system), or take the only one.
+/// `None` when nothing is on offer or the answer was refused.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the observed position plus the question"
+)]
+fn pick_rider_target(
+    state: &GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+    prompt: &str,
+    kind: &str,
+    subtype: &str,
+    ids: Vec<String>,
+) -> Option<String> {
+    match ids.as_slice() {
+        [] => None,
+        [only] => Some(only.clone()),
+        many => {
+            let choice = Choice::new(
+                player.clone(),
+                prompt,
+                many.iter()
+                    .map(|id| ChoiceOption::labelled(id.clone(), kind, id.replace('|', " ")))
+                    .collect(),
+            )
+            .contextualized(DecisionContext::new(
+                player.clone(),
+                DecisionSource::ActionCard(card.to_owned()),
+                subtype,
+                state.phase,
+                state.round,
+            ));
+            table
+                .ask_seeing(&choice, &Observed::new(state, content, sources, galaxy))
+                .ok()
+                .map(|answer| answer.id)
+        }
+    }
+}
+
+/// The rewards of a correct rider that are decisions, asked of the player (rules version 9, RULES_TECH_RIDER).
+/// Returns whether this card's reward was handled here; `false` leaves it to the table-less
+/// payoff below.
+///
+/// * Technology Rider: "research 1 technology", through the Technology primary's free research
+///   (prerequisites apply, nothing is paid, the Technology dialog is the client's view of it).
+/// * Construction Rider: the planet (without a space dock yet, 79.2), when several qualify.
+/// * Diplomacy Rider: the system, when several contain a planet the player controls.
+/// * Warfare Rider: the system, when several contain the player's ships.
+fn asked_rider_payoff(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    player: &PlayerId,
+    card: &str,
+) -> bool {
+    match card {
+        "tech_rider" => {
+            let _ = crate::strategy_cards::offer_free_research(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                DecisionSource::ActionCard("tech_rider".to_owned()),
+            );
+            true
+        }
+        "const_rider" => {
+            let spots: Vec<String> = state
+                .controlled_planets(player)
+                .into_iter()
+                .filter(|(system, planet)| {
+                    !state
+                        .system_state(system)
+                        .planet_units
+                        .get(*planet)
+                        .is_some_and(|units| {
+                            units
+                                .iter()
+                                .any(|unit| unit.type_id.as_str().ends_with("spacedock"))
+                        })
+                })
+                .map(|(system, planet)| format!("{system}|{planet}"))
+                .collect();
+            let Some(spot) = pick_rider_target(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                card,
+                "Construction Rider: place a space dock on which planet",
+                "planet",
+                "construction_rider_planet",
+                spots,
+            ) else {
+                return true;
+            };
+            if let Some((system, planet)) = spot.split_once('|') {
+                let dock = crate::strategy_cards::construction_unit(
+                    state,
+                    content,
+                    sources,
+                    player,
+                    "spacedock",
+                );
+                state
+                    .system_mut(&ti4_model::id::SystemId::new(system))
+                    .planet_units
+                    .entry(ti4_model::id::PlanetId::new(planet))
+                    .or_default()
+                    .push(Unit::new(dock, player.clone()));
+            }
+            true
+        }
+        "diplo_rider" => {
+            let systems: BTreeSet<String> = state
+                .controlled_planets(player)
+                .iter()
+                .map(|(system, _)| system.to_string())
+                .collect();
+            let Some(system) = pick_rider_target(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                card,
+                "Diplomacy Rider: choose a system",
+                "system",
+                "diplomacy_rider_system",
+                systems.into_iter().collect(),
+            ) else {
+                return true;
+            };
+            place_diplomacy_rider_tokens(state, player, &ti4_model::id::SystemId::new(system));
+            true
+        }
+        "war_rider" => {
+            let systems: Vec<String> = state
+                .board
+                .iter()
+                .filter(|(_, board)| !board.units_of(player).is_empty())
+                .map(|(system, _)| system.to_string())
+                .collect();
+            let Some(system) = pick_rider_target(
+                state,
+                content,
+                sources,
+                galaxy,
+                table,
+                player,
+                card,
+                "Warfare Rider: place a dreadnought in which system",
+                "system",
+                "warfare_rider_system",
+                systems,
+            ) else {
+                return true;
+            };
+            state
+                .system_mut(&ti4_model::id::SystemId::new(system))
+                .units
+                .push(Unit::new(
+                    ti4_model::id::UnitTypeId::new("dreadnought"),
+                    player.clone(),
+                ));
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Diplomacy Rider: each other player who still holds a fleet-pool command token places one in
+/// `system`; a seat that spent them all cannot comply.
+fn place_diplomacy_rider_tokens(
+    state: &mut GameState,
+    player: &PlayerId,
+    system: &ti4_model::id::SystemId,
+) {
+    let mut holders: Vec<ti4_model::id::PlayerId> = Vec::new();
+    for other in state.seating_order.iter().filter(|other| *other != player) {
+        if state
+            .player(other)
+            .is_some_and(|seat| seat.tokens(ti4_model::state::TokenPool::Fleet) > 0)
+        {
+            holders.push((*other).clone());
+        }
+    }
+    for other in holders {
+        if let Some(seat) = state.player_mut(&other) {
+            seat.spend_token(ti4_model::state::TokenPool::Fleet);
+        }
+        if state
+            .system_mut(system)
+            .command_tokens
+            .insert(other.clone())
+        {
+            crate::tokens::stage_command_token_placed(
+                state,
+                &other,
+                system,
+                crate::factions::hooks_cards::TokenPool::Fleet,
+            );
+        }
+    }
+}
+
 /// The payoff a correct rider owes, from the vote-close, which carries only the state.
 ///
 /// A reward the card's text forces to a single answer (one controlled planet, one system of
@@ -2455,10 +2674,21 @@ fn diplomatic_pressure(context: &mut crate::timing::TimingContext<'_>, player: &
 #[allow(clippy::too_many_lines)] // one arm per rider: a table, not a story
 fn rider_payoff(
     state: &mut GameState,
-    table: Option<(&ContentStore, &mut Table)>,
+    mut table: Option<(&ContentStore, &mut Table)>,
+    asking: Option<(SourceSet, Option<&Galaxy>)>,
     player: &PlayerId,
     card: Option<&str>,
 ) {
+    // Rules version 10 (`RULES_TECH_RIDER`): with a table and the game's sources in hand, the
+    // rewards that need a decision (Technology Rider's research, the placement riders' choice
+    // of planet or system) are asked instead of recorded or skipped.
+    if state.rules_version >= ti4_model::state::RULES_TECH_RIDER
+        && let (Some(card), Some((sources, galaxy)), Some((content, table))) =
+            (card, asking, table.as_mut())
+        && asked_rider_payoff(state, content, sources, galaxy, table, player, card)
+    {
+        return;
+    }
     match card {
         Some("lead_rider") => {
             // "gain 3 command tokens" is a supply of reinforcements, not a placement: the
@@ -2632,7 +2862,7 @@ fn rider_payoff(
 /// Rider's research, Sanction's token returns) is likewise recorded but not performed at this
 /// call site, which has none of the three.
 pub fn resolve_predictions(state: &mut GameState, outcome: &str) -> Vec<PlayerId> {
-    resolve_predictions_inner(state, None, outcome)
+    resolve_predictions_inner(state, None, None, outcome)
 }
 
 /// [`resolve_predictions`] with the game's content and table, so a payoff that draws action
@@ -2643,12 +2873,32 @@ pub fn resolve_predictions_with(
     table: &mut Table,
     outcome: &str,
 ) -> Vec<PlayerId> {
-    resolve_predictions_inner(state, Some((content, table)), outcome)
+    resolve_predictions_inner(state, Some((content, table)), None, outcome)
+}
+
+/// [`resolve_predictions_with`] that can also ask the questions a correct rider's reward needs
+/// (rules version 9, RULES_TECH_RIDER): Technology Rider's free research, and the planet or system of the
+/// Construction, Diplomacy and Warfare Riders when there is more than one.
+pub fn resolve_predictions_asking(
+    state: &mut GameState,
+    content: &ContentStore,
+    sources: SourceSet,
+    galaxy: Option<&Galaxy>,
+    table: &mut Table,
+    outcome: &str,
+) -> Vec<PlayerId> {
+    resolve_predictions_inner(
+        state,
+        Some((content, table)),
+        Some((sources, galaxy)),
+        outcome,
+    )
 }
 
 fn resolve_predictions_inner(
     state: &mut GameState,
     mut table: Option<(&ContentStore, &mut Table)>,
+    asking: Option<(SourceSet, Option<&Galaxy>)>,
     outcome: &str,
 ) -> Vec<PlayerId> {
     let predictions = std::mem::take(&mut state.agenda_predictions);
@@ -2664,7 +2914,7 @@ fn resolve_predictions_inner(
         let held = table
             .as_mut()
             .map(|(content, table)| (*content, &mut **table));
-        rider_payoff(state, held, &player, card);
+        rider_payoff(state, held, asking, &player, card);
 
         paid.push(player);
     }
@@ -7774,6 +8024,134 @@ mod tests {
             b_before + 5,
         );
         assert!(state.agenda_predictions.is_empty(), "all spent");
+    }
+
+    fn first_option_table() -> Table {
+        Table::with_default(Box::new(crate::choice::FirstOption))
+    }
+
+    /// Feedback fb_1792235794_f7d819ff: a correct Technology Rider only recorded its prediction.
+    #[test]
+    fn a_correct_technology_rider_researches_a_technology() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        assert_eq!(state.rules_version, ti4_model::state::RULES_TECH_RIDER);
+        state
+            .agenda_predictions
+            .insert(player.clone(), "FOR|tech_rider".to_owned());
+        let before = state.player(&player).unwrap().technologies.len();
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(decider));
+
+        let paid = resolve_predictions_asking(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            "FOR",
+        );
+
+        assert_eq!(paid, [player.clone()]);
+        assert_eq!(
+            state.player(&player).unwrap().technologies.len(),
+            before + 1,
+            "one technology researched, free"
+        );
+        let asked = seen.borrow();
+        assert_eq!(asked.len(), 1, "one research question");
+        assert_eq!(
+            asked[0].context.as_ref().map(|c| c.subtype.as_str()),
+            Some("research_technology"),
+            "the question the technology dialog answers"
+        );
+    }
+
+    #[test]
+    fn a_wrong_technology_rider_prediction_researches_nothing() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state
+            .agenda_predictions
+            .insert(player.clone(), "AGAINST|tech_rider".to_owned());
+        let before = state.player(&player).unwrap().technologies.len();
+        let mut table = first_option_table();
+        resolve_predictions_asking(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            "FOR",
+        );
+        assert_eq!(state.player(&player).unwrap().technologies.len(), before);
+    }
+
+    #[test]
+    fn a_technology_rider_of_an_older_game_still_researches_nothing() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        state.rules_version = ti4_model::state::RULES_TECH_RIDER - 1;
+        state
+            .agenda_predictions
+            .insert(player.clone(), "FOR|tech_rider".to_owned());
+        let before = state.player(&player).unwrap().technologies.len();
+        let mut table = first_option_table();
+        resolve_predictions_asking(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            "FOR",
+        );
+        assert_eq!(
+            state.player(&player).unwrap().technologies.len(),
+            before,
+            "legacy: recorded, not performed (the log has no research question to replay)"
+        );
+    }
+
+    #[test]
+    fn a_warfare_rider_asks_for_the_system_when_several_hold_ships() {
+        let player = PlayerId::new("a");
+        let mut state = crate::fixtures::game(&["a", "b"]);
+        let systems = crate::fixtures::plain_systems(2);
+        for system in &systems {
+            crate::fixtures::put(
+                &mut state,
+                &ti4_model::id::SystemId::new(system),
+                "destroyer",
+                &player,
+                1,
+            );
+        }
+        state
+            .agenda_predictions
+            .insert(player.clone(), "FOR|war_rider".to_owned());
+        let (decider, seen) = crate::choice::Capturing::new(Box::new(crate::choice::FirstOption));
+        let mut table = Table::with_default(Box::new(decider));
+        resolve_predictions_asking(
+            &mut state,
+            ContentStore::embedded(),
+            POK,
+            None,
+            &mut table,
+            "FOR",
+        );
+        assert_eq!(seen.borrow().len(), 1, "the system is asked, not guessed");
+        let dreadnoughts: usize = state
+            .board
+            .values()
+            .map(|board| {
+                board
+                    .units
+                    .iter()
+                    .filter(|unit| unit.type_id.as_str() == "dreadnought")
+                    .count()
+            })
+            .sum();
+        assert_eq!(dreadnoughts, 1);
     }
 
     #[test]

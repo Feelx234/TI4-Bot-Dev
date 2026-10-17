@@ -804,6 +804,12 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "action_cards.rs",
+        function: "pick_rider_target",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
+        module: "action_cards.rs",
         function: "predicted_outcome",
         count: 1,
         delivery: Delivery::ObservedHere,
@@ -1624,6 +1630,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("action_cards.rs", "pick_detailed", 1),
     // BF-00b: placement from reinforcements by a faction effect; asks its own choice.
     ("action_cards.rs", "place_units_choosing", 1),
+    ("action_cards.rs", "pick_rider_target", 1),
     ("action_cards.rs", "predicted_outcome", 1),
     ("action_cards.rs", "public_disgrace", 1),
     ("action_cards.rs", "reparations", 2),
