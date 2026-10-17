@@ -1090,7 +1090,9 @@ fn ballot_for(
         if infl <= 0.0 {
             continue;
         }
+        // The rival's own valuation, else what the old fixed table would vote (the other bots).
         let pref = preferred(agenda, &refs, seen, r)
+            .or_else(|| crate::answers::old_preference(agenda, &refs, seen, r))
             .and_then(|o| outcomes.iter().position(|x| *x == o));
         match pref {
             Some(o) => {
@@ -1504,7 +1506,7 @@ fn log_vote(
             "value": tuning::agenda_value(), "budget": tuning::agenda_budget(),
         });
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(f, "{line}");
+            let _ = f.write_all(format!("{line}\n").as_bytes());
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -1827,7 +1829,7 @@ fn log_rider(
             "net": chosen.map(|c| c.1),
         });
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
-            let _ = writeln!(f, "{line}");
+            let _ = f.write_all(format!("{line}\n").as_bytes());
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -2012,6 +2014,34 @@ mod tests {
             let _ = plan_vote(&close, &seen(&state), &me, "minister_policy", None);
             let plan = MEMORY.with(|m| m.borrow().plan.clone()).expect("plan");
             assert_eq!(plan.outcome, "b");
+        });
+    }
+
+    #[test]
+    fn mutiny_joins_a_for_side_that_passes_with_one_cheap_planet() {
+        reset();
+        let state = table();
+        let me = PlayerId::new("b");
+        let choice = vote(&me, "mutiny", &[("for", 12.0), ("against", 0.0)]);
+        tuning::with(on(), || {
+            let cast = plan_vote(&choice, &seen(&state), &me, "mutiny", Some("for".to_owned()));
+            assert!(cast.is_some());
+            let plan = MEMORY.with(|m| m.borrow().plan.clone()).expect("plan");
+            assert_eq!(plan.outcome, "for");
+            assert!(plan.target >= 1.0 && plan.target <= 2.0, "{}", plan.target);
+        });
+    }
+
+    #[test]
+    fn mutiny_stays_out_of_a_for_side_that_fails() {
+        reset();
+        let state = table();
+        let me = PlayerId::new("b");
+        let choice = vote(&me, "mutiny", &[("for", 0.0), ("against", 40.0)]);
+        tuning::with(on(), || {
+            let _ = plan_vote(&choice, &seen(&state), &me, "mutiny", Some("for".to_owned()));
+            let plan = MEMORY.with(|m| m.borrow().plan.clone());
+            assert!(plan.is_none() || plan.is_some_and(|p| p.outcome != "for"));
         });
     }
 

@@ -236,6 +236,17 @@ fn preferred_outcome(
     offered(side)
 }
 
+/// The outcome the old fixed table prefers for `who` (what a rule bot of versions 2 to 4 would
+/// vote for), used to forecast the others' votes.
+pub(crate) fn old_preference(
+    agenda: &str,
+    outcomes: &[&str],
+    seen: &Observed<'_>,
+    who: &PlayerId,
+) -> Option<String> {
+    preferred_outcome(agenda, outcomes, seen, who, &AgendaBias::default())
+}
+
 /// What the seat's agenda secrets want on `agenda`: Dictate Policy For on a law that is no
 /// election (backward/agenda.rs). Drive the Debate needs nothing here: the vote rule above already
 /// elects the seat or its planet in every election that does not harm the elected.
