@@ -40,7 +40,7 @@ describe("LocalTransport", () => {
     expect(state.pendingChoice?.nonce).toBe("n1");
     expect(state.gameVersion).toBe(1);
     expect(saves).toHaveLength(1);
-    expect(transport.capabilities).toMatchObject({ turnRedo: false, multiplayer: false, splicePreview: false });
+    expect(transport.capabilities).toMatchObject({ turnRedo: true, multiplayer: false, splicePreview: false });
     expect(transport.nickname).toBe("Tester");
   });
 
@@ -202,6 +202,24 @@ describe("LocalTransport", () => {
     await Promise.all([rewind, byEvent]);
   });
 
+  it("undoes the last turn through the history command and ignores the redo steps of a server", async () => {
+    const { transport, port } = await open();
+    port.onCommand = (_r, id) => ({
+      t: "reply",
+      id,
+      envelope: envelope("command", { resume: -1, restart: { answers: [], redo: [], generation: 1, version: 5 } }),
+    });
+    const undo = transport.turnRedoCommand({ action: "request", turns: 2 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(port.commands("history")[0]).toEqual({ type: "history", action: { undo_turn: { turns: 2 } } });
+    port.emit({ t: "ask", envelope: envelope("ask", { messages: [snapshot(6, "n5", 1)] }), save: save([]) });
+    await undo;
+    expect(transport.getState().history.generation).toBe(1);
+    await transport.turnRedoCommand({ action: "autoplay" });
+    await transport.turnRedoCommand({ action: "restore" });
+    expect(port.commands("history")).toHaveLength(1);
+  });
+
   it("rejects a history change the engine refuses", async () => {
     const { transport, port } = await open();
     port.onCommand = (_r, id) => ({ t: "reply", id, envelope: envelope("command", { messages: [rejected(1)] }) });
@@ -230,7 +248,7 @@ describe("LocalTransport", () => {
     await expect(transport.queryReach("27")).resolves.toEqual({ kind: "reach", systemId: "27", asOfVersion: 1, origins: [] });
     await expect(transport.previewSecondary("c", "p", [])).rejects.toBeInstanceOf(PreviewUnsupportedError);
     await expect(transport.fetchTurnRedoStatus()).resolves.toBeNull();
-    await expect(transport.turnRedoCommand({ command: "keep" } as never)).rejects.toThrow(/not available/);
+    await expect(transport.turnRedoCommand({ action: "keep" })).resolves.toBeUndefined();
     expect((transport as { previewSplice?: unknown }).previewSplice).toBeUndefined();
   });
 

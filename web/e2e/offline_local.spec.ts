@@ -35,8 +35,6 @@ test("plays an offline game with the network blocked and resumes after a refresh
 
   const played = await playUntil(page, gameId, 20);
   expect(played).toBeGreaterThanOrEqual(20);
-  // Hidden offline: turn redo.
-  await expect(page.getByTestId("turn-redo-btn")).toHaveCount(0);
   const record = await storedRecord(page, gameId);
   expect(record?.wasmSha256).toMatch(/^[0-9a-f]{64}$/);
 
@@ -57,6 +55,36 @@ test("plays an offline game with the network blocked and resumes after a refresh
   expect(requests.some((r) => /\.wasm$/.test(r))).toBe(true);
   expect(errors).toEqual([]);
   expect(baseOrigin(page)).toBe(origin);
+});
+
+test("undoes the last turn offline, plays on, and a refresh resumes at the undone position", async ({ page, context, baseURL }) => {
+  await blockServer(context, new URL(baseURL!).origin);
+  const gameId = await startOfflineGame(page, 4);
+  await playUntil(page, gameId, 30);
+  // Play on to the person's own turn menu, so the log holds a turn to take back.
+  for (let i = 0; i < 400 && (await page.getByTestId("turn-action-bar").count()) === 0; i += 1) {
+    await clickOnce(page);
+    await page.waitForTimeout(150);
+  }
+  await expect(page.getByTestId("turn-action-bar")).toBeVisible();
+  const answers = await storedAnswers(page, gameId);
+
+  const minimize = page.getByTestId("minimize-choice-button");
+  if (await minimize.count()) await minimize.first().dispatchEvent("click");
+  await page.getByTestId("event-log-toggle").dispatchEvent("click");
+  const button = page.getByTestId("turn-redo-btn");
+  await expect(button).toHaveText("Undo my last turn");
+  await button.dispatchEvent("click");
+  await expect.poll(() => storedAnswers(page, gameId), { timeout: 60_000 }).toBeLessThan(answers);
+  const undone = await storedAnswers(page, gameId);
+  expect(undone).toBeGreaterThan(0);
+  await expect(page.getByTestId("turn-action-bar")).toBeVisible({ timeout: 60_000 });
+
+  // A refresh replays the shorter save to the same place, and the game goes on from there.
+  await page.reload();
+  await page.waitForSelector('[data-testid="offline-game"]', { timeout: 60_000 });
+  expect(await storedAnswers(page, gameId)).toBe(undone);
+  await playUntil(page, gameId, undone + 5);
 });
 
 test("the map picker: untouched keeps the recommended layout, a pick is stored in the save and survives a resume", async ({

@@ -346,6 +346,63 @@ fn slow_a_rewind_and_a_redo_play_the_game_again_to_the_same_end() {
 }
 
 #[test]
+fn slow_an_undo_of_the_last_turn_goes_back_to_its_start_and_the_game_goes_on_the_same() {
+    let _serial = crate::common::serial();
+    let seed = 8;
+    let reference = page(vec![]);
+    install(&reference, seed, "a");
+    start(&setup(seed, 3), None);
+    let want = decisions_hash();
+
+    // Far enough in for the person to have taken turns: ask to go back over the last one.
+    let undoing = page(vec![
+        Act::Answer(90),
+        Act::Probe(Box::new(|page| {
+            page.script.push_front(Act::Cmd(json!({
+                "type": "history", "action": { "undo_turn": { "turns": 1 } },
+            })));
+        })),
+    ]);
+    install(&undoing, seed, "a");
+    let end = start(&setup(seed, 3), None);
+    assert_eq!(end["end"]["left"], true, "a turn undo ends the run and asks for a new one");
+    let restart = undoing.lock().unwrap().replies.last().unwrap()["restart"].clone();
+    assert_eq!(restart["generation"], 1);
+    let answers = restart["answers"].as_array().unwrap().len();
+    let redo = restart["redo"].as_array().unwrap().len();
+    assert!(answers > 0 && answers < 90, "{answers}");
+    assert!(redo > 0, "what went back is kept for a redo");
+
+    // The new run waits at the start of the turn, and plays on to the same end.
+    let again = page(vec![Act::Probe(Box::new(|page| {
+        let (_, _, choice, _) = pending(&page.messages).unwrap();
+        assert_eq!(choice.prompt, "action phase", "the turn is asked again from its start");
+    }))]);
+    install(&again, seed, "a");
+    let resume = restart.clone();
+    let end = start(&setup(seed, 3), Some(&resume));
+    assert_eq!(end["end"]["finished"], true);
+    assert_eq!(decisions_hash(), want, "the same answers give the same game");
+}
+
+#[test]
+fn a_turn_undo_without_a_turn_is_refused() {
+    let _serial = crate::common::serial();
+    let page = page(vec![
+        Act::Probe(Box::new(|page| {
+            page.script.push_front(Act::Cmd(json!({
+                "type": "history", "action": { "undo_turn": { "turns": 1 } },
+            })));
+        })),
+        Act::Answer(1),
+    ]);
+    install(&page, 8, "a");
+    let _ = start(&setup(8, 3), None);
+    let page = page.lock().unwrap();
+    assert!(page.replies.iter().all(|r| r["restart"].is_null()));
+}
+
+#[test]
 fn slow_queries_and_settings_answer_in_the_servers_shapes() {
     let _serial = crate::common::serial();
     let seed = 4;

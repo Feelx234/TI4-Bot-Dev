@@ -56,6 +56,8 @@ export interface TurnRedoRequestControls {
   /** Host only: the seats whose turn may be redone (the viewer's own seat first). */
   seats?: { id: string; label: string }[];
   viewerSeat?: string | null;
+  /** A game on this device (single player): the bots just play on from the start of the turn. */
+  local?: boolean;
 }
 
 export interface LogNode {
@@ -770,7 +772,11 @@ export const EventLog: React.FC<EventLogProps> = ({
                 className="button button--secondary button--sm"
                 data-testid="turn-redo-btn"
                 disabled={turnRedo.disabled}
-                title="Rewinds the game for everyone to the start of that turn. After the new turn, the recorded decisions that followed replay (same dice, same cards) until that seat's next turn begins. The original timeline is kept and can be restored."
+                title={
+                  turnRedo.local
+                    ? "Takes the game back to the start of your turn so you can play it again. The bots decide again from there; the turn you took back can be redone with Redo."
+                    : "Rewinds the game for everyone to the start of that turn. After the new turn, the recorded decisions that followed replay (same dice, same cards) until that seat's next turn begins. The original timeline is kept and can be restored."
+                }
                 onClick={() =>
                   turnRedo.onRequest({
                     turns: redoTurns,
@@ -779,7 +785,9 @@ export const EventLog: React.FC<EventLogProps> = ({
                   })
                 }
               >
-                {!redoSeat || redoSeat === turnRedo.viewerSeat
+                {turnRedo.local
+                  ? "Undo my last turn"
+                  : !redoSeat || redoSeat === turnRedo.viewerSeat
                   ? "Redo my last turn"
                   : "Redo their last turn"}
               </button>

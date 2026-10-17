@@ -363,6 +363,15 @@ describe("turn redo controls", () => {
     expect(onRequest).toHaveBeenLastCalledWith({ turns: 2, seat: undefined });
   });
 
+  it("reads \"Undo my last turn\" in a game on this device", () => {
+    const onRequest = vi.fn();
+    render(wrap([decision(1)], { turnRedo: { onRequest, disabled: false, viewerSeat: "p1", local: true } }));
+    const button = screen.getByTestId("turn-redo-btn");
+    expect(button.textContent).toBe("Undo my last turn");
+    fireEvent.click(button);
+    expect(onRequest).toHaveBeenLastCalledWith({ turns: 1, seat: undefined });
+  });
+
   it("lets the host pick another seat and says so on the button", () => {
     const onRequest = vi.fn();
     render(

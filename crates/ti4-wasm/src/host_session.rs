@@ -222,6 +222,9 @@ pub enum HistoryAction {
     RedoPipeline,
     RestoreCursor { cursor: usize },
     Restore { event_id: String },
+    /// Go back to the start of the shown seat's last `turns` turns (1 or 2): the turn redo of
+    /// the server, without its auto-play (the bots simply play on from there).
+    UndoTurn { turns: u8 },
 }
 
 /// A batch (a staged movement, production or payment) that answers the person's choices.
@@ -1559,6 +1562,7 @@ impl HostSession {
                 HistoryAction::RestoreCursor { cursor } => {
                     self.restore(cursor, &mut handled);
                 }
+                HistoryAction::UndoTurn { turns } => self.undo_turn(turns, &mut handled),
                 HistoryAction::Restore { event_id } => {
                     let cursor = self
                         .events
@@ -1575,6 +1579,23 @@ impl HostSession {
             },
         }
         handled
+    }
+
+    /// Go back to the start of the last `turns` turns of the seat that the game is shown as. The
+    /// answers from there on are kept for a redo; the bots decide again from the same game, so
+    /// the replay is the one a save of the shorter game gives.
+    fn undo_turn(&mut self, turns: u8, handled: &mut Handled) {
+        let parked = self.pending.is_some() || self.waiting.is_some();
+        if !(parked || self.finished) {
+            self.reject(RejectionReason::NoPendingChoice);
+            return;
+        }
+        match ti4_host::history::turn_redo::redo_window(&self.decision_log, &self.viewer, turns) {
+            Ok(window) => self.restore(window.start, handled),
+            Err(error) => self.reject(RejectionReason::ValidationFailed {
+                message: error.to_string(),
+            }),
+        }
     }
 
     /// Go back to the position after `cursor` decisions: the person's answers among them are
