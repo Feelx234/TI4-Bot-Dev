@@ -1606,7 +1606,8 @@ fn rider_benefit(ctx: &Ctx<'_>, alias: &str) -> f64 {
         "imp_rider" => vp_gain(me.vp, 1),
         "lead_rider" => 3.0 * CT,
         "politic_rider" => 3.0 * AC + 2.0,
-        "tech_rider" => TECH,
+        // The engine records a correct Technology Rider but does not perform its research.
+        "tech_rider" => 0.0,
         "trade_rider" => 5.0 * TG,
         "war_rider" => {
             if me.units.iter().any(|u| u.ship) { 4.0 } else { 0.0 }
@@ -1684,7 +1685,7 @@ fn rider_view(seen: &Observed<'_>, me: &PlayerId, agenda: &str) -> Option<RiderV
         outcomes,
         p_without: p0,
         vote_cost,
-        freed: 0.2 * influence,
+        freed: if tuning::agenda_budget() { 0.2 * influence } else { 0.0 },
     })
 }
 
@@ -1746,8 +1747,12 @@ pub fn rider_pick(
                                 .and_then(serde_json::Value::as_array)
                                 .is_some_and(|names| names.iter().any(|n| n.as_str().is_some_and(|n| n.ends_with("Rider")))))
                 });
-                if slot.is_some() {
-                    mark_rider(me, context.round, &agenda);
+                if let Some(index) = slot {
+                    // One card in the slot: it is played now. Several: the card question follows
+                    // and marks the play.
+                    if !rider_aliases(&choice.options[index]).is_empty() {
+                        mark_rider(me, context.round, &agenda);
+                    }
                     return slot;
                 }
             }
@@ -2090,6 +2095,30 @@ mod tests {
             let held = vec!["imp_rider".to_owned()];
             assert!(
                 rider_decision(&seen(&state), &PlayerId::new("b"), "prophecy", 4, &held).is_none()
+            );
+        });
+    }
+
+    #[test]
+    fn a_rider_is_played_on_a_predictable_agenda_the_seat_does_not_care_about() {
+        reset();
+        let state = table();
+        tuning::with(on(), || {
+            let held = vec!["imp_rider".to_owned(), "tech_rider".to_owned()];
+            // Incentive Program: every other bot votes For, and the seat has no stake.
+            let me = PlayerId::new("b");
+            assert_eq!(
+                rider_decision(&seen(&state), &me, "incentive", 4, &held).as_deref(),
+                Some("imp_rider")
+            );
+            // The same card is not played twice on one agenda, and the Technology Rider is worth
+            // nothing in this engine.
+            mark_rider(&me, 4, "incentive");
+            assert!(rider_decision(&seen(&state), &me, "incentive", 4, &held).is_none());
+            reset();
+            assert!(
+                rider_decision(&seen(&state), &me, "incentive", 4, &["tech_rider".to_owned()])
+                    .is_none()
             );
         });
     }
