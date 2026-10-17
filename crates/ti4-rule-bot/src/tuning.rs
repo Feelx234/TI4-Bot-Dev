@@ -152,6 +152,7 @@ tuning! {
     agenda_rival_share: f64 = 0.6, "v5 candidate: chance that a rival without an opinion votes against the seat";
     agenda_second_prior: f64 = 2.0, "v5 candidate: assumed stake of an unknown second agenda, in value points (agenda_budget)";
     rider_min_p: f64 = 0.7, "v5 candidate: least probability that the predicted outcome wins for a rider to be played (agenda_riders)";
+    land_all: bool = false, "v5 (off in v1-v4): the landing step commits every ground force aboard to a planet of the system (never leaves them in space)";
 }
 
 /// The rule bot's behaviour version that new games play. Version 1 is the bot before the
@@ -308,6 +309,7 @@ fn v1() -> Tuning {
         agenda_rival_share: 0.6,
         agenda_second_prior: 2.0,
         rider_min_p: 0.7,
+        land_all: false,
     }
 }
 

@@ -2530,7 +2530,50 @@ fn pick_commit(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<us
             best = Some((index, worth));
         }
     }
+    if best.is_none() && tuning::land_all() {
+        return Some(land_leftover(choice, seen, me, &system).unwrap_or(done));
+    }
     Some(best.map_or(done, |(index, _)| index))
+}
+
+/// Knob [`tuning::land_all`]: the ground forces that [`pick_commit`]'s winning-force logic leaves
+/// aboard land anyway, on a planet that cannot cost them a fight: one the seat holds or already
+/// has troops on, else one without defending ground forces. The worthier planet first, a planet
+/// not yet held slightly ahead. `None` when every planet is defended (the troops stay aboard).
+fn land_leftover(
+    choice: &Choice,
+    seen: &Observed<'_>,
+    me: &PlayerId,
+    system: &SystemId,
+) -> Option<usize> {
+    let board = seen.system(system);
+    let mut best: Option<(usize, f64)> = None;
+    for (index, option) in choice.options.iter().enumerate() {
+        if option.kind != "commit" {
+            continue;
+        }
+        let Some(planet) = payload_str(option, "planet") else {
+            continue;
+        };
+        let planet = PlanetId::new(planet);
+        let units = board.planet_units.get(&planet).into_iter().flatten();
+        let mine = units
+            .clone()
+            .filter(|u| &u.owner == me && is_ground(seen, u))
+            .count();
+        let defended = units
+            .clone()
+            .any(|u| &u.owner != me && is_ground(seen, u));
+        let held = board.planet_control.get(&planet) == Some(me);
+        if defended && mine == 0 && !held {
+            continue;
+        }
+        let worth = planet_worth(seen, planet.as_str()) + if held { 0.0 } else { 0.25 };
+        if best.is_none_or(|(_, b)| worth > b) {
+            best = Some((index, worth));
+        }
+    }
+    best.map(|(index, _)| index)
 }
 
 /// Retreat when clearly losing the space combat, else stay.
@@ -3756,6 +3799,45 @@ mod tests {
             Some(2),
             "covered"
         );
+    }
+
+    #[test]
+    fn land_all_lands_what_the_winning_force_leaves_aboard() {
+        let (mut state, hub, centre, planet) = board();
+        state.active_system = Some(centre.clone());
+        // Held and undefended: the old logic leaves the troops aboard, the knob lands them.
+        state
+            .system_mut(&centre)
+            .planet_control
+            .insert(planet.clone(), me());
+        let seen = observe(&state, &hub);
+        let choice = commit_choice(&planet, 2);
+        assert_eq!(pick_commit(&choice, &seen, &me()), Some(2), "left aboard");
+        let mut on = tuning::Tuning::default();
+        on.land_all = true;
+        tuning::with(on, || {
+            assert_eq!(pick_commit(&choice, &seen, &me()), Some(0), "landed");
+        });
+
+        // Covered against two defenders: the surplus lands on the planet it is winning.
+        let mut state = state;
+        put_on_planet(&mut state, &centre, &planet, "infantry", &foe(), 2);
+        put_on_planet(&mut state, &centre, &planet, "infantry", &me(), 3);
+        let seen = observe(&state, &hub);
+        assert_eq!(pick_commit(&choice, &seen, &me()), Some(2));
+        tuning::with(on, || {
+            assert_eq!(pick_commit(&choice, &seen, &me()), Some(0));
+        });
+
+        // A defended planet without any own troops (hopeless) stays untouched.
+        let (mut state, hub, centre, planet) = board();
+        state.active_system = Some(centre.clone());
+        put_on_planet(&mut state, &centre, &planet, "infantry", &foe(), 5);
+        let seen = observe(&state, &hub);
+        let choice = commit_choice(&planet, 2);
+        tuning::with(on, || {
+            assert_eq!(pick_commit(&choice, &seen, &me()), Some(2));
+        });
     }
 
     #[test]
