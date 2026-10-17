@@ -2,7 +2,7 @@
 
 Branch `bot-agenda-voting` (from `release-2026-10-16`). Bot-only work: every new behaviour sits behind new
 knobs in `crates/ti4-rule-bot/src/tuning.rs` that are **off in bot versions 1 to 4**; adopting them would be a
-version 5 decision. Code: `crates/ti4-rule-bot/src/agenda_vote.rs` (valuation, vote budget, riders), hooks in
+version 5 decision (decided: all three knobs are in the v5 staging table, see the Knobs section). Code: `crates/ti4-rule-bot/src/agenda_vote.rs` (valuation, vote budget, riders), hooks in
 `answers.rs`.
 
 ## 1. What the bot did before
@@ -944,7 +944,13 @@ without a vote.
 | `agenda_second_prior` | 2.0 | assumed stake of an unknown second agenda |
 | `rider_min_p` | 0.7 | least probability of the predicted outcome for a rider |
 
-### Recommendation for a version 5
+### Decision for a version 5
+
+Felix decided to enable all three knobs (`agenda_value`, `agenda_budget`, `agenda_riders`) in the v5 staging table
+(`tuning::v5()`, selectable as `bot_version=5`). They stay off in bots 1 to 4 and `BOT_VERSION` stays 4. The
+recommendation below, written before that decision, advised leaving `agenda_riders` off; the risk it names is accepted.
+
+### Recommendation for a version 5 (earlier analysis)
 
 Adopt `agenda_value` together with `agenda_budget`: win share +3.8 pp on the Muaat table and +2.4 pp on the other,
 agenda VP significantly positive in both, no effect on six players, no loss anywhere, and a cheap decision (the cost per

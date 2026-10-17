@@ -183,13 +183,17 @@ pub fn for_version(version: u32) -> Tuning {
 
 /// Version 5, the **staging table for the next bot release**: version 4 plus the knobs decided
 /// for it so far. Nothing ships from it yet ([`BOT_VERSION`] stays 4). Members: `land_all` (the
-/// landing step commits every ground force aboard). Other candidate knobs are NOT in it yet,
-/// pending decisions: `mecatol_guard` and `mecatol_imperial_priority` (branch fb-muaat-warsun),
-/// the agenda-voting knobs (branch bot-agenda-voting).
+/// landing step commits every ground force aboard) and the three agenda-voting knobs
+/// `agenda_value`, `agenda_budget`, `agenda_riders` (docs/BOT_AGENDA_VOTING.md). Other candidate
+/// knobs are NOT in it yet, pending decisions: `mecatol_guard` and `mecatol_imperial_priority`
+/// (branch fb-muaat-warsun).
 #[must_use]
 pub fn v5() -> Tuning {
     Tuning {
         land_all: true,
+        agenda_value: true,
+        agenda_budget: true,
+        agenda_riders: true,
         ..Tuning::default()
     }
 }
@@ -395,9 +399,18 @@ mod tests {
         let v4 = for_version(4);
         assert_eq!(v4, Tuning::default());
         assert!(!v4.land_all && for_version(5).land_all);
+        assert!(!v4.agenda_value && !v4.agenda_budget && !v4.agenda_riders);
+        assert!(
+            for_version(5).agenda_value
+                && for_version(5).agenda_budget
+                && for_version(5).agenda_riders
+        );
         assert_eq!(
             Tuning {
                 land_all: false,
+                agenda_value: false,
+                agenda_budget: false,
+                agenda_riders: false,
                 ..for_version(5)
             },
             v4

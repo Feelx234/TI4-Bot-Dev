@@ -150,9 +150,9 @@ Set with `--bot key=val,key=val` / `--bot-config file.json` (`{"win_margin": 0.7
 matrix, or `--candidate`. `bot_version=1` sets every number of that version (`tuning::for_version`), so
 `compare --baseline bot_version=1 --candidate win_margin=0.5` plays the current bot against version 1.
 `bot_version=5` is the **staging table for the next bot release** (`tuning::v5()` = version 4 plus the decided knobs; `BOT_VERSION`, what new
-games play, stays 4 until Felix decides). Its only member so far is `land_all` (the landing step commits every ground force aboard; A/B on 4pBgaBalancedD,
-1200 seat-games: neutral, win share +0.04 pp [-1.4, +1.5]). Other candidate knobs are not in it yet, pending decisions: `mecatol_guard` and
-`mecatol_imperial_priority` (branch fb-muaat-warsun), the agenda-voting knobs (branch bot-agenda-voting). A save with `bot_version` 5 resumes
+games play, stays 4 until Felix decides). Its members so far are `land_all` (the landing step commits every ground force aboard; A/B on 4pBgaBalancedD,
+1200 seat-games: neutral, win share +0.04 pp [-1.4, +1.5]) and the three agenda-voting knobs `agenda_value`, `agenda_budget`, `agenda_riders` (docs/BOT_AGENDA_VOTING.md; enabled by Felix's decision). Other candidate knobs are not in it yet, pending decisions: `mecatol_guard` and
+`mecatol_imperial_priority` (branch fb-muaat-warsun). A save with `bot_version` 5 resumes
 (`bot_version_check` covers it). Overrides are per thread (`tuning::set`, `tuning::with`), so a baseline
 and a candidate play in one process, even in one game. The server and the browser never set
 them: the defaults are the shipped bot, byte for byte (60 saved nightly games replay to the
