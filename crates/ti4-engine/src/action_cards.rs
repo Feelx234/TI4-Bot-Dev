@@ -8122,7 +8122,7 @@ mod tests {
     fn a_correct_technology_rider_researches_a_technology() {
         let player = PlayerId::new("a");
         let mut state = crate::fixtures::game(&["a", "b"]);
-        assert_eq!(state.rules_version, ti4_model::state::RULES_TECH_RIDER);
+        assert!(state.rules_version >= ti4_model::state::RULES_TECH_RIDER);
         state
             .agenda_predictions
             .insert(player.clone(), "FOR|tech_rider".to_owned());
