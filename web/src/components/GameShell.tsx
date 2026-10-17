@@ -178,6 +178,8 @@ export interface TurnRedoShellProps {
   /** Host only: the seats whose turn may be redone. */
   seats?: TurnRedoRequestControls["seats"];
   viewerSeat?: string | null;
+  /** A game on this device: the button reads "Undo my last turn". */
+  local?: boolean;
 }
 
 export interface TurnInfo {
@@ -1519,6 +1521,7 @@ export const GameShell: React.FC<GameShellProps> = ({
                   disabled: turnRedo.busy !== null || turnRedo.status !== null,
                   seats: turnRedo.seats,
                   viewerSeat: turnRedo.viewerSeat,
+                  local: turnRedo.local,
                 }
               : undefined
           }

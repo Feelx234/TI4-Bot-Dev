@@ -925,8 +925,9 @@ const GameViewContainer: React.FC<{
                 onRestore: turnRedo.restore,
                 onKeep: turnRedo.keep,
                 viewerSeat: userSeat,
+                local: !multiplayerOn,
                 seats:
-                  userSeat === lobby.host_player_id && snapshot
+                  multiplayerOn && userSeat === lobby.host_player_id && snapshot
                     ? [userSeat, ...snapshot.view.seating_order.filter((id) => id !== userSeat)].map(
                         (id) => ({
                           id,
