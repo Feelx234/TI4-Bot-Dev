@@ -606,6 +606,7 @@ impl Recorder {
             "map": self.facts, "snaps": self.snaps, "vp_events": self.vp_events,
             "acts": self.acts, "home_hits": self.home_hits, "eligible": self.missed,
             "cards": self.cards, "losses": self.losses,
+            "agendas": serde_json::to_value(&st.agenda_log).unwrap_or_default(),
             "secrets_unscored": st.players.iter().map(|p| p.secret_objectives.len()).collect::<Vec<_>>(),
         })
     }

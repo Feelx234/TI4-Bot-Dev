@@ -43,7 +43,7 @@ pub fn pick_with(
         "politics_choose_speaker" if tuning::vote_rule() => {
             own_seat_option(choice, me).or_else(|| weakest_seat_option(choice, seen))
         }
-        "politics_place_agenda" if tuning::vote_rule() => place_agenda(choice),
+        "politics_place_agenda" if tuning::vote_rule() => place_agenda(choice, seen, me),
         "sustain_damage" if tuning::casualty_rule() => sustain(choice, seen),
         "assign_casualty" if tuning::casualty_rule() => casualty(choice, seen),
         "ready_planet" if tuning::misc_rule() => ready_best_planet(choice, seen),
@@ -275,7 +275,26 @@ fn cast_vote(
 ) -> Option<usize> {
     let agenda = agenda_of(choice)?;
     let outcomes = outcome_ids(choice);
-    if let Some(want) = preferred_outcome(agenda, &outcomes, seen, me, bias) {
+    let old = preferred_outcome(agenda, &outcomes, seen, me, bias);
+    let tiebreak = choice
+        .context
+        .as_ref()
+        .is_some_and(|c| c.subtype == "vote_tiebreak");
+    // The agenda secrets' bias (Dictate Policy) is honoured as before.
+    let biased = secret_outcome(agenda, &outcomes, seen, me, bias).is_some();
+    if !biased && !tiebreak {
+        if let Some(cast) = crate::agenda_vote::plan_vote(choice, seen, me, agenda, old.clone()) {
+            return Some(cast.index);
+        }
+    }
+    if tiebreak
+        && tuning::agenda_value()
+        && let Some(verdict) = crate::agenda_vote::evaluate(agenda, &outcomes, seen, me)
+        && let Some((best, _)) = verdict.best()
+    {
+        return choice.options.iter().position(|o| o.id == best);
+    }
+    if let Some(want) = old {
         return choice.options.iter().position(|o| o.id == want);
     }
     choice.options.iter().position(ChoiceOption::is_decline)
@@ -306,6 +325,15 @@ fn exhaust_for_vote(
         .trim()
         .to_owned();
     let agenda = agenda_of(choice)?;
+    if tuning::agenda_value() || tuning::agenda_budget() {
+        if let Some(index) = crate::agenda_vote::pick_planet(choice, me, &outcome) {
+            return Some(index);
+        }
+        if crate::agenda_vote::has_plan(me) {
+            // The plan is for another outcome, or its votes are all cast.
+            return choice.options.iter().position(ChoiceOption::is_decline);
+        }
+    }
     // The outcomes are not listed here; the preference only needs the one being voted.
     let outcomes = [outcome.as_str()];
     let wanted = preferred_outcome(agenda, &outcomes, seen, me, bias).is_some_and(|w| w == outcome);
@@ -349,12 +377,26 @@ fn weakest_seat_option(choice: &Choice, seen: &Observed<'_>) -> Option<usize> {
 
 /// Politics' look at the agenda deck: an agenda with an outcome the seat wants goes on top, one
 /// that harms it (an election of a rival for a card, a point for the leader) at the bottom.
-fn place_agenda(choice: &Choice) -> Option<usize> {
+fn place_agenda(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<usize> {
     let agenda = agenda_of(choice)?;
-    let good = GOOD_FOR_ELECTED.contains(&agenda)
+    let mut good = GOOD_FOR_ELECTED.contains(&agenda)
         || GOOD_PLANET.contains(&agenda)
         || matches!(agenda, "mutiny" | "unconventional" | "incentive");
+    if tuning::agenda_value() {
+        // The valuation of the card: on top when the best outcome is worth something to the seat.
+        let outcomes = crate::agenda_vote::outcomes_for(seen, agenda);
+        let refs: Vec<&str> = outcomes.iter().map(String::as_str).collect();
+        if let Some(verdict) = crate::agenda_vote::evaluate(agenda, &refs, seen, me)
+            && let Some((best, _)) = verdict.best()
+        {
+            good = verdict.score_of(best) >= tuning::agenda_min_margin();
+        }
+    }
     let id = if good { "top" } else { "bottom" };
+    if tuning::agenda_budget() {
+        let round = choice.context.as_ref().map_or(seen.round(), |c| c.round);
+        crate::agenda_vote::note_placement(me, round, agenda, good);
+    }
     choice.options.iter().position(|o| o.id == id)
 }
 
