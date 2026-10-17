@@ -1091,9 +1091,15 @@ fn ballot_for(
             continue;
         }
         // The rival's own valuation, else what the old fixed table would vote (the other bots).
-        let pref = preferred(agenda, &refs, seen, r)
-            .or_else(|| crate::answers::old_preference(agenda, &refs, seen, r))
-            .and_then(|o| outcomes.iter().position(|x| *x == o));
+        // On the agendas that reward the voters the valuation of a bystander is misleading (it
+        // sees only the rivals' gain), so the other bots are forecast by the old table.
+        let pref = if is_voter_conditional(agenda) {
+            crate::answers::old_preference(agenda, &refs, seen, r)
+        } else {
+            preferred(agenda, &refs, seen, r)
+                .or_else(|| crate::answers::old_preference(agenda, &refs, seen, r))
+        }
+        .and_then(|o| outcomes.iter().position(|x| *x == o));
         match pref {
             Some(o) => {
                 forecast[o] += 0.8 * infl;
@@ -1348,13 +1354,18 @@ pub fn plan_vote(
     };
     // Unconditional preference: margin of the best over the rest.
     let margin = if value { verdict.best()?.1 } else { old.as_ref().map(|_| 3.0)? };
+    let ballot = ballot_for(agenda, &outcomes, &tally, &after, seen, me);
+    // The chance the old table's outcome would win with every planet (for the experiment log).
+    let p_old = old
+        .as_ref()
+        .and_then(|o| outcomes.iter().position(|x| x == o))
+        .map(|k| ballot.probabilities(Some(k), available as f64)[k]);
     if !conditional_agenda && margin < tuning::agenda_min_margin() {
         // No opinion: abstain and keep every planet.
-        log_vote(seen, me, agenda, round, second, &old, None, 0, available, margin, None);
+        log_vote(seen, me, agenda, round, second, &old, None, 0, available, margin, None, p_old);
         return abstain.map(|index| Cast { index });
     }
 
-    let ballot = ballot_for(agenda, &outcomes, &tally, &after, seen, me);
     let lambda = if budget && !second {
         let stake2 = {
             let next = expected_top(me, round);
@@ -1424,7 +1435,7 @@ pub fn plan_vote(
         }
     }
     let Some(x) = best_choice.1 else {
-        log_vote(seen, me, agenda, round, second, &old, None, 0, available, margin, None);
+        log_vote(seen, me, agenda, round, second, &old, None, 0, available, margin, None, p_old);
         return abstain.map(|index| Cast { index });
     };
     // Never cast more than needed for the same probability: the smallest level within 1% of EV.
@@ -1459,7 +1470,7 @@ pub fn plan_vote(
     }
     store_plan(me, &outcomes[x], v as f64);
     let p_new = ballot.probabilities(Some(x), v as f64)[x];
-    log_vote(seen, me, agenda, round, second, &old, Some(&outcomes[x]), v, available, margin, Some(p_new));
+    log_vote(seen, me, agenda, round, second, &old, Some(&outcomes[x]), v, available, margin, Some(p_new), p_old);
     choice
         .options
         .iter()
@@ -1491,6 +1502,7 @@ fn log_vote(
     available: i64,
     margin: f64,
     p_win: Option<f64>,
+    p_old: Option<f64>,
 ) {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -1502,7 +1514,7 @@ fn log_vote(
         let line = serde_json::json!({
             "k": "vote", "agenda": agenda, "round": round, "seat": me.as_str(), "faction": faction,
             "second": second, "old": old, "new": chosen, "votes": votes, "available": available,
-            "margin": margin, "p_win": p_win,
+            "margin": margin, "p_win": p_win, "p_old": p_old,
             "value": tuning::agenda_value(), "budget": tuning::agenda_budget(),
         });
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
@@ -1510,7 +1522,7 @@ fn log_vote(
         }
     }
     #[cfg(target_arch = "wasm32")]
-    let _ = (seen, me, agenda, round, second, old, chosen, votes, available, margin, p_win);
+    let _ = (seen, me, agenda, round, second, old, chosen, votes, available, margin, p_win, p_old);
 }
 
 fn store_plan(me: &PlayerId, outcome: &str, target: f64) {
@@ -1594,7 +1606,8 @@ fn rider_benefit(ctx: &Ctx<'_>, alias: &str) -> f64 {
         "imp_rider" => vp_gain(me.vp, 1),
         "lead_rider" => 3.0 * CT,
         "politic_rider" => 3.0 * AC + 2.0,
-        "tech_rider" => TECH,
+        // The engine records a correct Technology Rider but does not perform its research.
+        "tech_rider" => 0.0,
         "trade_rider" => 5.0 * TG,
         "war_rider" => {
             if me.units.iter().any(|u| u.ship) { 4.0 } else { 0.0 }
@@ -1672,7 +1685,7 @@ fn rider_view(seen: &Observed<'_>, me: &PlayerId, agenda: &str) -> Option<RiderV
         outcomes,
         p_without: p0,
         vote_cost,
-        freed: 0.2 * influence,
+        freed: if tuning::agenda_budget() { 0.2 * influence } else { 0.0 },
     })
 }
 
@@ -1734,8 +1747,12 @@ pub fn rider_pick(
                                 .and_then(serde_json::Value::as_array)
                                 .is_some_and(|names| names.iter().any(|n| n.as_str().is_some_and(|n| n.ends_with("Rider")))))
                 });
-                if slot.is_some() {
-                    mark_rider(me, context.round, &agenda);
+                if let Some(index) = slot {
+                    // One card in the slot: it is played now. Several: the card question follows
+                    // and marks the play.
+                    if !rider_aliases(&choice.options[index]).is_empty() {
+                        mark_rider(me, context.round, &agenda);
+                    }
                     return slot;
                 }
             }
@@ -2078,6 +2095,30 @@ mod tests {
             let held = vec!["imp_rider".to_owned()];
             assert!(
                 rider_decision(&seen(&state), &PlayerId::new("b"), "prophecy", 4, &held).is_none()
+            );
+        });
+    }
+
+    #[test]
+    fn a_rider_is_played_on_a_predictable_agenda_the_seat_does_not_care_about() {
+        reset();
+        let state = table();
+        tuning::with(on(), || {
+            let held = vec!["imp_rider".to_owned(), "tech_rider".to_owned()];
+            // Incentive Program: every other bot votes For, and the seat has no stake.
+            let me = PlayerId::new("b");
+            assert_eq!(
+                rider_decision(&seen(&state), &me, "incentive", 4, &held).as_deref(),
+                Some("imp_rider")
+            );
+            // The same card is not played twice on one agenda, and the Technology Rider is worth
+            // nothing in this engine.
+            mark_rider(&me, 4, "incentive");
+            assert!(rider_decision(&seen(&state), &me, "incentive", 4, &held).is_none());
+            reset();
+            assert!(
+                rider_decision(&seen(&state), &me, "incentive", 4, &["tech_rider".to_owned()])
+                    .is_none()
             );
         });
     }
