@@ -177,6 +177,9 @@ const STEER_WEIGHTS: [RegExp, number][] = [
   // Munitions Reserves (Letnev) spends 2 trade goods per reroll, which a raider needs for the
   // custodians.
   [/reroll this round's misses/i, 0.1],
+  // After the roll (rules version 2): the same price, the question now names the dice.
+  [/reroll all \d+ missed dice/i, 0.1],
+  [/choose which dice/i, 0.05],
   [/(^|\| )leave it\b/i, 0.05],
   // Carry ground forces along: a carrier that moves empty can never invade, and the batch
   // declines an unplanned cargo hold, so the infantry stays behind (27.2a then forbids the

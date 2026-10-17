@@ -966,6 +966,13 @@ const PRODUCERS: &[Producer] = &[
         delivery: Delivery::ObservedHere,
     },
     Producer {
+        // Munitions Reserves after the roll (rules version 2), asked with the dice in view.
+        module: "faction_abilities.rs",
+        function: "munitions_roll_offer",
+        count: 1,
+        delivery: Delivery::ObservedHere,
+    },
+    Producer {
         module: "faction_abilities.rs",
         function: "strategy_resolved",
         count: 1,
@@ -1635,6 +1642,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("exploration.rs", "ask_decorated", 1),
     ("exploration.rs", "ask_device_technology", 1),
     ("faction_abilities.rs", "munitions_offer", 1),
+    ("faction_abilities.rs", "munitions_roll_offer", 1),
     ("faction_abilities.rs", "perform_component", 2),
     ("faction_abilities.rs", "production_biomes", 1),
     ("faction_abilities.rs", "strategy_resolved", 1),

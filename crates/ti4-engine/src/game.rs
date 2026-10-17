@@ -13073,6 +13073,7 @@ mod tests {
         let a = PlayerId::new("a");
         let b = PlayerId::new("b");
         state.player_mut(&a).unwrap().faction = ti4_model::id::FactionId::new("letnev");
+        state.rules_version = ti4_model::state::RULES_INFILTRATE_FIX; // legacy: paid at the round start
         state.player_mut(&a).unwrap().trade_goods = 4;
         state.player_mut(&a).unwrap().secret_objectives =
             vec![ti4_model::id::SecretObjectiveId::new("fwp")];

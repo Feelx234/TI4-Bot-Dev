@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 7): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 8): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -99,6 +99,18 @@ Version 7 = Bribery asked once per voter (`fb-bribery-per-player`, `RULES_BRIBER
    Distinguished Councilor) fires once per voter, when they have named their outcome or abstained.
    Version 0/1: after every answer of the vote (the outcome, each planet exhausted, the trade
    goods), so a Bribery holder was asked again after every planet.
+
+Version 8 = Munitions Reserves after the roll (`fb-munitions-timing`, `RULES_MUNITIONS_AFTER_ROLL`):
+
+1. `faction_abilities::space_combat_round_started`: from version 8 it no longer asks Letnev for
+   Munitions Reserves at the round's start (version < 8: asks blind, before any dice, and sets
+   `munitions_round`, after which `combat::reroll_munitions_misses` redraws every miss).
+2. `combat::reroll_window` (fleet rolls only): from version 8 it calls
+   `faction_abilities::munitions_after_roll` once the fleet's dice are staged. The question
+   (`munitions_reserves_reroll`, with `details.dice` and `details.misses`) offers `munitions`
+   (pay 2, re-roll every missed die), `munitions_choose` (pay 2, then one `munitions_reroll_die`
+   question per die) and decline; it is skipped with no miss or fewer than 2 trade goods.
+   Re-rolled dice are recorded under the reason `munitions:<player>`.
 
 ## Adding the next gate
 
