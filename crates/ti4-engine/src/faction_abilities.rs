@@ -128,6 +128,17 @@ pub fn fleet_supply(
     crate::factions::fleet_supply(state, content, player, limit)
 }
 
+/// How many ships Armada adds to the per-system limit for this player (0 without the ability).
+/// Display only: [`fleet_supply`] already includes it in the enforced limit.
+#[must_use]
+pub fn armada_bonus(state: &GameState, content: &ContentStore, player: &PlayerId) -> i32 {
+    if has(state, content, player, "armada") {
+        2
+    } else {
+        0
+    }
+}
+
 /// Command tokens gained in the status phase, adjusted.
 #[must_use]
 pub fn status_tokens(

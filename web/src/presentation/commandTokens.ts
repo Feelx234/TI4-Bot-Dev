@@ -742,3 +742,20 @@ export function purchaseSummary(view: CommandTokenView, state: PurchaseState): P
     atLimit: cost > 0 && Math.floor(influence / cost) > maxPurchases(view),
   };
 }
+
+/** The engine's display-only `fleet_supply` detail: ships counted, the enforced limit, Armada's part of it. */
+export interface FleetSupplyDetail {
+  used: number;
+  limit: number;
+  /** Ships Armada adds, already inside `limit` (Letnev only). */
+  armada: number;
+}
+
+export function readFleetSupply(raw: unknown): FleetSupplyDetail | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const used = asCount(value.used);
+  const limit = asCount(value.limit);
+  if (used === null || limit === null) return null;
+  return { used, limit, armada: asCount(value.armada) ?? 0 };
+}

@@ -2900,6 +2900,11 @@ impl Window for ProductionWindow {
                 if crate::fleet::is_unlimited(state, &self.player) {
                     fleet_supply["unlimited"] = serde_json::Value::Bool(true);
                 }
+                // Letnev's Armada: already inside `limit`; named so a client can mark it.
+                let armada = crate::faction_abilities::armada_bonus(state, content, &self.player);
+                if armada > 0 {
+                    fleet_supply["armada"] = serde_json::json!(armada);
+                }
                 Some(
                     Choice::new(
                         self.player.clone(),

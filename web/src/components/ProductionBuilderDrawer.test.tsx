@@ -645,3 +645,37 @@ describe("ProductionBuilderDrawer", () => {
     expect(screen.getByTestId("trade-good-sources-empty")).toBeInTheDocument();
   });
 });
+
+describe("ProductionBuilderDrawer Armada fleet supply", () => {
+  const open = (fleetSupply: Record<string, unknown>) => {
+    const choice: PendingChoiceDto = {
+      actor: "seat_1",
+      nonce: "armada-build",
+      prompt: "produce a unit",
+      context: partialContext({ subtype: "produce_unit", outstanding: [{ amount: 5, paid: 2 }] }),
+      details: { fleet_supply: fleetSupply },
+      options: [
+        {
+          id: "build|fighter|1",
+          kind: "produce",
+          label: "Fighter",
+          payload: { unit: "fighter", production_spent: 1, cost: 1, available_resources: 8 },
+        },
+      ],
+    };
+    render(
+      <ProductionBuilderDrawer isOpen choice={choice} viewerSeat="seat_1" onSubmit={vi.fn()} onClose={vi.fn()} />,
+    );
+  };
+
+  it("marks the Armada part of the limit", () => {
+    open({ used: 2, limit: 6, armada: 2 });
+    expect(screen.getByTestId("fleet-supply-counter")).toHaveTextContent("2 / 6");
+    expect(screen.getByTestId("production-armada")).toHaveTextContent("incl. +2 Armada");
+  });
+
+  it("shows nothing extra without it", () => {
+    open({ used: 2, limit: 4 });
+    expect(screen.queryByTestId("production-armada")).not.toBeInTheDocument();
+  });
+});
