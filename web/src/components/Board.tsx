@@ -106,7 +106,8 @@ export const Board: React.FC<BoardProps> = ({
   const prepSlot = useBoardPrepSlot();
   // A phone with the menu sheet: the map keeps its whole height, the controls move to the sheet.
   const menuSlot = useMobileMenuSlot();
-  const compactChrome = useCompactLayout() && menuSlot !== null;
+  const compactLayout = useCompactLayout();
+  const compactChrome = compactLayout && menuSlot !== null;
   const helpId = useId();
 
   // Leadership's purchase: while tokens are bought the planets that can pay are the map's targets.
@@ -145,6 +146,16 @@ export const Board: React.FC<BoardProps> = ({
     // Only a new decision closes it; the selection is read as it is then.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingNonce]);
+
+  // A decision that is answered by tapping the map (activating a system) arrives while a system the
+  // player opened to look at is still inspected: on a phone the inspector covers the map, so it
+  // closes (offline runs o2-124, o3-147, o1-167, o2-270, o1-325, o3-340).
+  const needsMapTap = pendingChoice?.context?.subtype === "activate_system";
+  useEffect(() => {
+    if (compactLayout && needsMapTap) setSelectedSystemId(null);
+    // Only a new decision closes it; a system tapped afterwards to answer it may stay open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingNonce, needsMapTap]);
 
   // Hyperlane network of the main map, computed once per layout (shared cache).
   const hyperlaneTiles = presentation.tiles

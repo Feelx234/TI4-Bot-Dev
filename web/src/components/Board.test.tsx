@@ -303,6 +303,42 @@ describe("Board Component", () => {
     expect(screen.getByTestId("inspector-system-title")).toHaveTextContent("#34");
   });
 
+  it("closes an inspector opened to look at a system when an activation becomes pending on a phone", () => {
+    // Nightly 2026-10-16 F4 (o2-124, o3-147, o1-167, o2-270, o1-325, o3-340): the inspector stayed
+    // open over the map when activate_system came up.
+    const activation = {
+      nonce: "nonce_act",
+      actor: "p1",
+      prompt: "activate a system",
+      context: partialContext({ subtype: "activate_system" }),
+      options: [{ id: "18", label: "Mecatol Rex", kind: "activate", payload: { system: "18" } }],
+    };
+    const other = {
+      nonce: "nonce_other",
+      actor: "p1",
+      prompt: "something else",
+      options: [{ id: "done", kind: "decline", label: "done", payload: {} }],
+    };
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("max-width: 720px"),
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const { rerender } = render(
+        <Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={other} viewerSeat="p1" />,
+      );
+      fireEvent.click(screen.getByTestId("system-hex-34"));
+      expect(screen.getByTestId("system-inspector")).toBeInTheDocument();
+      rerender(<Board board={mockBoard} seatingOrder={["p1", "p2"]} pendingChoice={activation} viewerSeat="p1" />);
+      expect(screen.queryByTestId("system-inspector")).not.toBeInTheDocument();
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
   it("renders activation target reticles during system activation mode", () => {
     const activationChoice = {
       nonce: "nonce_act",
