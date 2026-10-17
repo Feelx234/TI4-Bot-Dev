@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 10;
+pub const RULES_VERSION: u32 = 11;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1208,6 +1208,10 @@ pub const RULES_TECH_RIDER: u32 = 9;
 /// The first rules version where a component-action card with no legal target (Reactor
 /// Meltdown without a space dock outside a home system, and the like) is not offered.
 pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
+
+/// The first rules version where a retreat obeys the movement rules for entering the destination:
+/// no asteroid field without Antimass Deflectors, no supernova.
+pub const RULES_RETREAT_HAZARDS: u32 = 11;
 
 /// The whole game, as a value.
 ///
