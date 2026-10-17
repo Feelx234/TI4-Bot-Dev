@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 4): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 9 on this branch; 5..8 are other branches): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ACTION_CARD_TARGETS = 9`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -75,6 +75,15 @@ Version 4 = Letnev fleet pool (`fix-letnev-fleet-pool`, `RULES_LETNEV_FLEET_POOL
 1. `tokens::TokenRedistribution::fleet_floor`: Letnev's redistribution (status phase, Warfare)
    also offers arrangements with fewer than two fleet tokens, down to none (the floor of two is a
    policy guard, not a rule; Armada allows pool + 2 ships per system). Version < 4: floor of two.
+
+Version 9 = action card targets (`fb-spacedock-card-targets`, `RULES_ACTION_CARD_TARGETS`):
+`action_cards::is_playable` (so `available_actions` and `perform`) no longer offers a component
+action ("Action" window) card that has no legal target: Reactor Meltdown (no space dock outside a
+home system), Cripple Defenses, Lucky Shot, Plague, Uprising, Insubordination, Spy, Repeal Law,
+Tactical Bombardment, Unstable Planet, Unexpected Action, Seize Artifact, Rise of a Messiah,
+Frontline Deployment, War Effort, Scuttle (`has_legal_target`). Version < 9: always offered. Cards
+with other conditions (Refit Troops, Ghost Ship, Fighter Conscription, the Pirate cards, Exploration
+Probe, ...) are unchanged. Reaction windows are unchanged (Sabotage and bluffs stay).
 
 ## Adding the next gate
 
