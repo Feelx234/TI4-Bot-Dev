@@ -16901,7 +16901,7 @@ mod tests {
         let (state, _, _, _) = invasion_fixture();
         assert_eq!(state.rules_version, ti4_model::state::RULES_VERSION);
         let mut json = serde_json::to_value(&state).unwrap();
-        assert_eq!(json["rules_version"], 1);
+        assert_eq!(json["rules_version"], ti4_model::state::RULES_VERSION);
         json.as_object_mut().unwrap().remove("rules_version");
         let old: GameState = serde_json::from_value(json).unwrap();
         assert_eq!(old.rules_version, 0);

@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 2): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`): the first version with one gated change.
 
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
@@ -42,6 +42,15 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 2 = the Captain Mendosa fix (`fix-nightly-f2-mendosa`), `factions::saar`:
+
+1. The boost mark is `seq|origin|type|damaged|count|bonus` and `agent_move_bonus` gives it to the
+   first ship of that kind at the origin while no ship of the kind has left (version 0/1:
+   `seq|origin|index|bonus`, matched to the list position, which shifts when an earlier ship leaves).
+2. `agent_ships` offers equal ships (same type, damage, origin) once.
+
+A game created at version 1 keeps playing the old behaviour.
 
 ## Adding the next gate
 
