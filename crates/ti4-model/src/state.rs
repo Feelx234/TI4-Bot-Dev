@@ -1155,12 +1155,17 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 2;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
 /// destroyed after the control-gain window closes; the card replaces the rival's structures.
 pub const RULES_INFILTRATE_FIX: u32 = 1;
+
+/// The first rules version where Saar's Captain Mendosa boost follows the ship (its type, damage
+/// and the count of that kind at the origin) rather than its position in the system's ship list,
+/// and where equal ships are offered once.
+pub const RULES_MENDOSA_SHIP: u32 = 2;
 
 /// The whole game, as a value.
 ///
