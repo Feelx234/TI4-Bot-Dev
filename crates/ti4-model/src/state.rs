@@ -1660,6 +1660,11 @@ pub struct GameState {
     /// Set when the agenda is revealed and read by anything played into that window, which is
     /// what lets Imperial Rider predict one of them without reaching into the vote.
     pub agenda_choices: Vec<String>,
+    /// The alias of the agenda being voted on, set with [`Self::agenda_choices`] and cleared with
+    /// it. A read-only view for deciders (a rider's prediction question names no agenda); no rule
+    /// reads it, it is not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agenda_in_play: Option<String>,
     /// Imperial Rider: the outcome each player predicted for the agenda being voted on.
     ///
     /// Held on the game rather than the seat because it belongs to one agenda, not to a player,
@@ -1946,6 +1951,7 @@ impl GameState {
             production_value_swapped_planet: None,
             gravleash_move_values: BTreeMap::new(),
             agenda_choices: Vec::new(),
+            agenda_in_play: None,
             agenda_predictions: BTreeMap::new(),
             transactions_this_turn: BTreeMap::new(),
             traded_goods: BTreeMap::new(),

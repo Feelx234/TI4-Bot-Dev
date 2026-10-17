@@ -108,7 +108,7 @@ impl Default for PlayOptions {
     fn default() -> Self {
         Self {
             limits: Limits::default(),
-            tunings: vec![Tuning::default()],
+            tunings: vec![ti4_rule_bot::tuning::current()],
             candidate_seats: None,
             trace: false,
             timeline: true,

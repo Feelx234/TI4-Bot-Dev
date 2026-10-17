@@ -401,8 +401,8 @@ fn cmd_metrics(args: &Args) -> Result<ExitCode, String> {
     });
     let (c, _) = ti4_selfplay::run::comparison_from(
         results,
-        ti4_rule_bot::tuning::Tuning::default(),
-        ti4_rule_bot::tuning::Tuning::default(),
+        ti4_rule_bot::tuning::current(),
+        ti4_rule_bot::tuning::current(),
         mixed,
         std::time::Instant::now(),
     );
@@ -516,7 +516,7 @@ fn cmd_replay(args: &Args) -> Result<ExitCode, String> {
 }
 
 fn cmd_knobs() {
-    let t = ti4_rule_bot::tuning::Tuning::default().entries();
+    let t = ti4_rule_bot::tuning::current().entries();
     for ((k, v), (_, doc)) in t.iter().zip(ti4_rule_bot::tuning::KEYS) {
         println!("{k:<22} {v:<8} {doc}");
     }

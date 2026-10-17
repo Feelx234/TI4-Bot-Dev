@@ -3778,6 +3778,7 @@ mod tests {
 
     #[test]
     fn landing_commits_until_the_planet_is_outnumbered_and_not_into_a_lost_cause() {
+        tuning::set(tuning::for_version(4));
         let (mut state, hub, centre, planet) = board();
         state.active_system = Some(centre.clone());
         put_on_planet(&mut state, &centre, &planet, "infantry", &foe(), 2);
@@ -3803,6 +3804,7 @@ mod tests {
 
     #[test]
     fn land_all_lands_what_the_winning_force_leaves_aboard() {
+        tuning::set(tuning::for_version(4));
         let (mut state, hub, centre, planet) = board();
         state.active_system = Some(centre.clone());
         // Held and undefended: the old logic leaves the troops aboard, the knob lands them.

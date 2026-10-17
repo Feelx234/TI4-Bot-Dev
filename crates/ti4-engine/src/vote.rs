@@ -632,6 +632,23 @@ impl VoteWindow {
                         format!("exhaust a planet to vote {outcome}"),
                         options,
                     )
+                    // Display / decider view only: the ledger before this seat's votes (outcome
+                    // order as in the cast question) and the votes it has cast so far.
+                    .detailed(
+                        "tally",
+                        serde_json::Value::Array(
+                            self.choices
+                                .iter()
+                                .map(|o| {
+                                    serde_json::json!([
+                                        o,
+                                        self.ballot.counts.get(o).copied().unwrap_or(0)
+                                    ])
+                                })
+                                .collect(),
+                        ),
+                    )
+                    .detailed("votes_so_far", votes_so_far)
                     .contextualized(DecisionContext::new(
                         player.clone(),
                         DecisionSource::Rule("8.11".to_owned()),

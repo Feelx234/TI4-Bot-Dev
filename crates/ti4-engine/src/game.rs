@@ -5881,6 +5881,7 @@ impl<'a> Game<'a> {
             // played into it predicts one of them. Nineteen action cards read "when" or "after
             // an agenda is revealed", and this is the event they hang off.
             self.state.agenda_choices.clone_from(&choices);
+            self.state.agenda_in_play = Some(alias.clone());
             let mut payload = BTreeMap::new();
             payload.insert(
                 "agenda".to_owned(),
@@ -6617,6 +6618,7 @@ impl<'a> Game<'a> {
         };
         let alias = window.alias().to_owned();
         self.state.agenda_choices.clear();
+        self.state.agenda_in_play = None;
         if window.winner().is_none() {
             self.log_agenda(&window, None, false);
             // No outcome, so nobody predicted correctly — but the cards were still spent, and a
