@@ -26,7 +26,7 @@ for (const size of Object.keys(SIZES) as SizeName[]) {
         const effect = page.getByTestId("tech-effect-amd");
         if (phone) {
           await expect(roster).toBeHidden();
-          await expect(effect).toBeHidden();
+          await expect(effect).toBeVisible(); // EX-tech-picker-text-space: the technology text is back (clamped)
           // Available and Selected share a line, the button follows, then the filter row.
           const avail = await box("tech-available-resources");
           const btn = await box("confirm-research-btn");
