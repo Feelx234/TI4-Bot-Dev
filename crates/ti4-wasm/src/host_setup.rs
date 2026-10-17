@@ -477,12 +477,12 @@ pub const STARTING_TECH_FROM_BOT_VERSION: u32 = 3;
 
 /// Whether this build plays the rule bot of `version`.
 fn check_bot_version(version: u32) -> Result<(), String> {
-    if (1..=ti4_rule_bot::tuning::BOT_VERSION).contains(&version) {
+    if (1..=ti4_rule_bot::tuning::MAX_BOT_VERSION).contains(&version) {
         Ok(())
     } else {
         Err(format!(
             "bot version {version}: this build plays 1 to {}",
-            ti4_rule_bot::tuning::BOT_VERSION
+            ti4_rule_bot::tuning::MAX_BOT_VERSION
         ))
     }
 }

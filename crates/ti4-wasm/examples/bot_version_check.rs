@@ -100,7 +100,11 @@ fn main() -> Result<(), String> {
 
         // The starting-technology choice (bot version 3): the person plays the Winnu. A version-2
         // game is made and resumed without the choice, a current game with it, and both replay.
-        for (version, choice) in [(2_u32, false), (ti4_rule_bot::tuning::BOT_VERSION, true)] {
+        for (version, choice) in [
+            (2_u32, false),
+            (ti4_rule_bot::tuning::BOT_VERSION, true),
+            (ti4_rule_bot::tuning::MAX_BOT_VERSION, true),
+        ] {
             let mut winnu = setup.clone();
             winnu["human_faction"] = json!("winnu");
             winnu["bot_version"] = json!(version);

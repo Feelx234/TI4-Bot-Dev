@@ -150,6 +150,11 @@ tuning! {
 /// version it was played with (`ti4_wasm::host_setup::Setup::bot_version`) and is resumed with it.
 pub const BOT_VERSION: u32 = 4;
 
+/// The highest version [`for_version`] knows: version 5 is the staging table of the next bot
+/// release ([`v5`]); a game can name it (`bot_version` 5, `--bot bot_version=5`) but new games
+/// still play [`BOT_VERSION`].
+pub const MAX_BOT_VERSION: u32 = 5;
+
 /// The tuning of bot version `version` (1 to 4; anything else: the current one).
 ///
 /// Version 1 is written out in full (every field, no `..`), so a new knob cannot slip into it
@@ -161,7 +166,21 @@ pub fn for_version(version: u32) -> Tuning {
         1 => v1(),
         2 => v2(),
         3 => v3(),
+        5 => v5(),
         _ => Tuning::default(),
+    }
+}
+
+/// Version 5, the **staging table for the next bot release**: version 4 plus the knobs decided
+/// for it so far. Nothing ships from it yet ([`BOT_VERSION`] stays 4). Members: `land_all` (the
+/// landing step commits every ground force aboard). Other candidate knobs are NOT in it yet,
+/// pending decisions: `mecatol_guard` and `mecatol_imperial_priority` (branch fb-muaat-warsun),
+/// the agenda-voting knobs (branch bot-agenda-voting).
+#[must_use]
+pub fn v5() -> Tuning {
+    Tuning {
+        land_all: true,
+        ..Tuning::default()
     }
 }
 
@@ -355,6 +374,14 @@ mod tests {
         );
         let v4 = for_version(4);
         assert_eq!(v4, Tuning::default());
+        assert!(!v4.land_all && for_version(5).land_all);
+        assert_eq!(
+            Tuning {
+                land_all: false,
+                ..for_version(5)
+            },
+            v4
+        );
         assert!(!v4.nekro_tech && v4.tech_pick_rule && v4.r1_tech);
         assert!((v4.planner_gap - 5.0).abs() < f64::EPSILON);
         assert!(v4.bw_enabled && v4.bw_prep_build && v4.bw_prep_warfare && v4.bw_agenda);
