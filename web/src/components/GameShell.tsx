@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo, useRef } from "react";
 import { GameLogEntry } from "../hooks/useGameSession.ts";
 import {
   BoardView,
+  TacticalFacts,
   CurrentLogPath,
   HistoryStatus,
   PendingChoiceDto,
@@ -142,6 +143,8 @@ export interface GameShellProps {
   viewerSeat?: string | null;
   players?: Record<string, PlayerView> | PlayerView[];
   boardView?: BoardView;
+  /** The engine's facts for the pending tactical choice (routes and loads of the ships). */
+  tacticalFacts?: TacticalFacts | null;
   activeSystemId?: string | null;
   revealedObjectives?: readonly string[];
   scoredObjectives?: Record<string, string[]>;
@@ -208,6 +211,8 @@ export interface ChoiceRendererDispatcherProps {
   onMinimizedChange: (minimized: boolean) => void;
   players?: Record<string, PlayerView>;
   boardView?: BoardView;
+  /** The engine's facts for the pending tactical choice (routes and loads of the ships). */
+  tacticalFacts?: TacticalFacts | null;
   activeSystemId?: string | null;
   revealedObjectives?: readonly string[];
   scoredObjectives?: Record<string, string[]>;
@@ -237,6 +242,7 @@ const renderTactical: WorkflowRenderer = ({
   choice,
   model,
   boardView,
+  tacticalFacts,
   activeSystemId,
   viewerSeat,
   players,
@@ -254,6 +260,7 @@ const renderTactical: WorkflowRenderer = ({
     choice={choice}
     model={model}
     board={boardView}
+    facts={tacticalFacts?.kind === "movement" ? tacticalFacts : null}
     viewerSeat={viewerSeat}
     activeSystemId={
       activeSystemId ||
@@ -695,6 +702,7 @@ export const ChoiceRendererDispatcher: React.FC<
   onMinimizedChange,
   players,
   boardView,
+  tacticalFacts,
   activeSystemId,
   revealedObjectives,
   scoredObjectives,
@@ -916,6 +924,7 @@ export const ChoiceRendererDispatcher: React.FC<
     onMinimizedChange,
     players,
     boardView,
+    tacticalFacts,
     activeSystemId,
     revealedObjectives,
     scoredObjectives,
@@ -1057,6 +1066,7 @@ export const GameShell: React.FC<GameShellProps> = ({
   viewerSeat,
   players,
   boardView,
+  tacticalFacts,
   activeSystemId,
   revealedObjectives,
   scoredObjectives,
@@ -1548,6 +1558,7 @@ export const GameShell: React.FC<GameShellProps> = ({
             viewerSeat={viewerSeat}
             players={playersMap}
             boardView={boardView}
+            tacticalFacts={tacticalFacts}
             activeSystemId={activeSystemId}
             revealedObjectives={revealedObjectives}
             scoredObjectives={scoredObjectives}
