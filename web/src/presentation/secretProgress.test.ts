@@ -18,6 +18,13 @@ describe("secret objective progress wording", () => {
     );
   });
 
+  it("reminds that Strengthen Bonds counts play-area notes only, not the hand", () => {
+    const shown = secretProgressDisplay("sb", { have: 0, threshold: 1, satisfied: false });
+    expect(shown?.hint).toMatch(/face-up in your play area/);
+    expect(shown?.hint).toMatch(/hand do not/);
+    expect(secretProgressDisplay("ctr", { have: 1, threshold: 6, satisfied: false })?.hint).toBeNull();
+  });
+
   it("has no bar without a count", () => {
     expect(secretProgressDisplay("ctr", undefined)).toBeNull();
     expect(secretNoProgressNote("pe")).toMatch(/event/);

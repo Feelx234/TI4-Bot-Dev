@@ -57,6 +57,11 @@ export const SecretObjectiveProgress: React.FC<{
       <div className="secret-progress__bar" aria-hidden="true">
         <div className="secret-progress__fill" style={{ width: `${display.percent}%` }} />
       </div>
+      {display.hint && (
+        <div className="secret-progress__hint" data-testid={`secret-progress-hint-${alias}`}>
+          {display.hint}
+        </div>
+      )}
       {display.systems.length > 0 && (
         <div className="secret-progress__systems" data-testid={`secret-progress-systems-${alias}`}>
           Counting: {display.systems.map((id) => systemTag(id, board)).join(", ")}

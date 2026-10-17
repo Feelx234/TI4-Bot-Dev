@@ -36,6 +36,14 @@ export const SECRET_PROGRESS_UNITS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * A one-line rule reminder under the bar for secrets whose count is easy to misread. Strengthen
+ * Bonds counts only notes lying face-up in your play area, not the ones in your hand.
+ */
+export const SECRET_PROGRESS_HINTS: Readonly<Record<string, string>> = {
+  sb: "Only another player's note lying face-up in your play area counts (Alliance, Support for the Throne, some faction notes). Notes in your hand do not.",
+};
+
+/**
  * Secrets that are met by something happening, not by something you have: no running count
  * exists, so they show no bar — the card is offered at the moment it happens.
  */
@@ -65,6 +73,8 @@ export interface SecretProgressDisplay {
   unit: string;
   /** "4 / 6 systems with at least one of your ships". */
   text: string;
+  /** A rule reminder for counts that are easy to misread, or null. */
+  hint: string | null;
   /** The systems that count right now, when the server names them (Learn the Secrets). */
   systems: string[];
 }
@@ -84,6 +94,7 @@ export function secretProgressDisplay(
     percent: Math.min(100, Math.round((have / progress.threshold) * 100)),
     unit,
     text: `${have} / ${progress.threshold} ${unit}`,
+    hint: SECRET_PROGRESS_HINTS[alias] ?? null,
     systems: [...(progress.systems ?? [])],
   };
 }
