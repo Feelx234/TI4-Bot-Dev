@@ -1155,12 +1155,17 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 1;
+pub const RULES_VERSION: u32 = 6;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
 /// destroyed after the control-gain window closes; the card replaces the rival's structures.
 pub const RULES_INFILTRATE_FIX: u32 = 1;
+
+/// The first rules version where the Technology strategy card's paid research (the secondary, and
+/// the primary's second technology) asks the researcher which planets and trade goods pay, as every
+/// other resource cost does (`pay_resources`). Before it the cheapest plan was spent automatically.
+pub const RULES_TECH_PAYMENT_CHOICE: u32 = 6;
 
 /// The whole game, as a value.
 ///

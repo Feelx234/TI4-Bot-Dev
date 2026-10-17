@@ -10,7 +10,7 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 1): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 6): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
 - `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`): the first version with one gated change.
 
@@ -42,6 +42,12 @@ Version 1 = the Infiltrate fix (`fix-infiltrate-offer`):
 2. `InvasionWindow::finish_control_gain`: the previous holder's structures are destroyed after
    `PLANET_CONTROL_GAINED` (version 0: before it).
 3. The Infiltrate effect and preview replace the rival's structures (version 0: the invader's own).
+
+Version 6 = `RULES_TECH_PAYMENT_CHOICE` (`tech-payment-choose-planets`; provisional number, the merge
+agent renumbers): `strategy_cards::paid_research` (Technology secondary, and the primary's second
+technology) asks the researcher the ordinary `pay_resources` question after the technology is
+picked (`production::pay_seeing`). Version 0..5: the cheapest `payment::plans` entry is spent
+automatically. Inheritance Systems' 2 resources (`technology::research`, no table) stay automatic.
 
 ## Adding the next gate
 

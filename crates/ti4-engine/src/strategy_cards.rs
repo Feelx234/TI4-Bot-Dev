@@ -1394,16 +1394,35 @@ fn paid_research(
                 player,
                 &technology,
             );
-            let Some(plan) =
-                crate::payment::plans(state, content, sources, player, cost, Spend::Resources)
-                    .into_iter()
-                    .next()
-            else {
-                return Ok(false);
-            };
             let before = state.clone();
-            if !crate::payment::apply(state, player, &plan) {
-                return Ok(false);
+            if state.rules_version >= ti4_model::state::RULES_TECH_PAYMENT_CHOICE {
+                // The researcher chooses which planets and trade goods pay (`pay_resources`).
+                if cost > 0
+                    && !crate::production::pay_seeing(
+                        state,
+                        content,
+                        sources,
+                        galaxy,
+                        table,
+                        player,
+                        cost,
+                        Spend::Resources,
+                    )?
+                {
+                    *state = before;
+                    return Ok(false);
+                }
+            } else {
+                let Some(plan) =
+                    crate::payment::plans(state, content, sources, player, cost, Spend::Resources)
+                        .into_iter()
+                        .next()
+                else {
+                    return Ok(false);
+                };
+                if !crate::payment::apply(state, player, &plan) {
+                    return Ok(false);
+                }
             }
             if resolve_research(state, content, sources, galaxy, table, player, &technology)? {
                 return Ok(true);
@@ -3106,6 +3125,60 @@ mod tests {
             primary_context.source, secondary_context.source,
             "the same subtype, distinguished by which half of the card it is"
         );
+    }
+
+    /// The Technology secondary's price: from `RULES_TECH_PAYMENT_CHOICE` the researcher is asked
+    /// which planets and trade goods pay (`pay_resources`); legacy games spend the cheapest plan
+    /// automatically.
+    #[test]
+    fn the_technology_secondary_asks_what_pays_from_the_payment_choice_version() {
+        let content = ContentStore::embedded();
+        let player = PlayerId::new("a");
+        let run = |version: u32| {
+            let mut state = game(&["a"]);
+            state.rules_version = version;
+            let (system, planet) = ti4_content::galaxy::all_planets(content, POK)
+                .iter()
+                .find_map(|(id, p)| {
+                    (p.system_id().is_some() && !p.is_placed_during_play() && p.resources() >= 2)
+                        .then(|| {
+                            (
+                                SystemId::new(p.system_id().unwrap_or("18")),
+                                PlanetId::new(*id),
+                            )
+                        })
+                })
+                .expect("a planet worth resources");
+            state
+                .system_mut(&system)
+                .set_control(planet, player.clone());
+            state.player_mut(&player).unwrap().trade_goods = 20;
+            let seen = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+            let mut table =
+                Table::with_default(Box::new(FirstOptionCapturing { seen: seen.clone() }));
+            paid_research(
+                &mut state,
+                content,
+                POK,
+                None,
+                &mut table,
+                &player,
+                TECHNOLOGY_SECONDARY_COST,
+            )
+            .unwrap();
+            let asked: Vec<String> = seen
+                .borrow()
+                .iter()
+                .filter_map(|c| c.context.as_ref().map(|x| x.subtype.clone()))
+                .collect();
+            (asked, state.player(&player).unwrap().technologies.len())
+        };
+        let (asked, owned) = run(ti4_model::state::RULES_TECH_PAYMENT_CHOICE);
+        assert!(asked.iter().any(|s| s == "pay_resources"), "{asked:?}");
+        assert_eq!(owned, 1);
+        let (asked, owned) = run(ti4_model::state::RULES_TECH_PAYMENT_CHOICE - 1);
+        assert!(!asked.iter().any(|s| s == "pay_resources"), "{asked:?}");
+        assert_eq!(owned, 1);
     }
 
     /// OBS-008d2: each command-token pool option previews the exact count it reaches, and a
