@@ -80,10 +80,10 @@ the payoff arrives.
 Rule (`agenda_riders`), behind its own knob:
 
 * **Play** when `P(correct) x benefit - cost >= 0`, `P(correct)` at least `rider_min_p` (0.7), where `benefit` is the value of the
-  payoff (Imperial 10, Leadership 7.5, Politics 6.5, Technology 5, Trade 5, Warfare 4, Construction 4 when a planet
+  payoff (Imperial 10, Leadership 7.5, Politics 6.5, Technology 0 (the engine records a correct Technology Rider but does not perform its research), Trade 5, Warfare 4, Construction 4 when a planet
   without a dock is held, Diplomacy 1.5, Keleres 3.5) and `cost` is the value of my own votes on this agenda: the change
   `(P(win | my votes) - P(win | no votes)) x margin` plus the voter-conditional gain. The votes the rider frees are readied
-  for the next agenda (a bonus of `lambda x my influence`).
+  for the next agenda (a small bonus, only with the budget knob).
 * So a rider is played when the outcome is **irrelevant to me** (margin below the threshold: my votes are worth nothing) and it
   is predictable, and also when my preferred outcome wins without me (probability above 0.85 even without my votes).
 * **Do not** play it when I prefer an outcome that depends on my votes, when I would be on the likely losing side, when the outcome is a
@@ -783,4 +783,185 @@ All 63 agendas of the content (`crates/ti4-content/content/agendas.json`: 50 bas
 
 ## 7. Potential gains
 
-(Filled in after the A/B runs; see the end of this document.)
+Method: `selfplay compare`, baseline = bot version 4 (all agenda knobs off), candidate = version 4 plus the knobs,
+mixed mode (every table played twice with the candidate on alternate seats), fixed tables on `4pBgaBalancedD`
+rotated cyclically (100 seeds x 4 rotations = 400 tables, seeds 200000.. and 210000..), and a 6-player mix
+(`6pStandard`, `6pOuterRim`, 100 tables, seeds 220000..). Intervals are 95%, paired by table. Games, logs and scripts:
+`/root/rulebot-results/agenda-voting/` (`run_ab6.sh`, `analyze.py`, `occurrence.py`, `agenda_vp.py`; the `r4_*` files are
+the final round). The default bot, golden benchmark (`tools/rulebot/selfplay.sh bench`): 200 of 200 games identical
+with the knobs off.
+
+Arms: **all** = `agenda_value,agenda_budget,agenda_riders`; **value** = `agenda_value` (outcome valuation, every planet
+cast as before); **budget** = `agenda_budget` (the old table picks the outcome, votes follow the budget);
+**riders** = `agenda_riders`.
+
+### Results
+
+Candidate minus baseline. "ctrl" is the controllable VP (objectives, custodians, Imperial's Mecatol point; no agenda,
+Support for the Throne, riders, relics). "agenda VP" and "Imperial rider VP" are the VP the seat scored from those sources.
+
+
+#### tabA (sol/letnev/jolnar/mentak), tables 400
+
+| arm | win share | VP per seat | total VP/round | ctrl VP/round | ctrl after R4 | ctrl after R5 | agenda VP | Imperial rider VP |
+|---|---|---|---|---|---|---|---|---|
+| all | +2.4 pp [-0.7, +5.5] | +0.133 [-0.003, +0.270] | +0.020 [-0.003, +0.043] | +0.004 [-0.015, +0.023] | +0.022 [-0.037, +0.081] | +0.049 [-0.036, +0.134] | +0.042 [+0.017, +0.068] | +0.027 [+0.013, +0.041] |
+| value | +1.5 pp [-1.5, +4.5] | +0.055 [-0.073, +0.183] | +0.008 [-0.014, +0.030] | +0.001 [-0.018, +0.020] | +0.007 [-0.049, +0.064] | +0.010 [-0.073, +0.093] | +0.031 [+0.007, +0.055] | -0.006 [-0.016, +0.005] |
+| budget | -0.5 pp [-3.5, +2.5] | -0.064 [-0.201, +0.073] | -0.013 [-0.036, +0.010] | +0.003 [-0.017, +0.023] | +0.037 [-0.025, +0.099] | +0.008 [-0.080, +0.096] | -0.113 [-0.150, -0.075] | +0.002 [-0.008, +0.012] |
+| riders | +0.1 pp [-2.6, +2.9] | +0.035 [-0.088, +0.159] | +0.009 [-0.012, +0.029] | +0.004 [-0.013, +0.021] | +0.003 [-0.051, +0.057] | +0.061 [-0.016, +0.138] | -0.007 [-0.031, +0.016] | +0.031 [+0.018, +0.043] |
+
+Per faction, arm all (win share, seat as candidate minus as baseline): jolnar +1.0 pp, letnev +1.0 pp, mentak +3.8 pp, sol +3.8 pp
+
+
+#### tabB (muaat/sol/letnev/jolnar), tables 400
+
+| arm | win share | VP per seat | total VP/round | ctrl VP/round | ctrl after R4 | ctrl after R5 | agenda VP | Imperial rider VP |
+|---|---|---|---|---|---|---|---|---|
+| all | +3.8 pp [+1.1, +6.5] | +0.156 [+0.036, +0.277] | +0.030 [+0.009, +0.050] | +0.019 [+0.001, +0.037] | -0.013 [-0.068, +0.041] | +0.030 [-0.048, +0.107] | +0.054 [+0.028, +0.081] | +0.039 [+0.027, +0.051] |
+| value | +2.6 pp [-0.3, +5.5] | +0.098 [-0.028, +0.225] | +0.019 [-0.002, +0.040] | +0.014 [-0.005, +0.033] | +0.031 [-0.017, +0.080] | +0.012 [-0.070, +0.094] | +0.047 [+0.024, +0.070] | +0.001 [-0.010, +0.011] |
+| budget | -0.4 pp [-3.2, +2.5] | -0.061 [-0.186, +0.065] | -0.008 [-0.029, +0.013] | -0.002 [-0.019, +0.016] | +0.016 [-0.037, +0.070] | +0.024 [-0.056, +0.104] | -0.065 [-0.104, -0.026] | +0.003 [-0.006, +0.013] |
+| riders | -1.8 pp [-4.5, +0.9] | -0.075 [-0.192, +0.042] | -0.009 [-0.029, +0.011] | -0.013 [-0.030, +0.004] | -0.049 [-0.104, +0.005] | -0.069 [-0.145, +0.008] | -0.015 [-0.036, +0.006] | +0.027 [+0.015, +0.039] |
+
+Per faction, arm all (win share, seat as candidate minus as baseline): jolnar +7.1 pp, letnev +1.5 pp, muaat +6.1 pp, sol +0.5 pp
+
+
+#### mix6 (6p mixed (6pStandard, 6pOuterRim)), tables 100
+
+| arm | win share | VP per seat | total VP/round | ctrl VP/round | ctrl after R4 | ctrl after R5 | agenda VP | Imperial rider VP |
+|---|---|---|---|---|---|---|---|---|
+| all | +0.5 pp [-4.3, +5.3] | +0.019 [-0.162, +0.200] | +0.011 [-0.017, +0.040] | +0.012 [-0.014, +0.038] | +0.017 [-0.053, +0.087] | -0.037 [-0.160, +0.085] | -0.002 [-0.037, +0.034] | +0.024 [+0.007, +0.041] |
+| riders | +0.5 pp [-4.8, +5.9] | +0.120 [-0.055, +0.294] | +0.016 [-0.010, +0.043] | +0.011 [-0.014, +0.036] | +0.019 [-0.036, +0.074] | +0.012 [-0.100, +0.124] | -0.035 [-0.063, -0.007] | +0.024 [+0.009, +0.040] |
+
+Per faction, arm all (win share, seat as candidate minus as baseline): arborec +0.0 pp, argent -13.0 pp, cabal +6.1 pp, empyrean -10.0 pp, ghost -13.8 pp, hacan +3.2 pp, jolnar +0.0 pp, l1z1x +7.7 pp, letnev +0.0 pp, mahact +16.7 pp, mentak +4.3 pp, muaat +7.7 pp, naalu -4.2 pp, naaz +0.0 pp, nekro +8.3 pp, nomad -18.2 pp, saar -14.3 pp, sardakk +8.3 pp, sol -4.2 pp, titans +4.0 pp, winnu +5.0 pp, xxcha +5.3 pp, yin +7.4 pp, yssaril +0.0 pp
+
+
+### Reading the numbers
+
+* **All three together** win +2.4 pp [-0.7, +5.5] on the Sol/Letnev/Jol-Nar/Mentak table and **+3.8 pp [+1.1, +6.5]** on
+  the Muaat/Sol/Letnev/Jol-Nar table (Muaat +6.1 pp, Jol-Nar +7.1 pp); the pooled 800 tables give about +3.1 pp. VP per
+  round +0.020 and +0.030 (the second significant). On six players: +0.5 pp [-4.3, +5.3], no effect. The controllable VP
+  per round does not move (+0.004, +0.019): the gain is not extra objectives.
+* Where the VP come from: agenda VP +0.042 and +0.054 per seat and game (significant), Imperial Rider VP +0.027 and +0.039
+  (significant). Per agenda (Muaat table): Mutiny +0.024, Seed of an Empire +0.011, Political Censure +0.018 VP per seat.
+* **Valuation alone** is positive but not significant on win share (+1.5 pp, +2.6 pp) and positive on agenda VP
+  (+0.031 and +0.047, significant). It is the part that makes Muaat vote against the war sun schematics (Against in 43 of
+  its 53 votes; the old table had no opinion) and the dreadnought and Mecatol agendas.
+* **Budget alone** is not an improvement: -0.5 pp and -0.4 pp, agenda VP -0.113 and -0.065 (significant loss). The
+  budget arm keeps the old table, which knows nothing about voter-conditional agendas (Mutiny, Unconventional
+  Measures): there it saves votes it should have cast. With the valuation (the "all" arm) the loss disappears, so the
+  budget should only be adopted together with the valuation. It spends 29% of the available influence (13% on the first
+  agenda, 64% on the second) at a cost of 0.9 percentage points of win probability per decision (0.650 against 0.659
+  with every planet).
+* **Riders alone** do nothing measurable: +0.1 pp and -1.8 pp [-4.5, +0.9]; the total VP per round is -0.009 on both
+  tables. The Imperial Rider adds +0.03 VP per seat as intended, but the costs (the seat's vote on that agenda, the other cards declined in
+  the window) take it back. In the "all" arm the riders add +0.027 to +0.039 Imperial Rider VP on top of the valuation.
+  Not an argument for riders in version 5 on its own.
+
+Iterations (each was a full run; the earlier numbers are in the `r2_*`, `r3_*` and plain files): the first run gave
+-0.045 agenda VP, because the forecast of the other bots' votes read the valuation of a bystander on Mutiny, which sees
+only the rivals' gain. Forecasting voter-conditional agendas with the old table fixed it (+0.028 agenda VP). A second
+fix made the rider logic mark its play at the right question, valued the Technology Rider at zero (this engine
+records but does not perform its research) and removed the vote-saving bonus when the budget knob is off.
+
+### How often each agenda occurs and how often the new vote changes the outcome
+
+Muaat table, 800 games (one decision is one candidate seat voting on one agenda; "abstains" is no opinion or not worth the
+votes; "opinion added": the old table had none; "flipped": a different outcome than the old table; "same": the old
+table's outcome with the planned number of votes):
+
+games 800, agendas revealed 6366 (7.96 per game)
+| agenda | per 100 games | passed For / Against / elected / none | decisions | no opinion now | opinion added | flipped | same outcome | votes spent / available |
+|---|---|---|---|---|---|---|---|---|
+| `grant_reallocation` | 37.0 | 0 / 0 / 296 / 0 | 519 | 62% | 0% | 2% | 35% | 24% |
+| `minister_policy` | 34.6 | 0 / 0 / 277 / 0 | 484 | 47% | 0% | 2% | 49% | 50% |
+| `warrant` | 31.4 | 0 / 0 / 251 / 0 | 427 | 46% | 0% | 1% | 51% | 52% |
+| `minister_war` | 30.8 | 0 / 0 / 246 / 0 | 446 | 52% | 0% | 2% | 44% | 43% |
+| `arbiter` | 30.0 | 0 / 0 / 240 / 0 | 431 | 53% | 0% | 1% | 44% | 42% |
+| `minister_sciences` | 29.2 | 0 / 0 / 234 / 0 | 412 | 57% | 0% | 2% | 40% | 34% |
+| `censure` | 27.1 | 0 / 0 / 217 / 0 | 380 | 26% | 0% | 4% | 68% | 70% |
+| `minister_antiquities` | 26.4 | 0 / 0 / 211 / 0 | 378 | 27% | 0% | 2% | 70% | 68% |
+| `minister_peace` | 25.6 | 0 / 0 / 205 / 0 | 348 | 42% | 0% | 2% | 55% | 53% |
+| `mutiny` | 25.1 | 179 / 22 / 0 / 0 | 320 | 2% | 0% | 6% | 90% | 16% |
+| `incentive` | 23.4 | 185 / 2 / 0 / 0 | 307 | 100% | 0% | 0% | 0% | 0% |
+| `minister_commerce` | 22.4 | 0 / 0 / 179 / 0 | 302 | 41% | 0% | 1% | 57% | 54% |
+| `committee` | 22.2 | 0 / 0 / 178 / 0 | 317 | 45% | 0% | 2% | 52% | 52% |
+| `minister_exploration` | 22.1 | 0 / 0 / 177 / 0 | 320 | 60% | 0% | 0% | 38% | 34% |
+| `minister_industry` | 21.0 | 0 / 0 / 168 / 0 | 307 | 58% | 0% | 3% | 38% | 33% |
+| `prophecy` | 19.9 | 0 / 0 / 159 / 0 | 280 | 97% | 0% | 0% | 2% | 0% |
+| `secret` | 19.8 | 0 / 0 / 158 / 0 | 284 | 48% | 0% | 1% | 49% | 47% |
+| `standardization` | 19.4 | 0 / 0 / 155 / 0 | 260 | 66% | 0% | 6% | 26% | 28% |
+| `schematics` | 17.9 | 101 / 42 / 0 / 0 | 219 | 34% | 65% | 0% | 0% | 35% |
+| `redistribution` | 17.8 | 0 / 0 / 142 / 0 | 256 | 91% | 0% | 7% | 1% | 5% |
+| `unconventional` | 17.4 | 114 / 25 / 0 / 0 | 223 | 4% | 0% | 12% | 82% | 17% |
+| `seed_empire` | 15.2 | 47 / 75 / 0 / 0 | 198 | 36% | 0% | 0% | 62% | 35% |
+| `revolution` | 14.9 | 61 / 58 / 0 / 0 | 185 | 42% | 57% | 0% | 0% | 35% |
+| `execution` | 14.9 | 0 / 0 / 119 / 0 | 178 | 64% | 0% | 12% | 23% | 25% |
+| `economic_equality` | 14.4 | 104 / 11 / 0 / 0 | 197 | 82% | 0% | 2% | 15% | 4% |
+| `conventions` | 14.0 | 41 / 71 / 0 / 0 | 202 | 95% | 4% | 0% | 0% | 2% |
+| `wormhole_research` | 12.1 | 19 / 78 / 0 / 0 | 184 | 100% | 0% | 0% | 0% | 0% |
+| `wormhole_recon` | 12.0 | 28 / 68 / 0 / 0 | 181 | 100% | 0% | 0% | 0% | 0% |
+| `rearmament` | 11.9 | 65 / 30 / 0 / 0 | 160 | 44% | 55% | 0% | 0% | 32% |
+| `artifact` | 11.9 | 59 / 36 / 0 / 0 | 159 | 47% | 52% | 0% | 0% | 30% |
+| `articles_war` | 11.6 | 74 / 19 / 0 / 0 | 133 | 49% | 0% | 17% | 33% | 17% |
+| `disarmament` | 11.0 | 0 / 0 / 88 / 0 | 163 | 87% | 0% | 6% | 6% | 8% |
+| `arms_reduction` | 10.9 | 48 / 39 / 0 / 0 | 144 | 30% | 69% | 0% | 0% | 39% |
+| `travel_ban` | 10.5 | 22 / 62 / 0 / 0 | 155 | 100% | 0% | 0% | 0% | 0% |
+| `plowshares` | 10.4 | 30 / 53 / 0 / 0 | 130 | 49% | 50% | 0% | 0% | 22% |
+| `miscount` | 9.0 | 0 / 0 / 72 / 0 | 132 | 87% | 12% | 0% | 0% | 6% |
+| `conscription` | 9.0 | 28 / 44 / 0 / 0 | 124 | 66% | 33% | 0% | 0% | 24% |
+| `checks` | 8.8 | 37 / 33 / 0 / 0 | 123 | 50% | 49% | 0% | 0% | 23% |
+| `defense_act` | 8.8 | 43 / 27 / 0 / 0 | 119 | 70% | 29% | 0% | 0% | 16% |
+| `sanctions` | 8.4 | 46 / 21 / 0 / 0 | 110 | 57% | 42% | 0% | 0% | 26% |
+| `covert` | 8.2 | 18 / 48 / 0 / 0 | 121 | 100% | 0% | 0% | 0% | 0% |
+| `rep_govt` | 8.2 | 38 / 28 / 0 / 0 | 120 | 63% | 36% | 0% | 0% | 15% |
+| `constitution` | 8.2 | 32 / 34 / 0 / 0 | 109 | 46% | 53% | 0% | 0% | 27% |
+| `shared_research` | 7.1 | 29 / 28 / 0 / 0 | 102 | 100% | 0% | 0% | 0% | 0% |
+| `abolishment` | 6.5 | 0 / 0 / 52 / 0 | 89 | 79% | 20% | 0% | 0% | 12% |
+| `cladenstine` | 6.4 | 25 / 26 / 0 / 0 | 94 | 100% | 0% | 0% | 0% | 0% |
+| `nexus` | 6.1 | 32 / 17 / 0 / 0 | 76 | 69% | 30% | 0% | 0% | 15% |
+| `regulations` | 5.0 | 25 / 15 / 0 / 0 | 70 | 91% | 8% | 0% | 0% | 4% |
+
+decisions 10978: flipped to another outcome than the old table 2.5%, abstains 57.6%, old table had no opinion but the new has 8.6%, same outcome 31.4%
+same outcome as old table: P(wins) with the planned votes 0.650 vs 0.659 with all planets (n=3442)
+
+Over all decisions the outcome differs from the old table in about 2.5% (mostly Mutiny, Unconventional Measures, Articles of
+War, Execution and the dreadnought and sanctions agendas), the new bot has an opinion where the old one had none in
+8.6%, and it abstains in 58%. The outcome of an agenda itself is changed less often than the decisions: the abstentions
+are mostly elections the seat could not win (the richest seat takes a Minister anyway). Agendas that the table
+leaves neutral (Incentive Program, Travel Ban, Clandestine Operations, Schematics without a war sun owner) stay
+without a vote.
+
+### Knobs (all off in bots 1 to 4, all in `tuning.rs`)
+
+| knob | default | meaning |
+|---|---|---|
+| `agenda_value` | false | outcome valuation for all 63 agendas, voter-conditional agendas, Politics placement and tie-breaks |
+| `agenda_budget` | false | votes cast only to the extent that they pay, planets chosen to waste least influence, second agenda kept in mind |
+| `agenda_riders` | false | rider cards played only when predictable and the seat's votes are not needed; other cards in that window declined |
+| `agenda_rival_weight` | 0.5 | weight of the rivals' change in an outcome's value |
+| `agenda_min_margin` | 1.5 | value points the best outcome must lead by, else no opinion |
+| `agenda_rival_share` | 0.6 | reserved: chance a rival without opinion votes against the seat |
+| `agenda_second_prior` | 2.0 | assumed stake of an unknown second agenda |
+| `rider_min_p` | 0.7 | least probability of the predicted outcome for a rider |
+
+### Recommendation for a version 5
+
+Adopt `agenda_value` together with `agenda_budget`: win share +3.8 pp on the Muaat table and +2.4 pp on the other,
+agenda VP significantly positive in both, no effect on six players, no loss anywhere, and a cheap decision (the cost per
+game is a few valuation calls in the agenda phase). Do not adopt `agenda_budget` alone, and leave `agenda_riders` off:
+alone it does not pay, and in the combination it adds Imperial Rider VP but also a risk the A/B runs cannot rule out.
+A version 5 run of the usual gates (golden benches of versions 1 to 4, `completion`, `stress`) is still due; version 4
+games are bit-identical with the knobs off (golden benchmark 200 of 200).
+
+### Known limits
+
+* The second agenda is only known when the seat placed it itself with Politics in the same round (the observation shows
+  no queue); otherwise the stake of the second agenda is the prior. Naalu's commander look shows the card behind the
+  second agenda, so it is not used.
+* Rider forecasts assume the others vote as the valuation or the old table says; the correctness of predictions is
+  not logged per game (the Imperial Rider VP is the proxy).
+* Rivals' unknown action cards, secret objectives and the exact influence of attached planets are not modelled; planet
+  influence is the printed value.
+* `classified` and `crisis` never reach a vote in this engine; `covert` is an empty vote.
+* The experiment log (`AGENDA_VOTE_LOG`) and the `agendas` key in the stored game timeline (`timeline.rs`) are the only
+  changes outside the bot; they affect no play.
