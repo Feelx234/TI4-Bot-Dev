@@ -478,6 +478,7 @@ export const Board: React.FC<BoardProps> = ({
                     label: p.label,
                     resources: p.resources,
                     influence: p.influence,
+                    boosts: p.boosts,
                     owner: p.controlledBy,
                   })),
                   unitsCount: tile.totalUnits,

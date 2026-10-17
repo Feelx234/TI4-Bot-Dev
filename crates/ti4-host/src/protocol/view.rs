@@ -96,6 +96,22 @@ pub struct PlanetView {
     pub exhausted: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<String>,
+    /// What raises this planet's resources or influence above its printed values (attachments,
+    /// laws such as Core Mining, Helios docks), from the engine's own planet value function.
+    /// Display only: the printed values are in the map tile metadata. Empty when nothing does.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub value_boosts: Vec<PlanetValueBoost>,
+}
+
+/// One source of extra resources or influence on a planet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+pub struct PlanetValueBoost {
+    /// Card name, for example "Mining World".
+    pub source: String,
+    pub resources: i32,
+    pub influence: i32,
 }
 
 /// Redacted view of a unit placed on the board.

@@ -201,6 +201,37 @@ pub fn planet_value_now(
         }
 }
 
+/// One thing that raises a planet's value, for display: `(source name, resources, influence)`.
+///
+/// Built from the same three terms [`planet_value_now`] adds to the printed value (laws, attachment
+/// records, the Helios docks), so the list always sums to `planet_value_now - planet_value`.
+#[must_use]
+pub fn planet_value_boosts(
+    state: &GameState,
+    content: &ContentStore,
+    planet: &PlanetId,
+) -> Vec<(String, i64, i64)> {
+    let mut out: Vec<(String, i64, i64)> = crate::laws::planet_value_bonus_sources(state, planet)
+        .into_iter()
+        .map(|(name, r, i)| (name.to_owned(), r, i))
+        .collect();
+    for id in state.planet_attachments.get(planet).into_iter().flatten() {
+        let Some(record) = content.get(ContentType::Attachments, id) else {
+            continue;
+        };
+        let r = record.int("resourcesModifier").unwrap_or(0);
+        let i = record.int("influenceModifier").unwrap_or(0);
+        if r != 0 || i != 0 {
+            out.push((record.text("name").unwrap_or(id).to_owned(), r, i));
+        }
+    }
+    let helios = crate::factions::bastion_units::resource_bonus(state, planet);
+    if helios != 0 {
+        out.push(("Helios dock".to_owned(), helios, 0));
+    }
+    out
+}
+
 /// The faction mark holding the [`GameState::production_seq`] a value swap was declared in.
 const SWAP_SEQ_MARK: &str = "production:value_swap_seq";
 

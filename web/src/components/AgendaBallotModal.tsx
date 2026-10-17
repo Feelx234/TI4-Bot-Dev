@@ -342,6 +342,7 @@ export const AgendaBallotModal: React.FC<AgendaBallotModalProps> = ({
                                 <PlanetValue
                                   kind="influence"
                                   value={planet.votes}
+                                  planetId={planet.id}
                                   label={`${planet.votes} ${planet.votes === 1 ? "vote" : "votes"} (influence)`}
                                 />
                               )}
