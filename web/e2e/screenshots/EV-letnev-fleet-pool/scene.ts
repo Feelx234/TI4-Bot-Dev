@@ -13,7 +13,7 @@ export type SizeName = keyof typeof SIZES;
  * Letnev's status-phase redistribution of 9 held tokens. `floor` is the fewest fleet tokens the
  * engine offers: 2 is what it offered before the fix, 0 after (Letnev only, rules version 4).
  */
-export function redistributeChoice(floor: number) {
+export function redistributeChoice(floor: number, armada = false) {
   const total = 9;
   const options: { id: string; label: string; kind: string }[] = [];
   for (let tactic = 0; tactic <= total; tactic++) {
@@ -37,16 +37,17 @@ export function redistributeChoice(floor: number) {
       pools: { tactic: 3, fleet: 4, strategic: 2 },
       reinforcements: 7,
       total,
+      ...(armada ? { fleet_supply_bonus: 2 } : {}),
     },
   };
 }
 
-export async function openRedistribution(page: Page, size: SizeName, floor: number) {
+export async function openRedistribution(page: Page, size: SizeName, floor: number, armada = false) {
   await page.setViewportSize(SIZES[size]);
   await openMockedGame(page, {
-    players: [playerWithHand({}), opponent],
+    players: [playerWithHand(armada ? { faction: "letnev" } : {}), opponent],
     board: galleryBoard,
-    choice: redistributeChoice(floor),
+    choice: redistributeChoice(floor, armada),
   });
   await page.getByTestId("command-token-panel").waitFor();
   await expect(page.getByTestId("command-token-panel")).toBeVisible();

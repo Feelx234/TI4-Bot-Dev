@@ -225,6 +225,16 @@ pub fn with_pool_details(
             serde_json::json!({ "tactic": tactic, "fleet": fleet, "strategic": strategic }),
         )
         .detailed("reinforcements", reinforcements);
+    // Letnev's Armada (`faction_abilities::fleet_supply`): two more non-fighter ships per system
+    // than the fleet pool allows. Display only; the panel shows it next to the fleet pool.
+    let choice = if state
+        .player(&choice.player)
+        .is_some_and(|seat| seat.faction.as_str() == "letnev")
+    {
+        choice.detailed("fleet_supply_bonus", 2)
+    } else {
+        choice
+    };
     match (mode, tokens_to_place) {
         ("gain" | "buy", Some(count)) => choice.detailed("tokens_to_place", count),
         ("redistribute" | "restack", _) => choice.detailed("total", tactic + fleet + strategic),
@@ -905,6 +915,22 @@ mod tests {
         let legacy = window.pending_choice(&state).unwrap();
         assert!(legacy.option("4|1|3").is_none());
         assert_eq!(legacy.options.len(), 28);
+    }
+
+    #[test]
+    fn only_letnev_reports_the_armada_fleet_supply_bonus() {
+        let (mut state, players) = game();
+        state.player_mut(&players[0]).unwrap().faction =
+            ti4_model::id::FactionId::new("letnev");
+        let choice = |player: &PlayerId| {
+            let window = TokenRedistribution::new(player.clone());
+            with_pool_details(window.pending_choice(&state).unwrap(), &state, "redistribute", None)
+        };
+        assert_eq!(
+            choice(&players[0]).details.get("fleet_supply_bonus"),
+            Some(&serde_json::json!(2))
+        );
+        assert!(choice(&players[1]).details.get("fleet_supply_bonus").is_none());
     }
 
     #[test]

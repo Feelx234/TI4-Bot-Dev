@@ -23,4 +23,18 @@ for (const size of Object.keys(SIZES) as SizeName[]) {
     await expect(page.getByTestId("token-confirm")).toBeEnabled();
     await shot(page, testInfo, `after-${size}`);
   });
+
+  test(`letnev shows the Armada fleet supply ${size}`, async ({ page }, testInfo) => {
+    await openRedistribution(page, size, 0, true);
+    await lowerFleetTo(page, 1);
+    const chip = page.getByTestId("token-armada");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveText("+2 supply");
+    await expect(page.getByTestId("token-confirm")).toBeEnabled();
+    const { width } = SIZES[size];
+    const box = (await chip.boundingBox())!;
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    if (size === "desktop") await expect(page.getByTestId("player-armada").first()).toBeVisible();
+    await shot(page, testInfo, `letnev-${size}`);
+  });
 }

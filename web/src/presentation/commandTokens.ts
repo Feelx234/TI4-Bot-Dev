@@ -93,7 +93,17 @@ export interface CommandTokenView {
   arrangements: ReadonlySet<string>;
   /** Gain: the influence purchase that follows (or is asked first), planned on the same screen. */
   purchase: PurchaseView | null;
+  /** Extra non-fighter ships per system the seat's fleet supply allows (Letnev's Armada: 2), else 0. */
+  fleetSupplyBonus: number;
 }
+
+/** What Armada adds, shown next to the fleet pool and on the player card. */
+export const ARMADA_BONUS = 2;
+export const ARMADA_TEXT = `Armada: +${ARMADA_BONUS} fleet supply (pool + ${ARMADA_BONUS} non-fighter ships per system)`;
+
+/** Whether a seat's faction id is Letnev (Armada applies to it unconditionally). */
+export const hasArmada = (faction: string | null | undefined): boolean =>
+  (faction ?? "").toLowerCase().replace(/[-_\s]/g, "") === "letnev";
 
 /** Staged tokens per pool: added ones for a gain, the whole arrangement for a redistribute. */
 export type TokenStaging = Pools;
@@ -109,9 +119,19 @@ const asCount = (value: unknown): number | null =>
 export function describeCommandTokens(
   choice: Pick<PendingChoiceDto, "options" | "details">,
   canBatch: boolean,
-  /** Resource value per planet id (from the board), so the flow can show and weigh resources. */
   resourcesOf?: ReadonlyMap<string, number>,
 ): CommandTokenView | null {
+  const view = describeBase(choice, canBatch, resourcesOf);
+  if (!view) return null;
+  return { ...view, fleetSupplyBonus: asCount(choice.details?.fleet_supply_bonus) ?? 0 };
+}
+
+function describeBase(
+  choice: Pick<PendingChoiceDto, "options" | "details">,
+  canBatch: boolean,
+  /** Resource value per planet id (from the board), so the flow can show and weigh resources. */
+  resourcesOf?: ReadonlyMap<string, number>,
+): Omit<CommandTokenView, "fleetSupplyBonus"> | null {
   const details = choice.details;
   if (!details) return null;
   // Leadership's secondary window keeps its strategy-secondary details and adds the purchase.

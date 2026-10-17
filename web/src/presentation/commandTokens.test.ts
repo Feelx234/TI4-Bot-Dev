@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasArmada,
   addToken,
   arrangementId,
   canConfirmTokens,
@@ -334,6 +335,7 @@ describe("payment override", () => {
     reinforcements: 20,
     total: 0,
     arrangements: new Set(),
+    fleetSupplyBonus: 0,
     purchase: {
       cost: 3,
       influence: 14,
@@ -497,5 +499,21 @@ describe("gainTokensPrompt", () => {
         details: { kind: "command_tokens", mode: "redistribute", total: 9 },
       }),
     ).toBe(prompt);
+  });
+});
+
+describe("Armada fleet supply bonus", () => {
+  it("reads the engine's bonus, zero when absent", () => {
+    const base = redistribute();
+    expect(describeCommandTokens(base, false)!.fleetSupplyBonus).toBe(0);
+    const letnev = { ...base, details: { ...base.details, fleet_supply_bonus: 2 } };
+    expect(describeCommandTokens(letnev, false)!.fleetSupplyBonus).toBe(2);
+  });
+
+  it("recognises only Letnev", () => {
+    expect(hasArmada("letnev")).toBe(true);
+    expect(hasArmada("Letnev")).toBe(true);
+    expect(hasArmada("sol")).toBe(false);
+    expect(hasArmada(null)).toBe(false);
   });
 });

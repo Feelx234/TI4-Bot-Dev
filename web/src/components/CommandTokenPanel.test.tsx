@@ -158,6 +158,19 @@ describe("command token panel (redistribute)", () => {
     expect(onSubmit).toHaveBeenCalledWith("3|0|6");
   });
 
+  it("shows the Armada fleet supply bonus next to the fleet pool only when the engine reports it", () => {
+    const plain = render(<PendingChoiceModal choice={redistributeChoice()} onSubmit={vi.fn()} />);
+    expect(screen.queryByTestId("token-armada")).not.toBeInTheDocument();
+    plain.unmount();
+    const letnev = redistributeChoice();
+    letnev.details = { ...letnev.details, fleet_supply_bonus: 2 };
+    render(<PendingChoiceModal choice={letnev} onSubmit={vi.fn()} />);
+    const chip = screen.getByTestId("token-armada");
+    expect(chip).toHaveTextContent("+2 supply");
+    expect(chip).toHaveAttribute("aria-label", expect.stringContaining("non-fighter ships per system"));
+    expect(within(screen.getByTestId("token-pool-fleet")).getByTestId("token-armada")).toBe(chip);
+  });
+
   it("explains the floor of two when the engine offers no smaller fleet pool", async () => {
     render(<PendingChoiceModal choice={redistributeChoice()} onSubmit={vi.fn()} />);
     await click("token-minus-fleet");
