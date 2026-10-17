@@ -634,7 +634,7 @@ fn pick_secret_return(choice: &Choice, seen: &SeatObservation<'_>) -> Option<usi
 /// Ground forces the seat could have in `system` after activating it, and whether a ship could
 /// get there (the same reach as [`activation_value`]).
 pub(crate) fn reach(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> (bool, usize) {
-    let movable = seen.movable_into(me, system);
+    let movable = crate::movable_for(seen, me, system);
     let ships = movable.iter().any(|m| is_ship(seen, &m.unit));
     let capacity: i64 = movable
         .iter()
@@ -852,6 +852,12 @@ fn pick_action(
         ready_card(observed, me, name).and_then(|card| strategic_option(choice, observed, &card))
     };
     if observed.scoreable_public(me) > 0
+        && let Some(index) = play("Imperial")
+    {
+        return Some(index);
+    }
+    if tuning::mecatol_imperial_priority()
+        && crate::holds_mecatol(observed, me)
         && let Some(index) = play("Imperial")
     {
         return Some(index);
@@ -1161,6 +1167,13 @@ fn pick_strategy_card(choice: &Choice, seen: &SeatObservation<'_>, me: &PlayerId
             let name = ti4_engine::strategy_cards::card_name(seen.observed().content(), &o.id);
             if imperial_wanted && name.as_deref() == Some("Imperial") {
                 score += 20.0;
+            }
+            // Mecatol Rex held (or takeable) is Imperial's point every round: take the card first.
+            if tuning::mecatol_imperial_priority()
+                && name.as_deref() == Some("Imperial")
+                && crate::mecatol_imperial_wanted(seen.observed(), me)
+            {
+                score += 100.0;
             }
             if let Some(expected) = name.and_then(|n| wanted_cards.get(&n).copied()) {
                 score += tuning::bw_card_weight() * expected.max(0.0);
@@ -1699,6 +1712,58 @@ mod tests {
             3,
         );
         assert_eq!(picked(&state, None, &draft), Some(2));
+    }
+
+    #[test]
+    fn a_seat_holding_mecatol_rex_drafts_imperial_first_only_with_the_knob() {
+        let mut state = game(&["a", "b"]);
+        round_three(&mut state);
+        state.phase = Phase::Strategy;
+        state
+            .revealed_objectives
+            .push(ObjectiveId::new("trade_routes"));
+        state.player_mut(&me()).expect("seat").trade_goods = 3;
+        let draft = |state: &GameState| {
+            let choice = contextual(
+                Choice::new(
+                    me(),
+                    "choose a strategy card",
+                    ["pok1leadership", "pok5trade", "pok8imperial"]
+                        .iter()
+                        .map(|id| ChoiceOption::labelled(*id, "strategy_card", *id))
+                        .collect(),
+                ),
+                "draft_strategy_card",
+                3,
+            );
+            picked(state, None, &choice)
+        };
+        // Trade serves Trade Routes; Mecatol Rex is not held: Trade.
+        assert_eq!(draft(&state), Some(1));
+        state
+            .system_mut(&SystemId::new("18"))
+            .planet_control
+            .insert(PlanetId::new("mr"), me());
+        let on = tuning::Tuning {
+            mecatol_imperial_priority: true,
+            ..tuning::Tuning::default()
+        };
+        // Held, knob on: Imperial.
+        tuning::with(on, || assert_eq!(draft(&state), Some(2)));
+        // Another seat holds the card: it is not offered, nothing changes.
+        let choice = contextual(
+            Choice::new(
+                me(),
+                "choose a strategy card",
+                ["pok1leadership", "pok5trade"]
+                    .iter()
+                    .map(|id| ChoiceOption::labelled(*id, "strategy_card", *id))
+                    .collect(),
+            ),
+            "draft_strategy_card",
+            3,
+        );
+        tuning::with(on, || assert_eq!(picked(&state, None, &choice), Some(1)));
     }
 
     /// A ring map: the centre and `outer[1]` each hold one planet, `outer[0]` is where the bot's

@@ -103,6 +103,7 @@ use ti4_content::units::UnitType;
 use ti4_engine::choice::{Choice, ChoiceOption, Observed, SeatObservation};
 use ti4_engine::fleet_strength::{Descriptors, descriptors, matchup};
 use ti4_engine::production::Spend;
+use ti4_engine::tactical::Movable;
 use ti4_model::id::{PlanetId, PlayerId, SystemId};
 use ti4_model::units::Unit;
 
@@ -212,8 +213,9 @@ pub fn pick(choice: &Choice, seen: &SeatObservation<'_>, rng: &mut ChaCha8Rng) -
     // -- movement filters (bot version 2): no gravity-rift gamble outside a fight; never strip
     // the home system bare before a rival fleet --
     if subtype == Some("movement_step")
-        && let Some(keep) =
-            rift_keep(choice, observed, &me).or_else(|| home_guard_keep(choice, observed, &me))
+        && let Some(keep) = rift_keep(choice, observed, &me)
+            .or_else(|| home_guard_keep(choice, observed, &me))
+            .or_else(|| mecatol_guard_keep(choice, observed, &me))
     {
         let mut narrowed = choice.clone();
         narrowed.options = keep.iter().map(|&i| choice.options[i].clone()).collect();
@@ -561,6 +563,14 @@ fn mecatol_takeable(seen: &Observed<'_>, me: &PlayerId) -> bool {
     activation_value(seen, me, &mr) >= tuning::mecatol_bonus()
 }
 
+/// Bot version 5 candidate ([`tuning::mecatol_imperial_priority`]): the seat holds Mecatol Rex
+/// now or could take it, so Imperial's primary scores a point for it. The controller of the
+/// planet is what is known at draft time (round 1 nobody holds it; the plan to take it counts
+/// through [`mecatol_takeable`]).
+pub(crate) fn mecatol_imperial_wanted(seen: &Observed<'_>, me: &PlayerId) -> bool {
+    holds_mecatol(seen, me) || mecatol_takeable(seen, me)
+}
+
 /// Bot version 3: the Winnu's Blood Ties lift the custodians without influence.
 fn blood_ties(seen: &Observed<'_>, me: &PlayerId) -> bool {
     tuning::winnu_mecatol() && faction(seen, me) == "winnu"
@@ -730,7 +740,7 @@ fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> 
 /// Negative when the fight there would be lost; zero when the bot has no reason to go.
 #[must_use]
 pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
-    let movable = seen.movable_into(me, system);
+    let movable = movable_for(seen, me, system);
     let board = seen.system(system);
     let present: Vec<&Unit> = board
         .units
@@ -1650,6 +1660,12 @@ fn pick_action(
     let play = |name: &str| {
         ready_card(seen, me, name).and_then(|card| strategic_option(choice, seen, &card))
     };
+    if tuning::mecatol_imperial_priority()
+        && holds_mecatol(seen, me)
+        && let Some(index) = play("Imperial")
+    {
+        return Some(index);
+    }
     let tokens = seen.systems_with_token(me);
     let worth = galaxy
         .system_ids()
@@ -2042,6 +2058,149 @@ fn home_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Optio
         .iter()
         .enumerate()
         .filter(|(_, o)| !leaving(o) || payload_str(o, "unit").is_some_and(|u| without(u) >= 0.0))
+        .map(|(i, _)| i)
+        .collect();
+    (keep.len() < choice.options.len()).then_some(keep)
+}
+
+/// Bot version 5 candidate ([`tuning::mecatol_guard`]): the warships on Mecatol Rex that may
+/// leave, by unit type and count; `None` when nothing is held back (knob off, planet not held,
+/// no rival fleet in reach, or the ships there would not deter it anyway, in which case staying
+/// would not save the planet).
+///
+/// The garrison is the smallest set of ships (with the seat's space cannon on the planet) that
+/// still has `matchup >= -win_margin` against the strongest fleet a rival can bring now, the
+/// matchup a rule-bot attacker needs. Ships are given up one at a time, always the one whose
+/// leaving costs the least matchup, while the rest still deters; those are the surplus that may
+/// move out for tactical actions. Fighters always stay. Feedback fb_1792225201_7d70d5bd: the
+/// Muaat warsun, the only ship on Mecatol Rex, left it for Thibah and a rival took the planet.
+fn mecatol_surplus(seen: &Observed<'_>, me: &PlayerId) -> Option<BTreeMap<String, usize>> {
+    if !tuning::mecatol_guard() || seen.round() < 2 || !holds_mecatol(seen, me) {
+        return None;
+    }
+    let mecatol = mecatol_system(seen)?;
+    let board = seen.system(&mecatol);
+    let ships: Vec<&Unit> = board
+        .units
+        .iter()
+        .filter(|u| &u.owner == me && is_ship(seen, u))
+        .collect();
+    let removable = |u: &&Unit| {
+        unit_type(seen, u.type_id.as_str()).is_some_and(|t| t.is_ship() && !t.is_fighter())
+    };
+    if !ships.iter().any(removable) {
+        return None;
+    }
+    let threat = seen
+        .players()
+        .into_iter()
+        .filter(|p| *p != me)
+        .map(|rival| {
+            let movable = seen.movable_into(rival, &mecatol);
+            fleet(
+                seen,
+                rival,
+                movable.iter().map(|m| &m.unit).filter(|u| is_ship(seen, u)),
+            )
+        })
+        .max_by(|a, b| a.firepower.total_cmp(&b.firepower))
+        .filter(|t| t.firepower > 0.0)?;
+    let cannon = hostile_fleet_cannon(seen, me, &mecatol);
+    let value = |set: &[&Unit]| {
+        let mut guard = fleet(seen, me, set.iter().copied());
+        guard.cannon += cannon;
+        matchup(&guard, &threat)
+    };
+    let floor = -tuning::win_margin();
+    let mut stay = ships.clone();
+    if value(&stay) < floor {
+        return None;
+    }
+    let mut surplus: BTreeMap<String, usize> = BTreeMap::new();
+    loop {
+        let best = (0..stay.len())
+            .filter(|&i| removable(&stay[i]))
+            .map(|i| {
+                let mut rest = stay.clone();
+                rest.remove(i);
+                (i, value(&rest))
+            })
+            .filter(|(_, v)| *v >= floor)
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        let Some((i, _)) = best else { break };
+        let gone = stay.remove(i);
+        *surplus.entry(gone.type_id.as_str().to_owned()).or_default() += 1;
+    }
+    Some(surplus)
+}
+
+/// The ships that could move into `system` ([`Observed::movable_into`]), less the Mecatol Rex
+/// garrison ([`mecatol_surplus`]).
+pub(crate) fn movable_for(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
+    let movable = seen.movable_into(me, system);
+    if !tuning::mecatol_guard() {
+        return movable;
+    }
+    let Some(mecatol) = mecatol_system(seen) else {
+        return movable;
+    };
+    if system == &mecatol || !movable.iter().any(|m| m.origin == mecatol) {
+        return movable;
+    }
+    let Some(mut surplus) = mecatol_surplus(seen, me) else {
+        return movable;
+    };
+    movable
+        .into_iter()
+        .filter(|m| {
+            if !garrison_ship(seen, &mecatol, &m.origin, m.unit.type_id.as_str()) {
+                return true;
+            }
+            take_one(&mut surplus, m.unit.type_id.as_str())
+        })
+        .collect()
+}
+
+/// Whether a unit of `me` at `origin` is a warship (not a fighter) of the Mecatol Rex system.
+fn garrison_ship(seen: &Observed<'_>, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
+    origin == mecatol && unit_type(seen, unit).is_some_and(|t| t.is_ship() && !t.is_fighter())
+}
+
+/// Use up one unit of `kind` from `surplus`; false when none is left.
+fn take_one(surplus: &mut BTreeMap<String, usize>, kind: &str) -> bool {
+    match surplus.get_mut(kind) {
+        Some(n) if *n > 0 => {
+            *n -= 1;
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Bot version 5 candidate ([`tuning::mecatol_guard`]): the move options that do not take more
+/// ships from Mecatol Rex than [`mecatol_surplus`] allows; `None` when none is dropped.
+fn mecatol_guard_keep(choice: &Choice, seen: &Observed<'_>, me: &PlayerId) -> Option<Vec<usize>> {
+    if !tuning::mecatol_guard() {
+        return None;
+    }
+    let mecatol = mecatol_system(seen)?;
+    if seen.active_system()? == &mecatol {
+        return None;
+    }
+    let mut surplus = mecatol_surplus(seen, me)?;
+    let keep: Vec<usize> = choice
+        .options
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            if o.kind != "move" || payload_str(o, "origin") != Some(mecatol.as_str()) {
+                return true;
+            }
+            match payload_str(o, "unit") {
+                Some(u) if garrison_ship(seen, &mecatol, &mecatol, u) => take_one(&mut surplus, u),
+                _ => true,
+            }
+        })
         .map(|(i, _)| i)
         .collect();
     (keep.len() < choice.options.len()).then_some(keep)
@@ -3197,6 +3356,7 @@ fn pick_proposal(choice: &Choice) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tuning::Tuning;
     use rand::SeedableRng;
     use ti4_content::ContentStore;
     use ti4_engine::choice::{Decider, IllegalChoice};
@@ -3410,6 +3570,114 @@ mod tests {
             Some(1),
             "the dreadnought first"
         );
+    }
+
+    fn mecatol_hub(foe_dreadnoughts: usize) -> (GameState, Hub, SystemId) {
+        let hub = hub_with_centre("18");
+        let mut state = game(&["a", "b"]);
+        let mr = SystemId::new("18");
+        state
+            .system_mut(&mr)
+            .planet_control
+            .insert(PlanetId::new(MECATOL), me());
+        put(&mut state, &mr, "dreadnought", &me(), 2);
+        put(
+            &mut state,
+            &outer(&hub, 2),
+            "dreadnought",
+            &foe(),
+            foe_dreadnoughts,
+        );
+        state.round = 3;
+        state.active_system = Some(outer(&hub, 0));
+        (state, hub, mr)
+    }
+
+    #[test]
+    fn only_the_surplus_of_the_mecatol_garrison_may_leave_and_only_with_the_knob() {
+        let on = Tuning {
+            mecatol_guard: true,
+            ..Tuning::default()
+        };
+        let (state, hub, mr) = mecatol_hub(1);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("dreadnought", 0), ("dreadnought", 0)]);
+        let all = seen.movable_into(&me(), &outer(&hub, 0));
+        assert!(all.iter().any(|m| m.origin == mr));
+
+        // Bot version 4 (knob off): nothing is held back.
+        assert_eq!(mecatol_surplus(&seen, &me()), None);
+        assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), None);
+        // Knob on: two dreadnoughts against one; one of them is surplus, one stays.
+        tuning::with(on, || {
+            assert_eq!(
+                mecatol_surplus(&seen, &me()),
+                Some(BTreeMap::from([("dreadnought".to_owned(), 1)]))
+            );
+            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), Some(vec![0, 2]));
+            let left = movable_for(&seen, &me(), &outer(&hub, 0));
+            assert_eq!(
+                left.iter().filter(|m| m.origin == mr).count(),
+                1,
+                "one leaves, one stays"
+            );
+            // Activating Mecatol Rex itself is not affected.
+            assert_eq!(
+                movable_for(&seen, &me(), &mr).len(),
+                seen.movable_into(&me(), &mr).len()
+            );
+        });
+
+        // Two against two: nothing to spare.
+        let (state, hub, mr) = mecatol_hub(2);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("dreadnought", 0), ("dreadnought", 0)]);
+        tuning::with(on, || {
+            assert_eq!(mecatol_surplus(&seen, &me()), Some(BTreeMap::new()));
+            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), Some(vec![2]));
+        });
+
+        // A fleet the garrison cannot deter: staying would not save the planet.
+        let (state, hub, mr) = mecatol_hub(5);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("dreadnought", 0), ("dreadnought", 0)]);
+        tuning::with(on, || {
+            assert_eq!(mecatol_surplus(&seen, &me()), None);
+            assert_eq!(mecatol_guard_keep(&choice, &seen, &me()), None);
+        });
+
+        // No rival fleet in reach: free to go.
+        let (state, hub, _) = mecatol_hub(0);
+        let seen = observe(&state, &hub);
+        tuning::with(on, || assert_eq!(mecatol_surplus(&seen, &me()), None));
+    }
+
+    #[test]
+    fn a_warsun_with_two_cruisers_keeps_the_warsun_and_frees_the_cruisers() {
+        let on = Tuning {
+            mecatol_guard: true,
+            ..Tuning::default()
+        };
+        let (mut state, hub, mr) = mecatol_hub(1);
+        state.system_mut(&mr).units.clear();
+        put(&mut state, &mr, "muaat_warsun", &me(), 1);
+        put(&mut state, &mr, "cruiser", &me(), 2);
+        let seen = observe(&state, &hub);
+        let choice = move_choice(&mr, &[("muaat_warsun", 6), ("cruiser", 0), ("cruiser", 0)]);
+        tuning::with(on, || {
+            let surplus = mecatol_surplus(&seen, &me()).expect("a garrison");
+            assert!(!surplus.contains_key("muaat_warsun"), "{surplus:?}");
+            assert_eq!(surplus.get("cruiser"), Some(&2), "{surplus:?}");
+            assert_eq!(
+                mecatol_guard_keep(&choice, &seen, &me()),
+                Some(vec![1, 2, 3])
+            );
+            let left = movable_for(&seen, &me(), &outer(&hub, 0));
+            assert!(
+                left.iter()
+                    .all(|m| m.unit.type_id.as_str() != "muaat_warsun" || m.origin != mr)
+            );
+        });
     }
 
     fn load_choice(loaded_ground: i64) -> Choice {
