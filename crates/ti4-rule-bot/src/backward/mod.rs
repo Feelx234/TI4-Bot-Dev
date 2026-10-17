@@ -488,7 +488,7 @@ fn fight_probability(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f
     if !crate::has_hostile_ships(seen, me, system) {
         return 1.0;
     }
-    let movable = seen.movable_into(me, system);
+    let movable = crate::movable_for(seen, me, system);
     let board = seen.system(system);
     let own = crate::fleet(
         seen,
@@ -535,7 +535,7 @@ fn steps(seen: &SeatObservation<'_>, me: &PlayerId) -> Vec<Step> {
         if planets.is_empty() && !ship {
             continue;
         }
-        let spare_ship = observed.movable_into(me, &system).iter().any(|m| {
+        let spare_ship = crate::movable_for(observed, me, &system).iter().any(|m| {
             crate::is_ship(observed, &m.unit)
                 && observed
                     .system(&m.origin)

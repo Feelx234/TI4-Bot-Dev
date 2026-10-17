@@ -732,7 +732,7 @@ fn has_own_production(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> 
 /// Negative when the fight there would be lost; zero when the bot has no reason to go.
 #[must_use]
 pub fn activation_value(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> f64 {
-    let movable = without_garrison(seen, me, system, seen.movable_into(me, system));
+    let movable = movable_for(seen, me, system);
     let board = seen.system(system);
     let present: Vec<&Unit> = board
         .units
@@ -2099,6 +2099,12 @@ fn mecatol_garrison(seen: &Observed<'_>, me: &PlayerId) -> bool {
 /// Whether a unit of `me` at `origin` is a warship of the Mecatol Rex garrison.
 fn garrison_ship(seen: &Observed<'_>, mecatol: &SystemId, origin: &SystemId, unit: &str) -> bool {
     origin == mecatol && unit_type(seen, unit).is_some_and(|t| t.is_ship() && !t.is_fighter())
+}
+
+/// The ships that could move into `system` ([`Observed::movable_into`]), less the Mecatol Rex
+/// garrison ([`without_garrison`]).
+pub(crate) fn movable_for(seen: &Observed<'_>, me: &PlayerId, system: &SystemId) -> Vec<Movable> {
+    without_garrison(seen, me, system, seen.movable_into(me, system))
 }
 
 /// `movable` without the Mecatol Rex garrison ([`mecatol_garrison`]), for an activation of
