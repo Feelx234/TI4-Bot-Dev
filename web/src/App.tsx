@@ -56,7 +56,7 @@ import {
   paymentPlanetKey,
 } from "./presentation/paymentDraft.ts";
 import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
-import { PlanetInfluenceContext, PlanetResourcesContext, planetInfluenceMap, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
+import { PlanetBoostContext, PlanetInfluenceContext, PlanetResourcesContext, planetBoostMap, planetInfluenceMap, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
 import { useSecondaryPrepare, useTokenPrefill, useReadyPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
@@ -566,6 +566,7 @@ const GameViewContainer: React.FC<{
   const agendaLog = useMemo(() => readAgendaLog(snapshot?.state), [snapshot?.state]);
   const planetResources = useMemo(() => planetResourceMap(snapshot?.view.board), [snapshot?.view.board]);
   const planetInfluence = useMemo(() => planetInfluenceMap(snapshot?.view.board), [snapshot?.view.board]);
+  const planetBoosts = useMemo(() => planetBoostMap(snapshot?.view.board), [snapshot?.view.board]);
   const tokenDraft = useCommandTokenDraft(pendingChoice, planetResources);
   // Diplomacy: the planets picked for its ready question (bar, list and map share them).
   const readyDraft = useReadyPlanetsDraft(
@@ -716,6 +717,7 @@ const GameViewContainer: React.FC<{
       <PaymentDraftProvider value={paymentDraft}>
       <PlanetResourcesContext.Provider value={planetResources}>
       <PlanetInfluenceContext.Provider value={planetInfluence}>
+      <PlanetBoostContext.Provider value={planetBoosts}>
       <CommandTokenDraftProvider value={tokenDraft}>
       <ReadyPlanetsDraftProvider value={readyDraft}>
       {undoRequest && (
@@ -1005,6 +1007,7 @@ const GameViewContainer: React.FC<{
       />
       </ReadyPlanetsDraftProvider>
       </CommandTokenDraftProvider>
+      </PlanetBoostContext.Provider>
       </PlanetInfluenceContext.Provider>
       </PlanetResourcesContext.Provider>
       </PaymentDraftProvider>

@@ -260,7 +260,7 @@ export const SystemInspector: React.FC<SystemInspectorProps> = ({
                     )}
                   </span>
                   <span style={{ fontSize: 12, color: "#facc15", fontWeight: 600 }}>
-                    <PlanetValuePair resources={p.resources} influence={p.influence} size="tooltip" />
+                    <PlanetValuePair resources={p.resources} influence={p.influence} boosts={p.boosts} size="tooltip" />
                   </span>
                 </div>
 

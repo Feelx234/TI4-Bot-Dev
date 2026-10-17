@@ -121,6 +121,7 @@ export type { PlanStep } from "./PlanStep.ts";
 export type { PlanetId } from "./PlanetId.ts";
 export type { PlanetMetaView } from "./PlanetMetaView.ts";
 export type { PlanetRecord } from "./PlanetRecord.ts";
+export type { PlanetValueBoost } from "./PlanetValueBoost.ts";
 export type { PlanetView } from "./PlanetView.ts";
 export type { PlayerId } from "./PlayerId.ts";
 export type { PlayerView } from "./PlayerView.ts";

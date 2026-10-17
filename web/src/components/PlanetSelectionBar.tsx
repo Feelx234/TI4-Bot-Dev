@@ -1,7 +1,7 @@
 import { PlagueTargetNote } from "./PlagueTargetNote.tsx";
 import { describePlagueTarget, isPlaguePick } from "../presentation/plagueTarget.ts";
 import React, { useState } from "react";
-import { ValueText } from "./PlanetValueIcons.tsx";
+import { PlanetValuePair, ValueText } from "./PlanetValueIcons.tsx";
 import { BoardView, ChoiceOption, PendingChoiceDto } from "../protocol/types.ts";
 import {
   ChoiceRendererModel,
@@ -67,6 +67,12 @@ function withPlanetEmphasis(label: string, planet: PlanetDetails): React.ReactNo
   );
 }
 
+/** Resources and influence of a planet with the boost marker; text only when a value is unknown. */
+function PlanetStatsValue({ planet, fallback }: { planet: PlanetDetails; fallback: string }) {
+  if (planet.resources === null || planet.influence === null) return <ValueText text={fallback} />;
+  return <PlanetValuePair resources={planet.resources} influence={planet.influence} boosts={planet.boosts} />;
+}
+
 function PlanetFacts({ planet }: { planet: PlanetDetails }) {
   const stats = formatPlanetStats(planet);
   const facts = [
@@ -79,7 +85,7 @@ function PlanetFacts({ planet }: { planet: PlanetDetails }) {
     <span className="planet-selection-bar__facts" data-testid="planet-selection-facts">
       {stats && (
         <span className="planet-selection-bar__stats">
-          (<ValueText text={stats} />)
+          (<PlanetStatsValue planet={planet} fallback={stats} />)
         </span>
       )}
       {facts.length > 0 && <span className="text-muted"> · {facts.join(" · ")}</span>}
@@ -345,7 +351,7 @@ export const PlanetSelectionBar: React.FC<PlanetSelectionBarProps> = ({
                 ) : stats && (
                   <span className="text-muted">
                     {" "}
-                    <ValueText text={stats} />
+                    <PlanetStatsValue planet={planet} fallback={stats} />
                   </span>
                 )}
                 {votes !== null && <span className="text-muted"> · {votes} votes</span>}

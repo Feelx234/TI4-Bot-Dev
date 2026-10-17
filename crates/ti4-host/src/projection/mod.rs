@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::protocol::status::{PublicTurnStatus, ViewerRole};
 use crate::protocol::view::{
-    BoardTileView, BoardView, GameView, ObjectiveProgressView, PlacedUnitView, PlanetView,
-    PlayerView, SystemView, TableView,
+    BoardTileView, BoardView, GameView, ObjectiveProgressView, PlacedUnitView, PlanetValueBoost,
+    PlanetView, PlayerView, SystemView, TableView,
 };
 
 /// Projects one player record that has already passed through the model's redaction boundary.
@@ -251,6 +251,18 @@ pub fn project_board_view_full(
                         .get(&planet_id)
                         .cloned()
                         .unwrap_or_default(),
+                    value_boosts: ti4_engine::production::planet_value_boosts(
+                        state,
+                        ti4_content::ContentStore::embedded(),
+                        &planet_id,
+                    )
+                    .into_iter()
+                    .map(|(source, r, i)| PlanetValueBoost {
+                        source,
+                        resources: i32::try_from(r).unwrap_or(0),
+                        influence: i32::try_from(i).unwrap_or(0),
+                    })
+                    .collect(),
                 },
             );
         }
@@ -1448,5 +1460,56 @@ mod tests {
                 .home_system_lost
                 .contains_key(&xxcha)
         );
+    }
+
+    #[test]
+    fn a_planet_view_lists_what_raises_its_value_and_the_sum_is_the_engine_value() {
+        let mut state = ti4_engine::fixtures::seated_game(
+            &[("a", "xxcha"), ("b", "letnev")],
+            ti4_model::content_types::DEFAULT,
+        );
+        let planet = PlanetId::new("archontau");
+        state
+            .system_mut(&SystemId::new("14"))
+            .set_control(planet.clone(), PlayerId::new("a"));
+        let board = |state: &GameState| project_board_view(state);
+        let boosts = |state: &GameState| {
+            board(state).systems[&SystemId::new("14")].planets[&planet]
+                .value_boosts
+                .clone()
+        };
+        assert!(boosts(&state).is_empty());
+
+        state.planet_attachments.insert(
+            planet.clone(),
+            vec!["miningworld".into(), "dysonsphere".into()],
+        );
+        state
+            .laws
+            .insert("senate_sanctuary".into(), planet.to_string());
+        let listed = boosts(&state);
+        let names: Vec<_> = listed.iter().map(|b| b.source.as_str()).collect();
+        assert_eq!(names, ["Senate Sanctuary", "Mining World", "Dyson Sphere"]);
+
+        let content = ContentStore::embedded();
+        let full = ti4_model::content_types::FULL;
+        for (kind, sum) in [
+            (
+                ti4_engine::production::Spend::Resources,
+                listed.iter().map(|b| i64::from(b.resources)).sum::<i64>(),
+            ),
+            (
+                ti4_engine::production::Spend::Influence,
+                listed.iter().map(|b| i64::from(b.influence)).sum::<i64>(),
+            ),
+        ] {
+            let printed = ti4_engine::production::planet_value(content, full, &planet, kind);
+            let now =
+                ti4_engine::production::planet_value_now(&state, content, full, &planet, kind);
+            assert_eq!(now - printed, sum);
+        }
+        assert_eq!(listed[1].resources, 2);
+        assert_eq!(listed[2].resources, 2);
+        assert_eq!(listed[2].influence, 1);
     }
 }

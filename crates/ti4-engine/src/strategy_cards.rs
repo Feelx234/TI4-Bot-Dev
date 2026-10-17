@@ -1481,8 +1481,11 @@ pub fn ready_hints(
             serde_json::json!({
                 "id": planet.as_str(),
                 "name": record.as_ref().and_then(|r| r.name()).unwrap_or(planet.as_str()),
-                "resources": record.as_ref().map(|r| r.resources()),
-                "influence": record.as_ref().map(|r| r.influence()),
+                // As the planet pays now (attachments and laws included), like the payment screens.
+                "resources": record.as_ref().map(|_| crate::production::planet_value_now(
+                    state, content, sources, planet, crate::production::Spend::Resources)),
+                "influence": record.as_ref().map(|_| crate::production::planet_value_now(
+                    state, content, sources, planet, crate::production::Spend::Influence)),
             })
         })
         .collect();
