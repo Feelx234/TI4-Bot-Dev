@@ -1020,7 +1020,18 @@ impl HostSession {
         self.viewer.clone_from(&choice.player);
         self.pending = Some((choice.clone(), nonce.to_owned()));
         self.waiting = None;
-        self.awaiting = None;
+        // An answer whose decision is still held back (a card declared in a reaction window of
+        // rules version 3 is announced later) was accepted all the same: say so before the
+        // next question, as the server answers a submit directly.
+        if let Some(option_id) = self.awaiting.take() {
+            self.out
+                .push(ServerMessage::ActionAccepted(ActionAcceptedMsg {
+                    protocol_version: PROTOCOL_VERSION,
+                    game_id: self.identity.game_id.clone(),
+                    game_version: self.version.saturating_sub(1),
+                    option_id,
+                }));
+        }
         // A ready draft of the secondary that the seat is asked is sent: the seat is not asked.
         if !self.replaying()
             && let Some(index) = self.send_ready(choice, nonce)

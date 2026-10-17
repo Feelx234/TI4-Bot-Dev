@@ -219,7 +219,9 @@ fn a_save_names_its_game_and_every_decision_and_plays_again_with_no_seat_decidin
 #[test]
 fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
     let _serial = crate::common::serial();
-    let seed = 11;
+    // Seed 12: the first 27 decisions of seed 11 use Saar's agent, whose boost mark is written
+    // differently from rules version 2 on, so a save of it is no longer a legacy game.
+    let seed = 12;
     let first = page(vec![
         Act::Answer(8),
         Act::Cmd(json!({ "type": "save_state" })),
@@ -263,7 +265,7 @@ fn a_save_without_a_rules_version_resumes_as_a_legacy_game() {
         legacy.messages[0]["state"].get("rules_version").is_none(),
         "a legacy game's state is written without the field"
     );
-    assert_eq!(legacy.asks[0]["resume_check"]["ok"], true);
+    assert_eq!(legacy.asks[0]["resume_check"]["ok"], true, "{}", legacy.asks[0]["resume_check"]);
 }
 
 #[test]
