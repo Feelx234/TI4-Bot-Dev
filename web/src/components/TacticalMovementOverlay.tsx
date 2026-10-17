@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { PendingChoiceDto, PlayerView, BoardView } from "../protocol/types.ts";
+import { PendingChoiceDto, PlayerView, BoardView, MovementFacts } from "../protocol/types.ts";
 import {
   getMovementPayload,
   ChoiceRendererModel,
@@ -8,7 +8,7 @@ import { DecisionHeader } from "./DecisionHeader.tsx";
 import { UnitIcon, getUnitDisplayName, getUnitBaseType } from "./UnitIcon.tsx";
 import type { MovementStep } from "../protocol/client.ts";
 import {
-  enRoutePickupSystems,
+  routePickupSystems,
   originCargoBlockedByToken,
   ridesFree,
 } from "../presentation/enRoutePickup.ts";
@@ -18,6 +18,8 @@ export interface TacticalMovementOverlayProps {
   choice: PendingChoiceDto | null;
   model?: ChoiceRendererModel | null;
   board?: BoardView;
+  /** The engine's movement facts (routes and loads of the ships); the route is guessed without. */
+  facts?: MovementFacts | null;
   viewerSeat?: string | null;
   activeSystemId?: string | null;
   player?: PlayerView | null;
@@ -246,6 +248,7 @@ export const TacticalMovementOverlay: React.FC<
   choice,
   model,
   board,
+  facts,
   activeSystemId,
   player,
   onSubmit,
@@ -422,7 +425,8 @@ export const TacticalMovementOverlay: React.FC<
     // is only stageable when no other system holds the same kind.
     if (destinationSystemId && choice) {
       for (const origin of originsWithMovable) {
-        const route = enRoutePickupSystems(
+        const route = routePickupSystems(
+          facts,
           board,
           origin,
           destinationSystemId,
@@ -475,7 +479,7 @@ export const TacticalMovementOverlay: React.FC<
     }
 
     return Array.from(cargoMap.values());
-  }, [choice, board, shipGroups, isCargoStep, destinationSystemId]);
+  }, [choice, board, facts, shipGroups, isCargoStep, destinationSystemId]);
 
   // Reset staging on choice nonce change only when NOT actively executing
   useEffect(() => {
@@ -962,7 +966,8 @@ export const TacticalMovementOverlay: React.FC<
             }
           }
           // ...and own forces in the systems it moves through (95.1).
-          for (const pickup of enRoutePickupSystems(
+          for (const pickup of routePickupSystems(
+            facts,
             board,
             ship.origin,
             destinationSystemId,

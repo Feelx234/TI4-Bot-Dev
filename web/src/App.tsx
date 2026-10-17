@@ -873,6 +873,7 @@ const GameViewContainer: React.FC<{
           )
         }
         boardView={snapshot?.view.board}
+        tacticalFacts={snapshot?.tactical}
         activeSystemId={
           typeof snapshot?.state.active_system === "string" ? snapshot.state.active_system : null
         }
