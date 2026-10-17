@@ -4,6 +4,7 @@ import {
   EVENT_SECRETS,
   SECRET_PROGRESS_UNITS,
   secretNoProgressNote,
+  secretUnreachableNote,
   secretProgressDisplay,
 } from "./secretProgress.ts";
 
@@ -33,5 +34,29 @@ describe("secret objective progress wording", () => {
       const event = EVENT_SECRETS.has(alias);
       expect(counted !== event, alias).toBe(true);
     }
+  });
+});
+
+describe("secrets the map cannot serve", () => {
+  const tile = (system_id: string, planets: { id: string; legendary?: boolean }[], special_area?: string) => ({
+    system_id,
+    label: system_id,
+    q: 0,
+    r: 0,
+    special_area,
+    planets: planets.map((p) => ({ ...p, label: p.id, resources: 0, influence: 0 })),
+  });
+
+  it("says so for Seize an Icon when no legendary planet is on the map", () => {
+    const board = { systems: {}, map_tiles: [tile("20", [{ id: "vefutii" }]), tile("82a", [{ id: "lockedmallice", legendary: true }], "nexus")] };
+    expect(secretUnreachableNote("sai", board)).toMatch(/No legendary planet is on this map/);
+  });
+
+  it("is silent when a legendary planet is on the map, for other secrets, and without a map", () => {
+    const withOne = { systems: {}, map_tiles: [tile("65", [{ id: "primor", legendary: true }])] };
+    expect(secretUnreachableNote("sai", withOne)).toBeNull();
+    expect(secretUnreachableNote("ctr", { systems: {}, map_tiles: [tile("20", [])] })).toBeNull();
+    expect(secretUnreachableNote("sai", null)).toBeNull();
+    expect(secretUnreachableNote("sai", { systems: {} })).toBeNull();
   });
 });

@@ -1,7 +1,11 @@
 import React from "react";
 import type { BoardView, ObjectiveProgressView } from "../protocol/types.ts";
 import { systemTag } from "../presentation/systemFacts.ts";
-import { secretNoProgressNote, secretProgressDisplay } from "../presentation/secretProgress.ts";
+import {
+  secretNoProgressNote,
+  secretProgressDisplay,
+  secretUnreachableNote,
+} from "../presentation/secretProgress.ts";
 import "./SecretObjectiveProgress.css";
 
 /**
@@ -16,13 +20,25 @@ export const SecretObjectiveProgress: React.FC<{
   board?: BoardView | null;
 }> = ({ alias, progress, board }) => {
   const display = secretProgressDisplay(alias, progress);
+  const unreachable = secretUnreachableNote(alias, board);
+  const unreachableNote = unreachable ? (
+    <div
+      className="secret-progress__unreachable"
+      data-testid={`secret-unreachable-${alias}`}
+      role="note"
+    >
+      {unreachable}
+    </div>
+  ) : null;
   if (!display) {
     const note = secretNoProgressNote(alias);
     return note ? (
       <div className="secret-progress__note" data-testid={`secret-progress-note-${alias}`}>
         {note}
       </div>
-    ) : null;
+    ) : (
+      unreachableNote
+    );
   }
   return (
     <div
@@ -46,6 +62,7 @@ export const SecretObjectiveProgress: React.FC<{
           Counting: {display.systems.map((id) => systemTag(id, board)).join(", ")}
         </div>
       )}
+      {unreachableNote}
     </div>
   );
 };
