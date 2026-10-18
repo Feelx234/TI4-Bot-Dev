@@ -396,11 +396,11 @@ impl crate::choice::Decider for Opening {
             });
         }
         if let Some(order) = &mut self.order {
-            return order.choose(choice);
+            return crate::choice::Decider::choose(order, choice);
         }
         match &mut self.builds {
-            Some(builds) => builds.choose(choice),
-            None => self.then.choose(choice),
+            Some(builds) => crate::choice::Decider::choose(builds, choice),
+            None => crate::choice::Decider::choose(&mut self.then, choice),
         }
     }
 }

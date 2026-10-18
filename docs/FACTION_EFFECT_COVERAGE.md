@@ -6,7 +6,74 @@ Test column: a bare `faction_effects_tests::fN::name` is a new test; `<name>.rs:
 
 Status: `pass`, `ignored (MISSING)` = test written, `#[ignore = "MISSING: ..."]`, the engine lacks the effect (`cargo test -p ti4-engine --lib faction_effects_tests -- --ignored` lists them), or `not engine-testable`.
 
-Totals: 422 pass, 0 ignored (MISSING), 4 not engine-testable.
+Totals: see the depth summary above for the depth classes; `ignored (MISSING/BUG)` rows are the effects the engine lacks (listed below).
+
+## Depth summary
+
+Depth classes: EFFECT (drives the real flow and asserts the promised outcome), PLUMBING (registration, thresholds, flags, status transitions), HOOK (calls a hook or helper directly), NONE (no test), MISSING/BUG (engine lacks the effect or gets it wrong; test written and `#[ignore]`d). The Depth cell of a row upgraded by the depth work reads `EFFECT (was <class>: reason)`; the tests are `faction_effects_tests::d1`..`d6`.
+
+| Class | Effects before | Effects after | Unit abilities before | Unit abilities after |
+|---|---|---|---|---|
+| EFFECT | 92 | 418 | 22 | 176 |
+| PLUMBING | 85 | 2 | 30 | 0 |
+| HOOK | 248 | 1 | 77 | 1 |
+| NONE | 1 | 0 | 52 | 0 |
+| MISSING/BUG | 0 | 5 | 0 | 4 |
+| Total | 426 | 426 | 181 | 181 |
+
+Per faction, after (effect rows and unit rows together):
+
+| Faction | EFFECT | PLUMBING | HOOK | NONE | MISSING/BUG |
+|---|---|---|---|---|---|
+| (all) | 5 | 2 | 0 | 0 | 1 |
+| Arborec | 19 | 0 | 0 | 0 | 0 |
+| Argent Flight | 20 | 0 | 0 | 0 | 0 |
+| Creuss | 18 | 0 | 0 | 0 | 0 |
+| Crimson Rebellion | 24 | 0 | 0 | 0 | 0 |
+| Deepwrought Scholarate | 19 | 0 | 0 | 0 | 0 |
+| Empyrean | 20 | 0 | 0 | 0 | 0 |
+| Firmament | 19 | 0 | 0 | 0 | 0 |
+| Hacan | 16 | 0 | 0 | 0 | 1 |
+| Jol-Nar | 16 | 0 | 0 | 0 | 0 |
+| Keleres | 21 | 0 | 0 | 0 | 0 |
+| L1Z1X | 18 | 0 | 0 | 0 | 0 |
+| Last Bastion | 27 | 0 | 0 | 0 | 0 |
+| Letnev | 13 | 0 | 0 | 0 | 4 |
+| Mahact Gene-Sorcerers | 21 | 0 | 0 | 0 | 0 |
+| Mentak | 18 | 0 | 0 | 0 | 0 |
+| Muaat | 19 | 0 | 0 | 0 | 0 |
+| Naalu | 20 | 0 | 0 | 0 | 2 |
+| Naaz-Rokha Alliance | 25 | 0 | 0 | 0 | 0 |
+| Nekro Virus | 18 | 0 | 0 | 0 | 0 |
+| Nomad | 20 | 0 | 0 | 0 | 0 |
+| Obsidian | 16 | 0 | 0 | 0 | 0 |
+| Ral Nel | 21 | 0 | 0 | 0 | 0 |
+| Saar | 18 | 0 | 1 | 0 | 1 |
+| Sardakk N'orr | 17 | 0 | 0 | 0 | 0 |
+| Sol | 20 | 0 | 0 | 0 | 0 |
+| Titans of Ul | 25 | 0 | 0 | 0 | 0 |
+| Vuil'raith Cabal | 21 | 0 | 1 | 0 | 0 |
+| Winnu | 15 | 0 | 0 | 0 | 0 |
+| Xxcha | 16 | 0 | 0 | 0 | 0 |
+| Yin | 14 | 0 | 0 | 0 | 0 |
+| Yssaril | 15 | 0 | 0 | 0 | 0 |
+
+## MISSING/BUG found by the depth tests
+
+Ranked by how common the faction/card is (base-game factions first). All have an `#[ignore = "MISSING/BUG: ..."]` test (`cargo test -p ti4-engine --lib faction_effects_tests -- --ignored`).
+
+1. `ps` Political Secret (generic note, every faction): the owner is barred from voting but not from playing action cards or using faction abilities (`d3::ps_1_...`).
+2. Status-phase action card hand limit (every faction, not a card row): a seat with 7 cards draws an 8th and is never asked to discard (`d3::status_phase_draw_enforces_the_action_card_hand_limit_for_a_plain_seat`).
+3. `nes` Letnev Non-Euclidean Shielding: not applied in a real space combat (only `combat::absorb_hits`) (`d1::nes_1_...`).
+4. `letnevcommander` 2 Rear Admiral Farran: no trade good question when a ship sustains in a real combat (`d1::letnevcommander_2_...`).
+5. `letnevagent` Letnev agent: never offered at the start of a space combat round (`d1::letnevagent_1_...`).
+6. `letnevhero` 2 Darktalon: `fleet::over_supply`/`enforce_seeing` ignore `is_unlimited` (`d1::letnevhero_2_...`).
+7. `saar_spacedock` Floating Factory I: Construction builds a plain space dock on the planet (`d1::saar_spacedock_2_...`).
+8. `hacan_mech` Pride of Kenara: the planet card cannot be traded (transactions have no planet terms) (`d1::hacan_mech_1_...`).
+9. `naalu_mech` Iconoclast (PoK printing, only Naalu without Thunder's Edge): +2 against an opponent with a relic fragment missing (`d2::unit_naalu_mech_1_...`).
+10. `naalu_mech_omega`: other players can still use ANTI-FIGHTER BARRAGE against the Naalu in its system (`d2::unit_naalu_mech_omega_1_...`).
+
+Stale entries: `faction_abilities::blocked()` still names propagation, mitosis, stall_tactics and telepathic, all of which are implemented; the registered-abilities filter hides them, so the list is only misleading text.
 
 ## Missing or broken effects
 
@@ -324,7 +391,7 @@ Also changed at version 16: Rear Admiral Farran's trade good is a real choice (`
 | Titans of Ul | hero | `titanshero` | 2 | ACTION: ready Elysium, attach this card: +3 resources, +3 influence, SPACE CANNON 5(x3) | factions/titans_leaders.rs (Geoform) | `titans_leaders.rs: geoform_readies_elysium_and_adds_three_and_three; geoform_space_cannon_fires_at_ships_activating_the_system; the_hero_is_offered_as_an_action_only_unlocked` (module tests assert Purged at line ~744); faction_effects_tests::d5::titanshero_2_geoform_readies_elysium_adds_three_and_three_and_is_purged; faction_effects_tests::d5::titanshero_2_geoform_planet_fires_space_cannon_five_three_dice_at_ships_that_activate_it | pass | EFFECT (was HOOK: leaders::use_leader called through a test context) |
 | Titans of Ul | promissory note | `terraform` | 1 | ACTION: attach to a non-home planet you control other than Mecatol Rex | factions/titans_leaders.rs | `titans_leaders.rs: terraform_attaches_to_a_controlled_non_home_planet; terraform_refuses_home_planets_mecatol_and_the_owner; terraform_cannot_be_offered_twice_and_a_wrong_option_is_refused`; faction_effects_tests::d5::terraform_1_the_holder_attaches_it_as_an_action_to_a_planet_it_controls; faction_effects_tests::d5::terraform_1_is_not_offered_for_a_home_planet_mecatol_rex_or_to_the_titans | pass | EFFECT (was HOOK: perform_component called directly) |
 | Titans of Ul | promissory note | `terraform` | 2 | +1 resource, +1 influence; has all 3 planet traits | factions/titans_leaders.rs; production.rs:planet_value_now; planets.rs:traits_now | `titans_leaders.rs: terraform_attaches_to_a_controlled_non_home_planet` (asserts the +1/+1 and the three traits); `a_terraformed_planet_explores_into_any_deck`; faction_effects_tests::d5::terraform_2_gives_the_planet_one_more_resource_and_influence_and_all_three_traits | pass | EFFECT (was HOOK: values read after a direct perform_component, choose_deck called directly) |
-| All PoK factions | meta | all abilities and leaders | - | Every ability and leader of the seven factions is registered and none is on the `blocked()` list | faction_abilities.rs:unimplemented/blocked; leaders.rs:unimplemented | `f3_every_leader_of_the_pok_factions_is_handled_by_the_engine; f3_every_ability_of_the_pok_factions_is_registered_and_none_is_blocked` | pass | ? |
+| All PoK factions | meta | all abilities and leaders | - | Every ability and leader of the seven factions is registered and none is on the `blocked()` list | faction_abilities.rs:unimplemented/blocked; leaders.rs:unimplemented | `f3_every_leader_of_the_pok_factions_is_handled_by_the_engine; f3_every_ability_of_the_pok_factions_is_registered_and_none_is_blocked` | pass | PLUMBING: registration check by nature; each ability and leader has its own flow test in its faction group |
 |  bastion | ability | liberate | 1 | When you gain control of a planet: ready it if it holds infantry >= its resources | factions/bastion.rs:control_gained | `factions/bastion.rs:liberate_places_one_infantry_until_they_match_the_resources_then_readies` ; faction_effects_tests::d6::liberate_1_and_2_taking_a_planet_places_infantry_until_they_match_its_resources_then_readies_it | pass | EFFECT (was HOOK: control_gained called directly) |
 |  bastion | ability | liberate | 2 | otherwise place 1 infantry on that planet | factions/bastion.rs:control_gained | `factions/bastion.rs:liberate_places_one_infantry_until_they_match_the_resources_then_readies`; `factions/bastion.rs:liberate_counts_the_helios_resource_bonus_and_is_the_bastions_alone` ; faction_effects_tests::d6::liberate_1_and_2_taking_a_planet_places_infantry_until_they_match_its_resources_then_readies_it | pass | EFFECT (was HOOK: control_gained called directly) |
 |  bastion | ability | galvanize | 1 | Galvanized units roll 1 additional die for combat rolls and unit abilities | factions/bastion.rs:galvanized dice (combat.rs roll groups) | `factions/bastion.rs:a_galvanized_ship_rolls_one_extra_combat_die`; `factions/bastion.rs:a_galvanized_unit_rolls_one_extra_die_for_each_unit_ability`; `factions/bastion.rs:galvanized_ground_forces_roll_an_extra_die_in_ground_combat` ; faction_effects_tests::d6::galvanize_1_a_galvanized_ship_rolls_one_extra_combat_die_in_a_real_space_combat; faction_effects_tests::d6::galvanize_1_b_galvanized_ground_forces_roll_one_extra_die_in_a_real_ground_combat; faction_effects_tests::d6::galvanize_1_c_a_galvanized_unit_rolls_one_extra_die_for_anti_fighter_barrage_and_bombardment; faction_effects_tests::d6::galvanize_1_d_a_galvanized_pds_rolls_one_extra_space_cannon_die_in_a_real_movement | pass | EFFECT (was HOOK: roll_fleet, roll_barrage_side, space_cannon_offense, bombardment and ground_combat called directly) |
