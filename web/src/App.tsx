@@ -949,6 +949,7 @@ const GameViewContainer: React.FC<{
               board={snapshot.view.board}
               table={snapshot.view.table}
               reactionModes={snapshot.reaction_modes}
+              choiceOptions={pendingChoice?.options}
               onSetReactionMode={userSeat ? setReactionMode : undefined}
               onInspectCard={(subject) => {
                 setSelectedSystemId(null);

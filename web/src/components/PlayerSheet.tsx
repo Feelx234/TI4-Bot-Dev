@@ -1,7 +1,7 @@
 import { ARMADA_BONUS, ARMADA_TEXT, hasArmada } from "../presentation/commandTokens.ts";
 import React, { useState } from "react";
 import { PlanetValue } from "./PlanetValueIcons.tsx";
-import { BoardView, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
+import { BoardView, ChoiceOption, PlayerView, ReactionModes, ReactionModeSetting, TableView } from "../protocol/types.ts";
 import { BluffSelector, useBluffControls } from "./BluffSelector.tsx";
 import {
   getStrategyCardMeta,
@@ -24,6 +24,7 @@ import { useTurnRecapSetting } from "../hooks/useTurnRecapSetting.ts";
 import { useI48sSetting } from "../hooks/useI48sSetting.ts";
 import { useAutoSubmitSetting } from "../hooks/useAutoSubmitSetting.ts";
 import { SecretObjectiveProgress } from "./SecretObjectiveProgress.tsx";
+import { HeldItemsButton, HeldItemsPanel } from "./HeldItemsPanel.tsx";
 import { secretProgressOf } from "../presentation/secretProgress.ts";
 
 
@@ -220,6 +221,8 @@ export interface PlayerSheetProps {
   reactionModes?: ReactionModes;
   /** Changes one card's mode on the server; without it (a spectator) the toggle is not shown. */
   onSetReactionMode?: (card: string, mode: ReactionModeSetting) => void;
+  /** The pending choice's options, so the Held items panel can mark components as usable now. */
+  choiceOptions?: readonly ChoiceOption[];
 }
 
 /**
@@ -269,8 +272,11 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
   onInspectCard,
   reactionModes,
   onSetReactionMode,
+  choiceOptions,
 }) => {
   const display = usePlayerIdentity();
+  const [heldFor, setHeldFor] = useState<string | null>(null);
+  const closeHeld = React.useCallback(() => setHeldFor(null), []);
   const publicState = usePublicState();
   const bluff = useBluffControls();
   const { isMuted, toggleMute } = useTurnSound();
@@ -775,13 +781,21 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
             )}
 
             {/* Public Card Counts */}
-            <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8" }}>
+            <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#94a3b8", alignItems: "center", flexWrap: "wrap" }}>
               <span>
                 Action Cards: <strong>{player.action_cards_count}</strong>
               </span>
               <span>
                 Secret Obj: <strong>{player.secret_objectives_count}</strong>
               </span>
+              <HeldItemsButton
+                players={players}
+                subject={player.id}
+                viewer={userSeat}
+                board={board}
+                expanded={heldFor === player.id}
+                onOpen={setHeldFor}
+              />
             </div>
 
             <BreakthroughRow faction={player.faction} held={publicState.breakthroughs[player.id] ?? null} />
@@ -1055,6 +1069,17 @@ export const PlayerSheet: React.FC<PlayerSheetProps> = ({
           </div>
         );
       })}
+      {heldFor && (
+        <HeldItemsPanel
+          key={heldFor}
+          players={players}
+          viewer={userSeat}
+          board={board}
+          options={choiceOptions}
+          initialSubject={heldFor}
+          onClose={closeHeld}
+        />
+      )}
     </aside>
   );
 };
