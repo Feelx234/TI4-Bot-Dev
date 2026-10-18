@@ -1477,7 +1477,8 @@ fn exhaust_specialties_for_research(
     {
         waivable += 1;
         if let Some(seat) = state.player_mut(player) {
-            seat.exhausted_technologies.insert(TechnologyId::new("aida"));
+            seat.exhausted_technologies
+                .insert(TechnologyId::new("aida"));
         }
     }
 

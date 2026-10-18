@@ -97,7 +97,11 @@ fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
     };
     let now = ti4_model::state::RULES_TECH_EFFECTS;
     assert_eq!(hits_at(false, now), 1, "control: a 6 hits a PDS target");
-    assert_eq!(hits_at(true, now), 0, "Antimass Deflectors: the 6 becomes a 5");
+    assert_eq!(
+        hits_at(true, now),
+        0,
+        "Antimass Deflectors: the 6 becomes a 5"
+    );
     assert_eq!(
         hits_at(true, now - 1),
         1,
@@ -1384,7 +1388,11 @@ fn pi_2_three_additional_votes() {
                 break;
             };
             let who = choice.player.clone();
-            let pick = if choice.options.iter().any(|o| o.kind == crate::vote::PREDICTIVE_KIND) {
+            let pick = if choice
+                .options
+                .iter()
+                .any(|o| o.kind == crate::vote::PREDICTIVE_KIND)
+            {
                 asked = true;
                 choice
                     .options
@@ -1774,7 +1782,6 @@ fn inf2_1_infantry_ii_stats_and_replaces_infantry() {
 }
 
 #[test]
-#[ignore = "MISSING: inf2 effect 2 (roll a die when destroyed; on 6+ it returns to the home system next turn): only the faction versions (Letani Warrior II, Spec Ops II, Crimson Legionnaire II) have it; nothing for generic infantry2 in invasion.rs or faction_techs.rs"]
 fn inf2_2_a_destroyed_infantry_ii_returns_home_on_a_six() {
     let returned = |face: u32, tech: bool| {
         let mut state = seated(&[("a", "arborec"), ("b", "letnev")]);

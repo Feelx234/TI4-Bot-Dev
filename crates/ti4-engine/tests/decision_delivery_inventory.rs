@@ -1530,8 +1530,8 @@ const PRODUCERS: &[Producer] = &[
         module: "vote.rs",
         function: "pending_choice_bare",
         // Outcome, planets, Gila's trade goods (hacancommander), tiebreak, Mahact's Recombine
-        // and Tribute stages.
-        count: 6,
+        // and Tribute stages, Predictive Intelligence's extra votes.
+        count: 7,
         delivery: Delivery::ObservedVia("game.rs::step_vote"),
     },
 ];
