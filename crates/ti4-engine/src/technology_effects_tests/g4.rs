@@ -466,3 +466,176 @@ fn nekroc4r_3_discards_an_action_card_to_draw_one() {
     assert_ne!(seat.action_cards[0].as_str(), "sabo1");
     assert_eq!(state.action_card_deck.len(), deck - 1);
 }
+
+// -- Last Bastion: Proxima Targeting VI, 4X41C "Helios" V2 ---------------------------------------
+
+fn bastion_arena(owner_of_planet: &str, tech_holder: Option<&str>, seats: &[(&str, &str)]) -> (GameState, SystemId, PlanetId) {
+    let mut state = seated(seats);
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let board = state.system_mut(&system);
+    board.units.clear();
+    board.planet_units.clear();
+    board.planet_control.clear();
+    board.planet_control.insert(planet.clone(), pid(owner_of_planet));
+    if let Some(holder) = tech_holder {
+        give(&mut state, holder, "proxima");
+    }
+    (state, system, planet)
+}
+
+fn bombard_three_dreadnoughts(state: &mut GameState, system: &SystemId) {
+    let mut dice = crate::dice::Dice::from_faces([10, 10, 10]);
+    let mut rng = crate::rng::GameRng::new(0);
+    crate::invasion::bombardment(
+        state, content(), DEFAULT, &mut dice, &mut rng, &mut scripted(&[]), system, &pid("a"),
+    )
+    .expect("bombards");
+}
+
+#[test]
+fn proxima_1_cancels_one_bombardment_hit_per_galvanized_unit_present() {
+    let seats = [("a", "sol"), ("b", "bastion")];
+    let setup = |tech: bool| {
+        let (mut state, system, planet) = bastion_arena("b", tech.then_some("b"), &seats);
+        crate::fixtures::put(&mut state, &system, "dreadnought", &pid("a"), 3);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 4);
+        state
+            .system_mut(&system)
+            .planet_units
+            .entry(planet.clone())
+            .or_default()
+            .push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new("infantry"), pid("b")).galvanized());
+        (state, system, planet)
+    };
+    let (mut state, system, planet) = setup(true);
+    bombard_three_dreadnoughts(&mut state, &system);
+    assert_eq!(state.system_state(&system).on_planet_of(&planet, &pid("b")).len(), 5 - 2, "3 hits, 1 cancelled");
+    let (mut bare, system, planet) = setup(false);
+    bombard_three_dreadnoughts(&mut bare, &system);
+    assert_eq!(bare.system_state(&system).on_planet_of(&planet, &pid("b")).len(), 5 - 3, "no Proxima: all 3 land");
+}
+
+/// Takes the named option when offered, else declines, else the first option.
+struct Prefer(&'static str);
+impl crate::choice::Decider for Prefer {
+    fn choose(&mut self, choice: &crate::choice::Choice) -> Result<ChoiceOption, crate::choice::IllegalChoice> {
+        choice
+            .option(self.0)
+            .or_else(|| choice.options.iter().find(|o| o.is_decline()))
+            .or_else(|| choice.options.first())
+            .cloned()
+            .ok_or_else(|| crate::choice::IllegalChoice::NoOptions {
+                player: choice.player.clone(),
+                prompt: choice.prompt.clone(),
+            })
+    }
+}
+
+/// The live invasion over `system` armed as the game arms it; returns the dice for their rolls.
+fn invade(state: &mut GameState, system: &SystemId, prefer: &'static str, faces: &[u32]) -> crate::dice::Dice {
+    use crate::choice::{Resolving, TimingHandle, Window};
+    let mut resolver = crate::fixtures::armed_resolver(state);
+    let mut sequence = crate::event::EventSequence::new();
+    let mut table = Table::with_default(Box::new(Prefer(prefer)));
+    let mut dice = crate::dice::Dice::from_faces(faces.iter().copied().chain(std::iter::repeat_n(1, 60)));
+    let mut rng = crate::rng::GameRng::new(3);
+    let mut window = crate::invasion::InvasionWindow::at_commit_step(state, &pid("a"), system);
+    let mut ctx = Resolving {
+        content: content(),
+        sources: DEFAULT,
+        dice: &mut dice,
+        rng: &mut rng,
+        table: &mut table,
+        timing: Some(TimingHandle { resolver: &mut resolver, sequence: &mut sequence, galaxy: None }),
+    };
+    window.settle(state, &mut ctx);
+    for _ in 0..30 {
+        let Some(choice) = window.pending_choice(state, content(), DEFAULT) else { break };
+        let option = choice.options[0].clone();
+        window.resolve(state, &mut ctx, option).expect("resolves");
+        window.settle(state, &mut ctx);
+    }
+    drop(ctx);
+    dice
+}
+
+#[test]
+fn proxima_2_bombards_at_ground_combat_round_start_and_rolls_back() {
+    const PROXIMA_ID: &str = "technology:bastion:proxima:GROUND_COMBAT_ROUND_BEGAN:after";
+    let setup = |tech: bool| {
+        let (mut state, system, planet) = bastion_arena("b", tech.then_some("a"), &[("a", "bastion"), ("b", "sol")]);
+        crate::fixtures::put(&mut state, &system, "infantry", &pid("a"), 3);
+        crate::fixtures::put_on_planet(&mut state, &system, &planet, "infantry", &pid("b"), 2);
+        (state, system, planet)
+    };
+    let (mut state, system, planet) = setup(true);
+    let dice = invade(&mut state, &system, PROXIMA_ID, &[8, 8, 1, 8, 1, 1]);
+    let rolls: Vec<_> = dice.history().iter().filter(|r| r.reason == "proxima targeting").collect();
+    assert_eq!(rolls.len(), 2, "BOMBARDMENT 8 (x3) and the roll back, each three dice");
+    assert_eq!(rolls[0].faces.len(), 3);
+    assert_eq!(rolls[1].faces.len(), 3);
+    assert!(state.system_state(&system).on_planet_of(&planet, &pid("b")).is_empty(), "both defenders fell");
+
+    let (mut bare, system, _) = setup(false);
+    let dice = invade(&mut bare, &system, PROXIMA_ID, &[10; 30]);
+    assert!(dice.history().iter().all(|r| r.reason != "proxima targeting"), "no technology, no bombardment");
+}
+
+fn helios_planet() -> (GameState, SystemId, PlanetId) {
+    let mut state = seated(&[("a", "bastion"), ("b", "sol")]);
+    let (system, planet) = crate::fixtures::a_placed_planet();
+    let board = state.system_mut(&system);
+    board.units.clear();
+    board.planet_units.clear();
+    board.planet_control.clear();
+    state.system_mut(&system).set_control(planet.clone(), pid("a"));
+    crate::fixtures::put_on_planet(&mut state, &system, &planet, "bastion_spacedock", &pid("a"), 1);
+    (state, system, planet)
+}
+
+fn resources_now(state: &GameState, planet: &PlanetId) -> i64 {
+    crate::production::planet_value_now(state, content(), DEFAULT, planet, crate::production::Spend::Resources)
+}
+
+fn upgrade_helios(state: &mut GameState, system: &SystemId, planet: &PlanetId) {
+    give(state, "a", "helios2");
+    crate::technology::apply_unit_upgrades(state, content(), DEFAULT, &pid("a"));
+    assert!(
+        state.system_state(system).on_planet(planet).iter().any(|u| u.type_id.as_str() == "bastion_spacedock2"),
+        "the dock is upgraded in place"
+    );
+}
+
+#[test]
+fn helios2_1_production_is_four_more_than_the_planets_resources() {
+    let (mut state, system, planet) = helios_planet();
+    let v1 = crate::production::capacity(&state, content(), DEFAULT, &pid("a"), &system);
+    assert_eq!(v1, resources_now(&state, &planet) + 2, "V1: 2 more than the resource value");
+    upgrade_helios(&mut state, &system, &planet);
+    assert_eq!(
+        crate::production::capacity(&state, content(), DEFAULT, &pid("a"), &system),
+        resources_now(&state, &planet) + 4
+    );
+}
+
+#[test]
+fn helios2_2_raises_the_planets_resource_value_by_two() {
+    let (mut state, system, planet) = helios_planet();
+    let printed = crate::production::planet_value(content(), DEFAULT, &planet, crate::production::Spend::Resources);
+    assert_eq!(resources_now(&state, &planet), printed + 1, "V1 adds 1");
+    upgrade_helios(&mut state, &system, &planet);
+    assert_eq!(resources_now(&state, &planet), printed + 2);
+    assert_eq!(crate::factions::bastion_units::resource_bonus(&state, &PlanetId::new("nowhere")), 0);
+}
+
+#[test]
+fn helios2_3_three_fighters_in_the_system_do_not_count_against_capacity() {
+    let (mut state, system, planet) = helios_planet();
+    let excess = |s: &GameState| crate::fleet::standing(s, content(), DEFAULT, &pid("a"), &system, None).capacity_excess;
+    crate::fixtures::put(&mut state, &system, "fighter", &pid("a"), 3);
+    assert_eq!(excess(&state), 0, "3 fighters are supported");
+    crate::fixtures::put(&mut state, &system, "fighter", &pid("a"), 1);
+    assert_eq!(excess(&state), 1, "the fourth is not");
+    upgrade_helios(&mut state, &system, &planet);
+    assert_eq!(excess(&state), 1, "V2 still frees exactly three");
+}
