@@ -1077,10 +1077,10 @@ fn defended_planet_board(
     (state, hub, centre, planet)
 }
 
-/// `a` (Muaat) moves one `unit` from the ring into the centre, where Sol holds a planet with a
-/// PDS and three infantry. Returns Sol's infantry left and whether `a` rolled for bombardment.
-fn bombard_a_shielded_planet(unit: &str, upgrade: Option<&str>) -> (usize, bool) {
-    let (mut state, hub, centre, planet) = defended_planet_board(&[("a", "muaat"), ("b", "sol")], 3);
+/// `a` (of `faction`) moves one `unit` from the ring into the centre, where Sol holds a planet with
+/// a PDS and three infantry. Returns Sol's infantry left and the bombardment roll `a` made, if any.
+fn bombard_with(faction: &str, unit: &str, upgrade: Option<&str>) -> (usize, Option<(usize, Option<u32>)>) {
+    let (mut state, hub, centre, planet) = defended_planet_board(&[("a", faction), ("b", "sol")], 3);
     let origin = SystemId::new(hub.outer[0].clone());
     // Only the moved ship matters: take the home fleet out of the way.
     for system in state.board.keys().cloned().collect::<Vec<_>>() {
@@ -1093,14 +1093,29 @@ fn bombard_a_shielded_planet(unit: &str, upgrade: Option<&str>) -> (usize, bool)
     if let Some(tech) = upgrade {
         super::give(&mut state, "a", tech);
     }
+    // Plasma Scoring (Letnev's starting technology) adds a bombardment die; keep the printed count.
+    state
+        .player_mut(&a())
+        .unwrap()
+        .technologies
+        .remove(&ti4_model::id::TechnologyId::new("ps"));
     let table = opening_then(
         &[TACTICAL_ACTION_ID, centre.as_str()],
         &["move|", "done_loading", "done_moving"],
     );
     let mut game = game_of(state, hub.galaxy, table);
     drive(&mut game, 80, tactical_done);
-    let rolled = game.rolls().iter().any(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("a"));
-    (count_on(&game.state, &centre, &planet, "infantry", &b()), rolled)
+    let roll = game
+        .rolls()
+        .iter()
+        .find(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("a"))
+        .map(|roll| (roll.faces.len(), roll.hits_on));
+    (count_on(&game.state, &centre, &planet, "infantry", &b()), roll)
+}
+
+fn bombard_a_shielded_planet(unit: &str, upgrade: Option<&str>) -> (usize, bool) {
+    let (left, roll) = bombard_with("muaat", unit, upgrade);
+    (left, roll.is_some())
 }
 
 #[test]
@@ -1571,4 +1586,438 @@ fn solbt_1_bellum_gloriosum_a_produced_ship_brings_ground_forces_and_fighters_be
     };
     assert_eq!(run(true), (2, 5), "carrier 3, two fighters 1, two infantry 1: all five paid for");
     assert_eq!(run(false), (0, 4), "without it the PRODUCTION limit ends the build at the fighters");
+}
+
+#[test]
+fn ac2_1_advanced_carrier_ii_moves_two_systems_and_carries_eight() {
+    // Eight infantry wait in the ring system with one carrier; the target is two systems away.
+    let arrived = |tech: bool| {
+        let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+        let hub = open_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.across(&hub.outer[0]));
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            state.system_mut(&system).units.retain(|u| u.owner != a());
+        }
+        put(&mut state, &origin, "sol_carrier", &a(), 1);
+        put(&mut state, &origin, "sol_infantry", &a(), 8);
+        if tech {
+            super::give(&mut state, "a", "ac2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), SOURCES, &a());
+        }
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, target.as_str()],
+            &["move|", "load|", "done_loading", "done_moving", "done_committing"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 120, tactical_done);
+        let board = game.state.system_state(&target);
+        let ground = board
+            .units
+            .iter()
+            .chain(board.planet_units.values().flatten())
+            .filter(|u| u.owner == a() && u.type_id.as_str().contains("infantry"))
+            .count();
+        (board.units.iter().filter(|u| u.owner == a() && u.type_id.as_str().contains("carrier")).count(), ground)
+    };
+    assert_eq!(arrived(true), (1, 8), "Advanced Carrier II: move 2, capacity 8");
+    assert_eq!(arrived(false), (0, 0), "Advanced Carrier I has move 1 and cannot make two systems");
+}
+
+#[test]
+fn ac2_2_advanced_carrier_ii_can_sustain_damage_in_a_space_combat() {
+    let survives = |tech: bool| {
+        let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+        let system = open_system(0);
+        put(&mut state, &system, "sol_carrier", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 1);
+        if tech {
+            super::give(&mut state, "a", "ac2");
+            crate::technology::apply_unit_upgrades(&mut state, content(), SOURCES, &a());
+        }
+        // One round: the carrier (hits on 9) and the cruiser both hit.
+        let (state, _) = space_combat(state, &system, &[10, 10, 10, 10, 10, 10], &["sustain"]);
+        state.system_state(&system).units.iter().filter(|u| u.owner == a()).count()
+    };
+    assert_eq!(survives(true), 1, "the carrier sustains the hit");
+    assert_eq!(survives(false), 0, "Advanced Carrier I is destroyed");
+}
+
+#[test]
+fn ms_1_military_support_at_the_start_of_sols_turn_costs_a_token_plants_two_infantry_and_goes_home() {
+    let run = |answer: &str| {
+        let mut state = seated_all(&[("a", "sol"), ("b", "jolnar")]);
+        let (system, planet) = crate::fixtures::a_placed_planet();
+        state.system_mut(&system).set_control(planet.clone(), b());
+        crate::promissory::take(&mut state, content(), &b(), "ms:sol");
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let tokens = state.player(&a()).unwrap().strategic_tokens;
+        let first = format!("{system}|{planet}");
+        let first = if answer == "place" { first.as_str() } else { "decline" };
+        let table = Table::with_default(Box::new(Opening {
+            queue: [first].iter().map(|a| (*a).to_owned()).collect(),
+            then: Prefer(vec!["pass".to_owned()]),
+            builds: None,
+            order: None,
+        }));
+        let mut game = Game::with_table(state, content(), table).with_sources(SOURCES);
+        drive(&mut game, 10, |g| g.events.iter().any(|e| e == "MILITARY_SUPPORT_USED") || g.events.iter().any(|e| e == "PLAYER_PASSED"));
+        (
+            count_on(&game.state, &system, &planet, "infantry", &b()),
+            tokens - game.state.player(&a()).unwrap().strategic_tokens,
+            crate::promissory::holder_of(&game.state, "ms", &a()),
+        )
+    };
+    assert_eq!(run("place"), (2, 1, None), "two infantry, one token from Sol's pool, the note home");
+    assert_eq!(run("decline"), (0, 1, None), "declining the infantry still takes the token and returns the card");
+}
+
+// -- Unit abilities ------------------------------------------------------------------------------
+
+/// What a ship does in the game, measured by playing it: its dice and hit number in a space
+/// combat, whether it can sustain, whether it reaches an adjacent and a two-away system in a
+/// tactical action, and how many ground forces the loading step lets it carry.
+#[derive(Debug, PartialEq, Eq)]
+struct Played {
+    dice: usize,
+    hits_on: Option<u32>,
+    sustains: bool,
+    adjacent: bool,
+    two_away: bool,
+    capacity: usize,
+}
+
+fn play_ship(faction: &str, unit: &str, tech: Option<&str>) -> Played {
+    let ready = |state: &mut GameState| {
+        if let Some(tech) = tech {
+            super::give(state, "a", tech);
+        }
+    };
+    // Combat: the unit alone against one Sol cruiser. Everything rolls 10: the unit's own roll is
+    // read, and the cruiser's hit shows whether it sustains.
+    let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+    ready(&mut state);
+    let system = open_system(0);
+    put(&mut state, &system, unit, &a(), 1);
+    put(&mut state, &system, "cruiser", &b(), 1);
+    let (state, dice) = space_combat(state, &system, &[10; 40], &["sustain"]);
+    let roll = dice
+        .history()
+        .iter()
+        .find(|roll| roll.reason == "space combat" && roll.by.as_deref() == Some("a"))
+        .expect("the unit rolled");
+    let (dice_rolled, hits_on) = (roll.faces.len(), roll.hits_on);
+    let sustains = state.system_state(&system).units.iter().any(|u| u.owner == a());
+    // Movement and loading.
+    let moves = |across: bool| {
+        let mut state = seated_all(&[("a", faction), ("b", "sol")]);
+        ready(&mut state);
+        let hub = open_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(if across { hub.across(&hub.outer[0]) } else { hub.centre.clone() });
+        for system in state.board.keys().cloned().collect::<Vec<_>>() {
+            state.system_mut(&system).units.retain(|u| u.owner != a());
+        }
+        put(&mut state, &origin, unit, &a(), 1);
+        put(&mut state, &origin, "infantry", &a(), 12);
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, target.as_str()],
+            &["move|", "load|", "done_loading", "done_moving", "done_committing", "decline"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        let mut capacity = 0;
+        for _ in 0..120 {
+            if let Some(choice) = game.legal_options()
+                && choice.prompt.starts_with("load ")
+                && capacity == 0
+            {
+                capacity = choice
+                    .prompt
+                    .rsplit('(')
+                    .next()
+                    .and_then(|rest| rest.split(' ').next())
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .unwrap_or(0);
+            }
+            assert_eq!(game.step().error, None, "{:?}", game.events);
+            if tactical_done(&game) {
+                break;
+            }
+        }
+        let arrived = game.state.system_state(&target).units.iter().any(|u| u.owner == a() && u.type_id.as_str() == unit);
+        (arrived, capacity)
+    };
+    let (adjacent, capacity) = moves(false);
+    let (two_away, _) = moves(true);
+    Played { dice: dice_rolled, hits_on, sustains, adjacent, two_away, capacity }
+}
+
+#[test]
+fn arborec_flagship_2_duha_menaimon_plays_as_printed() {
+    let played = play_ship("arborec", "arborec_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(7), sustains: true, adjacent: true, two_away: false, capacity: 5 }
+    );
+}
+
+#[test]
+fn letnev_flagship_3_arc_secundus_plays_as_printed() {
+    let played = play_ship("letnev", "letnev_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(5), sustains: true, adjacent: true, two_away: false, capacity: 3 }
+    );
+}
+
+#[test]
+fn muaat_flagship_2_the_inferno_plays_as_printed() {
+    let played = play_ship("muaat", "muaat_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(5), sustains: true, adjacent: true, two_away: false, capacity: 3 }
+    );
+}
+
+#[test]
+fn hacan_flagship_2_wrath_of_kenara_plays_as_printed() {
+    let played = play_ship("hacan", "hacan_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(7), sustains: true, adjacent: true, two_away: false, capacity: 3 }
+    );
+}
+
+#[test]
+fn saar_flagship_2_son_of_ragh_plays_as_printed() {
+    let played = play_ship("saar", "saar_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(5), sustains: true, adjacent: true, two_away: false, capacity: 3 }
+    );
+}
+
+#[test]
+fn sol_flagship_2_genesis_plays_as_printed() {
+    let played = play_ship("sol", "sol_flagship", None);
+    assert_eq!(
+        played,
+        Played { dice: 2, hits_on: Some(5), sustains: true, adjacent: true, two_away: false, capacity: 12 }
+    );
+}
+
+#[test]
+fn muaat_warsun_2_prototype_war_sun_i_plays_as_printed() {
+    let played = play_ship("muaat", "muaat_warsun", None);
+    assert_eq!(
+        played,
+        Played { dice: 3, hits_on: Some(3), sustains: true, adjacent: true, two_away: false, capacity: 6 }
+    );
+}
+
+#[test]
+fn muaat_warsun2_1_prototype_war_sun_ii_plays_as_printed() {
+    let played = play_ship("muaat", "muaat_warsun2", Some("pws2"));
+    assert_eq!(
+        played,
+        Played { dice: 3, hits_on: Some(3), sustains: true, adjacent: true, two_away: true, capacity: 6 }
+    );
+}
+
+#[test]
+fn sol_carrier_1_advanced_carrier_i_plays_as_printed() {
+    let played = play_ship("sol", "sol_carrier", None);
+    assert_eq!(
+        played,
+        Played { dice: 1, hits_on: Some(9), sustains: false, adjacent: true, two_away: false, capacity: 6 }
+    );
+}
+
+#[test]
+fn sol_carrier2_1_advanced_carrier_ii_plays_as_printed() {
+    let played = play_ship("sol", "sol_carrier2", Some("ac2"));
+    assert_eq!(
+        played,
+        Played { dice: 1, hits_on: Some(9), sustains: true, adjacent: true, two_away: true, capacity: 8 }
+    );
+}
+
+/// Letnev (a) holds a planet with two infantry (and ten trade goods); Hacan (b) lands `landing`
+/// infantry from one carrier. Letnev answers the windows with `abilities`, and declines the rest.
+fn letnev_defends(landing: usize, abilities: &[&str]) -> (Game<'static>, SystemId, PlanetId) {
+    let (mut state, hub, centre, planet) =
+        production_board(&[("a", "letnev"), ("b", "hacan")], "spacedock");
+    state.system_mut(&centre).planet_units.clear();
+    put_on_planet(&mut state, &centre, &planet, "infantry", &a(), 2);
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        if system != centre {
+            state.system_mut(&system).units.clear();
+        }
+    }
+    let origin = SystemId::new(hub.outer[0].clone());
+    put(&mut state, &origin, "carrier", &b(), 1);
+    put(&mut state, &origin, "infantry", &b(), landing);
+    state.active = Some(b());
+    let mut prefixes = vec!["move|", "load|", "done_loading", "done_moving", "commit|", "done_committing", "fight"];
+    prefixes.extend_from_slice(abilities);
+    prefixes.extend(["trade_good", "decline"]);
+    let table = opening_then(&[TACTICAL_ACTION_ID, centre.as_str()], &prefixes);
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 120, tactical_done);
+    (game, centre, planet)
+}
+
+#[test]
+fn letnev_mech_1_dunlain_reaper_replaces_an_infantry_for_two_resources_at_the_start_of_a_ground_round() {
+    let (deployed, centre, planet) = letnev_defends(1, &["deploy"]);
+    let (declined, _, _) = letnev_defends(1, &[]);
+    let spent = |game: &Game<'_>| 10 - game.state.player(&a()).unwrap().trade_goods
+        + i32::try_from(game.state.exhausted_planets.len()).unwrap();
+    assert_eq!(spent(&deployed), 2, "two resources");
+    assert_eq!(spent(&declined), 0);
+    let mechs = |game: &Game<'_>| count_on(&game.state, &centre, &planet, "letnev_mech", &a());
+    assert_eq!(mechs(&deployed), 1, "the mech stands where an infantry stood");
+    assert_eq!(mechs(&declined), 0);
+    let infantry = |game: &Game<'_>| count_on(&game.state, &centre, &planet, "infantry", &a());
+    assert_eq!(infantry(&declined) - infantry(&deployed), 1, "one infantry fewer: it was replaced");
+}
+
+#[test]
+fn sol_mech_1_zs_thunderbolt_deploys_for_three_resources_after_orbital_drop() {
+    let run = |deploy: bool| {
+        let (mut state, hub, centre, planet) =
+            production_board(&[("a", "sol"), ("b", "hacan")], "spacedock");
+        state.system_mut(&centre).planet_units.clear();
+        let answers = [
+            "faction|orbital_drop".to_owned(),
+            planet.to_string(),
+            if deploy { "deploy|sol_mech|1".to_owned() } else { "decline".to_owned() },
+        ];
+        let table = Table::with_default(Box::new(Opening {
+            queue: answers.into_iter().collect(),
+            then: Prefer(vec!["trade_good".to_owned(), "pass".to_owned()]),
+            builds: None,
+            order: None,
+        }));
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 12, |g| g.events.iter().any(|e| e == "PLAYER_PASSED") || g.events.iter().any(|e| e == "TURN_PASSED"));
+        let spent = 10 - game.state.player(&a()).unwrap().trade_goods
+            + i32::try_from(game.state.exhausted_planets.len()).unwrap();
+        (
+            count_on(&game.state, &centre, &planet, "sol_mech", &a()),
+            count_on(&game.state, &centre, &planet, "sol_infantry", &a()),
+            spent,
+        )
+    };
+    assert_eq!(run(true), (1, 2, 3), "two infantry from the drop, a mech for three resources");
+    assert_eq!(run(false), (0, 2, 0));
+}
+
+#[test]
+fn letnev_flagship_1_arc_secundus_removes_planetary_shield_and_bombards_five_three_times() {
+    let (left, roll) = bombard_with("letnev", "letnev_flagship", None);
+    assert_eq!(roll, Some((3, Some(5))), "BOMBARDMENT 5 (x3) although a PDS shields the planet");
+    assert!(left < 3, "{left} Sol infantry left");
+    let (left, roll) = bombard_with("letnev", "dreadnought", None);
+    assert_eq!(roll, None, "a dreadnought alone is stopped by the shield");
+    assert_eq!(left, 3);
+}
+
+#[test]
+fn letnev_flagship_2_arc_secundus_repairs_itself_at_the_start_of_each_space_combat_round() {
+    // Both ships start damaged and are hit once in round one: the flagship repairs first and
+    // sustains again; the dreadnought, still damaged, is destroyed.
+    let survivor = |unit: &str| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let system = open_system(0);
+        state
+            .system_mut(&system)
+            .units
+            .push(ti4_model::units::Unit::new(ti4_model::id::UnitTypeId::new(unit), a()).sustained());
+        put(&mut state, &system, "cruiser", &b(), 1);
+        let (state, _) = space_combat(state, &system, &[1, 10, 10, 10, 10, 10, 10, 10], &["sustain"]);
+        state.system_state(&system).units.iter().any(|u| u.owner == a())
+    };
+    assert!(survivor("letnev_flagship"), "repaired at the start of the round, then sustained");
+    assert!(!survivor("dreadnought"), "an ordinary damaged dreadnought dies to the same hit");
+}
+
+#[test]
+fn hacan_flagship_1_wrath_of_kenara_spends_a_trade_good_to_add_one_to_a_roll_in_a_space_combat() {
+    let run = |answer: &str| {
+        let mut state = seated_all(&[("a", "hacan"), ("b", "sol")]);
+        let system = open_system(0);
+        put(&mut state, &system, "hacan_flagship", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 3;
+        // The flagship hits on 7: two 6s are two near misses. The cruiser misses. Later rounds hit.
+        let mut faces = vec![6, 6, 1];
+        faces.extend([10; 20]);
+        let (state, dice) = space_combat(state, &system, &faces, &[answer]);
+        let rounds = dice.history().iter().filter(|r| r.reason == "space combat" && r.by.as_deref() == Some("a")).count();
+        (state.player(&a()).unwrap().trade_goods, rounds)
+    };
+    assert_eq!(run("kenara|1"), (2, 1), "one trade good turns a 6 into a hit: the cruiser dies in round one");
+    assert_eq!(run("decline"), (3, 2), "without it round one misses and a second round is fought");
+}
+
+#[test]
+fn saar_flagship_1_son_of_ragh_fires_anti_fighter_barrage_six_times_four() {
+    let mut state = seated_all(&[("a", "saar"), ("b", "sol")]);
+    let system = open_system(0);
+    put(&mut state, &system, "saar_flagship", &a(), 1);
+    put(&mut state, &system, "fighter", &b(), 2);
+    let (state, dice) = space_combat(state, &system, &[6, 6, 6, 6, 10, 10, 10, 10], &[]);
+    let barrage = dice
+        .history()
+        .iter()
+        .find(|roll| roll.reason == "anti-fighter barrage" && roll.by.as_deref() == Some("a"))
+        .expect("the flagship fired a barrage");
+    assert_eq!((barrage.faces.len(), barrage.hits_on), (4, Some(6)));
+    assert_eq!(count(&state, &system, "fighter", &b()), 0, "both fighters were shot down");
+}
+
+#[test]
+fn genesis_1_sol_flagship_places_an_infantry_in_its_space_area_at_the_end_of_the_status_phase() {
+    let mut state = seated_all(&[("a", "sol"), ("b", "hacan")]);
+    let system = open_system(0);
+    put(&mut state, &system, "sol_flagship", &a(), 1);
+    state.phase = Phase::Action;
+    state.active = Some(a());
+    let mut game = Game::with_table(state, content(), preferring(&["pass"])).with_sources(SOURCES);
+    let infantry = |game: &Game<'_>| {
+        game.state.system_state(&system).units.iter().filter(|u| u.owner == a() && u.type_id.as_str().contains("infantry")).count()
+    };
+    assert_eq!(infantry(&game), 0);
+    drive(&mut game, 200, |g| g.state.round >= 2);
+    assert_eq!(infantry(&game), 1, "one Spec Ops beside the flagship");
+}
+
+#[test]
+#[ignore = "MISSING/BUG: hacan_mech (Pride of Kenara) the transaction menu never offers a planet card, so its planet cannot be traded and its units cannot move with it (registered_mech_abilities lists it, nothing implements it)"]
+fn hacan_mech_1_pride_of_kenara_makes_its_planet_card_tradable_and_moves_the_units() {
+    let mut game = trading_game("hacan", "sol", true, &[]);
+    let (home, planet) = home_planet(&game.state, &a());
+    put_on_planet(&mut game.state, &home, &planet, "hacan_mech", &a(), 1);
+    let (cap, seen) = crate::choice::Capturing::new(Box::new(Scripted::new(["component|trade|sol"])));
+    game.install_table(Table::with_default(Box::new(cap)));
+    for _ in 0..4 {
+        let _ = game.step();
+    }
+    let offered: Vec<String> = seen
+        .borrow()
+        .iter()
+        .filter(|choice| choice.prompt.starts_with("transaction with"))
+        .flat_map(|choice| choice.ids().into_iter().map(str::to_owned).collect::<Vec<_>>())
+        .collect();
+    assert!(!offered.is_empty(), "the transaction menu was shown");
+    assert!(
+        offered.iter().any(|id| id.contains(planet.as_str())),
+        "a deal that gives the planet {planet} is on offer: {offered:?}"
+    );
 }
