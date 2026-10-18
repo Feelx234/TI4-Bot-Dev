@@ -931,3 +931,206 @@ fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat(
     assert_eq!(ships_left(true), 2, "the sustain cancels both hits");
     assert_eq!(ships_left(false), 1, "without the card the second hit costs a ship");
 }
+
+#[test]
+#[ignore = "MISSING/BUG: letnevhero (Darktalon Treilla) fleet::over_supply (the enforcement after production and at turn end) reads limit() and ignores fleet::is_unlimited, so ships over the pool are still removed during her round"]
+fn letnevhero_2_darktalon_lifts_the_fleet_limit_for_the_rest_of_the_round() {
+    let ships_after = |use_hero: bool| {
+        let (mut state, hub, centre, _planet) =
+            production_board(&[("a", "letnev"), ("b", "sol")], "spacedock");
+        state.player_mut(&a()).unwrap().fleet_tokens = 3;
+        put(&mut state, &centre, "cruiser", &a(), 3);
+        set_leader(&mut state, &a(), "letnevhero", LeaderStatus::Unlocked);
+        let mut queue: Vec<&str> = Vec::new();
+        if use_hero {
+            // The hero is an ACTION: it takes the turn. Sol passes, and Letnev acts again.
+            queue.extend(["component|leader|letnevhero", "pass"]);
+        }
+        queue.extend([TACTICAL_ACTION_ID, centre.as_str(), "done_moving"]);
+        let table = Table::with_default(Box::new(Opening {
+            queue: queue.iter().map(|a| (*a).to_owned()).collect(),
+            then: Prefer(Vec::new()),
+            builds: Some(Builds { option: "build|destroyer|1".to_owned(), left: 4 }),
+        }));
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 120, tactical_done);
+        let produced = non_fighters(&game.state, &centre);
+        drive(&mut game, 30, |g| g.events.iter().filter(|e| *e == "TURN_PASSED").count() >= 3);
+        let _ = produced;
+        (non_fighters(&game.state, &centre), leader_status(&game.state, &a(), "letnevhero"))
+    };
+    assert_eq!(ships_after(false).0, 5, "without her the limit is the three tokens plus Armada's two");
+    let (with_hero, status) = ships_after(true);
+    assert_eq!(with_hero, 6, "three cruisers and the three destroyers produced: the pool no longer limits the fleet");
+    assert_eq!(status, Some(LeaderStatus::Unlocked), "she stays until the end of the round");
+}
+
+#[test]
+fn letnevbt_1_gravleash_maneuvers_slower_ships_move_at_the_fastest_moving_ship_value() {
+    // Origin and target are two apart. The cruiser (move 2) can go; the carrier (move 1) can only
+    // follow when the breakthrough lends it the cruiser's value.
+    let run = |breakthrough: bool| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let hub = open_hub();
+        let origin = SystemId::new(hub.outer[0].clone());
+        let target = SystemId::new(hub.across(&hub.outer[0]));
+        put(&mut state, &origin, "cruiser", &a(), 1);
+        put(&mut state, &origin, "carrier", &a(), 1);
+        if breakthrough {
+            state.player_mut(&a()).unwrap().breakthrough =
+                Some(ti4_model::id::BreakthroughId::new("letnevbt"));
+        }
+        state.phase = Phase::Action;
+        state.active = Some(a());
+        let table = opening_then(
+            &[TACTICAL_ACTION_ID, target.as_str()],
+            &["move|", "done_loading", "done_moving"],
+        );
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 60, tactical_done);
+        (
+            count(&game.state, &target, "cruiser", &a()),
+            count(&game.state, &target, "carrier", &a()),
+        )
+    };
+    assert_eq!(run(true), (1, 1), "the carrier moves two systems");
+    assert_eq!(run(false), (1, 0), "without it the carrier stays");
+}
+
+#[test]
+fn war_funding_1_rerolls_all_of_the_opponents_dice_and_the_holders_misses_then_returns_home() {
+    let run = |answer: &str| {
+        let mut state = seated_all(&[("a", "hacan"), ("b", "letnev")]);
+        let system = open_system(0);
+        put(&mut state, &system, "cruiser", &a(), 2);
+        put(&mut state, &system, "cruiser", &b(), 2);
+        let note = crate::promissory::note_id("war_funding", "letnev");
+        state.promissory_notes.insert(note.clone(), a());
+        // The holder rolls a hit and a miss; the Letnev player rolls two hits.
+        let mut faces = vec![10, 1, 10, 10];
+        faces.extend([10; 40]);
+        let (state, dice) = space_combat(state, &system, &faces, &[answer]);
+        let rerolled = dice.history().iter().filter(|roll| roll.reason == "war_funding").count();
+        (rerolled, state.promissory_notes.get(&note).cloned())
+    };
+    assert_eq!(run("use"), (3, Some(b())), "both opposing dice and the one miss; the note goes home");
+    assert_eq!(run("decline"), (0, Some(a())), "declined: nothing is rolled again and the holder keeps it");
+}
+
+/// A seven-system map of systems that hold a planet and are nobody's home; `b` controls the first
+/// planet of the centre system with a PDS and `n` infantry on it.
+fn defended_planet_board(
+    seats: &[(&str, &str)],
+    infantry: usize,
+) -> (GameState, crate::fixtures::Hub, SystemId, PlanetId) {
+    let (mut state, hub, centre, planet) = production_board(seats, "spacedock");
+    // The dock fixture belongs to a: take it off, the planet is b's.
+    state.system_mut(&centre).planet_units.clear();
+    state.system_mut(&centre).planet_control.clear();
+    state.system_mut(&centre).set_control(planet.clone(), b());
+    put_on_planet(&mut state, &centre, &planet, "pds", &b(), 1);
+    put_on_planet(&mut state, &centre, &planet, "infantry", &b(), infantry);
+    (state, hub, centre, planet)
+}
+
+/// `a` (Muaat) moves one `unit` from the ring into the centre, where Sol holds a planet with a
+/// PDS and three infantry. Returns Sol's infantry left and whether `a` rolled for bombardment.
+fn bombard_a_shielded_planet(unit: &str, upgrade: Option<&str>) -> (usize, bool) {
+    let (mut state, hub, centre, planet) = defended_planet_board(&[("a", "muaat"), ("b", "sol")], 3);
+    let origin = SystemId::new(hub.outer[0].clone());
+    // Only the moved ship matters: take the home fleet out of the way.
+    for system in state.board.keys().cloned().collect::<Vec<_>>() {
+        if system != centre {
+            let board = state.system_mut(&system);
+            board.units.retain(|u| u.owner != a());
+        }
+    }
+    put(&mut state, &origin, unit, &a(), 1);
+    if let Some(tech) = upgrade {
+        super::give(&mut state, "a", tech);
+    }
+    let table = opening_then(
+        &[TACTICAL_ACTION_ID, centre.as_str()],
+        &["move|", "done_loading", "done_moving"],
+    );
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 80, tactical_done);
+    let rolled = game.rolls().iter().any(|roll| roll.reason == "bombardment" && roll.by.as_deref() == Some("a"));
+    (count_on(&game.state, &centre, &planet, "infantry", &b()), rolled)
+}
+
+#[test]
+fn muaat_warsun_1_prototype_war_sun_i_bombards_a_planet_under_a_planetary_shield() {
+    let (left, rolled) = bombard_a_shielded_planet("muaat_warsun", None);
+    assert!(rolled, "the war sun bombards although a PDS shields the planet");
+    assert!(left < 3, "and kills infantry: {left} left");
+    let (left, rolled) = bombard_a_shielded_planet("dreadnought", None);
+    assert!(!rolled, "a dreadnought is stopped by PLANETARY SHIELD");
+    assert_eq!(left, 3);
+}
+
+#[test]
+fn pws2_3_prototype_war_sun_ii_bombards_a_planet_under_a_planetary_shield() {
+    let (left, rolled) = bombard_a_shielded_planet("muaat_warsun2", Some("pws2"));
+    assert!(rolled, "the upgraded war sun still removes the shield");
+    assert!(left < 3, "{left} infantry left");
+}
+
+/// A supernova in the middle of a ring of open systems; `a` (the given faction) has a cruiser in
+/// the first ring system. A tactical action activates `target` and moves everything it can there.
+/// Returns the game and the supernova.
+fn supernova_game(
+    faction: &str,
+    target: impl Fn(&crate::fixtures::Hub) -> String,
+    tech: Option<&str>,
+    builds: usize,
+) -> (Game<'static>, SystemId, SystemId) {
+    let supernova = crate::fixtures::a_system_where("supernova");
+    let hub = crate::fixtures::hub_with_centre(&supernova);
+    let mut state = seated_all(&[("a", faction), ("b", "hacan")]);
+    let origin = SystemId::new(hub.outer[0].clone());
+    let target = SystemId::new(target(&hub));
+    put(&mut state, &origin, "cruiser", &a(), 1);
+    if let Some(tech) = tech {
+        super::give(&mut state, "a", tech);
+    }
+    state.player_mut(&a()).unwrap().trade_goods = 10;
+    state.phase = Phase::Action;
+    state.active = Some(a());
+    let table = Table::with_default(Box::new(Opening {
+        queue: [TACTICAL_ACTION_ID, target.as_str()].iter().map(|a| (*a).to_owned()).collect(),
+        then: Prefer(vec!["move|".to_owned(), "done_loading".to_owned(), "done_moving".to_owned()]),
+        builds: (builds > 0).then(|| Builds { option: "build|destroyer|1".to_owned(), left: builds }),
+    }));
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 80, tactical_done);
+    (game, target, SystemId::new(supernova))
+}
+
+#[test]
+fn gashlai_physiology_1_muaat_ships_move_through_a_supernova_but_other_factions_do_not() {
+    let arrives = |faction: &str| {
+        let (game, target, _) = supernova_game(faction, |hub| hub.across(&hub.outer[0]), None, 0);
+        count(&game.state, &target, "cruiser", &a())
+    };
+    assert_eq!(arrives("muaat"), 1, "through the supernova to the far side");
+    assert_eq!(arrives("sol"), 0, "the supernova blocks everyone else");
+}
+
+#[test]
+fn mr_1_magmus_reactor_lets_ships_move_into_a_supernova() {
+    let ends_in_nova = |tech: Option<&str>| {
+        let (game, target, _) = supernova_game("muaat", |hub| hub.centre.clone(), tech, 0);
+        count(&game.state, &target, "cruiser", &a())
+    };
+    assert_eq!(ends_in_nova(Some("mr")), 1, "with the reactor the cruiser stops in the supernova");
+    assert_eq!(ends_in_nova(None), 0, "without it a ship cannot end its move there");
+}
+
+#[test]
+fn mr_2_magmus_reactor_gives_a_supernova_holding_your_ships_production_five() {
+    // Six destroyers are asked for; PRODUCTION 5 allows five.
+    let (game, nova, _) = supernova_game("muaat", |hub| hub.centre.clone(), Some("mr"), 6);
+    assert_eq!(count(&game.state, &nova, "destroyer", &a()), 5);
+    assert!(game.events.iter().any(|e| e == "PRODUCTION_USED"));
+}
