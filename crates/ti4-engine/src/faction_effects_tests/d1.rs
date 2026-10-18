@@ -735,3 +735,199 @@ fn mitosis_1_arborec_space_docks_cannot_produce_infantry() {
         "a space dock cannot produce Arborec infantry: {arborec:?}"
     );
 }
+
+// -- Letnev --------------------------------------------------------------------------------------
+
+/// Non-fighter ships of `a` in `system`.
+fn non_fighters(state: &GameState, system: &SystemId) -> usize {
+    state
+        .system_state(system)
+        .units
+        .iter()
+        .filter(|unit| {
+            unit.owner == a() && matches!(unit.type_id.as_str(), "cruiser" | "destroyer" | "carrier" | "dreadnought")
+        })
+        .count()
+}
+
+#[test]
+fn armada_1_letnev_may_hold_two_more_ships_than_its_fleet_pool_has_tokens() {
+    // Three tokens in the fleet pool and three cruisers in the system: production keeps adding
+    // destroyers until the system holds the limit. Armada's limit is 3 + 2; anyone else's is 3.
+    let run = |faction: &str| {
+        let (mut state, hub, centre, _planet) =
+            production_board(&[("a", faction), ("b", "hacan")], "spacedock");
+        state.player_mut(&a()).unwrap().fleet_tokens = 3;
+        put(&mut state, &centre, "cruiser", &a(), 3);
+        let table = Table::with_default(Box::new(Opening {
+            queue: [TACTICAL_ACTION_ID, centre.as_str(), "done_moving"]
+                .iter()
+                .map(|a| (*a).to_owned())
+                .collect(),
+            then: Prefer(Vec::new()),
+            builds: Some(Builds { option: "build|destroyer|1".to_owned(), left: 4 }),
+        }));
+        let mut game = game_of(state, hub.galaxy, table);
+        drive(&mut game, 80, tactical_done);
+        let produced = non_fighters(&game.state, &centre);
+        // The limit is enforced when the turn ends (37.3): whatever is over it is removed.
+        drive(&mut game, 20, |g| g.events.iter().any(|e| e == "TURN_PASSED"));
+        (produced, non_fighters(&game.state, &centre))
+    };
+    assert_eq!(run("letnev").1, 5, "three tokens plus Armada's two");
+    assert_eq!(run("sol").1, 3, "nobody else may exceed the pool");
+    assert!(run("sol").0 > 3, "the excess is only removed at the end of the turn");
+}
+
+/// An ordinary system that is nobody's home (and not Mecatol Rex), the `n`th such.
+fn open_system(n: usize) -> SystemId {
+    let id = crate::fixtures::plain_systems(120)
+        .into_iter()
+        .filter(|id| {
+            !crate::seating::is_mecatol(id)
+                && !id.starts_with("fracture")
+                && !ti4_content::galaxy::is_home_system(content(), id, SOURCES)
+        })
+        .nth(n)
+        .expect("an open system");
+    SystemId::new(id)
+}
+
+/// Resolve the space combat in `system` (seat `a` is the active attacker) with these faces loaded;
+/// a question is answered with the first option whose id starts with one of `answers`, else the
+/// first option. Returns the state and the dice rolled.
+fn space_combat(
+    mut state: GameState,
+    system: &SystemId,
+    faces: &[u32],
+    answers: &[&str],
+) -> (GameState, crate::dice::Dice) {
+    state.active = Some(a());
+    let mut table = preferring(answers);
+    let mut dice = crate::dice::Dice::from_faces(faces.iter().copied());
+    let mut rng = crate::rng::GameRng::new(3);
+    crate::combat::resolve(&mut state, content(), SOURCES, &mut table, &mut dice, &mut rng, system)
+        .expect("the combat resolves");
+    (state, dice)
+}
+
+fn faces_of(dice: &crate::dice::Dice, reason_prefix: &str) -> Vec<Vec<u32>> {
+    dice.history()
+        .iter()
+        .filter(|roll| roll.reason.starts_with(reason_prefix))
+        .map(|roll| roll.faces.clone())
+        .collect()
+}
+
+#[test]
+fn munitions_1_letnev_pays_two_trade_goods_to_reroll_its_dice_in_a_space_combat() {
+    let run = |answer: &str| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let system = open_system(0);
+        put(&mut state, &system, "cruiser", &a(), 3);
+        put(&mut state, &system, "destroyer", &b(), 1);
+        state.player_mut(&a()).unwrap().trade_goods = 4;
+        // Letnev rolls three misses first; the re-roll is the only thing that can kill the ship.
+        let faces = [1, 1, 1, 1, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10];
+        let (state, dice) = space_combat(state, &system, &faces, &[answer]);
+        (
+            state.player(&a()).unwrap().trade_goods,
+            dice.history().iter().any(|roll| roll.reason == "munitions:a"),
+        )
+    };
+    assert_eq!(run("munitions"), (2, true), "two trade goods paid, the dice rolled again");
+    assert_eq!(run("decline"), (4, false), "declined: nothing paid, nothing rolled");
+}
+
+/// A tactical action in which `a` moves everything from `hub.outer[0]` into the centre system,
+/// where `b` has ships. The table answers `window` prefixes when offered. Runs to the end of the
+/// action.
+fn attack_game(
+    mut state: GameState,
+    hub: crate::fixtures::Hub,
+    window_answers: &[&str],
+) -> (Game<'static>, SystemId, SystemId) {
+    let centre = SystemId::new(hub.centre.clone());
+    let origin = SystemId::new(hub.outer[0].clone());
+    state.phase = Phase::Action;
+    state.active = Some(a());
+    let mut prefixes = vec!["move|", "done_loading", "done_moving"];
+    prefixes.extend_from_slice(window_answers);
+    let table = opening_then(&[TACTICAL_ACTION_ID, centre.as_str()], &prefixes);
+    let mut game = game_of(state, hub.galaxy, table);
+    drive(&mut game, 120, tactical_done);
+    (game, centre, origin)
+}
+
+/// A seven-system map of open systems (nobody's home, not Mecatol Rex).
+fn open_hub() -> crate::fixtures::Hub {
+    let ids: Vec<String> = (0..7).map(|n| open_system(n).to_string()).collect();
+    crate::fixtures::hub_from(&ids)
+}
+
+/// The dice (count of faces) of the first `space combat` roll of `by`.
+fn first_roll_len(game: &Game<'_>, by: &str, reason: &str) -> usize {
+    game.rolls()
+        .iter()
+        .find(|roll| roll.reason == reason && roll.by.as_deref() == Some(by))
+        .map_or(0, |roll| roll.faces.len())
+}
+
+#[test]
+#[ignore = "MISSING/BUG: letnevagent the owner is never offered the agent in a space combat round (only Ssruu's copy and, from version 16, Sol's own agent have a window)"]
+fn letnevagent_1_exhausts_to_give_one_ship_an_additional_die_in_a_space_combat_round() {
+    let run = |use_agent: bool| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let hub = open_hub();
+        put(&mut state, &SystemId::new(hub.outer[0].clone()), "cruiser", &a(), 2);
+        put(&mut state, &SystemId::new(hub.centre.clone()), "cruiser", &b(), 1);
+        set_leader(&mut state, &a(), "letnevagent", LeaderStatus::Readied);
+        let answers: &[&str] = if use_agent { &["leader:letnev:letnevagent"] } else { &[] };
+        let (game, _, _) = attack_game(state, hub, answers);
+        game
+    };
+    let with_agent = run(true);
+    let without = run(false);
+    assert_eq!(first_roll_len(&without, "a", "space combat"), 2, "two cruisers, two dice");
+    assert_eq!(leader_status(&with_agent.state, &a(), "letnevagent"), Some(LeaderStatus::Exhausted));
+    assert_eq!(first_roll_len(&with_agent, "a", "space combat"), 3, "the chosen ship rolls one more die");
+    // Only that round: the extra die is not a permanent upgrade.
+    assert_eq!(leader_status(&without.state, &a(), "letnevagent"), Some(LeaderStatus::Readied));
+}
+
+#[test]
+#[ignore = "MISSING/BUG: letnevcommander (Rear Admiral Farran) no trade good is offered when a ship sustains damage in a real space combat; only combat::absorb_hits asks, the combat window's sustain step does not"]
+fn letnevcommander_2_a_sustain_in_a_space_combat_offers_a_trade_good_only_once_unlocked() {
+    // One round: Letnev's dreadnought and Sol's cruiser both hit. The dreadnought sustains.
+    for (status, gain) in [(LeaderStatus::Locked, 0), (LeaderStatus::Unlocked, 1)] {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let system = open_system(0);
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 1);
+        set_leader(&mut state, &a(), "letnevcommander", status);
+        let before = state.player(&a()).unwrap().trade_goods;
+        let (state, _) = space_combat(state, &system, &[10, 10, 10, 10, 10, 10], &["sustain", "gain"]);
+        assert!(state.system_state(&system).units.iter().any(|u| u.owner == a() && u.sustained_damage), "the dreadnought sustained");
+        assert_eq!(state.player(&a()).unwrap().trade_goods, before + gain, "{status:?}");
+    }
+}
+
+#[test]
+#[ignore = "MISSING/BUG: nes (Non-Euclidean Shielding) a sustain in a real space combat cancels one hit, not two; only combat::absorb_hits applies the card, the combat window's sustain step does not"]
+fn nes_1_non_euclidean_shielding_one_sustain_cancels_two_hits_in_a_space_combat() {
+    let ships_left = |nes: bool| {
+        let mut state = seated_all(&[("a", "letnev"), ("b", "sol")]);
+        let system = open_system(0);
+        put(&mut state, &system, "dreadnought", &a(), 1);
+        put(&mut state, &system, "cruiser", &a(), 1);
+        put(&mut state, &system, "cruiser", &b(), 2);
+        if nes {
+            super::give(&mut state, "a", "nes");
+        }
+        // One round: both of Sol's cruisers hit, and both of Letnev's ships hit back.
+        let (state, _) = space_combat(state, &system, &[10, 10, 10, 10, 10, 10, 10, 10], &["sustain"]);
+        state.system_state(&system).units.iter().filter(|u| u.owner == a()).count()
+    };
+    assert_eq!(ships_left(true), 2, "the sustain cancels both hits");
+    assert_eq!(ships_left(false), 1, "without the card the second hit costs a ship");
+}
