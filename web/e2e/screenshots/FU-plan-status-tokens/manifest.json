@@ -1,0 +1,29 @@
+{
+  "title": "Plan the status phase tokens",
+  "description": "Like a prepared strategy-card secondary, the status phase's two token decisions can be planned while other players still act: where the command tokens gained at 81.5 go, and the arrangement of the redistribution that follows. The plan is a distribution of pools kept on this device for one round; when the engine asks, it is applied only if it fits exactly (same number of tokens, pools offered, fleet floor), automatically in Auto mode ('Answered from your plan') or with a one-click bar in Review mode, otherwise the question stays open with 'Needs review' and the plan as a suggestion. No engine, rules or hash change: the answers go through the usual choice and token-batch paths. Synthetic fixtures through a mocked server; regenerate with npm run screenshots -- FU.",
+  "tag": "web/e2e/screenshots/FU-plan-status-tokens",
+  "shots": [
+    { "file": "out/1-chip-desktop.png", "heading": "Entry point: the chip, desktop", "caption": "Next to the prepared-secondary chip in the board strip, while another seat acts in the status phase." },
+    { "file": "out/1-chip-phone.png", "heading": "Entry point: the chip, 390x844", "caption": "The same chip on a phone." },
+    { "file": "out/2-plan-gain-desktop.png", "heading": "Planning the gain, desktop", "caption": "Two tokens by default, split across the pools. Nothing is sent." },
+    { "file": "out/2-plan-gain-phone.png", "heading": "Planning the gain, 390x844", "caption": "44 px steppers; the note says a different number of tokens is not applied." },
+    { "file": "out/3a-plan-redistribute-wrong-total-desktop.png", "heading": "Planning the redistribution: wrong total, desktop", "caption": "The target starts from what is held plus the planned gain (10 tokens); an arrangement with a different total cannot be saved." },
+    { "file": "out/3a-plan-redistribute-wrong-total-phone.png", "heading": "Wrong total, 390x844", "caption": "Same check on a phone." },
+    { "file": "out/3b-plan-redistribute-desktop.png", "heading": "Planning the redistribution, desktop", "caption": "Tactic 4 / fleet 4 / strategy 2, all 10 tokens arranged." },
+    { "file": "out/3b-plan-redistribute-phone.png", "heading": "Planning the redistribution, 390x844", "caption": "The same plan on a phone." },
+    { "file": "out/4-saved-chip-desktop.png", "heading": "Saved plan, desktop", "caption": "The chip names the plan; Clear plan revokes it." },
+    { "file": "out/4-saved-chip-phone.png", "heading": "Saved plan, 390x844", "caption": "The saved plan on a phone." },
+    { "file": "out/5a-gain-auto-toast-desktop.png", "heading": "Auto: the gain is about to be answered, desktop", "caption": "The question arrived; the decision UI stays closed behind a toast with a short Cancel window." },
+    { "file": "out/5a-gain-auto-toast-phone.png", "heading": "Auto: about to answer, 390x844", "caption": "Same on a phone." },
+    { "file": "out/5b-gain-answered-desktop.png", "heading": "Answered from your plan, desktop", "caption": "The gain went out as the usual token batch; the badge says it came from the plan." },
+    { "file": "out/5b-gain-answered-phone.png", "heading": "Answered from your plan, 390x844", "caption": "Same on a phone." },
+    { "file": "out/6-redistribution-from-plan-desktop.png", "heading": "Review mode: redistribution from the plan, desktop", "caption": "The real token panel opens with the planned pools staged and 'Your plan' chips; the bar confirms in one click or lets you choose yourself." },
+    { "file": "out/6-redistribution-from-plan-phone.png", "heading": "Review mode, 390x844", "caption": "Same on a phone." },
+    { "file": "out/8a-needs-review-gain-desktop.png", "heading": "Needs review: a different number of tokens, desktop", "caption": "Three tokens are gained, two were planned. Nothing is applied (not even in Auto mode); the question is open with the plan as a suggestion." },
+    { "file": "out/8a-needs-review-gain-phone.png", "heading": "Needs review: gain, 390x844", "caption": "Same on a phone." },
+    { "file": "out/8b-needs-review-redistribute-desktop.png", "heading": "Needs review: redistribution, desktop", "caption": "The plan arranges 10 tokens but 11 are held now." },
+    { "file": "out/8b-needs-review-redistribute-phone.png", "heading": "Needs review: redistribution, 390x844", "caption": "Same on a phone." },
+    { "file": "out/7-cleared-desktop.png", "heading": "Plan cleared, desktop", "caption": "After Clear plan the chip is back to its empty wording." },
+    { "file": "out/7-cleared-phone.png", "heading": "Plan cleared, 390x844", "caption": "Same on a phone." }
+  ]
+}

@@ -64,6 +64,8 @@ import { UndoConfirmDialog } from "./components/UndoConfirmDialog.tsx";
 import { PlanetBoostContext, PlanetInfluenceContext, PlanetResourcesContext, planetBoostMap, planetInfluenceMap, planetResourceMap } from "./presentation/PlanetResourcesContext.tsx";
 import { useSecondaryPrepare, useTokenPrefill, useReadyPrefill } from "./hooks/useSecondaryPrepare.ts";
 import { SecondaryPrepHost } from "./components/SecondaryPrepHost.tsx";
+import { StatusTokenPlanContext, StatusTokenPlanHost } from "./components/StatusTokenPlanHost.tsx";
+import { useStatusTokenPlan } from "./hooks/useStatusTokenPlan.ts";
 import { BluffHoldBar, BluffProvider } from "./components/BluffSelector.tsx";
 import { PreparedHintProvider } from "./presentation/PreparedHint.tsx";
 import { GONE_MESSAGE, UNREACHABLE_MESSAGE } from "./protocol/resilience.ts";
@@ -576,7 +578,34 @@ const GameViewContainer: React.FC<{
         ? productionSubmitRef.current(units, destination, real)
         : Promise.reject(new Error("The production builder is not available")),
   });
-  const pendingChoice = prep.shownChoice;
+  // Status phase: the viewer's prepared token gain and redistribution (a plan for this round's 81.5).
+  // The agenda phase follows the status phase, so a plan made then is for the next round's.
+  const statusViewPhase = snapshot?.view.phase;
+  const statusPlan = useStatusTokenPlan({
+    gameId,
+    viewerSeat: userSeat,
+    round:
+      snapshot?.view.round === undefined
+        ? undefined
+        : snapshot.view.round + (statusViewPhase === "agenda" ? 1 : 0),
+    ready: events.length > 0 && (snapshot?.view.players.length ?? 0) > 0,
+    history: gameHistory,
+    events,
+    realChoice: realPendingChoice,
+    busy: historyBusy,
+    submitChoice,
+    submitBatch,
+  });
+  const statusPlanViewer = snapshot?.view.players.find((player) => player.id === userSeat);
+  const statusPlanOpen = Boolean(
+    userSeat &&
+      statusPlanViewer &&
+      !snapshot?.view.finished &&
+      turnStatus?.kind !== "game_over" &&
+      !prep.preparing &&
+      !(statusPlan.part && realPendingChoice?.actor === userSeat),
+  );
+  const pendingChoice = statusPlan.holding && !prep.dry ? null : prep.shownChoice;
   const paymentDraft = usePaymentDraftState(pendingChoice?.nonce);
   const explorationLog = useMemo(() => readExplorationLog(snapshot?.state), [snapshot?.state]);
   const breakthroughs = useMemo(() => readBreakthroughs(snapshot?.state), [snapshot?.state]);
@@ -673,6 +702,12 @@ const GameViewContainer: React.FC<{
   // Leadership: the usual token panel opens with the prepared purchase already staged (tokens, their
   // pools and the payment on the map). Once per question, so the player's own changes stay.
   useTokenPrefill(prep, pendingChoice?.nonce, tokenDraft);
+  // Status phase: the usual token panel opens with the planned pools staged (never sent unasked).
+  useTokenPrefill(
+    { tokenPrefill: statusPlan.prefill ?? null, holding: statusPlan.holding },
+    pendingChoice?.nonce,
+    tokenDraft,
+  );
   // Diplomacy: the ready bar opens with the prepared planets already picked.
   useReadyPrefill(prep, pendingChoice?.nonce, readyDraft);
   const cardIsVisible =
@@ -757,6 +792,7 @@ const GameViewContainer: React.FC<{
       <PlanetBoostContext.Provider value={planetBoosts}>
       <CommandTokenDraftProvider value={tokenDraft}>
       <ReadyPlanetsDraftProvider value={readyDraft}>
+      <StatusTokenPlanContext.Provider value={statusPlan}>
       {undoRequest && (
         <UndoConfirmDialog
           steps={undoRequest.steps}
@@ -1027,7 +1063,15 @@ const GameViewContainer: React.FC<{
         homeSystemLost={snapshot?.view.table.home_system_lost}
         onSubmitChoice={prep.preparing ? prep.prepareSubmit : submitChoice}
         prepOverlay={
-          <SecondaryPrepHost prep={prep} busy={historyBusy} />
+          <>
+            <SecondaryPrepHost prep={prep} busy={historyBusy} />
+            <StatusTokenPlanHost
+              api={statusPlan}
+              viewer={statusPlanViewer}
+              canPlan={statusPlanOpen}
+              busy={historyBusy}
+            />
+          </>
         }
         reactionModes={snapshot?.reaction_modes}
         onSetReactionMode={userSeat ? setReactionMode : undefined}
@@ -1070,6 +1114,7 @@ const GameViewContainer: React.FC<{
           setCardSubject(subject);
         }}
       />
+      </StatusTokenPlanContext.Provider>
       </ReadyPlanetsDraftProvider>
       </CommandTokenDraftProvider>
       </PlanetBoostContext.Provider>
