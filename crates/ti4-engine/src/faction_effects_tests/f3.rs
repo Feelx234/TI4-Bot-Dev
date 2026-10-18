@@ -55,10 +55,18 @@ fn hero_unlocks_on_three(faction: &str, hero: &str) {
         state.record_score(&a(), ObjectiveId::new(alias));
     }
     crate::leaders::check_unlocks(&mut state, content, ALL, None, &a());
-    assert_eq!(hero_status(&state, hero), Some(LeaderStatus::Locked), "two is not three");
+    assert_eq!(
+        hero_status(&state, hero),
+        Some(LeaderStatus::Locked),
+        "two is not three"
+    );
     state.record_score(&a(), ObjectiveId::new("o3"));
     crate::leaders::check_unlocks(&mut state, content, ALL, None, &b());
-    assert_eq!(hero_status(&state, hero), Some(LeaderStatus::Locked), "b's sweep is not a's");
+    assert_eq!(
+        hero_status(&state, hero),
+        Some(LeaderStatus::Locked),
+        "b's sweep is not a's"
+    );
     crate::leaders::check_unlocks(&mut state, content, ALL, None, &a());
     assert_eq!(hero_status(&state, hero), Some(LeaderStatus::Unlocked));
 }
@@ -120,15 +128,27 @@ fn argenthero_2_flock_migration_moves_a_ship_and_the_hero_is_purged() {
     });
     assert!(!used && count(&state, &from, &a(), "carrier") == 1);
     unlock_hero(&mut state, "argenthero");
-    let answers = ["ship|0".to_owned(), format!("to|{safe}"), "decline".into(), "decline".into()];
+    let answers = [
+        "ship|0".to_owned(),
+        format!("to|{safe}"),
+        "decline".into(),
+        "decline".into(),
+    ];
     let answers: Vec<&str> = answers.iter().map(String::as_str).collect();
-    let used = with_context(&mut state, ALL, Some(&galaxy), &mut scripted(&answers), |ctx| {
-        crate::leaders::use_leader(ctx, &a(), &hero)
-    });
+    let used = with_context(
+        &mut state,
+        ALL,
+        Some(&galaxy),
+        &mut scripted(&answers),
+        |ctx| crate::leaders::use_leader(ctx, &a(), &hero),
+    );
     assert!(used);
     assert_eq!(count(&state, &safe, &a(), "carrier"), 1);
     assert_eq!(count(&state, &from, &a(), "carrier"), 0);
-    assert_eq!(hero_status(&state, "argenthero"), Some(LeaderStatus::Purged));
+    assert_eq!(
+        hero_status(&state, "argenthero"),
+        Some(LeaderStatus::Purged)
+    );
 }
 
 #[test]
@@ -141,13 +161,23 @@ fn empyreanhero_2_frontier_tokens_explore_and_the_hero_is_purged() {
     put(&mut state, &under, "cruiser", &a(), 1);
     unlock_hero(&mut state, "empyreanhero");
     let hero = LeaderId::new("empyreanhero");
-    let used = with_context(&mut state, ALL, Some(&ring.galaxy), &mut scripted(&[]), |ctx| {
-        crate::leaders::use_leader(ctx, &a(), &hero)
-    });
+    let used = with_context(
+        &mut state,
+        ALL,
+        Some(&ring.galaxy),
+        &mut scripted(&[]),
+        |ctx| crate::leaders::use_leader(ctx, &a(), &hero),
+    );
     assert!(used);
-    assert!(!state.frontier_tokens.contains(&under), "the token under the ship was explored");
+    assert!(
+        !state.frontier_tokens.contains(&under),
+        "the token under the ship was explored"
+    );
     assert_eq!(state.exploration_log.len(), 1);
-    assert_eq!(hero_status(&state, "empyreanhero"), Some(LeaderStatus::Purged));
+    assert_eq!(
+        hero_status(&state, "empyreanhero"),
+        Some(LeaderStatus::Purged)
+    );
 }
 
 #[test]
@@ -157,15 +187,23 @@ fn naazhero_2_gains_a_relic_and_the_hero_is_purged() {
     unlock_hero(&mut state, "naazhero");
     let relics = state.player(&a()).unwrap().relics.len();
     let hero = LeaderId::new("naazhero");
-    let used = with_context(&mut state, ALL, None, &mut scripted(&[&card, "decline"]), |ctx| {
-        crate::leaders::use_leader(ctx, &a(), &hero)
-    });
+    let used = with_context(
+        &mut state,
+        ALL,
+        None,
+        &mut scripted(&[&card, "decline"]),
+        |ctx| crate::leaders::use_leader(ctx, &a(), &hero),
+    );
     assert!(used);
     assert_eq!(state.player(&a()).unwrap().relics.len(), relics + 1);
     assert_eq!(hero_status(&state, "naazhero"), Some(LeaderStatus::Purged));
 }
 
-fn tactical_game(state: GameState, galaxy: ti4_content::galaxy::Galaxy, answers: &[String]) -> crate::game::Game<'static> {
+fn tactical_game(
+    state: GameState,
+    galaxy: ti4_content::galaxy::Galaxy,
+    answers: &[String],
+) -> crate::game::Game<'static> {
     let table = crate::choice::Table::with_default(Box::new(crate::choice::Scripted::new(
         answers.iter().cloned(),
     )));
@@ -184,7 +222,8 @@ fn commander_board(commander: bool) -> (crate::game::Game<'static>, SystemId) {
         .take(7)
         .collect();
     let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let galaxy = ti4_content::galaxy::Galaxy::build(ContentStore::embedded(), &refs, ALL, 1).unwrap();
+    let galaxy =
+        ti4_content::galaxy::Galaxy::build(ContentStore::embedded(), &refs, ALL, 1).unwrap();
     let held = SystemId::new(ids[0].as_str());
     state.phase = ti4_model::state::Phase::Action;
     state.active = Some(a());
@@ -192,7 +231,11 @@ fn commander_board(commander: bool) -> (crate::game::Game<'static>, SystemId) {
     // Mahact starts with Predictive Intelligence and Bio-Stims, whose end-of-turn windows would
     // otherwise take the scripted table's default answer.
     for tech in ["pi", "bs"] {
-        state.player_mut(&a()).unwrap().exhausted_technologies.insert(ti4_model::id::TechnologyId::new(tech));
+        state
+            .player_mut(&a())
+            .unwrap()
+            .exhausted_technologies
+            .insert(ti4_model::id::TechnologyId::new(tech));
     }
     if commander {
         assert!(crate::promissory::grant_commander_ability(
@@ -213,9 +256,22 @@ fn mahactcommander_2_activating_a_tokened_system_returns_both_tokens_and_ends_th
     for _ in 0..2 {
         assert_eq!(game.step().error, None);
     }
-    assert!(game.events.iter().any(|e| e == "TURN_ENDED_BY_MAHACT_COMMANDER:a"), "{:?}", game.events);
-    assert!(!game.state.systems_with_token(&a()).contains(&held), "the board token went home");
-    assert_eq!(game.state.player(&a()).unwrap().tactic_tokens, tactic - 1, "the tactic token was spent");
+    assert!(
+        game.events
+            .iter()
+            .any(|e| e == "TURN_ENDED_BY_MAHACT_COMMANDER:a"),
+        "{:?}",
+        game.events
+    );
+    assert!(
+        !game.state.systems_with_token(&a()).contains(&held),
+        "the board token went home"
+    );
+    assert_eq!(
+        game.state.player(&a()).unwrap().tactic_tokens,
+        tactic - 1,
+        "the tactic token was spent"
+    );
     assert_ne!(game.state.active, Some(a()), "the turn passed on");
 }
 
@@ -223,7 +279,10 @@ fn mahactcommander_2_activating_a_tokened_system_returns_both_tokens_and_ends_th
 fn mahactcommander_3_a_locked_commander_cannot_activate_a_tokened_system() {
     let (mut game, held) = commander_board(false);
     assert_eq!(game.step().error, None);
-    assert!(game.step().error.is_some(), "no commander, no second activation");
+    assert!(
+        game.step().error.is_some(),
+        "no commander, no second activation"
+    );
     assert!(game.state.systems_with_token(&a()).contains(&held));
 }
 
@@ -234,13 +293,25 @@ fn mahact_edict_pool_tokens_raise_the_fleet_limit_and_leave_the_sheet_pools_alon
         let seat = s.player(&a()).unwrap();
         (seat.tactic_tokens, seat.fleet_tokens, seat.strategic_tokens)
     };
-    let (before, limit) = (sheet(&state), crate::fleet::limit(&state, ContentStore::embedded(), &a()));
+    let (before, limit) = (
+        sheet(&state),
+        crate::fleet::limit(&state, ContentStore::embedded(), &a()),
+    );
     assert!(crate::factions::mahact::add_token(&mut state, &a(), &b()));
-    assert_eq!(sheet(&state), before, "a foreign token is not on a's sheet, so it cannot be redistributed");
-    assert_eq!(crate::fleet::limit(&state, ContentStore::embedded(), &a()), limit + 1);
+    assert_eq!(
+        sheet(&state),
+        before,
+        "a foreign token is not on a's sheet, so it cannot be redistributed"
+    );
+    assert_eq!(
+        crate::fleet::limit(&state, ContentStore::embedded(), &a()),
+        limit + 1
+    );
 }
 
-const FACTIONS: [&str; 7] = ["argent", "cabal", "empyrean", "mahact", "nomad", "naaz", "titans"];
+const FACTIONS: [&str; 7] = [
+    "argent", "cabal", "empyrean", "mahact", "nomad", "naaz", "titans",
+];
 
 #[test]
 fn f3_every_leader_of_the_pok_factions_is_handled_by_the_engine() {
@@ -254,11 +325,19 @@ fn f3_every_ability_of_the_pok_factions_is_registered_and_none_is_blocked() {
     let unanswered = crate::faction_abilities::unimplemented(content, ALL);
     let blocked = crate::faction_abilities::blocked();
     for faction in FACTIONS {
-        let abilities = ti4_content::factions::get(content, faction).unwrap().abilities();
+        let abilities = ti4_content::factions::get(content, faction)
+            .unwrap()
+            .abilities();
         for ability in abilities {
             let id = ability.to_string();
-            assert!(!unanswered.contains(&id), "{faction}: {id} is answered by nothing");
-            assert!(!blocked.contains_key(id.as_str()), "{faction}: {id} is blocked");
+            assert!(
+                !unanswered.contains(&id),
+                "{faction}: {id} is answered by nothing"
+            );
+            assert!(
+                !blocked.contains_key(id.as_str()),
+                "{faction}: {id} is blocked"
+            );
         }
     }
 }
