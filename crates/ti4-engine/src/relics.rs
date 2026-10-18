@@ -944,6 +944,16 @@ fn commodity_value(state: &GameState, content: &ContentStore, player: &PlayerId)
 /// The Shard of the Throne, which is worth a victory point simply for being held.
 pub const SHARD: &str = "shard";
 
+/// Note a relic gain in the display-only `relic_log` (nothing reads it back).
+pub(crate) fn log_gain(state: &mut GameState, player: &PlayerId, relic: &RelicId, points: i32) {
+    state.relic_log.push(ti4_model::state::RelicGainRecord {
+        round: state.round,
+        player: player.clone(),
+        relic: relic.as_str().to_owned(),
+        victory_points: points,
+    });
+}
+
 /// Draw the top relic (73.2).
 ///
 /// Every path that hands a player a relic goes through here, because a relic can be worth a
@@ -960,9 +970,12 @@ pub fn gain(state: &mut GameState, player: &PlayerId) -> Option<RelicId> {
     if let Some(seat) = state.player_mut(player) {
         seat.relics.push(top.clone());
     }
+    let mut points = 0;
     if top.as_str() == SHARD && state.player(player).is_some() {
         crate::objectives::adjust_victory_points(state, player, 1, SHARD);
+        points = 1;
     }
+    log_gain(state, player, &top, points);
     Some(top)
 }
 
@@ -1199,6 +1212,9 @@ pub fn perform(
             && state.player(player).is_some()
         {
             crate::objectives::adjust_victory_points(state, player, 1, SHARD);
+            if let Some(record) = state.relic_log.last_mut() {
+                record.victory_points = 1;
+            }
         }
         return gained.is_some();
     }
@@ -1709,6 +1725,24 @@ mod tests {
             registered_aliases().contains(&"obsidian"),
             "but it is implemented, and coverage must say so"
         );
+    }
+
+    #[test]
+    fn every_relic_gain_is_logged_and_the_shard_notes_its_point() {
+        let (mut state, player) = holding("codex");
+        state.relic_deck = vec![RelicId::new("nanoforge"), RelicId::new(SHARD)];
+        assert_eq!(gain(&mut state, &player), Some(RelicId::new("nanoforge")));
+        assert_eq!(gain(&mut state, &player), Some(RelicId::new(SHARD)));
+        let log: Vec<(&str, i32)> = state
+            .relic_log
+            .iter()
+            .map(|r| (r.relic.as_str(), r.victory_points))
+            .collect();
+        assert_eq!(log, vec![("nanoforge", 0), (SHARD, 1)]);
+        let json = serde_json::to_value(&state).unwrap();
+        assert!(json["relic_log"][0].get("victory_points").is_none());
+        state.relic_log.clear();
+        assert!(serde_json::to_value(&state).unwrap().get("relic_log").is_none());
     }
 
     use ti4_model::content_types::DEFAULT as ALL_SOURCES;
