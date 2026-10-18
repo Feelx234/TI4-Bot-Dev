@@ -1065,6 +1065,8 @@ impl<'a> Observed<'a> {
             .agenda_log
             .iter()
             .filter(|record| record.round == self.state.round)
+            // A card discarded without a vote is listed, but it was not resolved.
+            .filter(|record| record.discard_reason.is_none())
             .count()
     }
 

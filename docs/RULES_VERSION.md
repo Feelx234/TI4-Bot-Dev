@@ -10,9 +10,9 @@ playable.
 
 `GameState::rules_version: u32` (crates/ti4-model/src/state.rs). Constants next to it:
 
-- `RULES_VERSION` (now 11): what a **new** game plays. `GameState::new` sets it, so every way of
+- `RULES_VERSION` (now 14): what a **new** game plays. `GameState::new` sets it, so every way of
   creating a game (server, lobby, wasm host, selfplay, tests) gets the latest.
-- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`): the first version with one gated change.
+- `RULES_<CHANGE>` (now `RULES_INFILTRATE_FIX = 1`, `RULES_MENDOSA_SHIP = 2`, `RULES_SABOTAGE_TIMING = 3`, `RULES_LETNEV_FLEET_POOL = 4`, `RULES_ENIGMATIC_DEVICE = 5`, `RULES_TECH_PAYMENT_CHOICE = 6`, `RULES_BRIBERY_PER_PLAYER = 7`, `RULES_MUNITIONS_AFTER_ROLL = 8`, `RULES_TECH_RIDER = 9`, `RULES_ACTION_CARD_TARGETS = 10`, `RULES_RETREAT_HAZARDS = 11`, `RULES_COMMAND_TOKEN_POOL = 12`, `RULES_SELF_ASSEMBLY = 13`, `RULES_AGENDA_GRANT_REVEAL = 14`): the first version with one gated change.
 A state without the field is **version 0**, the legacy rules (what the alpha ran until 2026-10-16).
 
 ## How it is stored (the checksum rule)
@@ -158,6 +158,26 @@ mech (each destroyed mech is its own event; the card reads "after 1 of your mech
 It covers every path that announces `GROUND_FORCE_DESTROYED`: ground combat, bombardment, action
 cards, agendas, unit abilities. Not covered: a mech lost as cargo when its ship is destroyed (no
 ground-force event exists for cargo).
+
+Version 14 = Grant Reallocation and agenda replacement (`fb-grant-allocation-agenda`,
+`RULES_AGENDA_GRANT_REVEAL`; alpha feedback fb_1792301444_7526f5e2, game off_b1447d791342).
+
+1. Research Grant Reallocation (`agenda_effects`, `grant_reallocation`): the elected player is asked
+   `grant_reallocation_choose_technology` (any technology they do not own, a faction technology only
+   if it is theirs), gains it (`technology::gain`, no prerequisites needed, nothing that fires on
+   research) and removes one fleet token per prerequisite of it (none for a technology without
+   prerequisites). Version < 14: no question, no technology, and one fleet token removed whatever the
+   technology would have cost.
+2. `Game::reveal_agenda`: an agenda revealed with no candidate to elect (Classified Document Leaks
+   with no scored secret objective; Elect Law cards with no law in play; Elect Strategy Card, which
+   the engine offers no candidates for) is discarded and the next card of the deck is revealed in its
+   place ("discard this card and reveal another agenda from the top of the deck"). Version < 14: the
+   card was dropped and the phase had one agenda fewer (the phase ended after one agenda).
+3. Display: `AgendaRecord::discard_reason` (`no_choice` or `replaced`, left out of the JSON when
+   unset). From version 14 a card discarded without a vote (the case above, Veto, Quash, Political
+   Favor) is listed in `agenda_log` with `discarded`, no outcome and the reason, so the agenda
+   toast and the toast history tell the table. `agendas_resolved_this_round` (bot) does not count
+   such records.
 
 ## Adding the next gate
 

@@ -1261,7 +1261,7 @@ const PRODUCERS: &[Producer] = &[
     },
     Producer {
         module: "relics.rs",
-        function: "grant_chosen_technology",
+        function: "ask_technology",
         count: 1,
         delivery: Delivery::ObservedHere,
     },
@@ -1695,7 +1695,7 @@ const OBSERVED_ASKS: &[(&str, &str, usize)] = &[
     ("reactions.rs", "slot", 1),
     ("relics.rs", "codex", 1),
     ("relics.rs", "crown_of_emphidia_explore_with", 1),
-    ("relics.rs", "grant_chosen_technology", 1),
+    ("relics.rs", "ask_technology", 1),
     ("relics.rs", "offer_dominus_orb", 1),
     ("relics.rs", "stellar_converter", 1),
     ("relics.rs", "titan_prototype", 1),
