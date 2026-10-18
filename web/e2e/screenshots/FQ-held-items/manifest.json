@@ -1,0 +1,21 @@
+{
+  "title": "Held items panel",
+  "description": "A separate Held items panel for what a seat holds besides action cards and secret objectives: promissory notes (in hand, faceup, given, Support for the Throne, Alliance), relics and relic fragments, exhaustable technologies, unit upgrades and faction technologies, leaders, faction abilities and breakthrough, legendary planet abilities and attachments on controlled planets. Reached from a button with a count badge next to the card counts of each seat in the player sheet. A full-height sheet with sticky section headers on a phone, a wide two-column panel beside the player column on desktop that stays open. Other seats are read-only and public only. Mocked fixtures; regenerate with npm run screenshots -- FQ.",
+  "tag": "web/e2e/screenshots/FQ-held-items",
+  "shots": [
+    { "file": "out/0-entry-desktop.png", "heading": "Entry, desktop", "caption": "The Held items button with its count badge sits in each seat's card, next to Action Cards and Secret Obj." },
+    { "file": "out/0-entry-390x844.png", "heading": "Entry, 390x844", "caption": "Same in the phone Players drawer." },
+    { "file": "out/1-rich-desktop.png", "heading": "Mid-game seat, desktop", "caption": "Two columns beside the player column; the board stays visible and usable. Alliance and Support for the Throne, relics (Heart of Ixth exhausted), fragments (3 of 3 cultural can be purged), exhaustable technologies with ready/exhausted chips and 'usable now' from the open action menu, leaders, legendary Primor ability exhausted." },
+    { "file": "out/2-rich-scrolled-desktop.png", "heading": "Mid-game seat, scrolled, desktop", "caption": "Lower sections: unit upgrades and faction technologies, faction abilities and breakthrough, attachments on controlled planets." },
+    { "file": "out/1-rich-390x844.png", "heading": "Mid-game seat, 390x844", "caption": "Full-height sheet, one column, sticky section headers, a seat switcher at the top, 44 px targets." },
+    { "file": "out/2-rich-scrolled-390x844.png", "heading": "Mid-game seat, scrolled, 390x844", "caption": "Sticky header of the section in view." },
+    { "file": "out/1-early-desktop.png", "heading": "Early seat, desktop", "caption": "Nothing gained yet: only the faction's leaders (locked ones do not count toward the badge) and abilities." },
+    { "file": "out/1-early-390x844.png", "heading": "Early seat, 390x844", "caption": "Same on a phone." },
+    { "file": "out/1-other-desktop.png", "heading": "Another seat, desktop", "caption": "Read-only, public only: the seat's relics, technologies, leaders, faceup notes (Trade Agreement, Trade Convoys) and Support for the Throne received. Notes in its hand are not shown or counted; nothing is marked usable." },
+    { "file": "out/1-other-390x844.png", "heading": "Another seat, 390x844", "caption": "Same on a phone." }
+  ],
+  "notes": [
+    { "title": "Data", "text": "No new view fields. The panel reads PlayerView (technologies, relics, fragments, leaders, exhausted_legendary, exploration_cards), the board view (controlled planets, attachments) and the promissory fields of the engine state passed through in the snapshot (promissory_notes, promissory_faceup, support_holders, faction_marks). Rules version, checksum and decision hashes are untouched." },
+    { "title": "Privacy", "text": "Notes in hand and faction markers are only read for the viewing seat. For other seats and spectators only faceup notes and Support for the Throne are used, the same subset as the engine's Observed::promissory_notes." }
+  ]
+}
