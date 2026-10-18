@@ -87,6 +87,14 @@ pub fn owns_det(state: &GameState, player: &PlayerId) -> bool {
         .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new("det")))
 }
 
+/// Whether this player holds the technology with this id.
+#[must_use]
+pub fn owns_technology(state: &GameState, player: &PlayerId, id: &str) -> bool {
+    state
+        .player(player)
+        .is_some_and(|seat| seat.technologies.contains(&TechnologyId::new(id)))
+}
+
 /// Spend Gravity Drive's once-per-tactical-action movement bonus.
 #[must_use]
 pub fn use_gravity_drive(state: &mut GameState, player: &PlayerId) -> bool {

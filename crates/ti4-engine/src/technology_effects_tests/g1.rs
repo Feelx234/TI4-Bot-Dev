@@ -63,11 +63,11 @@ fn amd_1_ships_move_into_and_through_asteroid_fields() {
 }
 
 #[test]
-#[ignore = "MISSING: amd effect 2 (-1 to other players' SPACE CANNON rolls against the owner's units): no technology check in combat.rs space_cannon_offense"]
 fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
     // A PDS hits on 6: a rolled 6 hits the target, but with the -1 it is a 5 and misses.
-    let hits_with = |owner: bool| {
+    let hits_at = |owner: bool, version: u32| {
         let (mut state, _galaxy, ids) = tactical_fixture();
+        state.rules_version = version;
         let system = ids[0].clone();
         put(&mut state, &system, "cruiser", &pid("a"), 1);
         put_on_planet(
@@ -95,8 +95,14 @@ fn amd_2_space_cannon_against_the_owner_gets_minus_one() {
         );
         fired.iter().map(|(_, hits, _)| *hits).sum::<usize>()
     };
-    assert_eq!(hits_with(false), 1, "control: a 6 hits a PDS target");
-    assert_eq!(hits_with(true), 0, "Antimass Deflectors: the 6 becomes a 5");
+    let now = ti4_model::state::RULES_TECH_EFFECTS;
+    assert_eq!(hits_at(false, now), 1, "control: a 6 hits a PDS target");
+    assert_eq!(hits_at(true, now), 0, "Antimass Deflectors: the 6 becomes a 5");
+    assert_eq!(
+        hits_at(true, now - 1),
+        1,
+        "legacy: no -1 before the rules version"
+    );
 }
 
 #[test]

@@ -1155,7 +1155,7 @@ pub struct StartingTechPick {
 /// The rules version of a new game. Raise it when an engine decision changes in a way that an
 /// older game log would not replay under (and gate the change on
 /// [`GameState::rules_version`]); see `docs/RULES_VERSION.md`.
-pub const RULES_VERSION: u32 = 11;
+pub const RULES_VERSION: u32 = 15;
 
 /// The first rules version with the Infiltrate fix: offered only to the gaining player and only
 /// when a rival PDS or space dock can be replaced; the previous holder's structures are
@@ -1212,6 +1212,13 @@ pub const RULES_ACTION_CARD_TARGETS: u32 = 10;
 /// The first rules version where a retreat obeys the movement rules for entering the destination:
 /// no asteroid field without Antimass Deflectors, no supernova.
 pub const RULES_RETREAT_HAZARDS: u32 = 11;
+
+/// The first rules version with the missing technology effects: Infantry II returns on a 6,
+/// Antimass Deflectors' -1 to Space Cannon rolls, Magen Defense Grid (infantry on activation, a
+/// free hit at the start of ground combat), Psychoarchaeology's free specialties, AI Development
+/// Algorithm's skipped prerequisite and Predictive Intelligence's 3 extra votes. Versions 12 to
+/// 14 belong to other unmerged branches; merge order decides the final number.
+pub const RULES_TECH_EFFECTS: u32 = 15;
 
 /// The whole game, as a value.
 ///
