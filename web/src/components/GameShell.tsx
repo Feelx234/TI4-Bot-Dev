@@ -60,6 +60,7 @@ import {
 import { Dialog, overlayStack } from "../primitives/index.ts";
 import { useParticipantText } from "../presentation/PlayerIdentity.tsx";
 import { useLoneAutoSubmit } from "../hooks/useLoneAutoSubmit.ts";
+import { useI48sAutoDecline } from "../hooks/useI48sAutoDecline.ts";
 import { readSinglePayment } from "../hooks/useSinglePaymentSetting.ts";
 import {
   ProductionPaymentProvider,
@@ -1109,6 +1110,14 @@ export const GameShell: React.FC<GameShellProps> = ({
   const lastHistoryGeneration = useRef(history?.generation);
   const pipelineRunner = useOwnedPipelineRunner(choice, onSubmitChoice);
   const { answeringNonce } = useLoneAutoSubmit({
+    choice,
+    viewerSeat,
+    history,
+    busy: pipelineRunner.isRunning || Boolean(historyBusy),
+    submit: onSubmitChoice,
+    onNotice: onAutoSubmitNotice,
+  });
+  useI48sAutoDecline({
     choice,
     viewerSeat,
     history,
