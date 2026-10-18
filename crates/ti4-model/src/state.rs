@@ -1338,6 +1338,11 @@ pub struct GameState {
     /// corner notification "Agenda: ... For wins"); no rule reads it, so it is not compared.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agenda_log: Vec<AgendaRecord>,
+    /// Every relic a player gained, in order, by any route (fragment purge, exploration, agenda,
+    /// faction ability). History for viewers (the corner notification "gained Nano-Forge"); no
+    /// rule reads it, so it is not compared and not written while empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub relic_log: Vec<RelicGainRecord>,
     pub relic_deck: Vec<RelicId>,
     pub agenda_deck: Vec<String>,
     pub action_card_deck: Vec<ActionCardId>,
@@ -1908,6 +1913,7 @@ impl GameState {
             legacy_device_ids: false,
             starting_tech_picks: Vec::new(),
             agenda_log: Vec::new(),
+            relic_log: Vec::new(),
             relic_deck: Vec::new(),
             agenda_deck: Vec::new(),
             action_card_deck: Vec::new(),
@@ -3236,6 +3242,22 @@ pub struct AgendaRecord {
     /// Favor). Such a record has `discarded` and no outcome, and is not a resolved agenda.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discard_reason: Option<String>,
+}
+
+/// One relic gained by one player. Display only: no rule reads it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelicGainRecord {
+    pub round: u32,
+    pub player: PlayerId,
+    /// The relic's alias.
+    pub relic: String,
+    /// Victory points the gain itself awarded (the Shard of the Throne's 1); absent for none.
+    #[serde(default, skip_serializing_if = "is_zero_i32")]
+    pub victory_points: i32,
+}
+
+fn is_zero_i32(n: &i32) -> bool {
+    *n == 0
 }
 
 /// Negotiations one player may initiate during one action (operator limit, 2026-09-22).

@@ -1593,6 +1593,7 @@ pub fn purge_for_relic(
         *seat.relic_fragments.entry(FRONTIER.to_owned()).or_insert(0) -= from_frontier;
     }
     seat.relics.push(relic.clone());
+    crate::relics::log_gain(state, player, &relic, 0);
     Some(relic)
 }
 
@@ -2856,6 +2857,10 @@ mod tests {
         assert_eq!(seat.relic_fragments.get("CULTURAL"), Some(&0));
         assert_eq!(seat.relics.len(), 1);
         assert!(state.relic_deck.is_empty());
+        let logged = &state.relic_log;
+        assert_eq!(logged.len(), 1);
+        assert_eq!((logged[0].relic.as_str(), logged[0].victory_points), ("some_relic", 0));
+        assert_eq!(logged[0].player, player());
     }
 
     #[test]
