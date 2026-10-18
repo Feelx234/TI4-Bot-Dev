@@ -142,6 +142,48 @@ fn fleet_ships(kind: &UnitType<'_>, placed: usize) -> i64 {
     }
 }
 
+/// Display only: what a build does to the producing system's capacity (LRR 16), named per option
+/// so a client can keep a live meter without re-deriving unit statistics or faction modifiers.
+///
+/// `space_placement` is `always` when every destination is the space area, `never` when none is
+/// (the unit lands on a planet), `choice` when the owner picks. In a planetless system (Arborec)
+/// the space area is the only destination, so ground forces report `always`.
+fn capacity_facts(
+    option: ChoiceOption,
+    kind: &UnitType<'_>,
+    placed: usize,
+    spots: &[String],
+) -> ChoiceOption {
+    let placed = i64::try_from(placed).unwrap_or(0);
+    let space = spots.iter().filter(|spot| spot.as_str() == SPACE).count();
+    let placement = if spots.is_empty() || space == 0 {
+        "never"
+    } else if space == spots.len() {
+        "always"
+    } else {
+        "choice"
+    };
+    let role = if kind.is_fighter() {
+        "fighter"
+    } else if kind.consumes_capacity() {
+        "ground"
+    } else {
+        "none"
+    };
+    option
+        .with("capacity_provided", kind.capacity() * placed)
+        .with(
+            "capacity_needed",
+            if role == "none" {
+                0
+            } else {
+                kind.capacity_cost() * placed
+            },
+        )
+        .with("capacity_role", role)
+        .with("space_placement", placement)
+}
+
 /// What may be produced at all. Structures arrive through Construction, not PRODUCTION.
 pub const BUILDABLE: [&str; 9] = [
     "fighter",
@@ -2724,6 +2766,7 @@ impl ProductionWindow {
                 // Display only: ships this option adds to the fleet pool (37.1), so a client
                 // can preview `used + staged` without re-deriving which units count.
                 .with("fleet_ships", fleet_ships(kind, placed));
+                option = capacity_facts(option, kind, placed, &spots);
                 // A ship has one destination and no placement question follows, so its fleet and
                 // transport aftermath is settled here. A unit with a choice of destinations does
                 // not have one yet, and says so rather than reporting a consequence it cannot know.
@@ -2780,6 +2823,7 @@ impl ProductionWindow {
                 .with("system", self.system.to_string())
                 .with("fleet_ships", fleet_ships(kind, 1))
                 .with("exchange", true);
+                exchange = capacity_facts(exchange, kind, 1, &spots);
                 let mut deltas = vec![
                     Delta::new(Quantity::ProductionRemaining, self.remaining, limit_after),
                     Delta::new(
@@ -2949,6 +2993,43 @@ impl Window for ProductionWindow {
                 if armada > 0 {
                     fleet_supply["armada"] = serde_json::json!(armada);
                 }
+                // Display only: this system's capacity today (LRR 16). `unused_support` is the
+                // space dock fighter support not yet used by fighters here, which excuses queued
+                // fighters (never ground forces) before they take capacity.
+                let types = catalogue(content, sources);
+                let fighters_here: i64 = state
+                    .board
+                    .get(&self.system)
+                    .map(|board| {
+                        board
+                            .units_of(&self.player)
+                            .iter()
+                            .filter_map(|unit| types.get(unit.type_id.as_str()))
+                            .filter(|kind| kind.is_fighter())
+                            .map(UnitType::capacity_cost)
+                            .sum()
+                    })
+                    .unwrap_or(0);
+                let support: i64 = state
+                    .board
+                    .get(&self.system)
+                    .map(|board| {
+                        board
+                            .planet_units
+                            .values()
+                            .flatten()
+                            .filter(|unit| unit.owner == self.player)
+                            .filter_map(|unit| types.get(unit.type_id.as_str()))
+                            .map(UnitType::fighter_support)
+                            .sum()
+                    })
+                    .unwrap_or(0);
+                let capacity = serde_json::json!({
+                    "transport": standing.transport,
+                    "consumed": standing.consumed,
+                    "fighters": fighters_here,
+                    "unused_support": (support - fighters_here).max(0),
+                });
                 Some(
                     Choice::new(
                         self.player.clone(),
@@ -2956,7 +3037,8 @@ impl Window for ProductionWindow {
                         options,
                     )
                     .contextualized(self.context(state))
-                    .detailed("fleet_supply", fleet_supply),
+                    .detailed("fleet_supply", fleet_supply)
+                    .detailed("capacity", capacity),
                 )
             }
             Stage::Paying {
@@ -5480,11 +5562,92 @@ mod tests {
                 .options
                 .iter()
                 .find(|o| o.payload.get("unit").and_then(|u| u.as_str()) == Some(unit))
-                .and_then(|o| o.payload.get("fleet_ships").and_then(serde_json::Value::as_i64))
+                .and_then(|o| {
+                    o.payload
+                        .get("fleet_ships")
+                        .and_then(serde_json::Value::as_i64)
+                })
         };
         assert_eq!(ships("cruiser"), Some(1));
         assert_eq!(ships("fighter"), Some(0), "fighters are not in the pool");
-        assert_eq!(ships("infantry"), Some(0), "ground forces are not in the pool");
+        assert_eq!(
+            ships("infantry"),
+            Some(0),
+            "ground forces are not in the pool"
+        );
+    }
+
+    fn option_field(choice: &Choice, unit: &str, field: &str) -> Option<serde_json::Value> {
+        choice
+            .options
+            .iter()
+            .find(|o| o.payload.get("unit").and_then(|u| u.as_str()) == Some(unit))
+            .and_then(|o| o.payload.get(field).cloned())
+    }
+
+    #[test]
+    fn build_options_and_details_name_the_capacity_a_build_gives_and_takes() {
+        let content = ContentStore::embedded();
+        let (mut state, system, planet) = seated();
+        state
+            .system_mut(&system)
+            .set_control(planet.clone(), player());
+        put_on_planet(&mut state, &system, &planet, "spacedock", &player(), 1);
+        put(&mut state, &system, "carrier", &player(), 1);
+        put(&mut state, &system, "fighter", &player(), 2);
+        let window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        let choice = window.pending_choice(&state, content, POK).expect("choice");
+        let standing = crate::fleet::standing(&state, content, POK, &player(), &system, None);
+        let detail = choice.details.get("capacity").expect("capacity detail");
+        assert_eq!(detail["transport"].as_i64(), Some(standing.transport));
+        assert_eq!(detail["consumed"].as_i64(), Some(standing.consumed));
+        assert_eq!(detail["fighters"].as_i64(), Some(2));
+        let get = |unit: &str, field: &str| option_field(&choice, unit, field);
+        assert_eq!(
+            get("carrier", "capacity_provided"),
+            Some(serde_json::json!(4))
+        );
+        assert_eq!(
+            get("carrier", "capacity_role"),
+            Some(serde_json::json!("none"))
+        );
+        assert_eq!(
+            get("fighter", "capacity_role"),
+            Some(serde_json::json!("fighter"))
+        );
+        assert_eq!(
+            get("fighter", "space_placement"),
+            Some(serde_json::json!("always"))
+        );
+        assert_eq!(
+            get("infantry", "capacity_role"),
+            Some(serde_json::json!("ground"))
+        );
+        assert_eq!(
+            get("infantry", "space_placement"),
+            Some(serde_json::json!("never"))
+        );
+    }
+
+    #[test]
+    fn in_a_planetless_system_ground_forces_can_only_go_to_the_space_area() {
+        let content = ContentStore::embedded();
+        let (mut state, system, _planet) = seated();
+        // A producer in the space area and no planet of the player's: the Saar floating dock
+        // stands in for any space-area PRODUCTION (Arborec's ability production lands the same way).
+        put(&mut state, &system, "saar_spacedock", &player(), 1);
+        let mut window = ProductionWindow::new(&state, content, POK, &player(), &system);
+        window.credit = 10;
+        let choice = window.pending_choice(&state, content, POK).expect("choice");
+        assert_eq!(
+            option_field(&choice, "infantry", "space_placement"),
+            Some(serde_json::json!("always"))
+        );
+        // Two infantry come out of one build, and each takes a place in the space area.
+        assert_eq!(
+            option_field(&choice, "infantry", "capacity_needed"),
+            Some(serde_json::json!(2))
+        );
     }
 
     #[test]
