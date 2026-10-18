@@ -17,7 +17,7 @@ use ti4_model::id::{LeaderId, ObjectiveId, PlanetId, PlayerId, SystemId};
 use ti4_model::state::{GameState, LeaderStatus, Phase};
 
 use super::{content, pid, scripted, seated_all};
-use crate::choice::{Scripted, Table};
+use crate::choice::{Scripted, Table, Window as _};
 use crate::fixtures::{put, put_on_planet};
 use crate::game::{Game, TACTICAL_ACTION_ID};
 
@@ -717,6 +717,13 @@ fn mitosis_1_arborec_space_docks_cannot_produce_infantry() {
             }
         }
         let _ = planet;
+        // Magen Defense Grid (an Arborec starting technology) would place a free infantry on
+        // activation; without it the dock is the only thing on the planet.
+        state
+            .player_mut(&a())
+            .unwrap()
+            .technologies
+            .remove(&ti4_model::id::TechnologyId::new("md"));
         production_menu(state, hub, &centre)
     };
     let sol = menu("sol");
